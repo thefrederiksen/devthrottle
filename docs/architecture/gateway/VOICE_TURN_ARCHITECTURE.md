@@ -197,23 +197,86 @@ File: `src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs`
 2. Phone already sends the token via `DirectorVoiceClient.NewClient()`
    (`Authorization: Bearer <token>`).
 
-### Phase 5 — Reply audio out of the poll (#407)
+---
+
+## Guaranteed audio-turn: resumable upload + durable reply
+
+**Status:** IMPLEMENTED (Gateway). The submit/poll surface above is the single-shot path; this
+section adds the *guarantee* the mobile-voice spec asks for: a clip that records locally is
+guaranteed to become an audio reply that **durably sits in the session** and is retrievable
+later, even if the phone drops signal mid-upload, retries, or the Gateway restarts.
+
+### Routes (all on the Gateway, all bearer-token gated)
+
+```
+POST /sessions/{sid}/voice-turn/upload                       -> 200 { upload_id }
+     Header: Idempotency-Key: <client turn GUID>   (doubles as the upload id)
+PUT  /sessions/{sid}/voice-turn/upload/{uploadId}/chunk/{i}  -> 200 { ok, index, bytes }
+     Body: raw chunk bytes;  Header: X-Chunk-Sha256 (optional, rejects corruption)
+POST /sessions/{sid}/voice-turn/upload/{uploadId}/complete   { totalChunks, mime }
+     -> 202 { turn_id, expires_at }   when all chunks present (turn starts in background)
+     -> 409 { status:"incomplete", missing:[...] }   resend only those, then complete again
+GET  /sessions/{sid}/voice-turn/{turn_id}        -> live job, else durable archive (archived:true); SLIM (#407)
+GET  /sessions/{sid}/voice-turn/{turn_id}/audio  -> audio/mpeg, range-capable; job-first then archive (#407)
+GET  /sessions/{sid}/voice-turns?since=<iso>     -> completed turns for the session, newest first
+```
+
+### The guarantee chain
+
+- **Upload survives bad coverage** — chunks are buffered on the Gateway
+  (`VoiceUploadStore`): each lands on disk and *stays landed* (SHA-checked, idempotent), so a
+  dropped connection resumes at the next missing chunk. `complete` is 409-until-whole.
+- **Exactly-once** — the client's `Idempotency-Key` is the upload id. A retried `complete`
+  returns the SAME `turn_id` (live index in `GatewayTurnJobStore.FindTurnByUpload`, then the
+  durable `VoiceTurnArchive.FindByUpload` after the in-memory job expires) instead of starting a
+  duplicate turn.
+- **Reply is durable and addressable** — when the Director SSE worker emits its terminal
+  `reply`, the Gateway writes the summary + transcript + reply MP3 to `VoiceTurnArchive`
+  (`base/voice-turn-archive/<turnId>/`, 24-hour retention), keyed by `turn_id` and session.
+  Polls fall back to it after the 10-minute in-memory TTL, and `/audio` + `/voice-turns` read it.
+
+### Design note — why the Gateway buffers chunks (not the Director's `/voice/utterance`)
+
+The Director's `/voice/utterance/complete` transcribes and posts *text* to the session — a
+different flow that produces no audio reply. So the Gateway buffers the chunks itself and feeds
+the assembled clip into the existing async voice-turn worker. The resumable upload and the
+audio-reply turn become one pipeline behind a single Gateway URL, with no double-post.
+
+### Where each new piece lives
+
+| Concern | File |
+|---|---|
+| Resumable chunk staging (assemble-only) | `src/CcDirector.Gateway/Voice/VoiceUploadStore.cs` |
+| Durable reply archive + read-back | `src/CcDirector.Gateway/Voice/VoiceTurnArchive.cs` |
+| Upload/complete/audio/list routes + reply persistence | `src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs` |
+| Upload->turn idempotency index | `src/CcDirector.Gateway/Voice/GatewayTurnJobStore.cs` |
+| Storage roots | `CcStorage.VoiceTurnUploads()`, `CcStorage.VoiceTurnArchive()` |
+
+---
+
+## Phase 5 — Reply audio out of the poll (#407)
 
 The poll was returning the reply audio inline as a large base64 field, so a single status
 poll could carry ~3 MB; on spotty data a mid-poll drop failed the whole transfer and every
-retry re-downloaded the blob from scratch.
+retry re-downloaded the blob from scratch. This builds directly on the guaranteed audio-turn
+work above: the durable reply archive stays, but the heavy bytes leave the status poll and move
+to a dedicated, range-capable fetch.
 
 1. **Slim poll.** `GET /sessions/{sid}/voice-turn/{turnId}` now returns
    `{ stage, transcript, summary, audioReady, audioLength, message, expires_at }` — small and
-   constant-size regardless of reply length. The audio bytes are NOT in the poll. Back-compat
+   constant-size regardless of reply length. The audio bytes are NOT in the poll. The durable
+   archive-fallback poll (after the in-memory TTL, `archived:true`) is slim the same way. Back-compat
    for one release: an older phone asks for the inline bytes with `?includeAudio=1` (or the
    `X-Include-Audio: 1` header) and still receives `audioBase64`; otherwise it is `null`.
 2. **Dedicated, resumable audio fetch.** `GET /sessions/{sid}/voice-turn/{turnId}/audio` returns
-   the raw `audio/mpeg` bytes from the same cached job, with HTTP range support
-   (`enableRangeProcessing`) — a 200 for the full body or a 206 Partial Content for a `Range`
-   request — so a dropped audio download resumes (re-requests only the missing tail) instead of
-   restarting. 404 when the turn is unknown/expired or has no audio (no TTS key). The job stores
-   the decoded bytes once at the reply event (`TurnJob.SetReply` / `GetAudioBytes`).
+   the raw `audio/mpeg` bytes with HTTP range support (`enableRangeProcessing`) — a 200 for the
+   full body or a 206 Partial Content for a `Range` request — so a dropped audio download resumes
+   (re-requests only the missing tail) instead of restarting. It serves **job-first then the
+   durable archive**: the live job stores the decoded bytes once at the reply event
+   (`TurnJob.SetReply` / `GetAudioBytes`) for hot, no-re-decode range slices; once the in-memory
+   job has expired or the Gateway restarted, the same route replays the bytes from
+   `VoiceTurnArchive` (#429) so the reply still "sits in the session". 404 when neither has the
+   turn (unknown/expired) or it has no audio (no TTS key).
 3. **Phone.** Once the poll reports `audioReady`, `VoiceConversation` fetches the audio via
    `VoiceTurnRunner.FetchAudioToCompletionAsync` (same retry/backoff/deadline policy as the poll
    loop, #405), reassembling resumed slices, then plays. The inline `audioBase64` back-compat path

@@ -364,6 +364,11 @@ public partial class App : Application
                 catch (Exception ex)
                 {
                     log($"Control API failed to start: {ex.Message}");
+                    // Surface the degraded state to the UI (loud sidebar indicator). The
+                    // session-state services still started (StartSessionStateServices runs before
+                    // the bind), so the local badge keeps working -- but remote/Gateway/Cockpit
+                    // access is down, and that must not be silent.
+                    ControlApiHost.ReportStartupFailure(ex.Message);
                 }
             });
         }
@@ -769,7 +774,7 @@ public partial class App : Application
         try
         {
             var claudeConfig = AgentToolConfig.Load(AgentKind.ClaudeCode);
-            Options.DefaultClaudeArgs = BuildClaudeDefaultArgs(claudeConfig);
+            Options.DefaultClaudeArgs = claudeConfig.ResolveEffectiveCommandLineArguments();
             FileLog.Write($"[App] ApplyConfiguredToolPresets: claude preset={claudeConfig.PresetName}, model={(string.IsNullOrWhiteSpace(claudeConfig.DefaultModel) ? "<none>" : claudeConfig.DefaultModel)}, defaultArgs='{Options.DefaultClaudeArgs}'");
         }
         catch (Exception ex)
@@ -777,22 +782,6 @@ public partial class App : Application
             FileLog.Write($"[App] ApplyConfiguredToolPresets FAILED: {ex.Message}");
             throw;
         }
-    }
-
-    /// <summary>
-    /// Compose Claude Code's effective default arguments from its per-tool config: the
-    /// effective preset/override arguments, plus a <c>--model &lt;model&gt;</c> flag when a
-    /// default model is configured and the args do not already pin a model.
-    /// </summary>
-    private static string BuildClaudeDefaultArgs(AgentToolConfig config)
-    {
-        var args = config.ResolveEffectiveArguments().Trim();
-
-        var model = config.DefaultModel?.Trim() ?? "";
-        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
-            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
-
-        return args;
     }
 
     /// <summary>

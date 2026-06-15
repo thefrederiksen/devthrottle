@@ -1,0 +1,76 @@
+/* The Dictionary page, ported 1:1 from the static wwwroot/pages/dictionary.html palette (navy).
+   Scoped CSS isolation (issue #183); same visual style as the static page it replaces. */
+
+.dc-root {
+    height: 100%;
+    overflow: auto;
+    background: #0B1020;
+    color: #E6EAF2;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+}
+
+.dc-wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; }
+.dc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dc-top h1 { font-size: 26px; margin: 0; }
+.dc-back { color: #5B8DEF; text-decoration: none; font-size: 14px; }
+
+.dc-sub { color: #8A93A6; font-size: 14px; margin: 0 0 6px; max-width: 640px; }
+.dc-loading { color: #8A93A6; text-align: center; padding: 60px 0; }
+
+.dc-saverow { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 14px 0 18px; }
+.dc-saveactions { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.dc-savemsg { color: #5FD08A; font-size: 12.5px; }
+
+/* Buttons */
+.dc-save {
+    background: #1f7a47; color: #fff; border: 1px solid #2a9c5b;
+    border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+}
+.dc-save:hover:not(:disabled) { border-color: #5B8DEF; }
+.dc-save:disabled { opacity: .5; cursor: default; }
+
+.dc-section {
+    background: #141B2E; border: 1px solid #27324d; border-radius: 14px;
+    padding: 16px 18px; margin: 14px 0;
+}
+.dc-section h2 { font-size: 15px; margin: 0 0 2px; }
+.dc-hint { color: #8A93A6; font-size: 12.5px; margin: 0 0 12px; }
+
+.dc-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dc-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: #1B2540; border: 1px solid #27324d;
+    border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px;
+}
+.dc-x { cursor: pointer; border: none; background: transparent; color: #8A93A6; font-size: 15px; padding: 0 4px; line-height: 1; }
+.dc-x:hover { color: #E5484D; }
+
+.dc-addbox {
+    background: #0B1020; color: #E6EAF2; border: 1px dashed #27324d;
+    border-radius: 999px; padding: 5px 12px; font-size: 13px; min-width: 180px;
+}
+.dc-addbox:focus { outline: none; border-color: #5B8DEF; border-style: solid; }
+.dc-variant-add { min-width: 150px; }
+.dc-addterm { min-width: 240px; }
+.dc-addterm-row { margin-top: 12px; }
+
+.dc-mrow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid #27324d; }
+.dc-mrow:first-of-type { border-top: none; }
+.dc-mterm { display: flex; align-items: center; gap: 7px; min-width: 160px; padding-top: 5px; }
+.dc-mterm .dc-arrow { color: #8A93A6; }
+.dc-mterm .dc-name { font-weight: 600; font-size: 13.5px; }
+.dc-mterm .dc-x { font-size: 14px; }
+.dc-mvariants { flex: 1; }
+
+.dc-profiles { display: flex; flex-wrap: wrap; gap: 12px; }
+.dc-pcard {
+    background: #1B2540; border: 1px solid #27324d; border-radius: 12px;
+    padding: 12px 14px; min-width: 220px; flex: 1;
+}
+.dc-pname { font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; }
+.dc-pname .dc-x { font-size: 14px; }
+.dc-plabel { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8A93A6; margin-top: 10px; }
+
+.dc-addprofile { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+.dc-empty { color: #8A93A6; font-size: 13px; padding: 6px 0; }

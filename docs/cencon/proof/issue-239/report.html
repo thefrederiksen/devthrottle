@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #239 - Developer Proof Report</title>
+<style>
+  body{background:#1E1E1E;color:#CCCCCC;font-family:'Segoe UI',sans-serif;margin:0;padding:28px;line-height:1.55}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:26px 0 8px;color:#fff;border-bottom:1px solid #3C3C3C;padding-bottom:4px}
+  .sub{color:#888;font-size:13px;margin-bottom:18px}
+  code{font-family:'Cascadia Mono',Consolas,monospace;background:#252526;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  table{border-collapse:collapse;width:100%;max-width:1100px;font-size:13px;margin:8px 0}
+  th,td{border:1px solid #3C3C3C;padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#252526;color:#AAA;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .ok{color:#22C55E;font-weight:600}
+  .file{color:#3B82F6}
+  img{max-width:1000px;border:1px solid #3C3C3C;border-radius:6px;margin:10px 0}
+  ul{margin:6px 0 6px 18px}
+  .note{color:#888;font-size:12.5px}
+  .final{background:#1B3A2A;border:1px solid #22C55E;border-radius:6px;padding:12px 16px;margin-top:24px;color:#9FE6BB;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>Issue #239 - [Cockpit] Wingman Pipeline page backed by Gateway GET /wingman/queue</h1>
+<div class="sub">Developer Agent proof report - CenCon Development Method - branch <code>issue-239-wingman-pipeline</code></div>
+
+<h2>What was implemented</h2>
+<p>A read-only fleet-level observability surface for the ONE-brain wingman pipeline, in three layers:</p>
+<ul>
+  <li><b>Read-only accessor</b> <code>GatewayTurnBriefAgent.QueueSnapshot(...)</code> exposing the live pipeline
+      (in-flight session + elapsed, ordered queue with brief/explain kind, a bounded last-10 recent-briefs ring,
+      and the brain's rejection counter + recovery flag) <i>without changing any queue semantics</i>. Added a small
+      in-memory in-flight start-time map and the recent ring; the existing queue/coalescing/watch-cancel paths are untouched.</li>
+  <li><b>Gateway endpoint</b> <code>GET /wingman/queue</code> (<code>Api/WingmanQueueEndpoints.cs</code>), wired in
+      <code>GatewayHost</code> where <code>_briefAgent</code> + <code>Brain</code> are owned. It reads the agent snapshot
+      and the brain health; never mutates state. Honest idle/Disabled snapshot when the pipeline is off.</li>
+  <li><b>New contracts DTO</b> <code>WingmanQueueDto</code> (inFlight / queue / recent / brain) + a
+      <code>GatewayClient.GetWingmanQueueAsync()</code> on the Cockpit.</li>
+  <li><b>New fleet-level Cockpit page</b> <code>/wingman</code> (<code>Components/Pages/WingmanQueue.razor</code>) +
+      NavMenu entry + app.css styling, rendering the four sections and polling every 3s. Read-only - no mutating buttons.
+      The per-session right-panel "Queue" tab is untouched (out of scope).</li>
+</ul>
+<p class="note">Out of scope and NOT changed (per the issue): rail-state honesty / <code>BriefingStateFor</code> / the
+   <code>BriefingState</code> field; queue ordering / coalescing / watch-cancel / explain priority / brain restart policy;
+   the per-session prompt "Queue" tab; any historical persistence.</p>
+
+<h2>Acceptance criteria - met with proof</h2>
+<table>
+<thead><tr><th>Criterion</th><th>How it is satisfied</th><th>Proof</th></tr></thead>
+<tbody>
+<tr><td>GET /wingman/queue returns 200 with inFlight / queue / recent / brain</td>
+    <td>Real endpoint serializes <code>WingmanQueueDto</code></td>
+    <td class="ok">Live curl (<span class="file">live-curl-wingman-queue.txt</span>) + endpoint test <code>Get_wingman_queue_returns_200_with_the_snapshot_shape</code></td></tr>
+<tr><td>Idle: inFlight null + empty queue</td>
+    <td>Snapshot is null/empty when nothing pending/in-flight</td>
+    <td class="ok">Live curl shows <code>"inFlight":null,"queue":[]</code>; tests <code>Idle_gateway_...</code>, <code>IdleAgent_ProducesEmptySnapshot</code></td></tr>
+<tr><td>Queued + in-flight matches agent _pending/_inFlight/_explainPending</td>
+    <td>Snapshot reads those exact collections (explains first)</td>
+    <td class="ok"><code>QueuedAndInFlight_SnapshotMatchesPipelineState_AndReadIsSideEffectFree</code></td></tr>
+<tr><td>Endpoint is read-only (repeated GETs do not alter state)</td>
+    <td>Snapshot only reads concurrent dictionaries + a locked ring</td>
+    <td class="ok"><code>Repeated_gets_are_read_only_...</code> + the side-effect-free assertion in the agent test</td></tr>
+<tr><td>Cockpit page renders the four sections with real data</td>
+    <td>WingmanQueue.razor renders inFlight/queue/recent/brain</td>
+    <td class="ok">Screenshot below + bUnit render tests</td></tr>
+<tr><td>Brain-health block shows model + consecutive-rejection count</td>
+    <td>Brain block renders model and "N / threshold"</td>
+    <td class="ok">Screenshot (opus, 2 / 3) + <code>Brain_health_block_shows_model_and_consecutive_rejections</code></td></tr>
+<tr><td>Page updates without manual reload</td>
+    <td>3s <code>PeriodicTimer</code> poll re-fetches the snapshot</td>
+    <td class="ok"><code>PollLoopAsync</code> in WingmanQueue.razor (same pattern as Lists.razor)</td></tr>
+<tr><td>Endpoint + accessor have unit tests in CcDirector.Gateway.Tests</td>
+    <td>Snapshot accessor + endpoint integration tests next to GatewayTurnBriefTests.cs</td>
+    <td class="ok"><code>GatewayTurnBriefAgentQueueSnapshotTests</code> (3) + <code>WingmanQueueEndpointTests</code> (3)</td></tr>
+<tr><td>dotnet build cc-director.sln clean</td><td>Full solution build</td>
+    <td class="ok">Build succeeded, 0 Warnings, 0 Errors</td></tr>
+</tbody>
+</table>
+
+<h2>Page screenshot (real compiled component + real app.css, populated snapshot)</h2>
+<p>Rendered from the actual <code>WingmanQueue</code> component via a real <code>GatewayClient</code> over a stubbed HTTP
+   handler returning a populated snapshot. Shows in-flight (BRIEF, reading 12s), the ordered queue (EXPLAIN first, then BRIEF),
+   the recent briefs (ok + degraded), and the brain-health block (model opus, consecutive rejections 2 / 3, degraded 1 of 2).</p>
+<img src="wingman-page.png" alt="Wingman Pipeline page rendered">
+
+<h2>Live endpoint curl (idle Gateway, isolated host on port 7903)</h2>
+<p>See <span class="file">live-curl-wingman-queue.txt</span>: <code>GET /wingman/queue -&gt; HTTP 200</code> with
+   <code>{"inFlight":null,"queue":[],"recent":[],"brain":{...,"status":"Disabled",...}}</code> (the honest idle/off snapshot).</p>
+
+<h2>Test results</h2>
+<ul>
+  <li class="ok">CcDirector.Gateway.Tests: new QueueSnapshot (3) + endpoint (3) PASS; full suite 650/651 pass - the one failure
+      (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) is a pre-existing,
+      environment-dependent realtime-STT test that fails identically on clean main; it is unrelated to this change.</li>
+  <li class="ok">CcDirector.Cockpit.Tests: 42/42 pass, incl. 5 new WingmanQueue render assertions.</li>
+  <li class="ok">Existing GatewayTurnBriefAgent/Store tests: 21/21 still pass (queue behavior unchanged).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change adds a read-only endpoint + DTO + Cockpit page inside the existing
+   <code>CcDirector.Gateway</code> / <code>CcDirector.Gateway.Contracts</code> / <code>CcDirector.Cockpit</code> containers
+   already named in <code>architecture_manifest.yaml</code>. The endpoint inherits the host-wide Gateway token middleware
+   (auth-gated like every other route); it exposes no secrets (session GUIDs, turn numbers, model name, pid only). No
+   blocking security rule (DT-01..DT-NN) is touched. No new persistence.</p>
+
+<div class="final">I believe this is finished. Every acceptance criterion is met with proof, the solution builds clean, and the
+read-only invariant is verified.</div>
+
+</body>
+</html>

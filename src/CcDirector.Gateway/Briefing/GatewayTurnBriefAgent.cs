@@ -68,6 +68,21 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     // working again does not invalidate its story the way it invalidates a turn brief.
     private readonly ConcurrentDictionary<string, (string Endpoint, DateTime RequestedAtUtc)> _explainPending = new();
     private readonly ConcurrentDictionary<string, byte> _explainInFlight = new();
+
+    // Issue #239 observability ONLY (read by QueueSnapshot, never changes queue semantics):
+    // when each session entered its in-flight slot, so the snapshot can report elapsed-in-flight.
+    // _inFlight / _explainInFlight store no timestamp, so the start time lives in these parallel
+    // maps; an entry is added the instant a session goes in flight and removed when it leaves.
+    private readonly ConcurrentDictionary<string, DateTime> _inFlightSinceUtc = new();
+    private readonly ConcurrentDictionary<string, DateTime> _explainInFlightSinceUtc = new();
+
+    // Issue #239: a bounded ring of the most recently STORED briefs (newest last), for the
+    // pipeline view's "recent" list. Snapshot-of-now only - no new persistence (the durable
+    // store stays the story of record). Guarded by its own lock; never on a hot path.
+    private const int RecentBriefRingSize = 10;
+    private readonly LinkedList<WingmanRecentBrief> _recent = new();
+    private readonly object _recentLock = new();
+
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
@@ -144,6 +159,85 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         return _store.Latest(sessionId) is not null ? "Briefed" : "None";
     }
 
+    /// <summary>
+    /// A read-only snapshot of the whole ONE-brain pipeline (issue #239): the in-flight session,
+    /// the ordered queue of waiting sessions (explains first, then turn briefs - the same drain
+    /// order the worker uses), the recent-briefs ring, and the brain's health. This ONLY reads
+    /// live agent state - it never enqueues, dequeues, or otherwise alters any session's pipeline
+    /// state, so repeated calls are side-effect-free. <paramref name="brainHealth"/> is supplied by
+    /// the host (the agent owns the queue, not the brain handle); the rejection counter and recovery
+    /// flag come from the agent's own state.
+    /// </summary>
+    public WingmanQueueDto QueueSnapshot(WingmanBrainHealth? brainHealth = null)
+    {
+        var now = DateTime.UtcNow;
+
+        // In flight: an explain deep dive outranks a turn brief for display, mirroring the worker's
+        // explains-first drain order. At most one session is in flight (the ONE brain).
+        WingmanInFlightItem? inFlight = null;
+        foreach (var sid in _explainInFlight.Keys)
+        {
+            var since = _explainInFlightSinceUtc.TryGetValue(sid, out var t) ? t : now;
+            inFlight = new WingmanInFlightItem { SessionId = sid, Kind = "explain", ElapsedSeconds = Math.Max(0, (now - since).TotalSeconds) };
+            break;
+        }
+        if (inFlight is null)
+        {
+            foreach (var sid in _inFlight.Keys)
+            {
+                var since = _inFlightSinceUtc.TryGetValue(sid, out var t) ? t : now;
+                inFlight = new WingmanInFlightItem { SessionId = sid, Kind = "brief", ElapsedSeconds = Math.Max(0, (now - since).TotalSeconds) };
+                break;
+            }
+        }
+
+        // Queue: waiting explains first (they drain first), then waiting turn briefs.
+        var queue = new List<WingmanQueueItem>();
+        foreach (var sid in _explainPending.Keys)
+            queue.Add(new WingmanQueueItem { SessionId = sid, Kind = "explain" });
+        foreach (var sid in _pending.Keys)
+            queue.Add(new WingmanQueueItem { SessionId = sid, Kind = "brief" });
+
+        List<WingmanRecentBrief> recent;
+        lock (_recentLock)
+        {
+            // Stored newest-last in the ring; the page wants newest first.
+            recent = _recent.Reverse().ToList();
+        }
+
+        var brain = brainHealth ?? new WingmanBrainHealth { Status = "Unknown" };
+        brain.ConsecutiveRejections = Volatile.Read(ref _consecutiveRejections);
+        brain.RejectionThreshold = PoisonedBrainRejectionThreshold;
+        brain.RecoveryInFlight = Volatile.Read(ref _recoveryInFlight) != 0;
+
+        return new WingmanQueueDto
+        {
+            InFlight = inFlight,
+            Queue = queue,
+            Recent = recent,
+            Brain = brain,
+        };
+    }
+
+    /// <summary>Push one stored brief into the bounded recent-briefs ring (#239 observability only).</summary>
+    private void RecordRecent(string sessionId, TurnBriefDto brief)
+    {
+        var item = new WingmanRecentBrief
+        {
+            SessionId = sessionId,
+            TurnNumber = brief.TurnNumber,
+            GeneratedAtUtc = brief.GeneratedAtUtc,
+            Degraded = brief.Degraded,
+            Model = brief.Model,
+        };
+        lock (_recentLock)
+        {
+            _recent.AddLast(item);
+            while (_recent.Count > RecentBriefRingSize)
+                _recent.RemoveFirst();
+        }
+    }
+
     /// <summary>The "I am lost - explain" button was pressed (issue #217): queue a
     /// session-level deep dive (coalescing - one slot per session, a second press while
     /// one is pending is a no-op).</summary>
@@ -217,6 +311,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
                 finally
                 {
                     _explainInFlight.TryRemove(esid, out _);
+                    _explainInFlightSinceUtc.TryRemove(esid, out _);
                 }
             }
 
@@ -226,6 +321,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
                 _inFlight[sid] = cts;
+                _inFlightSinceUtc[sid] = DateTime.UtcNow; // #239 observability only
                 try
                 {
                     await BriefOneAsync(sid, endpoint, cts.Token);
@@ -241,6 +337,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
                 finally
                 {
                     _inFlight.TryRemove(sid, out _);
+                    _inFlightSinceUtc.TryRemove(sid, out _);
                 }
             }
         }
@@ -269,6 +366,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             // Mark in-flight BEFORE removing from pending: BriefingStateFor must never
             // observe the gap and report the deep dive as finished while it runs.
             _explainInFlight[sid] = 1;
+            _explainInFlightSinceUtc[sid] = DateTime.UtcNow; // #239 observability only
             if (_explainPending.TryRemove(sid, out var req))
             {
                 sessionId = sid;
@@ -277,6 +375,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
                 return true;
             }
             _explainInFlight.TryRemove(sid, out _);
+            _explainInFlightSinceUtc.TryRemove(sid, out _);
         }
         sessionId = "";
         endpoint = "";
@@ -421,6 +520,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         }
 
         _store.Append(sid, brief);
+        RecordRecent(sid, brief); // #239 observability ring (after the durable store)
         FileLog.Write($"[GatewayTurnBriefAgent] stored sid={sid} turn={brief.TurnNumber} model={brief.Model} railLine={brief.NeedsYou?.RailLine ?? "(none)"}");
         OnBriefStored?.Invoke(sid, endpoint, brief);
     }

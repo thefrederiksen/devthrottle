@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-12"
+last_updated: "2026-06-15"
 
 # C4 Level 1: System Context
 context:
@@ -193,13 +193,15 @@ containers:
           - Controls/CommManager/ScheduleDialog.axaml
           - Controls/CommManager/SendProgressDialog.axaml
       - name: Dialogs
-        description: Modal dialogs for session management
+        description: Modal dialogs for session management and machine settings. SettingsDialog hosts the Agents tab's machine-level agent-tool library (per-tool command-line preset, default model, a live "This is what launches:" preview strip, and a split Quick check / Launch preview); Claude Code defaults to the Automatic (skip permissions) preset with the preview strip as the always-visible safety net. LaunchPreviewDialog is a throwaway ConPty-backed terminal popup (reuses CcDirector.Terminal.Avalonia) that boots an agent with its resolved command line so the user can preview startup without creating a real session (issues #391, #436).
         files:
           - LoadWorkspaceDialog.axaml
           - RenameSessionDialog.axaml
           - RelinkSessionDialog.axaml
           - WorkspaceProgressDialog.axaml
           - Controls/InputDialog.axaml
+          - SettingsDialog.axaml
+          - LaunchPreviewDialog.axaml
 
   - id: terminal_core
     name: Terminal Core

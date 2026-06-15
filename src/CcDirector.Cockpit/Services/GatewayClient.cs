@@ -136,6 +136,18 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// A read-only snapshot of the ONE-brain wingman pipeline (<c>GET /wingman/queue</c>, issue #239):
+    /// in-flight session, ordered queue, recent briefs, and brain health. Throws on transport failure
+    /// (the Wingman Pipeline page surfaces it as a banner) so a dead Gateway never looks like an idle
+    /// pipeline.
+    /// </summary>
+    public async Task<WingmanQueueDto> GetWingmanQueueAsync(CancellationToken ct = default)
+    {
+        var snapshot = await _http.GetFromJsonAsync<WingmanQueueDto>("wingman/queue", ct);
+        return snapshot ?? throw new HttpRequestException("wingman/queue returned an empty body");
+    }
+
+    /// <summary>
     /// Gateway health summary (<c>GET /healthz</c>): version, server time, fleet counts.
     /// Throws on transport failure - the dashboard surfaces it as a banner.
     /// </summary>
@@ -404,6 +416,191 @@ public sealed class GatewayClient
             var body = await resp.Content.ReadAsStringAsync(ct);
             throw new HttpRequestException($"remove item failed ({(int)resp.StatusCode}): {body}");
         }
+    }
+
+    // ===== Tool pages (issue #183): exes / transcripts / dictionary =====
+    // These three pages were static HTML fetching the Gateway same-origin; they are now Blazor
+    // components that reach the same endpoints through this server-side client. No endpoint
+    // contract changes - the calls below mirror exactly what the static pages issued.
+
+    /// <summary>
+    /// Local Directors on this machine + build-slot status (<c>GET /exes/list</c>). Throws on
+    /// transport failure so the Exes page surfaces it as an error banner (no fallback empty list).
+    /// </summary>
+    public async Task<ExesListDto> GetExesAsync(CancellationToken ct = default)
+    {
+        var dto = await _http.GetFromJsonAsync<ExesListDto>("exes/list", ct);
+        return dto ?? throw new HttpRequestException("exes/list returned an empty body");
+    }
+
+    /// <summary>Kill a Director and all its sessions (<c>DELETE /directors/{id}</c> with
+    /// <c>{force:true}</c>). User action: throws with the server error on failure.</summary>
+    public async Task KillDirectorAsync(string directorId, CancellationToken ct = default)
+    {
+        _log.LogInformation("KillDirectorAsync: {DirectorId}", directorId);
+        using var req = new HttpRequestMessage(HttpMethod.Delete, $"directors/{Uri.EscapeDataString(directorId)}")
+        {
+            Content = JsonContent.Create(new { force = true }),
+        };
+        var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"kill director failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>Build a slot then launch it (<c>POST /exes/slots/{n}/build-start</c>). User action:
+    /// throws with the server's detail message (build output tail) on failure.</summary>
+    public async Task<BuildStartResultDto> BuildStartSlotAsync(int slot, CancellationToken ct = default)
+    {
+        _log.LogInformation("BuildStartSlotAsync: slot {Slot}", slot);
+        var resp = await _http.PostAsync($"exes/slots/{slot}/build-start", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"build-start failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<BuildStartResultDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("build-start returned an empty body");
+    }
+
+    /// <summary>Delete a slot's built exe (<c>DELETE /exes/slots/{n}</c>). User action: throws with
+    /// the server error on failure.</summary>
+    public async Task DeleteSlotAsync(int slot, CancellationToken ct = default)
+    {
+        _log.LogInformation("DeleteSlotAsync: slot {Slot}", slot);
+        var resp = await _http.DeleteAsync($"exes/slots/{slot}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"delete slot failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+    }
+
+    /// <summary>Every local recording/transcript (<c>GET /ingest/recordings</c>). Throws on transport
+    /// failure so the Voice Recorder page surfaces it (no fallback to a misleading empty list).</summary>
+    public async Task<List<RecordingListItem>> GetRecordingsAsync(CancellationToken ct = default)
+    {
+        var list = await _http.GetFromJsonAsync<List<RecordingListItem>>("ingest/recordings", ct);
+        return list ?? new List<RecordingListItem>();
+    }
+
+    /// <summary>The cleaned transcript text for a recording (<c>GET /ingest/recording/{id}/transcript</c>);
+    /// null on 404 (none stored) or transport failure - the page renders a placeholder instead.</summary>
+    public async Task<string?> GetTranscriptAsync(string recordingId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"ingest/recording/{Uri.EscapeDataString(recordingId)}/transcript", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogDebug(ex, "GetTranscriptAsync transport failure for {Id}", recordingId);
+            return null;
+        }
+    }
+
+    /// <summary>Delete one transient local recording (<c>DELETE /ingest/recording/{id}</c>). User
+    /// action: throws with the server error on failure.</summary>
+    public async Task DeleteRecordingAsync(string recordingId, CancellationToken ct = default)
+    {
+        _log.LogInformation("DeleteRecordingAsync: {Id}", recordingId);
+        var resp = await _http.DeleteAsync($"ingest/recording/{Uri.EscapeDataString(recordingId)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"delete recording failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+    }
+
+    /// <summary>Copy a recording's transcript + audio into the vault (<c>POST /ingest/recording/{id}/promote</c>).
+    /// User action: throws with the server error on failure.</summary>
+    public async Task PromoteRecordingAsync(string recordingId, CancellationToken ct = default)
+    {
+        _log.LogInformation("PromoteRecordingAsync: {Id}", recordingId);
+        var resp = await _http.PostAsync($"ingest/recording/{Uri.EscapeDataString(recordingId)}/promote", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"promote failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+    }
+
+    /// <summary>Update a recording's title/subtitle/summary (<c>PATCH /ingest/recording/{id}/meta</c>);
+    /// returns the updated record. User action: throws with the server error on failure.</summary>
+    public async Task<RecordingListItem> UpdateRecordingMetaAsync(
+        string recordingId, string? title, string? subtitle, string? summary, CancellationToken ct = default)
+    {
+        _log.LogInformation("UpdateRecordingMetaAsync: {Id}", recordingId);
+        var resp = await _http.PatchAsJsonAsync(
+            $"ingest/recording/{Uri.EscapeDataString(recordingId)}/meta",
+            new { title, subtitle, summary }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"save details failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<RecordingListItem>(cancellationToken: ct)
+            ?? throw new HttpRequestException("meta update returned an empty body");
+    }
+
+    /// <summary>The copy-paste agent API guide (<c>GET /ingest/agent-info</c>), plain text. User
+    /// action: throws with the server error on failure.</summary>
+    public async Task<string> GetAgentInfoAsync(CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync("ingest/agent-info", ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>The dictation glossary (<c>GET /ingest/dictionary</c>). Throws on transport failure so
+    /// the Dictionary page surfaces it (no fallback to an empty glossary that could be saved back).</summary>
+    public async Task<DictionaryDto> GetDictionaryAsync(CancellationToken ct = default)
+    {
+        var dict = await _http.GetFromJsonAsync<DictionaryDto>("ingest/dictionary", ct);
+        return dict ?? throw new HttpRequestException("ingest/dictionary returned an empty body");
+    }
+
+    /// <summary>Replace the whole glossary (<c>PUT /ingest/dictionary</c>); returns the re-read
+    /// dictionary. User action: throws with the server error on failure.</summary>
+    public async Task<DictionaryDto> SaveDictionaryAsync(DictionaryDto dict, CancellationToken ct = default)
+    {
+        _log.LogInformation("SaveDictionaryAsync: {Vocab} terms, {Mistrans} patterns, {Profiles} profiles",
+            dict.Vocabulary.Count, dict.CommonMistranscriptions.Count, dict.Profiles.Count);
+        var resp = await _http.PutAsJsonAsync("ingest/dictionary", dict, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"save dictionary failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<DictionaryDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("dictionary save returned an empty body");
+    }
+
+    /// <summary>Pull the <c>error</c>/<c>detail</c> field out of a Gateway JSON error body when
+    /// present, so the page shows the server's message rather than a raw JSON blob.</summary>
+    private static string ExtractError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(no detail)";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("detail", out var detail) && detail.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return detail.GetString() ?? body;
+                if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return err.GetString() ?? body;
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Not JSON - return as-is (it may be a plain-text problem detail).
+        }
+        return body;
     }
 }
 

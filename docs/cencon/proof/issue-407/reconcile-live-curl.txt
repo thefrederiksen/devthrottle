@@ -1,0 +1,16 @@
+=== Issue #407 live proof (reconciled with #429) ===
+GatewayHost listening on http://127.0.0.1:54239  (storage root isolated under temp)
+
+Seeded turn sid=7f2d530a-b353-49da-a49e-c4b8ed40da07 turnId=7c398f78-99a7-4326-8ea7-0a440187859b audioLen=4096 sha256=D67C656E01756650D77717B0839985A056EC28FFE174601D690FC407A2CEFFCA
+
+[PASS] AC1 slim poll: 200 stage=reply audioReady=True audioLength=4096 audioBase64=Null bodyBytes=221 (no audio in poll)
+[PASS] AC1b back-compat includeAudio=1: 200 inline audioBase64 matches original (5464 chars)
+[PASS] AC2 full fetch 200: 200 audio/mpeg 4096B Accept-Ranges=bytes sha256=D67C656E01756650D77717B0839985A056EC28FFE174601D690FC407A2CEFFCA (== seed)
+[PASS] AC2b range resume 206: 206 Content-Range bytes 1000-4095/4096 tail=3096B sha256=18B17E4803FB9A5732E290355B27B0189EBC48F90A8684378063A8D69226F219 (== original[1000..])
+[PASS] AC2c middle range 1000-1999: 206 1000B byte-identical to original[1000..2000]
+[PASS] AC2d unsatisfiable range 416: 416 RequestedRangeNotSatisfiable
+[PASS] AC3 unknown turn 404: 404 NotFound
+[PASS] AC3b no-audio job: audio 404 but poll 200: audio=404 poll=200 audioReady=False
+[PASS] AC4 missing token 401 (audio + poll): audio=401 poll=401
+
+RESULT: 9 passed, 0 failed

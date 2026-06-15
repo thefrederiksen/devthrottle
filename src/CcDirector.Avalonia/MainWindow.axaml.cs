@@ -16,9 +16,12 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Home;
 using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Settings;
 using CcDirector.Core.Skills;
+using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
 using FileViewerControls = CcDirector.Avalonia.Controls;
 
@@ -256,6 +259,16 @@ public partial class MainWindow : Window
         _ = InitializeScreenshotsPanelAsync();
         // No automatic workspace picker on startup (like VS Code). Use File | Open Workspace.
 
+        // Home page (empty-state): its actions route to the existing flows. Paint it now
+        // so the very first frame at zero sessions is the home, not a blank content area.
+        HomeView.NewSessionRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> New Session"); _ = ShowNewSessionDialog(); };
+        HomeView.OpenToolsRequested += (_, _) => BtnTools_Click(this, new RoutedEventArgs());
+        HomeView.OpenSettingsRequested += (_, _) => BtnSettings_Click(this, new RoutedEventArgs());
+        HomeView.OpenCockpitRequested += (_, _) => BtnCockpit_Click(this, new RoutedEventArgs());
+        HomeView.GatewayClicked += (_, _) => OpenGatewayTroubleshooter();
+        HomeView.RecentRepoSelected += (_, path) => { FileLog.Write($"[MainWindow] Home -> recent repo {path}"); _ = StartSessionInRepoAsync(path); };
+        UpdateHomeVisibility();
+
         // Start session git status polling (15s interval)
         _sessionGitTimer = new global::Avalonia.Threading.DispatcherTimer
         {
@@ -407,10 +420,68 @@ public partial class MainWindow : Window
 
         _gatewayMonitor = host.GatewayMonitor;
         _gatewayMonitor.Changed += () => Dispatcher.UIThread.Post(UpdateGatewayIndicator);
+
+        // Same host: wire the Control-API status indicator. The bind may have already failed
+        // in the background before we attached, so paint the current state now AND subscribe
+        // for later changes (the event can fire on a background thread -> marshal to UI).
+        host.StartupStatusChanged += () => Dispatcher.UIThread.Post(UpdateControlApiIndicator);
+
         _gatewayAttachTimer?.Stop();
         _gatewayAttachTimer = null;
         UpdateGatewayIndicator();
+        UpdateControlApiIndicator();
         FileLog.Write("[MainWindow] Gateway indicator attached to GatewayConnectionMonitor");
+    }
+
+    private bool _controlApiFailureNotified;
+
+    /// <summary>
+    /// Paint the Control-API status indicator from <see cref="ControlApiHost.StartupError"/>.
+    /// Hidden while the API is healthy (consistent with the auto-update indicator); RED and
+    /// visible when the bind failed, with a one-time loud notification so the degraded state
+    /// grabs attention immediately rather than only living in a sidebar tile.
+    /// </summary>
+    private void UpdateControlApiIndicator()
+    {
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        if (host is null) return;
+
+        var error = host.StartupError;
+        if (string.IsNullOrEmpty(error))
+        {
+            // Healthy (or not yet failed): no tile.
+            ControlApiIndicator.IsVisible = false;
+            return;
+        }
+
+        ControlApiIndicatorSub.Text = "Remote, Gateway & phone access are off. Close another Director or free a port, then restart. Click for details.";
+        var tip = $"Control API failed to start:\n{error}\n\n"
+                + "The local app still works (session badges are live), but this Director is "
+                + "invisible to the fleet and cannot be driven remotely.\n"
+                + "Fix: free a Control-API port (7879-7898) by closing another Director, then restart this one.";
+        ToolTip.SetTip(ControlApiIndicator, tip);
+        ControlApiIndicator.IsVisible = true;
+
+        if (!_controlApiFailureNotified)
+        {
+            _controlApiFailureNotified = true;
+            FileLog.Write($"[MainWindow] Control API DOWN surfaced in UI: {error}");
+            ShowNotification($"Control API failed to start: {error}. Remote/Gateway access is off -- see the sidebar.");
+        }
+    }
+
+    private void ControlApiIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+            var error = host?.StartupError ?? "unknown error";
+            ShowNotification($"Control API down: {error}. Free a port in 7879-7898 (close another Director) and restart this one.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ControlApiIndicator_PointerPressed FAILED: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -470,6 +541,14 @@ public partial class MainWindow : Window
         tip += "\nClick to open the troubleshooter.";
         ToolTip.SetTip(GatewayIndicator, tip);
 
+        // Mirror the same gateway state onto the home-page card (shown at zero sessions),
+        // so both surfaces always agree. A missing gateway is NOT an error (legitimate
+        // local-only Director), so the Fix-it affordance shows for the error states only.
+        var gatewayError = m.Status is GatewayConnectionStatus.Failed or GatewayConnectionStatus.NoTailnetIdentity;
+        _gatewayError = gatewayError;
+        HomeView.SetGateway(accent, bg, border, label, sub, gatewayError);
+        ApplyHomeHealth();
+
         // #223: auto-pop the troubleshooter ONCE per distinct failure. A failure that
         // repeats (same summary on every re-verify) never re-pops; a NEW failure does.
         // #324: the identity-failure state is a failure too - same once-per-summary rule.
@@ -516,6 +595,182 @@ public partial class MainWindow : Window
         }
     }
 
+    // ==================== HOME (empty-state) ====================
+
+    /// <summary>Last computed readiness, cached so a gateway change can re-tint the header
+    /// without re-running the (async) tool/key probes.</summary>
+    private HomeStatus? _lastHomeStatus;
+
+    /// <summary>True when the gateway is in an error state (Failed / no tailnet identity).
+    /// A simply-absent gateway is NOT an error - a local-only Director is legitimate.</summary>
+    private bool _gatewayError;
+
+    /// <summary>
+    /// True when any full-content in-window overlay (Tools / Comms / Connections / Scheduler)
+    /// is open. The Home page must not paint over an open overlay, so UpdateHomeVisibility
+    /// consults this (issue #447).
+    /// </summary>
+    private bool IsContentOverlayOpen()
+        => ToolsOverlay.IsVisible || CommsOverlay.IsVisible
+           || ConnectionsOverlay.IsVisible || SchedulerOverlay.IsVisible;
+
+    /// <summary>
+    /// Show the full-screen home page exactly when this Director has zero sessions - it is
+    /// the "nothing is running, here is the state, start something" screen. The window menu
+    /// bar stays; the toolbar is hidden so only the home shows beneath it. The home appears
+    /// (and disappears) the moment the session count crosses zero.
+    /// </summary>
+    private void UpdateHomeVisibility()
+    {
+        // Home covers the whole window at ZIndex 30; the content overlays (Tools/Comms/etc.)
+        // sit lower in the same grid. If Home paints while an overlay is open, the overlay is
+        // hidden behind it and its actions look dead (issue #447). So Home shows only at zero
+        // sessions AND when no overlay is up; opening/closing an overlay re-runs this method.
+        var overlayOpen = IsContentOverlayOpen();
+        var showHome = _sessions.Count == 0 && !overlayOpen;
+        MainToolbar.IsVisible = !showHome;
+        HomeView.IsVisible = showHome;
+        FileLog.Write($"[MainWindow] UpdateHomeVisibility: showHome={showHome}, sessions={_sessions.Count}, overlayOpen={overlayOpen}");
+
+        if (!showHome) return;
+
+        HomeView.SetVersion(AppVersion.Display);
+        // Paint the gateway card from current state (no-op until the monitor is attached;
+        // its Changed event repaints it once it is).
+        UpdateGatewayIndicator();
+        _ = RefreshHomeAsync();
+    }
+
+    /// <summary>
+    /// Gather the readiness facts off the UI thread (tool detection probes PATH; the key
+    /// resolver may call the Gateway), then render the rows. Per the responsive-UI rule the
+    /// card shows "Checking..." immediately and fills in when the probe completes.
+    /// </summary>
+    private async Task RefreshHomeAsync()
+    {
+        HomeView.SetBusy();
+        try
+        {
+            var app = (App)global::Avalonia.Application.Current!;
+            var options = app.Options;
+
+            var facts = await Task.Run<(bool found, string? claudeVersion, bool keyPresent,
+                                        string keyMessage, bool usesGateway, int built, int total)>(async () =>
+            {
+                var det = new ToolDetectionService().DetectTool(AgentKind.ClaudeCode, options);
+                var validation = ToolDetectionService.ReadValidationStatus(AgentKind.ClaudeCode, options);
+                var claudeVersion = validation?.Ok == true ? validation.Version : null;
+
+                var catalog = new ToolCatalogService().GetCatalog();
+                var built = catalog.Count(d => d.IsBuilt);
+                var total = catalog.Count;
+
+                var resolver = new OpenAiKeyResolver(options);
+                string? key = await resolver.ResolveAsync();
+                var keyPresent = !string.IsNullOrWhiteSpace(key);
+
+                return (det.Found, claudeVersion, keyPresent, resolver.UnavailableMessage,
+                        resolver.UsesGateway, built, total);
+            });
+
+            _lastHomeStatus = HomeStatusBuilder.Build(
+                facts.found, facts.claudeVersion, facts.keyPresent, facts.keyMessage,
+                facts.usesGateway, facts.built, facts.total, AppVersion.Display);
+
+            ApplyHomeHealth();
+
+            // Recent repos are file I/O (a folder of history JSON), so load them off the UI thread too.
+            var recent = await Task.Run(BuildRecentRepos);
+            HomeView.SetRecent(recent);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshHomeAsync FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The most recently used repositories, newest first, one per repo path. Drawn from the
+    /// session history store; the swatch reuses the colour of that repo's latest session.
+    /// </summary>
+    private List<FileViewerControls.RecentRepoItem> BuildRecentRepos()
+    {
+        var app = (App)global::Avalonia.Application.Current!;
+        return app.SessionHistoryStore.LoadAll()
+            .Where(e => !string.IsNullOrWhiteSpace(e.RepoPath))
+            .GroupBy(e => e.RepoPath, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(e => e.LastUsedAt).First())
+            .OrderByDescending(e => e.LastUsedAt)
+            .Take(5)
+            .Select(e => new FileViewerControls.RecentRepoItem(
+                RepoDisplayName(e.RepoPath),
+                e.RepoPath,
+                e.CustomColor is { } color && !string.IsNullOrWhiteSpace(color) ? color : "#3C3C3C",
+                RelativeTime.Ago(DateTimeOffset.UtcNow - e.LastUsedAt.ToUniversalTime())))
+            .ToList();
+    }
+
+    private static string RepoDisplayName(string repoPath)
+    {
+        var name = Path.GetFileName(repoPath.TrimEnd('\\', '/'));
+        return string.IsNullOrEmpty(name) ? repoPath : name;
+    }
+
+    /// <summary>
+    /// One-click launch from the home Recent card: start a Claude session in the given repo
+    /// with the configured defaults (no dialog). Mirrors the non-group, non-resume path of
+    /// <see cref="ShowNewSessionDialog"/>, including the missing-CLI preflight.
+    /// </summary>
+    private async Task StartSessionInRepoAsync(string repoPath)
+    {
+        FileLog.Write($"[MainWindow] StartSessionInRepoAsync: {repoPath}");
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
+        {
+            await MessageBox.ShowAsync(this, "Folder not found",
+                $"This repository folder no longer exists:\n\n{repoPath}\n\nUse New Session to pick another.");
+            return;
+        }
+
+        var app = (App)global::Avalonia.Application.Current!;
+        var agent = CreateAgent(AgentKind.ClaudeCode);
+        var agentExe = agent.ExecutablePath;
+        if (ExecutableResolver.Resolve(agentExe) is null)
+        {
+            var (agentName, installHint) = AgentInstallInfo(AgentKind.ClaudeCode);
+            FileLog.Write($"[MainWindow] StartSessionInRepoAsync: {agentName} '{agentExe}' not found on PATH; aborting");
+            await MessageBox.ShowAsync(this, $"{agentName} is not installed",
+                $"CC Director could not find its command line tool.\n\nLooked for: {agentExe}\n\n{installHint}");
+            return;
+        }
+
+        var vm = CreateSession(repoPath, null, null, agent, SessionType.Developer);
+        if (vm == null)
+        {
+            FileLog.Write("[MainWindow] StartSessionInRepoAsync: CreateSession returned null");
+            await MessageBox.ShowAsync(this, "Could not start session",
+                _lastSessionCreateError ?? "See the Director log for details.");
+            return;
+        }
+
+        app.RepositoryRegistry?.MarkUsed(repoPath);
+        SaveSessionToHistory(vm);
+        FileLog.Write($"[MainWindow] StartSessionInRepoAsync: started session {vm.Session.Id} in {repoPath}");
+    }
+
+    /// <summary>
+    /// Combine the cached readiness with the live gateway state into the home's tagline and
+    /// status header. "Healthy" requires every check green AND the gateway not in an error
+    /// state. Cheap and idempotent: called after a refresh and on every gateway change.
+    /// </summary>
+    private void ApplyHomeHealth()
+    {
+        if (_lastHomeStatus is not { } status) return;
+
+        var healthy = status.AllReady && !_gatewayError;
+        HomeView.SetTagline(healthy ? "Mission critical for multiple agents" : "Let's finish setting up");
+        HomeView.SetStatus(status, healthy);
+    }
+
     private global::Avalonia.Threading.DispatcherTimer? _schedulerLeaderTimer;
     private bool _lastLeaderState;
 
@@ -523,10 +778,9 @@ public partial class MainWindow : Window
     {
         var scheduler = (global::Avalonia.Application.Current as App)?.Scheduler;
         var isLeader = scheduler?.IsLeader == true;
-        if (isLeader == _lastLeaderState && SchedulerLeaderPill.IsVisible == isLeader) return;
+        if (isLeader == _lastLeaderState) return;
 
         _lastLeaderState = isLeader;
-        SchedulerLeaderPill.IsVisible = isLeader;
         Title = isLeader ? "CC Director -- Leader" : "CC Director";
     }
 
@@ -1817,12 +2071,6 @@ public partial class MainWindow : Window
         await ShowRelinkDialog(_activeSession);
     }
 
-    private void BtnRefreshTerminal_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnRefreshTerminal_Click");
-        RefreshTerminal();
-    }
-
     private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
     {
         // Ctrl+H from anywhere on the window opens the Speak dialog -- but only
@@ -2464,7 +2712,6 @@ public partial class MainWindow : Window
 
         // ===== Session =====
         var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
-        session.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs())));
         if (AlphaMode.IsEnabled) // Start FIFO is an alpha feature
             session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
         session.Menu.Items.Add(new NativeMenuItemSeparator());
@@ -2510,18 +2757,11 @@ public partial class MainWindow : Window
         tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Director (multi-session)", () =>
-        {
-            FileLog.Write("[MainWindow] Menu: Director");
-            RightPanelTabs.SelectedItem = TabItemDirector;
-        }));
         tools.Menu.Items.Add(new NativeMenuItemSeparator());
         tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(new NativeMenuItemSeparator());
-        tools.Menu.Items.Add(Item("Settings...", () => BtnSettings_Click(this, new RoutedEventArgs())));
         menu.Items.Add(tools);
 
         // ===== Help =====
@@ -2613,11 +2853,6 @@ public partial class MainWindow : Window
     private string _activeLeftTab = "Terminal";
     private static readonly IBrush TransparentBrush = Brushes.Transparent;
     private static readonly IBrush InactiveTextBrush = new SolidColorBrush(Color.Parse("#888888"));
-
-    private void AgentTabButton_Click(object? sender, RoutedEventArgs e)
-    {
-        SwitchLeftTab("Agent");
-    }
 
     private void TerminalTabButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -2741,6 +2976,8 @@ public partial class MainWindow : Window
                 foreach (SessionViewModel vm in e.NewItems) SubscribeNeedsYou(vm);
         }
         UpdateNeedsYouCount();
+        // The home page is the zero-sessions screen: show/hide it as the count crosses zero.
+        UpdateHomeVisibility();
     }
 
     private void SubscribeNeedsYou(SessionViewModel vm)
@@ -3295,19 +3532,12 @@ public partial class MainWindow : Window
         }
 
         CommsOverlay.IsVisible = true;
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
 
         if (!_commsInitialized)
         {
             _commsInitialized = true;
             await CommManagerView.InitializeAsync();
-            CommManagerView.PendingCountChanged += count =>
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    CommsBadge.IsVisible = count > 0;
-                    CommsBadgeText.Text = count.ToString();
-                });
-            };
         }
         CommManagerView.StartPolling();
     }
@@ -3318,6 +3548,7 @@ public partial class MainWindow : Window
         CommsOverlay.IsVisible = false;
         if (_commsInitialized)
             CommManagerView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private bool _connectionsInitialized;
@@ -3344,6 +3575,7 @@ public partial class MainWindow : Window
         ConnectionsOverlay.IsVisible = true;
         _connectionsInitialized = true;
         ConnectionsView.StartPolling();
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnConnectionsClose_Click(object? sender, RoutedEventArgs e)
@@ -3352,6 +3584,7 @@ public partial class MainWindow : Window
         ConnectionsOverlay.IsVisible = false;
         if (_connectionsInitialized)
             ConnectionsView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void BtnScheduler_Click(object? sender, RoutedEventArgs e)
@@ -3374,6 +3607,7 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = true;
         _schedulerInitialized = true;
         SchedulerView.StartPolling();
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnSchedulerClose_Click(object? sender, RoutedEventArgs e)
@@ -3382,6 +3616,7 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = false;
         if (_schedulerInitialized)
             SchedulerView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void BtnTools_Click(object? sender, RoutedEventArgs e)
@@ -3409,12 +3644,14 @@ public partial class MainWindow : Window
         }
 
         ToolsOverlay.IsVisible = true;
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnToolsClose_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] BtnToolsClose_Click: closing Tools overlay");
         ToolsOverlay.IsVisible = false;
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void SwitchLeftTab(string tab)
@@ -3428,8 +3665,6 @@ public partial class MainWindow : Window
         bool isDocTab = tab.StartsWith("Doc:", StringComparison.Ordinal);
 
         // Update fixed tab button styles
-        AgentTabButton.Background = tab == "Agent" ? accentBrush : TransparentBrush;
-        AgentTabButton.Foreground = tab == "Agent" ? whiteBrush : InactiveTextBrush;
         TerminalTabButton.Background = tab == "Terminal" ? accentBrush : TransparentBrush;
         TerminalTabButton.Foreground = tab == "Terminal" ? whiteBrush : InactiveTextBrush;
         SourceControlTabButton.Background = tab == "SourceControl" ? accentBrush : TransparentBrush;
@@ -3447,7 +3682,6 @@ public partial class MainWindow : Window
         }
 
         // Show/hide panels
-        AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
         VoicePanel.IsVisible = tab == "Voice";

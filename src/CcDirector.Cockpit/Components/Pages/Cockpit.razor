@@ -68,6 +68,9 @@
                         <button class="@($"vt{(_viewMode == "triage" ? " vt-on" : "")}")"
                                 @onclick='() => SetViewMode("triage")'
                                 title="Needs-you first, on-hold last">Triage</button>
+                        <button class="@($"vt{(_viewMode == "repo" ? " vt-on" : "")}")"
+                                @onclick='() => SetViewMode("repo")'
+                                title="Grouped by repository across machines, alphabetical">Repo</button>
                     </div>
                     <button class="left-collapse" title="Collapse panel" @onclick="ToggleLeft">&laquo;</button>
                 </div>
@@ -456,9 +459,21 @@
                                        a click never inserts. To attach a device-local image, use the composer's
                                        Attach button. *@
                                     <div class="gallery">
-                                        @if (!string.IsNullOrEmpty(_shotsError))
+                                        @if (_shotsOffline)
                                         {
-                                            <div class="gallery-error">@_shotsError</div>
+                                            @* Issue #412: graceful offline state - human-readable, with a Retry
+                                               (the same Refresh action) - never the raw 503 exception string. *@
+                                            <div class="gallery-error">
+                                                Screenshots unavailable &mdash; the Director running this session is offline.
+                                                <button class="linkbtn" @onclick="RefreshScreenshots" disabled="@_shotsBusy" title="Try loading the screenshots again">Retry</button>
+                                            </div>
+                                        }
+                                        else if (!string.IsNullOrEmpty(_shotsError))
+                                        {
+                                            <div class="gallery-error">
+                                                @_shotsError
+                                                <button class="linkbtn" @onclick="RefreshScreenshots" disabled="@_shotsBusy" title="Try loading the screenshots again">Retry</button>
+                                            </div>
                                         }
                                         else if (_shotsBusy && _shots.Count == 0)
                                         {
@@ -1143,7 +1158,7 @@
             var changed = false;
             if (collapsed == "1" && !_leftCollapsed) { _leftCollapsed = true; changed = true; }
             // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
-            if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
+            if (mode is "tree" or "triage" or "repo" && mode != _viewMode) { _viewMode = mode; changed = true; }
             if (rightCollapsed == "1" && !_rightCollapsed) { _rightCollapsed = true; changed = true; }
             // "wingman" is intentionally absent: the Session Story moved into the Wingman
             // center tab, so a stale stored "wingman" pref falls back to the default.
@@ -1294,6 +1309,9 @@
     private int _shotsShown = ShotsInitialShown;   // thumbnails currently rendered
     private bool _shotsBusy;
     private string? _shotsError;
+    // Issue #412: the owning Director is offline/unreachable (Gateway 503 on the shots leg) - the
+    // panel shows a graceful "Director offline" message + Retry, NOT a raw exception string.
+    private bool _shotsOffline;
 
     // Source of a selection (issue #199): which gesture drove it - rail click, the needs-you
     // conveyor, a deep link, or a quick-reply advance. Logged so a session-switch line in the
@@ -1321,6 +1339,7 @@
         _shotsTotal = 0;
         _shotsShown = ShotsInitialShown;
         _shotsError = null;
+        _shotsOffline = false;
         _turnTimeline = null;
         _usage = null;
         _briefFeedbackStatus = null;
@@ -1698,7 +1717,7 @@
 
     // ===== Left panel: collapse + view mode (persisted to localStorage) =====
     private bool _leftCollapsed;
-    private string _viewMode = "tree";   // "tree" | "triage"
+    private string _viewMode = "tree";   // "tree" | "triage" | "repo"
 
     private async Task ToggleLeft()
     {
@@ -1752,6 +1771,7 @@
         if (sel is null) return;
         _shotsBusy = true;
         _shotsError = null;
+        _shotsOffline = false;
         await InvokeAsync(StateHasChanged);
         try
         {
@@ -1765,9 +1785,16 @@
             _shotsShown = ShotsInitialShown;
         }
         catch (OperationCanceledException) { }
+        catch (ScreenshotsDirectorOfflineException ex)
+        {
+            // Issue #412: the owning Director is offline - show the graceful message + Retry, not
+            // the raw "Response status code does not indicate success: 503" string.
+            _shotsOffline = true;
+            Log.LogWarning(ex, "LoadScreenshots: owning director offline");
+        }
         catch (Exception ex)
         {
-            _shotsError = $"could not load screenshots: {ex.Message}";
+            _shotsError = "Could not load screenshots from the Director. Use Refresh to try again.";
             Log.LogWarning(ex, "LoadScreenshots failed");
         }
         finally
@@ -2015,7 +2042,7 @@
 
     private async Task SetViewMode(string mode)
     {
-        if (mode != "tree" && mode != "triage") return;
+        if (mode != "tree" && mode != "triage" && mode != "repo") return;
         _viewMode = mode;
         await SavePref("cockpit.viewMode", mode);
     }

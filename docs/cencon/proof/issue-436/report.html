@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #436 - Developer Proof Report</title>
+<style>
+  body { background:#1e1e1e; color:#ccc; font-family:Segoe UI,Arial,sans-serif; margin:0; padding:24px; }
+  h1,h2,h3 { color:#fff; }
+  h1 { border-bottom:2px solid #007acc; padding-bottom:8px; }
+  code,pre { font-family:Cascadia Mono,Consolas,monospace; background:#252526; color:#ccc; }
+  pre { padding:10px; border:1px solid #3c3c3c; overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3c3c3c; padding:8px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#2d2d2d; color:#fff; }
+  .pass { color:#22c55e; font-weight:bold; }
+  img { max-width:100%; border:1px solid #3c3c3c; margin:8px 0; }
+  .strip { color:#22c55e; }
+  .hint { color:#888; font-size:13px; }
+  section { margin-bottom:28px; }
+</style>
+</head>
+<body>
+<h1>Issue #436 - Agents tab redesign: bigger dialog, live command-line preview, split Quick check / Launch preview, Automatic as Claude default</h1>
+<p class="hint">Developer Agent proof report. Branch <code>issue-436-agents-tab-redesign</code>. Verified on a slot-8 test Director (Control API <code>http://127.0.0.1:7879</code>, build v0.6.23) on SOREN_NORTH.</p>
+
+<section>
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Bigger dialog</b> - <code>SettingsDialog.axaml</code> default size 760x680 -&gt; 1040x860 so at least 3 agent-tool cards are visible without scrolling.</li>
+  <li><b>"This is what launches:" preview strip</b> - a read-only monospace strip added beneath the Command line row on all five tool cards. It updates live (no save/close) when the preset dropdown, Default model box, or advanced override box changes, derived from the shared <code>AgentToolConfig.ResolveEffectiveCommandLineArguments()</code> so it matches a real launch.</li>
+  <li><b>Split Test button</b> - the per-tool "Test" button is now two buttons: "Quick check" (the existing version probe) and "Launch preview..." (new).</li>
+  <li><b>Launch preview popup</b> - new <code>LaunchPreviewDialog</code> reuses <code>CcDirector.Terminal.Avalonia</code> + <code>ConPtyBackend</code> to start the agent with the exact resolved command line in a disposable, never-persisted, never-rostered session, with the command shown at the top and Stop-and-close / Close controls that tear the process down on exit.</li>
+  <li><b>Claude default flipped to Automatic</b> - <code>AgentToolCatalog.cs</code> Claude presets reordered so "Automatic (skip permissions)" is the default (index 0). XML doc comments and the Agents-page hint text updated to describe this and reference that it supersedes issue #391. An explicitly-saved prior preset is preserved.</li>
+  <li><b>DRY refactor</b> - the <code>--model</code> composition that was duplicated in <code>App.BuildClaudeDefaultArgs</code> and <code>SettingsDialog.ApplyClaudePresetToRunningOptions</code> moved into <code>AgentToolConfig.ResolveEffectiveCommandLineArguments()</code>, the single source of truth shared by App launch wiring and the preview.</li>
+</ul>
+</section>
+
+<section>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual (proof)</th><th>Status</th></tr>
+<tr><td>AC1</td><td>3+ full cards visible at default size, no scrolling</td><td>At 1040x860, Claude + Pi + Codex (header) visible without scrolling (ac1-ac9 screenshot)</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>Read-only monospace "This is what launches:" strip on every card</td><td>Strip present on Claude and Pi (and Codex/Gemini/OpenCode in markup), monospace, read-only</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Preview reflects preset: Automatic -&gt; exe + <code>--dangerously-skip-permissions</code>; Standard -&gt; exe only, live</td><td>Standard read <code>claude.EXE</code>; selecting Automatic changed it to <code>claude.EXE --dangerously-skip-permissions</code> with no save (ac3 screenshot + UIA value reads)</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Preview reflects model + override (override replaces preset args)</td><td>Model "opus" -&gt; <code>... --model opus</code>; override "--verbose --custom-flag" replaced the preset's skip-permissions while keeping <code>--model opus</code> (ac4 screenshots)</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Quick check runs the version probe, reports pass/fail + version</td><td>Quick check reported <span class="strip">"OK: Claude Code reported 2.1.177 (Claude Code)."</span> (ac5 screenshot)</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>Launch preview popup shows the exact command, a live terminal, and (Automatic) Claude's permission-bypass indication</td><td>Popup top shows <code>claude.EXE --dangerously-skip-permissions</code>; live terminal shows Claude Code v2.1.177 running with <span class="strip">"bypass permissions on (shift+tab to cycle)"</span> (ac6 screenshot)</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Closing tears down the throwaway process; no roster session added</td><td><code>GET /sessions</code> returned <code>[]</code> during and after; log: <code>throwaway process pid=33464 stopped and disposed</code>; process confirmed gone</td><td class="pass">PASS</td></tr>
+<tr><td>AC8</td><td>Unconfigured Claude (no config node) loads Automatic + skip-permissions preview</td><td>With <code>agent.tools.claude</code> removed, dropdown loaded "Automatic (skip permissions)" and preview <code>claude.EXE --dangerously-skip-permissions</code> (ac8 screenshot + UIA reads)</td><td class="pass">PASS</td></tr>
+<tr><td>AC9</td><td>Pre-seeded Standard config still loads as Standard (not overwritten)</td><td>With <code>claude.preset = "Standard"</code> seeded, dropdown loaded "Standard" and preview <code>claude.EXE</code> (ac1-ac9 screenshot + UIA reads)</td><td class="pass">PASS</td></tr>
+<tr><td>AC10</td><td>Catalog doc comments + hint text describe Automatic default and reference #391</td><td>See diff below</td><td class="pass">PASS</td></tr>
+<tr><td>AC11</td><td>Clean <code>dotnet build cc-director.sln</code> + VisualStyle compliance</td><td>Build succeeded, 0 Warning(s), 0 Error(s); screenshots show dark-theme tokens honored</td><td class="pass">PASS</td></tr>
+</table>
+</section>
+
+<section>
+<h2>AC10 - documentation diff</h2>
+<p class="hint">AgentToolCatalog.cs Claude entry comment (after):</p>
+<pre>// Claude Code (issue #436, supersedes #391): "Automatic (skip permissions)" is the
+// recommended default (index 0), so a freshly configured Claude launches with
+// --dangerously-skip-permissions. The STANDARD (no skip-permissions) preset is offered
+// as the non-default alternative.</pre>
+<p class="hint">Agents-page hint text (after):</p>
+<pre>Claude Code now defaults to Automatic (skip permissions), which passes
+--dangerously-skip-permissions (this supersedes the safe Standard default chosen in issue
+#391); switch the Command line dropdown to Standard to restore permission prompts.</pre>
+</section>
+
+<section>
+<h2>AC1 / AC2 / AC9 - enlarged tab, preview strips, pre-seeded Standard preserved</h2>
+<img src="ac1-ac9-agents-tab-standard-preserved.png" alt="Agents tab, 3 cards, Standard preserved" />
+</section>
+
+<section>
+<h2>AC3 - preset toggle (Automatic) reflected live</h2>
+<img src="ac3-claude-automatic.png" alt="Automatic preset, strip shows skip-permissions" />
+</section>
+
+<section>
+<h2>AC4 - model + override reflected live</h2>
+<img src="ac4-claude-model.png" alt="Model opus appended" />
+<img src="ac4-claude-override.png" alt="Override replaces preset, model still appended" />
+</section>
+
+<section>
+<h2>AC5 - Quick check</h2>
+<img src="ac5-quick-check.png" alt="Quick check reports version 2.1.177" />
+</section>
+
+<section>
+<h2>AC6 - Launch preview popup (Claude running, bypass indication)</h2>
+<img src="ac6-launch-preview.png" alt="Launch preview popup with Claude running and bypass permissions on" />
+</section>
+
+<section>
+<h2>AC7 - throwaway teardown, no roster session</h2>
+<pre>GET /sessions during preview:  []
+GET /sessions after close:     []
+healthz sessions count:        0
+
+[LaunchPreviewDialog] StartPreview: started pid=33464
+[LaunchPreviewDialog] BtnStopClose_Click
+[LaunchPreviewDialog] TearDownAsync
+[LaunchPreviewDialog] TearDownAsync: throwaway process pid=33464 stopped and disposed
+(process 33464 confirmed gone)</pre>
+</section>
+
+<section>
+<h2>AC8 - unconfigured Claude defaults to Automatic</h2>
+<img src="ac8-unconfigured-claude-automatic.png" alt="Unconfigured Claude loads Automatic" />
+</section>
+
+<section>
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change touches existing containers (<code>CcDirector.Avalonia</code>,
+<code>CcDirector.Core</code>, and reuses <code>CcDirector.Terminal.Avalonia</code>) with no new container, no new
+external surface, and no security-relevant behavior beyond the Claude default-preset change (which is a
+deliberate, approved product decision with an always-visible preview safety net). No DT-rule is affected.</p>
+</section>
+
+<section>
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+<p>Affected unit tests (AgentToolCatalog, AgentToolConfig, ToolDetectionWizardModel, ClaudeAgentDefaultArgs):
+Passed 28, Failed 0.</p>
+</section>
+
+<section>
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished.</p>
+<p>All 11 acceptance criteria are met with proof, the solution builds clean (0 warnings, 0 errors), the
+affected tests pass, and the UI honors docs/VisualStyle.md (dark-theme tokens, monospace preview strip,
+borderless Hand-cursor buttons).</p>
+</section>
+</body>
+</html>

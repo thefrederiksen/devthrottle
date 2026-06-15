@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #219 (By-repo session rail view)</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#1b1b1b;color:#e6e6e6;margin:0;padding:24px;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid #333;padding-bottom:4px}
+  .meta{color:#9aa;font-size:13px;margin-bottom:16px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+  th,td{border:1px solid #333;padding:6px 8px;vertical-align:top;text-align:left}
+  th{background:#262626}
+  .pass{color:#22C55E;font-weight:bold}
+  .fail{color:#F14C4C;font-weight:bold}
+  code{background:#2a2a2a;padding:1px 5px;border-radius:3px;font-family:Consolas,monospace}
+  img{max-width:420px;border:1px solid #333;margin:8px 0;display:block}
+  .verdict{font-size:18px;font-weight:bold;color:#22C55E;margin:24px 0;padding:12px;background:#13261a;border-left:4px solid #22C55E}
+  .note{color:#9aa;font-size:12px}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #219</h1>
+<div class="meta">
+  [Cockpit] By-repo session rail view: group sessions by repository, alphabetical, across machines<br>
+  PR #417 / branch <code>issue-219-cockpit-repo-view</code> (tip <code>78905ee</code>) &middot;
+  Verified independently by the QA Agent in an isolated detached worktree.
+</div>
+
+<h2>Method (independent verification)</h2>
+<p>The QA Agent did NOT reuse the Developer Agent's binary or screenshots. A fresh detached worktree was
+checked out at the PR tip (<code>78905ee</code>). Unit tests were run from that checkout; the
+rail-view visual proof was produced by re-running the test project's proof emitter
+(<code>EmitProofArtifact</code>) which renders the REAL compiled <code>SessionRail</code> component
+wrapped in the real <code>app.css</code>, then screenshotting that genuine compiled markup. The
+independently-generated render bytes were diffed against the committed artifact and matched (only
+line-ending differences). The full solution was built clean.</p>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Evidence</th><th>Result</th></tr>
+<tr><td>1</td><td>"Repo" toggle button right of Tree/Triage, <code>vt-on</code> when active</td>
+  <td>Third button labeled "Repo" with active class</td>
+  <td>Button at Cockpit.razor:71-73, class binds <code>vt-on</code> when <code>_viewMode=="repo"</code></td>
+  <td>code review</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Clicking "Repo" sets <code>_viewMode="repo"</code> and renders repo layout</td>
+  <td>SessionRail renders repo-grouped layout</td>
+  <td><code>else if (ViewMode == "repo")</code> branch in SessionRail.razor:194 emits repo groups; bUnit render confirmed</td>
+  <td>code + bUnit</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>One header per distinct repo, alphabetical case-insensitive</td>
+  <td>Headers sorted A-&gt;Z ignoring case</td>
+  <td>Screenshot: APPLE before CC-DIRECTOR. Unit test <code>InRepoGroups_HeadersAreAlphabetical_CaseInsensitive</code> passes (Apple/banana/zebra)</td>
+  <td>qa-repo-view.png + unit test + bUnit</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>In-group desktop order; row does not move when only status color changes</td>
+  <td>cc-director-B stays below cc-director-A after turning red</td>
+  <td>Blue vs flipped screenshots: cc-director-B turns red ("needs you") but remains in its SortOrder slot below cc-director-A. Unit + bUnit <code>RepoView_RowOrder_IsDesktopOrder_NotAffectedByColor</code></td>
+  <td>qa-repo-view.png vs qa-repo-view-color-changed.png</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Every row shows owning Director short-id (sess-dir visible, as triage)</td>
+  <td>Per-row Director label shown</td>
+  <td>Screenshot shows <code>:7884</code> / <code>:7886</code> per row. CSS <code>.rail.repo .sess-dir{margin-left:auto}</code> (shown, not <code>display:none</code> as tree). bUnit asserts <code>:7886</code> + title</td>
+  <td>qa-repo-view.png + app.css:341 + bUnit</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Same repo on two machines/Directors under ONE header</td>
+  <td>cc-director-A (MACHINE_A/:7884) and cc-director-B (MACHINE_B/:7886) under one "CC-DIRECTOR" header</td>
+  <td>Screenshot: single CC-DIRECTOR header, count 2, both rows. Unit test <code>InRepoGroups_SameRepoAcrossMachines_CoalescesIntoOneGroup</code> + bUnit <code>RepoView_SameRepoAcrossMachines_UnderOneHeader</code></td>
+  <td>qa-repo-view.png + unit + bUnit</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Repo-less sessions under single "(no repo)" group, after named repos</td>
+  <td>"(no repo)" group rendered last</td>
+  <td>Screenshot: "(NO REPO)" group last with scratch-session. Unit test <code>InRepoGroups_NoRepoGroup_IsPlacedLast</code> + bUnit</td>
+  <td>qa-repo-view.png + unit + bUnit</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Public static <code>SessionOrdering.InRepoGroups</code> + new tests (alpha order, no-repo last, in-group desktop order, cross-machine coalescing)</td>
+  <td><code>dotnet test</code> passes the new tests</td>
+  <td><code>public static IReadOnlyList&lt;RepoGroup&gt; InRepoGroups(...)</code> in SessionOrdering.cs. Gateway.Tests SessionOrderingTests: 25/25 pass (8 repo tests). Cockpit.Tests rail-render: 6/6 pass</td>
+  <td>test output below</td><td class="pass">PASS</td></tr>
+<tr><td>9</td><td>Repo view persists across reload (<code>cockpit.viewMode</code> round-trips "repo")</td>
+  <td>Init guard + SetViewMode guard accept "repo"; saved to localStorage</td>
+  <td>Init restore guard Cockpit.razor:1161 <code>mode is "tree" or "triage" or "repo"</code>; SetViewMode guard 2045 accepts "repo" and calls <code>SavePref("cockpit.viewMode", mode)</code></td>
+  <td>code review</td><td class="pass">PASS</td></tr>
+<tr><td>10</td><td><code>dotnet build cc-director.sln</code> succeeds, no new warnings</td>
+  <td>Build succeeded, 0 warnings</td>
+  <td>Build succeeded. 0 Warning(s), 0 Error(s)</td>
+  <td>build output below</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Repo view (Repo button active)</h2>
+<p class="note">Rendered from the genuine compiled SessionRail + real app.css. Alphabetical headers
+(APPLE, CC-DIRECTOR), cross-machine coalescing (cc-director-A :7884 / cc-director-B :7886 under one
+header), per-row Director short-id, and "(NO REPO)" group last.</p>
+<img src="qa-repo-view.png" alt="Repo view">
+
+<h2>No reshuffle on color change</h2>
+<p class="note">Same roster, cc-director-B forced red ("needs you"). Its row position is unchanged - it
+stays below cc-director-A (lower SortOrder). Desktop order is the only positional signal.</p>
+<img src="qa-repo-view-color-changed.png" alt="Repo view, color changed">
+
+<h2>Test output</h2>
+<pre>Gateway.Tests / SessionOrderingTests:  Passed!  Failed: 0, Passed: 25, Skipped: 0, Total: 25
+Cockpit.Tests / SessionRailRepoViewTests: Passed!  Failed: 0, Passed: 6, Skipped: 0, Total: 6</pre>
+
+<h2>Build output</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Tree and Triage view branches untouched in SessionRail.razor; only an additive <code>repo</code> branch added.</li>
+<li>No SessionDto field added, no Gateway/Director REST change - uses existing RepoPath/RemoteRepo/DirectorId/MachineName.</li>
+<li>Grouping policy is a shared unit-testable member on <code>SessionOrdering</code> (Gateway.Contracts), not inline LINQ - honors the #196 convention.</li>
+<li>Reuses the shared <code>SessionRow</code> template; no duplicated row markup.</li>
+<li>No blocking CenCon security rule (DT-*) touched; no architecture/security doc drift.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 10 acceptance criteria met. Issue #219 PASSES QA.</div>
+</body>
+</html>

@@ -42,6 +42,43 @@ public sealed class ControlApiHost : IAsyncDisposable
     public bool AuthEnabled => _authEnabled;
 
     /// <summary>
+    /// True once Kestrel has bound and <see cref="StartAsync"/> has completed successfully.
+    /// False while starting AND after a start failure (e.g. all ports in [7879..7898] busy).
+    /// The session-state services (badge tracking) run regardless -- see
+    /// <see cref="StartSessionStateServices"/> -- so this specifically means "the REST/Control
+    /// API and remote (Gateway/Cockpit/phone) access are up".
+    /// </summary>
+    public bool IsListening { get; private set; }
+
+    /// <summary>
+    /// Null while healthy; set to the failure reason when <see cref="StartAsync"/> could not
+    /// bind the Control API (reported by the boundary that catches the exception via
+    /// <see cref="ReportStartupFailure"/>). The desktop surfaces this as a loud sidebar
+    /// indicator so a port-exhausted Director is never silently degraded.
+    /// </summary>
+    public string? StartupError { get; private set; }
+
+    /// <summary>
+    /// Fires whenever <see cref="IsListening"/> / <see cref="StartupError"/> change, so the UI
+    /// can repaint its Control-API indicator. May fire on a background thread.
+    /// </summary>
+    public event Action? StartupStatusChanged;
+
+    /// <summary>
+    /// Record that the Control API failed to start. Called by the boundary that catches the
+    /// <see cref="StartAsync"/> exception (App startup) -- StartAsync re-throws, so the host
+    /// itself cannot set this from a success-returning path. Raises
+    /// <see cref="StartupStatusChanged"/> so the UI surfaces the degraded state.
+    /// </summary>
+    public void ReportStartupFailure(string error)
+    {
+        FileLog.Write($"[ControlApiHost] ReportStartupFailure: {error}");
+        IsListening = false;
+        StartupError = error;
+        StartupStatusChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Per-session persistent JSONL log. Exposed so the Avalonia UI can persist
     /// rendered agent-view widgets to <c>agent-view.jsonl</c> alongside the raw
     /// stream and turn summaries we already write. Null until <see cref="StartAsync"/>.
@@ -107,6 +144,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly Func<Engine.Dispatcher.CommunicationDispatcher?>? _commDispatcherAccessor;
     private readonly string? _instancesDirectory;
     private bool _stopped;
+    private bool _stateServicesStarted;
 
     /// <summary>
     /// Construct a Director Control API host.
@@ -145,6 +183,14 @@ public sealed class ControlApiHost : IAsyncDisposable
     public async Task<int> StartAsync()
     {
         FileLog.Write($"[ControlApiHost] StartAsync: directorId={DirectorId}, ephemeral={_useEphemeralPort}");
+
+        // Start the session-state services FIRST, before any port allocation or Kestrel work.
+        // They observe the SessionManager + terminal buffers only -- never the bound port -- so
+        // they must come up even when the Control API fails to bind (e.g. every port in
+        // [7879..7898] is taken by other Directors). Before this was hoisted out, PortAllocator
+        // throwing aborted StartAsync before these started, freezing every session on its last
+        // badge colour: a silent session could never flip to the red "needs you" state.
+        StartSessionStateServices();
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -220,53 +266,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         });
         _app.UseRouting();
 
-        // Phase 5: persistent JSONL log per session. Must start FIRST so brand-new
-        // sessions have a writer attached before any events fire.
-        _sessionLogManager = new Core.Storage.SessionLogManager(_sessionManager);
-        _sessionLogManager.Start();
-
-        // Phase 3: the SessionStatusWingman is the sole writer of each Session's
-        // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
-        // already "green/session created" by the time anything else observes them.
-        _statusWingman = new SessionStatusWingman(_sessionManager);
-        _statusWingman.Start();
-
-        // Start the Wingman's per-turn summary cache before mapping endpoints so
-        // /sessions/{sid}/turn-summaries returns whatever is already cached. Summaries are
-        // generated on demand (the voice/mobile views call GenerateForLatestTurnAsync).
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
-        _turnSummaryCache.Start();
-
-        // Proactive explain: for Wingman-enabled sessions, regenerate + cache the Opus briefing
-        // at each decision-point turn-end so the phone reads it instantly on open. TEXT ONLY --
-        // no auto-narration. The phone's voice mode invokes /tts on demand against the cached
-        // briefing's spoken-version field.
-        _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
-        _proactiveExplain.Start();
-
-        // Terminal-driven state: the detector's only rule is byte -> working, plus the idle
-        // clock (time since the last ConPTY character). No footer/grid/LLM guesswork, and no
-        // Claude Code hooks - the detector is the single authority for session state.
-        _terminalStateDetector = new TerminalStateDetector(_sessionManager, driveState: true);
-        _terminalStateDetector.Start();
-        FileLog.Write("[ControlApiHost] Session state source: terminal (byte->working)");
-
-        // Always-on terminal recorder: logs every session's resolved grid (on change, with the
-        // activity state) to build the ground-truth corpus for offline analysis/learning.
-        // Turn detection itself is the trigger + LLM judge in TerminalStateDetector above - no
-        // regex screen parsing. Observe-only, capped per session. On by default; set
-        // CC_DIRECTOR_RECORD_SESSIONS=0 to disable. See docs/wingman/WINGMAN.md.
-        if (Environment.GetEnvironmentVariable("CC_DIRECTOR_RECORD_SESSIONS") != "0")
-        {
-            _sessionRecorder = new TerminalSessionRecorder(_sessionManager);
-            _sessionRecorder.Start();
-        }
-
-        // Per-turn review log: one record each time a session flips Working -> needs-you
-        // (our detector's transition, no hooks). Terminal + what the Wingman said/did, 7-day
-        // retention. See CcStorage.TurnReviewLogs().
-        _turnReviewLogger = new Core.Storage.TurnReviewLogger(_sessionManager);
-        _turnReviewLogger.Start();
+        // NOTE: the per-session state-tracking services (status wingman, terminal-state
+        // detector, recorders, loggers) are NOT started here. They are started up front by
+        // StartSessionStateServices(), before any port allocation, so they survive a
+        // Control-API bind failure. See that method for the rationale.
 
         // Turn briefing left the Director (issue #187, the Gateway Wingman end state):
         // the GATEWAY's warm-brain agent observes turn ends (doorbell/heartbeat, #186),
@@ -359,7 +362,80 @@ public sealed class ControlApiHost : IAsyncDisposable
         _gatewayClient.Start();
         WireDoorbellPush();
 
+        IsListening = true;
+        StartupError = null;
+        StartupStatusChanged?.Invoke();
         return Port;
+    }
+
+    /// <summary>
+    /// Start the per-session state-tracking services. Every service here observes the
+    /// <see cref="SessionManager"/> and its sessions' terminal buffers only -- none of them
+    /// touch Kestrel or the bound port -- so they run independently of whether the Control API
+    /// binds.
+    ///
+    /// This is deliberately decoupled from the port bind. The desktop "needs you" badge is
+    /// <see cref="Session.StatusColor"/>, written by <see cref="SessionStatusWingman"/> from the
+    /// <see cref="ActivityState"/> that <see cref="TerminalStateDetector"/> drives (byte -> Working;
+    /// <see cref="TerminalStateDetector.QuietThreshold"/> of silence -> WaitingForInput = red).
+    /// Before these were hoisted out of the post-bind section of <see cref="StartAsync"/>, a
+    /// port-allocation failure (e.g. every port in [7879..7898] busy from other Directors)
+    /// aborted StartAsync before they started -- leaving every session frozen on its last colour,
+    /// so a silent session could sit forever and never flip to red. Idempotent: safe to call
+    /// again (StartAsync calls it once up front).
+    /// </summary>
+    internal void StartSessionStateServices()
+    {
+        if (_stateServicesStarted) return;
+        _stateServicesStarted = true;
+
+        // Phase 5: persistent JSONL log per session. Must start FIRST so brand-new
+        // sessions have a writer attached before any events fire.
+        _sessionLogManager = new Core.Storage.SessionLogManager(_sessionManager);
+        _sessionLogManager.Start();
+
+        // Phase 3: the SessionStatusWingman is the sole writer of each Session's
+        // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
+        // already "green/session created" by the time anything else observes them.
+        _statusWingman = new SessionStatusWingman(_sessionManager);
+        _statusWingman.Start();
+
+        // Start the Wingman's per-turn summary cache before mapping endpoints so
+        // /sessions/{sid}/turn-summaries returns whatever is already cached. Summaries are
+        // generated on demand (the voice/mobile views call GenerateForLatestTurnAsync).
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
+        _turnSummaryCache.Start();
+
+        // Proactive explain: for Wingman-enabled sessions, regenerate + cache the Opus briefing
+        // at each decision-point turn-end so the phone reads it instantly on open. TEXT ONLY --
+        // no auto-narration. The phone's voice mode invokes /tts on demand against the cached
+        // briefing's spoken-version field.
+        _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
+        _proactiveExplain.Start();
+
+        // Terminal-driven state: the detector's only rule is byte -> working, plus the idle
+        // clock (time since the last ConPTY character). No footer/grid/LLM guesswork, and no
+        // Claude Code hooks - the detector is the single authority for session state.
+        _terminalStateDetector = new TerminalStateDetector(_sessionManager, driveState: true);
+        _terminalStateDetector.Start();
+        FileLog.Write("[ControlApiHost] Session state source: terminal (byte->working)");
+
+        // Always-on terminal recorder: logs every session's resolved grid (on change, with the
+        // activity state) to build the ground-truth corpus for offline analysis/learning.
+        // Turn detection itself is the trigger + LLM judge in TerminalStateDetector above - no
+        // regex screen parsing. Observe-only, capped per session. On by default; set
+        // CC_DIRECTOR_RECORD_SESSIONS=0 to disable. See docs/wingman/WINGMAN.md.
+        if (Environment.GetEnvironmentVariable("CC_DIRECTOR_RECORD_SESSIONS") != "0")
+        {
+            _sessionRecorder = new TerminalSessionRecorder(_sessionManager);
+            _sessionRecorder.Start();
+        }
+
+        // Per-turn review log: one record each time a session flips Working -> needs-you
+        // (our detector's transition, no hooks). Terminal + what the Wingman said/did, 7-day
+        // retention. See CcStorage.TurnReviewLogs().
+        _turnReviewLogger = new Core.Storage.TurnReviewLogger(_sessionManager);
+        _turnReviewLogger.Start();
     }
 
     /// <summary>

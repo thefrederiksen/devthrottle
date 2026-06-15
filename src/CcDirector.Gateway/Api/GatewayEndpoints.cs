@@ -25,6 +25,11 @@ internal static class GatewayEndpoints
     /// <param name="briefStampFor">Issue #187: the Gateway-owned briefing state + latest
     /// rail line per session, stamped onto the aggregation now that the Director-side
     /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
+    /// <param name="needsYouStampFor">Issue #218: given (sessionId, isRed) where isRed is the
+    /// session's final EffectiveColor=="red" this refresh, returns the Gateway-owned UTC
+    /// timestamp the session entered red (held while red, null when not red), stamped onto
+    /// <see cref="SessionDto.NeedsYouSince"/>. Null (old callers / briefing disabled) leaves
+    /// the field null.</param>
     /// <param name="interruptedBriefFor">Issue #212 W3: the Gateway's last-known rail line +
     /// headline for a session id, used to enrich the Interrupted sessions list so a dead
     /// session is triageable. Reads the durable brief store, so it works even for a session
@@ -42,6 +47,7 @@ internal static class GatewayEndpoints
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
+        Func<string, bool, DateTime?>? needsYouStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
         SessionOwnerCache? owners = null,
@@ -471,6 +477,16 @@ internal static class GatewayEndpoints
                         var (briefingState, railLine) = briefStampFor(s.SessionId);
                         s.BriefingState = briefingState;
                         s.RailLine = railLine;
+                    }
+                    // Issue #218: stamp NeedsYouSince AFTER the briefing/rail fields above, so the
+                    // EffectiveColor fold sees this refresh's final BriefingState/RailLine/OnHold -
+                    // a session still being briefed/explained is effective yellow/orange (not red)
+                    // and so is correctly treated as not-yet-waiting. The clock sets the entry
+                    // timestamp on first red, holds it while red, and clears it when it leaves red.
+                    if (needsYouStampFor is not null)
+                    {
+                        var isRed = string.Equals(SessionOrdering.EffectiveColor(s), "red", StringComparison.OrdinalIgnoreCase);
+                        s.NeedsYouSince = needsYouStampFor(s.SessionId, isRed);
                     }
                     // Issue #335: ViewUrl - use the Director-supplied value when present (it carries
                     // the correct tailnet endpoint and sessionId); for OLD Directors (empty ViewUrl)

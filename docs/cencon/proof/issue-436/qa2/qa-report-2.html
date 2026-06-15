@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #436 - QA report 2 (AC1 re-verification + regression sweep)</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:Segoe UI, sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#FFFFFF; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#FFFFFF; font-size:17px; margin-top:28px; }
+  code { font-family:Cascadia Mono, Consolas, monospace; background:#252526; padding:2px 6px; border-radius:3px; color:#CCCCCC; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#FFFFFF; }
+  .pass { color:#22C55E; font-weight:600; }
+  .fail { color:#EF4444; font-weight:600; }
+  img { max-width:100%; border:1px solid #3C3C3C; margin:8px 0; display:block; }
+  .note { background:#252526; border-left:3px solid #007ACC; padding:10px 14px; margin:12px 0; }
+  figcaption { color:#888888; font-size:12px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<h1>Issue #436 - QA report 2 (independent re-verification after AC1 fix)</h1>
+
+<p>This issue was previously bounced (<code>flow:qa-failed</code>) on a single defect: <strong>AC1</strong>
+- at the default dialog size on a 1920x1080 display, only 2 full agent-tool cards were visible; the
+3rd card (Codex) was clipped behind the Save bar. The Developer Agent pushed a fix (commit
+<code>0bbf6a8</code>): default dialog <code>Height</code> 860 -&gt; 1010 and tightened per-card
+spacing/padding. This report is a brand-new independent QA verification of the fix plus a regression
+sweep of the other 10 criteria, performed in a freshly built isolated test Director.</p>
+
+<div class="note">
+<strong>Verified in a freshly built, isolated test Director.</strong> PR branch
+<code>issue-436-agents-tab-redesign</code> @ <code>0bbf6a8</code> checked out in its own worktree,
+built with <code>dotnet build cc-director.sln</code> (Build succeeded, 0 Warning(s) / 0 Error(s)),
+slot 8 exe (v0.6.23), launched via the <code>cc-director8-launch</code> scheduled task (clean
+parentage), Control API on <code>http://127.0.0.1:7879</code>. Reference display:
+<strong>1920x1080</strong> (primary, work area 1920x1032 - 48px taskbar). Dialog opened at its
+default size (UIA-measured rect <code>[440,23, 1040x1010]</code>).
+</div>
+
+<h2>AC1 (the bounced criterion) - PASS</h2>
+<p><strong>Expected:</strong> at default dialog size on 1920x1080, at least 3 full agent-tool cards
+visible without scrolling.</p>
+<p><strong>Actual:</strong> Claude Code, Pi, and Codex are each fully rendered - header, path row,
+command-line dropdown, override box, and the complete "This is what launches:" preview strip with
+its bottom border - all above the Save and Close / Cancel bar. A scrollbar remains (correct: 5 cards
+total, Gemini/OpenCode are below), but the 3rd card is fully visible with no scrolling. AC1 met.</p>
+<figure>
+<img src="ac1-dialog-crop.png" alt="Agents tab default size, 3 full cards" />
+<figcaption>Settings -&gt; Agents at default size (1040x1010) on the primary 1920x1080 display. Three
+full cards (Claude Code, Pi, Codex) visible; each shows its complete monospace preview strip; the
+Codex card's bottom border sits above the Save and Close / Cancel bar. QA-captured.</figcaption>
+</figure>
+
+<h2>AC2 / AC3 re-verified live (the criteria most coupled to the resized cards) - PASS</h2>
+<p>The AC1 fix resized and re-padded every card, so QA independently re-exercised the preview-strip
+rendering and its live preset response. With the Claude Command line dropdown switched to
+<strong>Automatic (skip permissions)</strong>, the read-only "This is what launches:" strip updated
+live (no save/close) to <code>C:\Users\soren\.local\bin\claude.EXE --dangerously-skip-permissions</code>.
+UIA read of <code>ClaudePreviewStrip.Value</code> confirmed the same string. Quick check / Launch
+preview split buttons present.</p>
+<figure>
+<img src="ac3-claude-automatic-preview.png" alt="Claude card with Automatic preset and preview strip" />
+<figcaption>Claude card, Automatic preset selected -&gt; preview strip reads
+<code>...claude.EXE --dangerously-skip-permissions</code>. The monospace strip (AC2) renders inside
+the resized card; the dark VisualStyle theme is honored (AC11). QA-captured.</figcaption>
+</figure>
+
+<h2>Regression sweep - all 11 criteria</h2>
+<p>The AC1 fix (<code>0bbf6a8</code>) is provably a pure dialog-layout change: <code>git show</code>
+shows only <code>SettingsDialog.axaml</code> sizing/spacing edits (<code>Height</code> 860-&gt;1010,
+border <code>Padding</code> 10-&gt;8, <code>StackPanel Spacing</code> 8-&gt;6 on all 5 cards, hint
+paragraph condensed). No handler, catalog, or launch logic was touched. The first QA pass had already
+independently verified AC2-AC11 on this branch; the items below marked "re-verified" were exercised
+again by this QA session, the rest are unaffected by a layout-only change.</p>
+<table>
+<tr><th>AC</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>AC1</td><td>3 full cards, no scroll, default size on 1920x1080</td><td class="pass">PASS (FIXED)</td><td>QA screenshot <code>ac1-dialog-crop.png</code> + UIA dialog rect 1040x1010</td></tr>
+<tr><td>AC2</td><td>"This is what launches:" strip on every card</td><td class="pass">PASS (re-verified)</td><td>Strips visible on Claude/Pi/Codex in <code>ac1-dialog-crop.png</code></td></tr>
+<tr><td>AC3</td><td>Preview reflects preset, live</td><td class="pass">PASS (re-verified)</td><td>Automatic -&gt; <code>--dangerously-skip-permissions</code>; UIA <code>ClaudePreviewStrip.Value</code> + <code>ac3-claude-automatic-preview.png</code></td></tr>
+<tr><td>AC4</td><td>Preview reflects model + override</td><td class="pass">PASS</td><td>Layout-only fix; verified prior QA; no logic changed (<code>ResolveEffectiveCommandLineArguments</code> untouched)</td></tr>
+<tr><td>AC5</td><td>Quick check unchanged</td><td class="pass">PASS</td><td>Split button present (<code>ac3-claude-automatic-preview.png</code>); probe logic untouched</td></tr>
+<tr><td>AC6</td><td>Launch preview popup with live terminal + bypass indication</td><td class="pass">PASS</td><td>LaunchPreviewDialog untouched by fix; verified prior QA</td></tr>
+<tr><td>AC7</td><td>Launch preview teardown, no roster session</td><td class="pass">PASS</td><td><code>GET /sessions</code> = <code>[]</code> throughout this run; teardown logic untouched</td></tr>
+<tr><td>AC8</td><td>Claude default is Automatic</td><td class="pass">PASS</td><td><code>AgentToolCatalog.cs</code> Claude <code>Presets[0]</code> = Automatic (<code>--dangerously-skip-permissions</code>); <code>DefaultPreset =&gt; Presets[0]</code></td></tr>
+<tr><td>AC9</td><td>Existing saved config preserved</td><td class="pass">PASS</td><td>Config-merge logic untouched; verified prior QA. config.json not modified by this run (Cancel, no save)</td></tr>
+<tr><td>AC10</td><td>Doc/hint accuracy (#391 + Automatic)</td><td class="pass">PASS (re-verified)</td><td>Catalog XML comments reference issue #391 + Automatic (lines 24, 46-51, 96); condensed Agents hint still references #391 + Automatic (visible in <code>ac1-dialog-crop.png</code>)</td></tr>
+<tr><td>AC11</td><td>Clean build + VisualStyle compliance</td><td class="pass">PASS</td><td>QA's own <code>dotnet build cc-director.sln</code> = 0/0; dark theme honored in screenshots</td></tr>
+</table>
+
+<h2>Hygiene / negative sweep</h2>
+<ul>
+<li><code>GET /sessions</code> returned <code>[]</code> before, during, and after - the dialog and the
+preset toggle added no managed session.</li>
+<li>The Settings dialog was closed with <strong>Cancel</strong> (no Save), so the preset change I made
+for AC3 was never persisted - <code>config.json</code> mtime unchanged.</li>
+<li>No adjacent Settings tab (Files / Gateway / Voice / Features / Advanced) was touched by the fix.</li>
+<li>CenCon: pure XAML layout change to one Avalonia view - no architecture/security-posture change, no
+DT rule touched, <code>docs/cencon/</code> unchanged.</li>
+</ul>
+
+<h2>Verdict</h2>
+<p class="pass">VERIFIED - all 11 acceptance criteria met. AC1 fixed and independently re-proven;
+no regression in AC2-AC11.</p>
+</body>
+</html>

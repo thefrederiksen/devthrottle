@@ -1,4 +1,4 @@
-@* Gateway-wide session rail with two layouts (ViewMode):
+@* Gateway-wide session rail with three layouts (ViewMode):
 
    "tree"   - Machine -> Director -> Sessions. Sessions keep their owning Director's
               desktop order (SortOrder), so they hold a stable slot and don't reshuffle.
@@ -9,6 +9,12 @@
               (StatusColor "red") at the top, ON HOLD (user/agent parked) at the bottom,
               everything else in between. The owning Director short-id is shown per row
               since the grouping is dropped here.
+
+   "repo"   - one group per repository across every machine/Director (issue #219): repo
+              headers sorted alphabetically (case-insensitive), each followed by that
+              repo's sessions in desktop order, then a "(no repo)" group last. Grouping by
+              repo drops the machine/Director context, so the owning Director short-id is
+              shown per row, exactly as in triage mode.
 
    StatusColor and OnHold are rendered verbatim from the Director; never derived. *@
 
@@ -68,12 +74,24 @@
                     {
                         <span class="tag tag-voice">voice</span>
                     }
-                    <span class="sess-dir">@ShortId(s.DirectorId)</span>
+                    @* Issue #237: show the Director's port (resolved from the registry by the
+                       session's DirectorId), not the GUID prefix. Full GUID stays in the title. *@
+                    <span class="sess-dir" title="@s.DirectorId">@PortLabelFor(s.DirectorId)</span>
                     @* Generic fallback pill when no brief exists (old Directors / brief
                        pending) - small enough to stay on the state line. *@
                     @if (SessionOrdering.EffectiveColor(s) == "red" && string.IsNullOrWhiteSpace(s.RailLine) && !s.OnHold)
                     {
                         <span class="needs-pill">needs you</span>
+                    }
+                    @* Issue #218: how long this session has been waiting (NEEDS YOU). The
+                       Gateway stamps NeedsYouSince the moment EffectiveColor becomes red and
+                       clears it when it leaves red, so the label only shows on red rows and is
+                       absent (not "0s") on active/blue/briefing sessions. now-NeedsYouSince is
+                       recomputed each 2s roster refresh, so it ticks up while the session stays
+                       red. *@
+                    @if (SessionOrdering.EffectiveColor(s) == "red" && s.NeedsYouSince is { } since)
+                    {
+                        <span class="needs-wait" title="Waiting for you since @since.ToLocalTime():HH:mm:ss">@Waiting(since)</span>
                     }
                 </span>
                 @* The wingman's railLine: WHAT the session wants, not just that it wants
@@ -164,9 +182,31 @@
                 <div class="triage-head err">UNREACHABLE <span class="triage-count">@Errors.Count</span></div>
                 @foreach (var e in Errors)
                 {
-                    <div class="dir-error" title="@e.Error">
-                        @MachineKey(e.MachineName) / director @ShortId(e.DirectorId) &mdash; @e.Error
+                    <div class="dir-error" title="@($"{e.DirectorId} - {e.Error}")">
+                        @* Issue #237: port when resolvable (registry lookup by DirectorId),
+                           else the GUID prefix - never blank. Full GUID in the title. *@
+                        @MachineKey(e.MachineName) / director @PortLabelFor(e.DirectorId) &mdash; @e.Error
                     </div>
+                }
+            </div>
+        }
+    }
+    else if (ViewMode == "repo")
+    {
+        @* Issue #219: one group per repository across every machine/Director, headers
+           alphabetical (case-insensitive), "(no repo)" last; in-group desktop order keeps
+           rows from reshuffling on a color change. The grouping policy lives on
+           SessionOrdering so it is shared and unit-tested, never inline LINQ here. *@
+        @foreach (var group in SessionOrdering.InRepoGroups(Sessions))
+        {
+            <div class="repo-grp">
+                <div class="repo-head @(group.IsNoRepo ? "norepo" : "")">
+                    <span class="repo-name">@group.Name</span>
+                    <span class="repo-count">@group.Sessions.Count</span>
+                </div>
+                @foreach (var s in group.Sessions)
+                {
+                    @SessionRow(s)
                 }
             </div>
         }
@@ -192,7 +232,10 @@
                 @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
                 {
                     <div class="dir-head">
-                        <span class="dir-head-label">director @ShortId(dir.Key)</span>
+                        @* Issue #237: label each Director by its port (short, restart-stable, maps
+                           to the slot convention) not the meaningless per-process GUID prefix. The
+                           full DirectorId stays in the tooltip; it remains the routing key below. *@
+                        <span class="dir-head-label" title="@dir.Key">director @PortLabelFor(dir.Key)</span>
                         @* Version + uptime from the Gateway's Director registry: makes a
                            stale pre-fix Director stand out without leaving the rail. *@
                         @if (DirectorFor(dir.Key) is { } meta)
@@ -215,8 +258,10 @@
 
                 @foreach (var e in machineErrors)
                 {
-                    <div class="dir-error" title="@e.Error">
-                        director @ShortId(e.DirectorId) &mdash; unreachable (@e.Error)
+                    <div class="dir-error" title="@($"{e.DirectorId} - {e.Error}")">
+                        @* Issue #237: port when resolvable (registry lookup by DirectorId),
+                           else the GUID prefix - never blank. Full GUID in the title. *@
+                        director @PortLabelFor(e.DirectorId) &mdash; unreachable (@e.Error)
                     </div>
                 }
             </div>
@@ -241,8 +286,9 @@
 
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
-    /// <summary>"tree" (Machine -> Director -> Sessions, desktop order) or "triage"
-    /// (needs-you first, on-hold last, flat across Directors).</summary>
+    /// <summary>"tree" (Machine -> Director -> Sessions, desktop order), "triage"
+    /// (needs-you first, on-hold last, flat across Directors), or "repo" (grouped by
+    /// repository across all machines, alphabetical, "(no repo)" last; issue #219).</summary>
     [Parameter] public string ViewMode { get; set; } = "tree";
 
     /// <summary>Raised with a Director id when the user clicks a Director's [+] to start
@@ -297,6 +343,41 @@
     private DirectorDto? DirectorFor(string directorId) =>
         Directors.FirstOrDefault(d => d.DirectorId == directorId);
 
+    /// <summary>Parses the port out of a Director endpoint URL ("http://127.0.0.1:7884" or
+    /// "http://host:7884/") - the short, restart-stable identifier a human knows (issue #237).
+    /// Returns "?" when the endpoint is empty or carries no port (caller decides the fallback).
+    /// Reference implementation: phone/CcDirectorClient/ExesPage.xaml.cs PortOf.</summary>
+    private static string PortOf(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint)) return "?";
+        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
+        return m.Success ? m.Groups[1].Value : "?";
+    }
+
+    /// <summary>The port for a Director's registry entry: parsed from <see cref="DirectorDto.ControlEndpoint"/>,
+    /// falling back to <see cref="DirectorDto.TailnetEndpoint"/> when the control endpoint is empty
+    /// (cross-machine HTTP-registered Directors). Returns "?" when neither yields a port.</summary>
+    private static string PortOf(DirectorDto dir)
+    {
+        var port = PortOf(dir.ControlEndpoint);
+        if (port != "?") return port;
+        return PortOf(dir.TailnetEndpoint);
+    }
+
+    /// <summary>The rail label for a Director id: ":&lt;port&gt;" resolved from the Director registry,
+    /// or the GUID short-id when the Director is not (or no longer) in the registry, or its endpoints
+    /// carry no port. Used by the per-session span and the unreachable rows, which have no endpoint of
+    /// their own (issue #237). Never blank - always either a port or the prior GUID prefix.</summary>
+    private string PortLabelFor(string directorId)
+    {
+        if (DirectorFor(directorId) is { } dir)
+        {
+            var port = PortOf(dir);
+            if (port != "?") return $":{port}";
+        }
+        return ShortId(directorId);
+    }
+
     /// <summary>Version without build metadata: "0.6.7+41d82c4" -> "0.6.7". The full string
     /// stays available in the header tooltip via StartedAt anyway.</summary>
     private static string ShortVersion(string version) =>
@@ -311,6 +392,21 @@
         return up.TotalDays >= 1 ? $"{(int)up.TotalDays}d {up.Hours}h"
              : up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes}m"
              : $"{up.Minutes}m";
+    }
+
+    /// <summary>Issue #218: compact elapsed-waiting label for a NEEDS YOU session, from the
+    /// Gateway-owned <see cref="SessionDto.NeedsYouSince"/> UTC stamp. Same compact style as
+    /// <see cref="Uptime"/> ("2d 4h" / "1h 16m" / "12m") but seconds-aware for sub-minute waits
+    /// ("12s") so a freshly-red session shows a meaningful value rather than "0m". Recomputed on
+    /// every roster refresh (the Cockpit's 2s poll), so it ticks up while the session stays red.</summary>
+    private static string Waiting(DateTime sinceUtc)
+    {
+        var w = DateTime.UtcNow - sinceUtc.ToUniversalTime();
+        if (w < TimeSpan.Zero) w = TimeSpan.Zero;
+        return w.TotalDays >= 1 ? $"{(int)w.TotalDays}d {w.Hours}h"
+             : w.TotalHours >= 1 ? $"{(int)w.TotalHours}h {w.Minutes}m"
+             : w.TotalMinutes >= 1 ? $"{(int)w.TotalMinutes}m"
+             : $"{(int)w.TotalSeconds}s";
     }
 
     // Verbatim render of the Director-authored StatusColor. Never derived from other fields.

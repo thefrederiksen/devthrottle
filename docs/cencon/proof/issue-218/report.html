@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #218 - Developer Agent Proof - Waiting duration on NEEDS YOU sessions</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 18px;color:#1f2933;line-height:1.55}
+  h1{font-size:22px;border-bottom:2px solid #d33;padding-bottom:6px}
+  h2{font-size:17px;margin-top:28px;color:#b32424}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-family:Consolas,monospace;font-size:13px}
+  pre{background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;overflow:auto;font-size:12.5px}
+  table{border-collapse:collapse;width:100%;margin:14px 0}
+  th,td{border:1px solid #d0d7de;padding:7px 9px;text-align:left;vertical-align:top;font-size:13.5px}
+  th{background:#f6f8fa}
+  .pass{color:#1a7f37;font-weight:600}
+  img{border:1px solid #444;border-radius:6px;margin:8px 0;max-width:460px}
+  .imgrow{display:flex;gap:18px;flex-wrap:wrap}
+  .belief{background:#e8f5e9;border-left:4px solid #1a7f37;padding:12px 16px;margin-top:26px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<h1>Issue #218 - Show waiting duration on each NEEDS YOU session (server-stamped NeedsYouSince)</h1>
+<p><strong>Role:</strong> Developer Agent (CenCon). <strong>Branch:</strong> <code>issue-218-needsyou-since</code>.
+Build: <code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Contract:</strong> new nullable UTC <code>SessionDto.NeedsYouSince</code> (Gateway-owned, XML-doc) in
+      <code>src/CcDirector.Gateway.Contracts/SessionDto.cs</code>.</li>
+  <li><strong>Gateway store:</strong> new in-memory per-session <code>NeedsYouClock</code>
+      (<code>src/CcDirector.Gateway/Briefing/NeedsYouClock.cs</code>), mirroring <code>SessionAssessments</code>:
+      stamps <code>UtcNow</code> on first red, holds it while red, clears to null when it leaves red.</li>
+  <li><strong>Gateway stamping:</strong> wired a <code>needsYouStampFor</code> delegate into the <code>/sessions</code>
+      fanout loop (<code>GatewayEndpoints.cs</code>), called <em>after</em> the existing BriefingState/RailLine stamping so
+      <code>SessionOrdering.EffectiveColor(s)</code> sees this refresh's final state; backed by <code>GatewayHost._needsYouClock</code>.</li>
+  <li><strong>Cockpit:</strong> the triage NEEDS YOU rows now render an elapsed-waiting label from <code>NeedsYouSince</code>
+      via a new compact <code>Waiting()</code> helper (seconds-aware for sub-minute waits, otherwise the same
+      "12m" / "1h 16m" / "2d 4h" style as the existing <code>Uptime</code> helper), styled <code>.needs-wait</code> in
+      <code>app.css</code>. Re-rendered by the existing 2s roster poll.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. The change adds an in-memory store that mirrors an existing pattern (<code>SessionAssessments</code>);
+no architecture container is added or removed and no security posture changes. No <code>docs/cencon/</code> update required.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Proof</th><th>Result</th></tr>
+
+<tr><td>1</td><td>New nullable <code>DateTime? NeedsYouSince</code> with Gateway-owned XML-doc</td>
+<td>Field present, defaults null, documented</td>
+<td>Added in <code>SessionDto.cs</code> with full XML-doc (Gateway-owned, marks entry into red).</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>red -&gt; non-null; non-red -&gt; null in <code>/sessions</code></td>
+<td>red has timestamp, non-red is null</td>
+<td>Integration test <code>NeedsYouSince_is_nonNull_for_red_and_null_for_nonRed</code> drives the real
+<code>GatewayHost</code> <code>/sessions</code> fanout (red1 -&gt; non-null, blue1 -&gt; null). JSON shape below.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>Stamped within 5s of entering red</td>
+<td>|NeedsYouSince - entry| &lt; 5s</td>
+<td><code>NeedsYouSince_is_within_5s_of_entry</code> asserts the stamp lies in the [before-5s, after+5s] poll window.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>Stable (byte-identical) across polls while red</td>
+<td>Same value on repeat polls</td>
+<td><code>NeedsYouSince_is_stable_across_polls_while_red</code> polls twice and asserts equality;
+unit test <code>Stamp_StaysRedAcrossPolls_HoldsSameValue</code> confirms the store holds the first value.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Resets strictly later on leave-then-re-enter red</td>
+<td>2nd episode &gt; 1st; null in between</td>
+<td><code>NeedsYouSince_resets_strictly_later_after_leaving_and_re_entering_red</code> (null between episodes,
+2nd stamp strictly later); unit test <code>Stamp_ReEntersRed_SecondStampIsStrictlyLater</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Cockpit triage NEEDS YOU rows show an elapsed-duration label from <code>NeedsYouSince</code></td>
+<td>Label visible on a red row</td>
+<td>Screenshot below (t0): red rows show "1m" and "12s". Render test
+<code>TriageRedRow_ShowsWaitingLabel_DerivedFromNeedsYouSince</code> asserts the <code>.needs-wait</code> text.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Displayed time increases on successive refreshes while red</td>
+<td>2nd screenshot larger value</td>
+<td>Two screenshots of the SAME sessions: t0 = "1m"/"12s", t+120s = "3m"/"2m" (label is <code>now - NeedsYouSince</code>,
+recomputed each poll). Render test <code>OlderStamp_ShowsLargerValue_ThanRecentStamp</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>Label absent (not "0s"/stale) for non-NEEDS-YOU sessions</td>
+<td>No label on ACTIVE/blue</td>
+<td>Screenshots: the ACTIVE "cockpit-port-label" (blue) row shows no waiting label. Render tests
+<code>NonRedSession_HasNoWaitingLabel</code> and <code>RedSession_WithNullNeedsYouSince_HasNoWaitingLabel</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>9</td><td>Briefing/Explaining time not counted (clock starts only at EffectiveColor=="red")</td>
+<td>Raw-red but briefing -&gt; null, no label</td>
+<td>The stamp keys off <code>SessionOrdering.EffectiveColor(s)</code> (folds in Briefing/Explaining/OnHold), computed
+<em>after</em> BriefingState is stamped. <code>NeedsYouSince_is_null_while_briefing_overlay_keeps_effective_color_off_red</code>
+asserts a raw-red+Briefing session is effective "yellow", so isRed is false.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof 3 - /sessions JSON shape (from the real GatewayHost fanout)</h2>
+<p>Asserted by <code>NeedsYouSince_is_nonNull_for_red_and_null_for_nonRed</code> against a live <code>GatewayHost</code>
+with a fake Director serving one red and one blue session. Representative fields:</p>
+<pre>[
+  { "sessionId": "red1",  "statusColor": "red",  "activityState": "WaitingForInput",
+    "needsYouSince": "2026-06-14T16:45:07.41Z" },   &lt;-- non-null (entered red)
+  { "sessionId": "blue1", "statusColor": "blue", "activityState": "Working",
+    "needsYouSince": null }                          &lt;-- null (not red)
+]</pre>
+
+<h2>Proof 1 &amp; 2 - Cockpit triage view (real compiled SessionRail markup in real app.css)</h2>
+<p>Rendered by the bUnit proof-emitter <code>SessionRailNeedsYouWaitTests.EmitProofArtifact</code> (genuine compiled
+component markup wrapped in the shipping <code>app.css</code>), then screenshotted. Left = t0, right = the same sessions
++120s later (proves the label ticks up). The blue ACTIVE row has no waiting label.</p>
+<div class="imgrow">
+  <figure><figcaption>t0: "1m" / "12s"</figcaption><img src="needsyou-t0.png" alt="triage at t0"></figure>
+  <figure><figcaption>t+120s: "3m" / "2m"</figcaption><img src="needsyou-t30.png" alt="triage at t+120s"></figure>
+</div>
+
+<h2>Tests added (all green)</h2>
+<ul>
+  <li><code>CcDirector.Gateway.Tests/NeedsYouClockTests.cs</code> - 7 unit tests (set/hold/clear/reset/independent/empty-id).</li>
+  <li><code>CcDirector.Gateway.Tests/SessionsAggregationTests.cs</code> - 5 integration tests against the real
+      <code>GatewayHost</code> <code>/sessions</code> fanout (ACs 2,3,4,5,9).</li>
+  <li><code>CcDirector.Cockpit.Tests/SessionRailNeedsYouWaitTests.cs</code> - 6 bUnit render tests (ACs 6,7,8) + the proof emitter.</li>
+</ul>
+<p>Solution build clean (0 warnings, 0 errors). Full Gateway suite: 636/637 pass; the single failure
+(<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) is a pre-existing
+environmental test requiring a live transcription provider and is unrelated to this change (touches no audio/dictation code).
+Full Cockpit suite: 30/30 pass.</p>
+
+<div class="belief">
+<strong>I believe this is finished.</strong> Every acceptance criterion is met and proven by a passing test and/or screenshot,
+the solution builds clean, and the change introduces no CenCon drift.
+</div>
+
+</body>
+</html>

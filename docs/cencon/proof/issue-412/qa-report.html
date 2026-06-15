@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #412 - QA proof - Cockpit Screenshots tab 503</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:Segoe UI, system-ui, sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; color:#fff; margin:0 0 4px; }
+  h2 { font-size:16px; color:#fff; margin:28px 0 8px; border-bottom:1px solid #3C3C3C; padding-bottom:4px; }
+  h3 { font-size:13px; color:#fff; margin:18px 0 6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:20px; }
+  code, pre { font-family:Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:10px 12px; overflow-x:auto; font-size:12px; color:#B8D4E8; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13px; }
+  th, td { border:1px solid #3C3C3C; padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  img { max-width:860px; width:100%; border:1px solid #3C3C3C; border-radius:6px; display:block; margin:8px 0 4px; }
+  .cap { color:#888; font-size:12px; margin-bottom:14px; }
+  .tag { display:inline-block; background:#1B3A2A; color:#22C55E; border-radius:4px; padding:2px 8px; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>Issue #412 &mdash; Cockpit Screenshots tab 503 &mdash; QA proof (independent verification)</h1>
+<div class="sub">QA Agent &middot; PR #413 &middot; branch issue-412-shots-503 &middot; verified in the QA session's OWN isolated build (slot 8) and an isolated patched Gateway+Cockpit stack &middot; the Developer report was treated as context, NOT proof &mdash; every criterion was reproduced from scratch.</div>
+
+<h2>How this was verified independently</h2>
+<p>
+The QA session built the PR branch in its own checkout (<code>D:\ReposFred\cc-director-wt-412</code>), allocated slot 8,
+and ran two independent proof surfaces, neither reusing the developer's binaries or screenshots:
+</p>
+<ul>
+  <li><b>Gateway-seam integration tests</b> &mdash; the PR's <code>ScreenshotListProxyRoundTripTests</code> plus the existing
+      screenshot/proxy suite were re-run by QA: <b>34 passed, 0 failed</b>. These stand up a real <code>GatewayHost</code> and a
+      real stub Director (Kestrel) over real HTTP and prove the LIST leg round-trips with <code>?count=</code> carried through,
+      and that an offline owner surfaces as 503.</li>
+  <li><b>Live end-to-end browser run</b> &mdash; QA hosted the PATCHED <code>GatewayHost</code> (fastPath shots/shot legs) plus a
+      stub Director that serves <code>/screenshots</code> (list) and <code>/screenshots/file</code> (bytes), registered the
+      Director with a heartbeat, and pointed the PATCHED Cockpit web app at it. The Cockpit was driven through the Gateway
+      front door (one-URL origin) with Playwright. The stub Director can 503 ONLY the screenshot legs while staying reachable
+      for the roster/ownership legs &mdash; reproducing the issue's exact condition (the session is reachable for other legs at
+      the same moment the screenshots tab 503s).</li>
+</ul>
+<p>The running build identity in the browser was <code>0.6.23+06664f25b5fbbe935fc12839d428b879c801c5fb</code> &mdash; the PR HEAD commit.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>AC</th><th>Result</th><th>Expected vs Actual / evidence</th></tr>
+  <tr>
+    <td>AC1 diagnosis pinned</td><td class="pass">PASS</td>
+    <td>The <code>[SessionWsProxy] ... leg=shots</code> line names the cause. Captured from the user's REAL running Gateway:
+        the owner <b>resolved</b> (<code>resolved director=c99a103c... -&gt; https://soren-north...:7883/screenshots</code>)
+        then <code>-&gt; 503 (forwarder error Request)</code> = reason (c) <b>forwarder error</b>. NOT 404 (no owner) and NOT
+        "no usable endpoint". See <code>qa/qa-ac1-gateway-shots-leg.log</code>.</td>
+  </tr>
+  <tr>
+    <td>AC2 loads when reachable</td><td class="pass">PASS</td>
+    <td>Expected: the tab loads the list and renders thumbnails, no 503, no error banner, while the same session is reachable.
+        Actual: through the PATCHED Gateway, <code>GET /sessions/{sid}/screenshots</code> returned <b>HTTP 200</b> and the
+        Cockpit Screenshots tab rendered 3 thumbnails with NO error banner while the session was selected and IDLE/green.
+        <code>qa/qa-ac2-ac3-ac6-populated.png</code>.</td>
+  </tr>
+  <tr>
+    <td>AC3 count correct</td><td class="pass">PASS</td>
+    <td>Expected: panel count == files in the owning Director's folder. Actual: the Director's <code>GET /screenshots</code>
+        returned <code>total:3</code> and the panel rendered exactly 3 cards (shot-001/002/003.png). Cross-checked against the
+        folder. <code>qa/qa-ac2-ac3-ac6-populated.png</code>.</td>
+  </tr>
+  <tr>
+    <td>AC4 graceful offline message</td><td class="pass">PASS</td>
+    <td>Expected: when the owning Director is unreachable for screenshots, a human-readable message + Retry, NOT the raw 503
+        string. Actual: with the session STILL selected and reachable for other legs (roster=1, session-detail 200) while only
+        the screenshots leg 503'd, the panel showed <i>"Screenshots unavailable &mdash; the Director running this session is
+        offline."</i> with a Retry button. The raw "Response status code does not indicate success: 503" string was NOT shown.
+        <code>qa/qa-ac4-offline-message.png</code>.</td>
+  </tr>
+  <tr>
+    <td>AC5 Retry recovers</td><td class="pass">PASS</td>
+    <td>Expected: after the Director is reachable again, Retry reloads the list with no reselection/page reload. Actual: with
+        the screenshots leg restored, clicking <b>Retry</b> reloaded the 3 thumbnails in place &mdash; same selected session,
+        no page reload, offline message gone. The Gateway shots leg recovered 503-&gt;200 (fastPath self-heal).
+        <code>qa/qa-ac5-after-retry.png</code>.</td>
+  </tr>
+  <tr>
+    <td>AC6 no regression (View/Copy)</td><td class="pass">PASS</td>
+    <td>Expected: on a loaded list, View and Copy still work. Actual: each loaded card kept Insert / Copy / Del and a clickable
+        thumbnail; the thumbnail bytes served HTTP 200 image/png through the fastPath'd <code>shot</code> bytes leg
+        (verified by curl: 200, image/png, 531576 bytes, and by the rendered thumbnails in the browser).
+        <code>qa/qa-ac2-ac3-ac6-populated.png</code>.</td>
+  </tr>
+</table>
+
+<h2>AC1 &mdash; the 503 cause, named (from the live Gateway)</h2>
+<pre>2026-06-14 07:15:10 [SessionWsProxy] open leg=shots sid=c748027a-... query=?count=100 client=127.0.0.1
+2026-06-14 07:15:10 [SessionWsProxy] leg=shots sid=c748027a-... resolved director=c99a103c-... -> https://soren-north...:7883/screenshots
+2026-06-14 07:15:10 [SessionWsProxy] leg=shots sid=c748027a-... director=c99a103c-... -> 503 (forwarder error Request)</pre>
+<div class="cap">Owner resolved, forward failed = reason (c). The fastPath change forwards straight to the cached owner and
+self-heals (re-resolves live) only if the direct forward fails before any byte flows &mdash; the same resilient path every
+other per-session verb uses.</div>
+
+<h2>AC2 / AC3 / AC6 &mdash; populated, count correct, View/Copy intact</h2>
+<img src="qa/qa-ac2-ac3-ac6-populated.png" alt="populated screenshots panel">
+<div class="cap">PATCHED Cockpit (v0.6.23+06664f2), Screenshots tab: 3 real thumbnails = the Director folder's total:3, each with
+Insert / Copy / Del; no 503, no error banner; session selected and IDLE.</div>
+
+<h2>AC4 &mdash; graceful offline message + Retry</h2>
+<img src="qa/qa-ac4-offline-message.png" alt="graceful offline message">
+<div class="cap">Session still selected and reachable for other legs while only the screenshots leg 503s; the panel shows the
+human-readable message + Retry, NOT the raw exception string.</div>
+
+<h2>AC5 &mdash; Retry recovers the list</h2>
+<img src="qa/qa-ac5-after-retry.png" alt="after retry recovery">
+<div class="cap">After restoring the screenshots leg and clicking Retry: the 3 thumbnails are back in place, no page reload, no
+reselection.</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Full solution build clean: <code>dotnet build cc-director.sln</code> &mdash; 0 Warnings, 0 Errors.</li>
+  <li>Gateway screenshot + proxy suite re-run by QA: 34 passed, 0 failed.</li>
+  <li>Full Gateway test suite: 624 passed, 1 failed &mdash; the one failure
+      (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) is a real-network
+      OpenAI realtime-transcription test ("got 0 partial transcripts"); it is UNRELATED to this PR (which touches only the
+      screenshots proxy leg + Cockpit gallery UX) and is a pre-existing network-provider flake, not a regression.</li>
+  <li>CenCon: no architecture/security drift. The change tightens an existing proxy leg's resolution strategy (no new
+      container, endpoint, or auth/trust change) and improves a Cockpit error message. No <code>docs/cencon/</code> update
+      required.</li>
+</ul>
+
+<p class="tag">VERIFIED &mdash; all 6 acceptance criteria met. Independently reproduced by QA.</p>
+</body>
+</html>

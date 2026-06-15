@@ -1,0 +1,319 @@
+@page "/exes"
+@inject GatewayClient Gateway
+@inject IJSRuntime JS
+@inject ILogger<Exes> Log
+@implements IDisposable
+
+@* The Exes management page (issue #183), ported 1:1 from the static wwwroot/pages/exes.html
+   into a Blazor page so the Cockpit has one UI stack and the shared nav rail. Same behavior:
+   lists local Directors + their sessions and the 1-4 build slots, refreshes on a 3s timer that
+   never fires over an in-flight build, and offers Kill / Build & start / Delete against the
+   same Gateway endpoints. Visual parity preserved in Exes.razor.css (VS Code dark palette). *@
+
+<PageTitle>CC Director - Exes</PageTitle>
+
+<div class="ex-root">
+<header class="ex-header">
+  <h1>CC DIRECTOR &middot; EXES</h1>
+  <span class="ex-stats">@StatsText</span>
+  <span class="ex-spacer"></span>
+  <a class="ex-link ex-link-accent" href="/">sessions</a>
+  <a class="ex-link ex-link-accent" href="/transcripts">transcripts</a>
+</header>
+
+<main class="ex-main">
+  @if (_error is not null)
+  {
+    <div class="ex-error">@_error</div>
+  }
+
+  @if (_data is null)
+  {
+    <div class="ex-empty">Loading...</div>
+  }
+  else
+  {
+    @if (!HasRepoRoot)
+    {
+      <div class="ex-notice">Slot management is unavailable: the Gateway is not running from inside the cc-director repo, so build scripts and local_builds cannot be located.</div>
+    }
+
+    @* ----- running directors ----- *@
+    <h2 class="ex-section">
+      Running directors on this computer
+      @if (HasRepoRoot)
+      {
+        <span class="ex-repo-root">&middot; @_data.RepoRoot</span>
+      }
+    </h2>
+
+    @if (_data.Directors.Count == 0)
+    {
+      <div class="ex-empty">No Director processes are running on this computer.</div>
+    }
+    else
+    {
+      @foreach (var dir in _data.Directors)
+      {
+        <div class="ex-dir">
+          <div class="ex-head">
+            <span class="ex-badge @(dir.Slot is null ? "ex-gray" : "")">@(dir.Slot is null ? "no slot" : $"slot {dir.Slot}")</span>
+            <span class="ex-meta">PID <b>@dir.Pid</b> &middot; port <b>@PortOf(dir.ControlEndpoint)</b> &middot; v@(dir.Version ?? "?") &middot; up @RelativeTime(dir.StartedAt)</span>
+            <span class="ex-spacer"></span>
+            @if (!string.IsNullOrWhiteSpace(dir.DirectorUrl))
+            {
+              <a class="ex-btn" href="@dir.DirectorUrl">Director &rarr;</a>
+            }
+            <button class="ex-btn ex-danger" @onclick="() => KillDirector(dir)" disabled="@_busy">Kill</button>
+          </div>
+          @if (!string.IsNullOrWhiteSpace(dir.ExePath))
+          {
+            <div class="ex-exe" title="@dir.ExePath">@dir.ExePath</div>
+          }
+          <div class="ex-sessions">
+            @if (!string.IsNullOrWhiteSpace(dir.SessionError))
+            {
+              <div class="ex-none">sessions unavailable: @dir.SessionError</div>
+            }
+            else if (dir.Sessions.Count == 0)
+            {
+              <div class="ex-none">No sessions.</div>
+            }
+            else
+            {
+              @foreach (var s in dir.Sessions)
+              {
+                <div class="ex-sess">
+                  <span class="ex-dot @ColorClass(s)"></span>
+                  @if (string.IsNullOrWhiteSpace(s.Name))
+                  {
+                    <span class="ex-sname ex-unnamed">(unnamed)</span>
+                  }
+                  else
+                  {
+                    <span class="ex-sname">@s.Name</span>
+                  }
+                  <span class="ex-agent-pill">@(string.IsNullOrWhiteSpace(s.Agent) ? "?" : s.Agent)</span>
+                  <span class="ex-sstate">@RepoBasename(s.RepoPath) &middot; @HumanizeState(s.ActivityState)</span>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
+    }
+
+    @* ----- build slots ----- *@
+    <h2 class="ex-section">Build slots (1-4)</h2>
+    @if (!HasRepoRoot)
+    {
+      <div class="ex-empty">Unavailable (see notice above).</div>
+    }
+    else
+    {
+      <div class="ex-slots">
+        @foreach (var sl in _data.Slots)
+        {
+          var running = sl.Running is not null;
+          var statusCls = running ? "ex-running" : (sl.Exists ? "ex-built" : "ex-missing");
+          var statusTxt = running ? $"running (PID {sl.Running!.Pid})" : (sl.Exists ? "built, stopped" : "not built");
+          <div class="ex-slot">
+            <div class="ex-shead">
+              <span class="ex-stitle">Slot @sl.Slot</span>
+              <span class="ex-spacer"></span>
+              <span class="ex-status @statusCls">@statusTxt</span>
+            </div>
+            @if (sl.Exists)
+            {
+              <div class="ex-sub">@FmtSize(sl.SizeBytes) &middot; built @RelativeTime(sl.LastBuiltUtc) ago</div>
+            }
+            else
+            {
+              <div class="ex-sub">no exe in local_builds</div>
+            }
+            <div class="ex-actions">
+              <button class="ex-btn" @onclick="() => BuildStart(sl.Slot)" disabled="@(running || _busy)">
+                @(_buildingSlot == sl.Slot ? "Building..." : "Build & start")
+              </button>
+              <button class="ex-btn ex-danger" @onclick="() => DeleteSlot(sl.Slot)" disabled="@(!sl.Exists || running || _busy)">Delete</button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  }
+</main>
+</div>
+
+@code {
+    private const int RefreshMs = 3000;
+
+    private ExesListDto? _data;
+    private string? _error;
+    private bool _busy;            // never refresh over an in-flight build (mirrors state.busy)
+    private int? _buildingSlot;    // which slot's button shows "Building..."
+    private readonly CancellationTokenSource _cts = new();
+
+    private bool HasRepoRoot => !string.IsNullOrWhiteSpace(_data?.RepoRoot);
+
+    private string StatsText => _data is null
+        ? "loading..."
+        : $"{_data.Directors.Count} director{(_data.Directors.Count == 1 ? "" : "s")} on {_data.MachineName}";
+
+    protected override void OnInitialized() => _ = RefreshLoopAsync();
+
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(RefreshMs));
+        await RefreshAsync();
+        while (!_cts.IsCancellationRequested)
+        {
+            try { await timer.WaitForNextTickAsync(_cts.Token); }
+            catch (OperationCanceledException) { break; }
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_busy) return; // never refresh over an in-flight build
+        try
+        {
+            _data = await Gateway.GetExesAsync(_cts.Token);
+            _error = null;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _error = "Failed to load: " + ex.Message;
+            Log.LogWarning("Exes refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- actions ----
+
+    private async Task KillDirector(ExesDirectorDto dir)
+    {
+        var label = dir.Slot is not null ? $"slot {dir.Slot}" : $"PID {dir.Pid}";
+        var ok = await JS.InvokeAsync<bool>("ccTools.confirm",
+            $"Kill Director {label} (PID {dir.Pid})?\n\nThis terminates the process and ALL of its running sessions. Unsaved work in those sessions will be lost.");
+        if (!ok) return;
+        try
+        {
+            await Gateway.KillDirectorAsync(dir.DirectorId, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("ccTools.alert", "Kill failed: " + ex.Message);
+        }
+        // The static page waited 600ms then refreshed; the 3s timer also picks it up.
+        await Task.Delay(600);
+        await RefreshAsync();
+    }
+
+    private async Task DeleteSlot(int n)
+    {
+        var ok = await JS.InvokeAsync<bool>("ccTools.confirm",
+            $"Delete the slot {n} build?\n\nThis removes local_builds/cc-director{n}.exe from disk. You can rebuild it with \"Build & start\".");
+        if (!ok) return;
+        try
+        {
+            await Gateway.DeleteSlotAsync(n, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("ccTools.alert", "Delete failed: " + ex.Message);
+        }
+        await RefreshAsync();
+    }
+
+    private async Task BuildStart(int n)
+    {
+        var ok = await JS.InvokeAsync<bool>("ccTools.confirm",
+            $"Build slot {n} and launch it?\n\nThis runs the build script (about a minute) and then starts cc-director{n}.exe. The slot must not already be running.");
+        if (!ok) return;
+        _busy = true;
+        _buildingSlot = n;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Gateway.BuildStartSlotAsync(n, _cts.Token);
+            await JS.InvokeVoidAsync("ccTools.alert", $"Slot {n} built and started (PID {result.Pid}).");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("ccTools.alert", "Build & start failed:\n\n" + ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+            _buildingSlot = null;
+        }
+        await RefreshAsync();
+    }
+
+    // ---- display helpers (mirroring exes.html exactly) ----
+
+    private static string PortOf(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint)) return "?";
+        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
+        return m.Success ? m.Groups[1].Value : "?";
+    }
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string ColorClass(ExesSessionDto s)
+    {
+        var c = (s.StatusColor ?? "").ToLowerInvariant();
+        return c is "red" or "yellow" or "green" or "blue" ? c : "unknown";
+    }
+
+    private static string HumanizeState(string? state) => state switch
+    {
+        "WaitingForInput" => "Waiting for input",
+        "WaitingForPerm" => "Waiting for permission",
+        "Idle" => "Idle",
+        "Working" => "Working",
+        "Starting" => "Starting",
+        "Exited" => "Exited",
+        null or "" => "-",
+        _ => state,
+    };
+
+    private static string FmtSize(long bytes)
+    {
+        if (bytes == 0) return "0 B";
+        var mb = bytes / (1024.0 * 1024.0);
+        if (mb >= 1) return mb.ToString("0.0") + " MB";
+        return Math.Round(bytes / 1024.0) + " KB";
+    }
+
+    // Relative time from a UTC timestamp, matching exes.html's relativeTime():
+    // seconds / minutes / "Hh Mm" / days.
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var u = utc.Value.Kind == DateTimeKind.Utc ? utc.Value : utc.Value.ToUniversalTime();
+        var sec = Math.Max(0, (int)(DateTime.UtcNow - u).TotalSeconds);
+        if (sec < 60) return sec + "s";
+        var m = sec / 60;
+        if (m < 60) return m + "m";
+        var h = m / 60;
+        if (h < 24) return $"{h}h {m % 60}m";
+        return (h / 24) + "d";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

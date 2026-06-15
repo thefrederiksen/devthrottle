@@ -164,9 +164,15 @@
                   <span class="fl-state">@HumanizeState(s.AssessedState ?? s.ActivityState)</span>
                   <span class="fl-idle" title="last activity @s.LastActivityAt">@RelativeTime(s.LastActivityAt)</span>
                 </div>
-                @if (!string.IsNullOrWhiteSpace(s.ViewUrl))
+                @* Issue #182: "Open session" deep-links into the Cockpit session view
+                   (/cockpit/{sid}) - the single driving UI behind the Gateway front door
+                   (one-URL plan) - NOT the Director-embedded troubleshooting /view page that
+                   s.ViewUrl points at. The Cockpit route @page "/cockpit/{SidParam}" then
+                   selects this session on load via OnParametersSetAsync -> OnSelect(..., "deep-link").
+                   Mirrors Home.razor's hotlist (OpenSession -> /cockpit/{sid}). *@
+                @if (!string.IsNullOrWhiteSpace(s.SessionId))
                 {
-                  <a class="fl-open" href="@s.ViewUrl">Open session &rarr;</a>
+                  <a class="fl-open" href="@($"/cockpit/{s.SessionId}")">Open session &rarr;</a>
                 }
               </article>
             }

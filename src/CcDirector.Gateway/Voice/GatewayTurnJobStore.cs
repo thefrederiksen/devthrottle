@@ -34,13 +34,17 @@ public sealed class TurnJob
     /// <summary>The session this turn targets; polls for a different session 404.</summary>
     public string SessionId { get; }
 
+    /// <summary>The resumable upload this turn was assembled from, or "" when the audio/text
+    /// arrived in a single submit body. Used to make a retried completion idempotent.</summary>
+    public string UploadId { get; }
+
     /// <summary>When the job was created (UTC).</summary>
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>When the job expires (UTC); reads after this point behave as not-found.</summary>
     public DateTime ExpiresAt { get; private set; }
 
-    public TurnJob(string turnId, string sessionId, DateTime createdAtUtc, TimeSpan ttl)
+    public TurnJob(string turnId, string sessionId, DateTime createdAtUtc, TimeSpan ttl, string? uploadId = null)
     {
         if (string.IsNullOrEmpty(turnId))
             throw new ArgumentException("turnId is required", nameof(turnId));
@@ -49,6 +53,7 @@ public sealed class TurnJob
 
         TurnId = turnId;
         SessionId = sessionId;
+        UploadId = uploadId ?? "";
         CreatedAt = createdAtUtc;
         ExpiresAt = createdAtUtc + ttl;
     }
@@ -177,13 +182,31 @@ public sealed class GatewayTurnJobStore
 
     private readonly ConcurrentDictionary<string, TurnJob> _jobs = new(StringComparer.Ordinal);
 
-    /// <summary>Create and register a new job for <paramref name="sessionId"/> (stage=submitted).</summary>
-    public TurnJob Create(string sessionId)
+    /// <summary>Maps an upload id to the live turn it started, so a retried completion returns the
+    /// same turn_id instead of launching a duplicate. Bounded by the same TTL sweep as the jobs.</summary>
+    private readonly ConcurrentDictionary<string, string> _byUpload = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Create and register a new job for <paramref name="sessionId"/> (stage=submitted).
+    /// When <paramref name="uploadId"/> is supplied the job is also indexed by it for idempotency.</summary>
+    public TurnJob Create(string sessionId, string? uploadId = null)
     {
         SweepExpired();
-        var job = new TurnJob(Guid.NewGuid().ToString(), sessionId, DateTime.UtcNow, Ttl);
+        var job = new TurnJob(Guid.NewGuid().ToString(), sessionId, DateTime.UtcNow, Ttl, uploadId);
         _jobs[job.TurnId] = job;
-        FileLog.Write($"[GatewayTurnJobStore] Create: turnId={job.TurnId}, sid={sessionId}, expiresAt={job.ExpiresAt:O}");
+        if (!string.IsNullOrEmpty(uploadId))
+            _byUpload[uploadId] = job.TurnId;
+        FileLog.Write($"[GatewayTurnJobStore] Create: turnId={job.TurnId}, sid={sessionId}, uploadId={uploadId}, expiresAt={job.ExpiresAt:O}");
+        return job;
+    }
+
+    /// <summary>The live (non-expired) turn started from <paramref name="uploadId"/>, or null. The
+    /// idempotency fast path: an in-flight or recently-finished turn is found without touching disk.</summary>
+    public TurnJob? FindTurnByUpload(string uploadId)
+    {
+        if (string.IsNullOrEmpty(uploadId)) return null;
+        if (!_byUpload.TryGetValue(uploadId, out var turnId)) return null;
+        var job = Get(turnId);
+        if (job is null) _byUpload.TryRemove(uploadId, out _);
         return job;
     }
 
@@ -212,7 +235,11 @@ public sealed class GatewayTurnJobStore
         foreach (var kvp in _jobs)
         {
             if (kvp.Value.ExpiresAt <= now)
+            {
                 _jobs.TryRemove(kvp.Key, out _);
+                if (!string.IsNullOrEmpty(kvp.Value.UploadId))
+                    _byUpload.TryRemove(kvp.Value.UploadId, out _);
+            }
         }
     }
 }

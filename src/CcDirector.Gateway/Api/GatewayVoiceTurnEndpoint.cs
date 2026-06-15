@@ -28,9 +28,10 @@ namespace CcDirector.Gateway.Api;
 ///        opts in (?includeAudio=1 / X-Include-Audio) for one-release back-compat with old phones.
 ///
 ///   GET  /sessions/{sid}/voice-turn/{turnId}/audio -> 200 raw audio/mpeg (or 206 Partial
-///        Content for an HTTP Range request), served from the same cached job (issue #407);
-///        404 when the turn is unknown/expired or has no audio. The dedicated, resumable fetch
-///        so a dropped audio download resumes via Range instead of re-downloading the whole blob.
+///        Content for an HTTP Range request), served job-first then from the durable archive
+///        (issue #407 reconciled with #429); 404 when the turn is unknown/expired or has no
+///        audio. The dedicated, resumable fetch so a dropped audio download resumes via Range
+///        instead of re-downloading the whole blob, and it still replays past the in-memory TTL.
 ///
 /// The Director's SSE endpoint stays the worker (transcription, send-to-session, summarize,
 /// TTS); this layer only owns the async interface and the result cache. Owner resolution
@@ -49,8 +50,15 @@ internal static class GatewayVoiceTurnEndpoint
     private static readonly TimeSpan DirectorTurnTimeout = TimeSpan.FromMinutes(5);
 
     public static void Map(IEndpointRouteBuilder app, GatewayTurnJobStore store, DirectorRegistry registry,
-        DirectorEndpointClient client, SessionOwnerCache? owners, string token)
+        DirectorEndpointClient client, SessionOwnerCache? owners, string token,
+        VoiceUploadStore? uploads = null, VoiceTurnArchive? archive = null)
     {
+        // Disk-backed singletons captured by the route closures: the resumable upload staging and
+        // the durable reply archive. Constructed here (once, at startup) when the host does not
+        // inject them; tests inject roots of their own.
+        uploads ??= new VoiceUploadStore();
+        archive ??= new VoiceTurnArchive();
+
         app.MapPost("/sessions/{sid}/voice-turn/submit", async (string sid, HttpContext ctx) =>
         {
             FileLog.Write($"[GatewayVoiceTurn] POST /sessions/{sid}/voice-turn/submit from {ctx.Connection.RemoteIpAddress}");
@@ -82,49 +90,131 @@ internal static class GatewayVoiceTurnEndpoint
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            // Resolve the owning Director. Fast path: the cached owner (kept fresh by the fleet
-            // aggregator and the WS proxy) - a dictionary lookup, no fleet fan-out, and it still
-            // resolves when the Director has just gone dark (the background task then surfaces
-            // the failure as the job's error stage, which is exactly the async contract).
-            string? endpoint = null;
-            if (owners?.OwnerOf(sid) is { } cachedOwnerId && registry.Get(cachedOwnerId) is { } cachedDir)
-                endpoint = DialEndpoint(cachedDir);
-
-            if (endpoint is null)
-            {
-                var (director, session) = await LocateOwningDirectorAsync(registry, client, sid);
-                if (director is null || session is null)
-                {
-                    FileLog.Write($"[GatewayVoiceTurn] submit sid={sid}: no owning director -> 404");
-                    return Results.Json(new { error = "session not found" }, statusCode: StatusCodes.Status404NotFound);
-                }
-                if (IsExited(session))
-                {
-                    FileLog.Write($"[GatewayVoiceTurn] submit sid={sid}: session exited -> 410");
-                    return Results.Json(new { error = "session has exited" }, statusCode: StatusCodes.Status410Gone);
-                }
-                owners?.Remember(sid, director.DirectorId);
-                endpoint = DialEndpoint(director);
-                if (endpoint is null)
-                {
-                    FileLog.Write($"[GatewayVoiceTurn] submit sid={sid}: owner {director.DirectorId} has no dialable endpoint -> 503");
-                    return Results.Json(new { error = "owning director has no reachable endpoint" },
-                        statusCode: StatusCodes.Status503ServiceUnavailable);
-                }
-            }
+            var (endpoint, resolveError) = await ResolveDirectorEndpointAsync(sid, registry, client, owners, "submit");
+            if (resolveError is not null) return resolveError;
 
             var job = store.Create(sid);
 
             // Fire-and-forget by design: the 202 is the whole point - the caller never waits on
             // the Director. The task is its own entry point, so it owns its try-catch and ALWAYS
             // lands the job in a terminal stage (reply or error); a poll can never hang forever.
-            _ = Task.Run(() => RunTurnAsync(job, endpoint, sid, input, token));
+            _ = Task.Run(() => RunTurnAsync(job, endpoint!, sid, input, token, archive));
 
             FileLog.Write($"[GatewayVoiceTurn] submit sid={sid}: accepted turnId={job.TurnId}, director={endpoint}");
             return Results.Json(new { turn_id = job.TurnId, expires_at = job.ExpiresAt },
                 statusCode: StatusCodes.Status202Accepted);
         });
 
+        // ===== Resumable upload front door (guaranteed audio-turn) =======================
+        // The phone records in MediaRecorder timeslices and uploads chunk-by-chunk, so a dropped
+        // connection resumes at the next missing chunk instead of re-sending the whole clip. When
+        // all chunks have landed, the assembled audio is fed into the SAME async turn worker the
+        // submit route uses - so the resumable upload and the audio-reply turn are one pipeline.
+        //
+        //   POST   .../voice-turn/upload                       -> 200 { upload_id }
+        //   PUT    .../voice-turn/upload/{uploadId}/chunk/{i}  -> 200 { ok }   (idempotent)
+        //   POST   .../voice-turn/upload/{uploadId}/complete   -> 202 { turn_id } | 409 { missing }
+
+        app.MapPost("/sessions/{sid}/voice-turn/upload", (string sid, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+
+            // The client supplies its locally-generated turn id as the Idempotency-Key; it doubles
+            // as the upload id, so a retried upload/complete maps back to the same turn.
+            var key = ctx.Request.Headers["Idempotency-Key"].ToString();
+            var uploadId = uploads.Register(string.IsNullOrWhiteSpace(key) ? null : key);
+            FileLog.Write($"[GatewayVoiceTurn] upload sid={sid}: registered uploadId={uploadId}");
+            return Results.Json(new { upload_id = uploadId });
+        });
+
+        app.MapPut("/sessions/{sid}/voice-turn/upload/{uploadId}/chunk/{index:int}",
+            async (string sid, string uploadId, int index, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!uploads.Exists(uploadId))
+                return Results.Json(new { error = "unknown upload id (register it first)" }, statusCode: StatusCodes.Status404NotFound);
+
+            var sha = ctx.Request.Headers["X-Chunk-Sha256"].ToString();
+            using var ms = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(ms, ctx.RequestAborted);
+            var bytes = ms.ToArray();
+            try
+            {
+                await uploads.StoreChunkAsync(uploadId, index, bytes, string.IsNullOrEmpty(sha) ? null : sha, ctx.RequestAborted);
+                return Results.Json(new { ok = true, index, bytes = bytes.Length });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayVoiceTurn] upload chunk sid={sid} uploadId={uploadId} index={index} FAILED: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+        });
+
+        app.MapPost("/sessions/{sid}/voice-turn/upload/{uploadId}/complete",
+            async (string sid, string uploadId, VoiceTurnCompleteRequest? req, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+            if (req is null || req.TotalChunks <= 0)
+                return Results.Json(new { error = "totalChunks (>0) is required" }, statusCode: StatusCodes.Status400BadRequest);
+
+            // Idempotency: a retried completion must NOT start a second turn. The live job index is
+            // the fast path; the durable archive covers a retry after the in-memory job expired.
+            if (store.FindTurnByUpload(uploadId) is { } liveJob)
+            {
+                FileLog.Write($"[GatewayVoiceTurn] complete sid={sid} uploadId={uploadId}: idempotent live turn={liveJob.TurnId}");
+                return Results.Json(new { turn_id = liveJob.TurnId, expires_at = liveJob.ExpiresAt },
+                    statusCode: StatusCodes.Status202Accepted);
+            }
+            if (archive.FindByUpload(uploadId) is { } archivedRec)
+            {
+                FileLog.Write($"[GatewayVoiceTurn] complete sid={sid} uploadId={uploadId}: idempotent archived turn={archivedRec.TurnId}");
+                return Results.Json(new { turn_id = archivedRec.TurnId },
+                    statusCode: StatusCodes.Status202Accepted);
+            }
+
+            AssembleResult assembled;
+            try
+            {
+                assembled = await uploads.AssembleAsync(uploadId, req.TotalChunks, ctx.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayVoiceTurn] complete sid={sid} uploadId={uploadId} assemble FAILED: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            switch (assembled.Status)
+            {
+                case "unknown_upload":
+                    return Results.Json(new { error = "unknown upload id" }, statusCode: StatusCodes.Status404NotFound);
+                case "incomplete":
+                    // Client-recoverable: re-send the listed chunks, then complete again.
+                    return Results.Json(new { status = "incomplete", missing = assembled.Missing },
+                        statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var (endpoint, resolveError) = await ResolveDirectorEndpointAsync(sid, registry, client, owners, "complete");
+            if (resolveError is not null) return resolveError;
+
+            var job = store.Create(sid, uploadId);
+            var input = VoiceTurnInput.FromAudio(assembled.Audio!, req.Mime ?? "audio/webm");
+            uploads.Delete(uploadId);  // chunks assembled; staging no longer needed
+
+            _ = Task.Run(() => RunTurnAsync(job, endpoint!, sid, input, token, archive));
+
+            FileLog.Write($"[GatewayVoiceTurn] complete sid={sid} uploadId={uploadId}: accepted turnId={job.TurnId}, director={endpoint}");
+            return Results.Json(new { turn_id = job.TurnId, expires_at = job.ExpiresAt },
+                statusCode: StatusCodes.Status202Accepted);
+        });
+
+        // ===== Poll (live job, then durable archive fallback) ============================
         app.MapGet("/sessions/{sid}/voice-turn/{turnId}", (string sid, string turnId, HttpContext ctx) =>
         {
             // Issue #369: same token gate as the submit route above.
@@ -134,15 +224,6 @@ internal static class GatewayVoiceTurnEndpoint
                 return Results.Json(new { error = "missing or invalid token" },
                     statusCode: StatusCodes.Status401Unauthorized);
             }
-
-            var job = store.Get(turnId);
-            if (job is null || !string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
-            {
-                FileLog.Write($"[GatewayVoiceTurn] poll sid={sid} turnId={turnId}: unknown or expired -> 404");
-                return Results.Json(new { error = "turn not found or expired" }, statusCode: StatusCodes.Status404NotFound);
-            }
-
-            var s = job.Snapshot();
 
             // Issue #407: the poll is SLIM by default - it advertises that the reply audio is
             // ready and how long it is, but does NOT carry the (multi-megabyte) bytes. The phone
@@ -154,26 +235,60 @@ internal static class GatewayVoiceTurnEndpoint
             // X-Include-Audio: 1 header) and still receives audioBase64 exactly as before. New
             // phones omit it and get the slim response. When the flag is absent audioBase64 is
             // null, so the field is always present (the shape never changes) but empty by default.
-            var includeAudio = WantsInlineAudio(ctx);
-
-            return Results.Json(new
+            var job = store.Get(turnId);
+            if (job is not null && string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
             {
-                turn_id = job.TurnId,
-                stage = s.Stage,
-                transcript = s.Transcript,
-                summary = s.Summary,
-                audioReady = s.AudioReady,
-                audioLength = s.AudioLength,
-                audioBase64 = includeAudio ? s.AudioBase64 : null,
-                message = s.ErrorMessage,
-                expires_at = job.ExpiresAt,
-            });
+                var s = job.Snapshot();
+                var includeAudio = WantsInlineAudio(ctx);
+                return Results.Json(new
+                {
+                    turn_id = job.TurnId,
+                    stage = s.Stage,
+                    transcript = s.Transcript,
+                    summary = s.Summary,
+                    audioReady = s.AudioReady,
+                    audioLength = s.AudioLength,
+                    audioBase64 = includeAudio ? s.AudioBase64 : null,
+                    message = s.ErrorMessage,
+                    expires_at = job.ExpiresAt,
+                });
+            }
+
+            // Fallback: the in-memory job is gone (expired / Gateway restarted) but the turn
+            // completed and was archived (#429). The reply "sits in the session" - serve its
+            // metadata from disk, kept SLIM the same way (#407): advertise readiness + length, but
+            // never inline the bytes unless an old phone explicitly opts in via ?includeAudio=1.
+            // The durable audio is fetched from the dedicated /audio endpoint, which also falls
+            // back to the archive.
+            var rec = archive.Get(turnId);
+            if (rec is not null && string.Equals(rec.SessionId, sid, StringComparison.OrdinalIgnoreCase))
+            {
+                var audio = archive.GetAudio(turnId);
+                var includeAudio = WantsInlineAudio(ctx);
+                return Results.Json(new
+                {
+                    turn_id = rec.TurnId,
+                    stage = rec.Stage,
+                    transcript = rec.Transcript,
+                    summary = rec.Summary,
+                    audioReady = audio is { Length: > 0 },
+                    audioLength = audio?.Length ?? 0,
+                    audioBase64 = includeAudio && audio is { Length: > 0 } ? Convert.ToBase64String(audio) : null,
+                    message = (string?)null,
+                    archived = true,
+                });
+            }
+
+            FileLog.Write($"[GatewayVoiceTurn] poll sid={sid} turnId={turnId}: unknown or expired -> 404");
+            return Results.Json(new { error = "turn not found or expired" }, statusCode: StatusCodes.Status404NotFound);
         });
 
-        // Issue #407: dedicated, resumable reply-audio fetch. Decoupling the heavy audio transfer
-        // from cheap status polling means a mid-download drop resumes via an HTTP Range request
-        // (206 Partial Content) instead of restarting the whole blob, and a poll never carries
-        // megabytes again. Served from the same cached job; 404 once the job is unknown/expired.
+        // Issue #407 (reconciled with #429): dedicated, resumable reply-audio fetch. Decoupling the
+        // heavy audio transfer from cheap status polling means a mid-download drop resumes via an
+        // HTTP Range request (206 Partial Content) instead of restarting the whole blob, and a poll
+        // never carries megabytes again. Served job-first (the hot, in-memory decoded bytes), then
+        // from the durable archive (#429) so the reply still replays after the 10-minute TTL or a
+        // Gateway restart - the artifact that "sits in the session". 404 once neither has it.
         app.MapGet("/sessions/{sid}/voice-turn/{turnId}/audio", (string sid, string turnId, HttpContext ctx) =>
         {
             if (!AuthMiddleware.HasValidToken(ctx, token))
@@ -183,20 +298,35 @@ internal static class GatewayVoiceTurnEndpoint
                     statusCode: StatusCodes.Status401Unauthorized);
             }
 
+            // Hot path: the live job still holds the decoded reply bytes (decoded once on the reply
+            // event), so the range slices come straight from memory with no base64 re-decode.
             var job = store.Get(turnId);
-            if (job is null || !string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
+            byte[]? audio = null;
+            if (job is not null && string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
             {
-                FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: unknown or expired -> 404");
-                return Results.Json(new { error = "turn not found or expired" }, statusCode: StatusCodes.Status404NotFound);
+                var jobAudio = job.GetAudioBytes();
+                if (jobAudio.Length > 0) audio = jobAudio;
             }
 
-            var audio = job.GetAudioBytes();
-            if (audio.Length == 0)
+            // Durable path (#429): the job expired or the Gateway restarted, but the reply was
+            // archived to disk - replay it from there so the audio outlives the in-memory TTL.
+            if (audio is null)
             {
-                // The job exists but has no audio yet (still in flight) or never will (no TTS
-                // key). 404 is the honest answer: there is nothing to fetch from this endpoint.
+                var rec = archive.Get(turnId);
+                if (rec is not null && string.Equals(rec.SessionId, sid, StringComparison.OrdinalIgnoreCase))
+                {
+                    var archived = archive.GetAudio(turnId);
+                    if (archived is { Length: > 0 }) audio = archived;
+                }
+            }
+
+            if (audio is null || audio.Length == 0)
+            {
+                // Neither the live job nor the archive has audio for this turn: it is unknown/expired,
+                // still in flight, or finished without audio (no TTS key). 404 is the honest answer:
+                // there is nothing to fetch from this endpoint.
                 FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: no audio available -> 404");
-                return Results.Json(new { error = "no audio available for this turn" }, statusCode: StatusCodes.Status404NotFound);
+                return Results.Json(new { error = "turn not found or expired" }, statusCode: StatusCodes.Status404NotFound);
             }
 
             // Results.Bytes with enableRangeProcessing serves the full body (200) when no Range
@@ -207,6 +337,66 @@ internal static class GatewayVoiceTurnEndpoint
             return Results.Bytes(audio, contentType: "audio/mpeg", enableRangeProcessing: true,
                 fileDownloadName: null, entityTag: null, lastModified: null);
         });
+
+        // The session's completed voice turns, newest first (read from the durable archive).
+        app.MapGet("/sessions/{sid}/voice-turns", (string sid, HttpContext ctx, string? since) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+                return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
+
+            DateTime? sinceUtc = null;
+            if (!string.IsNullOrWhiteSpace(since) &&
+                DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+                sinceUtc = parsed.ToUniversalTime();
+
+            var turns = archive.ListForSession(sid, sinceUtc).Select(r => new
+            {
+                turn_id = r.TurnId,
+                stage = r.Stage,
+                summary = r.Summary,
+                transcript = r.Transcript,
+                has_audio = r.HasAudio,
+                created_at = r.CreatedAtUtc,
+            });
+            return Results.Json(new { session_id = sid, turns });
+        });
+    }
+
+    /// <summary>
+    /// Resolve the owning Director's dialable Control API base URL for a session. Fast path: the
+    /// cached owner (kept fresh by the fleet aggregator and the WS proxy) - a dictionary lookup,
+    /// no fleet fan-out - and it still resolves when the Director has just gone dark (the background
+    /// task then surfaces the failure as the job's error stage). Slow path: a live fleet fan-out
+    /// that also gates on an exited session. Returns (endpoint, null) on success, or (null, error)
+    /// with the IResult the route should return (404 / 410 / 503).
+    /// </summary>
+    private static async Task<(string? endpoint, IResult? error)> ResolveDirectorEndpointAsync(
+        string sid, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache? owners, string verb)
+    {
+        if (owners?.OwnerOf(sid) is { } cachedOwnerId && registry.Get(cachedOwnerId) is { } cachedDir
+            && DialEndpoint(cachedDir) is { } cachedEndpoint)
+            return (cachedEndpoint, null);
+
+        var (director, session) = await LocateOwningDirectorAsync(registry, client, sid);
+        if (director is null || session is null)
+        {
+            FileLog.Write($"[GatewayVoiceTurn] {verb} sid={sid}: no owning director -> 404");
+            return (null, Results.Json(new { error = "session not found" }, statusCode: StatusCodes.Status404NotFound));
+        }
+        if (IsExited(session))
+        {
+            FileLog.Write($"[GatewayVoiceTurn] {verb} sid={sid}: session exited -> 410");
+            return (null, Results.Json(new { error = "session has exited" }, statusCode: StatusCodes.Status410Gone));
+        }
+        owners?.Remember(sid, director.DirectorId);
+        var endpoint = DialEndpoint(director);
+        if (endpoint is null)
+        {
+            FileLog.Write($"[GatewayVoiceTurn] {verb} sid={sid}: owner {director.DirectorId} has no dialable endpoint -> 503");
+            return (null, Results.Json(new { error = "owning director has no reachable endpoint" },
+                statusCode: StatusCodes.Status503ServiceUnavailable));
+        }
+        return (endpoint, null);
     }
 
     /// <summary>
@@ -236,7 +426,7 @@ internal static class GatewayVoiceTurnEndpoint
     /// try-catch boundary lives here.
     /// </summary>
     private static async Task RunTurnAsync(TurnJob job, string directorEndpoint, string sid,
-        VoiceTurnInput input, string token)
+        VoiceTurnInput input, string token, VoiceTurnArchive archive)
     {
         FileLog.Write($"[GatewayVoiceTurn] RunTurnAsync: turnId={job.TurnId}, sid={sid}, director={directorEndpoint}");
         try
@@ -288,6 +478,44 @@ internal static class GatewayVoiceTurnEndpoint
             FileLog.Write($"[GatewayVoiceTurn] RunTurnAsync turnId={job.TurnId} FAILED: {ex.Message}");
             job.SetError("director unreachable: " + ex.Message);
         }
+        finally
+        {
+            // Persist the completed reply so it outlives the in-memory job's TTL and a Gateway
+            // restart - this is what makes the reply "sit in the session". Only successful replies
+            // are archived: an errored turn legitimately re-runs on a retried completion. Best-effort
+            // (the archive swallows its own failures), so a logging miss never breaks the turn.
+            PersistReplyIfComplete(job, sid, archive);
+        }
+    }
+
+    /// <summary>Write a terminal <c>reply</c> job to the durable archive (summary, transcript, and
+    /// the decoded reply audio). No-op for any non-reply terminal stage.</summary>
+    private static void PersistReplyIfComplete(TurnJob job, string sid, VoiceTurnArchive archive)
+    {
+        var snap = job.Snapshot();
+        if (!string.Equals(snap.Stage, "reply", StringComparison.Ordinal)) return;
+
+        byte[]? audio = null;
+        if (!string.IsNullOrEmpty(snap.AudioBase64))
+        {
+            try { audio = Convert.FromBase64String(snap.AudioBase64); }
+            catch (FormatException ex)
+            {
+                FileLog.Write($"[GatewayVoiceTurn] PersistReply turnId={job.TurnId}: bad audio base64: {ex.Message}");
+            }
+        }
+
+        archive.Save(new VoiceTurnArchiveRecord
+        {
+            TurnId = job.TurnId,
+            SessionId = sid,
+            UploadId = job.UploadId,
+            Stage = "reply",
+            Transcript = snap.Transcript ?? "",
+            Summary = snap.Summary ?? "",
+            HasAudio = audio is { Length: > 0 },
+            CreatedAtUtc = DateTime.UtcNow,
+        }, audio);
     }
 
     /// <summary>
@@ -398,6 +626,21 @@ internal static class GatewayVoiceTurnEndpoint
             _rawJson = rawJson;
         }
 
+        /// <summary>Build an input from already-assembled audio bytes (the resumable-upload path):
+        /// the Gateway buffered the chunks itself, so it hands the Director one multipart audio file.</summary>
+        public static VoiceTurnInput FromAudio(byte[] audioBytes, string mime)
+        {
+            var m = mime ?? "audio/webm";
+            var fileName = m.Contains("webm", StringComparison.OrdinalIgnoreCase) ? "audio.webm"
+                : m.Contains("mp4", StringComparison.OrdinalIgnoreCase) || m.Contains("m4a", StringComparison.OrdinalIgnoreCase) ? "audio.m4a"
+                : m.Contains("ogg", StringComparison.OrdinalIgnoreCase) ? "audio.ogg"
+                : m.Contains("mpeg", StringComparison.OrdinalIgnoreCase) || m.Contains("mp3", StringComparison.OrdinalIgnoreCase) ? "audio.mp3"
+                : m.Contains("wav", StringComparison.OrdinalIgnoreCase) ? "audio.wav"
+                : "audio.webm";
+            return new VoiceTurnInput(text: null, audioBytes: audioBytes, audioFileName: fileName,
+                audioContentType: m, rawJson: null);
+        }
+
         public static async Task<VoiceTurnInput> ReadAsync(HttpContext ctx)
         {
             if (ctx.Request.HasFormContentType)
@@ -456,4 +699,12 @@ internal static class GatewayVoiceTurnEndpoint
             return form;
         }
     }
+}
+
+/// <summary>Body of <c>POST /sessions/{sid}/voice-turn/upload/{uploadId}/complete</c>: the chunk
+/// count to reassemble and the audio MIME type the phone recorded with.</summary>
+public sealed class VoiceTurnCompleteRequest
+{
+    public int TotalChunks { get; set; }
+    public string? Mime { get; set; }
 }

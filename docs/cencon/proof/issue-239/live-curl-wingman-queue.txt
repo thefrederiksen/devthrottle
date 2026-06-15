@@ -1,0 +1,4 @@
+﻿GET http://127.0.0.1:7903/wingman/queue
+HTTP 200
+
+{"inFlight":null,"queue":[],"recent":[],"brain":{"pid":0,"model":"","alive":false,"status":"Disabled","consecutiveRejections":0,"rejectionThreshold":0,"recoveryInFlight":false}}

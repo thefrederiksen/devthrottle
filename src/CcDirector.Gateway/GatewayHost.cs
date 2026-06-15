@@ -85,6 +85,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly WorkListStore _workLists;
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
+    // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
+    private readonly NeedsYouClock _needsYouClock = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
     private AdvertisedEndpointMonitor? _endpointMonitor;
@@ -388,6 +390,8 @@ public sealed class GatewayHost : IAsyncDisposable
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
                 : null,
+            // Issue #218: stamp the Gateway-owned NeedsYouSince entry clock onto each session.
+            needsYouStampFor: (sid, isRed) => _needsYouClock.Stamp(sid, isRed),
             // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always
             // available (read-only is safe even with briefing disabled), and the brief survives
             // the Director that died - which is exactly when we need it.
@@ -443,6 +447,26 @@ public sealed class GatewayHost : IAsyncDisposable
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
         // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
         SettingsEndpoints.Map(_app, this);
+
+        // The fleet-level wingman pipeline view (issue #239): GET /wingman/queue returns a
+        // read-only snapshot of the ONE-brain stamping machine - in-flight session, ordered
+        // queue, recent briefs, and brain health (incl. the poisoned-brain rejection counter
+        // that the 2026-06-07 outage hid). Snapshot supplier is null when the pipeline is
+        // disabled, so the endpoint answers an honest idle snapshot. Read-only - it never
+        // changes any queue state.
+        WingmanQueueEndpoints.Map(_app, _briefAgent is { } queueAgent
+            ? async () =>
+            {
+                var health = await Brain.GetHealthAsync();
+                return queueAgent.QueueSnapshot(new Contracts.WingmanBrainHealth
+                {
+                    Pid = Brain.ProcessId,
+                    Model = BrainModel,
+                    Alive = health.IsAlive,
+                    Status = health.Status,
+                });
+            }
+            : null);
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

@@ -1,0 +1,6 @@
+2026-06-14 07:15:10.933 [SessionWsProxy] open leg=shots sid=c748027a-5b94-4356-a26c-af08906ee738 query=?count=100 client=127.0.0.1
+2026-06-14 07:15:10.934 [SessionWsProxy] leg=shots sid=c748027a-5b94-4356-a26c-af08906ee738 resolved director=c99a103c-143d-4427-9188-7b16a93768ab -> https://soren-north.taildb08ed.ts.net:7883/screenshots
+2026-06-14 07:15:10.936 [SessionWsProxy] leg=shots sid=c748027a-5b94-4356-a26c-af08906ee738 director=c99a103c-143d-4427-9188-7b16a93768ab -> 503 (forwarder error Request)
+2026-06-14 07:15:51.607 [SessionWsProxy] open leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 query=?count=100 client=127.0.0.1
+2026-06-14 07:15:51.608 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 resolved director=c99a103c-143d-4427-9188-7b16a93768ab -> https://soren-north.taildb08ed.ts.net:7883/screenshots
+2026-06-14 07:15:51.612 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 director=c99a103c-143d-4427-9188-7b16a93768ab -> 503 (forwarder error Request)

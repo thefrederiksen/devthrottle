@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #436 - AC1 QA-bounce fix - Developer Agent proof</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:Segoe UI, sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#FFFFFF; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#FFFFFF; font-size:17px; margin-top:28px; }
+  code { font-family:Cascadia Mono, Consolas, monospace; background:#252526; padding:2px 6px; border-radius:3px; color:#CCCCCC; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#FFFFFF; }
+  .pass { color:#22C55E; font-weight:600; }
+  .fail { color:#EF4444; font-weight:600; }
+  img { max-width:100%; border:1px solid #3C3C3C; margin:8px 0; display:block; }
+  .note { background:#252526; border-left:3px solid #007ACC; padding:10px 14px; margin:12px 0; }
+  figcaption { color:#888888; font-size:12px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<h1>Issue #436 - AC1 QA-bounce fix (Developer Agent)</h1>
+
+<p>The QA Agent passed 10 of 11 acceptance criteria and bounced the issue
+(<code>flow:qa-failed</code>) on a single defect: <strong>AC1</strong> - at the default dialog
+size on a 1920x1080 display, only 2 full agent-tool cards were visible without scrolling; the 3rd
+card (Codex) was clipped. This report documents the fix and re-proves AC1, plus a regression
+sanity-check on the criteria that already passed.</p>
+
+<div class="note">
+<strong>Verified in a freshly built, isolated test Director</strong> (slot 8, v0.6.23, framework
+build from this worktree) launched via its own scheduled task, on the reference
+<strong>1920x1080</strong> display (work area 1920x1032 - 48px taskbar). Dialog opened at its
+default size and centered on its owner.
+</div>
+
+<h2>Defect (AC1) - root cause and fix</h2>
+<p>The QA Agent correctly identified the default dialog <strong>Height (860)</strong> as the binding
+constraint. The expanded hint paragraph + the toolbar + the ~60px Save/Cancel bar left only enough
+vertical room for 2 cards.</p>
+
+<table>
+<tr><th>Change</th><th>File</th><th>Why</th></tr>
+<tr>
+  <td>Default <code>Height</code> 860 -&gt; <strong>1010</strong> (width unchanged at 1040)</td>
+  <td><code>SettingsDialog.axaml</code></td>
+  <td>Screen-safe maximum: dialog bottom = 1012, inside the 1032px work area. More card area without overflowing a 1080p screen.</td>
+</tr>
+<tr>
+  <td>Per-card vertical footprint tightened: card border <code>Padding</code> 10 -&gt; 8, card inner <code>StackPanel Spacing</code> 8 -&gt; 6, inter-card <code>Spacing</code> 8 -&gt; 6</td>
+  <td><code>SettingsDialog.axaml</code> (all 5 cards)</td>
+  <td>Shrinks each card by ~16px and the gaps, so the 3rd card clears the visible scroll area. Spacing stays within VisualStyle.md guidance; no color/token changes.</td>
+</tr>
+<tr>
+  <td>Hint paragraph condensed (still references issue #391 and the Automatic-default behavior - AC10 preserved)</td>
+  <td><code>SettingsDialog.axaml</code></td>
+  <td>Reclaims a line of vertical chrome above the card list while keeping the documented accuracy AC10 requires.</td>
+</tr>
+</table>
+
+<h2>AC1 re-proof - 3 full cards, no scrolling needed</h2>
+
+<p><strong>UI Automation measurements</strong> (dialog at default 1040x1010, Agents tab, on
+1920x1080):</p>
+<table>
+<tr><th>Element</th><th>Position</th><th>Within visible scroll area? (ScrollViewer visible bottom = 931)</th></tr>
+<tr><td>Claude Code card (header 243 ... preview strip bottom ~408 ... border bottom ~416)</td><td>top 243</td><td class="pass">YES - full card visible</td></tr>
+<tr><td>Pi card (header 477 ... preview strip bottom ~642 ... border bottom ~650)</td><td>top 477</td><td class="pass">YES - full card visible</td></tr>
+<tr><td>Codex card (header 711 ... preview strip bottom ~919 ... border bottom ~927)</td><td>top 711</td><td class="pass">YES - full card (incl. preview strip + bottom border) fits above the Save bar (top 966)</td></tr>
+<tr><td>Save and Close / Cancel bar</td><td>top 966</td><td>-</td></tr>
+</table>
+
+<p>A vertical scrollbar is still present (correct - there are 5 cards total; Gemini and OpenCode
+remain below), but <strong>3 full cards are visible without scrolling</strong>, which is what AC1
+requires.</p>
+
+<h2>Before / After (Codex card)</h2>
+<figure>
+<img src="ac1-before-codex-clipped.png" alt="Before - Codex clipped" />
+<figcaption><strong>Before (Height 860):</strong> Codex shows only down to the "This is what
+launches:" label - the preview strip box and the card's bottom border are clipped behind the Save
+bar. This was the AC1 defect.</figcaption>
+</figure>
+<figure>
+<img src="ac1-fix-codex-full.png" alt="After - Codex full" />
+<figcaption><strong>After (Height 1010 + tightened spacing):</strong> the Codex card is fully
+rendered - header, path row, command line, override box, the "This is what launches:" label AND its
+monospace preview strip (<code>...\Codex\bin\codex.EXE</code>), plus the card's bottom border - all
+above the Save and Close / Cancel bar.</figcaption>
+</figure>
+
+<h2>Full dialog - all three cards complete</h2>
+<figure>
+<img src="ac1-fix-dialog-3-cards.png" alt="Agents tab with 3 full cards" />
+<figcaption>Default-size Settings -&gt; Agents on 1920x1080: Claude Code, Pi, and Codex are each fully
+visible (each with its complete "This is what launches:" preview strip), with no scrolling required.</figcaption>
+</figure>
+
+<h2>Regression sanity-check (the 10 criteria QA already passed)</h2>
+<p>The fix changes only dialog sizing and card spacing/padding in
+<code>SettingsDialog.axaml</code> - no logic, no handlers, no catalog/launch code. The preview
+mechanism was re-exercised live to confirm it still works:</p>
+<table>
+<tr><th>AC</th><th>Check</th><th>Result</th></tr>
+<tr><td>AC1</td><td>3 full cards, no scroll, default size on 1920x1080</td><td class="pass">PASS (fixed - see above)</td></tr>
+<tr><td>AC2</td><td>"This is what launches:" preview strip on every card</td><td class="pass">PASS - visible/populated on Claude, Pi, Codex in the screenshot</td></tr>
+<tr><td>AC3</td><td>Preview reflects preset live</td><td class="pass">PASS - toggled Claude to "Automatic (skip permissions)"; strip updated live to <code>...claude.EXE --dangerously-skip-permissions</code></td></tr>
+<tr><td>AC4-AC11</td><td>Model/override, Quick check, Launch preview + teardown, Automatic default, config preserved, doc/hint accuracy, build/style</td><td class="pass">Untouched by this fix - no logic changed. Hint still references #391 + the Automatic default (AC10). Build clean (0/0).</td></tr>
+</table>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a pure dialog-layout (XAML) change to one Avalonia view - no architecture or
+security-posture change, no DT-rule touched. <code>docs/cencon/</code> unchanged.</p>
+
+<h2>Build</h2>
+<p><code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded. 0 Warning(s) /
+0 Error(s)</strong>. Slot exe built and launched from this worktree.</p>
+
+<p><strong>I believe this is finished.</strong> The single AC1 defect is fixed and re-proven; the
+other criteria are unaffected.</p>
+</body>
+</html>

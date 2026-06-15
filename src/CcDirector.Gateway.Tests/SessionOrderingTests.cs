@@ -189,4 +189,124 @@ public sealed class SessionOrderingTests
         // The held-red session lands in OnHold, not NeedsYou.
         Assert.Equal(new[] { "held1" }, active.Select(s => s.SessionId));
     }
+
+    // ===== by-repo grouping (issue #219) =====
+
+    /// <summary>Builds a session with the fields the repo grouping reads. RemoteRepo wins over
+    /// RepoPath when present; MachineName/DirectorId are carried to prove they do NOT affect the
+    /// group key.</summary>
+    private static SessionDto R(string id, string repoPath = "", string remoteRepo = "",
+        int sortOrder = 0, string machine = "", string directorId = "") => new()
+    {
+        SessionId = id,
+        RepoPath = repoPath,
+        RemoteRepo = remoteRepo,
+        SortOrder = sortOrder,
+        MachineName = machine,
+        DirectorId = directorId,
+        StatusColor = "blue",
+        CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+    };
+
+    [Fact]
+    public void RepoName_PrefersNormalizedRemote_LeafCaseInsensitiveDotGitStripped()
+    {
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "thefrederiksen/cc-director.git")));
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "  thefrederiksen/cc-director  ")));
+    }
+
+    [Fact]
+    public void RepoName_FallsBackToRepoPathLeaf_WhenNoRemote()
+    {
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", repoPath: @"D:\ReposFred\cc-director")));
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", repoPath: "/home/user/src/cc-director/")));
+    }
+
+    [Fact]
+    public void RepoName_NoRemoteNoPath_IsNull()
+    {
+        Assert.Null(SessionOrdering.RepoName(R("x")));
+    }
+
+    [Fact]
+    public void InRepoGroups_HeadersAreAlphabetical_CaseInsensitive()
+    {
+        var sessions = new[]
+        {
+            R("z", repoPath: @"D:\zebra"),
+            R("a", repoPath: @"D:\Apple"),
+            R("b", repoPath: @"D:\banana"),
+        };
+
+        var groups = SessionOrdering.InRepoGroups(sessions);
+
+        // "Apple" sorts before "banana" before "zebra" ignoring case.
+        Assert.Equal(new[] { "Apple", "banana", "zebra" }, groups.Select(g => g.Name));
+    }
+
+    [Fact]
+    public void InRepoGroups_NoRepoGroup_IsPlacedLast()
+    {
+        var sessions = new[]
+        {
+            R("none", repoPath: ""),
+            R("named", repoPath: @"D:\alpha"),
+        };
+
+        var groups = SessionOrdering.InRepoGroups(sessions);
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal("alpha", groups[0].Name);
+        Assert.False(groups[0].IsNoRepo);
+        Assert.Equal(SessionOrdering.NoRepoGroup, groups[^1].Name);
+        Assert.True(groups[^1].IsNoRepo);
+    }
+
+    [Fact]
+    public void InRepoGroups_WithinGroup_UsesDesktopOrder()
+    {
+        // Two sessions in the same repo; lower SortOrder must render first regardless of input order.
+        var sessions = new[]
+        {
+            R("second", repoPath: @"D:\repo", sortOrder: 2),
+            R("first",  repoPath: @"D:\repo", sortOrder: 1),
+        };
+
+        var groups = SessionOrdering.InRepoGroups(sessions);
+
+        var repo = Assert.Single(groups);
+        Assert.Equal(new[] { "first", "second" }, repo.Sessions.Select(s => s.SessionId));
+    }
+
+    [Fact]
+    public void InRepoGroups_SameRepoAcrossMachines_CoalescesIntoOneGroup()
+    {
+        // Same repo (same RemoteRepo) on two different machines / Directors must land under ONE header.
+        var sessions = new[]
+        {
+            R("onA", remoteRepo: "thefrederiksen/cc-director.git", machine: "MACHINE_A", directorId: "dirA"),
+            R("onB", remoteRepo: "thefrederiksen/cc-director",     machine: "MACHINE_B", directorId: "dirB"),
+        };
+
+        var groups = SessionOrdering.InRepoGroups(sessions);
+
+        var repo = Assert.Single(groups);
+        Assert.Equal("cc-director", repo.Name);
+        Assert.Equal(new[] { "onA", "onB" }, repo.Sessions.Select(s => s.SessionId).OrderBy(x => x));
+    }
+
+    [Fact]
+    public void InRepoGroups_DoesNotMutateInput()
+    {
+        var sessions = new[]
+        {
+            R("b", repoPath: @"D:\repo", sortOrder: 2),
+            R("a", repoPath: @"D:\repo", sortOrder: 1),
+        };
+
+        _ = SessionOrdering.InRepoGroups(sessions);
+
+        // Original array order preserved (grouping snapshots, never sorts in place).
+        Assert.Equal(new[] { "b", "a" }, sessions.Select(s => s.SessionId));
+    }
 }

@@ -138,6 +138,110 @@ public sealed class ControlApiHostTests : IAsyncLifetime
         Assert.Contains(_host.DirectorId, json);
         Assert.Contains($"127.0.0.1:{_host.Port}", json);
     }
+
+    [Fact]
+    public void IsListening_isTrue_and_noStartupError_after_successful_start()
+    {
+        // The host started successfully in InitializeAsync, so the UI's Control-API indicator
+        // stays hidden (StartupError null) and remote access is reported up.
+        Assert.True(_host.IsListening);
+        Assert.Null(_host.StartupError);
+    }
+}
+
+/// <summary>
+/// Regression for the "session never turns red when the Control API can't bind" bug
+/// (2026-06-15). The per-session state services (SessionStatusWingman + TerminalStateDetector)
+/// used to start mid-StartAsync, AFTER PortAllocator.Allocate. When every port in [7879..7898]
+/// was busy, Allocate threw and aborted StartAsync before those services ran, so the desktop
+/// badge (Session.StatusColor) froze on its last colour and a silent session could never flip
+/// to the red "needs you" state. StartSessionStateServices() now runs up front, independent of
+/// the bind. These tests start ONLY those services (never call StartAsync, so no port is ever
+/// bound) and prove the badge pipeline is live.
+/// </summary>
+[Collection("DirectorRoot")]
+public sealed class SessionStateServicesDecouplingTests
+{
+    [Fact]
+    public async Task StateServices_DriveBadgeColour_WithoutAnyControlApiBind()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+
+        // Start the state services directly. We never call StartAsync, so Kestrel never binds a
+        // port -- exactly the state a Director is in after "all ports in [7879..7898] busy".
+        host.StartSessionStateServices();
+        try
+        {
+            // Pipe-mode session: no process is spawned, but the SessionStatusWingman wires its
+            // activity handler so StatusColor tracks ActivityState.
+            var session = sm.CreatePipeModeSession(Path.GetTempPath());
+
+            // Drive the activity state the way TerminalStateDetector would (byte -> Working;
+            // QuietThreshold of silence -> WaitingForInput). The wingman is the sole writer of
+            // StatusColor; if it is running, the badge follows -- with no Control API bound.
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal("blue", session.StatusColor);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal("red", session.StatusColor);
+            Assert.Equal("needs you", session.LastStatusReason);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ReportStartupFailure_SetsErrorAndRaisesEvent()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        try
+        {
+            // Before any failure: healthy defaults so the UI indicator stays hidden.
+            Assert.False(host.IsListening);
+            Assert.Null(host.StartupError);
+
+            var raised = 0;
+            host.StartupStatusChanged += () => raised++;
+
+            // Simulate the App boundary catching a bind failure (e.g. all ports busy).
+            host.ReportStartupFailure("All ports in range 7879..7898 are busy.");
+
+            Assert.False(host.IsListening);
+            Assert.Equal("All ports in range 7879..7898 are busy.", host.StartupError);
+            Assert.Equal(1, raised);
+        }
+        finally
+        {
+            sm.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task StartSessionStateServices_IsIdempotent()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        try
+        {
+            // Calling twice must not throw or double-wire (StartAsync also calls it once).
+            host.StartSessionStateServices();
+            host.StartSessionStateServices();
+
+            var session = sm.CreatePipeModeSession(Path.GetTempPath());
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal("red", session.StatusColor);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+        }
+    }
 }
 
 /// <summary>
