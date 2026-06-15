@@ -61,6 +61,16 @@
 
     <div class="reply" id="reply-box"></div>
 
+    <!-- Offline-first outbox (issue #425): every recording is saved here locally the
+         moment it stops, then uploaded. A turn shows its status (Pending / Uploading /
+         Uploaded / Failed) and a Retry on failure; Pending/Failed turns survive a reload
+         because they are read back from IndexedDB. -->
+    <div class="outbox">
+      <h2 class="outbox-title">This device</h2>
+      <p id="outbox-empty" class="outbox-empty hidden">Nothing waiting to upload.</p>
+      <ul id="outbox-list" class="outbox-list"></ul>
+    </div>
+
     <div class="history">
       <h2 class="history-title">History</h2>
       <p id="history-empty" class="history-empty">No turns yet. Tap Speak to start.</p>
@@ -113,6 +123,7 @@
        gateway-token.txt) so the page can authenticate to the token-gated voice-turn
        endpoints even when the Gateway runs with global auth off. -->
   <script>window.__GW_TOKEN__ = "__GATEWAY_TOKEN__";</script>
+  <script src="/pages/voice/db.js"></script>
   <script src="/pages/voice/voice.js"></script>
 </body>
 </html>
