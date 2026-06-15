@@ -21,8 +21,9 @@ public sealed record AgentCommandPreset(string Name, string Arguments);
 /// <param name="DisplayName">Human-readable tool name.</param>
 /// <param name="Presets">
 /// Ordered command-line presets. <c>Presets[0]</c> is the recommended/default preset.
-/// For Claude Code the default is the STANDARD command line (no skip-permissions); the
-/// "Automatic (skip permissions)" preset is present but never the default.
+/// For Claude Code the default is "Automatic (skip permissions)" (issue #436): it adds
+/// <c>--dangerously-skip-permissions</c>. The "Standard" command line is offered as the
+/// non-default alternative.
 /// </param>
 /// <param name="DefaultModel">
 /// Recommended default model for this tool, or empty when the tool has no model argument.
@@ -42,10 +43,12 @@ public sealed record AgentToolCatalogEntry(
 /// command line (as the first preset) and a recommended default model, so the machine-level
 /// Tools page can pre-populate a tool the user adds without the user hand-typing flags.
 ///
-/// Design decision (issue #391): Claude Code's recommended default is the STANDARD command
-/// line - it does NOT contain <c>--dangerously-skip-permissions</c>. An
-/// "Automatic (skip permissions)" preset is offered but is never the default, so a freshly
-/// configured Claude tool launches with the safe, permission-prompting behavior.
+/// Design decision (issue #436, supersedes issue #391): Claude Code's recommended default is
+/// now "Automatic (skip permissions)" - it DOES contain <c>--dangerously-skip-permissions</c>,
+/// so a freshly detected/configured Claude tool launches in skip-permissions mode. This reverses
+/// the safe default chosen in #391; the always-visible command-line preview strip on the Agents
+/// tab (issue #436) is the safety net that makes the skip-permissions flag impossible to miss.
+/// The "Standard" command line (no skip-permissions) remains available as the non-default preset.
 /// </summary>
 public static class AgentToolCatalog
 {
@@ -90,15 +93,17 @@ public static class AgentToolCatalog
 
     private static IReadOnlyList<AgentToolCatalogEntry> BuildCatalog()
     {
-        // Claude Code: STANDARD is the recommended default (index 0). The skip-permissions
-        // preset is present but deliberately NOT the default.
+        // Claude Code (issue #436, supersedes #391): "Automatic (skip permissions)" is the
+        // recommended default (index 0), so a freshly configured Claude launches with
+        // --dangerously-skip-permissions. The STANDARD (no skip-permissions) preset is offered
+        // as the non-default alternative.
         var claude = new AgentToolCatalogEntry(
             AgentKind.ClaudeCode,
             "Claude Code",
             new[]
             {
-                new AgentCommandPreset(StandardPresetName, ""),
                 new AgentCommandPreset(ClaudeAutomaticPresetName, ClaudeSkipPermissionsArg),
+                new AgentCommandPreset(StandardPresetName, ""),
             },
             "");
 

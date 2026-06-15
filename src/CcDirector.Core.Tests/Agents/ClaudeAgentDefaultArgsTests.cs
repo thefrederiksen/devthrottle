@@ -11,7 +11,9 @@ public class ClaudeAgentDefaultArgsTests
     {
         var options = new AgentOptions();
 
-        // Issue #391: the recommended default is the STANDARD command line.
+        // A bare AgentOptions carries no Claude args until App startup wires the per-tool config
+        // into DefaultClaudeArgs (issue #436 changed that configured default to Automatic, but the
+        // raw object is still empty - this asserts the unwired invariant).
         Assert.DoesNotContain(AgentToolCatalog.ClaudeSkipPermissionsArg, options.DefaultClaudeArgs);
         Assert.Equal("", options.DefaultClaudeArgs);
     }

@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:term="clr-namespace:CcDirector.Terminal.Avalonia;assembly=CcDirector.Terminal.Avalonia"
+        x:Class="CcDirector.Avalonia.LaunchPreviewDialog"
+        Title="Launch preview"
+        Width="900" Height="600"
+        MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#1E1E1E">
+
+    <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto">
+        <TextBlock Grid.Row="0" Text="This is how the agent starts up with the configured command line. Nothing here is saved - it is a throwaway session."
+                   Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <Border Grid.Row="1" Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+                Padding="8,6" Margin="0,0,0,8">
+            <TextBox x:Name="CommandBox" IsReadOnly="True" BorderThickness="0"
+                     Background="Transparent" Foreground="#CCCCCC"
+                     FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="12"
+                     TextWrapping="Wrap" />
+        </Border>
+
+        <Border Grid.Row="2" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1">
+            <term:TerminalView x:Name="Terminal" />
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <TextBlock x:Name="StatusText" Text="" Foreground="#888888" FontSize="11"
+                       VerticalAlignment="Center" Margin="0,0,12,0" />
+            <Button x:Name="StopCloseButton" Content="Stop and close" Width="140" Height="30"
+                    Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0" Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    Click="BtnStopClose_Click" />
+            <Button x:Name="CloseButton" Content="Close" Width="100" Height="30" Margin="8,0,0,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0" Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    IsCancel="True" Click="BtnClose_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

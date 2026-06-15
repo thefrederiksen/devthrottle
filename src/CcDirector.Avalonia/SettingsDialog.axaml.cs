@@ -475,19 +475,19 @@ public partial class SettingsDialog : Window
         await DetectToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, DetectOpenCodeButton);
 
     private async void BtnTestClaude_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, TestClaudeButton);
+        await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, QuickCheckClaudeButton);
 
     private async void BtnTestPi_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, TestPiButton);
+        await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, QuickCheckPiButton);
 
     private async void BtnTestCodex_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, TestCodexButton);
+        await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, QuickCheckCodexButton);
 
     private async void BtnTestGemini_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, TestGeminiButton);
+        await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, QuickCheckGeminiButton);
 
     private async void BtnTestOpenCode_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, TestOpenCodeButton);
+        await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, QuickCheckOpenCodeButton);
 
     private async void BtnBrowseClaude_Click(object? sender, RoutedEventArgs e) =>
         await BrowseToolAsync("Select Claude Code executable", ClaudePathBox, ClaudeStatus);
@@ -503,6 +503,55 @@ public partial class SettingsDialog : Window
 
     private async void BtnBrowseOpenCode_Click(object? sender, RoutedEventArgs e) =>
         await BrowseToolAsync("Select OpenCode executable", OpenCodePathBox, OpenCodeStatus);
+
+    private async void BtnLaunchPreviewClaude_Click(object? sender, RoutedEventArgs e) =>
+        await LaunchPreviewAsync(AgentKind.ClaudeCode, ClaudeStatus);
+
+    private async void BtnLaunchPreviewPi_Click(object? sender, RoutedEventArgs e) =>
+        await LaunchPreviewAsync(AgentKind.Pi, PiStatus);
+
+    private async void BtnLaunchPreviewCodex_Click(object? sender, RoutedEventArgs e) =>
+        await LaunchPreviewAsync(AgentKind.Codex, CodexStatus);
+
+    private async void BtnLaunchPreviewGemini_Click(object? sender, RoutedEventArgs e) =>
+        await LaunchPreviewAsync(AgentKind.Gemini, GeminiStatus);
+
+    private async void BtnLaunchPreviewOpenCode_Click(object? sender, RoutedEventArgs e) =>
+        await LaunchPreviewAsync(AgentKind.OpenCode, OpenCodeStatus);
+
+    /// <summary>
+    /// Open the throwaway Launch preview popup (issue #436) for one tool: start the agent with the
+    /// exact resolved command line from that card in a disposable ConPTY terminal so the user can
+    /// watch it boot. The session is never saved and never added to the session roster - it lives
+    /// and dies inside <see cref="LaunchPreviewDialog"/>.
+    /// </summary>
+    private async Task LaunchPreviewAsync(AgentKind tool, TextBlock status)
+    {
+        FileLog.Write($"[SettingsDialog] LaunchPreviewAsync: tool={tool}");
+        var card = PresetControls().First(c => c.Tool == tool);
+
+        var exe = card.Path.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(exe))
+            exe = ToolDetectionService.GetConfiguredPath(tool, CurrentOptions());
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            ShowToolStatus(status, "Set the executable path first, then try Launch preview again.", error: true);
+            return;
+        }
+
+        var config = new AgentToolConfig
+        {
+            Tool = tool,
+            PresetName = card.Preset.SelectedItem as string ?? "",
+            DefaultModel = card.Model.Text?.Trim() ?? "",
+            ArgsOverride = card.Override.Text?.Trim() ?? "",
+        };
+        var args = config.ResolveEffectiveCommandLineArguments();
+        var workingDir = CurrentOptions().ChatSessionRepoPath ?? Environment.CurrentDirectory;
+
+        var dialog = new LaunchPreviewDialog(exe, args, workingDir, ToolDetectionService.DisplayName(tool));
+        await dialog.ShowDialog(this);
+    }
 
     /// <summary>
     /// Re-run the first-run tool-detection wizard on demand (issue #392). Opens the same wizard
@@ -570,11 +619,11 @@ public partial class SettingsDialog : Window
         {
             var results = new[]
             {
-                await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, TestClaudeButton),
-                await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, TestPiButton),
-                await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, TestCodexButton),
-                await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, TestGeminiButton),
-                await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, TestOpenCodeButton),
+                await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, QuickCheckClaudeButton),
+                await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, QuickCheckPiButton),
+                await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, QuickCheckCodexButton),
+                await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, QuickCheckGeminiButton),
+                await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, QuickCheckOpenCodeButton),
             };
 
             var ok = results.Count(r => r.Ok);
@@ -602,7 +651,10 @@ public partial class SettingsDialog : Window
             var typedPath = box.Text?.Trim();
             var result = await Task.Run(() => _toolDetector.DetectTool(tool, options, typedPath));
             if (result.ResolvedPath is not null)
+            {
                 box.Text = result.ResolvedPath;
+                RefreshAllPreviewStrips();
+            }
             ShowToolStatus(status, $"{result.Message} Source: {result.Source}.", error: !result.Found);
         }
         catch (Exception ex)
@@ -665,7 +717,8 @@ public partial class SettingsDialog : Window
                 return;
 
             box.Text = files[0].Path.LocalPath;
-            ShowToolStatus(status, $"Selected {box.Text}. Click Test to verify or Save to apply.", error: false);
+            RefreshAllPreviewStrips();
+            ShowToolStatus(status, $"Selected {box.Text}. Click Quick check to verify or Save to apply.", error: false);
         }
         catch (Exception ex)
         {
@@ -710,24 +763,27 @@ public partial class SettingsDialog : Window
         ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, options, openCodePath);
     }
 
-    /// <summary>The control set for one tool's preset/model/enabled/override editors.</summary>
+    /// <summary>The control set for one tool's preset/model/enabled/override editors plus its
+    /// path box (used by Launch preview) and the read-only "what launches" preview strip.</summary>
     private readonly record struct ToolPresetControls(
-        AgentKind Tool, ComboBox Preset, TextBox Model, TextBox Override, CheckBox Enabled);
+        AgentKind Tool, ComboBox Preset, TextBox Model, TextBox Override, CheckBox Enabled,
+        TextBox Path, TextBox PreviewStrip);
 
     private ToolPresetControls[] PresetControls() => new[]
     {
-        new ToolPresetControls(AgentKind.ClaudeCode, ClaudePresetCombo, ClaudeModelBox, ClaudeArgsOverrideBox, ClaudeEnabledCheck),
-        new ToolPresetControls(AgentKind.Pi, PiPresetCombo, PiModelBox, PiArgsOverrideBox, PiEnabledCheck),
-        new ToolPresetControls(AgentKind.Codex, CodexPresetCombo, CodexModelBox, CodexArgsOverrideBox, CodexEnabledCheck),
-        new ToolPresetControls(AgentKind.Gemini, GeminiPresetCombo, GeminiModelBox, GeminiArgsOverrideBox, GeminiEnabledCheck),
-        new ToolPresetControls(AgentKind.OpenCode, OpenCodePresetCombo, OpenCodeModelBox, OpenCodeArgsOverrideBox, OpenCodeEnabledCheck),
+        new ToolPresetControls(AgentKind.ClaudeCode, ClaudePresetCombo, ClaudeModelBox, ClaudeArgsOverrideBox, ClaudeEnabledCheck, ClaudePathBox, ClaudePreviewStrip),
+        new ToolPresetControls(AgentKind.Pi, PiPresetCombo, PiModelBox, PiArgsOverrideBox, PiEnabledCheck, PiPathBox, PiPreviewStrip),
+        new ToolPresetControls(AgentKind.Codex, CodexPresetCombo, CodexModelBox, CodexArgsOverrideBox, CodexEnabledCheck, CodexPathBox, CodexPreviewStrip),
+        new ToolPresetControls(AgentKind.Gemini, GeminiPresetCombo, GeminiModelBox, GeminiArgsOverrideBox, GeminiEnabledCheck, GeminiPathBox, GeminiPreviewStrip),
+        new ToolPresetControls(AgentKind.OpenCode, OpenCodePresetCombo, OpenCodeModelBox, OpenCodeArgsOverrideBox, OpenCodeEnabledCheck, OpenCodePathBox, OpenCodePreviewStrip),
     };
 
     /// <summary>
     /// Populate each tool section's command-line preset list (from the built-in catalog), and
     /// fill the selected preset, default model, args override, and enabled flag from the
     /// machine-level per-tool config in config.json (issue #391). A tool never configured shows
-    /// the catalog default - for Claude that is the Standard (non-skip-permissions) preset.
+    /// the catalog default - for Claude that is now the Automatic (skip permissions) preset
+    /// (issue #436, supersedes #391). Finally refresh every "what launches" preview strip.
     /// </summary>
     private void LoadToolPresets()
     {
@@ -745,6 +801,54 @@ public partial class SettingsDialog : Window
             c.Override.Text = config.ArgsOverride;
             c.Enabled.IsChecked = config.Enabled;
         }
+
+        RefreshAllPreviewStrips();
+    }
+
+    /// <summary>
+    /// Live handler wired to every tool card's default-model box and advanced override box. Either
+    /// changing re-renders that card's "what launches" preview strip instantly, with no save/close
+    /// (issue #436). It refreshes ALL strips because the cost is trivial.
+    /// </summary>
+    private void ToolPreviewInput_Changed(object? sender, TextChangedEventArgs e) => RefreshAllPreviewStrips();
+
+    /// <summary>
+    /// Live handler wired to every tool card's command-line preset dropdown. Changing the preset
+    /// re-renders that card's "what launches" preview strip instantly, with no save/close (issue
+    /// #436).
+    /// </summary>
+    private void ToolPreviewInput_Changed(object? sender, SelectionChangedEventArgs e) => RefreshAllPreviewStrips();
+
+    /// <summary>Recompute and set every tool card's "what launches" preview strip text.</summary>
+    private void RefreshAllPreviewStrips()
+    {
+        foreach (var c in PresetControls())
+            c.PreviewStrip.Text = BuildPreviewCommandLine(c);
+    }
+
+    /// <summary>
+    /// Compose the fully-resolved command line a real launch would use for one tool card from its
+    /// LIVE editor state - exe path plus the effective preset/override arguments and the composed
+    /// <c>--model</c> flag. The argument composition is delegated to the shared
+    /// <see cref="AgentToolConfig.ResolveEffectiveCommandLineArguments"/> so the preview matches
+    /// exactly what App startup launches with (issue #436).
+    /// </summary>
+    private static string BuildPreviewCommandLine(ToolPresetControls c)
+    {
+        var config = new AgentToolConfig
+        {
+            Tool = c.Tool,
+            PresetName = c.Preset.SelectedItem as string ?? "",
+            DefaultModel = c.Model.Text?.Trim() ?? "",
+            ArgsOverride = c.Override.Text?.Trim() ?? "",
+        };
+
+        var exe = c.Path.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(exe))
+            exe = ToolDetectionService.DisplayName(c.Tool).ToLowerInvariant();
+
+        var args = config.ResolveEffectiveCommandLineArguments();
+        return string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
     }
 
     /// <summary>
@@ -815,10 +919,7 @@ public partial class SettingsDialog : Window
         FileLog.Write("[SettingsDialog] ApplyClaudePresetToRunningOptions");
         var options = CurrentOptions();
         var config = AgentToolConfig.Load(AgentKind.ClaudeCode);
-        var args = config.ResolveEffectiveArguments().Trim();
-        var model = config.DefaultModel?.Trim() ?? "";
-        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
-            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
+        var args = config.ResolveEffectiveCommandLineArguments();
         options.DefaultClaudeArgs = args;
         FileLog.Write($"[SettingsDialog] ApplyClaudePresetToRunningOptions: defaultArgs='{args}'");
     }
