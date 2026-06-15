@@ -34,6 +34,7 @@ button:disabled{opacity:.45;cursor:default}
 .s-main{flex:1;min-width:0}
 .s-name{font-size:17px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .s-sub{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s-turns{color:var(--muted);font-size:13px;flex:0 0 auto;white-space:nowrap}
 
 .session-meta{display:flex;align-items:center;gap:10px;margin:2px 2px 18px;flex-wrap:wrap}
 .pill{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--panel2);

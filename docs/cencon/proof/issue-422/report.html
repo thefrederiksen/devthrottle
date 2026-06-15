@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #422 - Developer Proof - Voice turn count on rows and header</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;--line:#27324d;--green:#5FD08A;--blue:#5B8DEF;}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;max-width:980px;margin:0 auto;padding:28px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:19px;margin:28px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .sub{color:var(--muted);margin:0 0 18px}
+  table{border-collapse:collapse;width:100%;margin:10px 0}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:var(--panel2)}
+  td.pass{color:var(--green);font-weight:600;white-space:nowrap}
+  code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px}
+  .shot{border:1px solid var(--line);border-radius:10px;max-width:100%;margin:8px 0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+  .ok{color:var(--green);font-weight:700}
+</style>
+</head>
+<body>
+  <h1>Issue #422 - Voice: show turn count on session rows and header</h1>
+  <p class="sub">Developer Agent proof - CenCon Development Method - cc-director. Branch <code>feat/422-voice-turncount</code> (stacked on <code>feat/421-voice-newsession</code>).</p>
+
+  <h2>What was implemented</h2>
+  <div class="panel">
+    <p>The mobile-first <code>/voice</code> page now shows the session's completed voice-turn count both on each list row and in the open session header.</p>
+    <ul>
+      <li><b>Source:</b> existing endpoint <code>GET /sessions/{id}/voice-turns</code> (the Gateway's durable voice-turn archive, token-gated the same as the rest of the page). The count is <code>response.turns.length</code>. <b>No new backend</b> - no Gateway / ControlApi change.</li>
+      <li><b>Why this source:</b> it is a lightweight Gateway-local archive read (no per-row JSONL parse), it is the natural "voice turns" semantic for a Voice page, and it reuses the exact auth/transport the page already uses.</li>
+      <li><b>Files:</b>
+        <ul>
+          <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/voice.js</code> - <code>fetchTurnCount()</code>, <code>turnLabel()</code>, per-row async fill in <code>renderSessions()</code>, header fill in <code>openSession()</code>.</li>
+          <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/index.html</code> - <code>&lt;span id="session-turns"&gt;</code> chip in the session header.</li>
+          <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/voice.css</code> - <code>.s-turns</code> row style (reuses the existing <code>--muted</code> token; no hard-coded colors).</li>
+        </ul>
+      </li>
+      <li><b>Responsive UI:</b> rows and header render immediately; the count fills in asynchronously when the archive read returns (no blocking on a per-row fetch).</li>
+      <li><b>No fallback:</b> when a count cannot be read, the element is left empty / hidden rather than showing a misleading "0".</li>
+    </ul>
+  </div>
+
+  <h2>Acceptance criteria - verified against the LIVE Gateway (127.0.0.1:7878)</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+    <tr>
+      <td>Each <code>/voice</code> row shows a turn count</td>
+      <td>"N turns" on every row</td>
+      <td>All 6 rows show a count; "Cockpit app" = <b>1 turn</b>, others <b>0 turns</b> (see list screenshot)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>The open session header shows the same count</td>
+      <td>Same "N turns"</td>
+      <td>Header for "Cockpit app" shows a <b>1 turn</b> pill beside the Working state (see header screenshot)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Count comes from an existing endpoint, no new backend</td>
+      <td><code>/sessions/{id}/voice-turns</code> length</td>
+      <td>Uses <code>GET /sessions/{id}/voice-turns</code>; zero C# / endpoint changes</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Count matches the session's actual turns</td>
+      <td>Match the live archive</td>
+      <td>Live Gateway returns 1 voice turn for session <code>18e2a901</code> ("Cockpit app"); UI shows "1 turn" - exact match</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Proof: list row</h2>
+  <p>Each row carries a right-aligned turn count. "Cockpit app" shows <b>1 turn</b> (singular handled correctly); all others show "0 turns".</p>
+  <img class="shot" src="list-turncount.png" alt="Voice list with turn counts" />
+
+  <h2>Proof: session header</h2>
+  <p>Opening the "Cockpit app" session shows a <b>1 turn</b> pill in the header meta row, matching the list and the live data.</p>
+  <img class="shot" src="header-turncount.png" alt="Voice session header with turn count" />
+
+  <h2>Cross-check (live data)</h2>
+  <div class="panel">
+    <p><code>GET http://127.0.0.1:7878/sessions/18e2a901-4351-49c0-b0ff-209aff6903a6/voice-turns</code> (Bearer token) returned <code>turns.length == 1</code>. The rendered "1 turn" on both the row and the header therefore matches the session's actual voice turns.</p>
+  </div>
+
+  <h2>How proof was produced (reproducible)</h2>
+  <div class="panel">
+    <p>The <code>/voice</code> page is static wwwroot served by the Cockpit, which injects the Gateway token at <code>__GATEWAY_TOKEN__</code> and front-doors the page's same-origin <code>/sessions/**</code> calls. <code>proof_server.py</code> (in this folder) reproduces exactly that: it serves the MODIFIED <code>pages/voice/</code> files with the real token injected and proxies the page's <code>/sessions/**</code> calls to the live Gateway on 7878. The page was then driven in a real browser; the screenshots above are that page rendering against live Gateway data.</p>
+  </div>
+
+  <h2>CenCon impact</h2>
+  <div class="panel"><p><b>No drift.</b> Frontend-only change to the Cockpit voice page. No new endpoints, no architecture or security-posture change; no <code>docs/cencon/</code> update required.</p></div>
+
+  <h2>Build</h2>
+  <div class="panel"><p><code>dotnet build cc-director.sln</code> -> <span class="ok">Build succeeded. 0 Warning(s), 0 Error(s).</span></p></div>
+
+  <p class="ok">I believe this is finished.</p>
+</body>
+</html>
