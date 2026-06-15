@@ -75,23 +75,21 @@ public sealed class AtReferenceSubmitVerifierTests
     [Fact]
     public async Task ContinuousSmallActivity_NeverNudges()
     {
-        // A slow-thinking claude animates its spinner (small but steady output). The
-        // watchdog must not fire Enters into a session that is visibly alive.
+        // A slow-thinking claude animates its spinner (small but steady output, above the dead-window
+        // threshold every beat). The watchdog must not fire Enters into a session that is visibly alive.
+        // Deterministic: the beat hook writes the spinner repaint synchronously, so the test never races
+        // a real-time painter against the beat clock (the old flake - a beat could catch an empty window
+        // under CI timer jitter and nudge).
         var buffer = new CircularTerminalBuffer(64 * 1024);
         var writes = new List<byte[]>();
-        using var cts = new CancellationTokenSource();
-        var painter = Task.Run(async () =>
-        {
-            while (!cts.IsCancellationRequested)
-            {
-                buffer.Write(Junk(100)); // spinner repaint each ~5ms (< beat length)
-                await Task.Delay(5);
-            }
-        });
 
-        await AtReferenceSubmitVerifier.EnsureSubmittedAsync(buffer, b => writes.Add(b), AtRef, FastBeat);
-        cts.Cancel();
-        await painter;
+        await AtReferenceSubmitVerifier.EnsureSubmittedAsync(
+            buffer, b => writes.Add(b), AtRef, FastBeat,
+            beatDelay: _ =>
+            {
+                buffer.Write(Junk(100)); // steady spinner repaint: > QuietWindowBytes, < SubmittedGrowthBytes
+                return Task.CompletedTask;
+            });
 
         Assert.Empty(writes);
     }

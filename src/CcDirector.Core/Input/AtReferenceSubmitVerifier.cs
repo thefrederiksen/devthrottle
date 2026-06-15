@@ -56,15 +56,22 @@ public static class AtReferenceSubmitVerifier
     /// <param name="write">Writes raw bytes to the TUI's stdin.</param>
     /// <param name="atReference">The typed reference (logging only), e.g. <c>@.temp/input_x.txt</c>.</param>
     /// <param name="attemptDelay">Beat length override; tests pass a fast one. Defaults to <see cref="DefaultAttemptDelay"/>.</param>
+    /// <param name="beatDelay">
+    /// How to wait out one beat. Defaults to <c>Task.Delay</c>. Tests inject this to drive the beat
+    /// deterministically (e.g. write the per-beat output synchronously and return), so a test never
+    /// races a real-time painter against the beat clock.
+    /// </param>
     public static async Task EnsureSubmittedAsync(
-        CircularTerminalBuffer? buffer, Action<byte[]> write, string atReference, TimeSpan? attemptDelay = null)
+        CircularTerminalBuffer? buffer, Action<byte[]> write, string atReference,
+        TimeSpan? attemptDelay = null, Func<TimeSpan, Task>? beatDelay = null)
     {
         var beat = attemptDelay ?? DefaultAttemptDelay;
+        var wait = beatDelay ?? (b => Task.Delay(b));
         if (buffer is null)
         {
             // No buffer = no evidence either way. One best-effort nudge (no-op when the
             // first Enter landed) is all that can be done.
-            await Task.Delay(beat);
+            await wait(beat);
             FileLog.Write($"[AtReferenceSubmitVerifier] no buffer to verify '{atReference}' - sending one blind nudge");
             write(EnterByte);
             return;
@@ -75,7 +82,7 @@ public static class AtReferenceSubmitVerifier
         var nudges = 0;
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            await Task.Delay(beat);
+            await wait(beat);
             var total = buffer.TotalBytesWritten;
             var windowDelta = total - lastSeen;
             lastSeen = total;
