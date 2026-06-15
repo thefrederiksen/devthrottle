@@ -42,6 +42,43 @@ public sealed class ControlApiHost : IAsyncDisposable
     public bool AuthEnabled => _authEnabled;
 
     /// <summary>
+    /// True once Kestrel has bound and <see cref="StartAsync"/> has completed successfully.
+    /// False while starting AND after a start failure (e.g. all ports in [7879..7898] busy).
+    /// The session-state services (badge tracking) run regardless -- see
+    /// <see cref="StartSessionStateServices"/> -- so this specifically means "the REST/Control
+    /// API and remote (Gateway/Cockpit/phone) access are up".
+    /// </summary>
+    public bool IsListening { get; private set; }
+
+    /// <summary>
+    /// Null while healthy; set to the failure reason when <see cref="StartAsync"/> could not
+    /// bind the Control API (reported by the boundary that catches the exception via
+    /// <see cref="ReportStartupFailure"/>). The desktop surfaces this as a loud sidebar
+    /// indicator so a port-exhausted Director is never silently degraded.
+    /// </summary>
+    public string? StartupError { get; private set; }
+
+    /// <summary>
+    /// Fires whenever <see cref="IsListening"/> / <see cref="StartupError"/> change, so the UI
+    /// can repaint its Control-API indicator. May fire on a background thread.
+    /// </summary>
+    public event Action? StartupStatusChanged;
+
+    /// <summary>
+    /// Record that the Control API failed to start. Called by the boundary that catches the
+    /// <see cref="StartAsync"/> exception (App startup) -- StartAsync re-throws, so the host
+    /// itself cannot set this from a success-returning path. Raises
+    /// <see cref="StartupStatusChanged"/> so the UI surfaces the degraded state.
+    /// </summary>
+    public void ReportStartupFailure(string error)
+    {
+        FileLog.Write($"[ControlApiHost] ReportStartupFailure: {error}");
+        IsListening = false;
+        StartupError = error;
+        StartupStatusChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Per-session persistent JSONL log. Exposed so the Avalonia UI can persist
     /// rendered agent-view widgets to <c>agent-view.jsonl</c> alongside the raw
     /// stream and turn summaries we already write. Null until <see cref="StartAsync"/>.
@@ -325,6 +362,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         _gatewayClient.Start();
         WireDoorbellPush();
 
+        IsListening = true;
+        StartupError = null;
+        StartupStatusChanged?.Invoke();
         return Port;
     }
 

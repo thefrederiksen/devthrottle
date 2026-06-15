@@ -364,6 +364,11 @@ public partial class App : Application
                 catch (Exception ex)
                 {
                     log($"Control API failed to start: {ex.Message}");
+                    // Surface the degraded state to the UI (loud sidebar indicator). The
+                    // session-state services still started (StartSessionStateServices runs before
+                    // the bind), so the local badge keeps working -- but remote/Gateway/Cockpit
+                    // access is down, and that must not be silent.
+                    ControlApiHost.ReportStartupFailure(ex.Message);
                 }
             });
         }

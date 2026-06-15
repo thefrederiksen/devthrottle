@@ -297,6 +297,37 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Control API status indicator. Mirrors the Gateway/Update indicators.
+                     Hidden while the Control API is healthy; turns RED "CONTROL API DOWN"
+                     when StartAsync could not bind (e.g. all ports in [7879..7898] busy), so
+                     a degraded Director is never silently invisible to the fleet. Click =
+                     show remediation guidance. Painted from code-behind off
+                     ControlApiHost.StartupStatusChanged. -->
+                <Border x:Name="ControlApiIndicator" DockPanel.Dock="Bottom"
+                        Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
+                        Background="#3A1B1B" BorderBrush="#DC2626" BorderThickness="1"
+                        Cursor="Hand" IsVisible="False"
+                        PointerPressed="ControlApiIndicator_PointerPressed">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Viewbox Width="22" Height="22" VerticalAlignment="Center">
+                            <Path x:Name="ControlApiIndicatorIcon"
+                                  Fill="#EF4444"
+                                  Data="M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 Z M7,4 H9 V9 H7 Z M7,10.5 H9 V12.5 H7 Z" />
+                        </Viewbox>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="ControlApiIndicatorLabel"
+                                       Text="CONTROL API DOWN"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#EF4444" />
+                            <TextBlock x:Name="ControlApiIndicatorSub"
+                                       Text=""
+                                       FontSize="10" Foreground="#C08080"
+                                       TextWrapping="Wrap" MaxWidth="186"
+                                       MaxLines="3" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Communications / Connections / Scheduler moved to the top toolbar
                      (their pending-count badge and LEADER pill ride along with them). -->
 

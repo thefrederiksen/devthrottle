@@ -138,6 +138,15 @@ public sealed class ControlApiHostTests : IAsyncLifetime
         Assert.Contains(_host.DirectorId, json);
         Assert.Contains($"127.0.0.1:{_host.Port}", json);
     }
+
+    [Fact]
+    public void IsListening_isTrue_and_noStartupError_after_successful_start()
+    {
+        // The host started successfully in InitializeAsync, so the UI's Control-API indicator
+        // stays hidden (StartupError null) and remote access is reported up.
+        Assert.True(_host.IsListening);
+        Assert.Null(_host.StartupError);
+    }
 }
 
 /// <summary>
@@ -181,6 +190,33 @@ public sealed class SessionStateServicesDecouplingTests
         finally
         {
             await host.StopAsync();
+            sm.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ReportStartupFailure_SetsErrorAndRaisesEvent()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        try
+        {
+            // Before any failure: healthy defaults so the UI indicator stays hidden.
+            Assert.False(host.IsListening);
+            Assert.Null(host.StartupError);
+
+            var raised = 0;
+            host.StartupStatusChanged += () => raised++;
+
+            // Simulate the App boundary catching a bind failure (e.g. all ports busy).
+            host.ReportStartupFailure("All ports in range 7879..7898 are busy.");
+
+            Assert.False(host.IsListening);
+            Assert.Equal("All ports in range 7879..7898 are busy.", host.StartupError);
+            Assert.Equal(1, raised);
+        }
+        finally
+        {
             sm.Dispose();
         }
     }

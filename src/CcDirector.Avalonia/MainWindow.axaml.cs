@@ -407,10 +407,68 @@ public partial class MainWindow : Window
 
         _gatewayMonitor = host.GatewayMonitor;
         _gatewayMonitor.Changed += () => Dispatcher.UIThread.Post(UpdateGatewayIndicator);
+
+        // Same host: wire the Control-API status indicator. The bind may have already failed
+        // in the background before we attached, so paint the current state now AND subscribe
+        // for later changes (the event can fire on a background thread -> marshal to UI).
+        host.StartupStatusChanged += () => Dispatcher.UIThread.Post(UpdateControlApiIndicator);
+
         _gatewayAttachTimer?.Stop();
         _gatewayAttachTimer = null;
         UpdateGatewayIndicator();
+        UpdateControlApiIndicator();
         FileLog.Write("[MainWindow] Gateway indicator attached to GatewayConnectionMonitor");
+    }
+
+    private bool _controlApiFailureNotified;
+
+    /// <summary>
+    /// Paint the Control-API status indicator from <see cref="ControlApiHost.StartupError"/>.
+    /// Hidden while the API is healthy (consistent with the auto-update indicator); RED and
+    /// visible when the bind failed, with a one-time loud notification so the degraded state
+    /// grabs attention immediately rather than only living in a sidebar tile.
+    /// </summary>
+    private void UpdateControlApiIndicator()
+    {
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        if (host is null) return;
+
+        var error = host.StartupError;
+        if (string.IsNullOrEmpty(error))
+        {
+            // Healthy (or not yet failed): no tile.
+            ControlApiIndicator.IsVisible = false;
+            return;
+        }
+
+        ControlApiIndicatorSub.Text = "Remote, Gateway & phone access are off. Close another Director or free a port, then restart. Click for details.";
+        var tip = $"Control API failed to start:\n{error}\n\n"
+                + "The local app still works (session badges are live), but this Director is "
+                + "invisible to the fleet and cannot be driven remotely.\n"
+                + "Fix: free a Control-API port (7879-7898) by closing another Director, then restart this one.";
+        ToolTip.SetTip(ControlApiIndicator, tip);
+        ControlApiIndicator.IsVisible = true;
+
+        if (!_controlApiFailureNotified)
+        {
+            _controlApiFailureNotified = true;
+            FileLog.Write($"[MainWindow] Control API DOWN surfaced in UI: {error}");
+            ShowNotification($"Control API failed to start: {error}. Remote/Gateway access is off -- see the sidebar.");
+        }
+    }
+
+    private void ControlApiIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+            var error = host?.StartupError ?? "unknown error";
+            ShowNotification($"Control API down: {error}. Free a port in 7879-7898 (close another Director) and restart this one.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ControlApiIndicator_PointerPressed FAILED: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -523,10 +581,9 @@ public partial class MainWindow : Window
     {
         var scheduler = (global::Avalonia.Application.Current as App)?.Scheduler;
         var isLeader = scheduler?.IsLeader == true;
-        if (isLeader == _lastLeaderState && SchedulerLeaderPill.IsVisible == isLeader) return;
+        if (isLeader == _lastLeaderState) return;
 
         _lastLeaderState = isLeader;
-        SchedulerLeaderPill.IsVisible = isLeader;
         Title = isLeader ? "CC Director -- Leader" : "CC Director";
     }
 
@@ -1817,12 +1874,6 @@ public partial class MainWindow : Window
         await ShowRelinkDialog(_activeSession);
     }
 
-    private void BtnRefreshTerminal_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnRefreshTerminal_Click");
-        RefreshTerminal();
-    }
-
     private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
     {
         // Ctrl+H from anywhere on the window opens the Speak dialog -- but only
@@ -2464,7 +2515,6 @@ public partial class MainWindow : Window
 
         // ===== Session =====
         var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
-        session.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs())));
         if (AlphaMode.IsEnabled) // Start FIFO is an alpha feature
             session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
         session.Menu.Items.Add(new NativeMenuItemSeparator());
@@ -2510,18 +2560,11 @@ public partial class MainWindow : Window
         tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Director (multi-session)", () =>
-        {
-            FileLog.Write("[MainWindow] Menu: Director");
-            RightPanelTabs.SelectedItem = TabItemDirector;
-        }));
         tools.Menu.Items.Add(new NativeMenuItemSeparator());
         tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
         tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(new NativeMenuItemSeparator());
-        tools.Menu.Items.Add(Item("Settings...", () => BtnSettings_Click(this, new RoutedEventArgs())));
         menu.Items.Add(tools);
 
         // ===== Help =====
@@ -2613,11 +2656,6 @@ public partial class MainWindow : Window
     private string _activeLeftTab = "Terminal";
     private static readonly IBrush TransparentBrush = Brushes.Transparent;
     private static readonly IBrush InactiveTextBrush = new SolidColorBrush(Color.Parse("#888888"));
-
-    private void AgentTabButton_Click(object? sender, RoutedEventArgs e)
-    {
-        SwitchLeftTab("Agent");
-    }
 
     private void TerminalTabButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -3300,14 +3338,6 @@ public partial class MainWindow : Window
         {
             _commsInitialized = true;
             await CommManagerView.InitializeAsync();
-            CommManagerView.PendingCountChanged += count =>
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    CommsBadge.IsVisible = count > 0;
-                    CommsBadgeText.Text = count.ToString();
-                });
-            };
         }
         CommManagerView.StartPolling();
     }
@@ -3428,8 +3458,6 @@ public partial class MainWindow : Window
         bool isDocTab = tab.StartsWith("Doc:", StringComparison.Ordinal);
 
         // Update fixed tab button styles
-        AgentTabButton.Background = tab == "Agent" ? accentBrush : TransparentBrush;
-        AgentTabButton.Foreground = tab == "Agent" ? whiteBrush : InactiveTextBrush;
         TerminalTabButton.Background = tab == "Terminal" ? accentBrush : TransparentBrush;
         TerminalTabButton.Foreground = tab == "Terminal" ? whiteBrush : InactiveTextBrush;
         SourceControlTabButton.Background = tab == "SourceControl" ? accentBrush : TransparentBrush;
@@ -3447,7 +3475,6 @@ public partial class MainWindow : Window
         }
 
         // Show/hide panels
-        AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
         VoicePanel.IsVisible = tab == "Voice";
