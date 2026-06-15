@@ -216,19 +216,31 @@ public sealed class VoiceConversation
         onUpdate?.Invoke(new TurnUpdate("reply", summary));
 
         // "speaking" fires before playback begins so the status label reads
-        // "Speaking..." only while audio is actually playing. The Gateway returns
-        // the reply audio with the result; audioBase64 is empty (never null) when
-        // the Director has no TTS key, in which case the on-screen summary is the
-        // whole reply.
+        // "Speaking..." only while audio is actually playing.
         onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
-        if (!string.IsNullOrWhiteSpace(poll.AudioBase64))
+
+        // Issue #407: the reply audio is fetched from a DEDICATED, resumable endpoint, not from
+        // the (now slim) poll. The slim poll advertises audioReady/audioLength; the runner
+        // downloads the audio with the same resilience as the poll loop - a mid-download drop
+        // resumes via HTTP Range instead of restarting. The audio is absent (audioReady=false)
+        // when the Director has no TTS key, in which case the on-screen summary is the whole reply.
+        //
+        // Back-compat: an older Gateway that still inlines the bytes sets poll.AudioBase64; play
+        // those directly rather than making a second round-trip to an endpoint it does not have.
+        byte[] mp3 = Array.Empty<byte>();
+        if (!string.IsNullOrEmpty(poll.AudioBase64))
         {
-            var mp3 = Convert.FromBase64String(poll.AudioBase64);
-            if (mp3.Length > 0)
-                await _tts.PlayAsync(mp3, ct);
+            mp3 = Convert.FromBase64String(poll.AudioBase64);
+        }
+        else if (poll.AudioReady)
+        {
+            mp3 = await runner.FetchAudioToCompletionAsync(_gatewayBaseUrl, sessionId, turnId, ct);
         }
 
-        ClientLog.Write($"[VoiceConversation] PollAndSpeak done: turnId={turnId}, summaryChars={summary.Length}");
+        if (mp3.Length > 0)
+            await _tts.PlayAsync(mp3, ct);
+
+        ClientLog.Write($"[VoiceConversation] PollAndSpeak done: turnId={turnId}, summaryChars={summary.Length}, audioBytes={mp3.Length}");
         return summary;
     }
 

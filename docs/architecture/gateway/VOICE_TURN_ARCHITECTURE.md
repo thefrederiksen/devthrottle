@@ -196,3 +196,25 @@ File: `src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs`
    `GET .../voice-turn/{turnId}` on the Gateway.
 2. Phone already sends the token via `DirectorVoiceClient.NewClient()`
    (`Authorization: Bearer <token>`).
+
+### Phase 5 — Reply audio out of the poll (#407)
+
+The poll was returning the reply audio inline as a large base64 field, so a single status
+poll could carry ~3 MB; on spotty data a mid-poll drop failed the whole transfer and every
+retry re-downloaded the blob from scratch.
+
+1. **Slim poll.** `GET /sessions/{sid}/voice-turn/{turnId}` now returns
+   `{ stage, transcript, summary, audioReady, audioLength, message, expires_at }` — small and
+   constant-size regardless of reply length. The audio bytes are NOT in the poll. Back-compat
+   for one release: an older phone asks for the inline bytes with `?includeAudio=1` (or the
+   `X-Include-Audio: 1` header) and still receives `audioBase64`; otherwise it is `null`.
+2. **Dedicated, resumable audio fetch.** `GET /sessions/{sid}/voice-turn/{turnId}/audio` returns
+   the raw `audio/mpeg` bytes from the same cached job, with HTTP range support
+   (`enableRangeProcessing`) — a 200 for the full body or a 206 Partial Content for a `Range`
+   request — so a dropped audio download resumes (re-requests only the missing tail) instead of
+   restarting. 404 when the turn is unknown/expired or has no audio (no TTS key). The job stores
+   the decoded bytes once at the reply event (`TurnJob.SetReply` / `GetAudioBytes`).
+3. **Phone.** Once the poll reports `audioReady`, `VoiceConversation` fetches the audio via
+   `VoiceTurnRunner.FetchAudioToCompletionAsync` (same retry/backoff/deadline policy as the poll
+   loop, #405), reassembling resumed slices, then plays. The inline `audioBase64` back-compat path
+   is still honored when an older Gateway sends it.

@@ -152,6 +152,85 @@ public sealed class VoiceTurnRunner
         }
     }
 
+    /// <summary>
+    /// Fetch the reply audio from the dedicated audio endpoint (issue #407) with the SAME
+    /// resilience as the poll loop: a mid-download drop (network error, 5xx, request timeout)
+    /// does NOT discard the bytes already received - the loop re-requests only the missing tail
+    /// via an HTTP Range request (resume), so on spotty data the transfer makes forward progress
+    /// instead of restarting from zero. Returns the full assembled audio once
+    /// <see cref="VoiceTurnAudioChunk.TotalLength"/> bytes are in hand. Terminal failures stop
+    /// immediately: a 404 (no audio / expired turn) surfaces as <see cref="VoiceTurnExpiredException"/>,
+    /// and the overall deadline aborts a download that never finishes.
+    /// </summary>
+    public async Task<byte[]> FetchAudioToCompletionAsync(
+        string gatewayBase, string sessionId, string turnId, CancellationToken ct = default)
+    {
+        var deadline = _policy.UtcNow() + _policy.OverallDeadline;
+        ClientLog.Write($"[VoiceTurnRunner] Audio fetch start: sid={sessionId}, turnId={turnId}");
+
+        var buffer = new List<byte>();
+        var consecutiveTransient = 0;
+        long total = -1; // unknown until the first successful chunk reports it
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (_policy.UtcNow() >= deadline)
+            {
+                ClientLog.Write($"[VoiceTurnRunner] Audio fetch deadline reached for turnId={turnId} (have {buffer.Count}/{total})");
+                throw new VoiceTurnTimeoutException(
+                    "the reply audio did not finish downloading in time - please try again");
+            }
+
+            // Back off only while a run of fetches is failing; resume immediately after a success.
+            if (consecutiveTransient > 0)
+                await _policy.DelayAsync(_policy.BackoffFor(consecutiveTransient), ct);
+
+            VoiceTurnAudioChunk chunk;
+            try
+            {
+                chunk = await _channel.FetchVoiceTurnAudioAsync(gatewayBase, sessionId, turnId, buffer.Count, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (VoiceTurnHttpException ex) when (ex.IsExpired)
+            {
+                // 404: the turn expired or has no audio. Terminal, clean "please resend".
+                ClientLog.Write($"[VoiceTurnRunner] Audio fetch: turn {turnId} expired / no audio (404)");
+                throw new VoiceTurnExpiredException(
+                    "this turn's audio is no longer available on the gateway - please record and send it again");
+            }
+            catch (Exception ex) when (IsTransientPoll(ex))
+            {
+                consecutiveTransient++;
+                ClientLog.Write($"[VoiceTurnRunner] Audio fetch transient failure #{consecutiveTransient} for turnId={turnId} (have {buffer.Count}): {ex.Message}");
+                continue;
+            }
+
+            consecutiveTransient = 0;
+            if (chunk.Bytes.Length > 0)
+                buffer.AddRange(chunk.Bytes);
+            if (chunk.TotalLength > total)
+                total = chunk.TotalLength;
+
+            // Done when we have the whole clip. total can be 0 for an empty body (no audio),
+            // which also terminates - the caller treats an empty result as "nothing to play".
+            if (total >= 0 && buffer.Count >= total)
+            {
+                ClientLog.Write($"[VoiceTurnRunner] Audio fetch complete for turnId={turnId}: {buffer.Count} bytes");
+                return buffer.ToArray();
+            }
+
+            // A server that returned 0 new bytes but claims more remain would spin the loop; treat
+            // it as a transient drop so the backoff applies rather than busy-looping.
+            if (chunk.Bytes.Length == 0)
+                consecutiveTransient++;
+        }
+    }
+
     /// <summary>A transient submit failure is one the carrier signal caused, so a retry can
     /// succeed: a bare network error, a 5xx, or a request timeout that is NOT the caller's
     /// cancellation. A 4xx (other than the ones the runner treats terminally elsewhere) is the

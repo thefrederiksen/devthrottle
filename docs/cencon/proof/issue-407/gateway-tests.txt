@@ -1,0 +1,18 @@
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_MissingToken_Returns401 [99 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_BackCompat_IncludeAudioFlag_StillReturnsBase64 [108 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_JobWithoutAudio_Returns404 [108 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_FullFetch_Returns200WithAllBytes [99 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_UnknownOrExpiredTurn_Returns404 [86 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_SlimByDefault_DoesNotCarryAudioBytes [98 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_RangeRequest_Returns206PartialContent [100 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_AfterTTLExpiry_Returns404 [83 ms]

@@ -22,8 +22,15 @@ namespace CcDirector.Gateway.Api;
 ///        (POST /sessions/{sid}/voice-turn), mirroring each stage event into the job.
 ///
 ///   GET  /sessions/{sid}/voice-turn/{turnId} -> 200 { stage, transcript, summary,
-///        audioBase64, message } from the job cache (no Director call); 404 when the
-///        turn id is unknown or past its 10-minute TTL.
+///        audioReady, audioLength, message } from the job cache (no Director call); 404 when
+///        the turn id is unknown or past its 10-minute TTL. SLIM by default (issue #407): the
+///        reply audio bytes are NOT in the poll; audioBase64 is included only when the caller
+///        opts in (?includeAudio=1 / X-Include-Audio) for one-release back-compat with old phones.
+///
+///   GET  /sessions/{sid}/voice-turn/{turnId}/audio -> 200 raw audio/mpeg (or 206 Partial
+///        Content for an HTTP Range request), served from the same cached job (issue #407);
+///        404 when the turn is unknown/expired or has no audio. The dedicated, resumable fetch
+///        so a dropped audio download resumes via Range instead of re-downloading the whole blob.
 ///
 /// The Director's SSE endpoint stays the worker (transcription, send-to-session, summarize,
 /// TTS); this layer only owns the async interface and the result cache. Owner resolution
@@ -136,18 +143,91 @@ internal static class GatewayVoiceTurnEndpoint
             }
 
             var s = job.Snapshot();
+
+            // Issue #407: the poll is SLIM by default - it advertises that the reply audio is
+            // ready and how long it is, but does NOT carry the (multi-megabyte) bytes. The phone
+            // fetches the audio from the dedicated, resumable audio endpoint below. The slim
+            // response size is small and constant regardless of reply length.
+            //
+            // Back-compat for one release (issue #407): an older phone that has not yet learned
+            // the audio endpoint asks for the inline bytes with ?includeAudio=1 (or the
+            // X-Include-Audio: 1 header) and still receives audioBase64 exactly as before. New
+            // phones omit it and get the slim response. When the flag is absent audioBase64 is
+            // null, so the field is always present (the shape never changes) but empty by default.
+            var includeAudio = WantsInlineAudio(ctx);
+
             return Results.Json(new
             {
                 turn_id = job.TurnId,
                 stage = s.Stage,
                 transcript = s.Transcript,
                 summary = s.Summary,
-                audioBase64 = s.AudioBase64,
+                audioReady = s.AudioReady,
+                audioLength = s.AudioLength,
+                audioBase64 = includeAudio ? s.AudioBase64 : null,
                 message = s.ErrorMessage,
                 expires_at = job.ExpiresAt,
             });
         });
+
+        // Issue #407: dedicated, resumable reply-audio fetch. Decoupling the heavy audio transfer
+        // from cheap status polling means a mid-download drop resumes via an HTTP Range request
+        // (206 Partial Content) instead of restarting the whole blob, and a poll never carries
+        // megabytes again. Served from the same cached job; 404 once the job is unknown/expired.
+        app.MapGet("/sessions/{sid}/voice-turn/{turnId}/audio", (string sid, string turnId, HttpContext ctx) =>
+        {
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+            {
+                FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: missing or invalid token from {ctx.Connection.RemoteIpAddress} -> 401");
+                return Results.Json(new { error = "missing or invalid token" },
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var job = store.Get(turnId);
+            if (job is null || !string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: unknown or expired -> 404");
+                return Results.Json(new { error = "turn not found or expired" }, statusCode: StatusCodes.Status404NotFound);
+            }
+
+            var audio = job.GetAudioBytes();
+            if (audio.Length == 0)
+            {
+                // The job exists but has no audio yet (still in flight) or never will (no TTS
+                // key). 404 is the honest answer: there is nothing to fetch from this endpoint.
+                FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: no audio available -> 404");
+                return Results.Json(new { error = "no audio available for this turn" }, statusCode: StatusCodes.Status404NotFound);
+            }
+
+            // Results.Bytes with enableRangeProcessing serves the full body (200) when no Range
+            // header is present and a partial body (206 Partial Content) with Content-Range when
+            // one is - the framework parses/validates the range and emits 416 on an unsatisfiable
+            // one. This is the resume primitive: a dropped download re-requests only the missing tail.
+            FileLog.Write($"[GatewayVoiceTurn] audio sid={sid} turnId={turnId}: serving {audio.Length} bytes (range={ctx.Request.Headers.Range})");
+            return Results.Bytes(audio, contentType: "audio/mpeg", enableRangeProcessing: true,
+                fileDownloadName: null, entityTag: null, lastModified: null);
+        });
     }
+
+    /// <summary>
+    /// Whether the poll caller opted into the inline base64 audio (the pre-#407 contract). New
+    /// phones omit this and take the slim poll + dedicated audio fetch; only an older phone that
+    /// has not learned the audio endpoint asks for the bytes inline, via ?includeAudio=1 or the
+    /// X-Include-Audio header. Accepts 1/true/yes (case-insensitive).
+    /// </summary>
+    private static bool WantsInlineAudio(HttpContext ctx)
+    {
+        if (ctx.Request.Query.TryGetValue("includeAudio", out var q) && IsTruthy(q.ToString()))
+            return true;
+        if (ctx.Request.Headers.TryGetValue("X-Include-Audio", out var h) && IsTruthy(h.ToString()))
+            return true;
+        return false;
+    }
+
+    private static bool IsTruthy(string? v)
+        => string.Equals(v, "1", StringComparison.Ordinal)
+        || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Background driver for one turn: POST the captured input to the owning Director's SSE

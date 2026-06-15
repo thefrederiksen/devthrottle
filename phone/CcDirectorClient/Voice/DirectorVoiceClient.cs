@@ -238,6 +238,48 @@ public sealed class DirectorVoiceClient : IVoiceTurnChannel
         return VoiceTurnResults.ParsePoll(body);
     }
 
+    /// <summary>
+    /// Fetch the reply audio from the GATEWAY's dedicated audio endpoint
+    /// (GET {gatewayBase}/sessions/{sid}/voice-turn/{turnId}/audio, issue #407). Requests the
+    /// bytes from <paramref name="fromByte"/> onward with an HTTP Range header so a resumed
+    /// download (after a mid-transfer drop) asks only for the missing tail instead of
+    /// re-fetching the whole clip. Returns the slice and the total audio length parsed from the
+    /// 206 Content-Range header (or the full body length on a 200). On a non-2xx response throws
+    /// <see cref="VoiceTurnHttpException"/> carrying the status code so <see cref="VoiceTurnRunner"/>
+    /// can classify it - a 5xx is transient (resume), a 404 means no audio / expired turn.
+    /// </summary>
+    public async Task<VoiceTurnAudioChunk> FetchVoiceTurnAudioAsync(
+        string gatewayBase, string sessionId, string turnId, long fromByte, CancellationToken ct = default)
+    {
+        var b = gatewayBase.TrimEnd('/');
+        using var http = NewClient();
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{b}/sessions/{sessionId}/voice-turn/{turnId}/audio");
+        if (fromByte > 0)
+            req.Headers.Range = new RangeHeaderValue(fromByte, null);
+
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await resp.Content.ReadAsStringAsync(ct);
+            throw new VoiceTurnHttpException(resp.StatusCode, $"voice-turn audio fetch failed: {(int)resp.StatusCode} {err}");
+        }
+
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+        var isPartial = resp.StatusCode == System.Net.HttpStatusCode.PartialContent;
+
+        // 206 carries Content-Range: bytes <from>-<to>/<total>; the total tells the caller how
+        // much audio there is so the resume loop knows when it is done. On a 200 the body IS the
+        // whole clip, so total = bytes returned and there is nothing left to resume.
+        long total;
+        if (isPartial && resp.Content.Headers.ContentRange is { HasLength: true } cr && cr.Length is { } len)
+            total = len;
+        else
+            total = fromByte + bytes.Length;
+
+        ClientLog.Write($"[DirectorVoiceClient] FetchVoiceTurnAudio: turnId={turnId}, from={fromByte}, got={bytes.Length}, total={total}, partial={isPartial}");
+        return new VoiceTurnAudioChunk(bytes, total, isPartial);
+    }
+
     // ===== 2. CHAT (send + follow) =========================================
 
     /// <summary>Send a transcript to the session and wait up to <paramref name="timeoutMs"/> for the turn.</summary>

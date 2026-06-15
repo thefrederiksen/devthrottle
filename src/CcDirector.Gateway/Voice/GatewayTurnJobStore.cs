@@ -25,6 +25,7 @@ public sealed class TurnJob
     private string? _transcript;
     private string? _summary;
     private string? _audioBase64;
+    private byte[]? _audioBytes;
     private string? _errorMessage;
 
     /// <summary>UUID identifying this turn; the poll route key.</summary>
@@ -70,7 +71,11 @@ public sealed class TurnJob
     }
 
     /// <summary>Record the terminal reply event. Fields are coerced to non-null so a completed
-    /// poll always carries both (audioBase64 may be empty when no TTS key is configured).</summary>
+    /// poll always carries both (audioBase64 may be empty when no TTS key is configured).
+    /// The audio is ALSO decoded once here into <see cref="_audioBytes"/> so the dedicated
+    /// audio endpoint (issue #407) serves raw bytes - including HTTP range slices - without
+    /// re-decoding the base64 on every request. A base64 string that fails to decode leaves
+    /// the byte cache empty (audio length 0), which the endpoint surfaces as no audio.</summary>
     public void SetReply(string? summary, string? audioBase64)
     {
         lock (_lock)
@@ -78,7 +83,24 @@ public sealed class TurnJob
             _stage = "reply";
             _summary = summary ?? "";
             _audioBase64 = audioBase64 ?? "";
+            _audioBytes = DecodeAudio(_audioBase64);
         }
+    }
+
+    private static byte[] DecodeAudio(string base64)
+    {
+        if (string.IsNullOrEmpty(base64)) return Array.Empty<byte>();
+
+        // Decode into a right-sized buffer. The Director sends valid base64; a malformed string
+        // would be a Director-side defect, so we do not silently invent audio - we log it loudly
+        // and store no audio (length 0), which the audio endpoint then surfaces as 404. This is
+        // diagnosis, not a fallback: the empty result is the honest "no usable audio".
+        var buffer = new byte[(base64.Length / 4) * 3 + 3];
+        if (Convert.TryFromBase64String(base64, buffer, out var written))
+            return buffer.AsSpan(0, written).ToArray();
+
+        FileLog.Write("[GatewayTurnJobStore] SetReply: reply audioBase64 was not valid base64; storing no audio");
+        return Array.Empty<byte>();
     }
 
     /// <summary>Record the terminal error outcome (Director error event, unreachable Director,
@@ -92,12 +114,31 @@ public sealed class TurnJob
         }
     }
 
-    /// <summary>Consistent point-in-time read of the job for the poll endpoint.</summary>
+    /// <summary>Consistent point-in-time read of the job for the poll endpoint. Carries the
+    /// audio length and a readiness flag (issue #407) so the slim poll can advertise that audio
+    /// is fetchable from the dedicated endpoint WITHOUT carrying the bytes; <see cref="AudioBase64"/>
+    /// stays for the back-compat poll path (older phones).</summary>
     public TurnJobSnapshot Snapshot()
     {
         lock (_lock)
         {
-            return new TurnJobSnapshot(_stage, _transcript, _summary, _audioBase64, _errorMessage);
+            return new TurnJobSnapshot(
+                _stage, _transcript, _summary, _audioBase64, _errorMessage,
+                AudioReady: (_audioBytes?.Length ?? 0) > 0,
+                AudioLength: _audioBytes?.Length ?? 0);
+        }
+    }
+
+    /// <summary>The decoded reply audio (MP3) bytes, or an empty array when no audio is cached
+    /// (no TTS key, or not yet at the reply stage). The dedicated audio endpoint (issue #407)
+    /// reads this to serve full (200) or partial (206 range) responses. A defensive copy is
+    /// NOT made - the array is replaced wholesale on the single reply event and never mutated
+    /// in place, so a reader holding the reference is safe.</summary>
+    public byte[] GetAudioBytes()
+    {
+        lock (_lock)
+        {
+            return _audioBytes ?? Array.Empty<byte>();
         }
     }
 
@@ -115,9 +156,13 @@ public sealed class TurnJob
     }
 }
 
-/// <summary>Point-in-time view of a <see cref="TurnJob"/> (one lock acquisition per poll).</summary>
+/// <summary>Point-in-time view of a <see cref="TurnJob"/> (one lock acquisition per poll).
+/// <paramref name="AudioReady"/> and <paramref name="AudioLength"/> let the slim poll (issue #407)
+/// advertise that the reply audio is fetchable from the dedicated audio endpoint without carrying
+/// the bytes in the poll JSON. <paramref name="AudioBase64"/> remains for the back-compat poll path.</summary>
 public readonly record struct TurnJobSnapshot(
-    string Stage, string? Transcript, string? Summary, string? AudioBase64, string? ErrorMessage);
+    string Stage, string? Transcript, string? Summary, string? AudioBase64, string? ErrorMessage,
+    bool AudioReady, int AudioLength);
 
 /// <summary>
 /// In-memory store of async voice-turn jobs keyed by UUID turn_id (issue #376). 10-minute TTL;

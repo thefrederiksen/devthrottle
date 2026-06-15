@@ -29,13 +29,45 @@ public class VoiceTurnRunnerTests
         private readonly Queue<Func<VoiceTurnSubmitResult>> _submits = new();
         private readonly Queue<Func<VoiceTurnPollResult>> _polls = new();
 
+        // Audio-fetch script (issue #407). The backing clip is served in slices; each scripted
+        // step is either "serve up to maxChunk bytes from the requested offset" or "throw" (a
+        // simulated mid-download drop). The resume loop re-requests from where it left off.
+        private byte[] _audioClip = Array.Empty<byte>();
+        private readonly Queue<Func<long, VoiceTurnAudioChunk>> _audioSteps = new();
+
         public int SubmitCalls { get; private set; }
         public int PollCalls { get; private set; }
+        public int AudioCalls { get; private set; }
 
         public FakeChannel SubmitReturns(VoiceTurnSubmitResult r) { _submits.Enqueue(() => r); return this; }
         public FakeChannel SubmitThrows(Exception ex) { _submits.Enqueue(() => throw ex); return this; }
         public FakeChannel PollReturns(VoiceTurnPollResult r) { _polls.Enqueue(() => r); return this; }
         public FakeChannel PollThrows(Exception ex) { _polls.Enqueue(() => throw ex); return this; }
+
+        /// <summary>Set the full reply audio the dedicated endpoint will serve.</summary>
+        public FakeChannel AudioClip(byte[] clip) { _audioClip = clip; return this; }
+
+        /// <summary>Serve a partial slice (206-style): up to <paramref name="maxChunk"/> bytes from
+        /// the requested offset, reporting the full clip length so the loop knows the total.</summary>
+        public FakeChannel AudioServesChunk(int maxChunk)
+        {
+            _audioSteps.Enqueue(from =>
+            {
+                var remaining = (int)(_audioClip.Length - from);
+                var take = Math.Min(maxChunk, Math.Max(0, remaining));
+                var slice = new byte[take];
+                Array.Copy(_audioClip, from, slice, 0, take);
+                var isPartial = from > 0 || take < _audioClip.Length;
+                return new VoiceTurnAudioChunk(slice, _audioClip.Length, isPartial);
+            });
+            return this;
+        }
+
+        /// <summary>Serve the WHOLE remaining clip from the requested offset (full/last leg).</summary>
+        public FakeChannel AudioServesRest() => AudioServesChunk(int.MaxValue);
+
+        /// <summary>A simulated mid-download drop on the next fetch.</summary>
+        public FakeChannel AudioThrows(Exception ex) { _audioSteps.Enqueue(_ => throw ex); return this; }
 
         public Task<VoiceTurnSubmitResult> SubmitVoiceTurnAsync(
             string gatewayBase, string sessionId, byte[] audio, string mime, CancellationToken ct = default)
@@ -53,6 +85,25 @@ public class VoiceTurnRunnerTests
             var next = _polls.Count > 0 ? _polls.Dequeue() : (() => throw new HttpRequestException("still offline"));
             return Task.FromResult(next());
         }
+
+        public Task<VoiceTurnAudioChunk> FetchVoiceTurnAudioAsync(
+            string gatewayBase, string sessionId, string turnId, long fromByte, CancellationToken ct = default)
+        {
+            AudioCalls++;
+            // When the script runs dry, serve the rest of the clip from the offset (the healthy
+            // path after a scripted drop), so a "drop then resume" test completes deterministically.
+            var step = _audioSteps.Count > 0 ? _audioSteps.Dequeue() : DefaultRest();
+            return Task.FromResult(step(fromByte));
+        }
+
+        private Func<long, VoiceTurnAudioChunk> DefaultRest() => from =>
+        {
+            var remaining = (int)(_audioClip.Length - from);
+            var take = Math.Max(0, remaining);
+            var slice = new byte[take];
+            Array.Copy(_audioClip, from, slice, 0, take);
+            return new VoiceTurnAudioChunk(slice, _audioClip.Length, IsPartial: from > 0);
+        };
     }
 
     /// <summary>A virtual clock that advances by exactly the delay the runner asks to wait, so
@@ -235,5 +286,109 @@ public class VoiceTurnRunnerTests
 
         Assert.Equal(Tid, result.TurnId);
         Assert.Equal(2, channel.SubmitCalls);
+    }
+
+    // ===== AUDIO FETCH: dedicated, resumable endpoint (issue #407) ===========
+
+    private static byte[] Clip(int n)
+    {
+        var b = new byte[n];
+        for (var i = 0; i < n; i++) b[i] = (byte)(i % 251);
+        return b;
+    }
+
+    [Fact]
+    public async Task FetchAudio_FullBodyInOneGo_ReturnsWholeClip()
+    {
+        // A single 200 response carrying the whole clip: nothing to resume, returned as-is.
+        var clip = Clip(64);
+        var channel = new FakeChannel().AudioClip(clip).AudioServesRest();
+        var runner = new VoiceTurnRunner(channel, FastPolicy());
+
+        var audio = await runner.FetchAudioToCompletionAsync(Gw, Sid, Tid);
+
+        Assert.Equal(clip, audio);
+        Assert.Equal(1, channel.AudioCalls);
+    }
+
+    [Fact]
+    public async Task FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart()
+    {
+        // The acceptance-criteria case: deliver part of the clip, DROP mid-download, then resume.
+        // The loop must re-request only the missing tail (Range) and reassemble the WHOLE clip -
+        // proving it does not restart from byte 0.
+        var clip = Clip(100);
+        var channel = new FakeChannel()
+            .AudioClip(clip)
+            .AudioServesChunk(40)                               // 1st leg: bytes 0..39
+            .AudioThrows(new HttpRequestException("connection reset mid-download")) // drop
+            .AudioServesChunk(40)                               // resume from 40: bytes 40..79
+            .AudioServesRest();                                 // resume from 80: bytes 80..99
+        var runner = new VoiceTurnRunner(channel, FastPolicy());
+
+        var audio = await runner.FetchAudioToCompletionAsync(Gw, Sid, Tid);
+
+        Assert.Equal(clip, audio);                              // reassembled correctly, no corruption
+        Assert.Equal(4, channel.AudioCalls);                   // 3 successful legs + the dropped one
+    }
+
+    [Fact]
+    public async Task FetchAudio_TransientServerError_IsRetriedThenCompletes()
+    {
+        // A 5xx mid-fetch is transient: back off and resume from the same offset.
+        var clip = Clip(50);
+        var channel = new FakeChannel()
+            .AudioClip(clip)
+            .AudioServesChunk(30)                               // bytes 0..29
+            .AudioThrows(new VoiceTurnHttpException(HttpStatusCode.BadGateway, "502"))
+            .AudioServesRest();                                 // resume from 30: bytes 30..49
+        var runner = new VoiceTurnRunner(channel, FastPolicy());
+
+        var audio = await runner.FetchAudioToCompletionAsync(Gw, Sid, Tid);
+
+        Assert.Equal(clip, audio);
+    }
+
+    [Fact]
+    public async Task FetchAudio_Expired404_SurfacesPleaseResend()
+    {
+        var channel = new FakeChannel()
+            .AudioClip(Clip(10))
+            .AudioThrows(new VoiceTurnHttpException(HttpStatusCode.NotFound, "404 no audio"));
+        var runner = new VoiceTurnRunner(channel, FastPolicy());
+
+        var ex = await Assert.ThrowsAsync<VoiceTurnExpiredException>(
+            () => runner.FetchAudioToCompletionAsync(Gw, Sid, Tid));
+
+        Assert.Contains("send it again", ex.Message);
+    }
+
+    [Fact]
+    public async Task FetchAudio_KeepsDroppingPastDeadline_FailsCleanly()
+    {
+        // Every fetch fails forever: the loop must give up at the deadline with a clear timeout,
+        // not loop endlessly. The empty audio script -> DefaultRest would succeed, so script a
+        // run of throws long enough that the (short) deadline trips first.
+        var channel = new FakeChannel().AudioClip(Clip(10));
+        for (var i = 0; i < 1000; i++)
+            channel.AudioThrows(new HttpRequestException("still offline"));
+        var runner = new VoiceTurnRunner(channel, FastPolicy(deadline: TimeSpan.FromSeconds(20)));
+
+        await Assert.ThrowsAsync<VoiceTurnTimeoutException>(
+            () => runner.FetchAudioToCompletionAsync(Gw, Sid, Tid));
+
+        Assert.True(channel.AudioCalls > 0);
+    }
+
+    [Fact]
+    public async Task FetchAudio_EmptyClip_ReturnsEmpty_NoSpin()
+    {
+        // No audio (e.g. no TTS key but audioReady somehow true): total 0, returns empty cleanly.
+        var channel = new FakeChannel().AudioClip(Array.Empty<byte>()).AudioServesRest();
+        var runner = new VoiceTurnRunner(channel, FastPolicy());
+
+        var audio = await runner.FetchAudioToCompletionAsync(Gw, Sid, Tid);
+
+        Assert.Empty(audio);
     }
 }
