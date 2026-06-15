@@ -233,9 +233,6 @@ public partial class MainWindow : Window
         // Wire source control view file event
         GitChangesView.ViewFileRequested += OnGitViewFileRequested;
 
-        // Wire session browser resume event
-        SessionBrowserView.SessionResumeRequested += OnSessionBrowserResumeRequested;
-
         // Wire clean view rewind event
         CleanView.RewindRequested += OnCleanViewRewindRequested;
 
@@ -244,16 +241,10 @@ public partial class MainWindow : Window
         // supplies the title and summary.
         CleanView.ResponseOnlyMode = true;
 
-        // Wire usage dashboard to usage service
-        UsageDashboardView.SetUsageService(app.ClaudeUsageService);
-
         // Wire prompt input text changes for slash command autocomplete
         PromptInput.TextChanged += PromptInput_TextChanged;
         PromptInput.LostFocus += (_, _) => SlashCommandPopup.IsOpen = false;
         PromptInput.GotFocus += PromptInput_GotFocus;
-
-        // Wire right panel tab selection to lazy-load session browser
-        RightPanelTabs.SelectionChanged += RightPanelTabs_SelectionChanged;
 
         SetBuildInfo();
         _ = InitializeScreenshotsPanelAsync();
@@ -989,7 +980,6 @@ public partial class MainWindow : Window
                     TerminalHost.Detach();
                     GitChangesView.Detach();
                     CleanView.Detach();
-                    WingmanView.Detach();
                     _activeSession = null;
 
                     SetSessionHeaderVisible(false);
@@ -1159,7 +1149,6 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
-            WingmanView.Detach();
         }
 
         _activeSession = vm;
@@ -1180,7 +1169,6 @@ public partial class MainWindow : Window
             WingmanTabButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
-            WingmanView.Detach();
             return;
         }
 
@@ -1212,9 +1200,6 @@ public partial class MainWindow : Window
 
         // Attach clean view (legacy Agent tab)
         CleanView.Attach(vm.Session);
-
-        // Attach the Wingman observability tab (right panel) to the new session.
-        WingmanView.Attach(vm.Session);
 
         // Show prompt bar
         PromptBarBorder.IsVisible = true;
@@ -1338,7 +1323,6 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         GitChangesView.Detach();
         CleanView.Detach();
-        WingmanView.Detach();
         _activeSession = null;
 
         var snapshots = _sessions.ToList();
@@ -1762,7 +1746,6 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
-            WingmanView.Detach();
             _activeSession = null;
 
             SetSessionHeaderVisible(false);
@@ -4932,38 +4915,6 @@ public partial class MainWindow : Window
 
     // ==================== RIGHT PANEL TAB SWITCHING ====================
 
-    private bool _sessionBrowserLoaded;
-
-    private void RightPanelTabs_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        // Lazy-load session browser when Sessions tab is first selected
-        if (RightPanelTabs.SelectedItem is TabItem tab && tab.Header?.ToString() == "Sessions" && !_sessionBrowserLoaded)
-        {
-            _sessionBrowserLoaded = true;
-            _ = SessionBrowserView.LoadAsync();
-        }
-    }
-
-    // ==================== SESSION BROWSER ====================
-
-    private void OnSessionBrowserResumeRequested(string repoPath, string sessionId)
-    {
-        FileLog.Write($"[MainWindow] OnSessionBrowserResumeRequested: repo={repoPath}, session={sessionId}");
-
-        if (string.IsNullOrEmpty(repoPath) || string.IsNullOrEmpty(sessionId))
-        {
-            FileLog.Write("[MainWindow] OnSessionBrowserResumeRequested: missing repoPath or sessionId");
-            return;
-        }
-
-        var vm = CreateSession(repoPath, resumeSessionId: sessionId);
-        if (vm != null)
-        {
-            SaveSessionToHistory(vm);
-            ShowNotification($"Resumed session in {repoPath}");
-        }
-    }
-
     // ==================== REWIND ====================
 
     private async void OnCleanViewRewindRequested(Session session, int entryNumber)
@@ -5107,11 +5058,10 @@ public partial class MainWindow : Window
         SyncPromptTextToSessions();
         PersistSessionStateCore();
 
-        // Detach terminal, source control, clean view, and usage dashboard
+        // Detach terminal, source control, and clean view
         TerminalHost.Detach();
         GitChangesView.Detach();
         CleanView.Detach();
-        UsageDashboardView.Detach();
         _activeSession = null;
 
         // Stop git status polling
