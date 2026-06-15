@@ -75,6 +75,44 @@ button:disabled{opacity:.45;cursor:default}
 .hist-play{flex:0 0 auto;padding:10px 16px;font-size:14px}
 .hist-play:disabled{opacity:.45}
 
+/* Talk-to-Wingman entry points (issue #424) */
+.controls-row{display:flex;gap:10px;margin:0 0 14px}
+.s-wingman{flex:0 0 auto;padding:10px 14px;font-size:13px}
+
+/* Wingman Chat view (issue #424) */
+.wm-note{color:var(--muted);font-size:13px;margin:0 2px 14px;line-height:1.45}
+.wm-chat{display:flex;flex-direction:column;gap:10px;max-height:42vh;overflow-y:auto;
+  margin-bottom:14px}
+.wm-chat:empty{display:none}
+.wm-msg{border:1px solid var(--line);border-radius:14px;padding:14px;white-space:pre-wrap;
+  font-size:15px}
+.wm-msg.you{background:var(--panel2);align-self:flex-end;max-width:88%}
+.wm-msg.you::before{content:"You: ";color:var(--muted)}
+.wm-msg.wingman{background:var(--panel);align-self:flex-start;max-width:96%}
+.wm-msg.wingman .wm-meta{color:var(--muted);font-size:12px;margin-top:8px}
+.wm-msg.tool{background:var(--panel);align-self:stretch;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:13px;color:var(--ink)}
+.wm-msg.tool .wm-meta{color:var(--muted);font-size:12px;margin-bottom:8px;font-family:inherit}
+.wm-msg.error{border-color:#5a2a2d;color:var(--red)}
+.wm-msg.pending{color:var(--muted)}
+
+.wm-ask{display:flex;gap:10px;align-items:flex-end;margin-bottom:8px}
+.wm-input{flex:1;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:12px 14px;resize:vertical;min-height:48px}
+.wm-input::placeholder{color:var(--muted)}
+.wm-input:focus{outline:none;border-color:var(--blue)}
+.wm-ask .primary,.wm-send .danger{flex:0 0 auto;align-self:stretch;padding:12px 18px}
+
+.wm-tools{margin:20px 0 8px}
+.wm-section{font-size:13px;font-weight:600;color:var(--muted);margin:0 2px 10px;
+  text-transform:uppercase;letter-spacing:.04em}
+
+.wm-actions{margin-top:22px;border-top:1px solid var(--line);padding-top:16px}
+.wm-send{display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
+.wm-action-row{display:flex;gap:10px;flex-wrap:wrap}
+.danger{background:#5a2226;border-color:#8a3036;color:#fff}
+.danger:active{transform:translateY(1px)}
+
 /* New session view */
 .ns-target{margin:2px 2px 12px}
 .ns-search{width:100%;font:inherit;color:var(--ink);background:var(--panel);

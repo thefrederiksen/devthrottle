@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #424 Voice Wingman Chat</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.55; }
+  h1 { border-bottom: 3px solid #2c5; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #234; }
+  .verdict { background: #e8f7ec; border: 1px solid #2c5; border-radius: 8px; padding: 1rem 1.2rem; font-size: 1.1rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f2f4f7; }
+  .pass { color: #176; font-weight: 700; }
+  code { background: #f4f4f4; padding: .1rem .35rem; border-radius: 4px; font-size: .88rem; }
+  img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; margin: .6rem 0; }
+  .meta { color: #667; font-size: .85rem; }
+  pre { background: #f7f7f9; padding: .7rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #424: Voice Wingman Chat + Talk to Wingman</h1>
+<p class="meta">
+  PR #434 (branch <code>feat/424-voice-wingman</code>, stacked on <code>feat/423-voice-history</code>) &mdash;
+  Verified independently by the QA Agent against the LIVE Gateway on port 7878.
+  Option A: NOT merged; left at <code>flow:ready-qa</code> for human merge.
+</p>
+
+<div class="verdict">
+  <strong class="pass">VERIFIED - all 5 acceptance criteria met (PASS).</strong><br />
+  Frontend-only change (3 files under <code>wwwroot/pages/voice/*</code>, additive). No backend, security,
+  or architecture surface touched &mdash; no CenCon doc update required. Cockpit project builds clean
+  (0 warnings, 0 errors).
+</div>
+
+<h2>Method</h2>
+<p>
+  The change is a Cockpit static-page feature (<code>/voice</code>). The live Gateway runs the OLD build
+  that does not yet have these files, so a loopback QA proxy served the PR branch's <em>actual</em>
+  <code>index.html</code>/<code>voice.js</code>/<code>voice.css</code> while forwarding all
+  <code>/sessions</code> and <code>/directors</code> API calls to the live Gateway (7878). The UI was
+  driven with cc-playwright (trusted events). All backend behaviour (ask / buffer / prompt / interrupt /
+  escape) was additionally probed directly with <code>curl</code> against the live Gateway. A disposable
+  test session was used for every state-changing test and DELETED afterwards; the user's 4 real sessions
+  were never altered (read-only ops only).
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently observed)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>"Talk to Wingman" entry points on BOTH list rows and the session view open the Wingman Chat.</td>
+    <td>A "Wingman" button on every row; a "Talk to Wingman" button in the session view; each opens the chat for that session.</td>
+    <td>List: 4 rows, 4 <code>button.s-wingman</code> ("Wingman"); clicking the "product" row's button opened the chat (<code>wingman-view</code> visible, title="product"). Session view: opened a session row, "Talk to Wingman" button present; clicking it opened the chat bound to that session. See 01, 02, 05.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Typing a question and sending shows the answer from <code>POST /sessions/{id}/wingman/ask</code>.</td>
+    <td>A free-text question returns a contextual answer.</td>
+    <td>Asked "Is this session idle or working right now, and what repo is it in?" &mdash; got a correct, contextual answer (described the running Explore agents + a pending permission prompt) with meta <code>opus - terminal:262545ch, repo:cc-director, read-only session</code>. See 03.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>"Read last 20 lines" shows terminal output from <code>GET /sessions/{id}/buffer?lines=20</code>.</td>
+    <td>Last terminal lines shown.</td>
+    <td>Clicking "Read last 20 lines" produced a monospace tool bubble labeled "last 20 lines of the terminal" with real terminal content. Direct curl on <code>buffer?lines=20</code> returned <code>{sessionId,totalBytes,newCursor,text}</code>. See 04.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Send text / interrupt / escape each require an explicit confirm and only then call the matching endpoint.</td>
+    <td>Each action prompts a confirm; nothing reaches the session unless the user accepts.</td>
+    <td>Confirm messages captured verbatim (see below). Send with confirm <strong>CANCELLED</strong>: session stayed <code>WaitingForInput</code> at 2493 bytes (no call). Send with confirm <strong>ACCEPTED</strong>: <code>POST /prompt</code> fired, bytes 2493&rarr;6417, state &rarr; <code>Working</code>, "sent to the session" bubble shown. Interrupt/Escape confirm-CANCEL made no call. See 06.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>ISOLATION: while an agent is mid-turn, asking questions does NOT change session state; only an explicit send/stop does.</td>
+    <td>Read-only ops leave activity/state &amp; byte-length unchanged; only an explicit confirmed action changes them.</td>
+    <td>Idle disposable session, baseline frozen at 2446 bytes / <code>WaitingForInput</code> (stable with no action). After <code>wingman/ask</code>: still 2446 / WaitingForInput. After 3x <code>buffer?lines=20</code>: still 2446 each time. Only the explicit confirmed <code>/prompt</code> moved it (2446&rarr;6531&rarr;10397, &rarr; Working). Asymmetry proven byte-for-byte.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Confirm-gate messages (captured verbatim from the live UI)</h2>
+<pre>Send text: "Send this text to the session? It WILL reach the agent.\n\n&lt;text&gt;"
+Interrupt: "Stop (interrupt) the session? This sends Ctrl+C to the agent."
+Escape:    "Send Escape to the session?"</pre>
+
+<h2>Isolation evidence (byte-level, live Gateway)</h2>
+<pre>=== ISOLATION TEST (idle disposable session) ===
+T0 baseline:                 WaitingForInput 2446
+T0b (no action, +3s):        WaitingForInput 2446   <- stable
+wingman/ask (read-only):     WaitingForInput 2446   <- UNCHANGED (answer returned, status ok, model opus)
+buffer?lines=20 read #1:     WaitingForInput 2446
+buffer?lines=20 read #2:     WaitingForInput 2446
+buffer?lines=20 read #3:     WaitingForInput 2446
+--- EXPLICIT /prompt (confirm accepted) ---
+after send:                  Working 6531
+after send (+4s):            Working 10397         <- only an explicit send advanced it
+--- /interrupt -> HTTP 200 ; /escape -> HTTP 200 ---</pre>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Diff vs base is 3 files under <code>wwwroot/pages/voice/*</code>, additive only (+245 lines). No backend, no security surface, no architecture change &rarr; no <code>docs/cencon/</code> manifest update needed.</li>
+  <li>Adjacent <code>/voice</code> flows (session list, open session, history from #423) still render &mdash; the Wingman view is a new sibling section gated by <code>show("wingman")</code>; existing views unaffected.</li>
+  <li><code>dotnet build src/CcDirector.Cockpit/CcDirector.Cockpit.csproj</code> &rarr; Build succeeded, 0 warnings, 0 errors.</li>
+  <li>Cleanup: both disposable test sessions confirmed deleted (HTTP 404); user's 4 real sessions untouched.</li>
+</ul>
+
+<h2>Screenshots</h2>
+<p><strong>01 - List rows each carry a Wingman button</strong></p>
+<img src="qa-01-list-wingman-buttons.png" alt="list with wingman buttons" />
+<p><strong>02 - Wingman Chat opened from a list row (read-only intro)</strong></p>
+<img src="qa-02-wingman-chat-opened.png" alt="wingman chat opened" />
+<p><strong>03 - Free-text question answered via wingman/ask (with model + context meta)</strong></p>
+<img src="qa-03-wingman-answer.png" alt="wingman answer" />
+<p><strong>04 - "Read last 20 lines" shows live terminal output via buffer?lines=20</strong></p>
+<img src="qa-04-read-last-20-lines.png" alt="read last 20 lines" />
+<p><strong>05 - Session view "Talk to Wingman" entry point</strong></p>
+<img src="qa-05-session-view-talk-to-wingman.png" alt="session view talk to wingman" />
+<p><strong>06 - Explicit Send (confirm accepted) reaches the session; box cleared, "sent to the session" bubble</strong></p>
+<img src="qa-06-explicit-send-accepted.png" alt="explicit send accepted" />
+
+<p class="meta">QA Agent (CenCon Development Method, cc-director). Option A: PASS, NOT merged.</p>
+</body>
+</html>
