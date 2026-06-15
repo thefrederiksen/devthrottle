@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #428 /voice light/dark theme</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:1100px;margin:24px auto;padding:0 16px;color:#1b2233;line-height:1.5}
+  h1{font-size:24px} h2{margin-top:32px;border-bottom:2px solid #e2e6ee;padding-bottom:6px}
+  .verdict{font-size:20px;font-weight:700;color:#1f8a4c;background:#eafaf0;border:1px solid #a6d7bb;border-radius:8px;padding:14px 16px}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid #d2d8e2;padding:8px 10px;text-align:left;font-size:14px;vertical-align:top}
+  th{background:#f3f4f6}
+  .pass{color:#1f8a4c;font-weight:700}
+  .shots{display:flex;gap:16px;flex-wrap:wrap}
+  .shots figure{margin:0;flex:1 1 320px}
+  .shots img{width:100%;border:1px solid #d2d8e2;border-radius:8px}
+  figcaption{font-size:13px;color:#5a6478;margin-top:6px}
+  code{background:#eef0f4;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #428: [cockpit] Voice light/dark theme to match Cockpit</h1>
+<p><strong>PR:</strong> #441 (<code>feat/428-voice-theme</code>, base <code>feat/427-voice-mobiledetect</code>) &middot;
+<strong>QA identity:</strong> independent QA Agent &middot; <strong>Option A:</strong> NOT merged.</p>
+
+<p class="verdict">VERIFIED - all acceptance criteria met. PASS.</p>
+
+<h2>Method (independent of the developer's proof)</h2>
+<p>The change is CSS-only (<code>wwwroot/pages/voice/voice.css</code>). I checked out the PR branch into
+my own worktree, served the <em>actual</em> Cockpit <code>wwwroot</code> over a local HTTP server, and loaded the
+real <code>/pages/voice/index.html</code> + <code>voice.css</code> in Chromium under
+<code>color_scheme: 'light'</code> and <code>color_scheme: 'dark'</code> (which drives
+<code>prefers-color-scheme</code>). I revealed the session and wingman views and injected representative
+outbox/error markup so every themed token paints, then captured full-page screenshots and measured
+computed colors, button geometry, and WCAG relative-luminance contrast in each scheme. Harness:
+<code>render_qa.py</code> in this folder; raw measurements in <code>metrics.json</code>.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my measurement)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>/voice renders correctly in both light and dark, following <code>prefers-color-scheme</code>.</td>
+  <td>Light scheme -> light surfaces + dark text; dark scheme -> dark surfaces + light text; driven by OS preference.</td>
+  <td>Under <code>color_scheme:light</code> body bg = <code>rgb(243,244,246)</code>, text <code>rgb(27,34,51)</code>.
+      Under <code>color_scheme:dark</code> body bg = <code>rgb(11,16,32)</code> (#0B1020), text <code>rgb(230,234,242)</code>.
+      The single <code>@media (prefers-color-scheme: light)</code> block re-points the tokens; switching the
+      emulated scheme re-themes the whole page. Both render cleanly (see screenshots).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Text contrast and button sizes remain accessible in both themes.</td>
+  <td>Contrast >= WCAG AA (4.5:1 normal text); large touch targets preserved (>= ~44px) and identical across themes.</td>
+  <td><strong>Contrast (light / dark):</strong> ink-on-bg 14.42 / 15.70; muted-on-bg 5.41 / 6.13;
+      primary-button ink-on-fill 5.34 / 5.34; error-stage text-on-bg 5.01 / 4.84 - all above AA 4.5.
+      <strong>Button sizes (identical both themes):</strong> Speak 388&times;87, Play reply 388&times;50,
+      Talk to Wingman 156&times;50 - all &ge; 44px tall. Only colors change between schemes; layout/padding/
+      font-size are shared.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Proof: side-by-side /voice in light and dark</h2>
+<h3>Single-session view</h3>
+<div class="shots">
+  <figure><img src="voice-session-light.png" alt="voice session light"><figcaption>Light - light grey bg, white panels, dark text, all 5 outbox badges + red error surfaces legible.</figcaption></figure>
+  <figure><img src="voice-session-dark.png" alt="voice session dark"><figcaption>Dark (baseline, unchanged) - navy bg, light text, identical layout/sizes.</figcaption></figure>
+</div>
+<h3>Wingman view</h3>
+<div class="shots">
+  <figure><img src="voice-wingman-light.png" alt="voice wingman light"><figcaption>Light - green Ask, red danger actions (Send text / Stop / Escape) readable; error text red on white.</figcaption></figure>
+  <figure><img src="voice-wingman-dark.png" alt="voice wingman dark"><figcaption>Dark - same controls, themed for dark.</figcaption></figure>
+</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>CSS validated: braces balanced (105/105), exactly two <code>:root</code> blocks (dark default + light override), one <code>@media (prefers-color-scheme: light)</code>.</li>
+  <li>Dark default unchanged: the newly-tokenized colors resolve to the same literal hex values as the pre-PR rules (e.g. <code>--primary-bg:#1f7a47</code>, <code>--error-line:#5a2a2d</code>, badge line tints), so the dark look is byte-equivalent to baseline.</li>
+  <li>Single file touched (<code>voice.css</code>); no architecture/security change, no CenCon doc impact; no DT rule implicated.</li>
+  <li>Negative sweep of every screenshot: no white-on-white, no vanished borders, no clipped/overlapping controls in either scheme.</li>
+</ul>
+
+<p><strong>Conclusion:</strong> 2/2 acceptance criteria PASS. Ready for human merge (Option A - not merged by QA).</p>
+</body>
+</html>
