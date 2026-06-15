@@ -12,10 +12,27 @@
   <section id="list-view" class="view">
     <header class="bar">
       <h1>Voice</h1>
+      <button id="new-session-btn" class="ghost" title="New session">+ New</button>
       <button id="refresh-btn" class="ghost" title="Refresh">Refresh</button>
     </header>
     <p id="list-status" class="status-line">Loading sessions...</p>
     <ul id="session-list" class="sessions"></ul>
+  </section>
+
+  <!-- New session view: pick a repo, create, open -->
+  <section id="newsession-view" class="view hidden">
+    <header class="bar">
+      <button id="ns-back-btn" class="ghost">&larr; Back</button>
+      <h1>New session</h1>
+    </header>
+
+    <div id="ns-target" class="muted ns-target"></div>
+    <input id="ns-search" class="ns-search" type="text" inputmode="search"
+           autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="Filter repos..." />
+    <p id="ns-status" class="status-line">Loading repos...</p>
+    <ul id="ns-repo-list" class="sessions"></ul>
+    <div id="ns-error" class="ns-error hidden"></div>
   </section>
 
   <!-- Single session voice view -->
