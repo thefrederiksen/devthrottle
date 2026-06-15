@@ -23,10 +23,11 @@
     { href: "/fleet",       label: "Fleet",     icon: '<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>' },
     { href: "/feedback",    label: "Feedback",  icon: '<path d="M2.5 3.5h11v7h-6L4 13.5v-3h-1.5z"/><path d="M5 6h6M5 8h4"/>', alpha: true },
     { href: "/about",       label: "About",     icon: '<circle cx="8" cy="8" r="6.5"/><path d="M8 7.25v3.75M8 5h.01"/>' },
+    { href: "/voice",       label: "Voice",     icon: '<rect x="6" y="1.5" width="4" height="7" rx="2"/><path d="M3.5 7a4.5 4.5 0 0 0 9 0M8 11.5v3M5.5 14.5h5"/>' },
     { sep: true },
     { href: "/settings",    label: "Settings",  icon: '<circle cx="8" cy="8" r="2.25"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/>' },
     { href: "/exes",        label: "Builds",    icon: '<path d="M8 1.5 14 5v6l-6 3.5L2 11V5l6-3.5zM2 5l6 3.5L14 5M8 8.5v6"/>', alpha: true },
-    { href: "/transcripts", label: "Voice",     icon: '<rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>', alpha: true },
+    { href: "/transcripts", label: "Recordings",icon: '<rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>', alpha: true },
     { href: "/dictionary",  label: "Dictionary",icon: '<path d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5zM3 11.5h10M6 5.5h4"/>' },
     { href: "/keys",        label: "API Keys",  icon: '<circle cx="5" cy="8" r="2.5"/><path d="M7.5 8H14M12 8v2.5M10 8v2"/>' }
   ];

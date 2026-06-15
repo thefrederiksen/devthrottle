@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #420 (Voice nav entry)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #2563eb; padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; }
+  .pass { color: #15803d; font-weight: bold; }
+  .verdict { background: #ecfdf5; border: 1px solid #15803d; padding: 12px 16px; border-radius: 6px; margin: 20px 0; }
+  img { max-width: 100%; border: 1px solid #ddd; margin: 8px 0; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; }
+  figure { margin: 16px 0; }
+  figcaption { font-size: 0.9em; color: #555; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #420: Voice entry in Cockpit navigation</h1>
+<p><strong>PR:</strong> #430 (branch <code>feat/420-voice-nav</code>, commit 4e878db)<br/>
+<strong>QA identity:</strong> independent build + run, NOT the developer's binary or screenshots.<br/>
+<strong>Test method:</strong> Built the Cockpit from the PR branch in an isolated worktree, ran it on a
+dedicated port (Release publish on 7497 for the Blazor circuit; Debug run for static checks), and drove
+the actual rendered UI with browser-harness. The user's production Cockpit (port 7470) was never touched.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Cockpit nav rail shows a "Voice" item with a sensible icon, consistent with the other entries.</td>
+    <td>A visible "Voice" nav item with an icon, styled like siblings.</td>
+    <td>Blazor nav rail renders a visible "Voice" item (microphone icon, <code>href=/voice</code>,
+        hidden:false) between Wingman and About, identical styling to other items. DOM query of
+        <code>nav.nv .nv-item</code> confirms it is present and not display:none.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Clicking it navigates to <code>/voice</code> and the Voice page renders (session list visible).</td>
+    <td>Click -> URL is /voice, page renders with the session list view.</td>
+    <td>Clicking the Voice item navigated to <code>http://127.0.0.1:7497/voice</code>; title
+        "Voice - CC Director", h1 "Voice", the <code>#session-list</code> / <code>#list-view</code>
+        session-list view rendered ("No sessions yet." - empty because the isolated test box has no
+        Gateway sessions; the list UI itself renders correctly).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>The item also appears in the shared static tool-nav rail (<code>wwwroot/pages/tool-nav.js</code>).</td>
+    <td>A static tool page (e.g. /keys) shows "Voice" -> /voice in its injected rail.</td>
+    <td>On <code>/keys</code> (plain-HTML tool page) the injected rail renders 10 visible items
+        including "Voice" -> <code>/voice</code> with the microphone icon, positioned after About.
+        "Recordings" (alpha/hidden) correctly absent.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Proof: screenshots of nav item present and /voice open after click.</td>
+    <td>Two screenshots.</td>
+    <td>Four screenshots captured (Blazor rail, /voice after click, static tool-nav rail, Recordings page).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression check (explicitly requested)</h2>
+<p>The Developer renamed the pre-existing hidden <code>/transcripts</code> nav label from "Voice" to
+"Recordings" to avoid a duplicate "Voice" label. Verified the <code>/transcripts</code> page still works:
+it returns HTTP 200 and renders fully ("Voice Recorder" page with a list of transcribed recordings).
+The rename touched only the nav label, not the page. No other nav item changed (all 15 Blazor items and
+10 visible static items intact, same hidden/visible state as before).</p>
+
+<h2>Evidence</h2>
+<figure>
+  <img src="qa-01-cockpit-nav-voice.png" alt="Blazor nav rail with Voice item" />
+  <figcaption>AC#1: Blazor Cockpit nav rail - "Voice" item (mic icon) between Wingman and About.</figcaption>
+</figure>
+<figure>
+  <img src="qa-02-voice-page-after-click.png" alt="/voice page after click" />
+  <figcaption>AC#2: After clicking Voice - URL /voice, "Voice" header, session-list view rendered.</figcaption>
+</figure>
+<figure>
+  <img src="qa-03-static-toolnav-voice.png" alt="Static tool-nav rail with Voice item" />
+  <figcaption>AC#3: Static tool-nav rail on /keys - "Voice" item present.</figcaption>
+</figure>
+<figure>
+  <img src="qa-04-recordings-transcripts-page.png" alt="Recordings/transcripts page still works" />
+  <figcaption>Regression: /transcripts ("Voice Recorder") page renders fine after the label rename.</figcaption>
+</figure>
+
+<div class="verdict">
+<strong>VERIFIED - all 4 acceptance criteria met, plus the requested Recordings regression check.</strong>
+Build clean (0 errors / 0 warnings). The diff is scoped to NavMenu.razor and tool-nav.js. No adjacent
+breakage observed. Recommended for human merge (Option A: QA verifies, human owns the merge).
+</div>
+</body>
+</html>
