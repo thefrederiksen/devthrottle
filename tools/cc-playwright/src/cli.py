@@ -724,6 +724,11 @@ def cmd_new_tab(args: argparse.Namespace) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="cc-playwright", description=__doc__)
+    # Every cc-* tool must answer `--version` - the installer and the Tools-page health check run it,
+    # and without it argparse fails with "the following arguments are required: cmd" (a false FAIL).
+    # The version action short-circuits before the required-subcommand check. Keep in sync with
+    # src/__init__.py / pyproject.toml (hardcoded so a bad import can never break the whole CLI).
+    p.add_argument("--version", action="version", version="cc-playwright 0.1.0")
     p.add_argument(
         "--connection", "-c",
         default=os.environ.get("CC_PLAYWRIGHT_CONNECTION", DEFAULT_CONNECTION),
