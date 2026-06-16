@@ -11,7 +11,7 @@ public partial class WelcomeStep : UserControl
     /// engine uninstaller; the step itself stays UI-only.</summary>
     public event EventHandler? UninstallRequested;
 
-    public WelcomeStep(bool isUpdate, string? installedVersion)
+    public WelcomeStep(bool isUpdate, string? installedVersion, InstallRole installedRole = InstallRole.Workstation)
     {
         InitializeComponent();
 
@@ -21,7 +21,13 @@ public partial class WelcomeStep : UserControl
             DescriptionText.Text = "Checking for updates...";
 
             // Role is a first-install choice; an update refreshes whatever is already installed.
+            // Hide the interactive picker, but show, read-only, which type this machine actually is
+            // so the user can see they are updating a Workstation and not the Gateway.
             RolePanel.Visibility = Visibility.Collapsed;
+            InstalledRoleText.Text = installedRole == InstallRole.Gateway
+                ? "Gateway -- DevThrottle app, all CLI tools, plus the Gateway tray app and Cockpit web UI. There should be only one Gateway."
+                : "Workstation -- DevThrottle app + all CLI tools on this machine. Connects to a Gateway; it is not the Gateway itself.";
+            InstalledRolePanel.Visibility = Visibility.Visible;
 
             if (installedVersion != null)
             {
@@ -33,6 +39,21 @@ public partial class WelcomeStep : UserControl
             // An existing install is present, so offer to remove it (issue #257).
             UninstallButton.Visibility = Visibility.Visible;
             UninstallHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            // Fresh install: the role picker is the hero of the screen, so the long marketing
+            // paragraph is hidden to keep the one decision front and center.
+            DescriptionText.Visibility = Visibility.Collapsed;
+
+            // Default to Workstation (the safe pick - there should only be one Gateway). Asserted
+            // on Loaded, not in the ctor or via IsChecked="True" in XAML: grouped RadioButtons
+            // sharing a GroupName drop an initial check set before they are connected to the tree.
+            Loaded += (_, _) =>
+            {
+                if (WorkstationRadio.IsChecked != true && GatewayRadio.IsChecked != true)
+                    WorkstationRadio.IsChecked = true;
+            };
         }
 
         SetupLog.Write($"[WelcomeStep] Created: isUpdate={isUpdate}");

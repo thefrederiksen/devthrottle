@@ -1,100 +1,320 @@
 <UserControl x:Class="CcDirectorSetup.Steps.WelcomeStep"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel>
-        <Image Source="pack://application:,,,/app.ico"
-               Width="96"
-               Height="96"
-               HorizontalAlignment="Center"
-               Margin="0,8,0,16"
-               RenderOptions.BitmapScalingMode="HighQuality" />
+    <UserControl.Resources>
+        <!-- A role choice rendered as a big clickable card. The whole card is the radio button;
+             the accent border + tinted fill show the current selection. -->
+        <Style x:Key="RoleCard" TargetType="RadioButton">
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Card"
+                                Background="#2A2D2E"
+                                BorderBrush="{StaticResource StepInactive}"
+                                BorderThickness="2"
+                                CornerRadius="8"
+                                Padding="16,14">
+                            <Grid>
+                                <!-- leave room on the right for the selection indicator -->
+                                <ContentPresenter Margin="0,0,26,0" />
 
-        <TextBlock x:Name="TitleText"
-                   Text="Welcome to DevThrottle"
-                   Foreground="White"
-                   FontSize="24"
-                   FontWeight="SemiBold"
-                   HorizontalAlignment="Center" />
+                                <!-- Radio indicator: hollow grey ring when unselected, filled accent
+                                     dot inside an accent ring when selected. Top-right of the card. -->
+                                <Border x:Name="Ring"
+                                        Width="20" Height="20" CornerRadius="10"
+                                        BorderBrush="{StaticResource StepInactive}"
+                                        BorderThickness="2"
+                                        Background="Transparent"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top">
+                                    <Ellipse x:Name="Dot" Width="10" Height="10" Fill="Transparent" />
+                                </Border>
 
-        <TextBlock Text="A Windows-first toolkit for Claude Code developers"
-                   Foreground="{StaticResource AccentBrush}"
-                   FontSize="14"
-                   FontWeight="SemiBold"
+                                <!-- "SELECTED" tag, bottom-right, only visible when checked -->
+                                <TextBlock x:Name="SelectedTag"
+                                           Text="SELECTED"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           FontSize="10" FontWeight="Bold"
+                                           HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                           Visibility="Hidden" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="BorderBrush" Value="#5A5A5A" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Card" Property="Background" Value="#16466A" />
+                                <Setter TargetName="Ring" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Dot" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="SelectedTag" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <Image Source="pack://application:,,,/app.ico"
+                   Width="56"
+                   Height="56"
                    HorizontalAlignment="Center"
-                   Margin="0,6,0,0" />
+                   Margin="0,0,0,10"
+                   RenderOptions.BitmapScalingMode="HighQuality" />
 
-        <TextBlock x:Name="DescriptionText"
-                   Text="DevThrottle runs and manages multiple Claude Code sessions side by side, with a full suite of CLI tools for documents, browser automation, email, media, and more. Built for Windows developers who live in the terminal and want Claude Code to fit into a real day of shipping software."
-                   Foreground="{StaticResource TextForeground}"
-                   FontSize="13"
-                   TextWrapping="Wrap"
-                   TextAlignment="Center"
-                   Margin="40,20,40,0"
-                   LineHeight="20" />
+            <TextBlock x:Name="TitleText"
+                       Text="Welcome to DevThrottle"
+                       Foreground="White"
+                       FontSize="22"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center" />
 
-        <TextBlock x:Name="VersionInfoText"
-                   Foreground="{StaticResource DimText}"
-                   FontSize="12"
-                   HorizontalAlignment="Center"
-                   Margin="0,16,0,0"
-                   Visibility="Collapsed" />
+            <TextBlock Text="A Windows-first toolkit for Claude Code developers"
+                       Foreground="{StaticResource AccentBrush}"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       Margin="0,4,0,0" />
 
-        <Border x:Name="RolePanel"
-                Margin="40,24,40,0"
-                Padding="16,12"
-                Background="#1A000000"
-                CornerRadius="6">
-            <StackPanel>
-                <TextBlock Text="Install type"
+            <!-- Long marketing paragraph: shown on a fresh install only behind the role picker
+                 is too much, so the code-behind hides this on fresh install and reuses it in
+                 update mode for the "Checking for updates / Up to date / Upgrade available" line. -->
+            <TextBlock x:Name="DescriptionText"
+                       Text="DevThrottle runs and manages multiple Claude Code sessions side by side, with a full suite of CLI tools for documents, browser automation, email, media, and more."
+                       Foreground="{StaticResource TextForeground}"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       Margin="40,16,40,0"
+                       LineHeight="20" />
+
+            <TextBlock x:Name="VersionInfoText"
+                       Foreground="{StaticResource DimText}"
+                       FontSize="12"
+                       HorizontalAlignment="Center"
+                       Margin="0,14,0,0"
+                       Visibility="Collapsed" />
+
+            <!-- ============================ FRESH INSTALL: the one decision ============================ -->
+            <!-- RolePanel stays the named container the update path collapses. On a fresh install it is
+                 the hero of the screen: a picture of one Gateway with Workstations hanging off it, then
+                 two big cards. WorkstationRadio / GatewayRadio keep their names so SelectedRole is unchanged. -->
+            <StackPanel x:Name="RolePanel" Margin="24,24,24,0">
+                <TextBlock Text="How will you use this machine?"
                            Foreground="White"
-                           FontSize="13"
-                           FontWeight="SemiBold" />
-                <RadioButton x:Name="WorkstationRadio"
-                             GroupName="role"
-                             IsChecked="True"
-                             Margin="0,10,0,0"
-                             Foreground="{StaticResource TextForeground}">
-                    <TextBlock TextWrapping="Wrap">
-                        <Run Text="Workstation" FontWeight="SemiBold" Foreground="White" /><LineBreak />
-                        <Run Text="DevThrottle app + all CLI tools. Per-user, no administrator rights." FontSize="12" />
-                    </TextBlock>
-                </RadioButton>
-                <RadioButton x:Name="GatewayRadio"
-                             GroupName="role"
-                             Margin="0,10,0,0"
-                             Foreground="{StaticResource TextForeground}">
-                    <TextBlock TextWrapping="Wrap">
-                        <Run Text="Gateway" FontWeight="SemiBold" Foreground="White" /><LineBreak />
-                        <Run Text="Everything above, plus the Gateway tray app (starts at logon) and the Cockpit web UI. Per-user, no administrator rights." FontSize="12" />
-                    </TextBlock>
-                </RadioButton>
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Pick one. You can change it later by re-running setup."
+                           Foreground="{StaticResource DimText}"
+                           FontSize="12"
+                           HorizontalAlignment="Center"
+                           Margin="0,4,0,0" />
+
+                <!-- The picture: install ONE Gateway; every other machine is a Workstation that connects to it. -->
+                <Border Background="#171717" CornerRadius="8" Padding="20,18" Margin="0,16,0,0">
+                    <Grid Width="420" HorizontalAlignment="Center">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="14" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Gateway node -->
+                        <Border Grid.Row="0" HorizontalAlignment="Center"
+                                Background="#0E2A3F"
+                                BorderBrush="{StaticResource AccentBrush}"
+                                BorderThickness="2"
+                                CornerRadius="6"
+                                Padding="22,10">
+                            <StackPanel>
+                                <TextBlock Text="GATEWAY"
+                                           Foreground="White" FontWeight="Bold" FontSize="14"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="install ONE - your main machine"
+                                           Foreground="{StaticResource AccentBrush}" FontSize="11"
+                                           HorizontalAlignment="Center" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Vertical stub down from the Gateway -->
+                        <Rectangle Grid.Row="1" Width="2" Fill="{StaticResource StepInactive}"
+                                   HorizontalAlignment="Center" />
+
+                        <!-- Horizontal bus + three stubs aligned to the three workstation columns
+                             (column width = 420 / 3 = 140; centers at 70 / 210 / 350). -->
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Rectangle Grid.Column="0" Grid.ColumnSpan="3" Height="2"
+                                       VerticalAlignment="Top"
+                                       Fill="{StaticResource StepInactive}"
+                                       Margin="70,0,70,0" />
+                            <Rectangle Grid.Column="0" Width="2" Height="12"
+                                       Fill="{StaticResource StepInactive}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Top" />
+                            <Rectangle Grid.Column="1" Width="2" Height="12"
+                                       Fill="{StaticResource StepInactive}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Top" />
+                            <Rectangle Grid.Column="2" Width="2" Height="12"
+                                       Fill="{StaticResource StepInactive}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Top" />
+                        </Grid>
+
+                        <!-- Workstations -->
+                        <UniformGrid Grid.Row="3" Columns="3" Margin="0,10,0,0">
+                            <Border Background="#2A2D2E" BorderBrush="{StaticResource StepInactive}"
+                                    BorderThickness="1" CornerRadius="5" Padding="10,8"
+                                    Width="120" HorizontalAlignment="Center">
+                                <StackPanel>
+                                    <TextBlock Text="WORKSTATION" Foreground="White"
+                                               FontWeight="SemiBold" FontSize="11"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock Text="laptop" Foreground="{StaticResource DimText}"
+                                               FontSize="10" HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#2A2D2E" BorderBrush="{StaticResource StepInactive}"
+                                    BorderThickness="1" CornerRadius="5" Padding="10,8"
+                                    Width="120" HorizontalAlignment="Center">
+                                <StackPanel>
+                                    <TextBlock Text="WORKSTATION" Foreground="White"
+                                               FontWeight="SemiBold" FontSize="11"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock Text="desktop" Foreground="{StaticResource DimText}"
+                                               FontSize="10" HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#2A2D2E" BorderBrush="{StaticResource StepInactive}"
+                                    BorderThickness="1" CornerRadius="5" Padding="10,8"
+                                    Width="120" HorizontalAlignment="Center">
+                                <StackPanel>
+                                    <TextBlock Text="WORKSTATION" Foreground="White"
+                                               FontWeight="SemiBold" FontSize="11"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock Text="home PC" Foreground="{StaticResource DimText}"
+                                               FontSize="10" HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <TextBlock Grid.Row="4"
+                                   Text="All your other machines connect to the one Gateway."
+                                   Foreground="{StaticResource DimText}" FontSize="11"
+                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
+                    </Grid>
+                </Border>
+
+                <!-- The two choices, as big cards. Workstation is the default and the safe pick. -->
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <RadioButton x:Name="GatewayRadio"
+                                 Grid.Column="0"
+                                 GroupName="role"
+                                 Style="{StaticResource RoleCard}"
+                                 Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="GATEWAY" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="15" />
+                            <TextBlock Text="This is my MAIN machine."
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontSize="12" Margin="0,4,0,0" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Foreground="{StaticResource TextForeground}"
+                                       FontSize="12" Margin="0,8,0,0" LineHeight="17"
+                                       Text="Runs the hub everyone connects to, plus the web Cockpit. Install on ONE machine only." />
+                        </StackPanel>
+                    </RadioButton>
+
+                    <RadioButton x:Name="WorkstationRadio"
+                                 Grid.Column="1"
+                                 GroupName="role"
+                                 IsChecked="True"
+                                 Style="{StaticResource RoleCard}"
+                                 Margin="8,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WORKSTATION" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="15" />
+                            <TextBlock Text="This is a SECONDARY machine."
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontSize="12" Margin="0,4,0,0" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Foreground="{StaticResource TextForeground}"
+                                       FontSize="12" Margin="0,8,0,0" LineHeight="17"
+                                       Text="Runs the DevThrottle app + all CLI tools and connects to the Gateway. Install on every other machine." />
+                        </StackPanel>
+                    </RadioButton>
+                </Grid>
+
+                <TextBlock Text="Not sure? Choose Workstation. There should only ever be one Gateway."
+                           Foreground="{StaticResource DimText}"
+                           FontSize="11"
+                           HorizontalAlignment="Center"
+                           Margin="0,14,0,0" />
             </StackPanel>
-        </Border>
 
-        <TextBlock Text="Click Next to continue."
-                   Foreground="{StaticResource DimText}"
-                   FontSize="12"
-                   HorizontalAlignment="Center"
-                   Margin="0,28,0,0" />
+            <!-- ============================ UPDATE MODE: read-only role ============================ -->
+            <!-- Role is a first-install choice the update wizard does not re-ask, so instead of the
+                 interactive picker we show, read-only, which type this machine was installed as.
+                 Detected from disk by InstalledRoleDetector and passed in by MainWindow. -->
+            <Border x:Name="InstalledRolePanel"
+                    Margin="40,24,40,0"
+                    Padding="16,12"
+                    Background="#1A000000"
+                    CornerRadius="6"
+                    Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Install type"
+                               Foreground="White"
+                               FontSize="13"
+                               FontWeight="SemiBold" />
+                    <TextBlock x:Name="InstalledRoleText"
+                               TextWrapping="Wrap"
+                               Foreground="{StaticResource TextForeground}"
+                               Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
 
-        <!-- Uninstall entry (issue #257): shown only when an existing install is detected
-             (update mode). Removes the app, tools, PATH, skills, scheduled tasks, and the
-             Gateway autostart + Tailscale mapping; the user's data is preserved. -->
-        <Button x:Name="UninstallButton"
-                Content="Uninstall DevThrottle"
-                Style="{StaticResource DangerButton}"
-                HorizontalAlignment="Center"
-                Margin="0,28,0,0"
-                Visibility="Collapsed"
-                Click="UninstallButton_Click" />
+            <TextBlock Text="Click Next to continue."
+                       Foreground="{StaticResource DimText}"
+                       FontSize="12"
+                       HorizontalAlignment="Center"
+                       Margin="0,20,0,0" />
 
-        <TextBlock x:Name="UninstallHint"
-                   Text="Removes the app, tools, and integration. Your data (config, vault, sign-ins) is kept."
-                   Foreground="{StaticResource DimText}"
-                   FontSize="11"
-                   TextAlignment="Center"
-                   TextWrapping="Wrap"
-                   Margin="40,8,40,0"
-                   Visibility="Collapsed" />
-    </StackPanel>
+            <!-- Uninstall entry (issue #257): shown only when an existing install is detected
+                 (update mode). Removes the app, tools, PATH, skills, scheduled tasks, and the
+                 Gateway autostart + Tailscale mapping; the user's data is preserved. -->
+            <Button x:Name="UninstallButton"
+                    Content="Uninstall DevThrottle"
+                    Style="{StaticResource DangerButton}"
+                    HorizontalAlignment="Center"
+                    Margin="0,24,0,0"
+                    Visibility="Collapsed"
+                    Click="UninstallButton_Click" />
+
+            <TextBlock x:Name="UninstallHint"
+                       Text="Removes the app, tools, and integration. Your data (config, vault, sign-ins) is kept."
+                       Foreground="{StaticResource DimText}"
+                       FontSize="11"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Margin="40,8,40,0"
+                       Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

@@ -80,7 +80,7 @@ public partial class MainWindow : Window
     /// only shows the button in update mode, so the handler is harmless on a fresh install.</summary>
     private WelcomeStep BuildWelcomeStep()
     {
-        var step = new WelcomeStep(_isUpdate, _installedVersion);
+        var step = new WelcomeStep(_isUpdate, _installedVersion, _role);
         step.UninstallRequested += OnUninstallRequested;
         return step;
     }
