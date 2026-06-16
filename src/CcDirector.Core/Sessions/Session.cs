@@ -1215,6 +1215,10 @@ public sealed class Session : IDisposable
         if (ContainsSubmit(data))
         {
             IsBrandNew = false;
+            // A real submission means the user is driving this session again, so a
+            // stale Hold deferral no longer reflects intent -- clear it (issue #470).
+            // The OnHold setter no-ops + skips OnHoldChanged when already false.
+            OnHold = false;
             SetActivityState(ActivityState.Working);
         }
     }
@@ -1246,6 +1250,10 @@ public sealed class Session : IDisposable
         else
             await _backend.SendTextAsync(text);
         IsBrandNew = false;
+        // A SendTextAsync is always a submitted turn -- the user is driving this
+        // session again, so clear any stale Hold deferral (issue #470). The OnHold
+        // setter no-ops + skips OnHoldChanged when already false.
+        OnHold = false;
         SetActivityState(ActivityState.Working);
     }
 
