@@ -40,6 +40,9 @@ public sealed class Uninstaller
             ("CLI tools", _layout.BinDir),
             ("Python runtime", _layout.PythonDir),
             ("Python tools venv", _layout.PyenvDir),
+            // The Launcher tray app ships to BOTH roles (issue #250), so its binaries are removed
+            // regardless of role.
+            ("Launcher binaries", _layout.LauncherDir),
         };
         if (role == InstallRole.Gateway)
         {
@@ -67,6 +70,12 @@ public sealed class Uninstaller
             targets.Add(new UninstallTarget(
                 UninstallKind.Autostart, "Gateway autostart (HKCU Run key)",
                 GatewayAutostart.ValueName, GatewayAutostart.IsRegistered()));
+
+        // The Launcher autostart Run key exists for both roles (the launcher ships to both).
+        if (OperatingSystem.IsWindows())
+            targets.Add(new UninstallTarget(
+                UninstallKind.Autostart, "Launcher autostart (HKCU Run key)",
+                LauncherAutostart.ValueName, LauncherAutostart.IsRegistered()));
 
         foreach (var (desc, path) in Directories(role))
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
@@ -117,6 +126,16 @@ public sealed class Uninstaller
             // The 443 front-door Serve mapping is the Gateway's, so its teardown is Gateway-scoped.
             progress?.Report("Removing the Tailscale mapping");
             RemoveTailscaleServe(steps, errors);
+        }
+
+        // The Launcher tray app ships to both roles: stop it and remove its autostart Run key before
+        // the directory delete unlocks its exe.
+        if (OperatingSystem.IsWindows())
+        {
+            progress?.Report("Stopping the Launcher tray app");
+            StopLauncherTrayApp(steps);
+            progress?.Report("Removing the Launcher autostart");
+            RemoveLauncherAutostart(steps, errors);
         }
 
         progress?.Report("Removing the app and CLI tools");
@@ -337,6 +356,48 @@ public sealed class Uninstaller
         catch (Exception ex)
         {
             errors.Add($"autostart Run key: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Stop the INSTALLED Launcher tray app so its exe unlocks before the directory delete. Scoped
+    /// strictly to a process whose image lives under the install-owned Launcher dir - a dev launcher
+    /// running from a repo is never touched.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private void StopLauncherTrayApp(List<string> steps)
+    {
+        var stopped = 0;
+        foreach (var p in Process.GetProcessesByName("cc-launcher"))
+        {
+            try
+            {
+                var path = p.MainModule?.FileName ?? "";
+                if (!path.StartsWith(_layout.LauncherDir, StringComparison.OrdinalIgnoreCase)) continue;
+                p.Kill(entireProcessTree: true);
+                p.WaitForExit(5000);
+                stopped++;
+            }
+            catch (Exception ex) { EngineLog.Write($"[Uninstaller] stop cc-launcher pid={p.Id}: {ex.Message}"); }
+            finally { p.Dispose(); }
+        }
+        steps.Add(stopped > 0
+            ? $"stopped {stopped} installed Launcher process(es)"
+            : "Launcher tray app: not running");
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void RemoveLauncherAutostart(List<string> steps, List<string> errors)
+    {
+        try
+        {
+            steps.Add(LauncherAutostart.Unregister()
+                ? $"removed autostart Run key ({LauncherAutostart.ValueName})"
+                : "Launcher autostart Run key: not present");
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Launcher autostart Run key: {ex.Message}");
         }
     }
 

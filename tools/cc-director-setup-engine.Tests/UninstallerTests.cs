@@ -21,16 +21,22 @@ public class UninstallerTests : IDisposable
     }
 
     [Fact]
-    public void Plan_Workstation_TargetsAppBinPathShortcut_NotGatewayOrAutostart()
+    public void Plan_Workstation_TargetsAppBinLauncherPathShortcut_NotGatewayDirsOrGatewayAutostart()
     {
         var plan = new Uninstaller(_layout).Plan(InstallRole.Workstation);
         var dirs = plan.Where(t => t.Kind == UninstallKind.Directory).Select(t => t.Path).ToList();
 
         Assert.Contains(_layout.AppDir, dirs);
         Assert.Contains(_layout.BinDir, dirs);
+        // The Launcher ships to both roles, so a Workstation uninstall removes its binaries too.
+        Assert.Contains(_layout.LauncherDir, dirs);
         Assert.DoesNotContain(_layout.GatewayDir, dirs);
         Assert.DoesNotContain(_layout.CockpitDir, dirs);
-        Assert.DoesNotContain(plan, t => t.Kind == UninstallKind.Autostart);
+        // The Gateway autostart Run key is never in a Workstation plan...
+        Assert.DoesNotContain(plan, t => t.Kind == UninstallKind.Autostart && t.Path == GatewayAutostart.ValueName);
+        // ...but the Launcher autostart Run key is (Windows), because the launcher is a Workstation component.
+        if (OperatingSystem.IsWindows())
+            Assert.Contains(plan, t => t.Kind == UninstallKind.Autostart && t.Path == LauncherAutostart.ValueName);
         Assert.Contains(plan, t => t.Kind == UninstallKind.PathEntry);
         Assert.Contains(plan, t => t.Kind == UninstallKind.Shortcut);
     }

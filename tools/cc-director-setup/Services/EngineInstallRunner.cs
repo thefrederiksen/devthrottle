@@ -167,6 +167,25 @@ public sealed class EngineInstallRunner
         if (File.Exists(AppExePath))
             ShortcutCreator.CreateStartMenuShortcut(AppExePath);
 
+        // Start the Launcher tray app (Windows, both roles): the runner placed cc-launcher.exe but
+        // does not start it, so without this it sits dormant and never writes its autostart Run key.
+        // Managed mode runs the self-update loop and self-registers autostart. Reported to the log
+        // and kept non-fatal (like the wizard's Gateway phase): a launcher start hiccup must not fail
+        // an otherwise-good Director/tools install, and the app re-asserts autostart on its own start.
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var launcherResult = await new LauncherTrayInstaller(_layout).InstallAsync(ct);
+                SetupLog.Write($"[EngineInstallRunner] launcher start: success={launcherResult.Success}: {launcherResult.Message}");
+                foreach (var s in launcherResult.Steps) SetupLog.Write($"[EngineInstallRunner]   launcher: {s}");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write($"[EngineInstallRunner] launcher start FAILED: {ex.Message}");
+            }
+        }
+
         var installed = result.Installed + result.Updated + toolCount;
         var skipped = prep.Items.Count(i => i.Status is "Skipped" or "Failed");
         SetupLog.Write($"[EngineInstallRunner] ApplyAsync: installed={installed}, skipped={skipped}");

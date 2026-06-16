@@ -268,6 +268,27 @@ internal static class Commands
             }
         }
 
+        // The Launcher tray app ships to BOTH roles. The generic runner places its exe but never
+        // starts it (so a fresh install leaves it dormant and its autostart Run key unwritten). On
+        // any install, start it in managed mode and verify health + autostart - the app self-registers
+        // its Run key and runs the self-update loop. Idempotent: an already-running launcher just keeps
+        // serving. Runs last so it never blocks the core Director/tools install.
+        if (installMode && result.Failed == 0 && OperatingSystem.IsWindows())
+        {
+            var launcherInstaller = new LauncherTrayInstaller(layout);
+            var launcherTray = await launcherInstaller.InstallAsync();
+            if (json)
+                Program.WriteJson(new { launcherTray = new { success = launcherTray.Success, message = launcherTray.Message, steps = launcherTray.Steps } });
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(launcherTray.Success ? "Launcher tray app:" : "Launcher tray app FAILED:");
+                foreach (var s in launcherTray.Steps) Console.WriteLine($"  {s}");
+                Console.WriteLine($"  {launcherTray.Message}");
+            }
+            if (!launcherTray.Success) return Error;
+        }
+
         return result.Failed > 0 ? Error : Ok;
     }
 
