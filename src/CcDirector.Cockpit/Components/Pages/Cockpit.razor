@@ -74,6 +74,73 @@
                     </div>
                     <button class="left-collapse" title="Collapse panel" @onclick="ToggleLeft">&laquo;</button>
                 </div>
+                @* Interrupted sessions (issue #212): sessions whose Director died abnormally,
+                   recoverable from the crash journal. Moved here from the retired Fleet page so
+                   restore lives next to the live roster you drive. Only renders when there is
+                   something to recover. *@
+                @if (_interrupted.Count > 0)
+                {
+                    <div class="rail-int">
+                        @* Collapsed by default so the live roster stays on top: the header is a
+                           toggle that shows the count; the cards only render when expanded. *@
+                        <button type="button" class="rail-int-banner" @onclick="() => _intExpanded = !_intExpanded"
+                                title="@(_intExpanded ? "Hide interrupted sessions" : "Show interrupted sessions")">
+                            <span class="rail-int-badge">INTERRUPTED</span>
+                            <span class="rail-int-text">@_interrupted.Count session@(_interrupted.Count == 1 ? "" : "s") lost to a crash. @(_intExpanded ? "" : "Recover or dismiss.")</span>
+                            <span class="rail-int-chev">@(_intExpanded ? (MarkupString)"&#9650;" : (MarkupString)"&#9660;")</span>
+                        </button>
+                        @if (_intExpanded)
+                        {
+                        @foreach (var g in InterruptedGroups())
+                        {
+                            <div class="rail-int-group">
+                                <div class="rail-int-head">
+                                    <span class="rail-int-machine">@(string.IsNullOrWhiteSpace(g.MachineName) ? "(unknown)" : g.MachineName)</span>
+                                    <span class="rail-int-when">died @RelativeTime(g.DiedAtUtc) ago</span>
+                                    <button class="rail-int-dismissall" @onclick="() => DismissGroup(g)"
+                                            disabled="@(_dismissing.Contains(g.Key))" title="Dismiss the whole crash journal">
+                                        @(_dismissing.Contains(g.Key) ? "..." : "Dismiss all")
+                                    </button>
+                                </div>
+                                @foreach (var s in g.Sessions)
+                                {
+                                    <div class="rail-int-card" @key="s.SessionId">
+                                        <div class="rail-int-name @(string.IsNullOrWhiteSpace(s.Name) ? "rail-int-unnamed" : "")">
+                                            @(string.IsNullOrWhiteSpace(s.Name) ? "(unnamed)" : s.Name)
+                                        </div>
+                                        <div class="rail-int-repo" title="@s.RepoPath">@RepoBasename(s.RepoPath)</div>
+                                        @if (!string.IsNullOrWhiteSpace(s.RailLine))
+                                        {
+                                            <div class="rail-int-last"><span class="lbl">last wingman read</span>@s.RailLine</div>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(s.Headline))
+                                        {
+                                            <div class="rail-int-last"><span class="lbl">was working on</span>@s.Headline</div>
+                                        }
+                                        <div class="rail-int-actions">
+                                            @if (_restored.TryGetValue(s.SessionId, out var newSid))
+                                            {
+                                                <span class="rail-int-done">Restored</span>
+                                                <button class="rail-int-open" @onclick="@(() => Nav.NavigateTo($"/cockpit/{newSid}"))">Open &rarr;</button>
+                                            }
+                                            else if (_restoring.Contains(s.SessionId))
+                                            {
+                                                <button class="rail-int-restore" disabled>Restoring...</button>
+                                            }
+                                            else
+                                            {
+                                                <button class="rail-int-restore" @onclick="() => RestoreSession(g, s)">Restore</button>
+                                                <button class="rail-int-dismiss" @onclick="() => DismissSession(g, s)"
+                                                        disabled="@(_dismissing.Contains(s.SessionId))">Dismiss</button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        }
+                    </div>
+                }
                 @if (_railNotice is not null)
                 {
                     <div class="rail-notice">@_railNotice</div>
@@ -1249,6 +1316,16 @@
                 _directorsRefreshedAt = DateTime.UtcNow;
             }
 
+            // Interrupted-session journal (issue #212): near-static recovery data, refreshed at
+            // most every 15s. Stamp the time before the call so a slow/failed fetch does not retry
+            // on every 2s tick; RefreshInterruptedAsync is self-guarded so a journal fetch failure
+            // never disturbs the live roster.
+            if (DateTime.UtcNow - _interruptedRefreshedAt >= TimeSpan.FromSeconds(15))
+            {
+                _interruptedRefreshedAt = DateTime.UtcNow;
+                await RefreshInterruptedAsync();
+            }
+
             // Drop the selection if that session has gone away.
             if (_selectedId is not null && _sessions.All(s => s.SessionId != _selectedId))
                 _selectedId = null;
@@ -2074,6 +2151,16 @@
     // Last registry fetch for the rail headers (RefreshAsync throttle). MinValue = fetch
     // on the first roster refresh.
     private DateTime _directorsRefreshedAt = DateTime.MinValue;
+
+    // Interrupted sessions (issue #212), moved into the rail from the retired Fleet page.
+    // Recovery data is near-static, so RefreshAsync only re-fetches it every 15s (its own
+    // throttle below), not on every 2s roster tick.
+    private List<InterruptedSessionDto> _interrupted = new();
+    private DateTime _interruptedRefreshedAt = DateTime.MinValue;
+    private bool _intExpanded;  // collapsed by default so the live roster stays on top
+    private readonly HashSet<string> _dismissing = new();
+    private readonly HashSet<string> _restoring = new();
+    private readonly Dictionary<string, string> _restored = new();
     private string _nsDirectorId = "";
     private List<RepositoryDto> _nsRepos = new();
     private string _nsRepoPath = "";
@@ -2733,6 +2820,143 @@
         "red" => "#F14C4C",
         _ => "#6B7280",
     };
+
+    // ===== Interrupted sessions (issue #212): moved from the retired Fleet page into the rail =====
+
+    private sealed record InterruptedGroup(string Key, string DeadDirectorId, int DeadPid, string MachineName,
+        string ReportedByDirectorId, DateTime DiedAtUtc, List<InterruptedSessionDto> Sessions);
+
+    /// <summary>
+    /// Re-fetch the crash-journal roster. Self-guarded and non-fatal: the live session roster is
+    /// the primary view, so a journal fetch failure is logged and the last list is kept rather
+    /// than surfaced as a Gateway error. Restored rows are kept as ghosts so their "Open" link
+    /// survives the row leaving the journal.
+    /// </summary>
+    private async Task RefreshInterruptedAsync()
+    {
+        try
+        {
+            var fresh = await Gateway.GetInterruptedAsync(_cts.Token);
+            foreach (var old in _interrupted)
+            {
+                if (_restored.ContainsKey(old.SessionId) && !fresh.Any(f => f.SessionId == old.SessionId))
+                    fresh.Add(old);
+            }
+            _interrupted = fresh;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.LogWarning("Cockpit interrupted refresh failed: {Error}", ex.Message);
+        }
+    }
+
+    private List<InterruptedGroup> InterruptedGroups() =>
+        _interrupted
+            .GroupBy(s => $"{s.DeadDirectorId}.{s.DeadPid}")
+            .Select(grp =>
+            {
+                var first = grp.First();
+                return new InterruptedGroup(grp.Key, first.DeadDirectorId, first.DeadPid, first.MachineName,
+                    first.ReportedByDirectorId, first.DiedAtUtc.UtcDateTime,
+                    grp.OrderBy(s => s.CreatedAtUtc).ToList());
+            })
+            .OrderByDescending(g => g.DiedAtUtc)
+            .ToList();
+
+    /// <summary>One-click restore: the Gateway spawns a continuation session seeded with this
+    /// session's surviving brief context, then removes the row from the journal.</summary>
+    private async Task RestoreSession(InterruptedGroup g, InterruptedSessionDto s)
+    {
+        if (!_restoring.Add(s.SessionId)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Gateway.RestoreInterruptedAsync(
+                g.DeadDirectorId, g.DeadPid, s.SessionId, g.ReportedByDirectorId, _cts.Token);
+            var newSid = result.TargetSession?.SessionId;
+            if (string.IsNullOrWhiteSpace(newSid))
+                throw new InvalidOperationException("restore returned no target session");
+            _restored[s.SessionId] = newSid;
+            Log.LogInformation("Restored interrupted session {Sid} as {NewSid}", s.SessionId, newSid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Restore failed: {ex.Message}";
+            Log.LogWarning("Restore interrupted failed for {Sid}: {Error}", s.SessionId, ex.Message);
+        }
+        finally
+        {
+            _restoring.Remove(s.SessionId);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Drop ONE session from the journal, keeping its siblings.</summary>
+    private async Task DismissSession(InterruptedGroup g, InterruptedSessionDto s)
+    {
+        if (!_dismissing.Add(s.SessionId)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.DismissInterruptedSessionAsync(
+                g.DeadDirectorId, g.DeadPid, s.SessionId, g.ReportedByDirectorId, _cts.Token);
+            _interrupted.RemoveAll(x => x.SessionId == s.SessionId
+                && x.DeadDirectorId == g.DeadDirectorId && x.DeadPid == g.DeadPid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Dismiss failed: {ex.Message}";
+            Log.LogWarning("Dismiss interrupted session failed for {Sid}: {Error}", s.SessionId, ex.Message);
+        }
+        finally
+        {
+            _dismissing.Remove(s.SessionId);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Dismiss the whole crash journal (per dead Director/PID).</summary>
+    private async Task DismissGroup(InterruptedGroup g)
+    {
+        if (!_dismissing.Add(g.Key)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.DismissInterruptedAsync(g.DeadDirectorId, g.DeadPid, g.ReportedByDirectorId, _cts.Token);
+            _interrupted.RemoveAll(s => s.DeadDirectorId == g.DeadDirectorId && s.DeadPid == g.DeadPid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Dismiss failed: {ex.Message}";
+            Log.LogWarning("Dismiss interrupted failed for {Key}: {Error}", g.Key, ex.Message);
+        }
+        finally
+        {
+            _dismissing.Remove(g.Key);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string RelativeTime(DateTime utc)
+    {
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h";
+        return $"{hours / 24}d";
+    }
 
     public void Dispose()
     {

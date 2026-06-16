@@ -92,41 +92,6 @@
         }
     </section>
 
-    <section class="dash-sec">
-        <div class="dash-sec-head">
-            <h2>Directors</h2>
-            <a href="/directors">All directors &rarr;</a>
-        </div>
-        <table class="tbl">
-            <thead>
-                <tr><th>Machine</th><th>Director</th><th>Version</th><th>Sessions</th><th>Last seen</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-                @foreach (var d in _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.StartedAt))
-                {
-                    var err = _errors.FirstOrDefault(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
-                    <tr class="rowlink" @key="d.DirectorId" @onclick="() => OpenDirector(d)" title="Director details">
-                        <td><span class="cell-name">@d.MachineName</span></td>
-                        <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId)</td>
-                        <td class="mono">@d.Version</td>
-                        <td>@_sessions.Count(s => string.Equals(s.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase))</td>
-                        <td class="dim" title="@d.LastSeen">@RelativeTime(d.LastSeen)</td>
-                        <td>
-                            @if (err is not null)
-                            {
-                                <span class="warn" title="@err.Error">UNREACHABLE</span>
-                            }
-                            else
-                            {
-                                <span class="ok">OK</span>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </section>
-
     <div class="dash-foot" title="Gateway base URL and version">
         @Gateway.BaseUrl &middot; @(_health?.Version ?? "version unknown")
     </div>
@@ -209,7 +174,6 @@
     }
 
     private void OpenSession(SessionDto s) => Nav.NavigateTo($"/cockpit/{s.SessionId}");
-    private void OpenDirector(DirectorDto d) => Nav.NavigateTo($"/directors/{Uri.EscapeDataString(d.DirectorId)}");
 
     private static string TitleOf(SessionDto s) =>
         string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;

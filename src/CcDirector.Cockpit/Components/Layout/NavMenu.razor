@@ -1,11 +1,13 @@
 @using System.Reflection
 @inject NavigationManager Nav
-@implements IDisposable
+@inject IJSRuntime JS
 
 @* The Cockpit-wide navigation rail: the one menu every page shares (the Cockpit is the
-   Gateway's whole dashboard, so all of its pages hang off this). Auto-collapses to an
-   icon strip on /cockpit (the full-bleed triage app needs the width) and on phones
-   (CSS media query); the chevron toggle overrides until the route class changes. *@
+   Gateway's whole dashboard, so all of its pages hang off this). The rail stays put when
+   you navigate - selecting a session or any page NEVER collapses it. It collapses ONLY
+   when the user clicks the chevron toggle (or on phones, via the CSS media query). That
+   choice is persisted in localStorage under the same key the plain-HTML tool pages use
+   (tool-nav.js), so the Blazor rail and the tool-page rail always agree. *@
 
 <nav class="nv @(Collapsed ? "nv-collapsed" : "")">
     <div class="nv-head">
@@ -26,7 +28,7 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h6" /><path d="M2.4 4h.01M2.4 8h.01M2.4 12h.01" /></svg>
         <span class="nv-label">Lists</span>
     </NavLink>
-    <NavLink class="nv-item" href="/sessions" title="Sessions - every session on the fleet">
+    <NavLink class="nv-item" href="/sessions" title="Sessions - every session on the fleet" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" /></svg>
         <span class="nv-label">Sessions</span>
     </NavLink>
@@ -34,28 +36,24 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="4.5" rx="1" /><rect x="2" y="9" width="12" height="4.5" rx="1" /><path d="M4.5 4.75h.01M4.5 11.25h.01" /></svg>
         <span class="nv-label">Directors</span>
     </NavLink>
-    <NavLink class="nv-item" href="/fleet" title="Fleet - session cards by machine">
+    <NavLink class="nv-item" href="/fleet" title="Fleet - session cards by machine" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>
         <span class="nv-label">Fleet</span>
     </NavLink>
-    <NavLink class="nv-item" href="/wingman" title="Wingman Pipeline - the one-brain queue and brain health">
+    <NavLink class="nv-item" href="/wingman" title="Wingman Pipeline - the one-brain queue and brain health" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" /></svg>
         <span class="nv-label">Wingman</span>
     </NavLink>
     @* /voice is the mobile-first Voice Mode page - a plain HTML+JS app served outside the Blazor
        router (see Program.cs MapGet "/voice"), so it is a plain anchor with a full-document load
        (data-enhance-nav="false"), not an in-app NavLink. *@
-    <a class="nv-item" href="/voice" data-enhance-nav="false" title="Voice - mobile-first Voice Mode">
+    <a class="nv-item" href="/voice" data-enhance-nav="false" title="Voice - mobile-first Voice Mode" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="7" rx="2" /><path d="M3.5 7a4.5 4.5 0 0 0 9 0M8 11.5v3M5.5 14.5h5" /></svg>
         <span class="nv-label">Voice</span>
     </a>
     <NavLink class="nv-item" href="/feedback" title="Wingman feedback corpus" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6L4 13.5v-3h-1.5z" /><path d="M5 6h6M5 8h4" /></svg>
         <span class="nv-label">Feedback</span>
-    </NavLink>
-    <NavLink class="nv-item" href="/about" title="About - version, URL, what's installed">
-        <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" /><path d="M8 7.25v3.75M8 5h.01" /></svg>
-        <span class="nv-label">About</span>
     </NavLink>
 
     <div class="nv-sep"></div>
@@ -86,44 +84,45 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.5" /><path d="M7.5 8H14M12 8v2.5M10 8v2" /></svg>
         <span class="nv-label">API Keys</span>
     </a>
+    <NavLink class="nv-item" href="/about" title="About - version, URL, what's installed">
+        <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" /><path d="M8 7.25v3.75M8 5h.01" /></svg>
+        <span class="nv-label">About</span>
+    </NavLink>
 
     <div class="nv-spacer"></div>
     <div class="nv-foot" title="@VersionFull">@VersionDisplay</div>
 </nav>
 
 @code {
+    // localStorage key shared with the plain-HTML tool pages (wwwroot/pages/tool-nav.js)
+    // so both rails read/write the same collapse state and never disagree.
+    private const string StorageKey = "cc-toolnav-collapsed";
+
     private static readonly string VersionFull =
         typeof(NavMenu).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
     private static readonly string VersionDisplay = $"v{VersionFull.Split('+')[0]}";
 
-    // null = follow the route default (collapsed on /cockpit, expanded elsewhere);
-    // the user's toggle overrides until the route class flips, then the default rules again.
-    private bool? _userOverride;
-    private bool _wasCockpitRoute;
+    // The only thing that drives collapse: the user's explicit chevron toggle, restored
+    // from localStorage on first render. Navigation does NOT touch this.
+    private bool Collapsed { get; set; }
 
-    private bool IsCockpitRoute =>
-        Nav.ToBaseRelativePath(Nav.Uri).StartsWith("cockpit", StringComparison.OrdinalIgnoreCase);
-
-    private bool Collapsed => _userOverride ?? IsCockpitRoute;
-
-    protected override void OnInitialized()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _wasCockpitRoute = IsCockpitRoute;
-        Nav.LocationChanged += OnLocationChanged;
-    }
+        if (!firstRender)
+            return;
 
-    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
-    {
-        var isCockpit = IsCockpitRoute;
-        if (isCockpit != _wasCockpitRoute)
+        var stored = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        var collapsed = stored == "1";
+        if (collapsed != Collapsed)
         {
-            _wasCockpitRoute = isCockpit;
-            _userOverride = null;
+            Collapsed = collapsed;
+            StateHasChanged();
         }
-        _ = InvokeAsync(StateHasChanged);
     }
 
-    private void Toggle() => _userOverride = !Collapsed;
-
-    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+    private async Task Toggle()
+    {
+        Collapsed = !Collapsed;
+        await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, Collapsed ? "1" : "0");
+    }
 }
