@@ -121,7 +121,7 @@ public sealed class GatewayTrayController : IDisposable
         _trayIcon = new TrayIcon
         {
             Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://devthrottle-gateway/Assets/tray.ico"))),
-            ToolTipText = "CC Director Gateway",
+            ToolTipText = "DevThrottle Gateway",
             Menu = menu,
             IsVisible = true,
         };
@@ -244,10 +244,10 @@ public sealed class GatewayTrayController : IDisposable
         var (status, tip) = probe switch
         {
             PortProbe.OurGateway => ($"Another gateway already on :{_port}",
-                                     $"CC Director Gateway - another instance is already serving :{_port}"),
+                                     $"DevThrottle Gateway - another instance is already serving :{_port}"),
             PortProbe.OtherListener => ($"Port {_port} in use by another app",
-                                        $"CC Director Gateway - port {_port} is occupied by another app"),
-            _ => ("Gateway FAILED - see logs", "CC Director Gateway - failed to start"),
+                                        $"DevThrottle Gateway - port {_port} is occupied by another app"),
+            _ => ("Gateway FAILED - see logs", "DevThrottle Gateway - failed to start"),
         };
         FileLog.Write($"[GatewayTrayController] DiagnoseStartFailure: probe={probe}, status=\"{status}\"");
         _state = HostState.Failed;
@@ -429,11 +429,11 @@ public sealed class GatewayTrayController : IDisposable
         _state = state;
         var (status, tip) = state switch
         {
-            HostState.Starting => ("Gateway starting...", "CC Director Gateway - starting"),
-            HostState.Running => ($"Gateway running on :{_port}", $"CC Director Gateway - running on :{_port}"),
-            HostState.Stopped => ("Gateway stopped", "CC Director Gateway - stopped"),
-            HostState.Failed => ("Gateway FAILED - see logs", "CC Director Gateway - failed to start"),
-            _ => ("Gateway", "CC Director Gateway"),
+            HostState.Starting => ("Gateway starting...", "DevThrottle Gateway - starting"),
+            HostState.Running => ($"Gateway running on :{_port}", $"DevThrottle Gateway - running on :{_port}"),
+            HostState.Stopped => ("Gateway stopped", "DevThrottle Gateway - stopped"),
+            HostState.Failed => ("Gateway FAILED - see logs", "DevThrottle Gateway - failed to start"),
+            _ => ("Gateway", "DevThrottle Gateway"),
         };
         ApplyStatus(status, tip);
     }

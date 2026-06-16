@@ -37,7 +37,7 @@ public static class Program
             return 0;
         }
 
-        FileLog.Write($"[Program] CC Director Gateway tray app starting (port={GatewayAppOptions.Port}, managed={GatewayAppOptions.Managed}), log: {FileLog.CurrentLogPath}");
+        FileLog.Write($"[Program] DevThrottle Gateway tray app starting (port={GatewayAppOptions.Port}, managed={GatewayAppOptions.Managed}), log: {FileLog.CurrentLogPath}");
 
         try
         {

@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.GatewayApp.SettingsWindow"
-        Title="CC Director Gateway"
+        Title="DevThrottle Gateway"
         Width="480" Height="680"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
@@ -10,9 +10,9 @@
 
   <DockPanel Margin="20">
 
-    <!-- Header -->
+    <!-- Header: the title bar already names this window "DevThrottle Gateway", so there is no
+         duplicate heading here - just the running version. -->
     <StackPanel DockPanel.Dock="Top" Spacing="2">
-      <TextBlock Text="CC Director Gateway" FontSize="18" FontWeight="SemiBold" Foreground="#CCCCCC"/>
       <TextBlock x:Name="VersionText" Text="" FontSize="11" Foreground="#888888"/>
     </StackPanel>
 
