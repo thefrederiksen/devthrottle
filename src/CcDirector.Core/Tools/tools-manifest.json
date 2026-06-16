@@ -1,5 +1,5 @@
 {
-  "_comment": "Authoritative declaration of CC Director's cc-* tools for the Tools catalog page. Each tool gets two universal health checks (binary on PATH, --version responds) plus an optional read-only smoke command declared here. A null smoke means there is no zero-auth read-only command, so the tool is tested presence+version only - shown truthfully in the UI, never faked green. Embedded as a resource in CcDirector.Core so it is available at runtime regardless of working directory.",
+  "_comment": "Authoritative declaration of CC Director's SHIPPED cc-* tools for the Tools catalog page. This lists ONLY the core tools the installer actually delivers via the Python bundle (mirrors the \"ship\": true allowlist in tools/registry.json). Each tool gets two universal health checks (binary on PATH, --version responds) plus an optional read-only smoke command declared here. A null smoke means there is no zero-auth read-only command, so the tool is tested presence+version only - shown truthfully in the UI, never faked green. Embedded as a resource in CcDirector.Core so it is available at runtime regardless of working directory. Non-core tools live in the repo (buildable for dev) but are deliberately absent here so they never appear as a phantom NOT BUILT row. cc-browser is core but ships via the Node path (not the Python bundle) and is not health-checked here yet.",
   "tools": [
     {
       "name": "cc-html",
@@ -23,27 +23,6 @@
       "note": null
     },
     {
-      "name": "cc-excel",
-      "category": "Documents",
-      "description": "Convert between CSV, JSON, Markdown tables and formatted Excel workbooks.",
-      "smoke": { "args": ["--themes"], "expectContains": null },
-      "note": null
-    },
-    {
-      "name": "cc-powerpoint",
-      "category": "Documents",
-      "description": "Generate formatted PowerPoint decks from Markdown or a spec.",
-      "smoke": { "args": ["--themes"], "expectContains": null },
-      "note": null
-    },
-    {
-      "name": "cc-docgen",
-      "category": "Documents",
-      "description": "Generate architecture/C4 documentation and diagrams from source.",
-      "smoke": null,
-      "note": "Diagram generation needs Graphviz and a source tree. Presence + version only."
-    },
-    {
       "name": "cc-vault",
       "category": "Data",
       "description": "Personal contacts/secrets vault CLI. The only sanctioned way to query the vault.",
@@ -58,24 +37,10 @@
       "note": null
     },
     {
-      "name": "cc-posthog",
-      "category": "Data",
-      "description": "PostHog analytics CLI: page views, funnels, events, recordings.",
-      "smoke": null,
-      "note": "Needs a PostHog API key. Presence + version only."
-    },
-    {
       "name": "cc-comm-queue",
       "category": "Communications",
       "description": "Queue content into the Communication Manager approval workflow.",
       "smoke": { "args": ["status"], "expectContains": null },
-      "note": null
-    },
-    {
-      "name": "cc-hardware",
-      "category": "System",
-      "description": "Query system hardware information (RAM, CPU, GPU, disk, OS, network).",
-      "smoke": { "args": ["os"], "expectContains": null },
       "note": null
     },
     {
@@ -91,104 +56,6 @@
       "description": "Outlook/Microsoft 365 CLI: read, send, search email.",
       "smoke": null,
       "note": "Auth-gated (device code). No zero-auth read-only command. Presence + version only."
-    },
-    {
-      "name": "cc-reddit",
-      "category": "Social",
-      "description": "Reddit CLI with human-like pacing. The only sanctioned way to drive Reddit.",
-      "smoke": null,
-      "note": "Drives a browser session. Presence + version only (no auto-launch in tests)."
-    },
-    {
-      "name": "cc-twitter",
-      "category": "Social",
-      "description": "Twitter/X browser automation.",
-      "smoke": null,
-      "note": "Browser + auth. Presence + version only."
-    },
-    {
-      "name": "cc-facebook",
-      "category": "Social",
-      "description": "Facebook browser automation.",
-      "smoke": null,
-      "note": "Browser + auth. Presence + version only."
-    },
-    {
-      "name": "cc-spotify",
-      "category": "Social",
-      "description": "Spotify browser automation: play, playlists, search.",
-      "smoke": null,
-      "note": "Browser + auth. Presence + version only."
-    },
-    {
-      "name": "cc-youtube",
-      "category": "Media",
-      "description": "YouTube operations.",
-      "smoke": null,
-      "note": "Network/auth dependent. Presence + version only."
-    },
-    {
-      "name": "cc-youtube-info",
-      "category": "Media",
-      "description": "Fetch YouTube video metadata.",
-      "smoke": null,
-      "note": "Network dependent. Presence + version only."
-    },
-    {
-      "name": "cc-image",
-      "category": "Media",
-      "description": "Image generation and manipulation.",
-      "smoke": null,
-      "note": "May call paid APIs. Presence + version only."
-    },
-    {
-      "name": "cc-photos",
-      "category": "Media",
-      "description": "Photo library operations.",
-      "smoke": null,
-      "note": "Presence + version only."
-    },
-    {
-      "name": "cc-video",
-      "category": "Media",
-      "description": "Video processing operations.",
-      "smoke": null,
-      "note": "Presence + version only."
-    },
-    {
-      "name": "cc-transcribe",
-      "category": "Voice",
-      "description": "Audio transcription CLI.",
-      "smoke": null,
-      "note": "Needs an audio input. Presence + version only."
-    },
-    {
-      "name": "cc-whisper",
-      "category": "Voice",
-      "description": "Local Whisper transcription.",
-      "smoke": null,
-      "note": "Needs an audio input + model. Presence + version only."
-    },
-    {
-      "name": "cc-voice",
-      "category": "Voice",
-      "description": "Text-to-speech / voice utilities.",
-      "smoke": null,
-      "note": "Presence + version only."
-    },
-    {
-      "name": "cc-crawl4ai",
-      "category": "Web",
-      "description": "AI-ready web crawler: crawl pages to clean markdown.",
-      "smoke": null,
-      "note": "Hits the network. Presence + version only."
-    },
-    {
-      "name": "cc-personresearch",
-      "category": "Web",
-      "description": "Research a person across public sources.",
-      "smoke": null,
-      "note": "Hits the network/paid APIs. Presence + version only."
     },
     {
       "name": "cc-playwright",

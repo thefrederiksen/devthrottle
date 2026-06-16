@@ -159,7 +159,7 @@ OPTIONS:
 
 AI-ready web crawler: crawl pages to clean markdown.
 
-NOTE: extras tier - not in the default install. Add it with `cc-director-setup-cli install-extras`.
+NOTE: not part of the shipped product (not in the "ship" allowlist in tools/registry.json). Available in the repo and buildable for dev via `scripts/build-all-tools.ps1 -Tool cc-crawl4ai`.
 
 ```
 USAGE: cc-crawl4ai [OPTIONS] COMMAND [ARGS]...

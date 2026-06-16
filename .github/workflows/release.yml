@@ -88,8 +88,8 @@ jobs:
   # Job 1c: Build the macOS Python tools bundle (arm64)
   # ---------------------------------------------------------------
   # The mac analog of build-python-bundle-win: scripts/build-python-bundle.sh builds the
-  # shared-venv payload (cc-python-macos-arm64.tar.gz + cc-tools-pyenv-macos-arm64.tar.gz
-  # + the on-demand cc-tools-pyenv-extras-macos-arm64.tar.gz, issue #174).
+  # shared-venv payload (cc-python-macos-arm64.tar.gz + cc-tools-pyenv-macos-arm64.tar.gz),
+  # core tools only - a tool ships when it has "ship": true in tools/registry.json.
   build-python-bundle-mac:
     name: Build Python Tools Bundle (macOS arm64)
     runs-on: macos-14
@@ -238,16 +238,15 @@ jobs:
   # ---------------------------------------------------------------
   # Job 2: Build the Python tools bundle (Windows)
   # ---------------------------------------------------------------
-  # All cc-* Python tools now ship as ONE shared-venv bundle instead of ~26
-  # PyInstaller exes (cuts the download from ~1 GB to ~335 MB). This job runs
-  # scripts/build-python-bundle.ps1, which builds every tool wheel + a de-duped
-  # wheelhouse and bundles a python-build-standalone CPython, emitting three assets:
-  #   cc-python-win-x64.zip              (the runtime)
-  #   cc-tools-pyenv-win-x64.zip         (CORE tier: wheelhouse + requirements.lock + tools-manifest.json)
-  #   cc-tools-pyenv-extras-win-x64.zip  (EXTRAS tier: on-demand heavy tools, issue #174)
-  # The installer (PythonToolsInstaller) creates a venv from the bundled python and
-  # pip-installs the core tools offline from the wheelhouse; the extras tier installs
-  # on demand (install-extras) into the same venv.
+  # The core cc-* Python tools ship as ONE shared-venv bundle instead of per-tool
+  # PyInstaller exes. This job runs scripts/build-python-bundle.ps1, which builds the
+  # shipped tool wheels + a de-duped wheelhouse and bundles a python-build-standalone
+  # CPython, emitting two assets:
+  #   cc-python-win-x64.zip       (the runtime)
+  #   cc-tools-pyenv-win-x64.zip  (wheelhouse + requirements.lock + tools-manifest.json)
+  # Core is an explicit allowlist: a tool ships only when it has "ship": true in
+  # tools/registry.json. The installer (PythonToolsInstaller) creates a venv from the
+  # bundled python and pip-installs the core tools offline from the wheelhouse.
   build-python-bundle-win:
     name: Build Python Tools Bundle (Windows)
     runs-on: windows-latest
@@ -372,10 +371,9 @@ jobs:
           # macOS main app (already a .app zip; keep the name the updater expects)
           cp release-artifacts/cc-director-mac/cc-director-mac-arm64.zip "$RELEASE_DIR/cc-director-mac-arm64.zip"
 
-          # macOS Python tools bundle (shared venv, core + extras tiers) + setup wizard .app
+          # macOS Python tools bundle (one shared-venv bundle: core tools only) + setup wizard .app
           cp release-artifacts/python-bundle-mac/cc-python-macos-arm64.tar.gz "$RELEASE_DIR/cc-python-macos-arm64.tar.gz"
           cp release-artifacts/python-bundle-mac/cc-tools-pyenv-macos-arm64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
-          cp release-artifacts/python-bundle-mac/cc-tools-pyenv-extras-macos-arm64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-extras-macos-arm64.tar.gz"
           cp release-artifacts/setup-mac/cc-director-setup-mac-arm64.zip "$RELEASE_DIR/cc-director-setup-mac-arm64.zip"
 
           # Windows Gateway service (publish emits cc-director-gateway.exe)
@@ -384,10 +382,9 @@ jobs:
           # Windows Cockpit web app (already the zip name the engine expects)
           cp release-artifacts/cockpit-win/cc-director-cockpit-win-x64.zip "$RELEASE_DIR/cc-director-cockpit-win-x64.zip"
 
-          # Windows Python tools bundle (shared venv, core + extras tiers).
+          # Windows Python tools bundle (one shared-venv bundle: core tools only).
           cp release-artifacts/python-bundle-win/cc-python-win-x64.zip "$RELEASE_DIR/cc-python-win-x64.zip"
           cp release-artifacts/python-bundle-win/cc-tools-pyenv-win-x64.zip "$RELEASE_DIR/cc-tools-pyenv-win-x64.zip"
-          cp release-artifacts/python-bundle-win/cc-tools-pyenv-extras-win-x64.zip "$RELEASE_DIR/cc-tools-pyenv-extras-win-x64.zip"
 
           # Windows setup wizard
           cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/cc-director-setup-win-x64.exe"
@@ -399,11 +396,9 @@ jobs:
           echo "Release files:"
           ls -lh "$RELEASE_DIR/"
 
-      # No silent drops: a missing REQUIRED asset fails the release. The Python tools ship as
-      # one bundle in two tiers (cc-python + cc-tools-pyenv + cc-tools-pyenv-extras); all are
-      # required - a missing core asset means no tools at all, and a missing extras asset would
-      # strand every machine with the extras tier installed (the core rebuild restores extras
-      # from the SAME release, so the asset must exist).
+      # No silent drops: a missing REQUIRED asset fails the release. The Python tools ship as one
+      # bundle (cc-python runtime + cc-tools-pyenv core wheelhouse); both are required - a missing
+      # asset means no tools at all.
       - name: Verify release completeness
         run: |
           RELEASE_DIR="$(pwd)/release-files"
@@ -417,10 +412,8 @@ jobs:
             cc-director-setup-cli-win-x64.exe
             cc-python-win-x64.zip
             cc-tools-pyenv-win-x64.zip
-            cc-tools-pyenv-extras-win-x64.zip
             cc-python-macos-arm64.tar.gz
             cc-tools-pyenv-macos-arm64.tar.gz
-            cc-tools-pyenv-extras-macos-arm64.tar.gz
             cc-director-setup-mac-arm64.zip
           )
 

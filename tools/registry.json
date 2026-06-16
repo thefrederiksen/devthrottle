@@ -1,5 +1,6 @@
 {
   "$schema": "Tool registry for CC Director. Single source of truth for all tools.",
+  "_ship": "A tool ships in the installed product ONLY when \"ship\": true. Core is an explicit allowlist - general-purpose, reliable without a personal API key, and serving one of documents / vault / browser / comms / config. Everything else stays in the repo (buildable for dev) but is never bundled or shown in the Tools page. There is no longer a core/extras split.",
   "categories": {
     "documents": "Document conversion and generation",
     "email": "Email and calendar management",
@@ -15,6 +16,7 @@
       "type": "python",
       "description": "Convert between Markdown and PDF with themes",
       "built": true,
+      "ship": true,
       "requirements": ["Chrome/Chromium"]
     },
     {
@@ -23,6 +25,7 @@
       "type": "python",
       "description": "Convert between Markdown and HTML with themes",
       "built": true,
+      "ship": true,
       "requirements": []
     },
     {
@@ -31,6 +34,7 @@
       "type": "python",
       "description": "Convert between Markdown and Word documents with themes",
       "built": true,
+      "ship": true,
       "requirements": []
     },
     {
@@ -55,6 +59,7 @@
       "type": "python",
       "description": "Gmail CLI: read, send, search, labels, calendar, contacts",
       "built": true,
+      "ship": true,
       "requirements": ["Google OAuth"]
     },
     {
@@ -63,6 +68,7 @@
       "type": "python",
       "description": "Outlook CLI: email, calendar, attachments, folders",
       "built": true,
+      "ship": true,
       "requirements": ["Azure OAuth"]
     },
     {
@@ -79,6 +85,7 @@
       "type": "python",
       "description": "Playwright-backed browser CLI - trusted-event sibling to cc-browser for React form fills, signin/OTP flows, and dropdown selection",
       "built": true,
+      "ship": true,
       "requirements": ["Python 3.10+", "Playwright", "Brave (Chromium)"]
     },
     {
@@ -127,7 +134,6 @@
       "type": "python",
       "description": "AI-ready web crawler to clean markdown for LLM/RAG",
       "built": true,
-      "tier": "extras",
       "requirements": ["Playwright browsers"]
     },
     {
@@ -232,6 +238,7 @@
       "type": "python",
       "description": "Personal data vault: contacts, tasks, goals, ideas, documents, RAG search",
       "built": true,
+      "ship": true,
       "requirements": []
     },
     {
@@ -248,6 +255,7 @@
       "type": "python",
       "description": "Communication Manager approval queue CLI",
       "built": true,
+      "ship": true,
       "requirements": []
     },
     {
@@ -256,7 +264,6 @@
       "type": "python",
       "description": "C4 architecture diagram generator from YAML manifests",
       "built": true,
-      "tier": "extras",
       "requirements": ["Graphviz"]
     },
     {
@@ -282,6 +289,7 @@
       "type": "python",
       "description": "Manage cc-director configuration and system settings",
       "built": true,
+      "ship": true,
       "requirements": []
     },
     {

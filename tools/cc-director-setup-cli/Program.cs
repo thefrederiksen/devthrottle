@@ -47,7 +47,6 @@ public static class Program
                 "plan" => await Commands.PlanAsync(args, layout, json),
                 "update" => await Commands.UpdateAsync(args, layout, json, installMode: false),
                 "install" => await Commands.UpdateAsync(args, layout, json, installMode: true),
-                "install-extras" => await Commands.InstallExtrasAsync(args, layout, json),
                 "uninstall" => Commands.Uninstall(args, layout, json),
                 "rollback" => Commands.Rollback(args, layout, json),
                 "version" or "--version" => VersionCommand(json),
@@ -133,7 +132,6 @@ public static class Program
               plan                       Show what an update/install would change
               update                     Download, verify, and apply updates
               install --role <r>         Install/update all components for a role
-              install-extras             Install the on-demand Python extras tier (cc-crawl4ai, cc-docgen)
               uninstall --role <r>       Remove install-owned files (preserves your data)
               rollback <component>       Restore the previous build and pin away from current
               version                    Print this CLI's product version
