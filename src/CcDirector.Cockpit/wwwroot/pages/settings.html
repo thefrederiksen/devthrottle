@@ -114,6 +114,19 @@
     </div>
 
     <div class="section">
+      <h2>Network addressing</h2>
+      <p class="hint">How machines in the fleet address one another. <b>Tailscale</b> (default): each Director is reached over its Tailscale Serve front door. <b>LAN</b>: each Director is reached on its real LAN IP &mdash; use only on a trusted network. LAN mode automatically turns on Director authentication (the shared fleet token, <code>gateway.token</code>), so the raw port is never open. Loopback (127.0.0.1) is never used to reach another machine. This is a per-machine setting read at startup; it applies to this host's Directors on their next restart.</p>
+      <div class="field">
+        <label for="addrmode">Mode</label>
+        <select id="addrmode" disabled>
+          <option value="tailscale">Tailscale (front door)</option>
+          <option value="lan">LAN (direct IP)</option>
+        </select>
+      </div>
+      <div class="msg" id="addrmodemsg"></div>
+    </div>
+
+    <div class="section">
       <h2>Startup</h2>
       <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in. The fleet only works while you are logged in, so this is per-user, never a machine service.</p>
       <label class="chk"><input type="checkbox" id="autostart" disabled> Start the Gateway when I log in</label>
@@ -311,10 +324,37 @@
     try {
       const r = await fetch('/gateway/settings');
       if (!r.ok) throw new Error(r.status);
-      renderSnapshot(await r.json());
+      const d = await r.json();
+      renderSnapshot(d);
+      // Issue #457: addressing mode rides the same snapshot.
+      const sel = document.getElementById('addrmode');
+      if (d.addressingMode){ sel.value = d.addressingMode; sel.disabled = false; }
     } catch (e) {
       document.getElementById('brainstate').textContent = 'Failed to load (is the Gateway running?)';
     }
+  }
+
+  async function changeAddressingMode(e){
+    const mode = e.target.value;
+    const msg = document.getElementById('addrmodemsg');
+    msg.className = 'msg ok'; msg.textContent = 'Saving...';
+    e.target.disabled = true;
+    try {
+      const r = await fetch('/gateway/addressing-mode', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok){
+        e.target.value = d.mode;
+        msg.textContent = d.mode === 'lan'
+          ? 'Saved: LAN. Directors on this host advertise their LAN IP and auto-enable auth after restart.'
+          : 'Saved: Tailscale. Directors on this host advertise their Tailscale front door after restart.';
+      } else {
+        msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
+      }
+    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; }
+    e.target.disabled = false;
   }
 
   async function restartBrain(){
@@ -462,6 +502,7 @@
   });
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
+  document.getElementById('addrmode').addEventListener('change', changeAddressingMode);
   document.getElementById('wingman').addEventListener('change', toggleWingman);
   document.getElementById('brainsavebtn').addEventListener('click', saveBrainConfig);
   document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));

@@ -50,7 +50,9 @@ public sealed class SessionHttpProxyRoundTripTests : IAsyncLifetime
             DirectorId = _director.DirectorId,
             TailnetEndpoint = _director.BaseUrl,
             Pid = 4242,
-            MachineName = "STUB",
+            // The stub runs on loopback on THIS machine, so it must register as same-machine:
+            // issue #457 refuses a loopback endpoint advertised for a different machine.
+            MachineName = Environment.MachineName,
             User = "tester",
             Version = "test",
             StartedAt = DateTime.UtcNow,

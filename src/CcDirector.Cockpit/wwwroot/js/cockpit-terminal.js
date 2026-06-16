@@ -1,7 +1,12 @@
-// Cockpit terminal: a real xterm.js terminal fed by a WebSocket opened DIRECT to the
-// owning Director's /sessions/{sid}/stream (never through the Cockpit's SignalR channel),
-// so the latency-sensitive byte stream stays fast. Raw PTY bytes are applied in order, so
-// the constantly-repainting Claude Code TUI renders coherently (no ghost-stacked frames).
+// Cockpit terminal: a real xterm.js terminal fed by a WebSocket opened SAME-ORIGIN to the
+// Gateway that served this page, at /sessions/{sid}/stream (issue #268; never through the
+// Cockpit's SignalR channel), so the latency-sensitive byte stream stays fast. The Gateway
+// resolves the owning Director by session id and reverse-proxies the upgrade to it - the
+// browser never needs (and never sees) a Director's own address. Raw PTY bytes are applied in
+// order, so the constantly-repainting Claude Code TUI renders coherently (no ghost-stacked
+// frames). When the Gateway cannot reach the owning Director it accepts the WS and sends a
+// {"type":"closed","reason":...} frame (rendered below), so a remote-Director failure shows
+// its real cause instead of a bare reconnect to the Gateway's own (possibly loopback) host.
 //
 // Loaded as an ES module via Blazor JS interop. xterm.js is a classic script that sets
 // window.Terminal.
@@ -50,24 +55,14 @@ function wsHostOf(wsUrl) {
   try { return new URL(wsUrl).host; } catch (e) { return wsUrl; }
 }
 
-// Directors built before the 2026-05-31 registration fix advertise their endpoint as
-// http://127.0.0.1:{port}. That host only resolves on the Director's own machine - from a
-// laptop on the tailnet it points at the LAPTOP and the terminal stays blank. Those old
-// Directors run for weeks (sessions never die), so map loopback to the host the browser
-// reached the Cockpit through: Tailscale Serve fronts every Director port on the same
-// machine name. New Directors advertise the real tailnet URL and pass through untouched.
-function resolveWsUrl(wsUrl) {
-  let u;
-  try { u = new URL(wsUrl); } catch (e) { return wsUrl; }
-  if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost") return wsUrl;
-  u.hostname = location.hostname;
-  if (location.protocol === "https:") u.protocol = "wss:";
-  return u.toString();
-}
+// The stream URL is ALWAYS same-origin to the Gateway that served this page (CockpitWsUrls,
+// issue #268): the Gateway resolves the owning Director and reverse-proxies the upgrade, so
+// the browser never receives a Director's own (possibly loopback) address. There is therefore
+// nothing to rewrite here - the old loopback->location.hostname band-aid (issue #457) is gone;
+// a Director's reachability is the Gateway's job and surfaces via the {"type":"closed"} frame.
 
 export function connect(id, hostEl, wsUrl, dotNetRef) {
   dispose(id);
-  wsUrl = resolveWsUrl(wsUrl);
   if (typeof window.Terminal === "undefined") {
     hostEl.textContent = "Terminal renderer (xterm.js) failed to load.";
     return;
@@ -114,9 +109,12 @@ function openWs(state) {
   t.reset(); // each connection replays full history from byte 0
   state.gotFirstByte = false;
   const wsHost = wsHostOf(state.wsUrl);
+  // wsHost is the GATEWAY this page was served from, not the owning Director - the Gateway
+  // proxies on to the Director. Word it as the path so a loopback Gateway host (the Cockpit
+  // opened locally) is never mistaken for the stream's real target (issue #457).
   statusLine(state, state.attempts > 0
-    ? "stream lost, reconnecting to " + wsHost + " (attempt " + (state.attempts + 1) + ")..."
-    : "connecting to " + wsHost + "...");
+    ? "stream lost, reconnecting via gateway " + wsHost + " (attempt " + (state.attempts + 1) + ")..."
+    : "connecting via gateway " + wsHost + "...");
   let ws;
   const connectStartedAt = (typeof performance !== "undefined" ? performance.now() : Date.now());
   dbg("ws connect attempt", state.wsUrl, "attempt", state.attempts + 1);
@@ -128,26 +126,33 @@ function openWs(state) {
   ws.onopen = () => { dbg("ws open", state.wsUrl, "after", Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - connectStartedAt) + "ms"); };
   ws.onerror = () => { dbg("ws error", state.wsUrl); };
 
+  // First frame of a LIVE stream: wipe the "connecting..." status and clear the failure
+  // streak. A size header or PTY bytes prove the full browser->Gateway->Director path is up;
+  // replay starts at byte 0, so resetting here loses nothing.
+  function markLive(ev) {
+    if (state.gotFirstByte) return;
+    state.gotFirstByte = true;
+    state.attempts = 0;
+    var firstFrameMs = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - connectStartedAt);
+    var firstFrameBytes = (typeof ev.data === "string") ? ev.data.length : (ev.data ? ev.data.byteLength : 0);
+    dbg("ws first frame", state.wsUrl, firstFrameBytes + " bytes", firstFrameMs + "ms since connect");
+    try { t.reset(); } catch (e) {}
+  }
+
   ws.onmessage = (ev) => {
-    if (!state.gotFirstByte) {
-      // First frame of a live stream: wipe the "connecting..." status and clear the failure
-      // streak. Any server frame (size header or PTY bytes) proves the full browser->Gateway->
-      // Director path is up. Replay starts at byte 0, so resetting here loses nothing.
-      state.gotFirstByte = true;
-      state.attempts = 0;
-      var firstFrameMs = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - connectStartedAt);
-      var firstFrameBytes = (typeof ev.data === "string") ? ev.data.length : (ev.data ? ev.data.byteLength : 0);
-      dbg("ws first frame", state.wsUrl, firstFrameBytes + " bytes", firstFrameMs + "ms since connect");
-      try { t.reset(); } catch (e) {}
-    }
     if (typeof ev.data === "string") {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
+      // A "closed" control frame is the Gateway reporting WHY the owning Director is
+      // unreachable (issue #457/#461) - it is NOT proof of a live stream, so it must not
+      // reset the reconnect-attempt streak (else we'd reconnect forever). onclose counts it.
+      if (m.type === "closed") { t.write("\r\n[stream closed: " + (m.reason || "") + "]\r\n"); return; }
+      markLive(ev);
       if (m.type === "size" && m.cols > 0 && m.rows > 0) {
         state.lastCols = m.cols; state.lastRows = m.rows; fit(state);
       }
-      else if (m.type === "closed") t.write("\r\n[stream closed: " + (m.reason || "") + "]\r\n");
       return;
     }
+    markLive(ev);
     t.write(new Uint8Array(ev.data));
   };
   ws.onclose = (ev) => {
@@ -156,7 +161,7 @@ function openWs(state) {
     if (!state.wantOpen || state.reconnectTimer) return;
     state.attempts += 1;
     if (state.attempts > MAX_RECONNECT_ATTEMPTS) {
-      statusLine(state, "stream to " + wsHost + " is down - gave up after " + MAX_RECONNECT_ATTEMPTS +
+      statusLine(state, "stream via gateway " + wsHost + " is down - gave up after " + MAX_RECONNECT_ATTEMPTS +
         " attempts (last close code " + (ev && ev.code) + "). Re-select the session to retry.");
       dbg("ws gave up", state.wsUrl, "after", MAX_RECONNECT_ATTEMPTS, "attempts");
       return;

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CC Director - Security Flows (per-device keys)</title>
+<style>
+  :root{
+    --bg:#1E1E1E; --panel:#2A2A2A; --panel2:#232323; --border:#3C3C3C;
+    --accent:#2563EB; --accent-hi:#3B82F6; --text:#E0E0E0; --muted:#9A9A9A;
+    --faint:#666; --green:#4CAF50; --amber:#F0B848; --red:#E05656; --cyan:#36A6A6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#141414;color:var(--text);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 28px 80px;}
+  header.top{border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:26px;}
+  header.top h1{margin:0 0 6px;font-size:24px;color:#fff;font-weight:600;}
+  header.top .sub{color:var(--muted);font-size:13px;}
+  header.top .meta{color:var(--faint);font-size:12px;margin-top:8px;}
+  h2{font-size:18px;color:#fff;margin:36px 0 12px;padding-bottom:6px;
+    border-bottom:1px solid var(--border);}
+  h3{font-size:15px;color:var(--accent-hi);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  code{background:#000;color:#d6d6d6;padding:1px 6px;border-radius:4px;
+    font-family:Consolas,"Courier New",monospace;font-size:12.5px;}
+  .diagram{background:var(--panel2);border:1px solid var(--border);border-radius:8px;
+    padding:18px 20px;overflow-x:auto;color:#cfe3e3;font-family:Consolas,"Courier New",monospace;
+    font-size:12.5px;line-height:1.35;white-space:pre;}
+  .card{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:6px;padding:14px 18px;margin:14px 0;}
+  .card.warn{border-left-color:var(--amber);}
+  .card.bad{border-left-color:var(--red);}
+  .card.good{border-left-color:var(--green);}
+  .card h4{margin:0 0 6px;font-size:14px;color:#fff;}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;
+    border:1px solid var(--border);color:var(--muted);margin-right:6px;}
+  .tag.key{color:#bcd; border-color:#2b3a52; background:#16202e;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;}
+  .legend div{background:var(--panel2);border:1px solid var(--border);border-radius:6px;
+    padding:8px 12px;font-size:12.5px;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13px;}
+  th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#fff;font-weight:600;}
+  td.before{color:#e0a0a0;}
+  td.after{color:#a6d6a6;}
+  .scenario-num{display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;
+    background:var(--accent);color:#fff;border-radius:50%;font-size:13px;margin-right:8px;font-weight:600;}
+  ul{margin:8px 0 8px 4px;padding-left:22px;}
+  li{margin:4px 0;}
+  .footer-note{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);
+    color:var(--faint);font-size:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>CC Director - Security Flows</h1>
+  <div class="sub">How every machine, agent, and client gets authorized access to a REST API. Target model: per-device keys issued by the Gateway.</div>
+  <div class="meta">Design / explainer doc - diagrams and flows only, not the implementation plan. Status: PROPOSED (per-device-key model approved).</div>
+</header>
+
+<h2>1. The trust model in one paragraph</h2>
+<p>
+The <strong>Gateway</strong> is the single issuer and registry of credentials. Every machine that
+runs a Director holds exactly <strong>one credential file on disk</strong> containing a
+<strong>per-device key</strong> that the Gateway issued to that machine. The Director uses that key to
+call the Gateway; the local agents and <code>cc-*</code> CLI tools on the same machine read the
+<em>same</em> file to call their local Director's loopback Control API. A device only obtains a key by
+completing a <strong>pairing-code enrollment</strong> against the Gateway. Tailscale (or any network)
+is treated as <strong>transport security only</strong> - never as authorization. Every REST endpoint
+requires a key; there is no "trusted network, auth off" path.
+</p>
+
+<div class="legend">
+  <div><span class="tag key">KEY</span> per-device key - unique per machine, individually revocable</div>
+  <div><span class="tag">GW</span> Gateway - issuer + registry + API-key vault</div>
+  <div><span class="tag">CTRL</span> Director Control API (loopback :7879)</div>
+  <div><span class="tag">CODE</span> pairing code - short-lived, one-time, shown on a trusted screen</div>
+</div>
+
+<h2>2. Topology and trust boundaries</h2>
+<div class="diagram">                        +-------------------------------+
+                        |          GATEWAY              |
+                        |  (central issuer + registry)  |
+                        |   - issues per-device KEYs    |
+                        |   - revokes / lists devices   |
+                        |   - holds API key vault       |
+                        |   - shows PAIRING CODE in     |
+                        |     Cockpit (trusted screen)  |
+                        +-------------------------------+
+                          ^             ^             ^
+            per-device    |             |             |  browser login
+            KEY (Bearer)  |             |             |  (responsive web app,
+                          |             |             |   was the phone)
+        +-----------------+--+      +---+--------------+      +---------+
+        |  MACHINE A         |      |  MACHINE B (remote)|     | BROWSER |
+        |                    |      |                    |     +---------+
+        |  +--------------+  |      |  +--------------+  |
+        |  |  DIRECTOR    |  |      |  |  DIRECTOR    |  |
+        |  | Control API  |  |      |  | Control API  |  |
+        |  |   :7879      |  |      |  |   :7879      |  |
+        |  +------^-------+  |      |  +------^-------+  |
+        |  loopback| + KEY   |      |  loopback| + KEY   |
+        |  +------+-------+  |      |  +------+-------+  |
+        |  | agents / CLI |  |      |  | agents / CLI |  |
+        |  | (cc-* tools, |  |      |  | (cc-* tools, |  |
+        |  |  raw curl)   |  |      |  |  raw curl)   |  |
+        |  +--------------+  |      |  +--------------+  |
+        |                    |      |                    |
+        |  CRED FILE on disk |      |  CRED FILE on disk |
+        |  (Director + CLI   |      |  (Director + CLI   |
+        |   both read it)    |      |   both read it)    |
+        +--------------------+      +--------------------+</div>
+
+<h2>3. The four scenarios</h2>
+
+<h3><span class="scenario-num">1</span>A Director enrolls (joins the Gateway)</h3>
+<p>A freshly installed Director has no key. It enrolls once, gets a per-device key, and writes it to the
+local credential file. This is the "register a new device" pop-up flow.</p>
+<div class="diagram">  New Director            Gateway              Cockpit (trusted screen)
+      |                      |                        |
+      |  1. request to join  |                        |
+      |     (machine name,   |                        |
+      |      device id)      |                        |
+      |--------------------->|                        |
+      |                      |  2. show PAIRING CODE   |
+      |                      |----------------------->|   [ 4 - 7 - 2 - 9 ]
+      |                      |    (short-lived, OTP)  |
+      |                      |                        |
+      |  3. submit code (typed/confirmed by the human) |
+      |--------------------->|                        |
+      |                      |  (verify code matches, |
+      |                      |   not expired, unused) |
+      |                      |                        |
+      |  4. issue per-device KEY (unique, revocable)   |
+      |<---------------------|                        |
+      |                      |                        |
+      |  5. write CRED FILE on disk                    |
+      |                      |                        |
+      |  6. normal calls: Authorization: Bearer KEY    |
+      |--------------------->|                        |</div>
+<div class="card good">
+  <h4>Why a code, not the key itself</h4>
+  The pairing code is a short-lived one-time grant - it is NOT the key. The key never travels in a QR
+  or a link. A leaked code is useless after it expires or is used once; a leaked key can be revoked for
+  that one device without touching any other machine.
+</div>
+
+<h3><span class="scenario-num">2</span>Local agents / CLI call the Control API</h3>
+<p>The "agents" are Claude Code sessions running the <code>cc-*</code> tools and raw <code>curl</code>
+against <code>http://localhost:7879</code> on the <em>same</em> machine. They are authorized by reading
+the local credential file - no separate enrollment.</p>
+<div class="diagram">  cc-* tool / curl        Director Control API (:7879, loopback)
+      |                      |
+      |  read CRED FILE  --> KEY
+      |                      |
+      |  GET /sessions   Authorization: Bearer KEY
+      |--------------------->|
+      |                      |  (validate KEY)
+      |  200 OK              |
+      |<---------------------|</div>
+<div class="card">
+  <h4>"Register the agent library" option at Director enrollment</h4>
+  When a Director enrolls (scenario 1), it offers to also drop the credential where the local
+  <code>cc-*</code> tools expect it, so the agent library is authorized in the same step. There is no
+  separate Python SDK to register - the agent library == the <code>cc-*</code> CLI tools plus raw curl,
+  all reading the one file.
+</div>
+
+<h3><span class="scenario-num">3</span>Each additional / remote machine</h3>
+<p>Identical shape to scenario 1, repeated per machine. The Gateway is the central registry, so machine
+B, C, ... each enroll with their own pairing code and receive their own distinct, separately-revocable
+key. No key is ever shared across machines.</p>
+<div class="diagram">  Machine A KEY  ----\
+  Machine B KEY  -----+--->  GATEWAY registry:  { A: keyA, B: keyB, C: keyC, ... }
+  Machine C KEY  ----/          revoke(B)  ->  only B loses access</div>
+
+<h3><span class="scenario-num">4</span>Browser client (responsive web app - formerly the phone)</h3>
+<p>The native phone app is replaced by a responsive web app served from the Gateway. It does <strong>not</strong>
+enroll as a device and holds no key file. It authenticates by logging in at the Gateway front door
+(session cookie), the same way the Cockpit does.</p>
+<div class="diagram">  Browser (phone/desktop)        Gateway front door
+      |                              |
+      |  GET /cockpit (or /app)      |
+      |----------------------------->|
+      |  302 -> /login               |
+      |<-----------------------------|
+      |  POST /login (credentials)   |
+      |----------------------------->|
+      |  Set-Cookie: session         |
+      |<-----------------------------|
+      |  authenticated browsing      |
+      |----------------------------->|</div>
+
+<h2>4. Where the credential lives</h2>
+<p>One file per machine, read by two kinds of caller:</p>
+<ul>
+  <li><strong>The Director</strong> - presents the key to the Gateway (register, heartbeat, verify).</li>
+  <li><strong>The local agents / CLI</strong> - present the key to the local Director's loopback Control API.</li>
+</ul>
+<p>
+Proposed location stays under the existing config root
+(<code>%LOCALAPPDATA%\cc-director\config\director\</code>). The current single shared
+<code>gateway-token.txt</code> is replaced by a per-device key file issued at enrollment. File
+permissions should be locked to the current user.
+</p>
+
+<h2>5. What changes vs. today</h2>
+<table>
+  <tr><th>Concern</th><th>Today</th><th>Target (per-device keys)</th></tr>
+  <tr>
+    <td>Credential</td>
+    <td class="before">One shared "fleet token" for the whole deployment</td>
+    <td class="after">A distinct key per device, issued by the Gateway</td>
+  </tr>
+  <tr>
+    <td>Control API auth</td>
+    <td class="before">Opt-in; OFF by default in Tailscale mode (trusts the network)</td>
+    <td class="after">Always required on every endpoint; network is transport only</td>
+  </tr>
+  <tr>
+    <td>Enrollment</td>
+    <td class="before">Present the shared token == you are in; no approval step</td>
+    <td class="after">Pairing code shown on the trusted Cockpit screen; device must prove it</td>
+  </tr>
+  <tr>
+    <td>Pairing artifact</td>
+    <td class="before">QR / link embeds the master secret (full compromise if leaked)</td>
+    <td class="after">Short-lived one-time code; the key never travels in a QR/link</td>
+  </tr>
+  <tr>
+    <td>Revocation</td>
+    <td class="before">Impossible per-device - must rotate the secret for everyone</td>
+    <td class="after">Revoke one device in the registry; others unaffected</td>
+  </tr>
+  <tr>
+    <td>Audit</td>
+    <td class="before">All callers indistinguishable (one secret)</td>
+    <td class="after">Per-device identity - who did what is attributable</td>
+  </tr>
+</table>
+
+<h2>6. Key lifecycle (registry view)</h2>
+<div class="diagram">  PAIRING CODE issued  -->  code verified  -->  KEY issued  -->  KEY active
+        |                                                          |
+        |  (expires / single use)                    revoke(device) |
+        v                                                          v
+     code dead                                               KEY rejected
+                                                       (that device only)</div>
+
+<div class="card warn">
+  <h4>Open design questions (to lock next, one at a time)</h4>
+  <ul>
+    <li>Pairing-code format and lifetime (digits, how long valid, single-use).</li>
+    <li>Where the Cockpit pop-up appears and who is allowed to approve.</li>
+    <li>Whether browser clients also need a lightweight per-session token or just the login cookie.</li>
+    <li>Migration path off the single shared token without locking out existing machines.</li>
+  </ul>
+</div>
+
+<div class="footer-note">
+  CC Director - security flows design doc. ASCII-only by project convention. This document describes the
+  intended model; implementation is tracked separately.
+</div>
+
+</div>
+</body>
+</html>

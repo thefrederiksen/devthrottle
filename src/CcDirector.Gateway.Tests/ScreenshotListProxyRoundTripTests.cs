@@ -50,7 +50,9 @@ public sealed class ScreenshotListProxyRoundTripTests : IAsyncLifetime
             DirectorId = _director.DirectorId,
             TailnetEndpoint = _director.BaseUrl,
             Pid = 4243,
-            MachineName = "STUB",
+            // Loopback stub on THIS machine -> register as same-machine (issue #457 refuses a
+            // loopback endpoint advertised for a different machine).
+            MachineName = Environment.MachineName,
             User = "tester",
             Version = "test",
             StartedAt = DateTime.UtcNow,

@@ -1,4 +1,7 @@
 using System.Net;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -44,10 +47,10 @@ internal static class SessionWsProxyEndpoints
     /// owning Director from <paramref name="registry"/> via <paramref name="client"/>; 404 when
     /// the session is unknown across the fleet, 503 when the owning Director cannot be reached.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache owners)
+    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache owners, string? fleetToken = null)
     {
         var forwarder = app.ServiceProvider.GetRequiredService<IHttpForwarder>();
-        var proxy = new SessionWsForwarder(forwarder);
+        var proxy = new SessionWsForwarder(forwarder, fleetToken);
 
         // Live terminal stream: forward to the owning Director's /sessions/{sid}/stream .
         app.MapGet("/sessions/{sid}/stream", async (string sid, HttpContext ctx) =>
@@ -178,6 +181,8 @@ internal static class SessionWsProxyEndpoints
             if (knownOwner is not null)
             {
                 FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} -> 503 (known owner {knownOwner} offline/unreachable)");
+                if (await TryRejectWebSocketWithReasonAsync(ctx,
+                        "The owning Director is offline or unreachable right now - it will reconnect when the Director is back.")) return;
                 ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 await ctx.Response.WriteAsJsonAsync(new { error = "owning director offline" });
                 return;
@@ -195,9 +200,16 @@ internal static class SessionWsProxyEndpoints
         var destination = ForwardDestination(director);
         if (destination is null)
         {
-            FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} director={director.DirectorId} -> 503 (no usable endpoint)");
+            // Issue #457: no reachable endpoint - the Director registered flagged, or its only
+            // endpoint is a loopback address that belongs to another machine. Name the real
+            // cause (incl. the machine) so the user sees WHY, never a bare "127.0.0.1".
+            var why = !string.IsNullOrWhiteSpace(director.EndpointUnreachableReason)
+                ? $"Director on {MachineLabel(director)} has no reachable endpoint: {director.EndpointUnreachableReason}"
+                : $"Director on {MachineLabel(director)} has no reachable endpoint - check its network addressing mode (Tailscale/LAN).";
+            FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} director={director.DirectorId} -> 503 ({why})");
+            if (await TryRejectWebSocketWithReasonAsync(ctx, why)) return;
             ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await ctx.Response.WriteAsJsonAsync(new { error = "owning director has no reachable endpoint" });
+            await ctx.Response.WriteAsJsonAsync(new { error = why });
             return;
         }
 
@@ -209,6 +221,8 @@ internal static class SessionWsProxyEndpoints
             // The owning Director did not answer the upgrade (offline, crashed, or unreachable):
             // 503 so the Cockpit can say "Director unreachable" instead of a bare WS failure.
             FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} director={director.DirectorId} -> 503 (forwarder error {error})");
+            if (await TryRejectWebSocketWithReasonAsync(ctx,
+                    $"Owning Director on {MachineLabel(director)} did not answer ({error}).")) return;
             ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             await ctx.Response.WriteAsJsonAsync(new { error = $"owning director unreachable ({error})" });
         }
@@ -227,7 +241,12 @@ internal static class SessionWsProxyEndpoints
     {
         var lookups = registry.ListDirectors().Select(async d =>
         {
-            var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+            // Issue #457: resolve the SAME endpoint we would forward to - never a raw loopback
+            // ControlEndpoint for a remote Director (that probe would hit the Gateway itself).
+            // A Director with no reachable endpoint (flagged, or loopback-on-another-machine) is
+            // skipped here and surfaced downstream as "no reachable endpoint".
+            var ep = ForwardDestination(d);
+            if (ep is null) return (director: d, owns: false);
             var s = await client.GetSessionAsync(ep, sid);
             return (director: d, owns: s is not null);
         }).ToList();
@@ -243,12 +262,63 @@ internal static class SessionWsProxyEndpoints
     /// cross-machine <see cref="DirectorDto.TailnetEndpoint"/> when present (HTTP-registered
     /// remote Directors), else the <see cref="DirectorDto.ControlEndpoint"/> (same-machine
     /// FSW-discovered loopback). Null when neither is usable.
+    ///
+    /// Issue #457 (no cross-machine loopback): a loopback endpoint is reachable ONLY on the
+    /// Director's own machine. Dialing it from the Gateway when the Director lives on a
+    /// DIFFERENT machine would hit the GATEWAY itself, never the Director - the exact failure
+    /// behind "stream lost, reconnecting to 127.0.0.1". So a loopback endpoint is refused
+    /// (returns null = "no reachable endpoint", surfaced loudly) unless the Director is on
+    /// this very machine. Loopback for a same-machine Director stays the correct fast path.
     /// </summary>
-    private static string? ForwardDestination(DirectorDto d)
+    internal static string? ForwardDestination(DirectorDto d)
     {
         var endpoint = !string.IsNullOrWhiteSpace(d.TailnetEndpoint) ? d.TailnetEndpoint : d.ControlEndpoint;
         if (string.IsNullOrWhiteSpace(endpoint)) return null;
+        if (Core.Network.TailnetIdentityResolver.IsLoopback(endpoint) && !IsSameMachineAsGateway(d))
+            return null;
         return endpoint.TrimEnd('/');
+    }
+
+    /// <summary>
+    /// True when <paramref name="d"/> runs on the same machine as this Gateway, so a loopback
+    /// endpoint is legitimately reachable. Compared by machine name (case-insensitive). An
+    /// unknown (empty) machine name is treated as same-machine: historically only same-machine
+    /// FSW discovery ever produced a loopback endpoint, so this preserves that path without
+    /// inventing a remote.
+    /// </summary>
+    private static bool IsSameMachineAsGateway(DirectorDto d)
+        => string.IsNullOrWhiteSpace(d.MachineName)
+           || string.Equals(d.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A human label for a Director's machine, for error text.</summary>
+    private static string MachineLabel(DirectorDto d)
+        => string.IsNullOrWhiteSpace(d.MachineName) ? "an unknown machine" : d.MachineName;
+
+    /// <summary>
+    /// Issue #457/#461: surface a per-session WebSocket failure to the user with the REAL
+    /// reason instead of an invisible failed upgrade (which the Cockpit could only render as
+    /// the generic "stream lost, reconnecting to &lt;gateway&gt;"). When the request is a WS
+    /// upgrade and nothing has been written yet, ACCEPT it and immediately send a
+    /// <c>{"type":"closed","reason":...}</c> text frame (the cockpit terminal renders that as
+    /// "[stream closed: reason]") then close. Returns true when it handled the response, so the
+    /// caller skips the JSON 503; false for a plain-HTTP leg (the caller writes 503 as before).
+    /// </summary>
+    private static async Task<bool> TryRejectWebSocketWithReasonAsync(HttpContext ctx, string reason)
+    {
+        if (!ctx.WebSockets.IsWebSocketRequest) return false;
+        if (ctx.Response.HasStarted) return true; // upgrade already in flight; nothing we can add
+        try
+        {
+            using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+            var json = JsonSerializer.Serialize(new { type = "closed", reason });
+            await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, endOfMessage: true, ctx.RequestAborted);
+            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "no reachable endpoint", ctx.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionWsProxy] reject-ws-with-reason failed: {ex.Message}");
+        }
+        return true;
     }
 
     /// <summary>
@@ -261,10 +331,12 @@ internal static class SessionWsProxyEndpoints
     {
         private readonly IHttpForwarder _forwarder;
         private readonly HttpMessageInvoker _invoker;
+        private readonly string? _fleetToken;
 
-        public SessionWsForwarder(IHttpForwarder forwarder)
+        public SessionWsForwarder(IHttpForwarder forwarder, string? fleetToken)
         {
             _forwarder = forwarder;
+            _fleetToken = fleetToken;
             _invoker = new HttpMessageInvoker(new SocketsHttpHandler
             {
                 UseProxy = false,
@@ -278,7 +350,7 @@ internal static class SessionWsProxyEndpoints
 
         public async ValueTask<ForwarderError> ForwardAsync(HttpContext ctx, string destinationPrefix, string directorPath)
         {
-            var transformer = new RewritePathTransformer(directorPath);
+            var transformer = new RewritePathTransformer(directorPath, _fleetToken);
             return await _forwarder.SendAsync(ctx, destinationPrefix, _invoker, ForwarderRequestConfig.Empty, transformer);
         }
     }
@@ -291,8 +363,13 @@ internal static class SessionWsProxyEndpoints
     private sealed class RewritePathTransformer : HttpTransformer
     {
         private readonly string _directorPath;
+        private readonly string? _fleetToken;
 
-        public RewritePathTransformer(string directorPath) => _directorPath = directorPath;
+        public RewritePathTransformer(string directorPath, string? fleetToken)
+        {
+            _directorPath = directorPath;
+            _fleetToken = fleetToken;
+        }
 
         public override async ValueTask TransformRequestAsync(
             HttpContext ctx, HttpRequestMessage proxyRequest, string destinationPrefix, CancellationToken ct)
@@ -304,6 +381,14 @@ internal static class SessionWsProxyEndpoints
             var prefix = destinationPrefix.TrimEnd('/');
             var query = ctx.Request.QueryString.HasValue ? ctx.Request.QueryString.Value : "";
             proxyRequest.RequestUri = new Uri(prefix + _directorPath + query);
+
+            // Issue #457: authenticate to the owning Director with the shared fleet token. An
+            // auth-enabled Director (LAN mode) requires it; the browser only carried the Gateway
+            // cookie, which the Director does not accept. Replace any inbound Authorization so the
+            // forward presents the fleet bearer, never the browser's gateway credential.
+            if (!string.IsNullOrEmpty(_fleetToken))
+                proxyRequest.Headers.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _fleetToken);
         }
     }
 }

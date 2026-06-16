@@ -33,6 +33,16 @@ public static class DirectorAuth
         "/favicon.ico",
     };
 
+    /// <summary>
+    /// The token the Control API accepts (issue #457). When this Director is attached to a
+    /// Gateway, that SHARED fleet token (<c>gateway.token</c> in config.json) is the accepted
+    /// secret, so the Gateway - which presents the same fleet token on every proxied call - can
+    /// authenticate to this Director across machines (LAN mode). Standalone (no gateway token)
+    /// falls back to this machine's own persisted token. Pure - unit-tested.
+    /// </summary>
+    public static string ResolveAcceptedToken(string? fleetToken)
+        => string.IsNullOrWhiteSpace(fleetToken) ? LoadOrCreateToken() : fleetToken.Trim();
+
     /// <summary>Read the token from disk; generate and persist one if the file does not exist.</summary>
     public static string LoadOrCreateToken()
     {

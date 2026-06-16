@@ -416,7 +416,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // proxied through the Gateway so a remote Cockpit talks same-origin to the Gateway and
         // never needs a Director's own (possibly loopback) address. Mapped endpoints win over the
         // fallback Cockpit proxy below.
-        SessionWsProxyEndpoints.Map(_app, Registry, _client, SessionOwners);
+        // Pass the fleet token (issue #457): the proxy injects it as the Bearer on every forward
+        // so an auth-enabled Director (LAN mode) accepts the call. Harmless for auth-off Directors.
+        SessionWsProxyEndpoints.Map(_app, Registry, _client, SessionOwners, Token);
 
         // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the

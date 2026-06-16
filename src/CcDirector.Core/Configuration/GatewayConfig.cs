@@ -37,6 +37,14 @@ public sealed class GatewayConfig
     /// </summary>
     public string? TailnetEndpoint { get; init; }
 
+    /// <summary>
+    /// The fleet network addressing mode (issue #457). Read from the top-level
+    /// <c>addressing_mode</c> key in config.json (NOT the gateway block), so it is the same
+    /// value <see cref="AddressingModeConfig"/> exposes. Decides whether a Director advertises
+    /// its Tailscale front door or its LAN IP. Default <see cref="AddressingMode.Tailscale"/>.
+    /// </summary>
+    public AddressingMode AddressingMode { get; init; } = AddressingModeConfig.Default;
+
     /// <summary>True when <see cref="Url"/> is configured.</summary>
     public bool IsEnabled => !string.IsNullOrWhiteSpace(Url);
 
@@ -54,7 +62,15 @@ public sealed class GatewayConfig
             if (string.IsNullOrWhiteSpace(json)) return new GatewayConfig();
 
             using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("gateway", out var gw)) return new GatewayConfig();
+
+            // The addressing mode is a TOP-LEVEL key (issue #457), read whether or not a
+            // gateway block is present so a standalone Director still binds per the chosen mode.
+            var mode = doc.RootElement.TryGetProperty("addressing_mode", out var am) && am.ValueKind == JsonValueKind.String
+                ? AddressingModeExtensions.Parse(am.GetString())
+                : AddressingModeConfig.Default;
+
+            if (!doc.RootElement.TryGetProperty("gateway", out var gw))
+                return new GatewayConfig { AddressingMode = mode };
 
             var url = gw.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
             var token = gw.TryGetProperty("token", out var t) ? t.GetString() ?? "" : "";
@@ -65,6 +81,7 @@ public sealed class GatewayConfig
                 Url = url.Trim(),
                 Token = token.Trim(),
                 TailnetEndpoint = string.IsNullOrWhiteSpace(tailnet) ? null : tailnet.Trim(),
+                AddressingMode = mode,
             };
         }
         catch (Exception ex)

@@ -35,7 +35,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly string _version;
     private readonly Func<Task> _requestShutdownAsync;
     private readonly bool _useEphemeralPort;
-    private readonly bool _authEnabled;
+    // Not readonly: LAN addressing mode (issue #457) auto-enables auth at StartAsync, because
+    // binding the Control API to the LAN without auth would expose it to the whole network.
+    private bool _authEnabled;
 
     public string DirectorId { get; }
     public int Port { get; private set; }
@@ -192,6 +194,20 @@ public sealed class ControlApiHost : IAsyncDisposable
         // badge colour: a silent session could never flip to the red "needs you" state.
         StartSessionStateServices();
 
+        // Load the gateway config FIRST: the addressing mode (issue #457) decides the bind
+        // interface below, and it is reused for the GatewayClient + session DTO mapper.
+        var gatewayConfig = Core.Configuration.GatewayConfig.Load();
+        var addressingMode = gatewayConfig.AddressingMode;
+
+        // LAN mode puts the Control API on a routable interface, so it MUST be authenticated -
+        // auto-enable auth (the tailnet trust boundary is gone). This is why LAN "just works"
+        // without a separate toggle: choosing LAN turns on auth.
+        if (addressingMode == Core.Configuration.AddressingMode.Lan && !_authEnabled)
+        {
+            _authEnabled = true;
+            FileLog.Write("[ControlApiHost] LAN addressing mode: auth auto-enabled (Control API will require the fleet token)");
+        }
+
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             ApplicationName = "CcDirector.ControlApi",
@@ -201,6 +217,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_useEphemeralPort)
         {
             builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, 0));
+        }
+        else if (addressingMode == Core.Configuration.AddressingMode.Lan)
+        {
+            // LAN addressing mode (issue #457): the Director must be reachable on its real LAN
+            // IP, so the Control API binds to ALL interfaces - there is no Tailscale Serve
+            // fronting it in this mode. Auth was auto-enabled above so the raw port is not open;
+            // the fleet token (gateway.token) is required on every call.
+            Port = PortAllocator.Allocate(DirectorId);
+            FileLog.Write($"[ControlApiHost] LAN addressing mode: binding Control API to 0.0.0.0:{Port} (auth enabled)");
+            builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Any, Port));
         }
         else
         {
@@ -255,7 +281,9 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         if (_authEnabled)
         {
-            var token = DirectorAuth.LoadOrCreateToken();
+            // Accept the shared fleet token (gateway.token) when attached to a Gateway, so the
+            // Gateway authenticates across machines in LAN mode (issue #457); else the local token.
+            var token = DirectorAuth.ResolveAcceptedToken(gatewayConfig.Token);
             _app.Use((ctx, next) => DirectorAuth.Run(ctx, token, next));
         }
 
@@ -276,9 +304,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         // generates briefs, stores them, and stamps BriefingState/RailLine onto the
         // aggregated session view. The Director is dumb metal here.
 
-        // Load the gateway config up front so the served HTML can render a "Gateway"
-        // nav button pointing at it. Reused below for the GatewayClient registration.
-        var gatewayConfig = Core.Configuration.GatewayConfig.Load();
+        // gatewayConfig was loaded up front (the addressing mode set the bind interface);
+        // reuse it for the served HTML's "Gateway" nav button and the GatewayClient.
         var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
 
         // Issue #335: tailnet identity resolver for session DTO population. The resolver is
@@ -289,6 +316,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (TailnetEndpointResolverOverride is not null)
         {
             resolveTailnetEndpoint = TailnetEndpointResolverOverride;
+        }
+        else if (addressingMode == Core.Configuration.AddressingMode.Lan)
+        {
+            // LAN mode (issue #457): the session DTO's routable endpoint is this machine's LAN IP.
+            var lanResolver = new CcDirector.Core.Network.LanIdentityResolver();
+            resolveTailnetEndpoint = () => lanResolver.ResolveEndpoint(Port, gatewayConfig.TailnetEndpoint);
         }
         else
         {
@@ -334,7 +367,9 @@ public sealed class ControlApiHost : IAsyncDisposable
             Port = ReadAssignedPort(_app)
                 ?? throw new InvalidOperationException("Kestrel started but did not expose a bound address.");
         }
-        FileLog.Write($"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
+        FileLog.Write(addressingMode == Core.Configuration.AddressingMode.Lan
+            ? $"[ControlApiHost] Kestrel listening on http://0.0.0.0:{Port} (LAN addressing mode; reachable on this machine's LAN IP)"
+            : $"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
 
         // Let the SessionManager stamp CC_DIRECTOR_API / CC_DIRECTOR_ID into every session
         // it spawns from now on, so agents inside a session can call this Control API
@@ -348,8 +383,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Issue #197: this Director owns its own Tailscale Serve front door. Only real
         // fixed-range Directors self-provision; ephemeral-port hosts (tests, hosted
         // agents) are reached through the Gateway and must not churn the serve table
-        // (the #179 lesson).
-        if (!_useEphemeralPort)
+        // (the #179 lesson). Issue #457: LAN addressing mode has no Serve front door at all -
+        // the Director is reached directly on its LAN IP - so it never provisions a mapping.
+        if (!_useEphemeralPort && addressingMode != Core.Configuration.AddressingMode.Lan)
         {
             _serveProvisioner = new TailscaleServeSelfProvisioner(Port);
             _serveProvisioner.Start();

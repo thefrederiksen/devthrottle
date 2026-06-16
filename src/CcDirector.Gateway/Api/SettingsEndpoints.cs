@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using CcDirector.AgentBrain;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Briefing;
@@ -46,6 +47,8 @@ internal static class SettingsEndpoints
                 uptimeSeconds = (long)up.TotalSeconds,
                 directors = host.Registry.ListDirectors().Count,
                 mode = host.SettingsHooks?.Mode?.Invoke() ?? "unknown",
+                // Issue #457: the fleet network addressing mode ("tailscale" | "lan").
+                addressingMode = Core.Configuration.AddressingModeConfig.Get().ToConfigString(),
                 cockpit = new
                 {
                     port = cockpitPort,
@@ -148,6 +151,39 @@ internal static class SettingsEndpoints
             }
         });
 
+        // Network addressing mode (issue #457): "tailscale" (advertise the Tailscale Serve
+        // front door) or "lan" (advertise the machine's real LAN IP). Stored as the top-level
+        // config.json key addressing_mode. This is a per-machine setting read at process start;
+        // it applies to THIS Gateway host's own Directors on the next restart. Remote Directors
+        // read their own machine's config (see the docs note on issue #457).
+        app.MapGet("/gateway/addressing-mode", () =>
+            Results.Json(new { mode = Core.Configuration.AddressingModeConfig.Get().ToConfigString() }));
+
+        app.MapPut("/gateway/addressing-mode", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<AddressingModeBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body is null || string.IsNullOrWhiteSpace(body.Mode))
+                    return Results.BadRequest(new { error = "body { \"mode\": \"tailscale\"|\"lan\" } is required" });
+
+                if (!Core.Configuration.AddressingModeExtensions.IsValid(body.Mode))
+                    return Results.BadRequest(new { error = "mode must be \"tailscale\" or \"lan\"" });
+
+                var mode = Core.Configuration.AddressingModeExtensions.Parse(body.Mode);
+                Core.Configuration.CcDirectorConfigService.MergePatch(
+                    new System.Text.Json.Nodes.JsonObject { ["addressing_mode"] = mode.ToConfigString() });
+                FileLog.Write($"[SettingsEndpoints] addressing_mode set to {mode.ToConfigString()}");
+                return Results.Json(new { mode = mode.ToConfigString() });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/addressing-mode bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
         // Toggle the per-user autostart Run-key. The write itself is GatewayApp-owned (it needs the
         // tray exe path + args), supplied via SettingsHooks; a host with no hook answers unsupported.
         app.MapPut("/gateway/autostart", async (HttpContext ctx) =>
@@ -227,6 +263,7 @@ internal static class SettingsEndpoints
         }
     }
 
+    private sealed record AddressingModeBody(string? Mode);
     private sealed record AutostartBody(bool Enabled);
     private sealed record WingmanBody(bool Enabled);
     private sealed record BrainConfigBody(string? Tool, string? Model);

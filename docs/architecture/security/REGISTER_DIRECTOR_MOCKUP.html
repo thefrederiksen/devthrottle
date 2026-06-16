@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CC Director - Register a Director (mockup, Anchor B)</title>
+<style>
+  :root{
+    --bg:#1E1E1E; --panel:#2A2A2A; --panel2:#232323; --border:#3C3C3C;
+    --accent:#2563EB; --accent-hi:#3B82F6; --text:#E0E0E0; --muted:#9A9A9A;
+    --faint:#666; --green:#4CAF50; --green-dim:#2E7D32; --amber:#F0B848; --red:#E05656;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#101010;color:var(--text);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55;}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 28px 90px;}
+  header.top{border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:8px;}
+  header.top h1{margin:0 0 6px;font-size:24px;color:#fff;font-weight:600;}
+  header.top .sub{color:var(--muted);font-size:13px;}
+  header.top .meta{color:var(--faint);font-size:12px;margin-top:8px;}
+  h2{font-size:18px;color:#fff;margin:40px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+  h3{font-size:15px;color:var(--accent-hi);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  code{background:#000;color:#d6d6d6;padding:1px 6px;border-radius:4px;
+    font-family:Consolas,"Courier New",monospace;font-size:12.5px;}
+  ol.flow{counter-reset:step;list-style:none;padding-left:0;margin:14px 0;}
+  ol.flow li{position:relative;padding:8px 0 8px 44px;border-bottom:1px dashed #2c2c2c;}
+  ol.flow li:before{counter-increment:step;content:counter(step);position:absolute;left:0;top:8px;
+    width:28px;height:28px;line-height:28px;text-align:center;background:var(--accent);color:#fff;
+    border-radius:50%;font-weight:600;font-size:13px;}
+  ol.flow li b{color:#fff;}
+  .stage{margin:26px 0;}
+  .caption{color:var(--muted);font-size:12.5px;margin:8px 2px 14px;}
+  .stage-label{display:inline-block;background:#16202e;border:1px solid #2b3a52;color:#bcd;
+    font-size:12px;padding:2px 10px;border-radius:10px;margin-bottom:10px;}
+
+  /* ---------- desktop app window chrome (Director) ---------- */
+  .win{background:var(--bg);border:1px solid #000;border-radius:8px;overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,.6);max-width:520px;}
+  .win .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#1b1b1b;
+    border-bottom:1px solid var(--border);}
+  .win .bar .dot{width:11px;height:11px;border-radius:50%;}
+  .win .bar .r{background:#E05656;} .win .bar .y{background:#F0B848;} .win .bar .g{background:#4CAF50;}
+  .win .bar .title{margin-left:8px;font-size:12.5px;color:#bbb;}
+  .win .body{padding:22px 24px 24px;}
+  .win h4{margin:0 0 4px;font-size:16px;color:#fff;}
+  .win .lead{color:var(--muted);font-size:12.5px;margin:0 0 18px;}
+  .field{margin:14px 0;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;}
+  .field input.t{width:100%;background:#161616;border:1px solid var(--border);color:#e8e8e8;
+    border-radius:5px;padding:9px 11px;font-size:13px;font-family:Consolas,monospace;}
+  .codeboxes{display:flex;gap:10px;}
+  .codeboxes span{width:48px;height:56px;line-height:56px;text-align:center;background:#161616;
+    border:1px solid var(--border);border-radius:6px;font-size:26px;font-family:Consolas,monospace;color:#fff;}
+  .codeboxes span.focus{border-color:var(--accent-hi);box-shadow:0 0 0 2px rgba(59,130,246,.25);}
+  .btnrow{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;}
+  .btn{padding:9px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--border);
+    background:var(--panel);color:var(--text);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn:disabled{opacity:.4;}
+  .statusline{margin-top:16px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .spinner{width:13px;height:13px;border:2px solid #444;border-top-color:var(--accent-hi);border-radius:50%;
+    display:inline-block;}
+  .ok-badge{display:flex;align-items:center;gap:12px;background:#14241a;border:1px solid var(--green-dim);
+    border-radius:8px;padding:16px 18px;margin-top:6px;}
+  .ok-badge .chk{width:34px;height:34px;border-radius:50%;background:var(--green-dim);color:#fff;
+    text-align:center;line-height:34px;font-size:16px;font-weight:600;}
+  .ok-badge .t b{color:#cfe9cf;} .ok-badge .t small{color:#8fb98f;display:block;font-family:Consolas,monospace;}
+
+  /* ---------- gateway HOST desktop + corner app (Anchor B) ---------- */
+  .desktop{position:relative;height:360px;border:1px solid #000;border-radius:8px;overflow:hidden;
+    background:linear-gradient(135deg,#15324a 0%,#0f2233 55%,#0c1a27 100%);
+    box-shadow:0 12px 40px rgba(0,0,0,.6);}
+  .desktop .wname{position:absolute;top:12px;left:14px;color:#9fc3df;font-size:12px;opacity:.8;}
+  .taskbar{position:absolute;left:0;right:0;bottom:0;height:34px;background:rgba(10,14,20,.85);
+    border-top:1px solid #000;display:flex;align-items:center;gap:14px;padding:0 12px;}
+  .taskbar .start{width:16px;height:16px;background:#3b82f6;border-radius:3px;}
+  .taskbar .ti{color:#9fb3c7;font-size:11.5px;}
+  .taskbar .clock{margin-left:auto;color:#cfe0ee;font-size:11.5px;font-family:Consolas,monospace;}
+  .corner-app{position:absolute;right:14px;bottom:46px;width:308px;background:#1c1c1c;
+    border:1px solid #000;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.55);overflow:hidden;}
+  .corner-app .cbar{display:flex;align-items:center;gap:7px;padding:7px 10px;background:#141414;
+    border-bottom:1px solid var(--border);}
+  .corner-app .cbar .gdot{width:9px;height:9px;border-radius:50%;background:#4CAF50;}
+  .corner-app .cbar .ct{font-size:11.5px;color:#bbb;}
+  .corner-app .cbar .x{margin-left:auto;color:#666;font-size:12px;}
+  .corner-app .cbody{padding:14px 16px 16px;}
+  .corner-app h5{margin:0 0 3px;font-size:13.5px;color:#fff;}
+  .corner-app .clead{color:var(--muted);font-size:11.5px;margin:0 0 12px;}
+  .addbtn{background:var(--accent);border:1px solid var(--accent);color:#fff;border-radius:6px;
+    padding:8px 12px;font-size:12.5px;cursor:pointer;width:100%;}
+  .bigcode{display:flex;gap:9px;justify-content:center;margin:4px 0 8px;}
+  .bigcode span{width:46px;height:56px;line-height:56px;background:#0e0e0e;border:1px solid #3a4a63;
+    border-radius:7px;font-size:30px;color:#fff;font-family:Consolas,monospace;text-align:center;}
+  .expires{color:var(--amber);font-size:11.5px;font-family:Consolas,monospace;text-align:center;margin-bottom:10px;}
+  .cwait{color:var(--muted);font-size:11.5px;display:flex;align-items:center;gap:7px;justify-content:center;}
+  .csmallok{display:flex;align-items:center;gap:10px;background:#14241a;border:1px solid var(--green-dim);
+    border-radius:7px;padding:11px 12px;}
+  .csmallok .chk{width:26px;height:26px;border-radius:50%;background:var(--green-dim);color:#fff;
+    text-align:center;line-height:26px;font-size:13px;font-weight:600;}
+  .csmallok b{color:#cfe9cf;font-size:12.5px;}
+  .csmallok small{color:#8fb98f;font-size:11px;display:block;}
+  .cbtnrow{display:flex;justify-content:center;margin-top:12px;}
+
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start;}
+  @media(max-width:880px){.twocol{grid-template-columns:1fr;}}
+  .note{background:var(--panel);border-left:3px solid var(--accent);border-radius:6px;padding:14px 18px;margin:16px 0;}
+  .note.warn{border-left-color:var(--amber);}
+  .note.bad{border-left-color:var(--red);}
+  .footer-note{margin-top:46px;padding-top:16px;border-top:1px solid var(--border);color:var(--faint);font-size:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Register a Director - UI Mockup (Anchor B)</h1>
+  <div class="sub">The pairing code is shown in the Gateway's own local app window on the host machine - never over the network. You must be in front of the gateway machine to enroll a device.</div>
+  <div class="meta">Mockup / design only. Per-device-key model, local-presence root of trust. Companion to SECURITY_FLOWS.html.</div>
+</header>
+
+<h2>Where the popup lives and how it starts</h2>
+<p>
+The pairing code is shown by the <b>CC Director Gateway app running on the gateway host machine</b> - the
+small window docked in the bottom corner of that machine's desktop. It is <b>not</b> shown in the web
+Cockpit and never crosses the network. To register a device you have to be <b>physically present</b> at
+(or remoted into) the gateway host.
+</p>
+<ol class="flow">
+  <li><b>On the gateway host</b>, the user opens the corner app and clicks <b>"Register a new device"</b>.
+      The Gateway mints a short-lived code and shows it right there on that machine's screen, then waits.</li>
+  <li><b>On the new machine</b>, the user enters the Gateway URL and types the code they just read off the
+      gateway host's screen. The not-yet-trusted machine never sees the code unless a human carried it over.</li>
+</ol>
+<div class="note good" style="border-left-color:var(--green);">
+  <b>Why this is the stronger anchor:</b> it breaks the circular dependency. Showing the code on a trusted
+  surface used to require the Cockpit to be authenticated - but the Cockpit is open. By rooting the code in
+  <b>local access to the gateway host</b>, enrollment no longer depends on Cockpit auth at all. Local
+  presence is the hardest thing for a remote attacker (or the joining machine itself) to fake.
+</div>
+
+<h2>The flow, step by step</h2>
+<ol class="flow">
+  <li>On the gateway host's corner app, the user clicks <b>Register a new device</b>; a code appears, e.g. <code>4 7 2 9</code>, counting down.</li>
+  <li>On the new machine, the Director opens its <b>Connect to Gateway</b> dialog and the user enters the Gateway URL.</li>
+  <li>The user reads the code off the gateway host screen and types it into the Director, then clicks <b>Join Gateway</b>.</li>
+  <li>The Director sends {device id, machine name, code} to the Gateway. The Gateway verifies the code (matches, not expired, unused).</li>
+  <li>The Gateway issues a <b>unique per-device key</b>, records the device, and the Director writes the key to its local credential file.</li>
+  <li>Both screens confirm: the Director shows "Registered as MACHINE-B"; the gateway corner app shows the device joined.</li>
+</ol>
+
+<!-- ======================= STAGE 1 ======================= -->
+<h2>Stage 1 - Start pairing on the gateway host</h2>
+<div class="twocol">
+
+  <div class="stage">
+    <span class="stage-label">GATEWAY HOST - corner app (local screen)</span>
+    <div class="desktop">
+      <div class="wname">gateway host: SOREN_NORTH (desktop)</div>
+      <div class="corner-app">
+        <div class="cbar"><span class="gdot"></span><span class="ct">CC Director Gateway</span><span class="x">_  []  x</span></div>
+        <div class="cbody">
+          <h5>Gateway running</h5>
+          <p class="clead">2 devices registered. Listening on the tailnet front door.</p>
+          <button class="addbtn">+ Register a new device</button>
+        </div>
+      </div>
+      <div class="taskbar"><span class="start"></span><span class="ti">CC Director Gateway</span><span class="clock">09:14</span></div>
+    </div>
+    <div class="caption">The Gateway app sits in the bottom corner of the host machine. "Register a new device" is the only way to start pairing - and only someone at this machine can click it.</div>
+  </div>
+
+  <div class="stage">
+    <span class="stage-label">DIRECTOR (desktop app) - new machine</span>
+    <div class="win">
+      <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">CC Director - Connect to Gateway</span></div>
+      <div class="body">
+        <h4>Connect this Director to a Gateway</h4>
+        <p class="lead">Point this machine at your Gateway, then enter the pairing code shown on the gateway host's screen.</p>
+        <div class="field">
+          <label>GATEWAY URL</label>
+          <input class="t" value="https://soren-north.taildb08ed.ts.net" />
+        </div>
+        <div class="field">
+          <label>PAIRING CODE (from the gateway host)</label>
+          <div class="codeboxes"><span class="focus">&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn">Cancel</button>
+          <button class="btn primary" disabled>Join Gateway</button>
+        </div>
+        <div class="statusline">Waiting for a pairing code...</div>
+      </div>
+    </div>
+    <div class="caption">The Director knows the Gateway URL but has no key yet. Join stays disabled until 4 digits are entered.</div>
+  </div>
+
+</div>
+
+<!-- ======================= STAGE 2 ======================= -->
+<h2>Stage 2 - Code shown on the host, typed into the new machine</h2>
+<div class="twocol">
+
+  <div class="stage">
+    <span class="stage-label">GATEWAY HOST - code displayed (waiting)</span>
+    <div class="desktop">
+      <div class="wname">gateway host: SOREN_NORTH (desktop)</div>
+      <div class="corner-app">
+        <div class="cbar"><span class="gdot"></span><span class="ct">CC Director Gateway</span><span class="x">_  []  x</span></div>
+        <div class="cbody">
+          <h5>Register a new device</h5>
+          <p class="clead">Type this code into the new Director's "Connect to Gateway" dialog.</p>
+          <div class="bigcode"><span>4</span><span>7</span><span>2</span><span>9</span></div>
+          <div class="expires">Expires in 4:52</div>
+          <div class="cwait"><span class="spinner"></span> Waiting for the device...</div>
+          <div class="cbtnrow"><button class="btn">Cancel</button></div>
+        </div>
+      </div>
+      <div class="taskbar"><span class="start"></span><span class="ti">CC Director Gateway</span><span class="clock">09:14</span></div>
+    </div>
+    <div class="caption">The code lives only on this screen. It counts down and stays in this waiting state until a Director submits a matching code (or the timer expires).</div>
+  </div>
+
+  <div class="stage">
+    <span class="stage-label">DIRECTOR - entering the code</span>
+    <div class="win">
+      <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">CC Director - Connect to Gateway</span></div>
+      <div class="body">
+        <h4>Connect this Director to a Gateway</h4>
+        <p class="lead">Point this machine at your Gateway, then enter the pairing code shown on the gateway host's screen.</p>
+        <div class="field">
+          <label>GATEWAY URL</label>
+          <input class="t" value="https://soren-north.taildb08ed.ts.net" />
+        </div>
+        <div class="field">
+          <label>PAIRING CODE (from the gateway host)</label>
+          <div class="codeboxes"><span>4</span><span>7</span><span>2</span><span class="focus">9</span></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn">Cancel</button>
+          <button class="btn primary">Join Gateway</button>
+        </div>
+        <div class="statusline">Code entered - ready to join.</div>
+      </div>
+    </div>
+    <div class="caption">User typed 4-7-2-9, read off the gateway host's screen. Join is now enabled.</div>
+  </div>
+
+</div>
+
+<!-- ======================= STAGE 3 ======================= -->
+<h2>Stage 3 - Key issued, both sides confirm</h2>
+<div class="twocol">
+
+  <div class="stage">
+    <span class="stage-label">GATEWAY HOST - device joined</span>
+    <div class="desktop">
+      <div class="wname">gateway host: SOREN_NORTH (desktop)</div>
+      <div class="corner-app">
+        <div class="cbar"><span class="gdot"></span><span class="ct">CC Director Gateway</span><span class="x">_  []  x</span></div>
+        <div class="cbody">
+          <h5>Device registered</h5>
+          <p class="clead">A unique key was issued and recorded in the registry.</p>
+          <div class="csmallok">
+            <div class="chk">OK</div>
+            <div><b>MACHINE-B joined</b><small>3 devices registered</small></div>
+          </div>
+          <div class="cbtnrow"><button class="btn primary">Done</button></div>
+        </div>
+      </div>
+      <div class="taskbar"><span class="start"></span><span class="ti">CC Director Gateway</span><span class="clock">09:15</span></div>
+    </div>
+    <div class="caption">The code is consumed and gone. MACHINE-B is now in the registry as its own entry, independently revocable.</div>
+  </div>
+
+  <div class="stage">
+    <span class="stage-label">DIRECTOR - registered</span>
+    <div class="win">
+      <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">CC Director - Connect to Gateway</span></div>
+      <div class="body">
+        <h4>This Director is connected</h4>
+        <p class="lead">A device key was issued by the Gateway and saved on this machine.</p>
+        <div class="ok-badge">
+          <div class="chk">OK</div>
+          <div class="t"><b>Registered as MACHINE-B</b>
+            <small>device key  Yk3...d4f2  (saved to local credential file)</small></div>
+        </div>
+        <div class="btnrow"><button class="btn primary">Done</button></div>
+        <div class="statusline">The local cc-* tools on this machine can now use the Control API.</div>
+      </div>
+    </div>
+    <div class="caption">The key (never the code) is what was issued. It is written to the on-disk credential file the Director and the local agents/CLI both read.</div>
+  </div>
+
+</div>
+
+<h2>What the web Cockpit does (and does not) do here</h2>
+<div class="note bad">
+  <b>Enrollment never touches the web Cockpit.</b> Because the Cockpit is currently unauthenticated, it is
+  not trusted to mint or show codes, and it cannot approve devices. The authenticated device list and
+  per-device <b>Revoke</b> view belong in the Cockpit only <em>after</em> Cockpit auth ships - until then,
+  listing/revoking devices is also a local-host action in the corner app. Cockpit authentication is tracked
+  as a separate, still-required release blocker.
+</div>
+
+<div class="note warn">
+  <b>Still open (next decisions, one at a time):</b>
+  <ul>
+    <li>Code format/length and lifetime (shown here as 4 digits / ~5 min, single-use).</li>
+    <li>Headless gateway host: if no interactive desktop session exists, there is no corner window - the code must instead be readable via a local-only command on the host (same local-access anchor, different surface). Decide whether interactive session is required or we add that local CLI.</li>
+    <li>Whether the Director dialog also offers a "register the local agent library" step in this same flow.</li>
+  </ul>
+</div>
+
+<div class="footer-note">
+  CC Director - register-a-director mockup (Anchor B: local-presence root of trust). ASCII-only by project convention. CSS-rendered mockups, not live UI.
+</div>
+
+</div>
+</body>
+</html>

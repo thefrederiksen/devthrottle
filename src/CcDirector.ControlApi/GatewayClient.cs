@@ -76,6 +76,13 @@ public sealed class GatewayClient : IDisposable
     internal TailnetIdentityResolver IdentityResolver { get; } = new();
 
     /// <summary>
+    /// The LAN-IP resolver used when <see cref="GatewayConfig.AddressingMode"/> is
+    /// <see cref="AddressingMode.Lan"/> (issue #457). One instance per client so its log-dedup
+    /// state spans the heartbeat re-resolves, mirroring <see cref="IdentityResolver"/>.
+    /// </summary>
+    internal LanIdentityResolver LanResolver { get; } = new();
+
+    /// <summary>
     /// Test seam (issue #324): some tests pin the whole resolution to an exact endpoint
     /// (e.g. a loopback callback host) that the production ladder would refuse. Production
     /// always resolves through <see cref="IdentityResolver"/> with this Director's port and
@@ -116,7 +123,13 @@ public sealed class GatewayClient : IDisposable
         _version = version ?? "0.0.0";
         _sessionStates = sessionStates;
         _monitor = monitor;
-        ResolveAdvertisedEndpoint = () => IdentityResolver.ResolveEndpoint(_port, _config.TailnetEndpoint);
+        // Pick the resolver by addressing mode (issue #457). Tailscale mode advertises the
+        // Serve front door; LAN mode advertises this machine's LAN IP. Neither ever advertises
+        // loopback. The mode is fixed for the life of this client (a change applies on restart,
+        // same as the bind interface that pairs with it).
+        ResolveAdvertisedEndpoint = () => _config.AddressingMode == AddressingMode.Lan
+            ? LanResolver.ResolveEndpoint(_port, _config.TailnetEndpoint)
+            : IdentityResolver.ResolveEndpoint(_port, _config.TailnetEndpoint);
 
         _http = new HttpClient
         {
