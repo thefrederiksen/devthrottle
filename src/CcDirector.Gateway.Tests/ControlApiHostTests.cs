@@ -177,6 +177,12 @@ public sealed class SessionStateServicesDecouplingTests
             // activity handler so StatusColor tracks ActivityState.
             var session = sm.CreatePipeModeSession(Path.GetTempPath());
 
+            // Simulate a session that has already taken its first turn. A brand-new session is
+            // painted green ("ready") at a turn-end by design - it is parked at its prompt, not
+            // needing you. This test exercises the genuine "needs you" RED path, which applies
+            // only once IsBrandNew has cleared (it clears when the first prompt is submitted).
+            session.IsBrandNew = false;
+
             // Drive the activity state the way TerminalStateDetector would (byte -> Working;
             // QuietThreshold of silence -> WaitingForInput). The wingman is the sole writer of
             // StatusColor; if it is running, the badge follows -- with no Control API bound.
@@ -233,6 +239,12 @@ public sealed class SessionStateServicesDecouplingTests
             host.StartSessionStateServices();
 
             var session = sm.CreatePipeModeSession(Path.GetTempPath());
+            // Past its brand-new "ready" (green) window - see the note in the test above; this
+            // asserts the genuine "needs you" red path. A pipe session starts already in
+            // WaitingForInput, so drive Working first to guarantee a real transition back into
+            // WaitingForInput fires the wingman handler (SetActivityState ignores same-state).
+            session.IsBrandNew = false;
+            session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             Assert.Equal("red", session.StatusColor);
         }
