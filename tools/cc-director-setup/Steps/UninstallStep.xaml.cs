@@ -9,7 +9,7 @@ namespace CcDirectorSetup.Steps;
 /// <summary>
 /// In-wizard uninstall flow (issue: nicer uninstall progress). Replaces the old raw MessageBox
 /// confirm + frozen window + MessageBox result with three themed views - confirm, live progress,
-/// and completion - so removing CC Director looks like the rest of the wizard. Self-contained:
+/// and completion - so removing DevThrottle looks like the rest of the wizard. Self-contained:
 /// it owns its buttons and raises <see cref="Cancelled"/> / <see cref="CloseRequested"/> for the
 /// host window to act on; the host hides the step rail and nav bar while this is shown.
 /// </summary>
@@ -51,8 +51,8 @@ public partial class UninstallStep : UserControl
         _runner = runner ?? (p => new Uninstaller(layout).Apply(role, p, _deleteData));
 
         ConfirmSubtitle.Text = role == InstallRole.Gateway
-            ? "This removes CC Director, its tools, and the Gateway from this PC."
-            : "This removes CC Director and its tools from this PC.";
+            ? "This removes DevThrottle, its tools, and the Gateway from this PC."
+            : "This removes DevThrottle and its tools from this PC.";
 
         RemoveList.ItemsSource = BuildRemovalList(role);
         StepList.ItemsSource = _completed;
@@ -72,9 +72,9 @@ public partial class UninstallStep : UserControl
     {
         var items = new List<string>
         {
-            "The CC Director app and all cc-* CLI tools",
+            "The DevThrottle app and all cc-* CLI tools",
             "The PATH entry for the tools",
-            "The CC Director skills (only the ones it installed)",
+            "The DevThrottle skills (only the ones it installed)",
             "Scheduled tasks and the Start Menu shortcut",
         };
         if (OperatingSystem.IsWindows())
@@ -167,14 +167,14 @@ public partial class UninstallStep : UserControl
         {
             CompleteDot.Fill = (System.Windows.Media.Brush)FindResource("SuccessBrush");
             CompleteHeading.Text = "Uninstall complete";
-            CompleteSummary.Text = "CC Director has been removed from this PC.";
+            CompleteSummary.Text = "DevThrottle has been removed from this PC.";
             ErrorCard.Visibility = Visibility.Collapsed;
         }
         else
         {
             CompleteDot.Fill = (System.Windows.Media.Brush)FindResource("ErrorBrush");
             CompleteHeading.Text = "Uninstall finished with issues";
-            CompleteSummary.Text = $"Most of CC Director was removed, but {errors.Count} item(s) could not be. "
+            CompleteSummary.Text = $"Most of DevThrottle was removed, but {errors.Count} item(s) could not be. "
                                    + "This is usually a file locked by a running app - close it and re-run.";
             ErrorList.ItemsSource = errors;
             ErrorCard.Visibility = Visibility.Visible;

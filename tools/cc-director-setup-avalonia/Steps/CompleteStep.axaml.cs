@@ -40,7 +40,7 @@ public partial class CompleteStep : UserControl
         if (alreadyUpToDate)
         {
             HeadingText.Text = "✓  Already Up to Date";
-            DescriptionText.Text = "CC Director is already running the latest version.";
+            DescriptionText.Text = "DevThrottle is already running the latest version.";
             SummaryLine.Text = $"Nothing to do{versionSuffix}";
             PathNote.IsVisible = false;
         }
@@ -64,7 +64,7 @@ public partial class CompleteStep : UserControl
             var amber = new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0x30));
             HeadingText.Text = isUpdate ? "Update finished with problems" : "Setup finished with problems";
             HeadingText.Foreground = amber;
-            DescriptionText.Text = $"{skipped} component(s) did not install. CC Director may still work, but please report this.";
+            DescriptionText.Text = $"{skipped} component(s) did not install. DevThrottle may still work, but please report this.";
             SummaryLine.IsVisible = false;
             FailurePanel.IsVisible = true;
             DetailsHeader.Text = $"{skipped} component(s) did not install - please report this";

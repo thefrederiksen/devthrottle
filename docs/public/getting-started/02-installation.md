@@ -1,10 +1,10 @@
 # Installation
 
-CC Director runs on Windows and macOS (Apple Silicon) and requires a few prerequisites. This guide walks you through getting everything set up.
+DevThrottle runs on Windows and macOS (Apple Silicon) and requires a few prerequisites. This guide walks you through getting everything set up.
 
 ## Prerequisites
 
-The CC Director **Setup** app checks for these on its Prerequisites screen. Four are required; Brave is optional. Each tool below has a setup section with the exact install command and how to confirm it is on your `PATH`.
+The DevThrottle **Setup** app checks for these on its Prerequisites screen. Four are required; Brave is optional. Each tool below has a setup section with the exact install command and how to confirm it is on your `PATH`.
 
 | Tool | Required? | Minimum |
 |------|-----------|---------|
@@ -102,7 +102,7 @@ This downloads all tools from GitHub releases, places them in `%LOCALAPPDATA%\cc
 
 ### macOS
 
-On macOS, use the **CC Director Setup** app instead: download `cc-director-setup-mac-arm64.zip` from the [latest release](https://github.com/thefrederiksen/cc-director/releases/latest), unzip it, and right-click -> Open (it is ad-hoc-signed, so Gatekeeper asks once). The wizard installs the Director to `~/Applications`, installs every `cc-*` tool into one shared Python environment under `~/Library/Application Support/cc-director`, and symlinks the tools into `~/.local/bin` (added to your shell `PATH`). Apple Silicon only; Workstation-only (no Gateway on macOS).
+On macOS, use the **DevThrottle Setup** app instead: download `devthrottle-setup-mac-arm64.zip` from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest), unzip it, and right-click -> Open (it is ad-hoc-signed, so Gatekeeper asks once). The wizard installs the Director to `~/Applications`, installs every `cc-*` tool into one shared Python environment under `~/Library/Application Support/cc-director`, and symlinks the tools into `~/.local/bin` (added to your shell `PATH`). Apple Silicon only; Workstation-only (no Gateway on macOS).
 
 ### Verify installation
 
@@ -119,7 +119,7 @@ cc-hardware
 Clone the repository and build:
 
 ```bash
-git clone https://github.com/cc-director/cc-director.git
+git clone https://github.com/thefrederiksen/devthrottle.git
 cd cc-director
 dotnet build src/CcDirector.Wpf/CcDirector.Wpf.csproj
 ```
@@ -132,7 +132,7 @@ dotnet run --project src/CcDirector.Wpf/CcDirector.Wpf.csproj
 
 ## Configure Claude Code Skills
 
-CC Director includes Claude Code skills that extend what Claude can do. After cloning, the skills in `.claude/skills/` are automatically available when you run Claude Code from the repository directory.
+DevThrottle includes Claude Code skills that extend what Claude can do. After cloning, the skills in `.claude/skills/` are automatically available when you run Claude Code from the repository directory.
 
 Key skills:
 - `/commit` -- create commits following project standards
@@ -186,7 +186,7 @@ Or add it permanently through Windows System Properties > Environment Variables.
 One Gateway machine runs the fleet view (the Cockpit); every other machine just runs Directors that show up there. Adding a new machine to the fleet is three steps:
 
 1. **Install Tailscale** and log into the same tailnet (`winget install tailscale.Tailscale`, then sign in from the tray icon).
-2. **Install CC Director** (Workstation role) with the Setup app or `cc-director-setup-cli install`.
+2. **Install DevThrottle** (Workstation role) with the Setup app or `cc-director-setup-cli install`.
 3. **Set the Gateway URL** in the Director's Settings (or `gateway.url` in config.json), pointing at the Gateway machine, e.g. `https://your-gateway.your-tailnet.ts.net`.
 
 That is all. The Director registers itself with the Gateway, opens its own Tailscale Serve front door for remote access, and verifies its advertised address actually answers before registering -- there are no manual `tailscale serve` commands and no firewall rules to add.

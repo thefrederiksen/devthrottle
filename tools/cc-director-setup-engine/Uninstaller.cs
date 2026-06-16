@@ -52,7 +52,7 @@ public sealed class Uninstaller
 
     private string ShortcutPath() =>
         System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "CC Director.lnk");
+            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "DevThrottle.lnk");
 
     /// <summary>The per-user Claude Code skills directory (%USERPROFILE%\.claude\skills). Skills are
     /// installed here per-user; only the names in the <see cref="SkillManifest"/> are ours to remove.</summary>
@@ -138,7 +138,7 @@ public sealed class Uninstaller
 
         // Integration points common to both roles (issue #257). Skills + scheduled tasks are per-user
         // and role-independent; the Add/Remove Programs entry is Windows-only.
-        progress?.Report("Removing the CC Director skills");
+        progress?.Report("Removing the DevThrottle skills");
         RemoveSkills(steps, errors);
         progress?.Report("Removing scheduled tasks");
         RemoveScheduledTasks(steps, errors);
@@ -170,7 +170,7 @@ public sealed class Uninstaller
     public void WipeUserData(List<string> steps, List<string> errors)
     {
         var root = System.IO.Path.GetFullPath(_layout.LocalRoot);
-        // Safety: refuse anything that is not a per-user CC Director root.
+        // Safety: refuse anything that is not a per-user DevThrottle root.
         var leaf = System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(root));
         if (!string.Equals(leaf, "cc-director", StringComparison.OrdinalIgnoreCase))
         {
@@ -228,7 +228,7 @@ public sealed class Uninstaller
         }
     }
 
-    /// <summary>Remove CC Director's scheduled tasks if present (issue #257). Absent tasks are
+    /// <summary>Remove DevThrottle's scheduled tasks if present (issue #257). Absent tasks are
     /// reported as skipped, never errors. <paramref name="runner"/> is injectable for tests.</summary>
     public void RemoveScheduledTasks(List<string> steps, List<string> errors, ScheduledTaskRemover.Runner? runner = null)
     {
@@ -240,7 +240,7 @@ public sealed class Uninstaller
         }
     }
 
-    /// <summary>Tear down CC Director's Tailscale Serve 443 front-door mapping (issue #257). A machine
+    /// <summary>Tear down DevThrottle's Tailscale Serve 443 front-door mapping (issue #257). A machine
     /// without the tailscale CLI is a clean no-op. <paramref name="runner"/> is injectable for tests.</summary>
     public void RemoveTailscaleServe(List<string> steps, List<string> errors, TailscaleServeTeardown.Runner? runner = null)
     {

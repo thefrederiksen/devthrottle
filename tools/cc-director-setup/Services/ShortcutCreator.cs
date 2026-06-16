@@ -11,7 +11,7 @@ public static class ShortcutCreator
         var startMenuDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
             "Programs");
-        var shortcutPath = Path.Combine(startMenuDir, "CC Director.lnk");
+        var shortcutPath = Path.Combine(startMenuDir, "DevThrottle.lnk");
 
         try
         {
@@ -38,7 +38,7 @@ public static class ShortcutCreator
                 [$"{exePath},0"]);
             shortcutType.InvokeMember("Description",
                 System.Reflection.BindingFlags.SetProperty, null, shortcut,
-                ["CC Director"]);
+                ["DevThrottle"]);
             shortcutType.InvokeMember("Save",
                 System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
 

@@ -56,7 +56,7 @@ public class AddRemoveProgramsTests : IDisposable
         using var k = Registry.CurrentUser.OpenSubKey(
             $@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{_key}");
         Assert.NotNull(k);
-        Assert.Equal("CC Director", k!.GetValue("DisplayName"));
+        Assert.Equal("DevThrottle", k!.GetValue("DisplayName"));
         Assert.Equal("1.2.3", k.GetValue("DisplayVersion"));
         Assert.Equal(@"C:\fake\setup.exe uninstall", k.GetValue("UninstallString"));
         Assert.Equal(1, k.GetValue("NoModify"));

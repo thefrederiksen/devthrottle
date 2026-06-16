@@ -17,7 +17,7 @@ public partial class WelcomeStep : UserControl
 
         if (isUpdate)
         {
-            TitleText.Text = "Update CC Director";
+            TitleText.Text = "Update DevThrottle";
             DescriptionText.Text = "Checking for updates...";
 
             // Role is a first-install choice; an update refreshes whatever is already installed.

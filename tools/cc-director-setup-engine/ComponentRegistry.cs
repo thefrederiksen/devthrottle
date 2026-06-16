@@ -24,7 +24,7 @@ public static class ComponentRegistry
     public static readonly Component Director = new(
         Id: "director",
         Kind: ComponentKind.Director,
-        DisplayName: "CC Director",
+        DisplayName: "DevThrottle",
         WindowsAsset: "cc-director-win-x64.exe",
         Roles: BothRoles);
 
@@ -32,7 +32,7 @@ public static class ComponentRegistry
     public static readonly Component Gateway = new(
         Id: "gateway",
         Kind: ComponentKind.Gateway,
-        DisplayName: "CC Gateway Service",
+        DisplayName: "DevThrottle Gateway",
         WindowsAsset: "cc-director-gateway-win-x64.exe",
         Roles: GatewayOnly);
 
@@ -40,7 +40,7 @@ public static class ComponentRegistry
     public static readonly Component Cockpit = new(
         Id: "cockpit",
         Kind: ComponentKind.Cockpit,
-        DisplayName: "CC Cockpit",
+        DisplayName: "DevThrottle Cockpit",
         WindowsAsset: "cc-director-cockpit-win-x64.zip",
         Roles: GatewayOnly);
 
@@ -51,7 +51,7 @@ public static class ComponentRegistry
     public static readonly Component Launcher = new(
         Id: "cc-launcher",
         Kind: ComponentKind.Launcher,
-        DisplayName: "CC Launcher",
+        DisplayName: "DevThrottle Launcher",
         WindowsAsset: "cc-launcher-win-x64.exe",
         Roles: BothRoles);
 
@@ -117,8 +117,10 @@ public static class ComponentRegistry
             "cc-director",          // the Director app (its own component, not a tool)
             "cc-director-gateway",  // the Gateway app
             "cc-director-cockpit",  // the Cockpit app (ships as .zip anyway)
-            "cc-director-setup",    // the installer wizard itself
-            "cc-director-setup-cli",// the installer CLI (downloaded by the wizard for elevated installs)
+            "cc-director-setup",    // the installer wizard (legacy asset name, pre-rename)
+            "cc-director-setup-cli",// the installer CLI (legacy asset name, pre-rename)
+            "devthrottle-setup",    // the installer wizard itself
+            "devthrottle-setup-cli",// the installer CLI (downloaded by the wizard for elevated installs)
             "cc-launcher",          // the Launcher tray app (issue #250): its own Launcher component
         };
 

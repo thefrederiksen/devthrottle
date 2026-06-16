@@ -123,7 +123,7 @@ public static class Program
     {
         Console.WriteLine(
             """
-            cc-director-setup-cli - install and update CC Director components
+            cc-director-setup-cli - install and update DevThrottle components
 
             Commands:
               components                 List known components (apps + tools), roles, assets

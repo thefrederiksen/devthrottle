@@ -3,13 +3,13 @@
              x:Class="CcDirectorSetup.Steps.WelcomeStep">
     <StackPanel>
         <TextBlock x:Name="TitleText"
-                   Text="Welcome to CC Director"
+                   Text="Welcome to DevThrottle"
                    Foreground="White"
                    FontSize="22"
                    FontWeight="SemiBold" />
 
         <TextBlock x:Name="DescriptionText"
-                   Text="CC Director is a suite of AI-powered CLI tools that extend Claude Code with document generation, browser automation, communication, media processing, and more."
+                   Text="DevThrottle is a suite of AI-powered CLI tools that extend Claude Code with document generation, browser automation, communication, media processing, and more."
                    Foreground="#CCCCCC"
                    FontSize="13"
                    TextWrapping="Wrap"

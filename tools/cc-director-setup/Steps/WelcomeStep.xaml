@@ -10,7 +10,7 @@
                RenderOptions.BitmapScalingMode="HighQuality" />
 
         <TextBlock x:Name="TitleText"
-                   Text="Welcome to CC Director"
+                   Text="Welcome to DevThrottle"
                    Foreground="White"
                    FontSize="24"
                    FontWeight="SemiBold"
@@ -24,7 +24,7 @@
                    Margin="0,6,0,0" />
 
         <TextBlock x:Name="DescriptionText"
-                   Text="CC Director runs and manages multiple Claude Code sessions side by side, with a full suite of CLI tools for documents, browser automation, email, media, and more. Built for Windows developers who live in the terminal and want Claude Code to fit into a real day of shipping software."
+                   Text="DevThrottle runs and manages multiple Claude Code sessions side by side, with a full suite of CLI tools for documents, browser automation, email, media, and more. Built for Windows developers who live in the terminal and want Claude Code to fit into a real day of shipping software."
                    Foreground="{StaticResource TextForeground}"
                    FontSize="13"
                    TextWrapping="Wrap"
@@ -56,7 +56,7 @@
                              Foreground="{StaticResource TextForeground}">
                     <TextBlock TextWrapping="Wrap">
                         <Run Text="Workstation" FontWeight="SemiBold" Foreground="White" /><LineBreak />
-                        <Run Text="CC Director app + all CLI tools. Per-user, no administrator rights." FontSize="12" />
+                        <Run Text="DevThrottle app + all CLI tools. Per-user, no administrator rights." FontSize="12" />
                     </TextBlock>
                 </RadioButton>
                 <RadioButton x:Name="GatewayRadio"
@@ -81,7 +81,7 @@
              (update mode). Removes the app, tools, PATH, skills, scheduled tasks, and the
              Gateway autostart + Tailscale mapping; the user's data is preserved. -->
         <Button x:Name="UninstallButton"
-                Content="Uninstall CC Director"
+                Content="Uninstall DevThrottle"
                 Style="{StaticResource DangerButton}"
                 HorizontalAlignment="Center"
                 Margin="0,28,0,0"

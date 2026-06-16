@@ -37,7 +37,7 @@ public static class InstallFinalizer
         var programsDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs");
         Directory.CreateDirectory(programsDir);
-        var lnk = Path.Combine(programsDir, "CC Director.lnk");
+        var lnk = Path.Combine(programsDir, "DevThrottle.lnk");
 
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
             ?? throw new InvalidOperationException("WScript.Shell COM object not available.");
@@ -51,7 +51,7 @@ public static class InstallFinalizer
         t.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, [exe]);
         t.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, [Path.GetDirectoryName(exe)]);
         t.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, [$"{exe},0"]);
-        t.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, ["CC Director"]);
+        t.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, ["DevThrottle"]);
         t.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
 
         EngineLog.Write($"[InstallFinalizer] created shortcut: {lnk}");

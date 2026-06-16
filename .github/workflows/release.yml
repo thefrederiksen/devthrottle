@@ -119,7 +119,7 @@ jobs:
   # Job 1d: Build the macOS setup wizard (.app)
   # ---------------------------------------------------------------
   # The cross-platform Avalonia wizard, published self-contained for osx-arm64 and packaged
-  # as an ad-hoc-signed "CC Director Setup.app" (same model as the Director app).
+  # as an ad-hoc-signed "DevThrottle Setup.app" (same model as the Director app).
   build-setup-mac:
     name: Build Setup Wizard (macOS arm64)
     runs-on: macos-14
@@ -145,7 +145,7 @@ jobs:
           scripts/package-mac-app.sh
           --binary tools/cc-director-setup-avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director-setup
           --out artifacts-mac
-          --app-name "CC Director Setup"
+          --app-name "DevThrottle Setup"
           --bin-name cc-director-setup
           --zip-name cc-director-setup-mac-arm64.zip
           --bid com.centerconsulting.ccdirectorsetup
@@ -374,7 +374,7 @@ jobs:
           # macOS Python tools bundle (one shared-venv bundle: core tools only) + setup wizard .app
           cp release-artifacts/python-bundle-mac/cc-python-macos-arm64.tar.gz "$RELEASE_DIR/cc-python-macos-arm64.tar.gz"
           cp release-artifacts/python-bundle-mac/cc-tools-pyenv-macos-arm64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
-          cp release-artifacts/setup-mac/cc-director-setup-mac-arm64.zip "$RELEASE_DIR/cc-director-setup-mac-arm64.zip"
+          cp release-artifacts/setup-mac/cc-director-setup-mac-arm64.zip "$RELEASE_DIR/devthrottle-setup-mac-arm64.zip"
 
           # Windows Gateway service (publish emits cc-director-gateway.exe)
           cp release-artifacts/gateway-win/cc-director-gateway.exe "$RELEASE_DIR/cc-director-gateway-win-x64.exe"
@@ -387,10 +387,10 @@ jobs:
           cp release-artifacts/python-bundle-win/cc-tools-pyenv-win-x64.zip "$RELEASE_DIR/cc-tools-pyenv-win-x64.zip"
 
           # Windows setup wizard
-          cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/cc-director-setup-win-x64.exe"
+          cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/devthrottle-setup-win-x64.exe"
 
           # Windows setup CLI (the wizard downloads this to run the elevated Gateway install)
-          cp release-artifacts/setup-cli-win/cc-director-setup-cli.exe "$RELEASE_DIR/cc-director-setup-cli-win-x64.exe"
+          cp release-artifacts/setup-cli-win/cc-director-setup-cli.exe "$RELEASE_DIR/devthrottle-setup-cli-win-x64.exe"
 
           echo ""
           echo "Release files:"
@@ -408,13 +408,13 @@ jobs:
             cc-director-mac-arm64.zip
             cc-director-gateway-win-x64.exe
             cc-director-cockpit-win-x64.zip
-            cc-director-setup-win-x64.exe
-            cc-director-setup-cli-win-x64.exe
+            devthrottle-setup-win-x64.exe
+            devthrottle-setup-cli-win-x64.exe
             cc-python-win-x64.zip
             cc-tools-pyenv-win-x64.zip
             cc-python-macos-arm64.tar.gz
             cc-tools-pyenv-macos-arm64.tar.gz
-            cc-director-setup-mac-arm64.zip
+            devthrottle-setup-mac-arm64.zip
           )
 
           missing_required=()

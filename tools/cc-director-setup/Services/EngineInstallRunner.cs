@@ -221,7 +221,7 @@ public sealed class EngineInstallRunner
         {
             if (OnProcessBlocking is null || !await OnProcessBlocking("cc-director"))
             {
-                Set(prep, director.ComponentId, "Skipped", "CC Director was running");
+                Set(prep, director.ComponentId, "Skipped", "DevThrottle was running");
                 return planItems.Where(i => i.ComponentId != director.ComponentId).ToList();
             }
         }

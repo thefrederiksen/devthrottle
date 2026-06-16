@@ -1,6 +1,6 @@
-# CC Director - install prompt (Windows + macOS)
+# DevThrottle - install prompt (Windows + macOS)
 
-The **prompt you hand to Claude Code** to download and install the latest CC Director. One prompt,
+The **prompt you hand to Claude Code** to download and install the latest DevThrottle. One prompt,
 OS-aware: the agent detects the platform and installs the right asset to a **per-user, user-writable**
 location so the built-in **auto-update can replace it in place with no admin/sudo**. Never
 `Program Files` (Windows) or `/Applications` (macOS). Philosophy: [../PHILOSOPHY.md](../PHILOSOPHY.md).
@@ -10,13 +10,13 @@ Copy everything in the block below into a Claude Code session on the target mach
 ---
 
 ```text
-Install the latest release of CC Director on THIS machine. You are doing the install yourself -
+Install the latest release of DevThrottle on THIS machine. You are doing the install yourself -
 no installer wizard, no admin/sudo. Detect the OS and follow the matching section. STOP with a
 clear message if any step fails; do not silently work around it or build from source.
 
-REPO: github.com/thefrederiksen/cc-director
-Find the latest release - prefer `gh release view --repo thefrederiksen/cc-director --json tagName,assets`,
-else the public API https://api.github.com/repos/thefrederiksen/cc-director/releases/latest. It must
+REPO: github.com/thefrederiksen/devthrottle
+Find the latest release - prefer `gh release view --repo thefrederiksen/devthrottle --json tagName,assets`,
+else the public API https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest. It must
 include `release-manifest.json` plus this OS's asset below. ALWAYS verify the downloaded asset's
 SHA-256 against the manifest's entry for that asset before installing; mismatch = STOP.
 
@@ -28,7 +28,7 @@ TARGET: %LOCALAPPDATA%\cc-director\app\cc-director.exe   (user-writable -> auto-
 3. Create %LOCALAPPDATA%\cc-director\app. If cc-director.exe is there AND running, ask the user to
    close it (do not kill it).
 4. Copy the verified exe to %LOCALAPPDATA%\cc-director\app\cc-director.exe.
-5. Start Menu shortcut: %APPDATA%\Microsoft\Windows\Start Menu\Programs\CC Director.lnk -> the exe
+5. Start Menu shortcut: %APPDATA%\Microsoft\Windows\Start Menu\Programs\DevThrottle.lnk -> the exe
    (working dir = its folder). OPTIONAL autostart on login: also drop a shortcut in
    %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup.
 

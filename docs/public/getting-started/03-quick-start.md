@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks you through your first CC Director session -- from converting a document to sending an email draft.
+This guide walks you through your first DevThrottle session -- from converting a document to sending an email draft.
 
 ## Your First Document Conversion
 
@@ -74,7 +74,7 @@ cc-gmail read MESSAGE_ID
 
 ## Using Claude Code with CC Tools
 
-The real power comes from combining Claude Code with CC Director's tools. Start Claude Code in any project:
+The real power comes from combining Claude Code with DevThrottle's tools. Start Claude Code in any project:
 
 ```bash
 claude
@@ -91,7 +91,7 @@ Claude Code automatically discovers the `cc-*` tools and uses them to fulfill yo
 
 ## The Communication Manager
 
-CC Director includes a communication approval workflow. When Claude drafts an email or social media post, it goes into a review queue -- not directly to the recipient.
+DevThrottle includes a communication approval workflow. When Claude drafts an email or social media post, it goes into a review queue -- not directly to the recipient.
 
 The workflow:
 
@@ -104,7 +104,7 @@ This ensures no AI-generated message leaves your accounts without your explicit 
 
 ## Filing GitHub Issues from the Desktop App
 
-When something goes wrong mid-session, you can file a GitHub issue without leaving CC Director. Both entry points open GitHub's new-issue form for the repository of the session, resolved from its `origin` remote:
+When something goes wrong mid-session, you can file a GitHub issue without leaving DevThrottle. Both entry points open GitHub's new-issue form for the repository of the session, resolved from its `origin` remote:
 
 - **From a session:** open the session's `...` menu in the sidebar and pick **New GitHub Issue**. Your browser opens on the new-issue form for that session's repository.
 - **From a screenshot:** in the Screenshots panel, click **Issue** on any screenshot. The image is copied to the clipboard and the new-issue form opens for the active session's repository -- click into the issue body and press `Ctrl+V` to attach the screenshot.
@@ -113,7 +113,7 @@ The **Copy** button on a screenshot copies the actual image to the clipboard (no
 
 ## Opening the Cockpit
 
-The Cockpit is CC Director's web UI for all your machines' sessions, served by the Gateway over your Tailscale network. Open it with the **Cockpit** toolbar button in the desktop app, or **Open Cockpit** in the Gateway tray menu. Both resolve the Cockpit's tailnet URL (e.g. `https://your-host.your-tailnet.ts.net:7470`) so the link works from any device on your tailnet -- there is intentionally no localhost fallback. If Tailscale is down, the app tells you instead of opening a URL that would only work locally.
+The Cockpit is DevThrottle's web UI for all your machines' sessions, served by the Gateway over your Tailscale network. Open it with the **Cockpit** toolbar button in the desktop app, or **Open Cockpit** in the Gateway tray menu. Both resolve the Cockpit's tailnet URL (e.g. `https://your-host.your-tailnet.ts.net:7470`) so the link works from any device on your tailnet -- there is intentionally no localhost fallback. If Tailscale is down, the app tells you instead of opening a URL that would only work locally.
 
 ## Desktop Automation
 
@@ -140,4 +140,4 @@ cc-hardware gpu --json
 ## Next Steps
 
 - [Tools Overview](../tools/overview.md) -- Full reference for all 25+ tools
-- Browse the [GitHub repository](https://github.com/cc-director/cc-director) for source code and examples
+- Browse the [GitHub repository](https://github.com/thefrederiksen/devthrottle) for source code and examples

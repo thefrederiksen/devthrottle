@@ -52,7 +52,7 @@ public partial class MainWindow : Window
 
         if (_isUpdate)
         {
-            Title = "CC Director Update";
+            Title = "DevThrottle Update";
             SubtitleText.Text = "Update";
             Step4Label.Text = "Update";
         }

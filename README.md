@@ -1,4 +1,8 @@
-# CC Director
+<p align="center">
+  <img src="images/devthrottle-logo.png" alt="DevThrottle" width="420">
+</p>
+
+# DevThrottle
 
 A desktop application for managing multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions simultaneously. Run, monitor, and switch between independent Claude Code instances -- each working on its own repository -- from a single unified interface.
 
@@ -6,27 +10,27 @@ A desktop application for managing multiple [Claude Code](https://docs.anthropic
 
 ## Install
 
-**[Download the latest release](https://github.com/thefrederiksen/cc-director/releases/latest)** -- this link always points to the newest version, all platforms, all assets.
+**[Download the latest release](https://github.com/thefrederiksen/devthrottle/releases/latest)** -- this link always points to the newest version, all platforms, all assets.
 
 ### Windows
 
-[![Download CC Director Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)
+[![Download DevThrottle Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-win-x64.exe)
 
-1. Download **[cc-director-setup-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)**.
+1. Download **[devthrottle-setup-win-x64.exe](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-win-x64.exe)**.
 2. Double-click it. The wizard is self-contained -- it runs even with no .NET installed. If SmartScreen appears, click **More info** -> **Run anyway** (the exe is not code-signed yet).
 3. Follow the wizard. It checks prerequisites (and can auto-install the **.NET 10 runtime** for you via winget), then installs the Director app, 35+ `cc-*` CLI tools, and 14 Claude Code skills. Everything goes to user-writable locations -- **no admin needed**.
 
 ### macOS (Apple Silicon)
 
-[![Download CC Director Setup for macOS](https://img.shields.io/badge/Download-Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64.zip)
+[![Download DevThrottle Setup for macOS](https://img.shields.io/badge/Download-Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-mac-arm64.zip)
 
-1. Download **[cc-director-setup-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64.zip)** and unzip it.
-2. Right-click **CC Director Setup.app** -> **Open** (the app is not code-signed, so a plain double-click is blocked by Gatekeeper).
+1. Download **[devthrottle-setup-mac-arm64.zip](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-mac-arm64.zip)** and unzip it.
+2. Right-click **DevThrottle Setup.app** -> **Open** (the app is not code-signed, so a plain double-click is blocked by Gatekeeper).
 3. Follow the wizard. It installs the Director to `~/Applications`, every `cc-*` tool into one shared Python environment, and links them into `~/.local/bin` (added to your shell `PATH`). **No sudo needed.**
 
 ### Prerequisite: Claude Code
 
-CC Director manages [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions, so you need a **paid Claude plan** (Pro, Max, Team, or Enterprise -- the free Claude.ai plan does **not** include Claude Code) and Claude Code installed. Use Anthropic's official **native installer** (no Node.js; **do not use `npm`** -- it's the usual cause of "`claude` command not found" and PATH problems), then run `claude` once to sign in:
+DevThrottle manages [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions, so you need a **paid Claude plan** (Pro, Max, Team, or Enterprise -- the free Claude.ai plan does **not** include Claude Code) and Claude Code installed. Use Anthropic's official **native installer** (no Node.js; **do not use `npm`** -- it's the usual cause of "`claude` command not found" and PATH problems), then run `claude` once to sign in:
 
 - **Windows (PowerShell):** `irm https://claude.ai/install.ps1 | iex`
 - **macOS / Linux:** `curl -fsSL https://claude.ai/install.sh | bash`
@@ -53,18 +57,18 @@ More options and troubleshooting: [Anthropic's setup guide](https://code.claude.
 <details>
 <summary><b>Alternative install: paste one prompt into Claude Code (no wizard)</b></summary>
 
-CC Director can also install itself **through Claude Code**: paste a single prompt that downloads and installs CC Director for you. Works on **Windows** and **macOS (Apple Silicon)**, no admin needed. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
+DevThrottle can also install itself **through Claude Code**: paste a single prompt that downloads and installs DevThrottle for you. Works on **Windows** and **macOS (Apple Silicon)**, no admin needed. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
 
-Open Claude Code in any folder and paste the prompt below. It detects your OS, finds the latest release, verifies the download against the release manifest (SHA-256), and installs CC Director to a **user-writable** location -- so it needs no admin/sudo and the built-in auto-updater can later replace it in place.
+Open Claude Code in any folder and paste the prompt below. It detects your OS, finds the latest release, verifies the download against the release manifest (SHA-256), and installs DevThrottle to a **user-writable** location -- so it needs no admin/sudo and the built-in auto-updater can later replace it in place.
 
 ```text
-Install the latest release of CC Director on THIS machine. You are doing the install yourself -
+Install the latest release of DevThrottle on THIS machine. You are doing the install yourself -
 no installer wizard, no admin/sudo. Detect the OS and follow the matching section. STOP with a
 clear message if any step fails; do not silently work around it or build from source.
 
-REPO: github.com/thefrederiksen/cc-director
-Find the latest release - prefer `gh release view --repo thefrederiksen/cc-director --json tagName,assets`,
-else the public API https://api.github.com/repos/thefrederiksen/cc-director/releases/latest. It must
+REPO: github.com/thefrederiksen/devthrottle
+Find the latest release - prefer `gh release view --repo thefrederiksen/devthrottle --json tagName,assets`,
+else the public API https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest. It must
 include `release-manifest.json` plus this OS's asset below. ALWAYS verify the downloaded asset's
 SHA-256 against the manifest's entry for that asset before installing; mismatch = STOP.
 
@@ -76,7 +80,7 @@ TARGET: %LOCALAPPDATA%\cc-director\app\cc-director.exe   (user-writable -> auto-
 3. Create %LOCALAPPDATA%\cc-director\app. If cc-director.exe is there AND running, ask the user to
    close it (do not kill it).
 4. Copy the verified exe to %LOCALAPPDATA%\cc-director\app\cc-director.exe.
-5. Start Menu shortcut: %APPDATA%\Microsoft\Windows\Start Menu\Programs\CC Director.lnk -> the exe
+5. Start Menu shortcut: %APPDATA%\Microsoft\Windows\Start Menu\Programs\DevThrottle.lnk -> the exe
    (working dir = its folder). OPTIONAL autostart on login: also drop a shortcut in
    %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup.
 
@@ -114,12 +118,12 @@ Note: the one-prompt install covers the Director app itself; the `cc-*` CLI tool
 <details>
 <summary><b>Alternative: direct download (skip the prompt and the wizard)</b></summary>
 
-Grab the app directly from the [latest release](https://github.com/thefrederiksen/cc-director/releases/latest):
+Grab the app directly from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest):
 
 | Platform | Download | Notes |
 |----------|----------|-------|
-| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
-| macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
+| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/devthrottle/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
+| macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/devthrottle/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
 
 This installs the Director app only. The `cc-*` CLI tools and skills come with the **setup wizard** (see [Install](#install) above).
 
@@ -129,19 +133,19 @@ This installs the Director app only. The `cc-*` CLI tools and skills come with t
 
 ### Start your first session
 
-Launch CC Director, point it at a repository, and create a session. That session is a real Claude Code instance running in an embedded console -- anything Claude Code can do, it does here.
+Launch DevThrottle, point it at a repository, and create a session. That session is a real Claude Code instance running in an embedded console -- anything Claude Code can do, it does here.
 
-![CC Director](images/cc-director-main.png)
+![DevThrottle](images/cc-director-main.png)
 
 ### Optional: voice and image features
 
-Voice mode and the media tools (`cc-voice`, `cc-whisper`, `cc-transcribe`, `cc-image`) call OpenAI, so they need an OpenAI API key. They are **not** required to run CC Director -- add the key only when you want those features (see the [installation guide](docs/public/getting-started/02-installation.md)).
+Voice mode and the media tools (`cc-voice`, `cc-whisper`, `cc-transcribe`, `cc-image`) call OpenAI, so they need an OpenAI API key. They are **not** required to run DevThrottle -- add the key only when you want those features (see the [installation guide](docs/public/getting-started/02-installation.md)).
 
-## Why CC Director
+## Why DevThrottle
 
-I built CC Director because I was running 5+ Claude Code sessions at once and nothing fit. Terminal programs were missing features I needed -- file browsing, GitHub integration, easy screenshot handling. VS Code had too many things I didn't want getting in the way. So I built my own Claude Code session manager. I use it every day as my primary development environment. It ships with 35+ purpose-built CLI tools and 14 Claude Code skills that handle everything from document generation to browser automation to email management.
+I built DevThrottle because I was running 5+ Claude Code sessions at once and nothing fit. Terminal programs were missing features I needed -- file browsing, GitHub integration, easy screenshot handling. VS Code had too many things I didn't want getting in the way. So I built my own Claude Code session manager. I use it every day as my primary development environment. It ships with 35+ purpose-built CLI tools and 14 Claude Code skills that handle everything from document generation to browser automation to email management.
 
-![CC Director - Multiple sessions with workflow recording](images/cc-director-workflow.png)
+![DevThrottle - Multiple sessions with workflow recording](images/cc-director-workflow.png)
 
 ## Features
 
@@ -163,7 +167,7 @@ I built CC Director because I was running 5+ Claude Code sessions at once and no
 - Powered by Claude Code's hook system — every tool call, prompt, and notification is captured
 
 ### Session Persistence
-- Sessions survive app restarts — CC Director reconnects to running Claude processes on launch
+- Sessions survive app restarts — DevThrottle reconnects to running Claude processes on launch
 - "Reconnect" button scans for orphaned `claude.exe` processes and reclaims them
 - Recent sessions are remembered with their custom names and colors
 
@@ -190,7 +194,7 @@ I built CC Director because I was running 5+ Claude Code sessions at once and no
 
 ## Bundled CLI Tools
 
-CC Director ships with 35+ command-line tools that are installed on your PATH and available from any terminal or Claude Code session. Every tool follows the `cc-*` naming convention.
+DevThrottle ships with 35+ command-line tools that are installed on your PATH and available from any terminal or Claude Code session. Every tool follows the `cc-*` naming convention.
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -212,9 +216,9 @@ The main app is an Avalonia desktop application (`src/CcDirector.Avalonia`) back
 
 **How it works:**
 
-1. CC Director spawns Claude Code with a pseudo-terminal (ConPTY on Windows, PTY on Mac/Linux)
+1. DevThrottle spawns Claude Code with a pseudo-terminal (ConPTY on Windows, PTY on Mac/Linux)
 2. A relay script is installed as a Claude Code hook — it forwards hook events (JSON) over IPC
-3. An IPC server inside CC Director receives events, routes them to the correct session, and updates the activity state
+3. An IPC server inside DevThrottle receives events, routes them to the correct session, and updates the activity state
 4. The UI reflects state changes in real-time via data binding
 
 ```
@@ -227,7 +231,7 @@ Claude Code ──hook──▶ PowerShell relay               Python relay scri
                             │                                   │
                             └──────────────┬────────────────────┘
                                            ▼
-                                     CC Director
+                                     DevThrottle
                                            │
                                ┌───────────┴───────────┐
                            EventRouter          Session UI
@@ -273,7 +277,7 @@ Session state, logs, vault data, and tool config live under `%LOCALAPPDATA%\cc-d
 
 ## Platform Support
 
-CC Director ships builds for **Windows 10/11** and **macOS (Apple Silicon)**. The core backend (`CcDirector.Core`) and the Avalonia UI are a single cross-platform codebase; only the platform-specific plumbing differs:
+DevThrottle ships builds for **Windows 10/11** and **macOS (Apple Silicon)**. The core backend (`CcDirector.Core`) and the Avalonia UI are a single cross-platform codebase; only the platform-specific plumbing differs:
 
 | Component | Windows | macOS |
 |-----------|---------|-------|
@@ -296,7 +300,7 @@ Linux builds from source but is not yet packaged as a release.
 This project is actively developed. To stay in the loop:
 
 - **Watch this repo** (click "Watch" at the top) to get notified of new releases
-- **Join the [Discussions](https://github.com/thefrederiksen/cc-director/discussions)** to ask questions, share your setup, or request features
+- **Join the [Discussions](https://github.com/thefrederiksen/devthrottle/discussions)** to ask questions, share your setup, or request features
 - **Follow along** at [sorenfrederiksen.com](https://sorenfrederiksen.com)
 
 ## License

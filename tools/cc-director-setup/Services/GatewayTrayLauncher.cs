@@ -14,7 +14,7 @@ namespace CcDirectorSetup.Services;
 /// </summary>
 public sealed class GatewayTrayLauncher
 {
-    public const string CliAsset = "cc-director-setup-cli-win-x64.exe";
+    public const string CliAsset = "devthrottle-setup-cli-win-x64.exe";
 
     private readonly ReleaseSource _source;
 

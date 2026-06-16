@@ -61,7 +61,7 @@ public partial class MainWindow : Window
 
         if (_isUpdate)
         {
-            Title = "CC Director Update";
+            Title = "DevThrottle Update";
             SubtitleText.Text = "Update";
             Step4Label.Text = "Update";
         }
@@ -422,10 +422,10 @@ public partial class MainWindow : Window
     {
         var result = MessageBox.Show(
             this,
-            "CC Director is currently running and cannot be updated.\n\n" +
-            "Please close CC Director and click OK to retry,\n" +
+            "DevThrottle is currently running and cannot be updated.\n\n" +
+            "Please close DevThrottle and click OK to retry,\n" +
             "or click Cancel to skip updating the main application.",
-            "CC Director is Running",
+            "DevThrottle is Running",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning);
 

@@ -5,10 +5,10 @@
         <!-- ===================== CONFIRM ===================== -->
         <DockPanel x:Name="ConfirmView">
             <StackPanel DockPanel.Dock="Top">
-                <TextBlock Text="Uninstall CC Director"
+                <TextBlock Text="Uninstall DevThrottle"
                            Foreground="White" FontSize="22" FontWeight="SemiBold" />
                 <TextBlock x:Name="ConfirmSubtitle"
-                           Text="This removes CC Director and its integration from this PC."
+                           Text="This removes DevThrottle and its integration from this PC."
                            Foreground="{StaticResource TextForeground}" FontSize="13"
                            Margin="0,8,0,0" />
             </StackPanel>

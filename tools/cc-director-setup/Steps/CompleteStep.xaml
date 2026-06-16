@@ -71,7 +71,7 @@
                     <ControlTemplate TargetType="Button">
                         <Border Background="#22C55E" CornerRadius="6"
                                 Padding="20,0">
-                            <TextBlock Text="Launch CC Director"
+                            <TextBlock Text="Launch DevThrottle"
                                        Foreground="White"
                                        FontSize="16"
                                        FontWeight="SemiBold"

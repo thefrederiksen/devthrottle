@@ -4,7 +4,7 @@ using Microsoft.Win32;
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
-/// The Windows "Apps &amp; features" / "Add or remove programs" registration for CC Director
+/// The Windows "Apps &amp; features" / "Add or remove programs" registration for DevThrottle
 /// (issue #257), under HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\&lt;key&gt;.
 /// Per-user (HKCU) matches the per-user install: no elevation. The install path registers it so
 /// uninstall is discoverable from Windows even when the app will not launch; the uninstaller
@@ -17,7 +17,7 @@ public static class AddRemovePrograms
     public const string DefaultKeyName = "CcDirector";
 
     /// <summary>The display name shown in Windows "Apps &amp; features".</summary>
-    public const string DisplayName = "CC Director";
+    public const string DisplayName = "DevThrottle";
 
     private const string UninstallRoot = @"Software\Microsoft\Windows\CurrentVersion\Uninstall";
 
@@ -42,7 +42,7 @@ public static class AddRemovePrograms
 
         key.SetValue("DisplayName", DisplayName, RegistryValueKind.String);
         key.SetValue("DisplayVersion", version, RegistryValueKind.String);
-        key.SetValue("Publisher", "CC Director", RegistryValueKind.String);
+        key.SetValue("Publisher", "DevThrottle", RegistryValueKind.String);
         key.SetValue("InstallLocation", installLocation ?? "", RegistryValueKind.String);
         key.SetValue("UninstallString", uninstallCommand, RegistryValueKind.String);
         key.SetValue("DisplayIcon", displayIcon ?? uninstallCommand, RegistryValueKind.String);

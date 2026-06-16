@@ -39,7 +39,7 @@
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <!-- CC Director (main app) -->
+                <!-- DevThrottle (main app) -->
                 <Border Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,0,0,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -48,7 +48,7 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="CC Director"
+                            <TextBlock Text="DevThrottle"
                                        Foreground="White"
                                        FontSize="16"
                                        FontWeight="SemiBold" />
