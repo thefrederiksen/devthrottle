@@ -199,13 +199,27 @@ public class HomeStatusBuilderTests
     }
 
     [Fact]
-    public void Build_ToolHealthAllPassWithOptionalNotBuilt_IsGreen()
+    public void Build_ToolHealthNotBuilt_WarnsAndRoutesToTools()
     {
-        var health = new ToolHealthSummary(24, 0, 4,0, Array.Empty<string>());
+        // The home must show the true picture: any not-built tool warns and routes to the Tools page,
+        // rather than reading "all systems go" while tools are missing.
+        var health = new ToolHealthSummary(24, 0, 4, 0, Array.Empty<string>());
         var status = HomeStatusBuilder.Build(new[] { Cli("Claude Code", true, "2.1") }, 0, 0, null, health);
 
         var tools = Row(status, "cc-* tools");
-        Assert.Equal(HomeCheckLevel.Ok, tools.Level);   // optional not-built does not alarm
+        Assert.Equal(HomeCheckLevel.Warn, tools.Level);
+        Assert.Contains("4 not built", tools.Detail);
+        Assert.Equal(HomeCheckAction.OpenTools, tools.Action); // not broken -> route to the Tools page
+    }
+
+    [Fact]
+    public void Build_ToolHealthAllPassing_IsGreen()
+    {
+        var health = new ToolHealthSummary(28, 0, 0, 0, Array.Empty<string>());
+        var status = HomeStatusBuilder.Build(new[] { Cli("Claude Code", true, "2.1") }, 0, 0, null, health);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Ok, tools.Level);   // green ONLY when every tool passes
         Assert.Equal(HomeCheckAction.None, tools.Action);
     }
 

@@ -82,11 +82,10 @@ public static class HomeStatusBuilder
     }
 
     /// <summary>
-    /// The cc-* tools row from actual test results. Shows the full breakdown ("24 pass · 1 fail ·
-    /// 4 not built") for transparency, but only ALARMS on a real problem - a built tool whose test
-    /// failed, or a broken (expected-but-missing) tool. Optional/never-installed tools are counted but
-    /// do not raise a warning (the caller surfaces them quietly in the all-clear summary). A broken
-    /// tool offers the one-click repair; a plain failure routes to the Tools page to investigate.
+    /// The cc-* tools row from actual test results. Green ONLY when every tool passes. Otherwise it
+    /// warns and shows the true breakdown ("26 pass · 2 not built" / "24 pass · 1 fail · 4 not built") -
+    /// any failing OR not-built tool surfaces here rather than hiding behind "all systems go". A broken
+    /// (expected-but-missing) tool offers the one-click repair; anything else routes to the Tools page.
     /// </summary>
     private static HomeCheck BuildToolsFromHealth(Tools.ToolHealthSummary h)
     {

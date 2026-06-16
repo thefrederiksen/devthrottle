@@ -31,13 +31,22 @@ public class ToolHealthTests
     }
 
     [Fact]
-    public void From_AllPassWithOptionalNotBuilt_NoProblem()
+    public void From_AnyNotBuilt_IsAProblem()
     {
+        // Even an optional/never-installed tool is surfaced now: the home shows the true picture and warns.
         var s = ToolHealthSummary.From(new[] { Built("a", true), Built("b", true), NotBuilt("optional", expected: false) });
 
         Assert.Equal(0, s.Fail);
-        Assert.Equal(0, s.Broken);
-        Assert.False(s.HasProblem); // an optional not-installed tool is shown but is not a problem
+        Assert.Equal(1, s.NotBuilt);
+        Assert.True(s.HasProblem);
+    }
+
+    [Fact]
+    public void From_AllBuiltAndPassing_NoProblem()
+    {
+        var s = ToolHealthSummary.From(new[] { Built("a", true), Built("b", true) });
+
+        Assert.False(s.HasProblem); // green only when every tool passes
     }
 
     [Fact]

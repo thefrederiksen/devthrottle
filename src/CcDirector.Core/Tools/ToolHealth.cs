@@ -20,8 +20,12 @@ public sealed record ToolHealthSummary(
     /// <summary>Total tools considered (pass + fail + not-built).</summary>
     public int Total => Pass + Fail + NotBuilt;
 
-    /// <summary>True when there is a genuine problem the home should alarm on: a failing or broken tool.</summary>
-    public bool HasProblem => Fail > 0 || Broken > 0;
+    /// <summary>
+    /// True when the home should warn: ANY tool that is not passing - a built tool whose test failed, or
+    /// a not-built tool (broken half-install OR optional/never-installed). The home shows the true picture
+    /// and routes to the Tools page rather than hiding not-built tools behind "all systems go".
+    /// </summary>
+    public bool HasProblem => Fail > 0 || NotBuilt > 0;
 
     public static ToolHealthSummary From(IEnumerable<ToolHealthInput> inputs)
     {
