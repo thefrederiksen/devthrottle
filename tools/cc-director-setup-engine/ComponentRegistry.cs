@@ -33,7 +33,7 @@ public static class ComponentRegistry
         Id: "gateway",
         Kind: ComponentKind.Gateway,
         DisplayName: "DevThrottle Gateway",
-        WindowsAsset: "cc-director-gateway-win-x64.exe",
+        WindowsAsset: "devthrottle-gateway-win-x64.exe",
         Roles: GatewayOnly);
 
     /// <summary>The Cockpit ships only to the Gateway-role machine (the service supervises it).</summary>
@@ -41,7 +41,7 @@ public static class ComponentRegistry
         Id: "cockpit",
         Kind: ComponentKind.Cockpit,
         DisplayName: "DevThrottle Cockpit",
-        WindowsAsset: "cc-director-cockpit-win-x64.zip",
+        WindowsAsset: "devthrottle-cockpit-win-x64.zip",
         Roles: GatewayOnly);
 
     /// <summary>
@@ -115,8 +115,10 @@ public static class ComponentRegistry
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "cc-director",          // the Director app (its own component, not a tool)
-            "cc-director-gateway",  // the Gateway app
-            "cc-director-cockpit",  // the Cockpit app (ships as .zip anyway)
+            "cc-director-gateway",  // the Gateway app (legacy asset name, pre-rename)
+            "cc-director-cockpit",  // the Cockpit app (legacy asset name, pre-rename)
+            "devthrottle-gateway",  // the Gateway app
+            "devthrottle-cockpit",  // the Cockpit app (ships as .zip anyway)
             "cc-director-setup",    // the installer wizard (legacy asset name, pre-rename)
             "cc-director-setup-cli",// the installer CLI (legacy asset name, pre-rename)
             "devthrottle-setup",    // the installer wizard itself

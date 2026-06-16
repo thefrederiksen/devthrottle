@@ -75,7 +75,7 @@ public sealed class GitHubItemStatusClient
         using var req = new HttpRequestMessage(HttpMethod.Get, $"repos/{Owner}/{Repo}/issues/{Uri.EscapeDataString(id)}");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        req.Headers.UserAgent.ParseAdd("cc-director-cockpit");
+        req.Headers.UserAgent.ParseAdd("devthrottle-cockpit");
         req.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
 
         using var resp = await _http.SendAsync(req, ct);

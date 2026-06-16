@@ -28,7 +28,7 @@ public class CockpitUpdaterTests : IDisposable
     {
         var payload = Path.Combine(_dir, "payload-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(payload);
-        File.WriteAllText(Path.Combine(payload, "cc-director-cockpit.exe"), $"cockpit@{version}");
+        File.WriteAllText(Path.Combine(payload, "devthrottle-cockpit.exe"), $"cockpit@{version}");
         var zip = Path.Combine(_releaseDir, CockpitPackage.AssetName);
         if (File.Exists(zip)) File.Delete(zip);
         ZipFile.CreateFromDirectory(payload, zip);

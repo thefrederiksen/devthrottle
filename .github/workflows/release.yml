@@ -162,10 +162,10 @@ jobs:
   # ---------------------------------------------------------------
   # THE Gateway: an Avalonia tray app that hosts the gateway in-process, supervises
   # the Cockpit, and self-updates - per-user, started at logon, no Windows service
-  # (docs/plans/gateway-tray-app.md). AssemblyName is "cc-director-gateway", so the
-  # published single file is cc-director-gateway.exe; the create-release job renames
+  # (docs/plans/gateway-tray-app.md). AssemblyName is "devthrottle-gateway", so the
+  # published single file is devthrottle-gateway.exe; the create-release job renames
   # it to the asset name the setup engine expects
-  # (ComponentRegistry.Gateway.WindowsAsset = cc-director-gateway-win-x64.exe).
+  # (ComponentRegistry.Gateway.WindowsAsset = devthrottle-gateway-win-x64.exe).
   # The old headless console host (CcDirector.Gateway) is the dev loop only.
   build-gateway-win:
     name: Build CC Gateway (Windows)
@@ -191,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: gateway-win
-          path: src/CcDirector.GatewayApp/bin/Release/net10.0-windows/win-x64/publish/cc-director-gateway.exe
+          path: src/CcDirector.GatewayApp/bin/Release/net10.0-windows/win-x64/publish/devthrottle-gateway.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------
@@ -199,7 +199,7 @@ jobs:
   # ---------------------------------------------------------------
   # Blazor Server web UI (port 7470) supervised by the Gateway service. Unlike the
   # single-file apps, the Cockpit is a folder of assemblies + wwwroot, so it ships
-  # as a .zip (ComponentRegistry.Cockpit.WindowsAsset = cc-director-cockpit-win-x64.zip).
+  # as a .zip (ComponentRegistry.Cockpit.WindowsAsset = devthrottle-cockpit-win-x64.zip).
   # Published SELF-CONTAINED so the target machine does not need a matching .NET
   # runtime installed. The setup engine's UpdateRunner deliberately skips .zip assets;
   # unpacking is the Gateway service's job (Phase 2), so this job only PRODUCES the zip.
@@ -226,13 +226,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Compress-Archive -Path "cockpit-publish/*" -DestinationPath "artifacts/cc-director-cockpit-win-x64.zip" -Force
+          Compress-Archive -Path "cockpit-publish/*" -DestinationPath "artifacts/devthrottle-cockpit-win-x64.zip" -Force
 
       - name: Upload cockpit artifact
         uses: actions/upload-artifact@v6
         with:
           name: cockpit-win
-          path: artifacts/cc-director-cockpit-win-x64.zip
+          path: artifacts/devthrottle-cockpit-win-x64.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------
@@ -376,11 +376,11 @@ jobs:
           cp release-artifacts/python-bundle-mac/cc-tools-pyenv-macos-arm64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
           cp release-artifacts/setup-mac/cc-director-setup-mac-arm64.zip "$RELEASE_DIR/devthrottle-setup-mac-arm64.zip"
 
-          # Windows Gateway service (publish emits cc-director-gateway.exe)
-          cp release-artifacts/gateway-win/cc-director-gateway.exe "$RELEASE_DIR/cc-director-gateway-win-x64.exe"
+          # Windows Gateway service (publish emits devthrottle-gateway.exe)
+          cp release-artifacts/gateway-win/devthrottle-gateway.exe "$RELEASE_DIR/devthrottle-gateway-win-x64.exe"
 
           # Windows Cockpit web app (already the zip name the engine expects)
-          cp release-artifacts/cockpit-win/cc-director-cockpit-win-x64.zip "$RELEASE_DIR/cc-director-cockpit-win-x64.zip"
+          cp release-artifacts/cockpit-win/devthrottle-cockpit-win-x64.zip "$RELEASE_DIR/devthrottle-cockpit-win-x64.zip"
 
           # Windows Python tools bundle (one shared-venv bundle: core tools only).
           cp release-artifacts/python-bundle-win/cc-python-win-x64.zip "$RELEASE_DIR/cc-python-win-x64.zip"
@@ -406,8 +406,8 @@ jobs:
           required=(
             cc-director-win-x64.exe
             cc-director-mac-arm64.zip
-            cc-director-gateway-win-x64.exe
-            cc-director-cockpit-win-x64.zip
+            devthrottle-gateway-win-x64.exe
+            devthrottle-cockpit-win-x64.zip
             devthrottle-setup-win-x64.exe
             devthrottle-setup-cli-win-x64.exe
             cc-python-win-x64.zip

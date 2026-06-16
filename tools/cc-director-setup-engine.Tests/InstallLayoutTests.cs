@@ -27,10 +27,10 @@ public class InstallLayoutTests
         // The Gateway is a per-user tray app: everything lives under the one user root
         // (docs/plans/gateway-tray-app.md) so install/update/uninstall never elevate.
         Assert.Equal(
-            Path.Combine(@"C:\root", "gateway", "cc-director-gateway.exe"),
+            Path.Combine(@"C:\root", "gateway", "devthrottle-gateway.exe"),
             Layout.PathFor(ComponentRegistry.Gateway));
         Assert.Equal(
-            Path.Combine(@"C:\root", "cockpit", "cc-director-cockpit.exe"),
+            Path.Combine(@"C:\root", "cockpit", "devthrottle-cockpit.exe"),
             Layout.PathFor(ComponentRegistry.Cockpit));
     }
 

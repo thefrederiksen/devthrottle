@@ -301,7 +301,8 @@ public sealed class Uninstaller
     private void StopGatewayTrayApp(List<string> steps)
     {
         var stopped = 0;
-        foreach (var name in new[] { "cc-director-gateway", "cc-director-cockpit" })
+        // Both old (pre-rename) and new names so uninstalling an older install still stops it.
+        foreach (var name in new[] { "cc-director-gateway", "cc-director-cockpit", "devthrottle-gateway", "devthrottle-cockpit" })
         {
             foreach (var p in Process.GetProcessesByName(name))
             {

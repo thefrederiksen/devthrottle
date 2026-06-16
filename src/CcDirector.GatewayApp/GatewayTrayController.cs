@@ -120,7 +120,7 @@ public sealed class GatewayTrayController : IDisposable
 
         _trayIcon = new TrayIcon
         {
-            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://cc-director-gateway/Assets/tray.ico"))),
+            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://devthrottle-gateway/Assets/tray.ico"))),
             ToolTipText = "CC Director Gateway",
             Menu = menu,
             IsVisible = true,

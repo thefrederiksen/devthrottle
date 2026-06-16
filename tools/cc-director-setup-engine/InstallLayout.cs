@@ -100,8 +100,8 @@ public sealed class InstallLayout
             {
                 ComponentKind.Director => Path.Combine(MacAppsDir, "CC Director.app"),
                 ComponentKind.Tool => Path.Combine(BinDir, component.Id),
-                ComponentKind.Gateway => Path.Combine(GatewayDir, "cc-director-gateway"),
-                ComponentKind.Cockpit => Path.Combine(CockpitDir, "cc-director-cockpit"),
+                ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
+                ComponentKind.Cockpit => Path.Combine(CockpitDir, "devthrottle-cockpit"),
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
             };
@@ -110,8 +110,8 @@ public sealed class InstallLayout
         return component.Kind switch
         {
             ComponentKind.Director => Path.Combine(AppDir, "cc-director.exe"),
-            ComponentKind.Gateway => Path.Combine(GatewayDir, "cc-director-gateway.exe"),
-            ComponentKind.Cockpit => Path.Combine(CockpitDir, "cc-director-cockpit.exe"),
+            ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway.exe"),
+            ComponentKind.Cockpit => Path.Combine(CockpitDir, "devthrottle-cockpit.exe"),
             ComponentKind.Tool => Path.Combine(BinDir, $"{component.Id}.exe"),
             ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher.exe"),
             _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),

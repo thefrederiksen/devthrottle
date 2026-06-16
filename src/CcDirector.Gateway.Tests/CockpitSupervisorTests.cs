@@ -13,7 +13,7 @@ public sealed class CockpitSupervisorTests
 {
     private static readonly string CockpitExe = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-        "CC Director", "cockpit", "cc-director-cockpit.exe");
+        "CC Director", "cockpit", "devthrottle-cockpit.exe");
     private const int TestPort = 7472;
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class CockpitSupervisorTests
 
     private static void KillCockpits()
     {
-        foreach (var p in Process.GetProcessesByName("cc-director-cockpit"))
+        foreach (var p in Process.GetProcessesByName("devthrottle-cockpit"))
         {
             try { p.Kill(entireProcessTree: true); p.WaitForExit(3000); } catch { }
             finally { p.Dispose(); }

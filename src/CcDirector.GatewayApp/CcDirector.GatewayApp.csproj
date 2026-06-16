@@ -3,9 +3,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <!-- THE shipped Gateway exe (release asset cc-director-gateway-win-x64.exe). The old
+    <!-- THE shipped Gateway exe (release asset devthrottle-gateway-win-x64.exe). The old
          headless service exe is gone; the dev console host stays `dotnet run` only. -->
-    <AssemblyName>cc-director-gateway</AssemblyName>
+    <AssemblyName>devthrottle-gateway</AssemblyName>
     <RootNamespace>CcDirector.GatewayApp</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

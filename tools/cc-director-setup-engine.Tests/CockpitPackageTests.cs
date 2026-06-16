@@ -29,7 +29,7 @@ public class CockpitPackageTests : IDisposable
     {
         var payload = Path.Combine(_dir, "payload");
         Directory.CreateDirectory(Path.Combine(payload, "wwwroot"));
-        File.WriteAllText(Path.Combine(payload, "cc-director-cockpit.exe"), exeContents);
+        File.WriteAllText(Path.Combine(payload, "devthrottle-cockpit.exe"), exeContents);
         File.WriteAllText(Path.Combine(payload, "CcDirector.Gateway.Contracts.dll"), "dep");
         File.WriteAllText(Path.Combine(payload, "wwwroot", "app.css"), "body{}");
 

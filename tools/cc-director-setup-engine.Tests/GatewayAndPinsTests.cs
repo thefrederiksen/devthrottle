@@ -12,16 +12,16 @@ public class GatewayAutostartTests
     public void CommandLine_NoArguments_QuotesExeOnly()
     {
         Assert.Equal(
-            "\"C:\\Users\\example\\AppData\\Local\\cc-director\\gateway\\cc-director-gateway.exe\"",
-            GatewayAutostart.CommandLine(@"C:\Users\example\AppData\Local\cc-director\gateway\cc-director-gateway.exe"));
+            "\"C:\\Users\\example\\AppData\\Local\\cc-director\\gateway\\devthrottle-gateway.exe\"",
+            GatewayAutostart.CommandLine(@"C:\Users\example\AppData\Local\cc-director\gateway\devthrottle-gateway.exe"));
     }
 
     [Fact]
     public void CommandLine_WithArguments_AppendsThem()
     {
         Assert.Equal(
-            "\"C:\\x\\cc-director-gateway.exe\" --managed",
-            GatewayAutostart.CommandLine(@"C:\x\cc-director-gateway.exe", "--managed"));
+            "\"C:\\x\\devthrottle-gateway.exe\" --managed",
+            GatewayAutostart.CommandLine(@"C:\x\devthrottle-gateway.exe", "--managed"));
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class GatewayTrayInstallerTests
     [Fact]
     public void BuildTrayLaunchInfo_UsesShellExecute_NoRedirection()
     {
-        var exe = OperatingSystem.IsWindows() ? @"C:\some\cc-director-gateway.exe" : "/some/cc-director-gateway";
+        var exe = OperatingSystem.IsWindows() ? @"C:\some\devthrottle-gateway.exe" : "/some/devthrottle-gateway";
         var dir = OperatingSystem.IsWindows() ? @"C:\some" : "/some";
 
         var psi = GatewayTrayInstaller.BuildTrayLaunchInfo(exe, dir);

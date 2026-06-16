@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>CcDirector.Cockpit</RootNamespace>
-    <AssemblyName>cc-director-cockpit</AssemblyName>
+    <AssemblyName>devthrottle-cockpit</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

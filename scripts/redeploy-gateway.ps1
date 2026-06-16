@@ -90,7 +90,7 @@ function Test-ShaMatch {
 # Isolation is the point (issue #290): the worktree is a separate checkout of the SAME repo at the
 # exact commit, so a concurrent branch switch or edit in the main checkout cannot change the source
 # that gets published. The worktree is always removed afterward (even on failure). Returns the path
-# to the published cc-director-gateway.exe; throws if it did not appear.
+# to the published devthrottle-gateway.exe; throws if it did not appear.
 function New-IsolatedGatewayPublish {
     [CmdletBinding()]
     param(
@@ -129,7 +129,7 @@ function New-IsolatedGatewayPublish {
             throw "New-IsolatedGatewayPublish: dotnet publish failed (exit $LASTEXITCODE)"
         }
 
-        $exe = Join-Path $StageDir 'cc-director-gateway.exe'
+        $exe = Join-Path $StageDir 'devthrottle-gateway.exe'
         if (-not (Test-Path $exe)) {
             throw "New-IsolatedGatewayPublish: published exe not found at $exe"
         }
@@ -233,13 +233,13 @@ try {
     # Ask the running tray app to exit gracefully, then wait for the exe to unlock.
     try { Invoke-WebRequest 'http://127.0.0.1:7878/shutdown' -Method POST -UseBasicParsing -TimeoutSec 5 | Out-Null } catch {}
     for ($i = 0; $i -lt 20; $i++) {
-        if (-not (Get-Process -Name cc-director-gateway -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$gwDir*" })) { break }
+        if (-not (Get-Process -Name devthrottle-gateway -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$gwDir*" })) { break }
         Start-Sleep -Milliseconds 500
     }
 
     New-Item -ItemType Directory -Force $gwDir | Out-Null
     Copy-Item $stagedExe $gwDir -Force
-    Start-Process -FilePath "$gwDir\cc-director-gateway.exe" -ArgumentList '--managed' -WorkingDirectory $gwDir
+    Start-Process -FilePath "$gwDir\devthrottle-gateway.exe" -ArgumentList '--managed' -WorkingDirectory $gwDir
 
     Start-Sleep 5
 

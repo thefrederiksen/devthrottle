@@ -160,7 +160,9 @@ public sealed class GatewayTrayInstaller
     private void StopInstalledProcesses(List<string> steps)
     {
         var stopped = 0;
-        foreach (var name in new[] { "cc-director-gateway", "cc-director-cockpit" })
+        // Both old (pre-rename) and new names: updating an old install must stop the
+        // still-running cc-director-gateway/cockpit before the devthrottle-* swap.
+        foreach (var name in new[] { "cc-director-gateway", "cc-director-cockpit", "devthrottle-gateway", "devthrottle-cockpit" })
         {
             foreach (var p in Process.GetProcessesByName(name))
             {

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <!-- The shipped Gateway exe name (cc-director-gateway) belongs to the TRAY app
+    <!-- The shipped Gateway exe name (devthrottle-gateway) belongs to the TRAY app
          (CcDirector.GatewayApp). This project is the gateway library + dev console host. -->
     <AssemblyName>CcDirector.Gateway</AssemblyName>
     <!-- Framework-dependent always, so the tray app (also framework-dependent) can publish

@@ -21,7 +21,7 @@ public sealed class GatewayUpdater
     }
 
     /// <summary>The staging path the new Gateway exe is downloaded to before the swap.</summary>
-    public string StagedExePath => Path.Combine(_layout.StateDir, "staged", "cc-director-gateway.exe");
+    public string StagedExePath => Path.Combine(_layout.StateDir, "staged", "devthrottle-gateway.exe");
 
     /// <summary>True when the release has a Gateway newer than the installed one (and it isn't pinned).</summary>
     public bool IsUpdateAvailable(ResolvedRelease release)

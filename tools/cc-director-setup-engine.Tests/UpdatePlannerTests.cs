@@ -116,7 +116,7 @@ public class UpdatePlannerTests
         // The planner must NOT trust 9.9.9 (which would say UpToDate and skip the swap); it must use
         // the exe's real FileVersion 0.6.5 and therefore flag an Update to 0.6.6.
         var components = new[] { ComponentRegistry.Gateway };
-        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.5");
 
         var plan = UpdatePlanner.Plan(components, installed, manifest);
@@ -134,7 +134,7 @@ public class UpdatePlannerTests
         // Poisoned record 9.9.9 but the exe is genuinely already at the released 0.6.6: the guard
         // discards 9.9.9, uses the real stamp 0.6.6, and correctly reports UpToDate on THAT basis.
         var components = new[] { ComponentRegistry.Gateway };
-        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.6");
 
         var plan = UpdatePlanner.Plan(components, installed, manifest);
@@ -150,7 +150,7 @@ public class UpdatePlannerTests
         // Poisoned record 9.9.9 and the exe carries no readable stamp: we must never report UpToDate
         // on the basis of the discarded fake version - re-apply the released build to correct it.
         var components = new[] { ComponentRegistry.Gateway };
-        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: null);
 
         var plan = UpdatePlanner.Plan(components, installed, manifest);
@@ -165,7 +165,7 @@ public class UpdatePlannerTests
         // A legitimate installed version at-or-below the release is never disturbed by the guard:
         // recorded 0.6.6 == released 0.6.6 stays UpToDate even when no separate file stamp is read.
         var components = new[] { ComponentRegistry.Gateway };
-        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "0.6.6", fileVersion: "0.6.6");
 
         var plan = UpdatePlanner.Plan(components, installed, manifest);

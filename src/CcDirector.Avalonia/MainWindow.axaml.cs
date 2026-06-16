@@ -2017,7 +2017,7 @@ public partial class MainWindow : Window
             // the loopback default. For a configured remote gateway the failure is about
             // reachability (the remote gateway is down, or the tailnet is unreachable).
             var hint = CockpitUrlResolver.IsLocalhostDefault(baseUrl)
-                ? "\n\nIs the Gateway tray app (cc-director-gateway) running on this machine?"
+                ? "\n\nIs the Gateway tray app (devthrottle-gateway) running on this machine?"
                 : "\n\nIs the Gateway running on that machine and reachable over your tailnet?";
             await new MessageDialog(
                 "Cannot Open Cockpit",

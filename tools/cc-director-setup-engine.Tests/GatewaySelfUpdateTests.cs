@@ -18,11 +18,11 @@ public class GatewaySelfUpdateTests : IDisposable
         _layout = new InstallLayout(Path.Combine(_dir, "local"));
         var installedDir = Path.Combine(_dir, "installed");
         Directory.CreateDirectory(installedDir);
-        _target = Path.Combine(installedDir, "cc-director-gateway.exe");
+        _target = Path.Combine(installedDir, "devthrottle-gateway.exe");
         File.WriteAllText(_target, "gateway-OLD");
         var stagedDir = Path.Combine(_dir, "staged");
         Directory.CreateDirectory(stagedDir);
-        _staged = Path.Combine(stagedDir, "cc-director-gateway.exe");
+        _staged = Path.Combine(stagedDir, "devthrottle-gateway.exe");
         File.WriteAllText(_staged, "gateway-NEW");
     }
 
@@ -92,7 +92,7 @@ public class GatewayUpdaterTests : IDisposable
 
     private ResolvedRelease BuildRelease(string version)
     {
-        var name = ComponentRegistry.Gateway.WindowsAsset; // cc-director-gateway-win-x64.exe
+        var name = ComponentRegistry.Gateway.WindowsAsset; // devthrottle-gateway-win-x64.exe
         var path = Path.Combine(_releaseDir, name);
         File.WriteAllText(path, $"gateway@{version}");
         var manifest = new

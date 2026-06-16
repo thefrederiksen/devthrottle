@@ -25,7 +25,7 @@ for (int i = 0; i < args.Length; i++)
         Console.WriteLine($"  --port N    Listen on 0.0.0.0:N (default {GatewayHost.DefaultPort})");
         Console.WriteLine();
         Console.WriteLine("This console host is the DEV loop only (Ctrl+C to stop). The shipped");
-        Console.WriteLine("Gateway is the tray app (CcDirector.GatewayApp -> cc-director-gateway.exe),");
+        Console.WriteLine("Gateway is the tray app (CcDirector.GatewayApp -> devthrottle-gateway.exe),");
         Console.WriteLine("which starts at logon and runs in the user's session.");
         Console.WriteLine();
         Console.WriteLine("Endpoints:");

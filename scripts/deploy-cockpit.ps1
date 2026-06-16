@@ -20,12 +20,12 @@ $ErrorActionPreference = 'Stop'
 $stage      = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
 $root       = "$env:LOCALAPPDATA\cc-director"
 $target     = "$root\cockpit"
-$gatewayExe = "$root\gateway\cc-director-gateway.exe"
+$gatewayExe = "$root\gateway\devthrottle-gateway.exe"
 
 # Mirror the whole published wwwroot into the live install (issue #232).
 #
 # The old script cherry-picked wwwroot\app.css + wwwroot\js\* and left everything else stale.
-# That silently dropped wwwroot\cc-director-cockpit.styles.css - the bundle Blazor compiles every
+# That silently dropped wwwroot\devthrottle-cockpit.styles.css - the bundle Blazor compiles every
 # component's SCOPED *.razor.css into (App.razor links it) - plus its .br/.gz siblings, wwwroot\lib
 # (xterm.css) and wwwroot\pages. Result: any deploy that changed a .razor.css shipped with the
 # markup updated but its styling stale (hit for real during the #212 W3 deploy). Mirroring the
@@ -50,19 +50,19 @@ function Sync-CockpitWwwroot {
 
 if ($DefineOnly) { return }
 
-if (-not (Test-Path "$stage\cc-director-cockpit.dll")) { Write-Host "ERROR: cockpit build not staged at $stage." ; exit 1 }
+if (-not (Test-Path "$stage\devthrottle-cockpit.dll")) { Write-Host "ERROR: cockpit build not staged at $stage." ; exit 1 }
 if (-not (Test-Path $gatewayExe)) { Write-Host "ERROR: Gateway tray app not installed at $gatewayExe." ; exit 1 }
 
 Write-Host "Asking the Gateway tray app to exit (Directors + sessions are separate and survive)..."
 try { Invoke-WebRequest 'http://127.0.0.1:7878/shutdown' -Method POST -UseBasicParsing -TimeoutSec 5 | Out-Null } catch {}
 for ($i = 0; $i -lt 20; $i++) {
-  if (-not (Get-Process -Name cc-director-gateway,cc-director-cockpit -ErrorAction SilentlyContinue)) { break }
+  if (-not (Get-Process -Name devthrottle-gateway,devthrottle-cockpit -ErrorAction SilentlyContinue)) { break }
   Start-Sleep -Milliseconds 500
 }
 Start-Sleep -Seconds 1
 
 Write-Host "Swapping in the new Cockpit build..."
-# Copy ALL app assemblies (cc-director-cockpit.dll AND its dependencies, e.g.
+# Copy ALL app assemblies (devthrottle-cockpit.dll AND its dependencies, e.g.
 # CcDirector.Gateway.Contracts.dll). Cherry-picking only the cockpit dll leaves a stale
 # Contracts.dll behind; the new cockpit dll is compiled against the new Contracts, so the
 # Blazor circuit throws a type/method mismatch on render and the page comes up blank.
@@ -71,7 +71,7 @@ Write-Host "Swapping in the new Cockpit build..."
 foreach ($dll in Get-ChildItem "$stage\*.dll","$stage\*.pdb") {
   Copy-Item $dll.FullName "$target\$($dll.Name)" -Force
 }
-foreach ($f in @('cc-director-cockpit.deps.json','cc-director-cockpit.runtimeconfig.json','cc-director-cockpit.staticwebassets.endpoints.json')) {
+foreach ($f in @('devthrottle-cockpit.deps.json','devthrottle-cockpit.runtimeconfig.json','devthrottle-cockpit.staticwebassets.endpoints.json')) {
   if (Test-Path "$stage\$f") { Copy-Item "$stage\$f" "$target\$f" -Force }
 }
 # Mirror the ENTIRE published wwwroot (scoped *.styles.css bundle + .br/.gz, app.css, js, lib,
@@ -89,5 +89,5 @@ for ($i = 0; $i -lt 25; $i++) {
   if ($gwUp -and $ckUp) { break }
 }
 Write-Host ("Gateway up: {0}    Cockpit up: {1}" -f $gwUp, $ckUp)
-$dll = Get-Item "$target\cc-director-cockpit.dll"
+$dll = Get-Item "$target\devthrottle-cockpit.dll"
 Write-Host ("Deployed Cockpit DLL: {0}" -f $dll.LastWriteTime)

@@ -5,7 +5,7 @@
 .DESCRIPTION
   Run this AFTER the setup wizard's Gateway install (or
   `cc-director-setup-cli install --role gateway`). It checks that the Gateway
-  tray app (cc-director-gateway.exe) is installed at the canonical per-user
+  tray app (devthrottle-gateway.exe) is installed at the canonical per-user
   location, registered to start at logon (HKCU Run key), RUNNING, and that the
   Gateway (7878) and the supervised Cockpit (7470) actually answer.
 
@@ -61,8 +61,8 @@ Write-Host ""
 
 # 1. Installed at the canonical per-user path (master spec: docs/install/INSTALLATION.md).
 $root  = Join-Path $env:LOCALAPPDATA 'cc-director'
-$gwExe = Join-Path $root 'gateway\cc-director-gateway.exe'
-$ckExe = Join-Path $root 'cockpit\cc-director-cockpit.exe'
+$gwExe = Join-Path $root 'gateway\devthrottle-gateway.exe'
+$ckExe = Join-Path $root 'cockpit\devthrottle-cockpit.exe'
 Add-Result "Gateway exe installed" (Test-Path $gwExe) $gwExe
 Add-Result "Cockpit exe installed" (Test-Path $ckExe) $ckExe
 
@@ -72,7 +72,7 @@ $runVal = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersi
 Add-Result "Autostart Run key" ($null -ne $runVal) ("CcDirectorGateway=" + $runVal)
 
 # 3. Tray app process running from the installed location.
-$proc = Get-Process -Name 'cc-director-gateway' -ErrorAction SilentlyContinue |
+$proc = Get-Process -Name 'devthrottle-gateway' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path -ieq $gwExe } | Select-Object -First 1
 Add-Result "Tray app running" ($null -ne $proc) ($(if ($proc) { "pid=$($proc.Id)" } else { "no process from $gwExe" }))
 
