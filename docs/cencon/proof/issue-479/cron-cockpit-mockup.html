@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DevThrottle - Schedule (mockup)</title>
+<style>
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --button-hover:#505050;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --accent:#007ACC; --selected:#094771; --hover:#2A2D2E; --border:#3C3C3C;
+  --red:#F14C4C; --green:#22C55E; --blue:#3B82F6; --amber:#F59E0B;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--panel);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px}
+.cockpit-root{display:flex;height:100vh;overflow:hidden}
+.app-page{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* nav rail */
+.nv{flex:none;width:172px;display:flex;flex-direction:column;background:var(--sidebar);
+  border-right:1px solid var(--border);padding:6px 6px 8px}
+.nv-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px}
+.nv-brand{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:5px;padding:2px 6px}
+.nv-item{display:flex;align-items:center;gap:9px;color:var(--text2);text-decoration:none;
+  font-size:12.5px;font-weight:500;border-radius:6px;padding:7px 9px;margin:1px 0;
+  border-left:3px solid transparent;white-space:nowrap;overflow:hidden}
+.nv-item:hover{color:var(--text);background:var(--hover)}
+.nv-item.active{color:#fff;background:var(--selected);border-left-color:var(--accent)}
+.nv-ico{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round}
+.nv-sep{height:1px;background:var(--border);margin:7px 4px}
+.nv-spacer{flex:1}
+.nv-foot{font-size:10px;color:var(--text3);text-align:center;padding:4px 0 2px}
+
+/* page chrome */
+.page{flex:1;min-height:0;overflow:auto;padding:18px 24px 28px}
+.page-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.page-head h1{font-size:18px;font-weight:600;margin:0}
+.page-sub{color:var(--text3);font-size:12px}
+.page-refreshed{margin-left:auto;color:var(--text3);font-size:11px}
+.mock-tag{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--amber);border:1px solid var(--amber);border-radius:3px;padding:1px 6px}
+
+/* section heads */
+.sec-head{display:flex;align-items:baseline;gap:10px;margin:22px 0 10px}
+.sec-head h2{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text2);margin:0}
+.sec-head .hint{color:var(--text3);font-size:11px}
+
+/* create-job card (mirrors dialog/form chrome) */
+.card{background:var(--sidebar);border:1px solid var(--border);border-radius:10px;
+  padding:16px 18px;max-width:760px}
+.form-grid{display:grid;grid-template-columns:150px 1fr;gap:12px 16px;align-items:center}
+.form-grid label{color:var(--text3);font-size:12px}
+.form-grid .full{grid-column:1 / -1}
+input[type=text],select{background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 10px;font-size:12.5px;width:100%}
+input[type=text]:focus,select:focus{outline:none;border-color:var(--accent)}
+.mono{font-family:"Cascadia Mono",Consolas,monospace}
+.radio-row{display:flex;gap:18px;align-items:center}
+.radio-row label{display:flex;align-items:center;gap:6px;color:var(--text);font-size:12.5px;cursor:pointer}
+.inline-2{display:flex;gap:12px}
+.inline-2 > *{flex:1}
+.field-hint{color:var(--muted);font-size:11px;margin-top:3px}
+.preview{margin-top:6px;background:var(--panel);border:1px dashed var(--border);border-radius:6px;
+  padding:8px 12px;color:var(--text2);font-size:12px}
+.preview b{color:var(--green)}
+.form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;
+  border-top:1px solid var(--border);padding-top:14px}
+.btn{border-radius:6px;font-size:12.5px;font-weight:600;padding:8px 16px;cursor:pointer;border:1px solid transparent}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{filter:brightness(1.1)}
+.btn-secondary{background:var(--button);color:var(--text);border-color:var(--border)}
+.btn-secondary:hover{background:var(--button-hover)}
+.btn-ghost{background:transparent;color:var(--accent);border:none;font-weight:600}
+.btn-ghost:hover{text-decoration:underline}
+
+/* data table (jobs + runs) */
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+.tbl th{background:var(--panel);text-align:left;font-size:10.5px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text3);padding:7px 10px;
+  border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:9px 10px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+.tbl tr.rowlink:hover td{background:var(--hover)}
+.tbl .cell-name{font-weight:500;color:var(--text)}
+.tbl .dim{color:var(--text3)}
+.tbl .m{font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--text2)}
+.tbl .ok{color:var(--green)}
+.tbl .warn{color:var(--amber)}
+.tbl .err{color:var(--red);font-weight:600}
+.chip{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  border-radius:3px;padding:2px 7px;border:1px solid}
+.chip.enabled{color:var(--green);border-color:var(--green)}
+.chip.oneoff{color:var(--blue);border-color:var(--blue)}
+.chip.armed{color:var(--amber);border-color:var(--amber)}
+.rowact{background:transparent;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0 6px}
+.rowact:hover{text-decoration:underline}
+.rowact.del{color:var(--red)}
+.tbl-note{color:var(--text3);font-size:11px;font-style:italic;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="cockpit-root">
+
+  <!-- nav rail -->
+  <nav class="nv">
+    <div class="nv-head"><span class="nv-brand">DEVTHROTTLE</span></div>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg><span class="nv-label">Home</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg><span class="nv-label">Sessions</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg><span class="nv-label">Directors</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="nv-label">Work Lists</span></a>
+    <div class="nv-sep"></div>
+    <a class="nv-item active"><svg class="nv-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nv-label">Schedule</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 24 24"><path d="M4 19V5l8 4 8-4v14l-8-4-8 4z"/></svg><span class="nv-label">Transcripts</span></a>
+    <div class="nv-spacer"></div>
+    <div class="nv-foot">v0.9.6</div>
+  </nav>
+
+  <!-- active page -->
+  <div class="app-page">
+    <div class="page">
+
+      <header class="page-head">
+        <h1>Schedule</h1>
+        <span class="page-sub">1 job - 0 running</span>
+        <span class="mock-tag">UI mockup - issue #479</span>
+        <span class="page-refreshed">updated 23:14:07</span>
+      </header>
+
+      <!-- ===== create job ===== -->
+      <div class="sec-head">
+        <h2>New cron job</h2>
+        <span class="hint">When, which machine, and what to run.</span>
+      </div>
+
+      <div class="card">
+        <div class="form-grid">
+
+          <label>Name</label>
+          <input type="text" value="Tonight - drain work list" />
+
+          <label>Run on (Director)</label>
+          <select>
+            <option selected>workstation-A  (this machine - :7879)</option>
+            <option>laptop-B  (:7891)</option>
+            <option>build-server  (tailnet)</option>
+          </select>
+
+          <label>Repository</label>
+          <input type="text" class="mono" value="D:\ReposFred\devthrottle" />
+
+          <label>What to run</label>
+          <div>
+            <select>
+              <option selected>Run a named work list</option>
+              <option>Run a skill / prompt</option>
+            </select>
+            <div class="field-hint">A work list drains its items through /implementation-loop, one at a time, in order.</div>
+          </div>
+
+          <label>Work list</label>
+          <div>
+            <select>
+              <option selected>Tonight  (4 items: #312, #318, #401, #455)</option>
+              <option>Backlog  (12 items)</option>
+              <option>Bugs  (3 items)</option>
+            </select>
+          </div>
+
+          <label>Schedule</label>
+          <div class="radio-row">
+            <label><input type="radio" name="kind" checked /> Run once</label>
+            <label><input type="radio" name="kind" /> Recurring (cron)</label>
+          </div>
+
+          <label>When</label>
+          <div class="inline-2">
+            <input type="text" value="Today 12:00 AM" />
+            <select>
+              <option selected>America/Chicago</option>
+              <option>America/New_York</option>
+              <option>UTC</option>
+            </select>
+          </div>
+
+          <div class="full preview">
+            Next run: <b>tonight, 2026-06-17 00:00 America/Chicago</b> (2026-06-17 05:00 UTC) -
+            starts a session on <b>workstation-A</b> in <span class="mono">D:\ReposFred\devthrottle</span>,
+            seeds <span class="mono">/work-list run Tonight</span>, then auto-disables after it fires.
+          </div>
+
+        </div>
+
+        <div class="form-actions">
+          <button class="btn-ghost btn">Run now</button>
+          <button class="btn-secondary btn">Cancel</button>
+          <button class="btn-primary btn">Create job</button>
+        </div>
+      </div>
+
+      <!-- ===== existing jobs ===== -->
+      <div class="sec-head">
+        <h2>Scheduled jobs</h2>
+        <span class="hint">Durable across Gateway restarts.</span>
+      </div>
+
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Name</th><th>Target</th><th>Runs</th><th>Schedule</th>
+            <th>Next run</th><th>Last run</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="rowlink">
+            <td><span class="cell-name">Tonight - drain work list</span></td>
+            <td class="m">workstation-A</td>
+            <td>work list <span class="dim">Tonight</span></td>
+            <td><span class="chip oneoff">Run once</span></td>
+            <td class="m">tonight 00:00 <span class="dim">CDT</span></td>
+            <td class="dim">never</td>
+            <td><span class="chip enabled">Enabled</span></td>
+            <td>
+              <button class="rowact">Run now</button>
+              <button class="rowact">Edit</button>
+              <button class="rowact del">Delete</button>
+            </td>
+          </tr>
+          <tr class="rowlink">
+            <td><span class="cell-name">Nightly backlog sweep</span> <span class="dim">(example)</span></td>
+            <td class="m">build-server</td>
+            <td>work list <span class="dim">Backlog</span></td>
+            <td><span class="m">0 0 * * *</span></td>
+            <td class="m">tomorrow 00:00 <span class="dim">CDT</span></td>
+            <td class="dim">2026-06-15 00:00 <span class="ok">done</span></td>
+            <td><span class="chip enabled">Enabled</span></td>
+            <td>
+              <button class="rowact">Run now</button>
+              <button class="rowact">Edit</button>
+              <button class="rowact del">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- ===== run history ===== -->
+      <div class="sec-head">
+        <h2>Run history</h2>
+        <span class="hint">"Nightly backlog sweep" - last 3 fires. Infra status (did it start) is separate from task status (did it finish).</span>
+      </div>
+
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Scheduled</th><th>Fired</th><th>Target</th><th>Session</th>
+            <th>Infra</th><th>Task</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="m">06-15 00:00:00Z</td>
+            <td class="m">06-15 00:00:04Z</td>
+            <td class="m">build-server</td>
+            <td class="m">8c1e2f...</td>
+            <td><span class="ok">started</span></td>
+            <td><span class="ok">completed</span></td>
+            <td class="dim">12/12 items drained</td>
+          </tr>
+          <tr>
+            <td class="m">06-14 00:00:00Z</td>
+            <td class="m">06-14 00:00:03Z</td>
+            <td class="m">build-server</td>
+            <td class="m">4a90bd...</td>
+            <td><span class="ok">started</span></td>
+            <td><span class="warn">needs-human</span></td>
+            <td class="dim">10/12 done, #455 parked</td>
+          </tr>
+          <tr>
+            <td class="m">06-13 00:00:00Z</td>
+            <td class="m">06-13 00:01:58Z</td>
+            <td class="m">build-server</td>
+            <td class="dim">-</td>
+            <td><span class="warn">catch-up</span></td>
+            <td><span class="ok">completed</span></td>
+            <td class="dim">Gateway was down at 00:00; fired once on restart (no backlog replay)</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tbl-note">Overlap guard: a job already in flight is skipped, not started twice. Disabled jobs never fire.</div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
