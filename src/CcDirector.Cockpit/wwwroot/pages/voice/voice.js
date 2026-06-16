@@ -925,7 +925,7 @@
     nsDirectorId = await nsPickDirector();
     if (!nsDirectorId) {
       nsSetStatus("");
-      nsSetError("No Director is connected. Pair this phone with a running CC Director first.");
+      nsSetError("No Director is connected. Pair this phone with a running DevThrottle first.");
       return;
     }
     $("ns-target").textContent = "On Director " + nsDirectorId.slice(0, 8);

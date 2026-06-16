@@ -56,8 +56,8 @@
     head.className = "nv-head";
     var brand = document.createElement("span");
     brand.className = "nv-brand";
-    brand.title = "CC Director";
-    brand.textContent = "CC";
+    brand.title = "DevThrottle";
+    brand.textContent = "DT";
     var toggle = document.createElement("button");
     toggle.className = "nv-toggle";
     toggle.type = "button";
