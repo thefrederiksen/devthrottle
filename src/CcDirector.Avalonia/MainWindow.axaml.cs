@@ -336,13 +336,48 @@ public partial class MainWindow : Window
         await dialog.ShowDialog<bool?>(this);
     }
 
+    private global::Avalonia.Threading.DispatcherTimer? _directorInfoTimer;
+
     private void InitDirectorInfo()
     {
         FileLog.Write("[MainWindow] InitDirectorInfo");
+        // The Director address lives on the always-visible app toolbar now, so it must
+        // resolve even though the Control API binds its port on a background task that may
+        // finish after the window loads. Set what we know now, then poll until the port is
+        // bound (it never changes once set), so the toolbar is never stuck on "...".
+        if (TrySetDirectorInfo())
+            return;
+
+        _directorInfoTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500),
+        };
+        _directorInfoTimer.Tick += (_, _) =>
+        {
+            if (TrySetDirectorInfo())
+            {
+                _directorInfoTimer?.Stop();
+                _directorInfoTimer = null;
+            }
+        };
+        _directorInfoTimer.Start();
+    }
+
+    /// <summary>
+    /// Sets the toolbar Director address from the Control API port. Returns true once the
+    /// port is bound (a real value was written), false while it is still starting.
+    /// </summary>
+    private bool TrySetDirectorInfo()
+    {
         var app = global::Avalonia.Application.Current as App;
         var port = app?.ControlApiHost?.Port;
-        var portStr = port is > 0 ? port.Value.ToString() : "...";
-        DirectorInfoText.Text = $"{Environment.MachineName}:{portStr}";
+        if (port is > 0)
+        {
+            DirectorInfoText.Text = $"{Environment.MachineName}:{port.Value}";
+            return true;
+        }
+        DirectorInfoText.Text = $"{Environment.MachineName}:...";
+        return false;
     }
 
     private async void BtnCopyDirectorInfo_Click(object? sender, RoutedEventArgs e)
