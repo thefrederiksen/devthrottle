@@ -479,8 +479,11 @@
 <ol>
 <li><strong>macOS runtime not verified</strong> - all mac strings/bundle-name/asset renames are done in
         code and the mac release artifact builds, but no Mac was available to run the wizard.</li>
-<li><strong>README screenshots</strong> (<code>images/setup-*.png</code>, <code>cc-director-main.png</code>) still show the old
-        "CC Director" UI - they need re-capturing against the rebranded app.</li>
+<li><strong>README setup screenshots recaptured (DONE)</strong> - <code>images/setup-1-welcome.png</code>,
+        <code>setup-2-prerequisites.png</code>, <code>setup-3-update.png</code> now show the rebranded DevThrottle wizard
+        (DT icon, "Welcome to DevThrottle", prerequisites, installing tools/skills) at v0.8.0. The
+        main-app hero (<code>cc-director-main.png</code>) was left as-is - it shows the Director app, whose
+        window identity intentionally stays "cc-director" (only the icon changed).</li>
 <li><strong>Internal dev docs</strong> (<code>docs/install/INSTALLER_HANDOVER.md</code>, testing/plan docs) still use
         the old setup asset names; they are not linked from the README, so they are outside the
         user-facing install flow.</li>
