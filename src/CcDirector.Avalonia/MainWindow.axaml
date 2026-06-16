@@ -75,9 +75,37 @@
                 BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
                 Padding="8,4">
             <DockPanel>
-                <!-- Right group: global destinations + Settings -->
+                <!-- Right group: this Director's identity + global destinations + Settings -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                             Spacing="2" VerticalAlignment="Center">
+                    <!-- Director connection info (machine name + port + copy for agents).
+                         This identifies the WHOLE application's Director (its Control API
+                         address), so it belongs on the app-wide toolbar, not in the
+                         per-session blue header. Always visible, even with no session. -->
+                    <StackPanel x:Name="DirectorInfoPanel" Orientation="Horizontal"
+                                VerticalAlignment="Center" Margin="0,0,4,0">
+                        <TextBlock x:Name="DirectorInfoText"
+                                   Text="..."
+                                   Foreground="#CCCCCC"
+                                   FontSize="11"
+                                   FontFamily="Cascadia Mono,Consolas,monospace"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="BtnCopyDirectorInfo"
+                                Content="Copy"
+                                Click="BtnCopyDirectorInfo_Click"
+                                Margin="8,0,0,0"
+                                Padding="6,2"
+                                FontSize="11"
+                                Background="#2D2D30"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                ToolTip.Tip="Copy Control API URL so other agents can reach this Director" />
+                    </StackPanel>
+
+                    <Border Width="1" Height="18" Background="#3C3C3C"
+                            Margin="6,0" VerticalAlignment="Center" />
+
                     <!-- Tools catalog -->
                     <Button x:Name="BtnTools" Classes="toolbarBtn"
                             Click="BtnTools_Click"
@@ -584,9 +612,11 @@
                      the window menu bar and toolbar. This bar now carries only the
                      per-session identity. -->
 
-                <!-- Per-session identity (fill). Toggled via SessionHeaderBanner in code. -->
+                <!-- Per-session identity (fill). Toggled via SessionHeaderBanner in code.
+                     The Director address moved to the app-wide toolbar (it identifies the
+                     whole application, not the selected session). -->
                 <Grid x:Name="SessionHeaderBanner"
-                      RowDefinitions="Auto,Auto,Auto"
+                      RowDefinitions="Auto,Auto"
                       IsVisible="False">
                 <!-- Row 0: Session name + badges + buttons -->
                 <DockPanel Grid.Row="0">
@@ -625,32 +655,8 @@
                     </Border>
                 </DockPanel>
 
-                <!-- Row 1: Director connection info (machine name + port + copy for agents) -->
-                <StackPanel x:Name="DirectorInfoPanel" Grid.Row="1"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Right"
-                            Margin="0,4,0,0">
-                    <TextBlock x:Name="DirectorInfoText"
-                               Text="..."
-                               Foreground="White"
-                               FontSize="10"
-                               FontFamily="Cascadia Mono,Consolas,monospace"
-                               VerticalAlignment="Center" />
-                    <Button x:Name="BtnCopyDirectorInfo"
-                            Content="Copy"
-                            Click="BtnCopyDirectorInfo_Click"
-                            Margin="8,0,0,0"
-                            Padding="6,2"
-                            FontSize="10"
-                            Background="#2D2D30"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            ToolTip.Tip="Copy Control API URL so other agents can reach this Director" />
-                </StackPanel>
-
-                <!-- Row 2: GitHub remote links (only for GitHub Actions sessions) -->
-                <StackPanel x:Name="HeaderRemoteLinks" Grid.Row="2"
+                <!-- Row 1: GitHub remote links (only for GitHub Actions sessions) -->
+                <StackPanel x:Name="HeaderRemoteLinks" Grid.Row="1"
                             Orientation="Horizontal"
                             Margin="0,4,0,0"
                             IsVisible="False">
