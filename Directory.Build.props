@@ -16,6 +16,6 @@
       - UIs read the version from their assembly at runtime - never hardcode it.
   -->
   <PropertyGroup>
-    <Version>0.9.1</Version>
+    <Version>0.9.2</Version>
   </PropertyGroup>
 </Project>
