@@ -38,19 +38,19 @@ DevThrottle manages [Claude Code](https://docs.anthropic.com/en/docs/claude-code
 More options and troubleshooting: [Anthropic's setup guide](https://code.claude.com/docs/en/setup).
 
 <details>
-<summary><b>What the Windows wizard looks like</b></summary>
+<summary><b>What the DevThrottle setup wizard looks like</b></summary>
 
-**Choose your profile** -- **Standard** for core document tools, email, media, and vault, or **Developer** for the full suite including browser automation, LinkedIn, Reddit, social media, and code generation.
+**Welcome -- choose your install type.** **Workstation** installs the DevThrottle app plus all `cc-*` CLI tools (per-user, no administrator rights); **Gateway** adds the Gateway tray app (starts at logon) and the Cockpit web UI on top.
 
-![Setup - Choose profile](images/setup-1-welcome.png)
+![DevThrottle Setup - Welcome](images/setup-1-welcome.png)
 
-**Prerequisites check** -- the installer verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
+**Prerequisites check.** DevThrottle verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
 
-![Setup - Prerequisites](images/setup-2-prerequisites.png)
+![DevThrottle Setup - Prerequisites](images/setup-2-prerequisites.png)
 
-**Install tools and skills** -- 15+ CLI tools and 14 Claude Code skills, all placed on your PATH.
+**Install tools and skills.** DevThrottle installs 15+ `cc-*` CLI tools and the Claude Code skills, all placed on your PATH.
 
-![Setup - Install](images/setup-3-update.png)
+![DevThrottle Setup - Install](images/setup-3-update.png)
 
 </details>
 
