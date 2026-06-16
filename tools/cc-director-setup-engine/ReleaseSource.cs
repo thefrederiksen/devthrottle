@@ -17,7 +17,7 @@ public sealed record ResolvedRelease(ReleaseManifest Manifest, IReadOnlyDictiona
 public sealed class ReleaseSource
 {
     private const string Owner = "thefrederiksen";
-    private const string Repo = "cc-director";
+    private const string Repo = "devthrottle";
     private const string ManifestAssetName = "release-manifest.json";
 
     private readonly HttpClient _http;

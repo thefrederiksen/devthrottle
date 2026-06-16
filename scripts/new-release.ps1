@@ -132,4 +132,4 @@ git -C $repoRoot push origin $tagName
 
 Write-Host ""
 Write-Host "Done! Release $tagName pushed." -ForegroundColor Green
-Write-Host "GitHub Actions: https://github.com/thefrederiksen/cc-director/actions" -ForegroundColor Cyan
+Write-Host "GitHub Actions: https://github.com/thefrederiksen/devthrottle/actions" -ForegroundColor Cyan

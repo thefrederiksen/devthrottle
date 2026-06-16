@@ -24,7 +24,7 @@ public sealed class GitHubItemStatusClient
     // The canonical repo github work-items live in (same constant the rest of the app uses for
     // cc-director issues, e.g. StateVoteService). v1 lists only carry cc-director github items.
     private const string Owner = "thefrederiksen";
-    private const string Repo = "cc-director";
+    private const string Repo = "devthrottle";
     private const string TokenKey = "GITHUB_TOKEN";
 
     private readonly HttpClient _http;

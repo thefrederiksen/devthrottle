@@ -20,7 +20,7 @@ public sealed record UpdateOptions
     public required string InstallTarget { get; init; }
 
     public string Owner { get; init; } = "thefrederiksen";
-    public string Repo { get; init; } = "cc-director";
+    public string Repo { get; init; } = "devthrottle";
 }
 
 /// <summary>An update that has been downloaded, verified, and is ready to apply.</summary>

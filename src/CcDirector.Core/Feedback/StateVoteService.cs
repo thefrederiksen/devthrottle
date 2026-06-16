@@ -33,7 +33,7 @@ public sealed record StateVoteResult(bool Saved, bool PostedToGitHub, string Det
 /// </summary>
 public static class StateVoteService
 {
-    private const string Repo = "thefrederiksen/cc-director";
+    private const string Repo = "thefrederiksen/devthrottle";
     private const string IssueTitle = "Wingman terminal-state detector: misclassification reports";
 
     private static string VotesDir => Path.Combine(CcStorage.Root(), "state-votes");

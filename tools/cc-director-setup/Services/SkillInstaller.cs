@@ -13,7 +13,7 @@ public sealed class SkillInstaller
 {
     private const string RawBase = "https://raw.githubusercontent.com";
     private const string RepoOwner = "thefrederiksen";
-    private const string RepoName = "cc-director";
+    private const string RepoName = "devthrottle";
 
     /// <summary>The skills the installer offers (SKILL.md is fetched per name).</summary>
     public static readonly string[] SkillNames =

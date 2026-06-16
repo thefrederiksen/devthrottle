@@ -8,7 +8,7 @@ public class GitHubReleaseService
     private const string ApiBase = "https://api.github.com";
     private const string RawBase = "https://raw.githubusercontent.com";
     private const string RepoOwner = "thefrederiksen";
-    private const string RepoName = "cc-director";
+    private const string RepoName = "devthrottle";
 
     private static readonly HttpClient Http = new()
     {
