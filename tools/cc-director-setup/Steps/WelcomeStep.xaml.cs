@@ -43,8 +43,11 @@ public partial class WelcomeStep : UserControl
         else
         {
             // Fresh install: the role picker is the hero of the screen, so the long marketing
-            // paragraph is hidden to keep the one decision front and center.
+            // paragraph is hidden to keep the one decision front and center. The "Click Next"
+            // hint is redundant with the role cards + Next button and is dropped so the whole
+            // screen fits the fixed window without a scrollbar.
             DescriptionText.Visibility = Visibility.Collapsed;
+            ClickNextHint.Visibility = Visibility.Collapsed;
 
             // Default to Workstation (the safe pick - there should only be one Gateway). Asserted
             // on Loaded, not in the ctor or via IsChecked="True" in XAML: grouped RadioButtons

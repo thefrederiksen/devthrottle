@@ -15,7 +15,7 @@
                                 BorderBrush="{StaticResource StepInactive}"
                                 BorderThickness="2"
                                 CornerRadius="8"
-                                Padding="16,14">
+                                Padding="14,11">
                             <Grid>
                                 <!-- leave room on the right for the selection indicator -->
                                 <ContentPresenter Margin="0,0,26,0" />
@@ -61,11 +61,12 @@
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel>
-            <Image Source="pack://application:,,,/app.ico"
-                   Width="56"
-                   Height="56"
+            <Image x:Name="AppIcon"
+                   Source="pack://application:,,,/app.ico"
+                   Width="48"
+                   Height="48"
                    HorizontalAlignment="Center"
-                   Margin="0,0,0,10"
+                   Margin="0,0,0,8"
                    RenderOptions.BitmapScalingMode="HighQuality" />
 
             <TextBlock x:Name="TitleText"
@@ -105,7 +106,7 @@
             <!-- RolePanel stays the named container the update path collapses. On a fresh install it is
                  the hero of the screen: a picture of one Gateway with Workstations hanging off it, then
                  two big cards. WorkstationRadio / GatewayRadio keep their names so SelectedRole is unchanged. -->
-            <StackPanel x:Name="RolePanel" Margin="24,24,24,0">
+            <StackPanel x:Name="RolePanel" Margin="24,12,24,0">
                 <TextBlock Text="How will you use this machine?"
                            Foreground="White"
                            FontSize="18"
@@ -118,11 +119,11 @@
                            Margin="0,4,0,0" />
 
                 <!-- The picture: install ONE Gateway; every other machine is a Workstation that connects to it. -->
-                <Border Background="#171717" CornerRadius="8" Padding="20,18" Margin="0,16,0,0">
+                <Border Background="#171717" CornerRadius="8" Padding="16,12" Margin="0,10,0,0">
                     <Grid Width="420" HorizontalAlignment="Center">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="14" />
+                            <RowDefinition Height="10" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -173,7 +174,7 @@
                         </Grid>
 
                         <!-- Workstations -->
-                        <UniformGrid Grid.Row="3" Columns="3" Margin="0,10,0,0">
+                        <UniformGrid Grid.Row="3" Columns="3" Margin="0,6,0,0">
                             <Border Background="#2A2D2E" BorderBrush="{StaticResource StepInactive}"
                                     BorderThickness="1" CornerRadius="5" Padding="10,8"
                                     Width="120" HorizontalAlignment="Center">
@@ -212,12 +213,12 @@
                         <TextBlock Grid.Row="4"
                                    Text="All your other machines connect to the one Gateway."
                                    Foreground="{StaticResource DimText}" FontSize="11"
-                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
+                                   HorizontalAlignment="Center" Margin="0,8,0,0" />
                     </Grid>
                 </Border>
 
                 <!-- The two choices, as big cards. Workstation is the default and the safe pick. -->
-                <Grid Margin="0,16,0,0">
+                <Grid Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
@@ -236,7 +237,7 @@
                                        FontSize="12" Margin="0,4,0,0" />
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="{StaticResource TextForeground}"
-                                       FontSize="12" Margin="0,8,0,0" LineHeight="17"
+                                       FontSize="12" Margin="0,6,0,0" LineHeight="16"
                                        Text="Runs the hub everyone connects to, plus the web Cockpit. Install on ONE machine only." />
                         </StackPanel>
                     </RadioButton>
@@ -255,7 +256,7 @@
                                        FontSize="12" Margin="0,4,0,0" />
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="{StaticResource TextForeground}"
-                                       FontSize="12" Margin="0,8,0,0" LineHeight="17"
+                                       FontSize="12" Margin="0,6,0,0" LineHeight="16"
                                        Text="Runs the DevThrottle app + all CLI tools and connects to the Gateway. Install on every other machine." />
                         </StackPanel>
                     </RadioButton>
@@ -265,7 +266,7 @@
                            Foreground="{StaticResource DimText}"
                            FontSize="11"
                            HorizontalAlignment="Center"
-                           Margin="0,14,0,0" />
+                           Margin="0,10,0,0" />
             </StackPanel>
 
             <!-- ============================ UPDATE MODE: read-only role ============================ -->
@@ -290,11 +291,12 @@
                 </StackPanel>
             </Border>
 
-            <TextBlock Text="Click Next to continue."
+            <TextBlock x:Name="ClickNextHint"
+                       Text="Click Next to continue."
                        Foreground="{StaticResource DimText}"
                        FontSize="12"
                        HorizontalAlignment="Center"
-                       Margin="0,20,0,0" />
+                       Margin="0,16,0,0" />
 
             <!-- Uninstall entry (issue #257): shown only when an existing install is detected
                  (update mode). Removes the app, tools, PATH, skills, scheduled tasks, and the
