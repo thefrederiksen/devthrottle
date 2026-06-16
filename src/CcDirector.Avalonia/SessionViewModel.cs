@@ -24,10 +24,9 @@ public class SessionViewModel : INotifyPropertyChanged
     // directly, so Desktop and Gateway always show the same color. The live states the
     // wingman actually emits (see SessionStatusWingman.ColorFor) are:
     //   blue   = working          red    = needs you
+    //   green  = ready (brand-new session, parked at its prompt with nothing needed)
     //   yellow = wingman narrating purple = parked on its own background task
     //   gray   = process exited
-    // Green is defined below but is NOT currently emitted by the wingman (the old
-    // "greenfield/idle" state was removed); kept only so a legacy green value still maps.
     private static readonly ISolidColorBrush GreenStatusBrush   = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
     private static readonly ISolidColorBrush BlueStatusBrush    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
     private static readonly ISolidColorBrush YellowStatusBrush  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));

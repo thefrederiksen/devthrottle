@@ -169,8 +169,10 @@ public sealed class Session : IDisposable
     /// Initial state is <see cref="ActivityState.WaitingForInput"/>: a freshly spawned session is
     /// literally sitting at Claude Code's input prompt with no turn in flight. This pairs with the
     /// IsBrandNew guard in <c>TerminalStateDetector</c>, which suppresses the byte->Working flip
-    /// while the startup splash is painting, so the badge stays red ("needs you") from the moment
-    /// the row appears until the user submits their first prompt.
+    /// while the startup splash is painting, so the session stays parked at its prompt from the
+    /// moment the row appears until the user submits their first prompt. While
+    /// <see cref="IsBrandNew"/> holds, the wingman paints that parked state green ("ready") rather
+    /// than red ("needs you") - see <c>SessionStatusWingman.ColorFor</c>.
     /// </summary>
     public ActivityState ActivityState { get; private set; } = ActivityState.WaitingForInput;
 

@@ -38,9 +38,11 @@ internal sealed class BufferOnlyBackend : ISessionBackend
 /// <summary>
 /// Tests for <see cref="SessionStatusWingman"/>, the sole writer of
 /// <see cref="Session.StatusColor"/>. The badge is a direct mapping from ActivityState:
-/// Working/Starting -> blue, anything that means "your turn" -> red, gone -> gray. There
-/// is no other colour algorithm (no buffer scan, no byte-burst heuristic, no turn-summary
-/// voting) - those were removed.
+/// Working/Starting -> blue, anything that means "your turn" -> red, gone -> gray. The one
+/// overlay on the activity mapping (besides the Wingman's yellow/purple) is green "ready":
+/// a brand-new session parked at its prompt before its first turn shows green, not red.
+/// There is no other colour algorithm (no buffer scan, no byte-burst heuristic, no
+/// turn-summary voting) - those were removed.
 /// </summary>
 public sealed class SessionStatusWingmanTests
 {
@@ -118,8 +120,13 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
+            // The wingman overlays only fire after a turn ends, so use a post-first-turn
+            // session; a brand-new one would baseline green "ready", not red "needs you".
+            session.IsBrandNew = false;
 
-            // Park at turn-end and flip IsExplaining (CreateBufferSession enabled Wingman).
+            // Run a turn (Working) and park at its end. The Working->WaitingForInput
+            // transition recomputes the colour; a non-brand-new turn-end is red "needs you".
+            session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             Assert.Equal(StatusColor.Red, session.StatusColor);
 
@@ -164,6 +171,7 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
             session.WingmanEnabled = false;
+            session.IsBrandNew = false; // post-first-turn: turn-end baselines red, not green "ready"
 
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             session.IsExplaining = true;
@@ -186,7 +194,10 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
+            session.IsBrandNew = false; // post-first-turn: turn-end baselines red, not green "ready"
 
+            // Run a turn and park at its end so the colour recomputes to red "needs you".
+            session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             Assert.Equal(StatusColor.Red, session.StatusColor);
 
@@ -257,7 +268,10 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
+            session.IsBrandNew = false; // post-first-turn: turn-end baselines red, not green "ready"
 
+            // Run a turn and park at its end so the colour recomputes to red "needs you".
+            session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             Assert.Equal(StatusColor.Red, session.StatusColor);
 
@@ -349,6 +363,7 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
             session.WingmanEnabled = false;
+            session.IsBrandNew = false; // post-first-turn: turn-end baselines red, not green "ready"
 
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             session.SetBackgroundRunning(true);
@@ -369,6 +384,9 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var session = manager.CreateSession(Path.GetTempPath());
+            // Past the first turn: red "needs you" at a turn-end only applies once the
+            // session is no longer brand-new (a brand-new session is green "ready").
+            session.IsBrandNew = false;
 
             session.ApplyTerminalActivityState(ActivityState.Working);
             Assert.Equal(StatusColor.Blue, session.StatusColor);
@@ -523,13 +541,17 @@ public sealed class SessionStatusWingmanTests
         try
         {
             var session = manager.CreateSession(Path.GetTempPath());
+            // Wingman.Start wires sessions restored from persistence on Director boot.
+            // Restored sessions already have history, so they are not brand-new: a turn-end
+            // maps to red "needs you" (a brand-new session would be green "ready").
+            session.IsBrandNew = false;
 
             var wingman = new SessionStatusWingman(manager);
             wingman.Start();
             try
             {
-                // A freshly created session is born WaitingForInput ("your turn") since it
-                // is literally sitting at Claude Code's prompt. The wingman maps that to red.
+                // The session is parked WaitingForInput ("your turn"); the wingman maps that
+                // to red because it is no longer brand-new.
                 Assert.Equal(StatusColor.Red, session.StatusColor);
             }
             finally { wingman.Dispose(); }
@@ -556,7 +578,7 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Wingman_OnSessionCreated_writes_red_needs_you()
+    public void Wingman_OnSessionCreated_writes_green_ready()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
@@ -566,15 +588,43 @@ public sealed class SessionStatusWingmanTests
             try
             {
                 var session = manager.CreateSession(Path.GetTempPath());
-                // A brand-new session is born WaitingForInput, so the badge starts red.
-                // Wingman is silenced separately (cached "brand new session" greeting +
-                // ProactiveExplainService skipping IsBrandNew); no Opus call fires here.
-                Assert.Equal(StatusColor.Red, session.StatusColor);
-                Assert.Equal("needs you", session.LastStatusReason);
+                // A brand-new session is born WaitingForInput, parked at Claude Code's prompt.
+                // It is ready for the user but does NOT need anything yet, so the badge starts
+                // green "ready" (not red "needs you"). It flips to blue/working on the first
+                // prompt and only reaches red once a turn ends.
+                Assert.Equal(StatusColor.Green, session.StatusColor);
+                Assert.Equal("ready", session.LastStatusReason);
             }
             finally { wingman.Dispose(); }
         }
         finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Brand_new_session_goes_blue_then_red_after_first_turn()
+    {
+        // Lifecycle: green "ready" on startup -> blue "working" once the user submits
+        // (which clears IsBrandNew) -> red "needs you" when that first turn ends.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.Equal("ready", session.LastStatusReason);
+
+            // First submit clears IsBrandNew and drives Working.
+            session.SendInput(new byte[] { 0x0A });
+            Assert.False(session.IsBrandNew);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+
+            // Turn ends: now that the session is no longer brand-new, the turn-end is red.
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("needs you", session.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
     }
 
     // ---------- Prompt-injection watcher (end-to-end via real buffer) ----------

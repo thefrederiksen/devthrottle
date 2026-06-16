@@ -9,6 +9,9 @@ namespace CcDirector.Core.Wingman;
 ///
 /// Live meaning (see SessionStatusWingman.ColorFor - the single source of truth):
 ///   blue    = agent is working / a turn is in progress.
+///   green   = ready for the user - parked at the prompt with nothing needed. Currently set
+///             only on a brand-new session (before its first turn); the Wingman will reuse it
+///             for its own "ready" verdicts later.
 ///   red     = needs the user (waiting for input/permission, idle at a turn-end).
 ///   yellow  = the Wingman is reading the screen and narrating a briefing.
 ///   purple  = the Wingman read the screen and determined the session is parked on its OWN
@@ -23,8 +26,9 @@ namespace CcDirector.Core.Wingman;
 /// On-hold is NOT one of these: it is a separate, user-driven override (Session.OnHold)
 /// painted by the UI (light gray), not a color the wingman writes here.
 ///
-/// NOTE: <see cref="Green"/> below is legacy. The old "greenfield/idle" state was removed;
-/// the wingman no longer emits green and <see cref="From"/> is used only by tests now.
+/// NOTE: <see cref="Green"/> is emitted by <c>SessionStatusWingman.ColorFor</c> for a
+/// brand-new "ready" session (parked at its prompt, nothing needed). <see cref="From"/>
+/// is the older turn-summary mapping and is used only by tests now.
 /// </summary>
 public static class StatusColor
 {

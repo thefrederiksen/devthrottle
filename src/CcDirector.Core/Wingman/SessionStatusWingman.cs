@@ -252,6 +252,14 @@ public sealed class SessionStatusWingman : IDisposable
         if (session.WingmanEnabled && session.IsBackgroundRunning && atTurnEnd)
             return (StatusColor.Purple, session.BackgroundReason);
 
+        // Green "ready": a brand-new session that has not yet taken a turn is simply sitting at
+        // its input prompt, available for the user. It does NOT need the user, so it must not
+        // start red. IsBrandNew stays true until the first prompt is submitted (it then flips to
+        // Working/blue), so this window covers the whole startup-to-first-turn span. The wingman
+        // will reuse green for its own "ready" verdicts later; for now it is set only on startup.
+        if (session.IsBrandNew && atTurnEnd)
+            return (StatusColor.Green, "ready");
+
         return baseColor;
     }
 
