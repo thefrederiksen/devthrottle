@@ -59,11 +59,11 @@ public sealed class DictationPipelineLiveTests
         await using var provider = new OpenAiRealtimeProvider();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new ReplayAudioSource(pcm, chunkBytes: 2400, chunkDelayMs: 50); // ~50ms PCM frames @ 24kHz
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
-        await pipeline.StartAsync("default", cts.Token);
+        await pipeline.StartAsync(session, "default", cts.Token);
         // Let the whole clip stream through (it began the moment we started).
         await src.Completed.WaitAsync(TimeSpan.FromSeconds(60), cts.Token);
         var result = await pipeline.StopAsync(cts.Token);
@@ -112,7 +112,7 @@ public sealed class DictationPipelineLiveTests
         var preview = new LivePreviewTranscriber { TickInterval = TimeSpan.FromSeconds(1) };
         await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
         var src = new ReplayAudioSource(pcm, chunkBytes: 2400, chunkDelayMs: 50);
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         // Everything recorded here arrives BEFORE StopAsync is called - the
         // "text while still recording" evidence.
@@ -120,7 +120,7 @@ public sealed class DictationPipelineLiveTests
         pipeline.OnPartial += t => { lock (duringRecording) duringRecording.Add(t); };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        await pipeline.StartAsync("default", cts.Token);
+        await pipeline.StartAsync(session, "default", cts.Token);
         await src.Completed.WaitAsync(TimeSpan.FromSeconds(60), cts.Token);
         // The clip is only a few seconds; give the loop room for one more pass
         // over the full clip before we stop, like a user pausing before Send.

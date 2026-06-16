@@ -84,51 +84,70 @@ public sealed class SpeakService : IAsyncDisposable
         if (_started) throw new InvalidOperationException("SpeakService already started");
         FileLog.Write($"[SpeakService] StartAsync: profile={profile}");
 
-        // Resolve the key once for this session (Gateway vault or local key, per mode). No key
-        // means dictation is unavailable; surface where to set one instead of a raw connect error.
-        var apiKey = await _keyResolver.ResolveAsync(ct);
-        if (string.IsNullOrWhiteSpace(apiKey))
-            throw new InvalidOperationException(_keyResolver.UnavailableMessage);
-
-        // Pull the latest glossary from the Gateway when connected and refresh the local cache
-        // file (#253); when standalone or the Gateway is unreachable this is a no-op and the
-        // loader below reads the existing cache. Resolving per-session is the hot-reload path.
-        await _dictionaryResolver.ResolveAsync(ct);
-        var dictPath = _options.ResolveDictationDictionaryPath();
-        _dictionary = new DictionaryLoader(dictPath, watch: false);
-
-        _provider = new OpenAiRealtimeProvider(apiKey: apiKey);
-        _cleanup = new CleanupOrchestrator(
-            apiKey: apiKey,
-            model: _options.DictationCleanupModel);
-        _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
-        // Live transcript preview (#215): re-transcribes the growing clip
-        // every few seconds so the dialog shows the words while the user is
-        // still talking. The session owns and disposes it.
-        var preview = new LivePreviewTranscriber(
-            apiKey: apiKey,
-            model: _options.DictationPreviewModel);
-        _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer, preview);
-
-        // Build the mic and wire the UI meters BEFORE handing it to the pipeline.
-        // The equalizer/level meters are driven straight off NAudio and do not
-        // depend on the transcription connection, so the bars move from the
-        // first captured frame - honest visual confirmation that we are
-        // recording even while the backend is still connecting.
+        // CAPTURE FIRST - open the mic and start buffering BEFORE any network work
+        // (the key-vault fetch, the dictionary fetch, and the OpenAI WebSocket
+        // connect all happen afterwards). The mic, its UI meters, and the
+        // pipeline's buffer are the only things capture needs; none of them
+        // depend on the key or the connection. So the bars move and every byte is
+        // captured from the very first frame, and the dialog can flip to RECORDING
+        // the instant capture is live - the network round-trips that used to delay
+        // the mic now overlap with live, buffered capture and lose nothing.
         _mic = new MicAudioCapture(_micDeviceNumber);
         _mic.OnAudioBands += bands => OnAudioBands?.Invoke(bands);
         _mic.OnInputRms += rms => OnInputRms?.Invoke(rms);
 
-        // The pipeline is the load-bearing fix: it starts mic capture FIRST and
-        // buffers everything captured during the (slow) connect, then drains it
-        // in order. No audio is lost to connection latency. See DictationPipeline.
-        _pipeline = new DictationPipeline(_mic, _session);
+        _pipeline = new DictationPipeline(_mic);
         _pipeline.OnPartial += partial => OnPartial?.Invoke(partial);
         _pipeline.OnStateChanged += state => OnStateChanged?.Invoke(state);
         _pipeline.OnCaptureStarted += () => OnCaptureStarted?.Invoke();
         _pipeline.OnConnected += () => OnConnected?.Invoke();
 
-        await _pipeline.StartAsync(profile, ct);
+        // The mic is live from here on. Anything the user says during the
+        // resolve+connect below is buffered in order by the pipeline.
+        _pipeline.StartCapture();
+
+        try
+        {
+            // Resolve the key for this session (Gateway vault or local key, per mode). No key
+            // means dictation is unavailable; surface where to set one instead of a raw connect
+            // error. Overlapped with live capture now, not blocking the mic.
+            var apiKey = await _keyResolver.ResolveAsync(ct);
+            if (string.IsNullOrWhiteSpace(apiKey))
+                throw new InvalidOperationException(_keyResolver.UnavailableMessage);
+
+            // Pull the latest glossary from the Gateway when connected and refresh the local cache
+            // file (#253); when standalone or the Gateway is unreachable this is a no-op and the
+            // loader below reads the existing cache. Resolving per-session is the hot-reload path.
+            await _dictionaryResolver.ResolveAsync(ct);
+            var dictPath = _options.ResolveDictationDictionaryPath();
+            _dictionary = new DictionaryLoader(dictPath, watch: false);
+
+            _provider = new OpenAiRealtimeProvider(apiKey: apiKey);
+            _cleanup = new CleanupOrchestrator(
+                apiKey: apiKey,
+                model: _options.DictationCleanupModel);
+            _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
+            // Live transcript preview (#215): re-transcribes the growing clip
+            // every few seconds so the dialog shows the words while the user is
+            // still talking. The session owns and disposes it.
+            var preview = new LivePreviewTranscriber(
+                apiKey: apiKey,
+                model: _options.DictationPreviewModel);
+            _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer, preview);
+
+            // Connect (the slow part): the buffered audio captured during the
+            // resolve+connect drains in capture order the moment the link is up.
+            await _pipeline.ConnectAsync(_session, profile, ct);
+        }
+        catch
+        {
+            // Capture is already live. Tear the mic and everything built so far
+            // down so a failed start never orphans the microphone. DisposeAsync
+            // is idempotent and null-safe for the half-built state.
+            await DisposeAsync();
+            throw;
+        }
+
         _profile = string.IsNullOrWhiteSpace(profile) ? "default" : profile;
         _sessionStartUtc = DateTime.UtcNow;
         _recordingStopwatch = System.Diagnostics.Stopwatch.StartNew();

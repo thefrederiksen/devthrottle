@@ -123,11 +123,11 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         // Start, but do not await: the connect is gated, yet capture must
         // already be running (capture-first).
-        var startTask = pipeline.StartAsync("default");
+        var startTask = pipeline.StartAsync(session, "default");
         Assert.True(src.Started);
 
         // The user talks DURING the connect window. The old code dropped this.
@@ -167,9 +167,9 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
-        await pipeline.StartAsync("default");
+        await pipeline.StartAsync(session, "default");
         // The user "talked" but the device delivered nothing: no Emit() calls.
 
         var ex = await Assert.ThrowsAsync<NoAudioCapturedException>(() => pipeline.StopAsync());
@@ -189,12 +189,12 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         var captureStartedFired = false;
         pipeline.OnCaptureStarted += () => captureStartedFired = true;
 
-        var startTask = pipeline.StartAsync("default");
+        var startTask = pipeline.StartAsync(session, "default");
 
         // Connection is still blocked, yet the source is started and the
         // capture-started signal has already fired.
@@ -221,10 +221,10 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         const int total = 200;
-        var startTask = pipeline.StartAsync("default");
+        var startTask = pipeline.StartAsync(session, "default");
 
         // Emit the first half while "connecting".
         for (int i = 0; i < total / 2; i++)
@@ -260,9 +260,9 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
-        await pipeline.StartAsync("default");
+        await pipeline.StartAsync(session, "default");
         for (int i = 0; i < 50; i++) src.Emit(new byte[] { (byte)i });
 
         await pipeline.StopAsync();
@@ -281,14 +281,14 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
         string? partial = null;
         var states = new List<ConnectionState>();
         pipeline.OnPartial += p => partial = p;
         pipeline.OnStateChanged += s => states.Add(s);
 
-        await pipeline.StartAsync("default");
+        await pipeline.StartAsync(session, "default");
         src.Emit(new byte[] { 1 });
         await pipeline.StopAsync();
 
@@ -304,9 +304,9 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.StartAsync("default"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.StartAsync(session, "default"));
 
         // Capture must be torn down on a failed connect - no orphaned mic.
         Assert.True(src.Started);
@@ -321,9 +321,9 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        var pipeline = new DictationPipeline(src, session);
+        var pipeline = new DictationPipeline(src);
 
-        await pipeline.StartAsync("default");
+        await pipeline.StartAsync(session, "default");
         await pipeline.DisposeAsync();
 
         Assert.True(src.Stopped);
@@ -340,13 +340,147 @@ public sealed class DictationPipelineTests
         using var cleanup = NewOfflineCleanup();
         await using var session = new DictationSession(dict, provider, cleanup);
         var src = new FakeAudioSource();
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
 
-        await pipeline.StartAsync("default");
+        await pipeline.StartAsync(session, "default");
         src.Emit(new byte[] { 10, 20, 30 });
         await pipeline.StopAsync();
 
         Assert.Equal(new byte[] { 10, 20, 30 }, provider.AllReceivedBytes());
         Assert.Equal(pipeline.CapturedBytes, pipeline.DeliveredBytes);
+    }
+
+    // ===== capture-before-connect split (the "open the mic first" fix) =======
+
+    [Fact]
+    public async Task StartCapture_OpensMicAndSignals_WithoutAnySession()
+    {
+        // The whole point of the split: capture can start with NOTHING but the
+        // audio source - no session, no provider, no key resolved yet. This is
+        // what lets SpeakService open the mic BEFORE the key-vault and dictionary
+        // round-trips, so audio spoken during that window is captured, not lost.
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        var captureStartedFired = false;
+        pipeline.OnCaptureStarted += () => captureStartedFired = true;
+
+        pipeline.StartCapture();
+
+        Assert.True(src.Started);
+        Assert.True(captureStartedFired);
+    }
+
+    [Fact]
+    public async Task AudioCapturedBetweenStartCaptureAndConnect_IsDeliveredInOrder()
+    {
+        // Models the real timing: StartCapture() runs, THEN the (slow) key +
+        // dictionary resolution happens, THEN ConnectAsync. Everything the mic
+        // produced during that pre-connect gap must be buffered and delivered in
+        // capture order the instant the link is up.
+        using var dict = BuildLoader();
+        var provider = new GatedProvider { BlockConnect = true };
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        pipeline.StartCapture();
+
+        // The user is already talking while we are still "resolving the key and
+        // dictionary" and the connect has not even begun.
+        src.Emit(new byte[] { 1, 2 });
+        src.Emit(new byte[] { 3, 4 });
+        Assert.Empty(provider.Received);
+        Assert.Equal(2, pipeline.PrimedChunkCount);
+
+        // Now connect, with the connect itself gated to keep buffering a moment.
+        var connectTask = pipeline.ConnectAsync(session, "default");
+        src.Emit(new byte[] { 5, 6 });           // still during the connect
+        Assert.Empty(provider.Received);
+        Assert.Equal(3, pipeline.PrimedChunkCount);
+
+        provider.ReleaseConnect();
+        await connectTask;
+
+        src.Emit(new byte[] { 7, 8 });           // live
+        await pipeline.StopAsync();
+
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, provider.AllReceivedBytes());
+        Assert.Equal(pipeline.CapturedBytes, pipeline.DeliveredBytes);
+    }
+
+    [Fact]
+    public async Task OnConnected_FiresOnlyAfterConnect_NotAtCapture()
+    {
+        // The ordering the UI depends on for Fix 2: capture-started fires up
+        // front (so the dialog can flip to RED immediately), and connected fires
+        // strictly later (so the dialog only enables commit actions once the
+        // backend is actually live). Capture must precede connect, never the
+        // reverse.
+        using var dict = BuildLoader();
+        var provider = new GatedProvider { BlockConnect = true };
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        var order = new List<string>();
+        pipeline.OnCaptureStarted += () => { lock (order) order.Add("capture"); };
+        pipeline.OnConnected += () => { lock (order) order.Add("connected"); };
+
+        pipeline.StartCapture();
+        // Capture has signalled; the connect has not, so "connected" must be absent.
+        lock (order) Assert.Equal(new[] { "capture" }, order);
+
+        var connectTask = pipeline.ConnectAsync(session, "default");
+        lock (order) Assert.DoesNotContain("connected", order);   // still gated
+
+        provider.ReleaseConnect();
+        await connectTask;
+
+        lock (order) Assert.Equal(new[] { "capture", "connected" }, order);
+
+        src.Emit(new byte[] { 9 });
+        await pipeline.StopAsync();
+    }
+
+    [Fact]
+    public async Task ConnectFails_AfterCaptureStarted_StopsTheMic()
+    {
+        // If the connect fails AFTER the mic was already opened (the new order),
+        // capture must be torn down - the mic is never left running with no
+        // session to drain into.
+        using var dict = BuildLoader();
+        var provider = new FailingConnectProvider();
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        pipeline.StartCapture();
+        Assert.True(src.Started);
+        Assert.False(src.Stopped);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pipeline.ConnectAsync(session, "default"));
+
+        Assert.True(src.Stopped);
+    }
+
+    [Fact]
+    public async Task ConnectBeforeStartCapture_Throws()
+    {
+        // Guard the contract: you cannot connect a pipeline whose capture never
+        // started - that would mean a session with no audio path behind it.
+        using var dict = BuildLoader();
+        var provider = new GatedProvider();
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pipeline.ConnectAsync(session, "default"));
     }
 }

@@ -182,12 +182,12 @@ internal static class Program
         using var cleanup = new CleanupOrchestrator(model: "gpt-4o-mini");
         await using var session = new DictationSession(dictionary, provider, cleanup);
         var src = new ReplayAudioSource(pcm, chunkBytes: 2400, chunkDelayMs: 50);
-        await using var pipeline = new DictationPipeline(src, session);
+        await using var pipeline = new DictationPipeline(src);
         pipeline.OnCaptureStarted += () => Console.WriteLine("[harness] capture started (connection still opening)");
         pipeline.OnConnected += () => Console.WriteLine($"[harness] connected after {src.EmittedChunks} primed frame(s)");
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        await pipeline.StartAsync(profile);
+        await pipeline.StartAsync(session, profile);
         await src.Completed.WaitAsync(TimeSpan.FromSeconds(120));
         var result = await pipeline.StopAsync();
         sw.Stop();
@@ -227,6 +227,7 @@ internal static class Program
         private int _emitted;
 
         public event Action<byte[]>? OnAudioChunk;
+        public string Description => "Replay Harness Source";
         public Task Completed => _completed.Task;
         public int EmittedChunks => Volatile.Read(ref _emitted);
 

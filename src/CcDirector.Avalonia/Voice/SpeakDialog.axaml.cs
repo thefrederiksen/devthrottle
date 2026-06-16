@@ -405,11 +405,17 @@ public partial class SpeakDialog : Window
     /// <summary>
     /// Fired by the service the instant the microphone actually starts
     /// capturing (before the transcription backend has finished connecting).
-    /// We re-anchor the elapsed-time origin here so the displayed timer tracks
-    /// REAL capture, not the dialog-open-to-capture setup. With the capture-
-    /// first pipeline that gap is only a couple of milliseconds, but anchoring
-    /// to the true start keeps the timer honest and guards against any future
-    /// setup cost creeping back in front of capture.
+    ///
+    /// Two things happen here. We re-anchor the elapsed-time origin so the
+    /// displayed timer tracks REAL capture, not the dialog-open-to-capture
+    /// setup. And we flip the dialog to the RED "RECORDING" state immediately:
+    /// capture is live and the capture-first pipeline is buffering every byte in
+    /// order, so we ARE truly recording now even though the transcription
+    /// backend may still be connecting. Showing red here (instead of waiting for
+    /// the connect) makes the green->red transition feel instant while being
+    /// MORE honest - red means "your audio is being captured", which is the
+    /// guarantee that actually matters. Commit actions stay disabled until the
+    /// connect completes (see SwitchToCapturing).
     /// </summary>
     private void OnServiceCaptureStarted()
     {
@@ -421,6 +427,13 @@ public partial class SpeakDialog : Window
             if ((_stage == Stage.Connecting || _stage == Stage.Recording)
                 && _elapsedBeforeSegment == TimeSpan.Zero)
                 _t0 = DateTime.UtcNow;
+
+            // Flip to red the moment capture is confirmed live. Guarded to the
+            // Connecting stage so a later transition (SwitchToRecording on
+            // connect, or a Cancel/Stop that already advanced the stage) is not
+            // clobbered by this posted callback arriving late.
+            if (_stage == Stage.Connecting)
+                SwitchToCapturing();
         });
     }
 
@@ -584,10 +597,11 @@ public partial class SpeakDialog : Window
     }
 
     /// <summary>
-    /// Backend connect in progress. The mic IS already capturing (capture-first
-    /// pipeline) so the bars move and the timer ticks, but commit actions stay
-    /// disabled until the transcription session is live: there is nothing to
-    /// send yet, and a mic switch mid-connect would race the service start.
+    /// The brief opening state, shown from the moment the dialog opens until the
+    /// mic is confirmed capturing (a few milliseconds). Yellow, commit actions
+    /// disabled. As soon as capture is live the dialog flips to the red
+    /// <see cref="SwitchToCapturing"/> state; once the backend connects it
+    /// becomes the fully-live <see cref="SwitchToRecording"/> state.
     /// Cancel stays available throughout.
     /// </summary>
     private void SwitchToConnecting()
@@ -640,6 +654,38 @@ public partial class SpeakDialog : Window
         // caret at the end so appended typing / Resume continues naturally.
         TranscriptText.IsReadOnly = false;
         TranscriptText.CaretIndex = TranscriptText.Text?.Length ?? 0;
+    }
+
+    /// <summary>
+    /// Capture is live but the transcription backend is not connected yet. Shows
+    /// the RED "RECORDING" state - the mic is genuinely capturing and every byte
+    /// is buffered in order (capture-first pipeline), so this is an honest
+    /// "recording" indication. Commit actions (Insert/Send/Pause) and the mic
+    /// selector stay disabled until the connect completes: there is nothing to
+    /// transcribe or commit yet, and switching mics mid-connect would race the
+    /// service start. A small sub-status notes the backend is still connecting.
+    /// Cancel stays available. <see cref="SwitchToRecording"/> takes over the
+    /// instant the connect completes.
+    /// </summary>
+    private void SwitchToCapturing()
+    {
+        _stage = Stage.Recording;
+        StatusLabel.Text = "RECORDING";
+        StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        TranscriptText.IsReadOnly = true;
+        // Commit/pause/mic disabled until the link is up; Cancel stays enabled.
+        PrimaryButton.IsEnabled = false;
+        StopButton.IsEnabled = false;
+        PauseButton.IsEnabled = false;
+        PauseButton.Content = BuildPauseIcon();
+        MicSelector.IsEnabled = false;
+        foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        // Fresh segment: re-evaluate loudness from scratch.
+        _recentPeakRms = 0.0;
+        // Reuse the (otherwise empty) hint row to note the backend is still
+        // connecting. ASCII only per the project no-Unicode rule.
+        LevelHint.Text = "connecting transcription...";
     }
 
     private void SwitchToRecording()

@@ -21,8 +21,13 @@ namespace CcDirector.Core.Dictation;
 ///
 /// THE FIX
 /// -------
-/// 1. Start capturing the instant the pipeline starts (synchronous
-///    <see cref="IAudioSource.Start"/>), BEFORE the connection is attempted.
+/// 1. Start capturing the instant <see cref="StartCapture"/> is called
+///    (synchronous <see cref="IAudioSource.Start"/>), BEFORE any network work -
+///    key-vault fetch, dictionary fetch, and the provider connect all happen
+///    afterwards in <see cref="ConnectAsync"/>. The audio source is the only
+///    dependency capture needs, so the pipeline does NOT require the session at
+///    construction: capture can begin while the key is still being resolved and
+///    the session does not yet exist.
 /// 2. Every captured chunk is written to an ordered, unbounded channel.
 /// 3. A single pump task waits until the provider session is connected, then
 ///    drains the channel FIFO and pushes each chunk to the session. Chunks
@@ -46,7 +51,10 @@ namespace CcDirector.Core.Dictation;
 public sealed class DictationPipeline : IAsyncDisposable
 {
     private readonly IAudioSource _audio;
-    private readonly DictationSession _session;
+    // Bound at ConnectAsync, not construction: capture starts before the session
+    // (and the key it needs) exists. The pump only touches it after _connected is
+    // released, which ConnectAsync does only once _session is set.
+    private DictationSession? _session;
 
     // Unbounded so capture is never blocked by a slow or not-yet-open
     // connection; single reader because the pump is the sole consumer, which is
@@ -71,7 +79,8 @@ public sealed class DictationPipeline : IAsyncDisposable
     private long _deliveredBytes;
     private int _primedChunkCount;
 
-    private bool _started;
+    private bool _captureStarted;
+    private bool _connectStarted;
     private bool _stopped;
     private bool _disposed;
 
@@ -96,60 +105,90 @@ public sealed class DictationPipeline : IAsyncDisposable
     /// <summary>Forwarded from the session: connection-state transitions.</summary>
     public event Action<ConnectionState>? OnStateChanged;
 
-    public DictationPipeline(IAudioSource audio, DictationSession session)
+    public DictationPipeline(IAudioSource audio)
     {
         _audio = audio ?? throw new ArgumentNullException(nameof(audio));
-        _session = session ?? throw new ArgumentNullException(nameof(session));
-        _session.OnPartial += ForwardPartial;
-        _session.OnStateChanged += ForwardState;
     }
 
     /// <summary>
     /// Start capturing immediately, then connect. Returns once the provider
     /// session is connected and live streaming is underway; audio captured
     /// during the connect is buffered and flushed in order. Throws if the
-    /// connection fails (capture is stopped first).
+    /// connection fails (capture is stopped first). Convenience wrapper over
+    /// <see cref="StartCapture"/> + <see cref="ConnectAsync"/> for callers that
+    /// already have the session ready before they want any capture.
     /// </summary>
-    public async Task StartAsync(string profile = "default", CancellationToken ct = default)
+    public async Task StartAsync(DictationSession session, string profile = "default", CancellationToken ct = default)
+    {
+        StartCapture();
+        await ConnectAsync(session, profile, ct);
+    }
+
+    /// <summary>
+    /// CAPTURE FIRST. Synchronous and non-blocking: opens the audio source and
+    /// begins buffering every captured chunk into the ordered channel BEFORE any
+    /// network work (key fetch, dictionary fetch, provider connect). The mic is
+    /// live the instant this returns, so the UI can honestly show "recording".
+    /// Audio captured from here until <see cref="ConnectAsync"/> releases the
+    /// pump is held in the channel and delivered in capture order - nothing is
+    /// lost to the time the key resolves or the connection establishes.
+    /// </summary>
+    public void StartCapture()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(DictationPipeline));
-        if (_started) throw new InvalidOperationException("DictationPipeline already started.");
-        FileLog.Write($"[DictationPipeline] StartAsync: profile={profile}");
-        _started = true;
+        if (_captureStarted) throw new InvalidOperationException("DictationPipeline capture already started.");
+        FileLog.Write("[DictationPipeline] StartCapture");
+        _captureStarted = true;
 
-        // 1. CAPTURE FIRST. Synchronous; the very first sample is now buffered
-        //    before we spend a single millisecond on the connection.
+        // The very first sample is buffered before we spend a single millisecond
+        // on the key, the dictionary, or the connection.
         _audio.OnAudioChunk += OnChunk;
         _audio.Start();
         try { OnCaptureStarted?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[DictationPipeline] OnCaptureStarted handler threw: {ex.Message}"); }
 
-        // 2. Start the pump. It will block on _connected until the session is up,
-        //    buffering everything the mic produces in the meantime.
-        _pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // The pump blocks on _connected until ConnectAsync releases it, buffering
+        // everything the mic produces in the meantime.
+        _pumpCts = new CancellationTokenSource();
         _pumpTask = Task.Run(() => PumpAsync(_pumpCts.Token), CancellationToken.None);
+    }
 
-        // 3. Connect (the slow part). If it fails, stop capture and surface the
-        //    error - no silent degradation.
+    /// <summary>
+    /// Bind the session and connect (the slow part). Returns once the provider
+    /// session is live and the buffered audio is draining in capture order, then
+    /// live. Must be called after <see cref="StartCapture"/>. If the connect
+    /// fails, capture is stopped and the error surfaces - no silent degradation.
+    /// </summary>
+    public async Task ConnectAsync(DictationSession session, string profile = "default", CancellationToken ct = default)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(DictationPipeline));
+        if (!_captureStarted) throw new InvalidOperationException("ConnectAsync called before StartCapture.");
+        if (_connectStarted) throw new InvalidOperationException("DictationPipeline already connecting.");
+        _connectStarted = true;
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+        _session.OnPartial += ForwardPartial;
+        _session.OnStateChanged += ForwardState;
+        FileLog.Write($"[DictationPipeline] ConnectAsync: profile={profile}");
+
         try
         {
             await _session.StartAsync(profile, ct);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DictationPipeline] StartAsync: session connect FAILED: {ex.Message}");
+            FileLog.Write($"[DictationPipeline] ConnectAsync: session connect FAILED: {ex.Message}");
             _audio.Stop();
             _channel.Writer.TryComplete(ex);
             _connected.TrySetException(ex);
-            try { _pumpCts.Cancel(); } catch { /* disposed */ }
+            try { _pumpCts?.Cancel(); } catch { /* disposed */ }
             throw;
         }
 
-        // 4. Release the pump: buffered audio drains in capture order, then live.
+        // Release the pump: buffered audio drains in capture order, then live.
         _connected.TrySetResult();
         try { OnConnected?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[DictationPipeline] OnConnected handler threw: {ex.Message}"); }
-        FileLog.Write($"[DictationPipeline] StartAsync done: primed_chunks={PrimedChunkCount}, captured_bytes={CapturedBytes}");
+        FileLog.Write($"[DictationPipeline] ConnectAsync done: primed_chunks={PrimedChunkCount}, captured_bytes={CapturedBytes}");
     }
 
     /// <summary>
@@ -160,7 +199,8 @@ public sealed class DictationPipeline : IAsyncDisposable
     public async Task<TranscriptResult> StopAsync(CancellationToken ct = default)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(DictationPipeline));
-        if (!_started) throw new InvalidOperationException("StopAsync called before StartAsync.");
+        if (!_captureStarted) throw new InvalidOperationException("StopAsync called before StartCapture.");
+        if (_session is null) throw new InvalidOperationException("StopAsync called before ConnectAsync - no session to commit to.");
         if (_stopped) throw new InvalidOperationException("DictationPipeline already stopped.");
         _stopped = true;
         FileLog.Write($"[DictationPipeline] StopAsync: captured_bytes={CapturedBytes}, delivered_so_far={DeliveredBytes}");
@@ -219,9 +259,11 @@ public sealed class DictationPipeline : IAsyncDisposable
         try
         {
             await _connected.Task.WaitAsync(ct);
+            // _connected is only released by ConnectAsync AFTER _session is set,
+            // so the session is guaranteed non-null here.
             await foreach (var chunk in _channel.Reader.ReadAllAsync(ct))
             {
-                await _session.PushAudioAsync(chunk, ct);
+                await _session!.PushAudioAsync(chunk, ct);
                 Interlocked.Add(ref _deliveredBytes, chunk.Length);
             }
         }
@@ -244,8 +286,11 @@ public sealed class DictationPipeline : IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _session.OnPartial -= ForwardPartial;
-        _session.OnStateChanged -= ForwardState;
+        if (_session is not null)
+        {
+            _session.OnPartial -= ForwardPartial;
+            _session.OnStateChanged -= ForwardState;
+        }
         _audio.OnAudioChunk -= OnChunk;
         try { _audio.Stop(); } catch (Exception ex) { FileLog.Write($"[DictationPipeline] Dispose: audio stop threw: {ex.Message}"); }
 
