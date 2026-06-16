@@ -37,12 +37,9 @@ public sealed class PythonToolsInstallerTests : IDisposable
             return; // opt-in; see class summary.
 
         // Stage a local release: the bundle assets + a release-manifest.json with real SHA-256s.
-        // The extras asset (issue #174) joins when present, enabling the extras checks below.
         var releaseDir = Path.Combine(_root, "release");
         Directory.CreateDirectory(releaseDir);
-        var hasExtras = File.Exists(Path.Combine(bundleDir, PythonToolsInstaller.ExtrasAsset));
         var assets = new List<string> { PythonToolsInstaller.PythonAsset, PythonToolsInstaller.ToolsAsset };
-        if (hasExtras) assets.Add(PythonToolsInstaller.ExtrasAsset);
         var assetJson = new StringBuilder();
         foreach (var a in assets)
         {
@@ -77,9 +74,10 @@ public sealed class PythonToolsInstallerTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(result.BundleVersion));
         Assert.Equal(result.BundleVersion, InstalledManifest.Load(layout).Get(PythonToolsInstaller.ComponentId));
 
-        // The CORE tier must NOT contain the extras tools (issue #174 - that is the whole point).
+        // The bundle ships ONLY core tools (ship: true in registry.json). A non-core tool like
+        // cc-crawl4ai must never leak into it - that is the whole point of the allowlist.
         Assert.False(File.Exists(Path.Combine(layout.PyenvScriptsDir, "cc-crawl4ai.exe")),
-            "extras tool cc-crawl4ai leaked into the core bundle");
+            "non-core tool cc-crawl4ai leaked into the shipped bundle");
 
         // The shim actually runs the tool.
         var (exit, _) = ProcessRunnerTestProbe.Run(shim, "--help");
@@ -109,33 +107,6 @@ public sealed class PythonToolsInstallerTests : IDisposable
         Assert.True(repair.Success, $"repair re-install failed: {repair.Message}\n{string.Join("\n", repair.Steps)}");
         Assert.DoesNotContain("already installed", repair.Message); // must NOT take the early-out
         Assert.True(File.Exists(strippedScript), "stripped tool script was not repaired by re-install");
-
-        if (!hasExtras)
-            return; // older bundle dir without the extras asset; core coverage only.
-
-        // --- Extras tier: installs into the SAME venv, records its component, shims appear. ---
-        var extras = await installer.InstallExtrasAsync(release, new ReleaseSource());
-        Assert.True(extras.Success, $"extras install failed: {extras.Message}\n{string.Join("\n", extras.Steps)}");
-        Assert.True(File.Exists(Path.Combine(layout.PyenvScriptsDir, "cc-crawl4ai.exe")), "extras console script missing");
-        Assert.True(File.Exists(Path.Combine(layout.BinDir, "cc-crawl4ai.cmd")), "extras bin shim missing");
-        Assert.Equal(extras.BundleVersion, InstalledManifest.Load(layout).Get(PythonToolsInstaller.ExtrasComponentId));
-
-        // Idempotent: a second call early-outs as already installed.
-        var again = await installer.InstallExtrasAsync(release, new ReleaseSource());
-        Assert.True(again.Success);
-        Assert.Contains("already installed", again.Message);
-
-        // --- Restore-after-rebuild: a core rebuild wipes the venv; extras must come back. ---
-        // Force the rebuild by recording a stale core version (defeats the skip gate).
-        var im = InstalledManifest.Load(layout);
-        im.Set(PythonToolsInstaller.ComponentId, "0.0.1");
-        im.Save(layout);
-
-        var rebuild = await installer.InstallAsync(release, new ReleaseSource());
-        Assert.True(rebuild.Success, $"rebuild failed: {rebuild.Message}\n{string.Join("\n", rebuild.Steps)}");
-        Assert.True(File.Exists(Path.Combine(layout.PyenvScriptsDir, "cc-crawl4ai.exe")),
-            "extras tool lost in the core rebuild - the restore did not run");
-        Assert.Equal(rebuild.BundleVersion, InstalledManifest.Load(layout).Get(PythonToolsInstaller.ExtrasComponentId));
     }
 }
 

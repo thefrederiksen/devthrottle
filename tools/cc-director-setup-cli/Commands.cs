@@ -272,26 +272,6 @@ internal static class Commands
     }
 
     /// <summary>
-    /// Install the EXTRAS tier of the Python tools bundle (heavy, on-demand tools - cc-crawl4ai,
-    /// cc-docgen; issue #174) into the existing shared venv. Requires a prior workstation install
-    /// (the engine fails with the exact fix otherwise). Idempotent.
-    /// </summary>
-    public static async Task<int> InstallExtrasAsync(CliArgs args, InstallLayout layout, bool json)
-    {
-        var release = await ResolveReleaseAsync(args);
-        var result = await new PythonToolsInstaller(layout).InstallExtrasAsync(release, new ReleaseSource());
-
-        if (json)
-            Program.WriteJson(new { pythonToolsExtras = new { success = result.Success, message = result.Message, toolCount = result.ToolCount, steps = result.Steps } });
-        else
-        {
-            Console.WriteLine(result.Success ? $"Python extras: {result.Message}" : $"Python extras FAILED: {result.Message}");
-            foreach (var s in result.Steps) Console.WriteLine($"  {s}");
-        }
-        return result.Success ? Ok : Error;
-    }
-
-    /// <summary>
     /// Pre-flight checks for a Gateway install. Returns an error message to print, or null if OK.
     /// Not a fallback: it stops the install with an exact fix rather than half-installing.
     /// </summary>

@@ -32,7 +32,7 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-facebook | Facebook Page CLI: post, comment, reply, list via Graph API | Facebook App + Page Access Token |
 | cc-youtube | YouTube CLI: upload, comment, reply, list via Data API v3 | Google OAuth (YouTube Data API) |
 | cc-spotify | Spotify playback control via browser | cc-browser |
-| cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers; extras tier (`cc-director-setup-cli install-extras`) |
+| cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers; not shipped (dev-only, build from repo) |
 | cc-websiteaudit | Website SEO/security/AI readiness audit | Node.js, Chrome (not yet built) |
 | cc-brandingrecommendations | Branding action plans from audit data | Node.js |
 
@@ -64,7 +64,7 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-hardware | System hardware info (RAM, CPU, GPU, disk) | None |
 | cc-comm-queue | Communication Manager approval queue | None |
 | cc-settings | CC Director configuration management | None |
-| cc-docgen | C4 architecture diagrams from YAML | Graphviz; extras tier (`cc-director-setup-cli install-extras`) |
+| cc-docgen | C4 architecture diagrams from YAML | Graphviz; not shipped (dev-only, build from repo) |
 | cc-director-setup | Windows installer for CC Director | None |
 | cc-personresearch | Person research aggregation | (not yet built) |
 | cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
@@ -304,8 +304,9 @@ cc-spotify recommend --mood "chill"
 
 AI-ready web crawler that converts pages to clean markdown.
 
-**Extras tier:** not part of the default install (its dependency tree is very heavy).
-Install on demand with `cc-director-setup-cli install-extras`.
+**Not shipped:** not part of the installed product (not in the "ship" allowlist in
+tools/registry.json). It stays in the repo and is buildable for dev with
+`scripts/build-all-tools.ps1 -Tool cc-crawl4ai`.
 
 ```bash
 cc-crawl4ai crawl "https://example.com" -o page.md
@@ -507,8 +508,9 @@ cc-comm-queue status
 
 Generate C4 architecture diagrams from YAML manifest files.
 
-**Extras tier:** not part of the default install (the bundled diagrams icon library is large).
-Install on demand with `cc-director-setup-cli install-extras`. Requires Graphviz.
+**Not shipped:** not part of the installed product (not in the "ship" allowlist in
+tools/registry.json). It stays in the repo and is buildable for dev with
+`scripts/build-all-tools.ps1 -Tool cc-docgen`. Requires Graphviz.
 
 ```bash
 cc-docgen generate --manifest ./docs/architecture.yaml

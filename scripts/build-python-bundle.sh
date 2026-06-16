@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 #
 # Build the macOS CC Director Python tools bundle - the mac analog of build-python-bundle.ps1.
-# Produces three release assets under OUT_DIR (default dist/python-bundle):
+# Produces two release assets under OUT_DIR (default dist/python-bundle):
 #
-#   cc-python-macos-arm64.tar.gz              relocatable python-build-standalone CPython, laid out flat
-#                                             so extracting into PythonDir yields PythonDir/bin/python3
-#   cc-tools-pyenv-macos-arm64.tar.gz         CORE tier: wheelhouse/ (de-duped dep wheels + core tool
-#                                             wheels) + requirements.lock + tools-manifest.json
-#   cc-tools-pyenv-extras-macos-arm64.tar.gz  EXTRAS tier (registry tools tagged "tier": "extras", e.g.
-#                                             cc-crawl4ai + cc-docgen, issue #174): wheelhouse/ with the
-#                                             wheels ONLY those tools need + tools-manifest.json
+#   cc-python-macos-arm64.tar.gz       relocatable python-build-standalone CPython, laid out flat
+#                                      so extracting into PythonDir yields PythonDir/bin/python3
+#   cc-tools-pyenv-macos-arm64.tar.gz  wheelhouse/ (de-duped dep wheels + the core tool wheels)
+#                                      + requirements.lock + tools-manifest.json
 #
-# Both tiers resolve from ONE combined lock so versions never conflict; the split into two
-# wheelhouses is done by scripts/split-python-wheelhouse.py over the wheels' own metadata.
+# Core is an explicit allowlist: a tool ships ONLY when it has "ship": true in tools/registry.json.
+# Non-core tools stay in the repo (buildable for dev) but never enter the bundle. There is no
+# longer a core/extras split.
 #
 # The installer (PythonToolsInstaller) extracts the python, runs `python3 -m venv`, then
 # `pip install --no-index --find-links wheelhouse <tools>` fully offline, and symlinks each tool's
@@ -40,19 +38,20 @@ PYSTAGE="$WORK/python"
 rm -rf "$WORK"
 mkdir -p "$WHEELHOUSE" "$OUT_DIR"
 
-# ---- 1. Select the built Python tools from the registry --------------------------------------
+# ---- 1. Select the SHIPPED Python tools from the registry ------------------------------------
+# Core is an explicit allowlist: a tool ships only when it has "ship": true in tools/registry.json.
 step "reading tools/registry.json"
 TOOL_DIRS=()
 while IFS= read -r line; do TOOL_DIRS+=("$line"); done < <(python3 - <<'PY'
 import json, os
 reg = json.load(open("tools/registry.json"))
 for t in reg["tools"]:
-    if t.get("type") == "python" and t.get("built") and t["name"] != "cc-director-setup":
+    if t.get("type") == "python" and t.get("ship") and t["name"] != "cc-director-setup":
         print(os.path.join("tools", t.get("source_dir") or t["name"]))
 PY
 )
-[ "${#TOOL_DIRS[@]}" -gt 0 ] || fail "no built python tools in registry"
-step "selected ${#TOOL_DIRS[@]} built python tools"
+[ "${#TOOL_DIRS[@]}" -gt 0 ] || fail "no shipped python tools in registry (set \"ship\": true on core tools)"
+step "selected ${#TOOL_DIRS[@]} shipped python tools"
 
 # ---- 2. Build every tool + shared-lib wheel into the wheelhouse ------------------------------
 step "building tool + shared-lib wheels"
@@ -71,8 +70,9 @@ step "collecting third-party dependencies from tool pyprojects"
 python3 - "$WORK/thirdparty.in" <<'PY'
 import tomllib, glob, os, re, sys, json
 registry = json.load(open("tools/registry.json"))
-built = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("built") and t["name"]!="cc-director-setup"}
-ours = {"cc-shared", "cc-storage"} | built
+ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship") and t["name"]!="cc-director-setup"}
+allcc = {t["name"] for t in registry["tools"]}     # every cc-* name (any type)
+ours = {"cc-shared", "cc-storage"} | allcc         # our own dists never come from PyPI
 norm = lambda r: re.split(r"[<>=!~ \[]", r.strip(), 1)[0].lower().replace("_", "-")
 reqs = set()
 def add(pp, extras=()):
@@ -85,7 +85,7 @@ def add(pp, extras=()):
             if norm(r) not in ours: reqs.add(r.strip())
 for pp in glob.glob("tools/cc-*/pyproject.toml"):
     name = os.path.basename(os.path.dirname(pp))
-    if name not in built: continue
+    if name not in ship: continue                  # only shipped tools' deps enter the wheelhouse
     add(pp, extras=("full",) if name == "cc-vault" else ())   # cc-vault ships converters under [full]
 add("tools/cc_shared/pyproject.toml"); add("tools/cc_storage/pyproject.toml")
 open(sys.argv[1], "w").write("\n".join(sorted(reqs)) + "\n")
@@ -134,60 +134,39 @@ step "bundling CPython $EXACTVER from $PYROOT"
 mkdir -p "$PYSTAGE"
 cp -R "$PYROOT/." "$PYSTAGE/"   # flat copy so the archive extracts to PythonDir/bin/python3
 
-# ---- 6. Write the per-tier tools manifests, then split the wheelhouse ------------------------
-# The "tier" field in the registry splits the bundle: core tools install for everyone; extras
-# (heavy, rarely used - cc-crawl4ai, cc-docgen) ship as a separate on-demand asset (issue #174).
-step "writing tools-manifest.json (core + extras)"
+# ---- 6. Write the tools manifest -------------------------------------------------------------
+step "writing tools-manifest.json"
 # Product version lives in Directory.Build.props (single source, see docs/architecture/VERSIONING.md)
 BUNDLE_VERSION="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | head -1 | sed -E 's#</?Version>##g')"
-EXTRAS_DIR="$WORK/extras"
-EXTRAS_WHEELHOUSE="$EXTRAS_DIR/wheelhouse"
-mkdir -p "$EXTRAS_WHEELHOUSE"
-python3 - "$WORK/tools-manifest.json" "$EXTRAS_DIR/tools-manifest.json" "$BUNDLE_VERSION" "$EXACTVER" <<'PY'
+python3 - "$WORK/tools-manifest.json" "$BUNDLE_VERSION" "$EXACTVER" <<'PY'
 import json, os, sys, tomllib
-core_out, extras_out, bundle, pyver = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+out, bundle, pyver = sys.argv[1], sys.argv[2], sys.argv[3]
 reg = json.load(open("tools/registry.json"))
-core, extras = [], []
+tools = []
 for t in reg["tools"]:
-    if not (t.get("type") == "python" and t.get("built") and t["name"] != "cc-director-setup"):
+    if not (t.get("type") == "python" and t.get("ship") and t["name"] != "cc-director-setup"):
         continue
     d = os.path.join("tools", t.get("source_dir") or t["name"])
     pp = tomllib.load(open(os.path.join(d, "pyproject.toml"), "rb"))
     scripts = list((pp.get("project", {}).get("scripts") or {}).keys())
     dist = "cc-vault[full]" if t["name"] == "cc-vault" else t["name"]   # cc-vault converters are under [full]
-    entry = {"id": t["name"], "dist": dist, "scripts": scripts}
-    (extras if t.get("tier") == "extras" else core).append(entry)
-if not core: sys.exit("ERROR: no core-tier python tools in registry")
-if not extras: sys.exit("ERROR: no extras-tier python tools in registry - if the extras tier is gone, remove the split from this script")
-json.dump({"bundleVersion": bundle, "pythonVersion": pyver, "tools": core}, open(core_out, "w"), indent=2)
-json.dump({"bundleVersion": bundle, "pythonVersion": pyver, "tier": "extras", "tools": extras}, open(extras_out, "w"), indent=2)
-print(f"{len(core)} core + {len(extras)} extras tools")
+    tools.append({"id": t["name"], "dist": dist, "scripts": scripts})
+if not tools: sys.exit("ERROR: no shipped python tools in registry (set \"ship\": true on core tools)")
+json.dump({"bundleVersion": bundle, "pythonVersion": pyver, "tools": tools}, open(out, "w"), indent=2)
+print(f"{len(tools)} shipped tools")
 PY
 
-step "splitting the wheelhouse into core + extras tiers"
-python3 "$SCRIPT_DIR/split-python-wheelhouse.py" \
-    --wheelhouse "$WHEELHOUSE" --extras-wheelhouse "$EXTRAS_WHEELHOUSE" \
-    --core-manifest "$WORK/tools-manifest.json" --extras-manifest "$EXTRAS_DIR/tools-manifest.json" \
-    --platform macos --python-version "$EXACTVER" \
-    || fail "wheelhouse split failed"
-
-# ---- 7. Pack the three assets (.tar.gz preserves +x bits and symlinks) -----------------------
+# ---- 7. Pack the two assets (.tar.gz preserves +x bits and symlinks) -------------------------
 step "packaging assets into $OUT_DIR"
 PYTGZ="$OUT_DIR/cc-python-macos-arm64.tar.gz"
 TOOLSTGZ="$OUT_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
-EXTRASTGZ="$OUT_DIR/cc-tools-pyenv-extras-macos-arm64.tar.gz"
-rm -f "$PYTGZ" "$TOOLSTGZ" "$EXTRASTGZ"
+rm -f "$PYTGZ" "$TOOLSTGZ"
 tar -czf "$PYTGZ" -C "$PYSTAGE" .
 tar -czf "$TOOLSTGZ" -C "$WORK" wheelhouse requirements.lock tools-manifest.json
-# Same archive layout as the core asset (wheelhouse/ + tools-manifest.json) so the installer's
-# extract + manifest-load path is identical for both tiers.
-tar -czf "$EXTRASTGZ" -C "$EXTRAS_DIR" wheelhouse tools-manifest.json
 
 bytes() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
 pymb=$(( $(bytes "$PYTGZ") / 1048576 ))
 toolsmb=$(( $(bytes "$TOOLSTGZ") / 1048576 ))
-extrasmb=$(( $(bytes "$EXTRASTGZ") / 1048576 ))
 wheels="$(ls "$WHEELHOUSE"/*.whl | wc -l | tr -d ' ')"
-extras_wheels="$(ls "$EXTRAS_WHEELHOUSE"/*.whl | wc -l | tr -d ' ')"
-step "DONE. python=${pymb}MB, tools-pyenv=${toolsmb}MB ($wheels wheels), extras=${extrasmb}MB ($extras_wheels wheels)"
-step "assets: $PYTGZ ; $TOOLSTGZ ; $EXTRASTGZ"
+step "DONE. python=${pymb}MB, tools-pyenv=${toolsmb}MB ($wheels wheels)"
+step "assets: $PYTGZ ; $TOOLSTGZ"

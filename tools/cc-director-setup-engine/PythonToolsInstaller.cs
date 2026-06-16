@@ -29,19 +29,8 @@ public sealed class PythonToolsInstaller
     public static string ToolsAsset =>
         OperatingSystem.IsWindows() ? "cc-tools-pyenv-win-x64.zip" : "cc-tools-pyenv-macos-arm64.tar.gz";
 
-    /// <summary>
-    /// The extras-tier wheelhouse asset for the current OS: heavy, rarely-used tools (registry
-    /// entries tagged "tier": "extras", e.g. cc-crawl4ai + cc-docgen) installed on demand into
-    /// the SAME shared venv. Split out to halve the default bundle (issue #174).
-    /// </summary>
-    public static string ExtrasAsset =>
-        OperatingSystem.IsWindows() ? "cc-tools-pyenv-extras-win-x64.zip" : "cc-tools-pyenv-extras-macos-arm64.tar.gz";
-
     /// <summary>The component id the bundle's version is tracked under in installed.json.</summary>
     public const string ComponentId = "python-tools";
-
-    /// <summary>The component id the extras tier's version is tracked under in installed.json.</summary>
-    public const string ExtrasComponentId = "python-tools-extras";
 
     private readonly InstallLayout _layout;
 
@@ -135,9 +124,6 @@ public sealed class PythonToolsInstaller
             // version — the version lives inside tools-manifest.json, which only exists post-extract.
             var installedAtStart = InstalledManifest.Load(_layout);
             var installedBundle = installedAtStart.Get(ComponentId);
-            // The extras tier lives in the same venv, so the rebuild below wipes it; remember whether
-            // it was installed so we can restore it afterwards (issue #174).
-            var hadExtras = installedAtStart.Get(ExtrasComponentId) is not null;
             var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
             // Trust installed.json only when the venv is actually HEALTHY: python present AND every tool's
             // console script on disk. A version match alone is not enough - a venv whose site-packages was
@@ -159,14 +145,6 @@ public sealed class PythonToolsInstaller
             // 3. Create the shared venv from the bundled python (on-target, so console-script paths are correct).
             Step("creating the shared Python venv");
             ResetDir(_layout.PyenvDir);
-            if (hadExtras)
-            {
-                // The reset just removed the extras tools from the venv; record that truthfully NOW so a
-                // failed restore never leaves installed.json claiming extras that are not on disk.
-                var imReset = InstalledManifest.Load(_layout);
-                imReset.Remove(ExtrasComponentId);
-                imReset.Save(_layout);
-            }
             var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"");
             if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
 
@@ -254,19 +232,6 @@ public sealed class PythonToolsInstaller
             im.Set(ComponentId, manifest.BundleVersion);
             im.Save(_layout);
 
-            // 7. The venv rebuild removed any installed extras tier; put it back from this release.
-            if (hadExtras)
-            {
-                Step("restoring the extras tier (the venv rebuild removed it)");
-                var extras = await InstallExtrasAsync(release, source, progress, ct);
-                steps.AddRange(extras.Steps);
-                if (!extras.Success)
-                    return new PythonToolsResult(false,
-                        $"Core bundle {manifest.BundleVersion} installed, but restoring the extras tier failed: {extras.Message} " +
-                        "Run 'cc-director-setup-cli install-extras' to reinstall it.",
-                        steps, manifest.Dists.Count, manifest.BundleVersion);
-            }
-
             Step($"Python tools bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
             return new PythonToolsResult(true,
                 $"Installed {manifest.Dists.Count} Python tools (bundle {manifest.BundleVersion}).",
@@ -276,89 +241,6 @@ public sealed class PythonToolsInstaller
         {
             TryDelete(pyZip);
             TryDelete(toolsZip);
-            TryDeleteDir(bundleDir);
-        }
-    }
-
-    /// <summary>
-    /// Install the EXTRAS tier (heavy, on-demand tools - issue #174) into the EXISTING shared venv.
-    /// Requires the core bundle to be installed first (the venv must exist); fails with an exact fix
-    /// otherwise. The extras wheelhouse carries only the wheels the extras tools need beyond core;
-    /// pip resolves the rest from the packages already installed in the venv (same combined lock,
-    /// so versions never conflict). Idempotent via installed.json + an on-disk presence probe.
-    /// </summary>
-    public async Task<PythonToolsResult> InstallExtrasAsync(
-        ResolvedRelease release, ReleaseSource source,
-        IProgress<string>? progress = null,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(release);
-        ArgumentNullException.ThrowIfNull(source);
-
-        var steps = new List<string>();
-        void Step(string m) { steps.Add(m); EngineLog.Write($"[PythonToolsInstaller] {m}"); progress?.Report(m); }
-
-        var asset = release.Manifest.TryGetAsset(ExtrasAsset);
-        if (asset is null)
-            return Fail(steps, $"release is missing the extras bundle asset ({ExtrasAsset}).");
-
-        var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
-        if (!File.Exists(venvPython))
-            return Fail(steps, "the shared Python venv is not installed; run a workstation install first " +
-                               "(cc-director-setup-cli install --role workstation), then install-extras.");
-
-        string? zip = null, bundleDir = null;
-        try
-        {
-            Step($"downloading {ExtrasAsset} ({FormatMb(asset.Size)})");
-            zip = await source.DownloadAssetAsync(ExtrasAsset, release.DownloadUrls, ct);
-            if (!Hashing.Sha256Matches(zip, asset.Sha256))
-                return Fail(steps, $"{ExtrasAsset} SHA-256 mismatch; download rejected.");
-
-            bundleDir = Path.Combine(Path.GetTempPath(), $"cc-pytools-extras-{Guid.NewGuid():N}");
-            var (ok, extractOut) = Extract(zip, bundleDir);
-            if (!ok) return Fail(steps, $"extracting {ExtrasAsset} failed: {Trim(extractOut)}");
-
-            var manifestPath = Path.Combine(bundleDir, "tools-manifest.json");
-            var wheelhouse = Path.Combine(bundleDir, "wheelhouse");
-            if (!File.Exists(manifestPath)) return Fail(steps, "extras bundle is missing tools-manifest.json.");
-            if (!Directory.Exists(wheelhouse)) return Fail(steps, "extras bundle is missing the wheelhouse.");
-            var manifest = ToolsBundleManifest.Load(manifestPath);
-
-            // Early-out: recorded at this version AND still present in the venv. (A core rebuild
-            // wipes the venv and removes the installed.json record, so version+presence is trustworthy.)
-            var installedVer = InstalledManifest.Load(_layout).Get(ExtrasComponentId);
-            var probe = manifest.Scripts.Count > 0 ? ConsoleScriptPath(manifest.Scripts[0]) : null;
-            if (installedVer == manifest.BundleVersion && probe is not null && File.Exists(probe))
-            {
-                Step($"Python extras bundle {manifest.BundleVersion} already installed; skipping");
-                return new PythonToolsResult(true,
-                    $"Python extras bundle {manifest.BundleVersion} already installed.",
-                    steps, manifest.Dists.Count, manifest.BundleVersion);
-            }
-
-            var wheelCount = Directory.GetFiles(wheelhouse, "*.whl").Length;
-            Step($"installing {manifest.Dists.Count} extras tools offline from the wheelhouse ({wheelCount} wheels)");
-            var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
-            var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location --progress-bar=off {distArgs}";
-            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs, line => EngineLog.Write($"[pip] {line}"));
-            if (pipExit != 0) return Fail(steps, $"offline pip install (extras) failed ({pipExit}): {Trim(pipOut)}");
-
-            Step($"writing {manifest.Scripts.Count} tool shims to bin");
-            WriteShims(manifest.Scripts);
-
-            var im = InstalledManifest.Load(_layout);
-            im.Set(ExtrasComponentId, manifest.BundleVersion);
-            im.Save(_layout);
-
-            Step($"Python extras bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
-            return new PythonToolsResult(true,
-                $"Installed {manifest.Dists.Count} extras tools (bundle {manifest.BundleVersion}).",
-                steps, manifest.Dists.Count, manifest.BundleVersion);
-        }
-        finally
-        {
-            TryDelete(zip);
             TryDeleteDir(bundleDir);
         }
     }
