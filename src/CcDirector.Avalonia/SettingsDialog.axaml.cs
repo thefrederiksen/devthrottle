@@ -35,7 +35,6 @@ public partial class SettingsDialog : Window
 
     // Shared detection/test logic, identical to what the REST Control API exposes.
     private readonly SettingsDetectionService _detector = new();
-    private readonly ToolDetectionService _toolDetector = new();
 
     // Loaded values, so Save only writes fields the user actually changed.
     private string _loadedScreenshots = "";
@@ -48,9 +47,6 @@ public partial class SettingsDialog : Window
     // snapshot lets Save detect whether the list changed at all.
     private readonly ObservableCollection<AgentEntryRow> _agentRows = new();
     private string _loadedAgentsSnapshot = "";
-
-    // The id of the entry the editor is currently editing, or null when adding a new one.
-    private string? _editingEntryId;
 
     public SettingsDialog() : this(null, 0, null) { }
 
@@ -212,359 +208,128 @@ public partial class SettingsDialog : Window
             _agentRows.Move(index, index + 1);
     }
 
-    private void BtnRemoveAgent_Click(object? sender, RoutedEventArgs e)
+    private async void BtnRemoveAgent_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[SettingsDialog] BtnRemoveAgent_Click");
-        var row = FindRow((sender as Control)?.Tag);
-        if (row is null) return;
-        _agentRows.Remove(row);
-        // If the removed row was being edited, close the editor.
-        if (_editingEntryId == row.Id)
-            CloseEditor();
-        UpdateAgentEntriesEmptyState();
-    }
-
-    private void BtnAddAgent_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnAddAgent_Click");
-        OpenEditor(null);
-    }
-
-    private void BtnEditAgent_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditAgent_Click");
-        var row = FindRow((sender as Control)?.Tag);
-        if (row is null) return;
-        OpenEditor(row);
-    }
-
-    /// <summary>
-    /// Open the add/edit editor. <paramref name="row"/> null = add a new entry; non-null =
-    /// pre-fill from the existing entry so editing changes only that one.
-    /// </summary>
-    private void OpenEditor(AgentEntryRow? row)
-    {
-        _editingEntryId = row?.Id;
-        AgentEditorTitle.Text = row is null ? "Add Agent" : "Edit Agent";
-
-        // Type dropdown is the full AgentKind set (incl. Custom/RawCli).
-        EditorTypeCombo.ItemsSource = AgentTypeOptions;
-        var type = row?.Type ?? AgentKind.ClaudeCode;
-        EditorTypeCombo.SelectedItem = AgentTypeOptions.FirstOrDefault(o => o.Kind == type) ?? AgentTypeOptions[0];
-
-        EditorDisplayNameBox.Text = row?.DisplayName ?? "";
-        EditorEnabledCheck.IsChecked = row?.Enabled ?? true;
-        EditorPathBox.Text = row?.ExecutablePath ?? "";
-        EditorModelBox.Text = row?.DefaultModel ?? "";
-        EditorArgsOverrideBox.Text = row?.ArgsOverride ?? "";
-
-        // The preset list depends on the type; populate then select the entry's preset.
-        PopulatePresetCombo(type, row?.PresetId ?? "");
-
-        EditorStatus.IsVisible = false;
-        AgentEditorPanel.IsVisible = true;
-        RefreshEditorPreview();
-    }
-
-    private void CloseEditor()
-    {
-        _editingEntryId = null;
-        AgentEditorPanel.IsVisible = false;
-    }
-
-    private void BtnEditorCancel_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditorCancel_Click");
-        CloseEditor();
-    }
-
-    /// <summary>
-    /// Apply the editor fields back to the list: update the existing entry (by id) or add a new
-    /// one. Display name defaults to the type's name when left blank. The editor closes; nothing
-    /// is written to disk until the dialog's Save and Close.
-    /// </summary>
-    private void BtnEditorSave_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write($"[SettingsDialog] BtnEditorSave_Click: editingId={_editingEntryId ?? "(new)"}");
         try
         {
-            var type = EditorSelectedType();
-            var displayName = EditorDisplayNameBox.Text?.Trim() ?? "";
-            if (displayName.Length == 0)
-                displayName = AgentTypeOptions.First(o => o.Kind == type).Label;
+            var row = FindRow((sender as Control)?.Tag);
+            if (row is null) return;
 
-            var preset = EditorPresetCombo.SelectedItem as string ?? "";
-            var model = EditorModelBox.Text?.Trim() ?? "";
-            var argsOverride = EditorArgsOverrideBox.Text?.Trim() ?? "";
-            var path = EditorPathBox.Text?.Trim() ?? "";
-            var enabled = EditorEnabledCheck.IsChecked == true;
+            // Trash-icon Remove confirms before destroying data (AC2).
+            var confirm = new ConfirmDialog(
+                "Remove agent?",
+                $"Remove the agent \"{row.DisplayName}\" from the list?",
+                confirmLabel: "Remove");
+            if (await confirm.ShowDialog<bool>(this) != true)
+                return;
 
-            if (_editingEntryId is not null)
-            {
-                var existing = _agentRows.FirstOrDefault(r => r.Id == _editingEntryId);
-                if (existing is not null)
-                {
-                    existing.DisplayName = displayName;
-                    existing.Type = type;
-                    existing.Enabled = enabled;
-                    existing.ExecutablePath = path;
-                    existing.PresetId = preset;
-                    existing.DefaultModel = model;
-                    existing.ArgsOverride = argsOverride;
-                }
-            }
-            else
-            {
-                _agentRows.Add(new AgentEntryRow
-                {
-                    Id = Guid.NewGuid().ToString("D"),
-                    DisplayName = displayName,
-                    Type = type,
-                    Enabled = enabled,
-                    ExecutablePath = path,
-                    PresetId = preset,
-                    DefaultModel = model,
-                    ArgsOverride = argsOverride,
-                    StatusText = "Not checked",
-                });
-            }
-
-            CloseEditor();
+            _agentRows.Remove(row);
             UpdateAgentEntriesEmptyState();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnEditorSave_Click FAILED: {ex.Message}");
-            ShowEditorStatus($"Could not save agent: {ex.Message}", error: true);
+            FileLog.Write($"[SettingsDialog] BtnRemoveAgent_Click FAILED: {ex.Message}");
+            StatusText.Text = $"Could not remove agent: {ex.Message}";
         }
     }
 
-    private AgentKind EditorSelectedType() =>
-        (EditorTypeCombo.SelectedItem as AgentTypeOption)?.Kind ?? AgentKind.ClaudeCode;
+    private async void BtnAddAgent_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnAddAgent_Click");
+        await OpenAgentEditorAsync(null);
+    }
+
+    private async void BtnEditAgent_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditAgent_Click");
+        var row = FindRow((sender as Control)?.Tag);
+        if (row is null) return;
+        await OpenAgentEditorAsync(row);
+    }
 
     /// <summary>
-    /// Populate the editor's command-line preset dropdown from the catalog for the given type, and
-    /// select the supplied preset (falling back to the catalog default). Custom (RawCli) types are
-    /// not in the catalog, so the preset dropdown shows a single "Custom (use args below)" entry.
+    /// Open the Add/Edit modal over this Settings dialog (AC5). <paramref name="row"/> null = add;
+    /// non-null = edit that entry. The modal returns the committed <see cref="AgentEntry"/> on Save
+    /// (null on Cancel/discard); on Save we apply it to the in-memory list AND persist the full
+    /// list to config.json immediately, so the deliberate save cannot be dropped by how the parent
+    /// is later closed (AC11, documented persistence model (a)).
     /// </summary>
-    private void PopulatePresetCombo(AgentKind type, string selectedPreset)
+    private async Task OpenAgentEditorAsync(AgentEntryRow? row)
     {
-        if (AgentToolCatalog.Contains(type))
+        try
         {
-            var entry = AgentToolCatalog.GetEntry(type);
-            var names = entry.Presets.Select(p => p.Name).ToList();
-            EditorPresetCombo.ItemsSource = names;
-            var index = names.FindIndex(n => string.Equals(n, selectedPreset, StringComparison.OrdinalIgnoreCase));
-            EditorPresetCombo.SelectedIndex = index >= 0 ? index : 0;
-            EditorPresetCombo.IsEnabled = true;
+            // Sibling names = every OTHER entry's display name, for "(N)" disambiguation (AC7).
+            var siblingNames = _agentRows
+                .Where(r => r.Id != row?.Id)
+                .Select(r => r.DisplayName)
+                .ToList();
+
+            var existing = row is null ? null : new AgentEntry
+            {
+                Id = row.Id,
+                DisplayName = row.DisplayName,
+                Type = row.Type,
+                Enabled = row.Enabled,
+                ExecutablePath = row.ExecutablePath,
+                PresetId = row.PresetId,
+                DefaultModel = row.DefaultModel,
+                ArgsOverride = row.ArgsOverride,
+            };
+
+            var dialog = new AgentEditorDialog(existing, siblingNames, CurrentOptions());
+            var result = await dialog.ShowDialog<AgentEntry?>(this);
+            if (result is null)
+            {
+                FileLog.Write("[SettingsDialog] OpenAgentEditorAsync: modal cancelled");
+                return;
+            }
+
+            ApplyEditorResult(result);
+            await PersistAgentsAsync();
+            UpdateAgentEntriesEmptyState();
+            FileLog.Write($"[SettingsDialog] OpenAgentEditorAsync: saved entry {result.Id}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] OpenAgentEditorAsync FAILED: {ex.Message}");
+            StatusText.Text = $"Could not save agent: {ex.Message}";
+        }
+    }
+
+    /// <summary>Apply a modal Save result to the in-memory list: update the matching row or add a new one.</summary>
+    private void ApplyEditorResult(AgentEntry result)
+    {
+        var existing = _agentRows.FirstOrDefault(r => r.Id == result.Id);
+        if (existing is not null)
+        {
+            existing.DisplayName = result.DisplayName;
+            existing.Type = result.Type;
+            existing.Enabled = result.Enabled;
+            existing.ExecutablePath = result.ExecutablePath;
+            existing.PresetId = result.PresetId;
+            existing.DefaultModel = result.DefaultModel;
+            existing.ArgsOverride = result.ArgsOverride;
+            existing.StatusText = ReadStatusText(result);
         }
         else
         {
-            var names = new List<string> { "Custom (use args below)" };
-            EditorPresetCombo.ItemsSource = names;
-            EditorPresetCombo.SelectedIndex = 0;
-            EditorPresetCombo.IsEnabled = false;
+            _agentRows.Add(AgentEntryRow.From(result, ReadStatusText(result)));
         }
     }
-
-    private void EditorTypeCombo_Changed(object? sender, SelectionChangedEventArgs e)
-    {
-        // The editor may not be fully built during initial template load; guard against nulls.
-        if (EditorPresetCombo is null) return;
-        PopulatePresetCombo(EditorSelectedType(), "");
-        RefreshEditorPreview();
-    }
-
-    private void EditorPreset_Changed(object? sender, SelectionChangedEventArgs e) => RefreshEditorPreview();
-    private void EditorInput_Changed(object? sender, TextChangedEventArgs e) => RefreshEditorPreview();
 
     /// <summary>
-    /// Recompute the editor's "what launches" preview from its live fields, using the same shared
-    /// resolver the App launch wiring uses, so the preview is always truthful.
+    /// Persist the current ordered agent list to config.json (the documented non-lossy model (a):
+    /// each deliberate modal Save flushes immediately) and reset the baseline so the dialog's own
+    /// Save/Cancel does not re-write or revert it.
     /// </summary>
-    private void RefreshEditorPreview()
+    private async Task PersistAgentsAsync()
     {
-        if (EditorPreviewStrip is null) return;
-
-        var type = EditorSelectedType();
-        var config = new AgentToolConfig
-        {
-            Tool = type,
-            PresetName = EditorPresetCombo?.SelectedItem as string ?? "",
-            DefaultModel = EditorModelBox?.Text?.Trim() ?? "",
-            ArgsOverride = EditorArgsOverrideBox?.Text?.Trim() ?? "",
-        };
-
-        var exe = EditorPathBox?.Text?.Trim() ?? "";
-        if (exe.Length == 0)
-            exe = AgentTypeOptions.First(o => o.Kind == type).Label.ToLowerInvariant();
-
-        var args = config.ResolveEffectiveCommandLineArguments();
-        EditorPreviewStrip.Text = string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
+        var entries = BuildEntriesFromRows();
+        await Task.Run(() => AgentEntryStore.SaveEntries(entries));
+        _loadedAgentsSnapshot = SnapshotAgents();
+        FileLog.Write($"[SettingsDialog] PersistAgentsAsync: wrote {entries.Count} entries");
     }
-
-    private async void BtnEditorDetect_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditorDetect_Click");
-        var type = EditorSelectedType();
-        if (!ToolDetectionService.SupportedTools.Contains(type))
-        {
-            ShowEditorStatus("Detect is only available for the built-in agent types. Use Browse for a custom command.", error: true);
-            return;
-        }
-
-        EditorDetectButton.IsEnabled = false;
-        ShowEditorStatus("Detecting...", error: false);
-        try
-        {
-            var options = CurrentOptions();
-            var typedPath = EditorPathBox.Text?.Trim();
-            var result = await Task.Run(() => _toolDetector.DetectTool(type, options, typedPath));
-            if (result.ResolvedPath is not null)
-            {
-                EditorPathBox.Text = result.ResolvedPath;
-                RefreshEditorPreview();
-            }
-            ShowEditorStatus($"{result.Message} Source: {result.Source}.", error: !result.Found);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnEditorDetect_Click FAILED: {ex.Message}");
-            ShowEditorStatus($"Detection failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            EditorDetectButton.IsEnabled = true;
-        }
-    }
-
-    private async void BtnEditorQuickCheck_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditorQuickCheck_Click");
-        var type = EditorSelectedType();
-        if (!ToolDetectionService.SupportedTools.Contains(type))
-        {
-            ShowEditorStatus("Quick check is only available for the built-in agent types.", error: true);
-            return;
-        }
-
-        EditorQuickCheckButton.IsEnabled = false;
-        ShowEditorStatus("Testing...", error: false);
-        try
-        {
-            var result = await _toolDetector.TestToolAsync(type, EditorPathBox.Text?.Trim() ?? "");
-            ShowEditorStatus(result.Message, error: !result.Ok);
-            await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
-
-            // Reflect the new status in the list row being edited, if any.
-            if (_editingEntryId is not null)
-            {
-                var existing = _agentRows.FirstOrDefault(r => r.Id == _editingEntryId);
-                if (existing is not null)
-                    existing.StatusText = result.Ok ? "OK" : "Failed";
-            }
-
-            FileLog.Write($"[SettingsDialog] BtnEditorQuickCheck_Click: persisted validation type={type}, ok={result.Ok}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnEditorQuickCheck_Click FAILED: {ex.Message}");
-            ShowEditorStatus($"Test failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            EditorQuickCheckButton.IsEnabled = true;
-        }
-    }
-
-    private async void BtnEditorBrowse_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditorBrowse_Click");
-        try
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Select agent executable",
-                AllowMultiple = false,
-                FileTypeFilter = new[]
-                {
-                    new FilePickerFileType("Executables")
-                    {
-                        Patterns = OperatingSystem.IsWindows()
-                            ? new[] { "*.exe", "*.cmd", "*.bat" }
-                            : new[] { "*" }
-                    }
-                }
-            });
-            if (files.Count == 0)
-                return;
-
-            EditorPathBox.Text = files[0].Path.LocalPath;
-            RefreshEditorPreview();
-            ShowEditorStatus($"Selected {EditorPathBox.Text}. Click Quick check to verify or Save agent to apply.", error: false);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnEditorBrowse_Click FAILED: {ex.Message}");
-            ShowEditorStatus($"Browse failed: {ex.Message}", error: true);
-        }
-    }
-
-    private async void BtnEditorLaunchPreview_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnEditorLaunchPreview_Click");
-        try
-        {
-            var type = EditorSelectedType();
-            var exe = EditorPathBox.Text?.Trim() ?? "";
-            if (string.IsNullOrWhiteSpace(exe) && ToolDetectionService.SupportedTools.Contains(type))
-                exe = ToolDetectionService.GetConfiguredPath(type, CurrentOptions());
-            if (string.IsNullOrWhiteSpace(exe))
-            {
-                ShowEditorStatus("Set the executable path first, then try Launch preview again.", error: true);
-                return;
-            }
-
-            var config = new AgentToolConfig
-            {
-                Tool = type,
-                PresetName = EditorPresetCombo.SelectedItem as string ?? "",
-                DefaultModel = EditorModelBox.Text?.Trim() ?? "",
-                ArgsOverride = EditorArgsOverrideBox.Text?.Trim() ?? "",
-            };
-            var args = config.ResolveEffectiveCommandLineArguments();
-            var workingDir = CurrentOptions().ChatSessionRepoPath ?? Environment.CurrentDirectory;
-            var name = AgentTypeOptions.First(o => o.Kind == type).Label;
-
-            var dialog = new LaunchPreviewDialog(exe, args, workingDir, name);
-            await dialog.ShowDialog(this);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnEditorLaunchPreview_Click FAILED: {ex.Message}");
-            ShowEditorStatus($"Launch preview failed: {ex.Message}", error: true);
-        }
-    }
-
-    private void ShowEditorStatus(string text, bool error)
-    {
-        EditorStatus.Text = text;
-        EditorStatus.IsVisible = true;
-        EditorStatus.Foreground = error
-            ? global::Avalonia.Media.Brushes.IndianRed
-            : global::Avalonia.Media.Brushes.MediumSeaGreen;
-    }
-
-    /// <summary>The selectable agent types in the editor's Type dropdown (the full AgentKind set).</summary>
-    private static readonly IReadOnlyList<AgentTypeOption> AgentTypeOptions = new[]
-    {
-        new AgentTypeOption(AgentKind.ClaudeCode, "Claude Code"),
-        new AgentTypeOption(AgentKind.Codex, "Codex"),
-        new AgentTypeOption(AgentKind.Gemini, "Gemini"),
-        new AgentTypeOption(AgentKind.Pi, "Pi"),
-        new AgentTypeOption(AgentKind.OpenCode, "OpenCode"),
-        new AgentTypeOption(AgentKind.RawCli, "Custom"),
-    };
 
     /// <summary>
     /// Fill the screenshots folder with the location this OS saves screenshots to (Windows
@@ -1009,8 +774,34 @@ public sealed class AgentEntryRow : INotifyPropertyChanged
     public string StatusText
     {
         get => _statusText;
-        set { _statusText = value; OnChanged(); }
+        set
+        {
+            _statusText = value;
+            OnChanged();
+            OnChanged(nameof(HasStatus));
+            OnChanged(nameof(StatusPillBackground));
+            OnChanged(nameof(StatusPillForeground));
+        }
     }
+
+    /// <summary>Whether to show the status pill at all (hidden for entries with no status, e.g. Custom).</summary>
+    public bool HasStatus => !string.IsNullOrWhiteSpace(StatusText);
+
+    /// <summary>Pill background by status: green OK / amber Failed / grey Not checked.</summary>
+    public global::Avalonia.Media.IBrush StatusPillBackground => StatusText switch
+    {
+        "OK" => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#1B3A2A")),
+        "Failed" => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#3A2A1B")),
+        _ => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#404040")),
+    };
+
+    /// <summary>Pill text color matching the background semantics.</summary>
+    public global::Avalonia.Media.IBrush StatusPillForeground => StatusText switch
+    {
+        "OK" => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#22C55E")),
+        "Failed" => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#F59E0B")),
+        _ => new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#AAAAAA")),
+    };
 
     /// <summary>Human-readable type label shown in the Type column.</summary>
     public string TypeLabel => Type switch
