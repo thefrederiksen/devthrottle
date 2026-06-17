@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #513 - DevThrottle dictation uses batch Whisper path (transport + provider-correct model)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; color: #1e1e1e; line-height: 1.5; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #007ACC; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; background: #f5f5f5; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #ddd; border-radius: 4px; }
+  .pass { color: #136f2b; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #f5a623; padding: .6rem .9rem; margin: 1rem 0; }
+  .verdict { background: #e8f5e9; border-left: 4px solid #136f2b; padding: .8rem 1rem; margin: 1.4rem 0; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #ccc; margin-top: .6rem; }
+</style>
+</head>
+<body>
+<h1>Issue #513 - DevThrottle dictation uses the batch Whisper path</h1>
+<p><strong>Branch:</strong> issue-513-batch-whisper-transport &nbsp;|&nbsp; <strong>Role:</strong> Developer Agent (CenCon)</p>
+
+<h2>Release Notes</h2>
+<p>
+DevThrottle-mode dictation now works by routing through the <strong>batch Whisper</strong> path
+instead of OpenAI's Realtime WebSocket. The transcription routing target now carries a
+<strong>transport</strong> dimension and a <strong>provider-correct model</strong>, and the dictation
+pipeline honors the transport. This is the proper fix for the model/endpoint mismatch found after
+#506 - not a proxy-side model-rewriting hack.
+</p>
+<ul>
+  <li><strong>BYO / OpenAI</strong> &rarr; transport <code>realtime</code>, model <code>gpt-4o-transcribe</code>, <code>api.openai.com</code> (unchanged).</li>
+  <li><strong>DevThrottle / Groq</strong> &rarr; transport <code>batch</code>, model <code>whisper-large-v3</code>, <code>devthrottle.com</code>.</li>
+  <li>In DevThrottle mode the dictionary-cleanup LLM pass is <strong>skipped</strong> (raw Whisper transcript is returned); no cleanup call is routed to OpenAI or devthrottle.com.</li>
+  <li>The proxy stays honest - no model rewriting; the client now sends the correct model because the routing provides it.</li>
+</ul>
+
+<h2>Changes</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.Core/Configuration/TranscriptionEndpoint.cs</code></td>
+      <td>Added <code>TranscriptionTransport</code> enum (Realtime/Batch) + parse/format helpers; added <code>Transport</code> to <code>TranscriptionEndpoint</code>; replaced the shared model constant with a per-mode mapping (<code>OpenAiModel=gpt-4o-transcribe</code>, <code>DevThrottleModel=whisper-large-v3</code>). The resolver now pairs each mode with its transport + provider-correct model.</td></tr>
+  <tr><td><code>src/CcDirector.Core/Configuration/OpenAiKeyResolver.cs</code></td>
+      <td><code>ResolvedTranscription</code> gains <code>Transport</code>; standalone resolve fills it from the endpoint; the Gateway resolve reads the <code>transport</code> field, deriving it deterministically from the (authoritative) mode when an older Gateway omits it (not a fallback).</td></tr>
+  <tr><td><code>src/CcDirector.Gateway/Api/TranscriptionRoutingEndpoint.cs</code></td>
+      <td>Routing JSON now includes <code>transport</code> alongside mode/baseUrl/model/key.</td></tr>
+  <tr><td><code>src/CcDirector.Core/Dictation/DictationSession.cs</code></td>
+      <td><code>CleanupOrchestrator</code> made optional; when null, <code>StopAsync</code> ships the raw transcript with cleanup not applied (the batch/DevThrottle path).</td></tr>
+  <tr><td><code>src/CcDirector.ControlApi/DictationEndpoint.cs</code></td>
+      <td>Provider/cleanup/preview selection now branches on the routing <strong>transport</strong> (not the mode name) via a pure, unit-testable <code>BuildPipelineComponents</code>. Batch &rarr; batch provider, no cleanup, no preview; the Realtime WebSocket is never constructed.</td></tr>
+  <tr><td>Tests</td>
+      <td>Extended routing/resolver/mode tests for transport + model; added <code>DictationPipelineSelectionTests</code> (transport &rarr; provider selection), <code>Issue513TransportRoutingProofTests</code> (live-socket proof), and a <code>DictationSession</code> null-cleanup test.</td></tr>
+</table>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual / Proof</th><th>Status</th></tr>
+  <tr>
+    <td>DevThrottle dictation uses the batch <code>/audio/transcriptions</code> on devthrottle.com with whisper-large-v3</td>
+    <td>Routing serves <code>(batch, whisper-large-v3, devthrottle.com)</code>; pipeline selects the batch provider</td>
+    <td>Live-socket proof: <code>mode=devthrottle -&gt; transport=batch, model=whisper-large-v3, baseUrl=https://devthrottle.com/api/v1</code>. Raw JSON: <code>{"mode":"devthrottle","transport":"batch",...,"model":"whisper-large-v3",...}</code>. Selection test: batch transport &rarr; <code>OpenAiTranscriptionProvider</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The OpenAI Realtime WebSocket is never opened when transport is batch</td>
+    <td>Batch transport never constructs <code>OpenAiRealtimeProvider</code></td>
+    <td><code>BuildPipeline_BatchTransport_...</code> asserts <code>IsType&lt;OpenAiTranscriptionProvider&gt;</code> and <code>IsNotType&lt;OpenAiRealtimeProvider&gt;</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>BYO/OpenAI mode dictation is unchanged (realtime + gpt-4o-transcribe)</td>
+    <td>Routing serves <code>(realtime, gpt-4o-transcribe, api.openai.com)</code>; realtime provider + cleanup + preview</td>
+    <td>Live-socket proof: <code>mode=byo -&gt; transport=realtime, model=gpt-4o-transcribe, baseUrl=https://api.openai.com/v1</code>. Selection test: realtime &rarr; <code>OpenAiRealtimeProvider</code> + cleanup + preview.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>In DevThrottle mode the BYO OpenAI key is never used and never sent anywhere</td>
+    <td>No key/URL cross-pairing</td>
+    <td>Proof asserts <code>dt.BaseUrl</code> excludes api.openai.com and carries the <code>dt_</code> key; existing #506 cross-pairing tests still pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Unit tests: routing returns the two tuples; pipeline selects the batch provider when transport is batch</td>
+    <td>Tests present and green</td>
+    <td>Core config/dictation (70) + Gateway routing/selection/proof (9) all pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof - live-socket routing (production endpoint on a real Kestrel port)</h2>
+<pre>[1] mode=devthrottle -> Director resolved transport=batch, model=whisper-large-v3, baseUrl=https://devthrottle.com/api/v1, keyPrefix=dt_
+[2] mode=byo        -> SAME Director resolved transport=realtime, model=gpt-4o-transcribe, baseUrl=https://api.openai.com/v1, keyPrefix=sk-
+[PROOF] Gateway serves transport + provider-correct model per mode; the Director honors
+        batch/whisper-large-v3 for DevThrottle and realtime/gpt-4o-transcribe for BYO,
+        with no key/URL cross-pairing.
+[RAW] GET /transcription/routing -> {"mode":"devthrottle","transport":"batch","baseUrl":"https://devthrottle.com/api/v1","model":"whisper-large-v3","key":"dt_live_raw"}</pre>
+<p>(Captured in <code>proof-output.txt</code>.)</p>
+
+<h2>Proof - isolated test Director boots clean on this build</h2>
+<p>Built to slot 11 from the worktree, launched via the <code>cc-director11-launch</code> scheduled task (svchost parentage, CLAUDE.md rule 0b). Control API healthy:</p>
+<pre>{"status":"ok","directors":1,"sessions":0,"version":"0.9.12",...}</pre>
+<p>(Captured in <code>director-healthz.json</code>. <code>GET /dictate.html</code> returned HTTP 200.)</p>
+<img src="director-running.png" alt="Isolated test Director running (slot 11)">
+
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)</pre>
+
+<div class="note">
+<strong>Pre-existing, unrelated test failures (NOT caused by this change):</strong> two suites have
+failures that reproduce identically on the clean <code>main</code> checkout and live in files this
+change does not touch -
+<code>NoCrossMachineLoopbackGuardTests</code> (flags <code>IDirectorLauncher.cs</code>, an allowlist
+gap) and <code>VaultGatewayIntegrationTests</code> (an ambient <code>CC_DIRECTOR_ROOT</code>
+environment fragility - <code>ResolveAsync()</code>, which this change does not modify). Verified by
+running the same tests against <code>D:\ReposFred\devthrottle</code> (main) where they fail the same
+way. Every test that exercises the issue #513 code paths passes.
+</div>
+
+<h2>CenCon Impact</h2>
+<p>
+No drift. No architecture container added or removed; no security posture change. The
+security-critical "never cross the BYO key with the devthrottle.com URL" invariant is preserved
+(the change adds a transport field to the same server-side composed routing pair and is re-asserted
+in the proof test). No blocking security rule (DT-01..DT-NN) affected.
+</p>
+
+<div class="verdict">I believe this is finished.</div>
+</body>
+</html>

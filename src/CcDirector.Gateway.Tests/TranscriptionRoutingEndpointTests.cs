@@ -76,8 +76,11 @@ public sealed class TranscriptionRoutingEndpointTests : IAsyncLifetime
         var root = doc.RootElement;
 
         Assert.Equal("byo", root.GetProperty("mode").GetString());
+        // Issue #513: BYO carries the realtime transport + the OpenAI model.
+        Assert.Equal("realtime", root.GetProperty("transport").GetString());
         Assert.Equal(TranscriptionEndpointResolver.OpenAiBaseUrl, root.GetProperty("baseUrl").GetString());
-        Assert.Equal(TranscriptionEndpointResolver.DefaultModel, root.GetProperty("model").GetString());
+        Assert.Equal(TranscriptionEndpointResolver.OpenAiModel, root.GetProperty("model").GetString());
+        Assert.Equal("gpt-4o-transcribe", root.GetProperty("model").GetString());
         Assert.Equal("sk-byo-123", root.GetProperty("key").GetString());
     }
 
@@ -93,7 +96,11 @@ public sealed class TranscriptionRoutingEndpointTests : IAsyncLifetime
         var root = doc.RootElement;
 
         Assert.Equal("devthrottle", root.GetProperty("mode").GetString());
+        // Issue #513: DevThrottle carries the batch transport + the provider-correct Groq model.
+        Assert.Equal("batch", root.GetProperty("transport").GetString());
         Assert.Equal(TranscriptionEndpointResolver.DevThrottleBaseUrl, root.GetProperty("baseUrl").GetString());
+        Assert.Equal(TranscriptionEndpointResolver.DevThrottleModel, root.GetProperty("model").GetString());
+        Assert.Equal("whisper-large-v3", root.GetProperty("model").GetString());
         Assert.Equal("dt_live_xyz", root.GetProperty("key").GetString());
     }
 

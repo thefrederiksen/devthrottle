@@ -35,7 +35,10 @@ public sealed class DictationSession : IAsyncDisposable
 {
     private readonly DictionaryLoader _dictionary;
     private readonly IDictationProvider _provider;
-    private readonly CleanupOrchestrator _cleanup;
+    // Nullable since issue #513: the DevThrottle/batch path skips the dictionary-cleanup LLM pass
+    // entirely (Whisper output is already clean and DevThrottle has no inference proxy to call), so
+    // it constructs a session with no cleanup. When null, StopAsync ships the raw transcript.
+    private readonly CleanupOrchestrator? _cleanup;
     private readonly AudioBuffer _audioBuffer;
     private readonly bool _ownsAudioBuffer;
     private readonly LivePreviewTranscriber? _preview;
@@ -67,16 +70,21 @@ public sealed class DictationSession : IAsyncDisposable
     /// its previews are surfaced through <see cref="OnPartial"/>, and the
     /// session disposes it (same ownership the session takes of the provider).
     /// </param>
+    /// <param name="cleanup">
+    /// Optional dictionary-cleanup pass (issue #513). When null, <see cref="StopAsync"/> ships the
+    /// raw transcript untouched - the DevThrottle/batch path uses this because Whisper output is
+    /// already clean and DevThrottle has no inference proxy to run the cleanup LLM against.
+    /// </param>
     public DictationSession(
         DictionaryLoader dictionary,
         IDictationProvider provider,
-        CleanupOrchestrator cleanup,
+        CleanupOrchestrator? cleanup,
         AudioBuffer? audioBuffer = null,
         LivePreviewTranscriber? preview = null)
     {
         _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-        _cleanup = cleanup ?? throw new ArgumentNullException(nameof(cleanup));
+        _cleanup = cleanup;
         _preview = preview;
 
         if (audioBuffer is null)
@@ -250,6 +258,21 @@ public sealed class DictationSession : IAsyncDisposable
                 ProfileUsed: _profile,
                 CleanupApplied: false,
                 CleanupFailureReason: "provider stop failed: " + ex.Message);
+        }
+
+        // No cleanup orchestrator (DevThrottle/batch path, issue #513): ship the raw Whisper
+        // transcript untouched. We do NOT route the cleanup LLM call to OpenAI here - DevThrottle
+        // has no inference proxy yet, and Whisper output is already clean.
+        if (_cleanup is null)
+        {
+            ChangeState(ConnectionState.Idle);
+            FileLog.Write($"[DictationSession] StopAsync done (cleanup skipped): raw_len={raw.Length}");
+            return new TranscriptResult(
+                RawTranscript: raw,
+                CleanedTranscript: raw,
+                ProfileUsed: _profile,
+                CleanupApplied: false,
+                CleanupFailureReason: bufferFailureReason);
         }
 
         var dict = _dictionary.Current;

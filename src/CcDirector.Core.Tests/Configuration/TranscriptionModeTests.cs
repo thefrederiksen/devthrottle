@@ -59,6 +59,9 @@ public sealed class TranscriptionModeTests
         Assert.Equal("https://api.openai.com/v1", ep.BaseUrl);
         Assert.Equal("OPENAI_API_KEY", ep.KeyName);
         Assert.False(ep.IsDevThrottle);
+        // Issue #513: BYO is the realtime transport with the OpenAI model.
+        Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
+        Assert.Equal("gpt-4o-transcribe", ep.Model);
         // The bring-your-own key must NEVER be paired with a devthrottle.com URL.
         Assert.DoesNotContain("devthrottle.com", ep.BaseUrl);
     }
@@ -71,8 +74,38 @@ public sealed class TranscriptionModeTests
         Assert.Equal("https://devthrottle.com/api/v1", ep.BaseUrl);
         Assert.Equal("DEVTHROTTLE_API_KEY", ep.KeyName);
         Assert.True(ep.IsDevThrottle);
+        // Issue #513: DevThrottle is the batch transport with the provider-correct Groq model -
+        // never the shared OpenAI default (the proxy 404s on gpt-4o-transcribe).
+        Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
+        Assert.Equal("whisper-large-v3", ep.Model);
+        Assert.NotEqual(TranscriptionEndpointResolver.OpenAiModel, ep.Model);
         // DevThrottle mode must never present the user's own OpenAI provider key.
         Assert.NotEqual("OPENAI_API_KEY", ep.KeyName);
+    }
+
+    [Theory]
+    [InlineData("realtime", TranscriptionTransport.Realtime)]
+    [InlineData("REALTIME", TranscriptionTransport.Realtime)]
+    [InlineData("  batch  ", TranscriptionTransport.Batch)]
+    [InlineData("batch", TranscriptionTransport.Batch)]
+    public void Transport_Parse_RecognizedValues(string value, TranscriptionTransport expected)
+        => Assert.Equal(expected, TranscriptionTransportExtensions.Parse(value));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData("websocket")]
+    public void Transport_Parse_UnknownOrMissing_Throws(string? value)
+        => Assert.Throws<ArgumentException>(() => TranscriptionTransportExtensions.Parse(value));
+
+    [Theory]
+    [InlineData(TranscriptionTransport.Realtime, "realtime")]
+    [InlineData(TranscriptionTransport.Batch, "batch")]
+    public void Transport_ToConfigString_RoundTrips(TranscriptionTransport transport, string expected)
+    {
+        Assert.Equal(expected, transport.ToConfigString());
+        Assert.Equal(transport, TranscriptionTransportExtensions.Parse(expected));
     }
 
     [Theory]

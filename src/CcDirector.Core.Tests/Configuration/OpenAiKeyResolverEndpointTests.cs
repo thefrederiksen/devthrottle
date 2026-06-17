@@ -46,6 +46,10 @@ public sealed class OpenAiKeyResolverEndpointTests
     private static string RoutingJson(string mode, string baseUrl, string model, string key) =>
         $"{{\"mode\":\"{mode}\",\"baseUrl\":\"{baseUrl}\",\"model\":\"{model}\",\"key\":\"{key}\"}}";
 
+    // Issue #513: a routing payload that includes the transport field a current Gateway serves.
+    private static string RoutingJson(string mode, string transport, string baseUrl, string model, string key) =>
+        $"{{\"mode\":\"{mode}\",\"transport\":\"{transport}\",\"baseUrl\":\"{baseUrl}\",\"model\":\"{model}\",\"key\":\"{key}\"}}";
+
     [Fact]
     public async Task ResolveEndpoint_OnGateway_ConsumesGatewayRouting()
     {
@@ -67,6 +71,62 @@ public sealed class OpenAiKeyResolverEndpointTests
         // The on-Gateway path hits the routing endpoint, never the local URL constants.
         Assert.Single(handler.RequestedUrls);
         Assert.EndsWith("/transcription/routing", handler.RequestedUrls[0]);
+    }
+
+    [Fact]
+    public async Task ResolveEndpoint_OnGateway_DevThrottle_CarriesBatchTransportAndWhisperModel()
+    {
+        // Issue #513: a current Gateway serves the transport + provider-correct model for DevThrottle.
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("devthrottle", "batch", "https://devthrottle.com/api/v1", "whisper-large-v3", "dt_live_xyz"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
+        Assert.Equal("whisper-large-v3", ep.Model);
+        Assert.Equal("https://devthrottle.com/api/v1", ep.BaseUrl);
+        Assert.Equal(TranscriptionMode.DevThrottle, ep.Mode);
+    }
+
+    [Fact]
+    public async Task ResolveEndpoint_OnGateway_Byo_CarriesRealtimeTransport()
+    {
+        // Issue #513: BYO carries the realtime transport explicitly when the Gateway serves it.
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("byo", "realtime", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-byo"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
+        Assert.Equal("gpt-4o-transcribe", ep.Model);
+    }
+
+    [Fact]
+    public async Task ResolveEndpoint_OnGateway_NoTransportField_DerivesFromMode()
+    {
+        // Issue #513: a #506-but-pre-#513 Gateway omits transport; the Director derives it
+        // deterministically from the (authoritative) mode the Gateway DID serve - not a guess.
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("devthrottle", "https://devthrottle.com/api/v1", "whisper-large-v3", "dt_live_old"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
     }
 
     [Fact]
@@ -161,7 +221,9 @@ public sealed class OpenAiKeyResolverEndpointTests
         Assert.NotNull(ep);
         Assert.Equal("https://api.openai.com/v1", ep.BaseUrl);
         Assert.Equal("sk-local-123", ep.ApiKey);
-        Assert.Equal(TranscriptionEndpointResolver.DefaultModel, ep.Model);
+        Assert.Equal(TranscriptionEndpointResolver.OpenAiModel, ep.Model);
+        // Issue #513: standalone BYO carries the realtime transport.
+        Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
     }
 
     [Fact]

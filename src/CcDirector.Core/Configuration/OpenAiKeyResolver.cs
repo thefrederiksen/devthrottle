@@ -151,6 +151,7 @@ public sealed class OpenAiKeyResolver
         {
             BaseUrl = endpoint.BaseUrl,
             ApiKey = key,
+            Transport = endpoint.Transport,
             Model = endpoint.Model,
             Mode = mode,
         };
@@ -275,6 +276,7 @@ public sealed class OpenAiKeyResolver
             var key = root.TryGetProperty("key", out var k) ? k.GetString() : null;
             var model = root.TryGetProperty("model", out var m) ? m.GetString() : null;
             var modeStr = root.TryGetProperty("mode", out var md) ? md.GetString() : null;
+            var transportStr = root.TryGetProperty("transport", out var tp) ? tp.GetString() : null;
 
             if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)
                 || string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(modeStr))
@@ -283,12 +285,23 @@ public sealed class OpenAiKeyResolver
                 return null;
             }
 
+            var mode = TranscriptionModeExtensions.Parse(modeStr);
+            // The transport joins the routing pair in issue #513. A current Gateway serves it
+            // explicitly. A Gateway in the #506-but-pre-#513 window omits it; rather than guess, we
+            // derive it deterministically from the (authoritative) mode the Gateway DID serve - the
+            // transport is a pure function of the mode in the one resolver, so this is not a
+            // fallback, it is the same decision the Gateway would have made.
+            var transport = string.IsNullOrWhiteSpace(transportStr)
+                ? TranscriptionEndpointResolver.Resolve(mode).Transport
+                : TranscriptionTransportExtensions.Parse(transportStr);
+
             return new ResolvedTranscription
             {
                 BaseUrl = baseUrl,
                 ApiKey = key,
+                Transport = transport,
                 Model = model,
-                Mode = TranscriptionModeExtensions.Parse(modeStr),
+                Mode = mode,
             };
         }
         catch (Exception ex)
@@ -313,8 +326,14 @@ public sealed record ResolvedTranscription
     /// <summary>The credential to present (an <c>sk-</c> or <c>dt_</c> key, depending on mode).</summary>
     public required string ApiKey { get; init; }
 
-    /// <summary>The transcription model to use (e.g. <c>gpt-4o-transcribe</c>), part of the routing
-    /// target the Gateway serves (issue #506).</summary>
+    /// <summary>The transport the pipeline must use (issue #513): realtime for BYO/OpenAI, batch for
+    /// DevThrottle/Groq. Part of the routing target so the pipeline never opens a wire the provider
+    /// does not offer.</summary>
+    public required TranscriptionTransport Transport { get; init; }
+
+    /// <summary>The transcription model to use - provider-correct (issue #513): <c>gpt-4o-transcribe</c>
+    /// for BYO/OpenAI, <c>whisper-large-v3</c> for DevThrottle. Part of the routing target the
+    /// Gateway serves (issue #506).</summary>
     public required string Model { get; init; }
 
     /// <summary>The mode this target was resolved for.</summary>
