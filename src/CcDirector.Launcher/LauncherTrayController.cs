@@ -2,11 +2,14 @@ using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
+using CcDirector.TrayUi;
 
 namespace CcDirector.Launcher;
 
@@ -25,8 +28,8 @@ public sealed class LauncherTrayController : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
 
     private TrayIcon? _trayIcon;
-    private NativeMenuItem? _statusItem;
-    private NativeMenuItem? _autostartItem;
+    private TrayFlyoutController? _flyout;
+    private Bitmap? _icon;
     private LauncherHost? _host;
     private GatewayRegistrationClient? _gatewayClient;
     private HostState _state = HostState.Starting;
@@ -55,26 +58,13 @@ public sealed class LauncherTrayController : IDisposable
 
     private void BuildTrayIcon()
     {
+        // Modern interaction: LEFT-CLICK the icon opens the OneDrive-style flyout (live status +
+        // action buttons + the Start-with-Windows toggle). The right-click menu is reduced to a
+        // single Quit escape hatch - everything else lives in the flyout, not a legacy text menu.
+        _icon = new Bitmap(AssetLoader.Open(new Uri("avares://cc-launcher/Assets/icon.png")));
+        _flyout = new TrayFlyoutController(BuildFlyoutModel);
+
         var menu = new NativeMenu();
-
-        _statusItem = new NativeMenuItem("CC Launcher starting...") { IsEnabled = false };
-        menu.Add(_statusItem);
-        menu.Add(new NativeMenuItemSeparator());
-
-        var restartDirector = new NativeMenuItem("Restart Director");
-        restartDirector.Click += (_, _) => _ = RestartDirectorAsync();
-        menu.Add(restartDirector);
-
-        var openLogs = new NativeMenuItem("Open Logs Folder");
-        openLogs.Click += (_, _) => OpenLogsFolder();
-        menu.Add(openLogs);
-
-        _autostartItem = new NativeMenuItem(GetAutostartMenuText());
-        _autostartItem.Click += (_, _) => ToggleAutostart();
-        menu.Add(_autostartItem);
-
-        menu.Add(new NativeMenuItemSeparator());
-
         var quit = new NativeMenuItem("Quit");
         quit.Click += (_, _) => _ = QuitAsync();
         menu.Add(quit);
@@ -86,10 +76,60 @@ public sealed class LauncherTrayController : IDisposable
             Menu = menu,
             IsVisible = true,
         };
+        _trayIcon.Clicked += (_, _) => _flyout?.Toggle();
 
         var icons = new TrayIcons { _trayIcon };
         TrayIcon.SetIcons(Application.Current!, icons);
         FileLog.Write("[LauncherTrayController] Tray icon created");
+    }
+
+    /// <summary>Build the flyout's content from current state (called fresh on each open).</summary>
+    private TrayFlyoutModel BuildFlyoutModel()
+    {
+        var supervisor = new DirectorSupervisor();
+        var directorState = supervisor.IsRunning ? "running"
+            : supervisor.DirectorExeExists ? "stopped"
+            : "not installed";
+
+        var rows = new List<StatusRow>
+        {
+            new("Version", ReadVersion().Split('+')[0]),
+            new("Port", _port.ToString()),
+            new("Director", directorState),
+        };
+
+        var actions = new List<FlyoutAction>
+        {
+            new() { Text = "Restart Director", Primary = true, OnClick = () => _ = RestartDirectorAsync() },
+            new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
+        };
+
+        ToggleSpec? toggle = OperatingSystem.IsWindows()
+            ? new ToggleSpec { Label = "Start with Windows", IsOn = LauncherAutostart.IsRegistered(), OnChanged = SetAutostart }
+            : null;
+
+        return new TrayFlyoutModel
+        {
+            AppName = "CC Launcher",
+            Icon = _icon,
+            StatusTitle = _state switch
+            {
+                HostState.Running => $"Running on :{_port}",
+                HostState.Starting => "Starting...",
+                _ => "Failed - see logs",
+            },
+            Status = _state switch
+            {
+                HostState.Running => StatusLevel.Ok,
+                HostState.Starting => StatusLevel.Warn,
+                _ => StatusLevel.Error,
+            },
+            Accent = Color.Parse("#F2600C"), // launcher orange
+            Rows = rows,
+            Actions = actions,
+            Toggle = toggle,
+            OnQuit = () => _ = QuitAsync(),
+        };
     }
 
     private async Task StartHostAsync()
@@ -165,6 +205,7 @@ public sealed class LauncherTrayController : IDisposable
         }
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            _flyout?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
         });
@@ -185,28 +226,28 @@ public sealed class LauncherTrayController : IDisposable
         }
     }
 
-    private void ToggleAutostart()
+    /// <summary>Enable/disable the Start-with-Windows autostart from the flyout toggle.</summary>
+    private void SetAutostart(bool enable)
     {
         if (!OperatingSystem.IsWindows()) return;
         try
         {
-            if (LauncherAutostart.IsRegistered())
-            {
-                LauncherAutostart.Unregister();
-                FileLog.Write("[LauncherTrayController] Autostart disabled by user");
-            }
-            else
+            if (enable)
             {
                 var exePath = Environment.ProcessPath
                     ?? throw new InvalidOperationException("Could not resolve own exe path");
                 LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
                 FileLog.Write("[LauncherTrayController] Autostart enabled by user");
             }
-            UpdateAutostartMenuItem();
+            else
+            {
+                LauncherAutostart.Unregister();
+                FileLog.Write("[LauncherTrayController] Autostart disabled by user");
+            }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherTrayController] ToggleAutostart FAILED: {ex.Message}");
+            FileLog.Write($"[LauncherTrayController] SetAutostart FAILED: {ex.Message}");
         }
     }
 
@@ -270,41 +311,19 @@ public sealed class LauncherTrayController : IDisposable
         }
     }
 
-    private string GetAutostartMenuText()
-    {
-        if (!OperatingSystem.IsWindows()) return "Start with Windows (unavailable)";
-        return LauncherAutostart.IsRegistered()
-            ? "Disable: Start with Windows"
-            : "Enable: Start with Windows";
-    }
-
-    private void UpdateAutostartMenuItem()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_autostartItem is not null)
-                _autostartItem.Header = GetAutostartMenuText();
-        });
-    }
-
     private void SetState(HostState state)
     {
         _state = state;
-        var (status, tip) = state switch
+        var tip = state switch
         {
-            HostState.Starting => ("CC Launcher starting...", "CC Launcher - starting"),
-            HostState.Running => ($"CC Launcher running on :{_port}", $"CC Launcher - running on :{_port}"),
-            HostState.Failed => ("CC Launcher FAILED - see logs", "CC Launcher - failed to start"),
-            _ => ("CC Launcher", "CC Launcher"),
+            HostState.Starting => "CC Launcher - starting",
+            HostState.Running => $"CC Launcher - running on :{_port}",
+            HostState.Failed => "CC Launcher - failed to start",
+            _ => "CC Launcher",
         };
-        ApplyStatus(status, tip);
-    }
-
-    private void ApplyStatus(string status, string tip)
-    {
+        // The flyout reads state live on open; here we only keep the tray tooltip current.
         Dispatcher.UIThread.Post(() =>
         {
-            if (_statusItem is not null) _statusItem.Header = status;
             if (_trayIcon is not null) _trayIcon.ToolTipText = tip;
         });
     }
