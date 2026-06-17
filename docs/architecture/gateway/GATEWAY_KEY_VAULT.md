@@ -27,9 +27,13 @@ This is **distinct from cc-vault** (personal data / contacts). The Key Vault hol
 
 Named secrets, opaque string values, e.g.:
 
-- `OPENAI_API_KEY`
+- `OPENAI_API_KEY` - the user's own OpenAI key (transcription "bring your own key" mode, issue #497)
+- `DEVTHROTTLE_API_KEY` - a DevThrottle-issued `dt_` key (transcription "Use DevThrottle" mode, issue #497)
 - `ANTHROPIC_API_KEY`
 - (any future provider key)
+
+The transcription mode itself ("byo" vs "devthrottle") is NOT a secret; it lives in config.json as
+the top-level `transcription_mode` key and selects which of the two keys above is used.
 
 ## 3. Where
 

@@ -59,6 +59,21 @@
   .chk{display:inline-flex;align-items:center;gap:9px;font-size:14px;color:var(--ink);cursor:pointer}
   .chk input{accent-color:var(--blue);width:16px;height:16px}
   .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#23314d;color:#9fb0d8;margin-left:8px;vertical-align:middle}
+
+  /* Transcription mode chooser (issue #497) */
+  .mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 18px}
+  .mode-card{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--line);
+        border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color .15s,background .15s}
+  .mode-card:hover{border-color:var(--blue)}
+  .mode-card.selected{border-color:var(--blue);background:#1c2740}
+  .mode-card input[type=radio]{accent-color:var(--blue);width:16px;height:16px;margin-top:2px;flex:0 0 auto}
+  .mode-card-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px}
+  .mode-card-desc{font-size:12.5px;color:var(--muted);line-height:1.4}
+  .keypanel{border-top:1px solid var(--line);padding-top:16px;margin-top:4px}
+  .keylabel{font-size:13px;color:var(--ink);margin-bottom:8px;font-weight:500}
+  a.link{color:var(--blue);text-decoration:none}
+  a.link:hover{text-decoration:underline}
+  @media (max-width:560px){.mode-cards{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -70,30 +85,78 @@
   <p class="sub">Gateway and fleet configuration.</p>
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="keys">Keys</button>
+    <button class="tab-btn active" data-tab="transcription">Transcription</button>
     <button class="tab-btn" data-tab="gateway">Gateway</button>
     <button class="tab-btn" data-tab="wingman">Wingman</button>
     <button class="tab-btn" data-tab="phone">Phone</button>
   </div>
 
-  <!-- ===== Keys tab ===== -->
-  <div class="tab-panel active" id="tab-keys">
+  <!-- ===== Transcription tab (issue #497) ===== -->
+  <div class="tab-panel active" id="tab-transcription">
     <div class="section">
-      <h2>API Keys</h2>
-      <p class="hint">Stored once here on the Gateway, pulled on demand by every Director. Never shown back in this page and never written to a Director's disk.</p>
-      <div class="status">
-        <span class="dot" id="keydot"></span>
-        <span id="keystate">Loading...</span>
+      <h2>Transcription</h2>
+      <p class="hint">Turn speech into text for your agents. Choose how you connect.</p>
+
+      <!-- Two-mode chooser: radio cards. -->
+      <div class="mode-cards">
+        <label class="mode-card" id="card-byo">
+          <input type="radio" name="txmode" value="byo">
+          <div class="mode-card-body">
+            <div class="mode-card-title">Bring your own key</div>
+            <div class="mode-card-desc">Your OpenAI key. Stays on THIS machine - never sent to DevThrottle.</div>
+          </div>
+        </label>
+        <label class="mode-card" id="card-devthrottle">
+          <input type="radio" name="txmode" value="devthrottle">
+          <div class="mode-card-body">
+            <div class="mode-card-title">Use DevThrottle</div>
+            <div class="mode-card-desc">One managed key. Fast Groq Whisper, metered on your subscription.</div>
+          </div>
+        </label>
       </div>
-      <div class="row">
-        <input id="keybox" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
-        <button class="save" id="savebtn">Save</button>
-        <button class="danger" id="delbtn" style="display:none">Remove</button>
+
+      <!-- DevThrottle key panel -->
+      <div class="keypanel" id="panel-devthrottle" style="display:none">
+        <div class="keylabel">DevThrottle API key</div>
+        <div class="row">
+          <input id="dtkeybox" type="password" placeholder="dt_live_..." autocomplete="off" spellcheck="false">
+          <button class="save" id="dtsavebtn">Save</button>
+          <button class="danger" id="dtdelbtn" style="display:none">Clear</button>
+        </div>
+        <div style="margin-top:10px">
+          <label class="show"><input type="checkbox" id="dtshowbox"> Show what I type</label>
+        </div>
+        <p class="hint" style="margin-top:12px">
+          <a class="link" id="dtsignin" href="https://devthrottle.com" target="_blank" rel="noopener">Don't have a key? Sign in to get one &rarr;</a>
+          &nbsp;&nbsp;
+          <a class="link" id="dtmanage" href="https://devthrottle.com" target="_blank" rel="noopener">Manage or revoke keys at devthrottle.com &rarr;</a>
+        </p>
+        <p class="hint">Keys are created and revoked on devthrottle.com. This page stores the one this machine uses.</p>
+        <div class="status" style="margin-top:6px">
+          <span class="dot" id="dtdot"></span>
+          <span id="dtstate">Loading...</span>
+        </div>
+        <div class="msg" id="dtmsg"></div>
       </div>
-      <div style="margin-top:10px">
-        <label class="show"><input type="checkbox" id="showbox"> Show what I type</label>
+
+      <!-- Bring-your-own (OpenAI) key panel -->
+      <div class="keypanel" id="panel-byo" style="display:none">
+        <div class="keylabel">OpenAI API key</div>
+        <div class="row">
+          <input id="byokeybox" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+          <button class="save" id="byosavebtn">Save</button>
+          <button class="danger" id="byodelbtn" style="display:none">Clear</button>
+        </div>
+        <div style="margin-top:10px">
+          <label class="show"><input type="checkbox" id="byoshowbox"> Show what I type</label>
+        </div>
+        <p class="hint" style="margin-top:12px">Stored locally on this machine only. DevThrottle never receives or stores your provider key.</p>
+        <div class="status" style="margin-top:6px">
+          <span class="dot" id="byodot"></span>
+          <span id="byostate">Loading...</span>
+        </div>
+        <div class="msg" id="byomsg"></div>
       </div>
-      <div class="msg" id="keymsg"></div>
     </div>
   </div>
 
@@ -213,57 +276,103 @@
     });
   });
 
-  const KEY = 'OPENAI_API_KEY';
+  // ===== Transcription (issue #497) =====
+  // Two capability modes, persisted server-side: the mode in config.json
+  // (GET/PUT /gateway/transcription-mode), the two keys in the Gateway vault
+  // (OPENAI_API_KEY for bring-your-own, DEVTHROTTLE_API_KEY for DevThrottle).
+  const BYO_KEY = 'OPENAI_API_KEY';
+  const DT_KEY  = 'DEVTHROTTLE_API_KEY';
+  let currentMode = 'byo';
 
-  function setKeyMsg(text, ok){
-    const m = document.getElementById('keymsg');
+  function txMsg(id, text, ok){
+    const m = document.getElementById(id);
+    if (!m) return;
     m.textContent = text || '';
     m.className = 'msg ' + (ok ? 'ok' : 'err');
   }
 
-  function renderKey(isSet){
-    document.getElementById('keydot').className = 'dot ' + (isSet ? 'green' : 'amber');
-    document.getElementById('keystate').textContent = isSet ? 'OPENAI_API_KEY is set' : 'OPENAI_API_KEY is not set';
-    document.getElementById('keybox').placeholder = isSet ? 'Enter a new key to replace it' : 'sk-...';
-    document.getElementById('delbtn').style.display = isSet ? '' : 'none';
+  // Reflect the selected mode in the cards + which key panel shows.
+  function applyModeUi(mode){
+    currentMode = mode;
+    document.querySelectorAll('input[name="txmode"]').forEach(function(r){ r.checked = (r.value === mode); });
+    document.getElementById('card-byo').classList.toggle('selected', mode === 'byo');
+    document.getElementById('card-devthrottle').classList.toggle('selected', mode === 'devthrottle');
+    document.getElementById('panel-byo').style.display = (mode === 'byo') ? '' : 'none';
+    document.getElementById('panel-devthrottle').style.display = (mode === 'devthrottle') ? '' : 'none';
   }
 
-  async function loadKey(){
+  async function loadMode(){
     try {
-      const r = await fetch('/vault/keys');
+      const r = await fetch('/gateway/transcription-mode');
       if (!r.ok) throw new Error(r.status);
       const d = await r.json();
-      renderKey((d.names || []).includes(KEY));
+      applyModeUi(d.mode === 'devthrottle' ? 'devthrottle' : 'byo');
     } catch (e) {
-      document.getElementById('keystate').textContent = 'Failed to load (is the Gateway running?)';
+      applyModeUi('byo');
     }
   }
 
-  async function saveKey(){
-    const box = document.getElementById('keybox');
-    const btn = document.getElementById('savebtn');
-    const value = box.value.trim();
-    if (!value){ setKeyMsg('Enter a key first.', false); return; }
-    btn.disabled = true; setKeyMsg('Saving...', true);
+  async function changeMode(mode){
+    applyModeUi(mode);
     try {
-      const r = await fetch('/vault/keys/' + KEY, {
+      await fetch('/gateway/transcription-mode', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+    } catch (e) { /* the radio stays where the user put it; next load re-syncs */ }
+  }
+
+  // Which vault names are set (drives both status dots).
+  async function loadKeyStatus(){
+    let names = [];
+    try {
+      const r = await fetch('/vault/keys');
+      if (r.ok){ const d = await r.json(); names = d.names || []; }
+    } catch (e) { /* dots fall back to "unknown" below */ }
+
+    const byoSet = names.includes(BYO_KEY);
+    document.getElementById('byodot').className = 'dot ' + (byoSet ? 'amber' : '');
+    document.getElementById('byostate').textContent = byoSet ? 'Local - your OpenAI key' : 'No OpenAI key stored yet';
+    document.getElementById('byokeybox').placeholder = byoSet ? 'Enter a new key to replace it' : 'sk-...';
+    document.getElementById('byodelbtn').style.display = byoSet ? '' : 'none';
+
+    const dtSet = names.includes(DT_KEY);
+    document.getElementById('dtdot').className = 'dot ' + (dtSet ? 'green' : '');
+    document.getElementById('dtstate').textContent = dtSet ? 'Connected - whisper-large-v3 via DevThrottle' : 'No DevThrottle key stored yet';
+    document.getElementById('dtkeybox').placeholder = dtSet ? 'Enter a new key to replace it' : 'dt_live_...';
+    document.getElementById('dtdelbtn').style.display = dtSet ? '' : 'none';
+  }
+
+  // Save one key after a format check (so an invalid dt_/sk- is caught before it is stored).
+  async function saveKey(name, boxId, btnId, msgId, validate, badFormatMsg){
+    const box = document.getElementById(boxId);
+    const btn = document.getElementById(btnId);
+    const value = box.value.trim();
+    if (!value){ txMsg(msgId, 'Enter a key first.', false); return; }
+    if (!validate(value)){ txMsg(msgId, badFormatMsg, false); return; }
+    btn.disabled = true; txMsg(msgId, 'Saving...', true);
+    try {
+      const r = await fetch('/vault/keys/' + name, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value }),
       });
-      if (r.ok){ box.value=''; await loadKey(); setKeyMsg('Saved. Directors pick it up on their next dictation.', true); }
-      else { const e = await r.json().catch(()=>({})); setKeyMsg('Save failed: ' + (e.error || r.status), false); }
-    } catch (e){ setKeyMsg('Save failed: ' + e, false); }
+      if (r.ok){ box.value=''; await loadKeyStatus(); txMsg(msgId, 'Saved. Picked up on the next transcription.', true); }
+      else { const e = await r.json().catch(()=>({})); txMsg(msgId, 'Save failed: ' + (e.error || r.status), false); }
+    } catch (e){ txMsg(msgId, 'Save failed: ' + e, false); }
     btn.disabled = false;
   }
 
-  async function removeKey(){
-    setKeyMsg('Removing...', true);
+  async function clearKey(name, msgId){
+    txMsg(msgId, 'Clearing...', true);
     try {
-      const r = await fetch('/vault/keys/' + KEY, { method: 'DELETE' });
-      if (r.ok){ await loadKey(); setKeyMsg('Key removed.', true); }
-      else { setKeyMsg('Remove failed: ' + r.status, false); }
-    } catch (e){ setKeyMsg('Remove failed: ' + e, false); }
+      const r = await fetch('/vault/keys/' + name, { method: 'DELETE' });
+      if (r.ok){ await loadKeyStatus(); txMsg(msgId, 'Key cleared.', true); }
+      else { txMsg(msgId, 'Clear failed: ' + r.status, false); }
+    } catch (e){ txMsg(msgId, 'Clear failed: ' + e, false); }
   }
+
+  function isOpenAiKey(k){ return /^sk-/.test(k); }
+  function isDevThrottleKey(k){ return /^dt_(live|test)_/.test(k); }
 
   function fmtUptime(sec){
     sec = Math.max(0, sec|0);
@@ -495,10 +604,25 @@
     catch (e) { setPhoneMsg('Copy failed: ' + e, false); }
   }
 
-  document.getElementById('savebtn').addEventListener('click', saveKey);
-  document.getElementById('delbtn').addEventListener('click', removeKey);
-  document.getElementById('showbox').addEventListener('change', function(e) {
-    document.getElementById('keybox').type = e.target.checked ? 'text' : 'password';
+  // Transcription mode + keys (issue #497)
+  document.querySelectorAll('input[name="txmode"]').forEach(function(r){
+    r.addEventListener('change', function(){ if (r.checked) changeMode(r.value); });
+  });
+  document.getElementById('byosavebtn').addEventListener('click', function(){
+    saveKey(BYO_KEY, 'byokeybox', 'byosavebtn', 'byomsg', isOpenAiKey,
+      'That does not look like an OpenAI key (it should start with "sk-").');
+  });
+  document.getElementById('byodelbtn').addEventListener('click', function(){ clearKey(BYO_KEY, 'byomsg'); });
+  document.getElementById('byoshowbox').addEventListener('change', function(e){
+    document.getElementById('byokeybox').type = e.target.checked ? 'text' : 'password';
+  });
+  document.getElementById('dtsavebtn').addEventListener('click', function(){
+    saveKey(DT_KEY, 'dtkeybox', 'dtsavebtn', 'dtmsg', isDevThrottleKey,
+      'That does not look like a DevThrottle key (it should start with "dt_live_" or "dt_test_").');
+  });
+  document.getElementById('dtdelbtn').addEventListener('click', function(){ clearKey(DT_KEY, 'dtmsg'); });
+  document.getElementById('dtshowbox').addEventListener('change', function(e){
+    document.getElementById('dtkeybox').type = e.target.checked ? 'text' : 'password';
   });
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
@@ -509,7 +633,8 @@
   document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
   document.getElementById('phonecopylink').addEventListener('click', () => copyText(phonePayload, 'Pairing link'));
 
-  loadKey();
+  loadMode();
+  loadKeyStatus();
   loadSnapshot();
   loadWingman();
   loadPhone();

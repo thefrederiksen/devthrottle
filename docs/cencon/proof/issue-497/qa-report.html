@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #497 - Transcription settings - QA Agent proof</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;
+       color:#1a1a1a;max-width:980px;margin:0 auto;padding:28px 22px 80px}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  .sub{color:#666;margin:0 0 18px}
+  code{background:#f3f3f3;padding:1px 5px;border-radius:4px;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+  th,td{border:1px solid #ddd;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f7f7f7}
+  .pass{color:#1f7a47;font-weight:600}
+  .blocked{color:#b8860b;font-weight:600}
+  img{max-width:100%;border:1px solid #ccc;border-radius:8px;margin:10px 0}
+  .note{background:#eef6ff;border:1px solid #9cc4ec;border-radius:8px;padding:12px 14px;margin:14px 0}
+  ul{margin:6px 0}
+</style>
+</head>
+<body>
+<h1>Issue #497 - QA Agent independent verification</h1>
+<p class="sub">QA Agent proof (independent of the Developer report). PR #501, branch
+<code>issue-497-transcription-settings</code>. Verified in an isolated worktree
+(<code>D:\ReposFred\devthrottle-qa-497</code>), own slot 11 build, own Cockpit on loopback
+<code>http://127.0.0.1:7492</code>. Solution build clean: 0 warnings, 0 errors. 99 Configuration
+tests pass (includes the 50 transcription/resolver/persistence tests).</p>
+
+<h2>Method</h2>
+<ul>
+  <li>Created a dedicated worktree on the PR branch; did NOT touch the shared primary working dir.</li>
+  <li>Built <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Ran the changed-area tests myself (<code>CcDirector.Core.Tests</code> Configuration): 99 passed.</li>
+  <li>Ran my own Cockpit on an isolated loopback port and drove the live UI with the browser harness;
+      captured my own screenshots (the <code>qa/</code> folder), distinct from the developer's.</li>
+  <li>Read the routing source (<code>TranscriptionEndpointResolver</code>,
+      <code>OpenAiKeyResolver.ResolveEndpointAsync</code>) to confirm no cross-mode key/URL fallback.</li>
+  <li>Tore down only my own exact-path Director (slot 11) and Cockpit; user Directors untouched.</li>
+</ul>
+
+<h2>Acceptance criteria - independently judged</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Result</th><th>QA evidence (Expected vs Actual)</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Settings shows a Transcription tab; no standalone API Keys sidebar item.</td>
+    <td class="pass">PASS</td>
+    <td>Expected: first tab "Transcription", no API Keys nav item. Actual (qa-01): tab bar reads
+        Transcription (active) / Gateway / Wingman / Phone; left rail Home/Cockpit/Directors/Settings/
+        Dictionary/About - no API Keys. <code>/keys</code> -> HTTP 302 Location /settings (curl).
+        settings.html has 0 "API Keys" strings; NavMenu.razor + tool-nav.js carry only comments
+        where the item used to be.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>User can switch between the two modes; selection and key persist across restarts.</td>
+    <td class="pass">PASS</td>
+    <td>Expected: switching modes swaps the panel; the selection survives a restart. Actual: qa-01 ->
+        qa-02 shows the live switch (BYO -> DevThrottle) and the panel swapping the key field/label/links.
+        Restart persistence: <code>TranscriptionModeConfigTests.SetThenGet_Byo_PersistsAcrossReread</code>
+        and <code>_DevThrottle_PersistsAcrossReread</code> pass in my build (a fresh config.json disk
+        read = the restart path); merge-patch preserves sibling keys.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Valid <code>dt_</code> key + DevThrottle mode transcribes through devthrottle.com/api/v1.</td>
+    <td class="blocked">ROUTING VERIFIED; E2E BLOCKED (documented dependency)</td>
+    <td>Expected: DevThrottle mode targets <code>https://devthrottle.com/api/v1</code> with the dt_ key.
+        Actual: <code>ResolveEndpoint_DevThrottleMode_PullsDevThrottleKey_AndTargetsDevThrottle</code> passes;
+        source confirms <code>TranscriptionEndpointResolver.Resolve(DevThrottle)</code> emits BaseUrl
+        <code>https://devthrottle.com/api/v1</code> + key name <code>DEVTHROTTLE_API_KEY</code> from the same
+        switch arm. True end-to-end is unreachable: per issue section 7 the proxy is not yet deployed to
+        devthrottle.com. Accepted as a documented external dependency, not a defect.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>BYO mode + valid <code>sk-</code> key transcribes directly via OpenAI.</td>
+    <td class="pass">PASS (routing)</td>
+    <td>Expected: BYO targets <code>https://api.openai.com/v1</code> with the sk- key. Actual:
+        <code>ResolveEndpoint_ByoMode_PullsOpenAiKey_AndTargetsOpenAi</code> and
+        <code>ResolveEndpoint_StandaloneByo_UsesLocalOpenAiKey</code> pass; the existing OpenAI dictation
+        path is unchanged for BYO.</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>The BYO key is never transmitted to any DevThrottle/devthrottle.com endpoint.</td>
+    <td class="pass">PASS</td>
+    <td>Expected: the sk- key can never reach a devthrottle.com URL. Actual:
+        <code>ResolveEndpoint_ByoMode_NeverPairsByoKeyWithDevThrottleUrl</code> passes; code read found NO
+        cross-mode fallback - BaseUrl and KeyName are emitted together per mode, and standalone DevThrottle
+        with no gateway returns <code>null</code> (no key) rather than leaking the local sk- key. No key
+        value is written to any log in the diff. DT-01 Key Vault model respected.</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Invalid <code>dt_</code> key surfaces the error message cleanly in the UI.</td>
+    <td class="pass">PASS (reachable path)</td>
+    <td>Expected: an invalid key produces a clean UI error, not a crash. Actual (qa-03): entering a
+        malformed key and clicking Save shows the clean red message <i>"That does not look like a
+        DevThrottle key (it should start with dt_live_ or dt_test_)."</i>; the key is masked, NOT saved
+        (status stays "No DevThrottle key stored yet"). The runtime-401 variant (well-formed-but-invalid
+        key) is blocked by the same undeployed proxy (section 7); the transcription error path does surface
+        a UI error frame (it is not swallowed), so the criterion's reachable portion passes.</td>
+  </tr>
+</table>
+
+<div class="note">
+<b>Dependency assessment (issue section 7):</b> the DevThrottle proxy
+(<code>POST /api/v1/audio/transcriptions</code>) is not yet deployed to devthrottle.com, so live
+DevThrottle-mode transcription and a real upstream 401 cannot be exercised. This is an accepted,
+honestly-documented external dependency - the mode-based routing/contract is correctly implemented and
+unit-proven, the no-leak guarantee holds, and the format-validation 401-style UI path is clean. Per the
+QA mandate this is NOT a bounce-worthy defect.
+</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Adjacent tabs intact: the Gateway tab still renders (Gateway status, Network addressing, Startup) -
+      qa-04. No adjacent breakage.</li>
+  <li>Build clean (0/0); 99 Configuration tests pass.</li>
+  <li>CenCon: docs updated (<code>docs/architecture/gateway/GATEWAY_KEY_VAULT.md</code>,
+      <code>docs/cencon/architecture_manifest.yaml</code>). No blocking DT rule violated; no key value
+      logged.</li>
+</ul>
+
+<h2>QA screenshots</h2>
+<p><b>qa-01 - Default (Bring your own key); Transcription tab active; no API Keys nav</b></p>
+<img src="qa/qa-01-default-byo.png" alt="QA default BYO" />
+<p><b>qa-02 - Use DevThrottle selected; panel swaps to dt_ key field + devthrottle.com links</b></p>
+<img src="qa/qa-02-devthrottle.png" alt="QA DevThrottle mode" />
+<p><b>qa-03 - Invalid DevThrottle key -> clean red validation message, key not saved</b></p>
+<img src="qa/qa-03-invalid-dt-key.png" alt="QA invalid key" />
+<p><b>qa-04 - Regression: Gateway tab still renders</b></p>
+<img src="qa/qa-04-gateway-tab-regression.png" alt="QA gateway tab" />
+
+<h2>Verdict</h2>
+<p><b>VERIFIED - all acceptance criteria met</b> (criterion 3's true end-to-end transcription is blocked
+solely by the undeployed devthrottle.com proxy, an accepted documented dependency per issue section 7;
+its routing/contract is implemented and unit-proven). Independent QA: PASS.</p>
+</body>
+</html>

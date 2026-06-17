@@ -98,9 +98,10 @@ IResult ServePage(string name)
 }
 // /exes, /transcripts, /dictionary are now Blazor pages (issue #183): Components/Pages/
 // Exes.razor, Transcripts.razor, Dictionary.razor. Their static html + MapGet routes were
-// removed so the Blazor route is the only one serving each path. /keys and /settings stay
-// static this round.
-app.MapGet("/keys", () => ServePage("keys.html"));
+// removed so the Blazor route is the only one serving each path. /settings stays static.
+// /keys (the old standalone API Keys page) was folded into Settings > Transcription
+// (issue #497); the route now redirects so any bookmark lands on the new tab.
+app.MapGet("/keys", () => Results.Redirect("/settings"));
 app.MapGet("/settings", () => ServePage("settings.html"));
 // /voice is the mobile-first Voice Mode (offline-capable static PWA): a plain HTML+JS app
 // under wwwroot/pages/voice/ that records audio and drives the Gateway's voice-turn endpoints.

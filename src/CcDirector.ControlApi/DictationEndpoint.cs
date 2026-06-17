@@ -146,17 +146,22 @@ internal static class DictationEndpoint
 
         var profile = TryReadString(startMsg, "profile", out var p) && !string.IsNullOrWhiteSpace(p) ? p : "default";
 
-        // Resolve the OpenAI key for this Director's mode: the Gateway vault when attached to a
-        // Gateway, the local Settings > Voice key when standalone. No key -> dictation is
-        // unavailable; tell the user where to set one rather than failing with a raw error.
-        var apiKey = await keyResolver.ResolveAsync(ct);
-        if (string.IsNullOrWhiteSpace(apiKey))
+        // Resolve the transcription routing target for this Director's mode (issue #497):
+        //   - BYO   -> the user's own OpenAI key against api.openai.com (the live Realtime path).
+        //   - DevThrottle -> a dt_ key against devthrottle.com's OpenAI-compatible managed proxy.
+        // The key comes from the Gateway vault when attached, the local Settings > Voice key when
+        // standalone (BYO only). No key -> dictation is unavailable; tell the user where to set one
+        // rather than failing with a raw error. The BYO OpenAI key is only ever paired with the
+        // OpenAI base URL - it is never sent to devthrottle.com.
+        var endpoint = await keyResolver.ResolveEndpointAsync(ct);
+        if (endpoint is null)
         {
-            FileLog.Write($"[DictationEndpoint] no OpenAI key available (usesGateway={keyResolver.UsesGateway})");
+            FileLog.Write($"[DictationEndpoint] no transcription key available (usesGateway={keyResolver.UsesGateway})");
             await TrySendErrorAsync(ws, keyResolver.UnavailableMessage, ct);
             await TryCloseAsync(ws, WebSocketCloseStatus.PolicyViolation, "no api key");
             return;
         }
+        var apiKey = endpoint.ApiKey;
 
         // Build the dictation pipeline for this connection. Always streaming
         // (PCM16 from the browser's AudioWorklet to the OpenAI Realtime API).
@@ -169,20 +174,39 @@ internal static class DictationEndpoint
         var dictPath = options.ResolveDictationDictionaryPath();
         using var dictionary = new DictionaryLoader(dictPath, watch: false);
 
-        IDictationProvider provider = new OpenAiRealtimeProvider(apiKey: apiKey);
+        // Route the pipeline by transcription mode (issue #497):
+        //   - BYO: the OpenAI Realtime WebSocket provider (true low-latency partials) against
+        //     api.openai.com, with chat-completions cleanup and the live preview - the existing path.
+        //   - DevThrottle: the OpenAI-COMPATIBLE batch transcription endpoint at devthrottle.com/api/v1
+        //     (the contract's one in-scope endpoint - DevThrottle exposes no Realtime WebSocket, and
+        //     chat-completions proxying is out of scope, issue #497 section 7). So DevThrottle mode
+        //     uses the batch provider, no streaming preview, and cleanup pointed at the same base URL.
+        var isDevThrottle = endpoint.Mode == Core.Configuration.TranscriptionMode.DevThrottle;
+        IDictationProvider provider = isDevThrottle
+            ? new OpenAiTranscriptionProvider(
+                apiKey: apiKey,
+                audioContentType: "audio/wav",
+                audioFileName: "audio.wav",
+                baseUrl: endpoint.BaseUrl)
+            : new OpenAiRealtimeProvider(apiKey: apiKey);
 
         using var cleanup = new CleanupOrchestrator(
             apiKey: apiKey,
-            model: options.DictationCleanupModel);
+            model: options.DictationCleanupModel,
+            baseUrl: endpoint.BaseUrl);
 
         var bufferSpillDir = ResolveBufferSpillDir();
         using var audioBuffer = new AudioBuffer(spillDirectory: bufferSpillDir);
         // Live transcript preview (#215): the browser gets "partial" frames
-        // continuously while the user talks, not only at the final commit.
-        // The session owns and disposes it.
-        var preview = new LivePreviewTranscriber(
-            apiKey: apiKey,
-            model: options.DictationPreviewModel);
+        // continuously while the user talks, not only at the final commit. The streaming preview
+        // is a BYO-only path (it leans on the OpenAI batch transcription model for cheap interim
+        // passes); DevThrottle mode runs without it and delivers one final transcript.
+        LivePreviewTranscriber? preview = isDevThrottle
+            ? null
+            : new LivePreviewTranscriber(
+                apiKey: apiKey,
+                model: options.DictationPreviewModel,
+                baseUrl: endpoint.BaseUrl);
         await using var session = new DictationSession(dictionary, provider, cleanup, audioBuffer, preview);
 
         session.OnPartial += partial =>

@@ -41,7 +41,8 @@ namespace CcDirector.Core.Dictation;
 /// </summary>
 public sealed class LivePreviewTranscriber : IAsyncDisposable
 {
-    private const string TranscriptionEndpoint = "https://api.openai.com/v1/audio/transcriptions";
+    /// <summary>Default OpenAI-compatible base URL (the bring-your-own-key path).</summary>
+    public const string DefaultBaseUrl = "https://api.openai.com/v1";
     public const string DefaultModel = "gpt-4o-mini-transcribe";
 
     /// <summary>
@@ -66,6 +67,7 @@ public sealed class LivePreviewTranscriber : IAsyncDisposable
     private readonly string _apiKey;
     private readonly string _model;
     private readonly int _sampleRate;
+    private readonly string _transcriptionEndpoint;
 
     private readonly object _gate = new();
     private readonly MemoryStream _clip = new();
@@ -89,14 +91,18 @@ public sealed class LivePreviewTranscriber : IAsyncDisposable
     /// <param name="model">Transcription model for preview passes. Defaults to <see cref="DefaultModel"/> (cheap + fast; the final transcript uses the realtime provider's model).</param>
     /// <param name="sampleRate">PCM16 mono sample rate of the appended audio. Both dictation surfaces produce 24 kHz.</param>
     /// <param name="httpClient">Optional shared HttpClient. The transcriber creates and owns one if null.</param>
+    /// <param name="baseUrl">OpenAI-compatible base URL (issue #497). Defaults to <see cref="DefaultBaseUrl"/>.</param>
     public LivePreviewTranscriber(
         string? apiKey = null,
         string model = DefaultModel,
         int sampleRate = 24000,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        string? baseUrl = null)
     {
         _apiKey = ResolveApiKey(apiKey);
         _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model;
+        _transcriptionEndpoint =
+            (string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.TrimEnd('/')) + "/audio/transcriptions";
         _sampleRate = sampleRate > 0
             ? sampleRate
             : throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
@@ -220,7 +226,7 @@ public sealed class LivePreviewTranscriber : IAsyncDisposable
 
     private async Task<string> TranscribeAsync(byte[] pcm, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, TranscriptionEndpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Post, _transcriptionEndpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
 
         using var content = new MultipartFormDataContent();

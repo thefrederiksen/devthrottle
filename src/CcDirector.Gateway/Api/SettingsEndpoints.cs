@@ -26,6 +26,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /gateway/wingman         -> { enabled } (issue #185)
 ///   PUT  /gateway/wingman         body { "enabled": bool } -> { enabled }
 ///   PUT  /gateway/autostart       body { "enabled": bool } -> { supported, enabled }
+///   GET  /gateway/transcription-mode -> { mode } ("byo" | "devthrottle") (issue #497)
+///   PUT  /gateway/transcription-mode body { "mode": "byo"|"devthrottle" } -> { mode }
 /// </summary>
 internal static class SettingsEndpoints
 {
@@ -184,6 +186,37 @@ internal static class SettingsEndpoints
             }
         });
 
+        // Transcription mode (issue #497): "byo" (the user's own OpenAI key -> api.openai.com) or
+        // "devthrottle" (a DevThrottle key -> devthrottle.com's managed proxy). Stored as the
+        // top-level config.json key transcription_mode, the same store addressing_mode uses. The
+        // two keys themselves live in the existing vault (OPENAI_API_KEY, DEVTHROTTLE_API_KEY).
+        app.MapGet("/gateway/transcription-mode", () =>
+            Results.Json(new { mode = Core.Configuration.TranscriptionModeConfig.Get().ToConfigString() }));
+
+        app.MapPut("/gateway/transcription-mode", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<TranscriptionModeBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body is null || string.IsNullOrWhiteSpace(body.Mode))
+                    return Results.BadRequest(new { error = "body { \"mode\": \"byo\"|\"devthrottle\" } is required" });
+
+                if (!Core.Configuration.TranscriptionModeExtensions.IsValid(body.Mode))
+                    return Results.BadRequest(new { error = "mode must be \"byo\" or \"devthrottle\"" });
+
+                var mode = Core.Configuration.TranscriptionModeExtensions.Parse(body.Mode);
+                Core.Configuration.TranscriptionModeConfig.Set(mode);
+                FileLog.Write($"[SettingsEndpoints] transcription_mode set to {mode.ToConfigString()}");
+                return Results.Json(new { mode = mode.ToConfigString() });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/transcription-mode bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
         // Toggle the per-user autostart Run-key. The write itself is GatewayApp-owned (it needs the
         // tray exe path + args), supplied via SettingsHooks; a host with no hook answers unsupported.
         app.MapPut("/gateway/autostart", async (HttpContext ctx) =>
@@ -264,6 +297,7 @@ internal static class SettingsEndpoints
     }
 
     private sealed record AddressingModeBody(string? Mode);
+    private sealed record TranscriptionModeBody(string? Mode);
     private sealed record AutostartBody(bool Enabled);
     private sealed record WingmanBody(bool Enabled);
     private sealed record BrainConfigBody(string? Tool, string? Model);
