@@ -37,3 +37,15 @@ Adds the `/schedule` page, its nav entry, scoped CSS, and `GatewayClient` cron m
 
 ## Statement
 I believe the page is implemented and renders correctly (screenshot of the genuine compiled component), with the REST wiring and error-surfacing covered by passing unit + bUnit tests, and the build clean. The one DoD element I did not perform myself - the live browser click-through against a Gateway - is explicitly handed to QA with the safety rationale above.
+
+---
+
+## QA bounce fix (cycle 2)
+
+QA #488 found that editing a DISABLED job silently re-enabled it (and reset PreventOverlap), because `BuildFromForm()` hardcoded `Enabled = true` and `OpenEdit` did not capture the job's state.
+
+**Fix:** the form now carries `_fEnabled` / `_fPreventOverlap`, defaulted on in `OpenCreate` and captured from the job in `OpenEdit`, and `BuildFromForm` emits both. An edit preserves them.
+
+**Regression test:** `SchedulePageTests.Editing_a_disabled_job_preserves_enabled_false_and_preventoverlap_in_the_put_body` drives the real component through the edit modal (rename a disabled job + Save) and asserts the captured PUT body has `enabled=false` and `preventOverlap=false`. This test FAILS on the pre-fix code and PASSES now.
+
+**Tests:** Cockpit.Tests cron+schedule -> **12 Passed** (was 11; +1 regression). Full solution builds clean.

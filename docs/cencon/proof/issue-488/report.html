@@ -381,6 +381,12 @@
 <p>Adds the <code>/schedule</code> page, its nav entry, scoped CSS, and <code>GatewayClient</code> cron methods to the <code>cockpit</code> container. No security-posture change (inherits the Cockpit's existing Gateway auth; pure REST consumer). No contract change (<code>CronJobDto</code>/<code>CronRunRecord</code> already in <code>gateway_contracts</code>).</p>
 <h2>Statement</h2>
 <p>I believe the page is implemented and renders correctly (screenshot of the genuine compiled component), with the REST wiring and error-surfacing covered by passing unit + bUnit tests, and the build clean. The one DoD element I did not perform myself - the live browser click-through against a Gateway - is explicitly handed to QA with the safety rationale above.</p>
+<hr/>
+<h2>QA bounce fix (cycle 2)</h2>
+<p>QA #488 found that editing a DISABLED job silently re-enabled it (and reset PreventOverlap), because <code>BuildFromForm()</code> hardcoded <code>Enabled = true</code> and <code>OpenEdit</code> did not capture the job's state.</p>
+<p><strong>Fix:</strong> the form now carries <code>_fEnabled</code> / <code>_fPreventOverlap</code>, defaulted on in <code>OpenCreate</code> and captured from the job in <code>OpenEdit</code>, and <code>BuildFromForm</code> emits both. An edit preserves them.</p>
+<p><strong>Regression test:</strong> <code>SchedulePageTests.Editing_a_disabled_job_preserves_enabled_false_and_preventoverlap_in_the_put_body</code> drives the real component through the edit modal (rename a disabled job + Save) and asserts the captured PUT body has <code>enabled=false</code> and <code>preventOverlap=false</code>. This test FAILS on the pre-fix code and PASSES now.</p>
+<p><strong>Tests:</strong> Cockpit.Tests cron+schedule -&gt; <strong>12 Passed</strong> (was 11; +1 regression). Full solution builds clean.</p>
 </article>
 </body>
 </html>

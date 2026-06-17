@@ -141,6 +141,81 @@ public sealed class SchedulePageTests : TestContext
     }
 
     /// <summary>
+    /// Regression for the QA #488 defect: editing a DISABLED job (changing only its name) must NOT
+    /// re-enable it - the PUT body must carry Enabled=false (and the preserved PreventOverlap=false).
+    /// Drives the real component through the edit modal and captures the PUT request body.
+    /// </summary>
+    [Fact]
+    public void Editing_a_disabled_job_preserves_enabled_false_and_preventoverlap_in_the_put_body()
+    {
+        var disabled = Job("cj_1", "Tonight - drain work list", "Tonight", null, "2026-06-18T00:00:00");
+        disabled.Enabled = false;
+        disabled.PreventOverlap = false;
+
+        var handler = new CaptureHandler(new List<CronJobDto> { disabled }, SampleDirectors());
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://gw.test/") };
+        Services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
+        Services.AddSingleton(new GatewayClient(http, NullLogger<GatewayClient>.Instance));
+        var cut = RenderComponent<Schedule>();
+
+        // Open the edit modal for the disabled job.
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("button.linkbtn")));
+        cut.FindAll("button.linkbtn").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Edit cron job", cut.Find(".modal-head").TextContent));
+
+        // Change only the name, then Save.
+        cut.FindAll(".sched-modal .fld input")[0].Input("Renamed but still disabled");
+        cut.Find(".modal-foot .btn.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(handler.LastPutBody);
+            var sent = JsonSerializer.Deserialize<CronJobDto>(handler.LastPutBody!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            Assert.NotNull(sent);
+            Assert.Equal("Renamed but still disabled", sent.Name);
+            Assert.False(sent.Enabled);          // NOT silently re-enabled
+            Assert.False(sent.PreventOverlap);    // preserved, not reset to the default true
+        });
+    }
+
+    /// <summary>Routing handler that also captures the body of a PUT /cron/jobs/{id}.</summary>
+    private sealed class CaptureHandler : HttpMessageHandler
+    {
+        private readonly IReadOnlyList<CronJobDto> _jobs;
+        private readonly IReadOnlyList<DirectorDto> _directors;
+        public string? LastPutBody { get; private set; }
+        public CaptureHandler(IReadOnlyList<CronJobDto> jobs, IReadOnlyList<DirectorDto> directors)
+        { _jobs = jobs; _directors = directors; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Put && path.StartsWith("/cron/jobs/", StringComparison.Ordinal))
+            {
+                LastPutBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(LastPutBody ?? "{}", System.Text.Encoding.UTF8, "application/json"),
+                };
+            }
+
+            object body = path switch
+            {
+                "/cron/jobs" => new { jobs = _jobs },
+                "/directors" => (object)_directors,
+                _ when path.EndsWith("/runs", StringComparison.Ordinal) => new { jobId = "cj_1", runs = Array.Empty<CronRunRecord>() },
+                _ => new { },
+            };
+            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
+    /// <summary>
     /// Emits the real rendered Schedule page (real markup + real app.css + the page's scoped CSS)
     /// when CC488_PROOF_DIR is set, so the Developer Agent can screenshot the genuine compiled page
     /// for the issue's visual proof. No-op in the normal suite.

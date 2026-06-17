@@ -223,6 +223,10 @@
     private string _fCron = "";
     private string _fRunAt = "";
     private string _fTimeZone = "";
+    // Non-form-control state preserved across an edit (QA #488): a create defaults these on; an edit
+    // must keep the job's current values so renaming/rescheduling a DISABLED job never re-arms it.
+    private bool _fEnabled = true;
+    private bool _fPreventOverlap = true;
     private string? _formError;
 
     protected override async Task OnInitializedAsync()
@@ -281,6 +285,7 @@
         _fName = ""; _fDirectorId = ""; _fRepoPath = "";
         _fActionKind = "worklist"; _fWorkListName = ""; _fSeed = "";
         _fScheduleKind = "oneOff"; _fCron = ""; _fRunAt = ""; _fTimeZone = "";
+        _fEnabled = true; _fPreventOverlap = true;
         _formError = null;
         _showForm = true;
         await LoadDirectorsAsync();
@@ -299,6 +304,9 @@
         _fCron = job.CronExpression ?? "";
         _fRunAt = job.RunAt ?? "";
         _fTimeZone = job.TimeZoneId;
+        // Preserve the state the form has no control for, so an edit never silently changes it (QA #488).
+        _fEnabled = job.Enabled;
+        _fPreventOverlap = job.PreventOverlap;
         _formError = null;
         _showForm = true;
         await LoadDirectorsAsync();
@@ -316,7 +324,7 @@
     private CronJobDto BuildFromForm() => new()
     {
         Name = _fName.Trim(),
-        Enabled = true,
+        Enabled = _fEnabled,
         ScheduleKind = _fScheduleKind,
         CronExpression = _fScheduleKind == "recurring" ? _fCron.Trim() : null,
         RunAt = _fScheduleKind == "oneOff" ? _fRunAt.Trim() : null,
@@ -328,6 +336,7 @@
             Seed = _fActionKind == "seed" ? _fSeed.Trim() : "",
             WorkListName = _fActionKind == "worklist" ? _fWorkListName.Trim() : null,
         },
+        PreventOverlap = _fPreventOverlap,
     };
 
     private async Task SaveAsync()
