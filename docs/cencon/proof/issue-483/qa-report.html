@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>QA Proof Report - Issue #483</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>QA Proof Report - Issue #483</h1>
+<h2>Cron jobs (2/3): firing engine, run history, and guards</h2>
+<p><strong>Verifier:</strong> QA Agent (independent - own fresh build + own test run, did not trust the dev report).
+        <strong>PR:</strong> #486 (branch <code>issue-483-cron-firing-engine</code>, HEAD 03b807c).
+        <strong>Mode:</strong> standalone QA (outside the implementation-loop) -&gt; NOT merged; merge left to the human.</p>
+<h2>How I verified independently</h2>
+<ol>
+<li>Checked out the PR branch fresh and <strong>built the whole solution myself</strong>: <code>dotnet build cc-director.sln</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.</li>
+<li><strong>Ran the cron suite myself</strong>: <code>dotnet test --filter Cron</code> -&gt; <strong>48 Passed, 0 Failed, 0 Skipped</strong> (17 new for #483: 7 engine + 6 history + 4 real-HTTP endpoint; plus #482's 31).</li>
+<li><strong>Adversarially audited the engine</strong> (review-code lens) against the issue - focusing on the two subtle correctness points (catch-up "fire once" and overlap release) - and swept the new source for forbidden patterns.</li>
+</ol>
+<p>No live full Gateway booted: it would run the machine-global Tailscale Serve provisioner and bind :7878, colliding with the running Gateway (<a href="http://CLAUDE.md">CLAUDE.md</a> rule 0). The firing engine is proven deterministically via an injectable <code>IClock</code> (FakeClock) + fake <code>ICronSessionStarter</code>, and run-now/history over real HTTP - the equivalent running-app proof for a headless slice.</p>
+<h2>Acceptance criteria - Expected vs Actual (independently judged)</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Evidence (reproduced)</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>Due job fires: session started on target, run recorded</td>
+<td><code>EvaluateDue_RecurringJobDue_Fires_RecordsRun_AdvancesNextRun</code> - starter invoked, 1 run, NextRunUtc advanced to future</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td><code>POST /cron/jobs/{id}/run</code> fires immediately + records</td>
+<td><code>RunNow_FiresAndRecords_WithFullRecordShape</code> (real HTTP 200 + record)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td><code>GET /cron/jobs/{id}/runs</code> records carry scheduled/fired/target/session/infra/task</td>
+<td><code>Runs_ReturnsHistory_AfterRunNow</code> + record-shape assertions; infra ("started") distinct from task ("unknown")</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>Overlap: in-flight job's 2nd fire skipped, no 2nd session</td>
+<td><code>RunNow_WhilePriorRunInFlight_SecondIsSkippedAsOverlap</code> - 2nd -&gt; SkippedOverlap, starter invoked once</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>Disabled job does not fire; enabling resumes</td>
+<td><code>EvaluateDue_DisabledJob_DoesNotFire_ThenEnablingResumes</code> - 0 while disabled, 1 after enable</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>Missed fire fires AT MOST ONCE, not per-interval</td>
+<td><code>EvaluateDue_MissedFireWhileDown_FiresAtMostOnce_NotPerInterval</code> - 3-day downtime -&gt; exactly 1 fire, infra="catch-up", advanced</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC7</td>
+<td>One-off fires once then auto-disables</td>
+<td><code>EvaluateDue_OneOff_FiresOnce_ThenAutoDisables</code> - Enabled=false, NextRunUtc=null, no refire</td>
+<td>PASS</td>
+</tr>
+</tbody>
+</table>
+<p>Audited the code paths behind the subtle ACs: catch-up recomputes <code>ComputeNextRunUtc(job, firedUtc)</code> to the next FUTURE occurrence (no backlog replay); the overlap claim is released in a <code>finally</code>; one-off disables with a null next-run; the sweep timer is disposed in <code>StopAsync</code> and its callback owns a boundary try/catch. <code>Fire_WhenStarterReportsError_RecordsNotStarted</code> confirms a failed start still records <code>infraStatus=not-started</code> with no sessionId.</p>
+<h2>Method / regression lens</h2>
+<ul>
+<li><strong>Forbidden patterns:</strong> swept the 6 new source files for null-forgiving <code>!</code>, <code>.Result</code>, <code>.Wait()</code> -&gt; <strong>none</strong> (<code>!started</code>/<code>!isManual</code> are logical-not, allowed).</li>
+<li><strong>Catch blocks:</strong> boundary-only (sweep timer callback; engine per-job isolation at the timer boundary; history quarantine/save log-and-rethrow). No silent fallbacks.</li>
+<li><strong>Security (DT rules):</strong> no new auth surface (inherits host-wide token middleware); engine reuses the existing Director session-create path (no new Director surface); no secrets logged. No blocking rule violated.</li>
+<li><strong>Tests:</strong> present for all new behavior; warnings-as-errors clean.</li>
+</ul>
+<h3>Non-blocking observations (not defects)</h3>
+<ol>
+<li><code>RunNowAsync</code> fires even a disabled job (no enabled-check on the manual path). Not constrained by any AC; a reasonable manual-override semantic. Flagged for awareness.</li>
+<li><code>architecture_manifest.yaml</code> does not yet list the cron firing components - same deferral as #482; recommend Support records the full set when #484 lands. No security-posture change.</li>
+</ol>
+<h2>Verdict</h2>
+<p><strong>VERIFIED - all 7 acceptance criteria met.</strong> Build clean, 48/48 cron tests pass on an independent build, no forbidden patterns, no security drift, catch-up/overlap/one-off logic audited correct. Standalone QA does not merge; <strong>PR #486 is ready for the human to merge.</strong></p>
+</article>
+</body>
+</html>
