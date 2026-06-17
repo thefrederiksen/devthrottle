@@ -1,0 +1,10 @@
+=== AC6 PROOF: launch uses the SELECTED entry's type/path/preset/model/args ===
+Selected entry: 'Claude (read-only)'  type=ClaudeCode  preset=Standard  default_model=sonnet
+Bypass permission prompts: UNCHECKED (so args are purely the entry preset/model)
+
+--- Director log lines (director-2026-06-17-23324.log) ---
+2026-06-17 09:04:49.492 [NewSessionDialog] BtnAction_Click: Starting new session at D:\ReposFred\devthrottle, agent=ClaudeCode, customCmd=(none)
+2026-06-17 09:04:49.533 [MainWindow] ShowNewSessionDialog: path=D:\ReposFred\devthrottle, agent=ClaudeCode, exe=C:\Users\soren\.local\bin\claude.EXE, resume=null, bypassPermissions=False, remoteControl=False, wingmanEnabled=False
+2026-06-17 09:04:49.535 [MainWindow] CreateSession: repoPath=D:\ReposFred\devthrottle, agent=ClaudeCode, exe=C:\Users\soren\.local\bin\claude.EXE, type=Implementation, group=none, resume=null
+2026-06-17 09:04:49.537 [ClaudeAgent] BuildLaunchSpec: userArgs=--model sonnet, resume=(null), studio=False
+2026-06-17 09:04:49.537 [ClaudeAgent] BuildLaunchSpec result: argsLen=64, preassignedId=a88c0a03-321f-4206-bae5-02af15d04347
