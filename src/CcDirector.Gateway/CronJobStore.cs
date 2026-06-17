@@ -162,6 +162,37 @@ public sealed class CronJobStore
         }
     }
 
+    /// <summary>
+    /// Record a fire's outcome on a job (epic #479, #483): the firing engine is the writer of the
+    /// run metadata that <see cref="Update"/> deliberately preserves. Sets <see cref="CronJobDto.LastFiredUtc"/>,
+    /// <see cref="CronJobDto.LastStatus"/>, <see cref="CronJobDto.NextRunUtc"/>, and
+    /// <see cref="CronJobDto.Enabled"/> (a one-off fire disables itself with a null next-run), then
+    /// persists. Returns the updated copy, or null if no job with that id exists.
+    /// </summary>
+    public CronJobDto? MarkFired(string id, DateTime lastFiredUtc, string lastStatus, DateTime? nextRunUtc, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        lock (_gate)
+        {
+            if (!_jobs.TryGetValue(id, out var existing))
+            {
+                FileLog.Write($"[CronJobStore] MarkFired: no such job id={id}");
+                return null;
+            }
+
+            existing.LastFiredUtc = lastFiredUtc;
+            existing.LastStatus = lastStatus;
+            existing.NextRunUtc = nextRunUtc;
+            existing.Enabled = enabled;
+
+            Save();
+            FileLog.Write($"[CronJobStore] MarkFired: id={id}, status={lastStatus}, enabled={enabled}, nextRunUtc={nextRunUtc:o}");
+            return Copy(existing);
+        }
+    }
+
     /// <summary>Mint an id not already in use. Short and human-quotable, like the design report's <c>cj_7fa3b1</c>.</summary>
     private string NewId()
     {

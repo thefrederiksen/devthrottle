@@ -84,6 +84,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly KeyVault _keyVault;
     private readonly WorkListStore _workLists;
     private readonly CronJobStore _cronJobs;
+    private readonly CronRunHistoryStore _cronRuns;
+    private readonly Running.CronEngine _cronEngine;
+    // The cron firing sweep (epic #479, #483): wakes ~every minute and fires due jobs. Created in
+    // StartAsync, disposed in StopAsync.
+    private System.Threading.Timer? _cronTimer;
+    private static readonly TimeSpan CronSweepInterval = TimeSpan.FromMinutes(1);
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
     // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
@@ -118,7 +124,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override the cron-job store file (epic #479, #482). Tests pass an isolated temp path;
     /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronjobs.json</c>.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null)
+    /// <param name="cronRunsPath">
+    /// Override the cron run-history store file (epic #479, #483). Tests pass an isolated temp path;
+    /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronruns.json</c>.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -163,6 +173,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // mutation - the WorkListStore precedent. Tests MUST pass an isolated path so they never
         // touch the real store.
         _cronJobs = new CronJobStore(cronJobsPath ?? Path.Combine(CcStorage.Root(), "cronjobs.json"));
+        // Cron run history + the firing engine (epic #479, #483). The engine resolves each due job's
+        // target Director from the registry and starts a session over the shared client (the same
+        // path the work-list runner uses). The background sweep timer is started in StartAsync.
+        _cronRuns = new CronRunHistoryStore(cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        _cronEngine = new Running.CronEngine(
+            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(Registry, _client), new Running.SystemClock());
     }
 
     /// <summary>
@@ -456,6 +472,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // next-run recompute). Inherits the host-wide token middleware above.
         CronJobEndpoints.Map(_app, _cronJobs);
 
+        // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
+        // Scheduled firing runs on the background sweep timer started below in StartAsync.
+        CronRunEndpoints.Map(_app, _cronEngine, _cronRuns);
+
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
         // watched to its IMPL-LOOP-TERMINAL sentinel (child 1, #272) before advancing. All runner
@@ -525,6 +545,27 @@ public sealed class GatewayHost : IAsyncDisposable
 
         await _app.StartAsync();
         FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port} (version {version})");
+
+        // Cron firing sweep (epic #479, #483): wake ~every minute and fire due jobs. The first tick
+        // also catches up a fire that came due while the Gateway was down (at most once per job).
+        _cronTimer = new System.Threading.Timer(_ => SweepCron(), null, CronSweepInterval, CronSweepInterval);
+        FileLog.Write($"[GatewayHost] cron sweep started: every {CronSweepInterval.TotalSeconds:0}s");
+    }
+
+    /// <summary>
+    /// The cron sweep timer callback (a boundary - it owns the try/catch so a sweep failure never
+    /// crashes the timer thread). Fires due jobs; per-job failures are isolated inside the engine.
+    /// </summary>
+    private void SweepCron()
+    {
+        try
+        {
+            _ = _cronEngine.EvaluateDueAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] cron sweep FAILED: {ex.Message}");
+        }
     }
 
     public async Task StopAsync()
@@ -532,6 +573,9 @@ public sealed class GatewayHost : IAsyncDisposable
         if (_stopped) return;
         _stopped = true;
         FileLog.Write($"[GatewayHost] StopAsync");
+
+        try { _cronTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] cron timer dispose error: {ex.Message}"); }
+        _cronTimer = null;
 
         try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
         _endpointMonitor = null;
