@@ -1,0 +1,5 @@
+2026-06-17 18:38:42.638 [DictationEndpoint] GET /dictate from 127.0.0.1
+2026-06-17 18:38:42.657 [OpenAiKeyResolver] routing GET http://soren-north.taildb08ed.ts.net:7878/transcription/routing -> Gateway omits transport (pre-#513); deriving transport+model from mode=devthrottle, model gpt-4o-transcribe->whisper-large-v3
+2026-06-17 18:38:42.806 [DictationEndpoint] routing: mode=devthrottle transport=batch model=whisper-large-v3 baseUrl=https://devthrottle.com/api/v1
+2026-06-17 18:38:42.813 [OpenAiTranscriptionProvider] StartAsync: prompt_len=126, model=whisper-large-v3
+2026-06-17 18:38:42.816 [DictationEndpoint] session started: sid=ecfb7ce76834414488422e46610ef5a1 profile=default vocab=7 patterns=6 dict=C:\Users\soren\AppData\Local\cc-director\dictation\dictionary.yaml spillDir=C:\Users\soren\AppData\Local\cc-director\dictation\buffer\45e1cf91a105455e86a7218970cdbde7

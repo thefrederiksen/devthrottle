@@ -1,0 +1,12 @@
+QA re-verification (issue #513, PR #514) - live deployed Gateway routing response
+Captured: 2026-06-17, from GET http://soren-north.taildb08ed.ts.net:7878/transcription/routing
+(the live deployed Gateway, build 0.9.12 / current main, PRE-#513 - same one that produced the prior QA defect)
+
+HTTP 200
+X-Transcription-Routing: present (marker header -> reachable, NOT "out of date" 404)
+Body (key redacted):
+{"mode":"devthrottle","baseUrl":"https://devthrottle.com/api/v1","model":"gpt-4o-transcribe","key":"dt_REDACTED"}
+
+Note: this Gateway omits the `transport` field and serves the STALE shared default model
+`gpt-4o-transcribe`. This is the EXACT stale-Gateway condition the prior QA defect reproduced.
+The fix self-heals BOTH transport and model from the authoritative mode when transport is absent.

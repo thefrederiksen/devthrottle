@@ -1,11 +1,61 @@
 namespace CcDirector.Core.Configuration;
 
 /// <summary>
+/// HOW the dictation pipeline talks to the transcription provider (issue #513). Different
+/// providers expose different transports, and the pipeline must honor the one the routing names -
+/// it can NEVER open a transport a provider does not offer.
+///
+///   - <see cref="Realtime"/>: OpenAI's Realtime transcription WebSocket
+///     (<c>wss://api.openai.com/v1/realtime?intent=transcription</c>). True low-latency partials.
+///     Only OpenAI offers it, so it is the BYO/OpenAI transport.
+///   - <see cref="Batch"/>: the OpenAI-COMPATIBLE batch endpoint
+///     (<c>POST /audio/transcriptions</c>). Record a speech chunk, upload it, get text back.
+///     This is what the DevThrottle proxy (Groq Whisper) implements - and the ONLY thing it
+///     implements; Groq has no Realtime API. So it is the DevThrottle transport.
+/// </summary>
+public enum TranscriptionTransport
+{
+    /// <summary>OpenAI Realtime transcription WebSocket. The BYO/OpenAI transport.</summary>
+    Realtime = 0,
+
+    /// <summary>OpenAI-compatible batch <c>/audio/transcriptions</c>. The DevThrottle transport.</summary>
+    Batch = 1,
+}
+
+/// <summary>Parse/format helpers for <see cref="TranscriptionTransport"/>. Pure - unit-tested.</summary>
+public static class TranscriptionTransportExtensions
+{
+    /// <summary>The wire/config string form: "realtime" or "batch".</summary>
+    public static string ToConfigString(this TranscriptionTransport transport) => transport switch
+    {
+        TranscriptionTransport.Realtime => "realtime",
+        TranscriptionTransport.Batch => "batch",
+        _ => throw new ArgumentOutOfRangeException(nameof(transport), transport, "Unknown transcription transport"),
+    };
+
+    /// <summary>
+    /// Parse a wire value. Any unrecognized value (including null/empty/whitespace) THROWS with the
+    /// allowed set named (no-fallback rule: a typo or a missing field must not silently pick a
+    /// transport, which would let the pipeline open the wrong wire to the wrong provider).
+    /// </summary>
+    public static TranscriptionTransport Parse(string? value)
+    {
+        return (value?.Trim().ToLowerInvariant()) switch
+        {
+            "realtime" => TranscriptionTransport.Realtime,
+            "batch" => TranscriptionTransport.Batch,
+            _ => throw new ArgumentException(
+                $"transport '{value}' is not valid - it must be \"realtime\" or \"batch\".", nameof(value)),
+        };
+    }
+}
+
+/// <summary>
 /// The resolved transcription target for a <see cref="TranscriptionMode"/> (issue #497): which
-/// base URL the OpenAI-compatible transcription client points at, and which vault key name holds
-/// the credential it presents. Pure, immutable, unit-tested - this is the single place that
-/// decides routing, so the security-critical rule ("the bring-your-own OpenAI key is NEVER sent
-/// to devthrottle.com") is provable in one spot.
+/// base URL the OpenAI-compatible transcription client points at, which vault key name holds the
+/// credential it presents, which transport the pipeline must use, and which model. Pure, immutable,
+/// unit-tested - this is the single place that decides routing, so the security-critical rule
+/// ("the bring-your-own OpenAI key is NEVER sent to devthrottle.com") is provable in one spot.
 /// </summary>
 public sealed record TranscriptionEndpoint
 {
@@ -16,9 +66,17 @@ public sealed record TranscriptionEndpoint
     public required string KeyName { get; init; }
 
     /// <summary>
-    /// The transcription model this mode uses (e.g. <c>gpt-4o-transcribe</c>). Part of the routing
-    /// target so the Gateway can serve the full pair in one call (issue #506) - the same pure spot
-    /// that pins the URL also pins the model, keeping the routing decision provable in one place.
+    /// The transport the dictation pipeline must use for this mode (issue #513). Part of the routing
+    /// target so the pipeline never opens a wire the provider does not offer - DevThrottle/Groq is
+    /// batch-only, BYO/OpenAI is realtime. Pinned in the same pure spot that pins the URL and model.
+    /// </summary>
+    public required TranscriptionTransport Transport { get; init; }
+
+    /// <summary>
+    /// The transcription model this mode uses - provider-correct (issue #513): <c>gpt-4o-transcribe</c>
+    /// for BYO/OpenAI, <c>whisper-large-v3</c> for DevThrottle/Groq (the proxy returns 404
+    /// model_not_found for gpt-4o-transcribe). Part of the routing target so the Gateway serves the
+    /// full pair in one call (issue #506) - the same pure spot that pins the URL also pins the model.
     /// </summary>
     public required string Model { get; init; }
 
@@ -48,27 +106,39 @@ public static class TranscriptionEndpointResolver
     public const string DevThrottleKeyName = "DEVTHROTTLE_API_KEY";
 
     /// <summary>
-    /// The transcription model both modes default to. Matches the providers' own defaults
-    /// (<c>OpenAiRealtimeProvider.DefaultModel</c> / <c>OpenAiTranscriptionProvider.DefaultModel</c>),
-    /// kept here so the routing target carries the model the Gateway serves (issue #506).
+    /// The BYO/OpenAI transcription model. Matches <c>OpenAiRealtimeProvider.DefaultModel</c> /
+    /// <c>OpenAiTranscriptionProvider.DefaultModel</c>; carried in the routing target the Gateway
+    /// serves (issue #506). Named "Default" for back-compat with the pre-#513 shared constant.
     /// </summary>
     public const string DefaultModel = "gpt-4o-transcribe";
 
-    /// <summary>Resolve the routing target for <paramref name="mode"/>.</summary>
+    /// <summary>The OpenAI/BYO transcription model (alias of <see cref="DefaultModel"/>, issue #513).</summary>
+    public const string OpenAiModel = DefaultModel;
+
+    /// <summary>
+    /// The DevThrottle/Groq transcription model (issue #513). The DevThrottle batch Whisper proxy
+    /// serves <c>whisper-large-v3</c> and returns 404 model_not_found for <c>gpt-4o-transcribe</c>,
+    /// so DevThrottle mode must carry this provider-correct model - never the shared OpenAI default.
+    /// </summary>
+    public const string DevThrottleModel = "whisper-large-v3";
+
+    /// <summary>Resolve the routing target for <paramref name="mode"/> (URL + key + transport + model).</summary>
     public static TranscriptionEndpoint Resolve(TranscriptionMode mode) => mode switch
     {
         TranscriptionMode.Byo => new TranscriptionEndpoint
         {
             BaseUrl = OpenAiBaseUrl,
             KeyName = OpenAiKeyName,
-            Model = DefaultModel,
+            Transport = TranscriptionTransport.Realtime,
+            Model = OpenAiModel,
             Mode = TranscriptionMode.Byo,
         },
         TranscriptionMode.DevThrottle => new TranscriptionEndpoint
         {
             BaseUrl = DevThrottleBaseUrl,
             KeyName = DevThrottleKeyName,
-            Model = DefaultModel,
+            Transport = TranscriptionTransport.Batch,
+            Model = DevThrottleModel,
             Mode = TranscriptionMode.DevThrottle,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown transcription mode"),

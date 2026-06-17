@@ -102,6 +102,33 @@ public sealed class DictationSessionTests
     }
 
     [Fact]
+    public async Task StopAsync_NullCleanup_ShipsRawTranscript_NoCleanupPass()
+    {
+        // Issue #513: the DevThrottle/batch path constructs the session with NO cleanup orchestrator
+        // (DevThrottle has no inference proxy and Whisper output is already clean). StopAsync must
+        // ship the raw transcript untouched, with cleanup not applied - and crucially make no LLM
+        // cleanup round-trip (there is no orchestrator to call one).
+        var path = Path.GetTempFileName();
+        try
+        {
+            // A non-empty dictionary would normally trigger a cleanup pass; with null cleanup it must not.
+            File.WriteAllText(path, "vocabulary: [mindzie, CenCon]\n");
+            using var dict = new DictionaryLoader(path, watch: false);
+            var provider = new FakeProvider { CannedTranscript = "ship this raw whisper text" };
+
+            await using var session = new DictationSession(dict, provider, cleanup: null);
+            await session.StartAsync("default");
+            await session.PushAudioAsync(new byte[] { 1, 2, 3 });
+            var result = await session.StopAsync();
+
+            Assert.Equal("ship this raw whisper text", result.RawTranscript);
+            Assert.Equal("ship this raw whisper text", result.CleanedTranscript);
+            Assert.False(result.CleanupApplied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public async Task Start_ForwardsSttPromptFromDictionary()
     {
         var path = Path.GetTempFileName();

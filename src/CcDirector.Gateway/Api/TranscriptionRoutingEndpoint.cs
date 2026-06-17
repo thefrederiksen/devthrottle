@@ -34,9 +34,10 @@ internal static class TranscriptionRoutingEndpoint
             // message instead of silently using a baked-in URL (issue #506, no-fallback rule).
             ctx.Response.Headers["X-Transcription-Routing"] = "1";
 
-            // Resolve the Gateway's configured mode -> the (baseUrl, keyName, model) triple, from
-            // the single pure resolver. Composing URL+key here is what makes the never-cross
-            // invariant a server-side guarantee.
+            // Resolve the Gateway's configured mode -> the (baseUrl, keyName, transport, model)
+            // tuple, from the single pure resolver. Composing URL+key here is what makes the
+            // never-cross invariant a server-side guarantee; the transport joins it in issue #513 so
+            // the Director honors the provider's wire (batch for DevThrottle/Groq, realtime for BYO).
             var mode = TranscriptionModeConfig.Get();
             var endpoint = TranscriptionEndpointResolver.Resolve(mode);
 
@@ -49,10 +50,11 @@ internal static class TranscriptionRoutingEndpoint
                 return Results.NotFound(new { error = "no key set for the current transcription mode", mode = endpoint.Mode.ToConfigString() });
             }
 
-            FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, baseUrl={endpoint.BaseUrl}, model={endpoint.Model}");
+            FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, transport={endpoint.Transport.ToConfigString()}, baseUrl={endpoint.BaseUrl}, model={endpoint.Model}");
             return Results.Json(new
             {
                 mode = endpoint.Mode.ToConfigString(),
+                transport = endpoint.Transport.ToConfigString(),
                 baseUrl = endpoint.BaseUrl,
                 model = endpoint.Model,
                 key,

@@ -1,0 +1,4 @@
+ [1] mode=devthrottle -> Director resolved transport=batch, model=whisper-large-v3, baseUrl=https://devthrottle.com/api/v1, keyPrefix=dt_
+ [2] mode=byo -> SAME Director resolved transport=realtime, model=gpt-4o-transcribe, baseUrl=https://api.openai.com/v1, keyPrefix=sk-
+ [PROOF] Gateway serves transport + provider-correct model per mode; the Director honors batch/whisper-large-v3 for DevThrottle and realtime/gpt-4o-transcribe for BYO, with no key/URL cross-pairing.
+ [RAW] GET /transcription/routing -> {"mode":"devthrottle","transport":"batch","baseUrl":"https://devthrottle.com/api/v1","model":"whisper-large-v3","key":"dt_live_raw"}

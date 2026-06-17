@@ -151,6 +151,7 @@ public sealed class OpenAiKeyResolver
         {
             BaseUrl = endpoint.BaseUrl,
             ApiKey = key,
+            Transport = endpoint.Transport,
             Model = endpoint.Model,
             Mode = mode,
         };
@@ -275,6 +276,7 @@ public sealed class OpenAiKeyResolver
             var key = root.TryGetProperty("key", out var k) ? k.GetString() : null;
             var model = root.TryGetProperty("model", out var m) ? m.GetString() : null;
             var modeStr = root.TryGetProperty("mode", out var md) ? md.GetString() : null;
+            var transportStr = root.TryGetProperty("transport", out var tp) ? tp.GetString() : null;
 
             if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)
                 || string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(modeStr))
@@ -283,12 +285,41 @@ public sealed class OpenAiKeyResolver
                 return null;
             }
 
+            var mode = TranscriptionModeExtensions.Parse(modeStr);
+
+            // The transport + provider-correct model join the routing target in issue #513. A current
+            // Gateway serves the transport explicitly AND a model consistent with it. A Gateway in the
+            // #506-but-pre-#513 window omits transport entirely AND still serves the stale shared
+            // default model (gpt-4o-transcribe for every mode) - so when transport is absent the served
+            // model is equally untrustworthy and must NOT be honored verbatim (issue #513 QA defect:
+            // DevThrottle resolved transport=batch + model=gpt-4o-transcribe, the exact 404
+            // model_not_found combination this issue exists to eliminate). Both transport and model are
+            // a pure function of the (authoritative) mode the Gateway DID serve, so deriving the WHOLE
+            // pair from the mode is not a fallback - it is the same decision a #513 Gateway would make.
+            // When the Gateway DOES serve transport it is a #513 Gateway whose model is trusted as-is.
+            TranscriptionTransport transport;
+            string resolvedModel;
+            if (string.IsNullOrWhiteSpace(transportStr))
+            {
+                var byMode = TranscriptionEndpointResolver.Resolve(mode);
+                transport = byMode.Transport;
+                resolvedModel = byMode.Model;
+                if (!string.Equals(model, resolvedModel, StringComparison.Ordinal))
+                    FileLog.Write($"[OpenAiKeyResolver] routing GET {url} -> Gateway omits transport (pre-#513); deriving transport+model from mode={mode.ToConfigString()}, model {model}->{resolvedModel}");
+            }
+            else
+            {
+                transport = TranscriptionTransportExtensions.Parse(transportStr);
+                resolvedModel = model;
+            }
+
             return new ResolvedTranscription
             {
                 BaseUrl = baseUrl,
                 ApiKey = key,
-                Model = model,
-                Mode = TranscriptionModeExtensions.Parse(modeStr),
+                Transport = transport,
+                Model = resolvedModel,
+                Mode = mode,
             };
         }
         catch (Exception ex)
@@ -313,8 +344,14 @@ public sealed record ResolvedTranscription
     /// <summary>The credential to present (an <c>sk-</c> or <c>dt_</c> key, depending on mode).</summary>
     public required string ApiKey { get; init; }
 
-    /// <summary>The transcription model to use (e.g. <c>gpt-4o-transcribe</c>), part of the routing
-    /// target the Gateway serves (issue #506).</summary>
+    /// <summary>The transport the pipeline must use (issue #513): realtime for BYO/OpenAI, batch for
+    /// DevThrottle/Groq. Part of the routing target so the pipeline never opens a wire the provider
+    /// does not offer.</summary>
+    public required TranscriptionTransport Transport { get; init; }
+
+    /// <summary>The transcription model to use - provider-correct (issue #513): <c>gpt-4o-transcribe</c>
+    /// for BYO/OpenAI, <c>whisper-large-v3</c> for DevThrottle. Part of the routing target the
+    /// Gateway serves (issue #506).</summary>
     public required string Model { get; init; }
 
     /// <summary>The mode this target was resolved for.</summary>
