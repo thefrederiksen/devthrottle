@@ -364,6 +364,13 @@ public sealed class GatewayHost : IAsyncDisposable
         var cockpitForwarder = new Cockpit.CockpitProxy.CockpitForwarder(_app.Services, _cockpitProxyPort);
         Cockpit.CockpitProxy.UseBrowserPageRoutes(_app, cockpitForwarder);
 
+        // Enable ASP.NET WebSocket support so the per-session proxy can recognize an inbound WS
+        // upgrade (ctx.WebSockets.IsWebSocketRequest) and accept it (AcceptWebSocketAsync) for the
+        // hand-rolled terminal/dictation stream proxy. The old YARP forwarder used the raw upgrade
+        // feature and needed no middleware; the manual proxy (SessionWsForwarder) does. Pass-through
+        // for upgrades it does not accept, so the YARP-forwarded Cockpit/Blazor circuit is unaffected.
+        _app.UseWebSockets();
+
         _app.UseRouting();
 
         // Product version stamped by Directory.Build.props; full form carries the commit SHA.

@@ -167,6 +167,11 @@ public sealed class EngineInstallRunner
         if (File.Exists(AppExePath))
             ShortcutCreator.CreateStartMenuShortcut(AppExePath);
 
+        // NOTE: the runner above PLACES cc-launcher.exe (it is an in-scope component for both roles),
+        // but STARTING it is done by MainWindow.StartLauncherAsync after the Gateway phase, so the
+        // order matches the CLI (Gateway first, then the launcher) and a launcher start failure can
+        // hard-fail the wizard with a Retry instead of being swallowed here.
+
         var installed = result.Installed + result.Updated + toolCount;
         var skipped = prep.Items.Count(i => i.Status is "Skipped" or "Failed");
         SetupLog.Write($"[EngineInstallRunner] ApplyAsync: installed={installed}, skipped={skipped}");

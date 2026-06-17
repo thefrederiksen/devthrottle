@@ -6,6 +6,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
+using CcDirector.Setup.Engine;
 
 namespace CcDirector.Launcher;
 
@@ -21,6 +22,7 @@ public sealed class LauncherTrayController : IDisposable
 
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly int _port;
+    private readonly CancellationTokenSource _lifetime = new();
 
     private TrayIcon? _trayIcon;
     private NativeMenuItem? _statusItem;
@@ -39,13 +41,16 @@ public sealed class LauncherTrayController : IDisposable
     /// <summary>Build the tray icon, register autostart, and start the REST host.</summary>
     public void Start()
     {
-        FileLog.Write("[LauncherTrayController] Start");
+        FileLog.Write($"[LauncherTrayController] Start (managed={LauncherAppOptions.Managed})");
 
         BuildTrayIcon();
         RegisterAutostartSafe();
 
         SetState(HostState.Starting);
         _ = StartHostAsync();
+
+        if (LauncherAppOptions.Managed)
+            _ = RunUpdateLoopAsync(_lifetime.Token);
     }
 
     private void BuildTrayIcon()
@@ -144,6 +149,7 @@ public sealed class LauncherTrayController : IDisposable
     private async Task QuitAsync()
     {
         FileLog.Write("[LauncherTrayController] QuitAsync");
+        _lifetime.Cancel();
 
         // Issue #331: unregister from the Gateway before shutting down the REST host.
         if (_gatewayClient is not null)
@@ -193,7 +199,7 @@ public sealed class LauncherTrayController : IDisposable
             {
                 var exePath = Environment.ProcessPath
                     ?? throw new InvalidOperationException("Could not resolve own exe path");
-                LauncherAutostart.EnsureRegistered(exePath);
+                LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
                 FileLog.Write("[LauncherTrayController] Autostart enabled by user");
             }
             UpdateAutostartMenuItem();
@@ -219,11 +225,48 @@ public sealed class LauncherTrayController : IDisposable
             var exePath = Environment.ProcessPath
                           ?? Process.GetCurrentProcess().MainModule?.FileName
                           ?? throw new InvalidOperationException("Could not resolve own exe path for autostart");
-            LauncherAutostart.EnsureRegistered(exePath);
+            LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
         }
         catch (Exception ex)
         {
             FileLog.Write($"[LauncherTrayController] Autostart registration FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Periodic machine-tier auto-update (managed mode only): check for a newer Launcher and, if
+    /// found, launch the detached self-update helper (it POSTs /shutdown -> swap -> relaunch ->
+    /// health -> auto-rollback). Mirrors the Gateway's update loop. Failures only log.
+    /// </summary>
+    private static async Task RunUpdateLoopAsync(CancellationToken ct)
+    {
+        var layout = InstallLayout.Default();
+        // Let the launcher settle before the first check; never compete with startup.
+        try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
+
+        while (!ct.IsCancellationRequested)
+        {
+            var cfg = AutoUpdateConfig.Load(layout);
+            if (cfg.Enabled && OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    var source = new ReleaseSource();
+                    var release = await source.FetchLatestAsync(ct);
+                    var version = await new LauncherUpdater(layout).CheckStageAndLaunchAsync(release, source, ct);
+                    if (version is not null)
+                    {
+                        FileLog.Write($"[LauncherTrayController] launched Launcher self-update to {version}; this process will be asked to exit");
+                        return; // the detached helper POSTs /shutdown, swaps, and relaunches us
+                    }
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[LauncherTrayController] update check failed: {ex.Message}");
+                }
+            }
+            try { await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1), ct); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -285,6 +328,7 @@ public sealed class LauncherTrayController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _lifetime.Cancel();
         try { _gatewayClient?.StopAsync().GetAwaiter().GetResult(); }
         catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose gateway client stop error: {ex.Message}"); }
         _gatewayClient = null;
@@ -292,5 +336,6 @@ public sealed class LauncherTrayController : IDisposable
         catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose stop error: {ex.Message}"); }
         _host = null;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;
+        _lifetime.Dispose();
     }
 }

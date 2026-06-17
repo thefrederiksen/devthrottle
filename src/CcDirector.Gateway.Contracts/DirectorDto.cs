@@ -64,6 +64,24 @@ public sealed class DirectorDto
     /// </summary>
     public DateTime? TwoWayVerifiedAt { get; set; }
 
+    /// <summary>
+    /// UTC timestamp of the last PASSING stream-leg verification: the Gateway completed a real
+    /// WebSocket UPGRADE to this Director's /verify-ws callback - the same path the Cockpit
+    /// terminal stream uses. Distinct from <see cref="TwoWayVerifiedAt"/> (plain HTTP only): a
+    /// Director can pass the HTTP handshake while terminal streaming is dead (the exact remote
+    /// streaming failure). Null = stream not proven for this registration (resets on
+    /// re-register). Server-side stamp.
+    /// </summary>
+    public DateTime? StreamVerifiedAt { get; set; }
+
+    /// <summary>
+    /// Why the last stream-leg verification FAILED (WebSocket upgrade rejected, blocked, wrong
+    /// process...). Null while the stream path is proven OR while it is untested - a Director
+    /// that predates the /verify-ws endpoint leaves BOTH <see cref="StreamVerifiedAt"/> and this
+    /// null (unknown), distinct from a non-null error (a real, tested failure). Server-side stamp.
+    /// </summary>
+    public string? StreamVerifyError { get; set; }
+
     /// <summary>Value of <see cref="AdvertisedEndpointState"/> when the last probe answered as this Director.</summary>
     public const string EndpointStateOk = "ok";
 

@@ -533,6 +533,13 @@ public sealed class GatewayClient : IDisposable
                 result.Verified = false;
                 summary = $"The Gateway's callback was answered by something that is not this Director (at {result.CallbackEndpoint})";
             }
+            // Stream leg (the Cockpit terminal path): HTTP control can be fully verified while the
+            // WebSocket UPGRADE the terminal needs is dead. Don't flip Verified (the advertise gate
+            // is HTTP-based, issue #197) - but record it loudly. result is stored as LastResult, so
+            // any director UI reading the monitor sees StreamOk/StreamError too.
+            if (result.Verified && !result.StreamOk && result.StreamError is not null)
+                FileLog.Write($"[GatewayClient] verify: HTTP callback OK but TERMINAL STREAM leg failed: {result.StreamError}");
+
             _monitor.CompleteHandshake(nonce, result, summary);
             return result;
         }
