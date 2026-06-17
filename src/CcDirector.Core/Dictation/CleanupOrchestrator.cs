@@ -33,7 +33,8 @@ namespace CcDirector.Core.Dictation;
 /// </summary>
 public sealed class CleanupOrchestrator : IDisposable
 {
-    private const string ChatCompletionsEndpoint = "https://api.openai.com/v1/chat/completions";
+    /// <summary>Default OpenAI-compatible base URL (the bring-your-own-key path).</summary>
+    public const string DefaultBaseUrl = "https://api.openai.com/v1";
     public const string DefaultModel = "gpt-4o-mini";
     public static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(60);
 
@@ -41,17 +42,22 @@ public sealed class CleanupOrchestrator : IDisposable
     private readonly bool _ownsHttp;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly string _chatCompletionsEndpoint;
 
     /// <param name="apiKey">OpenAI API key. Reads <c>OPENAI_API_KEY</c> env var if blank.</param>
     /// <param name="model">Chat model. Defaults to <c>gpt-4o-mini</c>.</param>
     /// <param name="httpClient">Optional shared HttpClient. Provider creates and owns one if null.</param>
+    /// <param name="baseUrl">OpenAI-compatible base URL (issue #497). Defaults to <see cref="DefaultBaseUrl"/>.</param>
     public CleanupOrchestrator(
         string? apiKey = null,
         string model = DefaultModel,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        string? baseUrl = null)
     {
         _apiKey = ResolveApiKey(apiKey);
         _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model;
+        _chatCompletionsEndpoint =
+            (string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.TrimEnd('/')) + "/chat/completions";
         if (httpClient is null)
         {
             _http = new HttpClient { Timeout = HttpTimeout };
@@ -271,7 +277,7 @@ public sealed class CleanupOrchestrator : IDisposable
             response_format = new { type = "json_object" },
         };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsEndpoint);
+        using var req = new HttpRequestMessage(HttpMethod.Post, _chatCompletionsEndpoint);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 

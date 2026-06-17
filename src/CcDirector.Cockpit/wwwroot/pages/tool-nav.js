@@ -28,7 +28,7 @@
     { href: "/exes",        label: "Builds",    icon: '<path d="M8 1.5 14 5v6l-6 3.5L2 11V5l6-3.5zM2 5l6 3.5L14 5M8 8.5v6"/>', alpha: true },
     { href: "/transcripts", label: "Recordings",icon: '<rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>', alpha: true },
     { href: "/dictionary",  label: "Dictionary",icon: '<path d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5zM3 11.5h10M6 5.5h4"/>' },
-    { href: "/keys",        label: "API Keys",  icon: '<circle cx="5" cy="8" r="2.5"/><path d="M7.5 8H14M12 8v2.5M10 8v2"/>' },
+    // The standalone "API Keys" item was folded into Settings > Transcription (issue #497).
     { href: "/about",       label: "About",     icon: '<circle cx="8" cy="8" r="6.5"/><path d="M8 7.25v3.75M8 5h.01"/>' }
   ];
 

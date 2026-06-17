@@ -1142,7 +1142,8 @@ security_boundaries:
   - id: key_vault
     name: Central Key Vault
     description: >
-      Fleet secrets (e.g. OPENAI_API_KEY) live in a plain-JSON file OUTSIDE git at
+      Fleet secrets (e.g. OPENAI_API_KEY, DEVTHROTTLE_API_KEY - the two transcription
+      keys, issue #497) live in a plain-JSON file OUTSIDE git at
       %LOCALAPPDATA%\cc-director\config\keyvault.json, served by the Gateway's
       /vault/keys endpoints behind the same bearer/cookie auth as the rest of the
       surface. GET /vault/keys returns names only; values leave only via a single-key
