@@ -181,14 +181,17 @@ internal static class DictationEndpoint
         //     (the contract's one in-scope endpoint - DevThrottle exposes no Realtime WebSocket, and
         //     chat-completions proxying is out of scope, issue #497 section 7). So DevThrottle mode
         //     uses the batch provider, no streaming preview, and cleanup pointed at the same base URL.
+        // The transcription model now travels with the routing target (issue #506): on a Gateway
+        // it is served by the Gateway, standalone it is the per-mode default. Both providers take it.
         var isDevThrottle = endpoint.Mode == Core.Configuration.TranscriptionMode.DevThrottle;
         IDictationProvider provider = isDevThrottle
             ? new OpenAiTranscriptionProvider(
                 apiKey: apiKey,
+                model: endpoint.Model,
                 audioContentType: "audio/wav",
                 audioFileName: "audio.wav",
                 baseUrl: endpoint.BaseUrl)
-            : new OpenAiRealtimeProvider(apiKey: apiKey);
+            : new OpenAiRealtimeProvider(apiKey: apiKey, model: endpoint.Model);
 
         using var cleanup = new CleanupOrchestrator(
             apiKey: apiKey,

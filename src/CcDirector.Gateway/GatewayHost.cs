@@ -471,6 +471,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // host-wide token middleware above.
         VaultEndpoints.Map(_app, _keyVault);
 
+        // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
+        // (mode + base URL + model + key) for its configured transcription mode, so a connected
+        // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure
+        // resolver, so the bring-your-own OpenAI key is never paired with the devthrottle.com URL.
+        TranscriptionRoutingEndpoint.Map(_app, _keyVault);
+
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,
         // the Cockpit views, and the queue runner drains. Persisted to worklists.json across

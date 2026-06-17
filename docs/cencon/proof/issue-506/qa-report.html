@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #506 (Gateway serves full transcription routing)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1000px; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2b2b2b; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7d20; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code, pre { background: #f5f5f5; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; font-size: .85rem; }
+  pre { padding: .7rem; overflow-x: auto; white-space: pre-wrap; }
+  .verdict { background: #e8f8ec; border: 2px solid #0a7d20; padding: 1rem; border-radius: 6px; font-size: 1.1rem; margin-top: 2rem; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #506</h1>
+<p class="meta">
+  <strong>Feature:</strong> Gateway serves full transcription routing (Director stops hardcoding the URL/mode)<br>
+  <strong>PR:</strong> #507 &mdash; branch <code>issue-506-gateway-transcription-routing</code><br>
+  <strong>QA Agent:</strong> independent verification (CenCon Development Method, SOC 2 separation of duties)<br>
+  <strong>Date:</strong> 2026-06-17<br>
+  <strong>Method:</strong> own git worktree (<code>devthrottle-wt-506</code>), own slot 11, own build, own test run &mdash; Developer report and screenshots treated as context, NOT proof.
+</p>
+
+<h2>How I verified</h2>
+<p>
+  This is a backend transcription-routing change with no transcription-routing UI surface. The
+  load-bearing proof is therefore: (a) the unit/integration test suite that pins each acceptance
+  criterion, run against a fresh build of the PR branch in my own checkout; (b) a live-socket
+  integration test that boots the <em>production</em> Gateway routing endpoint on a real Kestrel
+  port and drives a single long-lived <code>OpenAiKeyResolver</code> (a stand-in for a connected
+  Director) through a Gateway-side mode flip with no restart; and (c) booting the built PR exe
+  (slot 11) via the per-slot scheduled task to confirm the new endpoint mapping does not regress
+  Director/Gateway startup.
+</p>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Verdict</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>Director on a Gateway gets base URL + key + model from the Gateway; a Gateway mode/URL change applies with no Director rebuild or restart.</td>
+  <td>One long-lived resolver follows a Gateway mode flip byo&rarr;devthrottle, returning the new baseUrl/key with no reconstruction.</td>
+  <td>Live-socket proof <code>Issue506RoutingProofTests.GatewayModeChange_IsPickedUpByConnectedDirector_NoRestart</code> PASSED. Captured output:
+    <pre>[1] Gateway mode=byo -> Director resolved baseUrl=https://api.openai.com/v1, model=gpt-4o-transcribe, mode=Byo, keyPrefix=sk-
+[2] Gateway mode=devthrottle -> SAME Director resolved baseUrl=https://devthrottle.com/api/v1, model=gpt-4o-transcribe, mode=DevThrottle, keyPrefix=dt_
+[PROOF] One long-lived Director resolver followed the Gateway's mode/URL change with no restart and no rebuild.</pre>
+  </td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>The base URL is no longer taken from a compile-time constant in the Director's on-Gateway runtime path.</td>
+  <td>The on-Gateway resolve uses whatever URL the Gateway returns &mdash; even one that could not be baked in.</td>
+  <td><code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_UsesGatewayBaseUrl_NotLocalConstant</code> PASSED: Gateway returns <code>https://proxy.example.test/v9</code> and the resolver yields exactly that, asserting <code>NotEqual(DevThrottleBaseUrl)</code>. Code review of <code>OpenAiKeyResolver.ResolveEndpointFromGatewayAsync</code> confirms the on-Gateway branch reads <code>baseUrl</code> from the routing JSON; no constant is referenced on that path.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>The BYO OpenAI key is never sent to devthrottle.com.</td>
+  <td>A BYO routing response carries the OpenAI URL and the sk- key; the DevThrottle key never leaks into a BYO response; pair is composed server-side.</td>
+  <td>Server-side: <code>TranscriptionRoutingEndpointTests.Routing_ByoMode_NeverPairsByoKeyWithDevThrottleUrl</code> PASSED (both keys seeded; response has no <code>devthrottle.com</code> and does not contain the dt_ key). Director-side: <code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_NeverGetsByoKeyWithDevThrottleUrl</code> PASSED. Composition happens in the single pure <code>TranscriptionEndpointResolver.Resolve</code> used by the Gateway endpoint.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>Standalone (no-Gateway) transcription still works unchanged.</td>
+  <td>Standalone BYO uses the local OpenAI key + OpenAI URL + default model; standalone DevThrottle with no local key returns null.</td>
+  <td><code>ResolveEndpoint_StandaloneByo_UsesLocalOpenAiKey</code> PASSED (baseUrl=api.openai.com/v1, key=sk-local-123, model=gpt-4o-transcribe). <code>ResolveEndpoint_StandaloneDevThrottle_NoLocalKey_ReturnsNull</code> PASSED. The standalone branch in <code>ResolveEndpointAsync</code> is the pre-#506 logic.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>Unit tests cover: Gateway composes the correct pair per mode; Director consumes Gateway routing; older-Gateway-without-endpoint surfaces the clear message.</td>
+  <td>All three scenarios present and passing.</td>
+  <td>Per-mode composition: <code>Routing_ByoMode_ComposesOpenAiPair</code>, <code>Routing_DevThrottleMode_ComposesDevThrottlePair</code> PASS. Director consumes routing: <code>ResolveEndpoint_OnGateway_ConsumesGatewayRouting</code> PASS (asserts request hits <code>/transcription/routing</code> only). Older-Gateway message: <code>ResolveEndpoint_OlderGatewayWithoutRoutingEndpoint_ReturnsNull_AndShowsUpdateMessage</code> PASS (404 with no <code>X-Transcription-Routing</code> marker &rarr; "this Gateway is out of date. Update your Gateway"). Key-not-set vs older-Gateway distinguished by <code>Routing_KeyNotSet_Returns404_WithMarkerHeader</code> + <code>ResolveEndpoint_OnGateway_KeyNotSet_ReturnsNull_AndShowsModeMessage</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Test runs (my own build of the PR branch)</h2>
+<pre>dotnet test src/CcDirector.Core.Tests --filter OpenAiKeyResolverEndpointTests
+  Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7
+
+dotnet test src/CcDirector.Gateway.Tests --filter "TranscriptionRoutingEndpointTests|Issue506RoutingProofTests"
+  Passed! - all 5 (4 routing endpoint + 1 live-socket proof) PASSED</pre>
+
+<h2>Build gate</h2>
+<pre>scripts\local-build-avalonia.ps1 -Slot 11
+  Build succeeded.  0 Warning(s)  0 Error(s)
+  -> local_builds\cc-director11.exe (38.5 MB)</pre>
+
+<h2>Regression / startup check (built PR exe)</h2>
+<p>
+  Launched the slot-11 PR exe via its own scheduled task (clean svchost parentage, CLAUDE.md rule 0b).
+  The Director booted healthy with the new <code>TranscriptionRoutingEndpoint</code> mapped &mdash;
+  no startup regression:
+</p>
+<pre>GET http://127.0.0.1:7893/healthz
+  {"status":"ok","directors":1,"sessions":0,"version":"0.9.11", ...}</pre>
+
+<h2>Negative sweep / pre-existing failures (independently confirmed)</h2>
+<p>
+  The full <code>CcDirector.Gateway.Tests</code> suite shows 765 passed / 4 failed. I independently
+  reproduced all 4 on unmodified <code>main</code> &mdash; they are pre-existing and untouched by PR #507:
+</p>
+<ul>
+  <li>2 &times; <code>VaultGatewayIntegrationTests</code> assert the old "Settings &gt; Voice" wording; the
+      actual (correct) string is "Settings &gt; Transcription" &mdash; a stale fixture from before the
+      #497 rename (already merged to main). Fails identically on main.</li>
+  <li>2 &times; <code>DictationEndpointTests</code> (realtime full-pipeline) require a live OpenAI key.
+      Fails identically on main.</li>
+</ul>
+<p>None of the 4 touch the files changed by PR #507. No adjacent regression attributable to this change.</p>
+
+<h2>CenCon method check</h2>
+<p>
+  No blocking security rule broken. The security invariant (BYO OpenAI key never paired with the
+  devthrottle.com URL) is now enforced <em>server-side</em> in one pure spot and is provable by test.
+  No silent fallback: an older Gateway surfaces a clear "update your Gateway" message via the missing
+  marker header. Change is well-scoped (10 files, on-Gateway path only); standalone path untouched.
+</p>
+
+<div class="verdict">
+  VERIFIED &mdash; all 5 acceptance criteria met, build clean (0/0), no new regression. PASS.
+</div>
+
+</body>
+</html>
