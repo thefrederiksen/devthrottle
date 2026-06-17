@@ -40,12 +40,15 @@ public sealed class CronEngine
     private readonly CronJobStore _store;
     private readonly CronRunHistoryStore _history;
     private readonly ICronSessionStarter _starter;
+    private readonly ICronWorkListRunner _workListRunner;
     private readonly IClock _clock;
     private readonly TimeSpan _catchUpThreshold;
 
     private readonly object _inFlightGate = new();
     private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
 
+    /// <param name="starter">Starts a single seeded session for a seed-action job.</param>
+    /// <param name="workListRunner">Drains a named work list for a work-list-action job (#484).</param>
     /// <param name="catchUpThreshold">
     /// How far past its due time a scheduled fire must be to be labeled a catch-up (default 2 min).
     /// Purely cosmetic on the run record; it does not change whether the job fires.
@@ -54,12 +57,14 @@ public sealed class CronEngine
         CronJobStore store,
         CronRunHistoryStore history,
         ICronSessionStarter starter,
+        ICronWorkListRunner workListRunner,
         IClock clock,
         TimeSpan? catchUpThreshold = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
+        _workListRunner = workListRunner ?? throw new ArgumentNullException(nameof(workListRunner));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _catchUpThreshold = catchUpThreshold ?? TimeSpan.FromMinutes(2);
     }
@@ -126,12 +131,32 @@ public sealed class CronEngine
 
         try
         {
-            var (sessionId, error) = await _starter.StartAsync(job, ct);
+            // A work-list action (#484) drains a named list via the runner; a seed action starts a
+            // single session. Either way a run is recorded and the schedule advances below.
+            var isWorkList = !string.IsNullOrWhiteSpace(job.Action.WorkListName);
+            string? sessionId;
+            string? error;
+            bool started;
+            string baseStatus;
+            if (isWorkList)
+            {
+                var outcome = await _workListRunner.TriggerAsync(job, ct);
+                sessionId = null;                                  // a drain starts many sessions, not one
+                started = outcome == CronWorkListOutcome.Started;
+                error = started ? null : outcome.ToString();
+                baseStatus = "worklist-" + WorkListStatusSuffix(outcome);
+            }
+            else
+            {
+                (sessionId, error) = await _starter.StartAsync(job, ct);
+                started = sessionId is not null;
+                baseStatus = started ? "started" : "not-started";
+            }
+
             var firedUtc = _clock.UtcNow;
-            var started = sessionId is not null;
             var isCatchUp = !isManual && started && (firedUtc - scheduledUtc) > _catchUpThreshold;
 
-            var infraStatus = !started ? "not-started" : isCatchUp ? "catch-up" : "started";
+            var infraStatus = isCatchUp ? "catch-up" : baseStatus;
             var record = new CronRunRecord
             {
                 ScheduledUtc = scheduledUtc,
@@ -173,6 +198,17 @@ public sealed class CronEngine
                 ExitFlight(job.Id);
         }
     }
+
+    private static string WorkListStatusSuffix(CronWorkListOutcome outcome) => outcome switch
+    {
+        CronWorkListOutcome.Started => "started",
+        CronWorkListOutcome.EmptyList => "empty",
+        CronWorkListOutcome.NoSuchList => "no-list",
+        CronWorkListOutcome.AlreadyClaimed => "already-claimed",
+        CronWorkListOutcome.NoSuchDirector => "no-director",
+        CronWorkListOutcome.MachineBusy => "machine-busy",
+        _ => "unknown",
+    };
 
     private bool TryEnterFlight(string id)
     {

@@ -38,8 +38,10 @@ public static class CronSchedule
             return (false, "target.directorId is required");
         if (job.Action is null || string.IsNullOrWhiteSpace(job.Action.RepoPath))
             return (false, "action.repoPath is required");
-        if (job.Action is null || string.IsNullOrWhiteSpace(job.Action.Seed))
-            return (false, "action.seed is required");
+        // The action is EITHER a seed (a prompt/skill) OR a work-list drain (#484). At least one is
+        // required; a work-list job may omit the seed.
+        if (string.IsNullOrWhiteSpace(job.Action.Seed) && string.IsNullOrWhiteSpace(job.Action.WorkListName))
+            return (false, "action requires either a seed or a workListName");
 
         if (IsRecurring(job.ScheduleKind))
         {
