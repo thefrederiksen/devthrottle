@@ -313,6 +313,24 @@ internal static class GatewayEndpoints
             var (ok, error) = await client.VerifyCallbackAsync(endpoint, id, req.Nonce, ct);
             sw.Stop();
 
+            // Leg 3 (stream): prove the WebSocket UPGRADE path the Cockpit terminal stream uses -
+            // the leg that was silently broken cross-machine while plain HTTP verify stayed green.
+            // Only run it when the HTTP callback already reached the right Director: if leg 2
+            // failed the endpoint is unreachable anyway, so leg 2's reason stands and we skip the
+            // extra round-trip.
+            bool streamOk = false; string? streamError = null; long streamMs = 0; bool streamApplicable = false;
+            if (ok)
+            {
+                var swStream = System.Diagnostics.Stopwatch.StartNew();
+                (streamOk, streamError, streamApplicable) = await client.VerifyStreamCallbackAsync(endpoint, id, req.Nonce, ct);
+                swStream.Stop();
+                streamMs = swStream.ElapsedMilliseconds;
+                // Only stamp a verdict when the leg was applicable; an old Director (no /verify-ws)
+                // stays "unknown" (both stream fields null) rather than reading as broken.
+                if (streamApplicable)
+                    registry.MarkStreamVerified(id, streamOk, streamError);
+            }
+
             if (ok)
             {
                 registry.MarkTwoWayVerified(id);
@@ -321,7 +339,7 @@ internal static class GatewayEndpoints
                 // for the next fleet poll to coincide with a closed breaker.
                 registry.RecordReachable(id);
             }
-            FileLog.Write($"[GatewayEndpoints] verify {id}: callbackOk={ok}, endpoint={endpoint}, {sw.ElapsedMilliseconds}ms{(ok ? "" : $", error={error}")}");
+            FileLog.Write($"[GatewayEndpoints] verify {id}: callbackOk={ok}, streamOk={streamOk} (applicable={streamApplicable}), endpoint={endpoint}, {sw.ElapsedMilliseconds}ms{(ok ? "" : $", error={error}")}{(streamApplicable && !streamOk ? $", streamError={streamError}" : "")}");
 
             return Results.Json(new DirectorVerifyResultDto
             {
@@ -331,6 +349,9 @@ internal static class GatewayEndpoints
                 CallbackError = error,
                 CallbackEndpoint = endpoint,
                 CallbackLatencyMs = sw.ElapsedMilliseconds,
+                StreamOk = streamOk,
+                StreamError = streamApplicable ? streamError : (ok ? "stream verify not supported by this Director version" : null),
+                StreamLatencyMs = streamMs,
                 VerifiedAt = DateTime.UtcNow,
             });
         });

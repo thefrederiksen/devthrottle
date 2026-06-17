@@ -156,6 +156,21 @@
                         }
                         <dt>Started</dt><dd title="@d.StartedAt">@RelativeTime(d.StartedAt) (up @Uptime(d.StartedAt))</dd>
                         <dt>Last seen</dt><dd title="@d.LastSeen">@RelativeTime(d.LastSeen)</dd>
+                        @* Terminal stream (WebSocket UPGRADE) verification - the path the Cockpit
+                           terminal uses, proven independently of plain HTTP reachability. *@
+                        <dt>Terminal stream</dt>
+                        @if (d.StreamVerifyError is not null)
+                        {
+                            <dd class="err" title="@d.StreamVerifyError">DOWN - WebSocket stream unreachable</dd>
+                        }
+                        else if (d.StreamVerifiedAt is { } sv)
+                        {
+                            <dd class="ok" title="@sv">OK (verified @RelativeTime(sv))</dd>
+                        }
+                        else
+                        {
+                            <dd class="dim">not verified</dd>
+                        }
                     </dl>
                 </section>
             </div>
