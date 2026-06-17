@@ -385,8 +385,45 @@ public partial class MainWindow : Window
         if (_role == InstallRole.Gateway)
             await RunGatewayTrayInstallAsync(prep);
 
+        // Start the always-on Launcher tray app (Windows, both roles) AFTER the Gateway phase, so the
+        // order matches the CLI. Hard-fail like the CLI: if it does not come up, the install is not
+        // "done" - surface the error and offer Retry rather than reporting a clean success while the
+        // launcher is dead.
+        if (OperatingSystem.IsWindows() && !await StartLauncherAsync())
+        {
+            NextButton.Content = "Retry";
+            NextButton.IsEnabled = true;
+            return;
+        }
+
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
+    }
+
+    /// <summary>
+    /// Start the installed Launcher tray app in managed mode and verify it is healthy and
+    /// autostart-registered (the runner placed cc-launcher.exe but does not start it). Returns false
+    /// on any failure so the caller can hard-fail the install with a Retry, mirroring the CLI.
+    /// </summary>
+    private async Task<bool> StartLauncherAsync()
+    {
+        SetupLog.Write("[MainWindow] StartLauncherAsync");
+        _installStep?.SetStatus("Starting the Launcher tray app...");
+        try
+        {
+            var result = await new LauncherTrayInstaller(InstallLayout.Default()).InstallAsync();
+            foreach (var s in result.Steps) SetupLog.Write($"[MainWindow]   launcher: {s}");
+            SetupLog.Write($"[MainWindow] launcher start success={result.Success}: {result.Message}");
+            if (result.Success) return true;
+            _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {result.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[MainWindow] StartLauncherAsync FAILED: {ex.Message}");
+            _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {ex.Message}");
+            return false;
+        }
     }
 
     private async Task RunGatewayTrayInstallAsync(EngineInstallRunner.Prep prep)
