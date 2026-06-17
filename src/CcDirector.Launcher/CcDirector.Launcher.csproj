@@ -29,10 +29,13 @@
     <!-- Issue #331: LauncherRegistrationRequest lives in Gateway.Contracts. -->
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
     <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+    <!-- Shared OneDrive-style tray flyout (replaces the legacy right-click menu). -->
+    <ProjectReference Include="..\CcDirector.TrayUi\CcDirector.TrayUi.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\tray.ico" />
+    <AvaloniaResource Include="Assets\icon.png" />
   </ItemGroup>
 
 </Project>

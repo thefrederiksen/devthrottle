@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using CcDirector.Core.Network;
@@ -13,6 +15,7 @@ using CcDirector.Gateway;
 using CcDirector.Gateway.Cockpit;
 using CcDirector.HostedAgent;
 using CcDirector.Setup.Engine;
+using CcDirector.TrayUi;
 
 namespace CcDirector.GatewayApp;
 
@@ -32,7 +35,9 @@ public sealed class GatewayTrayController : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
 
     private TrayIcon? _trayIcon;
-    private NativeMenuItem? _statusItem;
+    private TrayFlyoutController? _flyout;
+    private Bitmap? _icon;
+    private string _statusText = "Gateway stopped";
     private GatewayHost? _host;
     private CockpitSupervisor? _cockpit;
     private SettingsWindow? _settingsWindow;
@@ -88,32 +93,14 @@ public sealed class GatewayTrayController : IDisposable
 
     private void BuildTrayIcon()
     {
+        // Modern interaction (consistent with the Launcher): LEFT-CLICK opens the OneDrive-style
+        // flyout with live status + action buttons + the Start-on-login toggle. The detailed status
+        // window is still one click away ("Open Settings" in the flyout). Right-click is reduced to a
+        // single Quit escape hatch.
+        _icon = new Bitmap(AssetLoader.Open(new Uri("avares://devthrottle-gateway/Assets/icon.png")));
+        _flyout = new TrayFlyoutController(BuildFlyoutModel);
+
         var menu = new NativeMenu();
-
-        _statusItem = new NativeMenuItem("Gateway starting...") { IsEnabled = false };
-        menu.Add(_statusItem);
-        menu.Add(new NativeMenuItemSeparator());
-
-        // ONE URL (docs/plans/one-url-cockpit.md): the Cockpit is served through the front
-        // door, so there is exactly one thing to open.
-        var openCockpit = new NativeMenuItem("Open Cockpit");
-        openCockpit.Click += (_, _) => OpenCockpit();
-        menu.Add(openCockpit);
-
-        var settings = new NativeMenuItem("Settings...");
-        settings.Click += (_, _) => OpenSettings();
-        menu.Add(settings);
-
-        var openLogs = new NativeMenuItem("Open Logs Folder");
-        openLogs.Click += (_, _) => OpenLogsFolder();
-        menu.Add(openLogs);
-
-        var restart = new NativeMenuItem("Restart Gateway");
-        restart.Click += (_, _) => _ = RestartAsync();
-        menu.Add(restart);
-
-        menu.Add(new NativeMenuItemSeparator());
-
         var quit = new NativeMenuItem("Quit");
         quit.Click += (_, _) => _ = QuitAsync();
         menu.Add(quit);
@@ -125,11 +112,84 @@ public sealed class GatewayTrayController : IDisposable
             Menu = menu,
             IsVisible = true,
         };
-        _trayIcon.Clicked += (_, _) => OpenSettings(); // left-click = the status window
+        _trayIcon.Clicked += (_, _) => _flyout?.Toggle();
 
         var icons = new TrayIcons { _trayIcon };
         TrayIcon.SetIcons(Application.Current!, icons);
         FileLog.Write("[GatewayTrayController] Tray icon created");
+    }
+
+    /// <summary>Build the flyout's content from current state (called fresh on each open).</summary>
+    private TrayFlyoutModel BuildFlyoutModel()
+    {
+        var directors = _host?.Registry.ListDirectors().Count ?? 0;
+        var up = DateTime.UtcNow - StartedAtUtc;
+        var uptime = up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes:D2}m" : $"{up.Minutes}m {up.Seconds:D2}s";
+
+        var rows = new List<StatusRow>
+        {
+            new("Version", AppVersion.Full),
+            new("Directors", directors.ToString()),
+            new("Mode", GatewayAppOptions.Managed ? "managed" : "dev"),
+            new("Uptime", uptime),
+        };
+
+        // ONE URL (docs/plans/one-url-cockpit.md): Open Cockpit is the primary action.
+        var actions = new List<FlyoutAction>
+        {
+            new() { Text = "Open Cockpit", Primary = true, OnClick = OpenCockpit },
+            new() { Text = "Open Settings", OnClick = OpenSettings },
+            new() { Text = "Restart Gateway", OnClick = () => _ = RestartAsync() },
+            new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
+        };
+
+        ToggleSpec? toggle = OperatingSystem.IsWindows()
+            ? new ToggleSpec { Label = "Start on login", IsOn = GatewayAutostart.IsRegistered(), OnChanged = SetAutostart }
+            : null;
+
+        return new TrayFlyoutModel
+        {
+            AppName = "DevThrottle Gateway",
+            Icon = _icon,
+            StatusTitle = _statusText,
+            Status = _state switch
+            {
+                HostState.Running => StatusLevel.Ok,
+                HostState.Starting => StatusLevel.Warn,
+                HostState.Stopped => StatusLevel.Warn,
+                _ => StatusLevel.Error,
+            },
+            Accent = Color.Parse("#007ACC"), // gateway blue (matches its existing UI)
+            Rows = rows,
+            Actions = actions,
+            Toggle = toggle,
+            OnQuit = () => _ = QuitAsync(),
+        };
+    }
+
+    /// <summary>Enable/disable the Start-on-login autostart from the flyout toggle.</summary>
+    private void SetAutostart(bool enable)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            if (enable)
+            {
+                var exe = Environment.ProcessPath
+                          ?? throw new InvalidOperationException("Could not resolve own exe path");
+                GatewayAutostart.EnsureRegistered(exe, GatewayAppOptions.AutostartArguments());
+                FileLog.Write("[GatewayTrayController] Autostart enabled by user");
+            }
+            else
+            {
+                GatewayAutostart.Unregister();
+                FileLog.Write("[GatewayTrayController] Autostart disabled by user");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayTrayController] SetAutostart FAILED: {ex.Message}");
+        }
     }
 
     private async Task StartHostAsync()
@@ -334,6 +394,7 @@ public sealed class GatewayTrayController : IDisposable
         await StopHostAsync(); // also gracefully stops the host-owned brain
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            _flyout?.Close();
             _settingsWindow?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
@@ -440,9 +501,9 @@ public sealed class GatewayTrayController : IDisposable
 
     private void ApplyStatus(string status, string tip)
     {
+        _statusText = status; // the flyout reads this live on open
         Dispatcher.UIThread.Post(() =>
         {
-            if (_statusItem is not null) _statusItem.Header = status;
             if (_trayIcon is not null) _trayIcon.ToolTipText = tip;
         });
     }
