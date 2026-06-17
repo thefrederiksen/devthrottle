@@ -1116,6 +1116,71 @@ public partial class MainWindow : Window
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
+    /// <summary>
+    /// Build a catalog agent (issue #490) whose executable path is the selected entry's configured
+    /// path, not the legacy per-type machine path. The agents read their path from
+    /// <see cref="AgentOptions"/>, so we hand them a per-launch copy of the running options with
+    /// only this entry's path slotted into the matching property; all other options (buffer sizes,
+    /// keys, default Claude args) are preserved. A blank entry path falls through to the running
+    /// options' default for that type so a not-yet-configured entry still launches its standard
+    /// binary. RawCli is handled by the caller via <see cref="RawCliAgent"/> and never reaches here.
+    /// </summary>
+    private IAgent CreateAgentForEntry(AgentKind agentKind, string entryExecutablePath)
+    {
+        var options = _sessionManager.Options;
+        var path = entryExecutablePath?.Trim();
+        if (string.IsNullOrEmpty(path))
+            return CreateAgent(agentKind);
+
+        var perLaunch = ClonePathOverriddenOptions(options, agentKind, path);
+        return agentKind switch
+        {
+            AgentKind.Pi => new PiAgent(perLaunch),
+            AgentKind.Codex => new CodexAgent(perLaunch),
+            AgentKind.Gemini => new GeminiAgent(perLaunch),
+            AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
+            _ => new ClaudeAgent(perLaunch)
+        };
+    }
+
+    /// <summary>
+    /// Shallow-copy <paramref name="source"/> and override only the executable-path property for
+    /// <paramref name="agentKind"/> with <paramref name="path"/> (issue #490). Used to launch a
+    /// catalog agent from a specific entry's path without mutating the shared running options.
+    /// </summary>
+    private static AgentOptions ClonePathOverriddenOptions(AgentOptions source, AgentKind agentKind, string path)
+    {
+        var copy = new AgentOptions
+        {
+            ClaudePath = source.ClaudePath,
+            DefaultClaudeArgs = source.DefaultClaudeArgs,
+            DefaultBufferSizeBytes = source.DefaultBufferSizeBytes,
+            GracefulShutdownTimeoutSeconds = source.GracefulShutdownTimeoutSeconds,
+            PiPath = source.PiPath,
+            CodexPath = source.CodexPath,
+            GeminiPath = source.GeminiPath,
+            OpenCodePath = source.OpenCodePath,
+            ChatSessionRepoPath = source.ChatSessionRepoPath,
+            TtsVoice = source.TtsVoice,
+            TtsModel = source.TtsModel,
+            OpenAiKey = source.OpenAiKey,
+            DictationDictionaryPath = source.DictationDictionaryPath,
+            DictationCleanupModel = source.DictationCleanupModel,
+            DictationPreviewModel = source.DictationPreviewModel,
+        };
+
+        switch (agentKind)
+        {
+            case AgentKind.Pi: copy.PiPath = path; break;
+            case AgentKind.Codex: copy.CodexPath = path; break;
+            case AgentKind.Gemini: copy.GeminiPath = path; break;
+            case AgentKind.OpenCode: copy.OpenCodePath = path; break;
+            default: copy.ClaudePath = path; break;
+        }
+
+        return copy;
+    }
+
     /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
     /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
     private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, SessionType sessionType, Guid? groupId = null, string? groupRole = null, string? groupName = null)
@@ -2575,26 +2640,43 @@ public partial class MainWindow : Window
         var resumeSessionId = dialog.SelectedResumeSessionId;
         var agentKind = dialog.SelectedAgentKind;
 
-        // Build agent arguments. Claude flags don't apply to other agents.
-        // When the dialog specifies no Claude flags, pass null so the machine-level
-        // configured default command line (Tools page preset + default model, issue #391)
-        // applies instead of an empty override.
+        // The selected configured agent entry (issue #490) is the source of truth for the launch:
+        // its type/path/preset/model/args build the command line, replacing the legacy per-type
+        // lookup. No enabled entry means there is nothing to launch.
+        var selectedEntry = dialog.SelectedAgentEntry;
+        if (selectedEntry is null)
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: no agent entry selected (none configured); aborting");
+            await MessageBox.ShowAsync(this,
+                "No agent configured",
+                "There are no enabled agents to launch.\n\nAdd one in Settings > Agents, then try again.");
+            return;
+        }
+
+        // Per-entry preset/model/args resolve to the same effective command line the Tools/Agents
+        // page previews (issue #436's shared resolver). For Claude the dialog's Bypass-permissions
+        // checkbox still applies on top, because it is a per-session choice, not a stored preset.
+        var entryArgs = selectedEntry.ToToolConfig().ResolveEffectiveCommandLineArguments().Trim();
         string? agentArgs;
         if (agentKind == AgentKind.ClaudeCode)
         {
-            var claudeArgs = "";
+            var claudeArgs = entryArgs;
             if (dialog.EnableRemoteControl)
-                claudeArgs = "remote-control ";
+                claudeArgs = $"remote-control {claudeArgs}".Trim();
             if (dialog.BypassPermissions)
-                claudeArgs += "--dangerously-skip-permissions ";
-            agentArgs = claudeArgs.Length > 0 ? claudeArgs.Trim() : null;
+                claudeArgs = $"{claudeArgs} --dangerously-skip-permissions".Trim();
+            agentArgs = claudeArgs.Length > 0 ? claudeArgs : null;
         }
         else
         {
-            agentArgs = null;
+            agentArgs = entryArgs.Length > 0 ? entryArgs : null;
         }
 
-        // Build the IAgent. For RawCli, construct it directly from the dialog's custom fields.
+        // Build the IAgent from the entry. RawCli uses the entry's executable + its raw args
+        // (the dialog seeds the Custom CLI boxes from the entry, so the user-edited boxes win).
+        // Catalog agents (Claude/Pi/Codex/Gemini/OpenCode) read their executable path from a
+        // per-launch options copy carrying THIS entry's ExecutablePath (issue #490) so two
+        // entries of the same type with different paths each launch their own binary.
         IAgent agent;
         if (agentKind == AgentKind.RawCli)
         {
@@ -2604,11 +2686,13 @@ public partial class MainWindow : Window
                 FileLog.Write("[MainWindow] ShowNewSessionDialog: RawCli selected but no command; aborting");
                 return;
             }
+            // RawCli carries its own command line on the agent; agentArgs is not reused for it.
+            agentArgs = null;
             agent = new RawCliAgent(customCmd, string.IsNullOrWhiteSpace(dialog.SelectedCustomArgs) ? null : dialog.SelectedCustomArgs);
         }
         else
         {
-            agent = CreateAgent(agentKind);
+            agent = CreateAgentForEntry(agentKind, selectedEntry.ExecutablePath);
         }
 
         FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, exe={agent.ExecutablePath}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");

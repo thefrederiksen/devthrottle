@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #490 - New Session: configured agents in user-defined order; drop alpha gating</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 24px; line-height: 1.5; }
+  h1 { color: #fff; font-size: 22px; }
+  h2 { color: #007ACC; margin-top: 28px; border-bottom: 1px solid #3C3C3C; padding-bottom: 4px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background: #252526; color: #D7BA7D; padding: 1px 5px; border-radius: 3px; }
+  pre { display: block; padding: 12px; overflow-x: auto; color: #CCCCCC; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #2D2D30; color: #fff; }
+  .pass { color: #22C55E; font-weight: 600; }
+  img { max-width: 100%; border: 1px solid #3C3C3C; margin: 8px 0; }
+  .muted { color: #888888; }
+</style>
+</head>
+<body>
+<h1>Issue #490 &mdash; [New Session] Show configured agents in user-defined order; drop alpha gating</h1>
+<p class="muted">Developer Agent proof report. Built and verified in an isolated test Director (slot 9,
+its own git worktree) per CLAUDE.md rule 0b. Depends on #489 (merged), which provides the ordered
+<code>agent.entries</code> model and the <code>AgentEntry</code>/<code>AgentEntryStore</code> API.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New Session dialog agent row is now data-driven.</b> The six hardcoded agent RadioButtons
+      (Claude/Pi/Codex/Gemini/OpenCode/Custom CLI) in <code>NewSessionDialog.axaml</code> were
+      replaced with an <code>ItemsControl</code> of RadioButtons bound to the <b>enabled</b>
+      <code>agent.entries</code> (issue #489), rendered in <b>stored order</b>, labeled by each
+      entry's <code>displayName</code>, with the <b>first enabled entry pre-selected</b>. An empty
+      list shows a "No agents configured" hint and disables Start.</li>
+  <li><b>Alpha gating removed from the agent list only.</b> The
+      <code>IsAgentSelectableOutsideAlpha</code> helper and the alpha visibility checks on
+      Codex/Gemini/OpenCode were deleted; the agent list no longer reads <code>AlphaMode</code>.
+      Handovers, GitHub (Remote), and the quick-launch cards keep their existing alpha gating
+      untouched (<code>HandoversTab.IsVisible = true; GitHubTab.IsVisible = alpha;
+      QuickLaunchPanel.IsVisible = alpha;</code> &mdash; identical to before).</li>
+  <li><b>Launch maps the selected entry.</b> <code>MainWindow.ShowNewSessionDialog</code> now builds
+      the launch from <code>dialog.SelectedAgentEntry</code>: the entry's
+      <code>type</code> selects the agent strategy, its <code>executablePath</code> is slotted into a
+      per-launch <code>AgentOptions</code> copy (<code>CreateAgentForEntry</code>), and its
+      <code>preset</code>/<code>model</code>/<code>argsOverride</code> resolve via the shared
+      <code>AgentEntry.ToToolConfig().ResolveEffectiveCommandLineArguments()</code> into the launch
+      arguments. For a Claude entry the per-session Bypass-permissions checkbox still applies on top.</li>
+  <li><b>Selection robustness.</b> The radio change handler drives the model selection from the
+      sender's bound option (not the two-way binding, which can lag), so
+      <code>SelectedAgentEntry</code> is always correct at launch time.</li>
+</ul>
+
+<h3>Files changed</h3>
+<ul>
+  <li><code>src/CcDirector.Avalonia/NewSessionDialog.axaml</code> &mdash; ItemsControl agent row + no-agents hint.</li>
+  <li><code>src/CcDirector.Avalonia/NewSessionDialog.axaml.cs</code> &mdash; <code>AgentEntryOption</code> VM,
+      <code>LoadAgentEntries</code>, <code>SelectedAgentEntry</code>, alpha helper removed,
+      RawCli panel seeded from the entry.</li>
+  <li><code>src/CcDirector.Avalonia/MainWindow.axaml.cs</code> &mdash; entry-driven launch
+      (<code>CreateAgentForEntry</code> + per-launch path override + entry effective args).</li>
+</ul>
+
+<h2>Test setup (known config)</h2>
+<p>A known <code>agent.entries</code> was written to <code>config.json</code> with
+<code>alpha_mode = false</code> and these entries (the user's real config was backed up and restored
+afterward):</p>
+<pre>1. Claude (skip perms)            ClaudeCode  enabled  preset="Automatic (skip permissions)"
+2. Claude (read-only)             ClaudeCode  enabled  preset="Standard"  model="sonnet"
+3. Codex (no-alpha proof)         Codex       enabled  preset="Standard"
+4. Gemini (DISABLED - absent)     Gemini      DISABLED preset="Standard"</pre>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td><td>One option per enabled entry, by displayName, in order (incl. two same-type)</td>
+  <td>Row shows "Claude (skip perms)", "Claude (read-only)", "Codex (no-alpha proof)" in order</td>
+  <td>Screenshot <code>01-agent-row.png</code> + UIA radios in that exact order; log
+      <code>LoadAgentEntries: 4 entries, 3 enabled</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td><td>First enabled entry selected on open</td>
+  <td>"Claude (skip perms)" selected</td>
+  <td>UIA <code>'Claude (skip perms)' selected=True</code>; others False (screenshot 01)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td><td>Disabled entry does NOT appear</td>
+  <td>"Gemini" (disabled) absent from the row</td>
+  <td>Only 3 radios present; Gemini absent (screenshot 01); log "3 enabled" of 4 entries</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td><td>Reorder in config changes order + pre-selected agent, no alpha</td>
+  <td>After moving Codex first, row order + selection follow; alpha still off</td>
+  <td>Screenshot <code>02-reordered.png</code>: order Codex, Claude (read-only), Claude (skip perms);
+      UIA <code>'Codex (no-alpha proof)' selected=True</code>; log
+      <code>first=Codex (no-alpha proof)</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td><td>alpha_mode=false: formerly alpha-gated agents appear when enabled</td>
+  <td>Codex visible with alpha off</td>
+  <td><code>config.json alpha_mode=false</code> + Codex radio present (screenshots 01/02); log
+      <code>alphaFeatures=False, enabledAgents=3</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td><td>Starting with a selected non-default entry launches its type/path/preset/model/args</td>
+  <td>Selecting "Claude (read-only)" (Standard + model sonnet), Bypass off, launches
+      claude.EXE with <code>--model sonnet</code> and no skip-permissions</td>
+  <td><code>03-launch-command.txt</code>: <code>agent=ClaudeCode</code>,
+      <code>exe=...\claude.EXE</code>, <code>bypassPermissions=False</code>,
+      <code>ClaudeAgent BuildLaunchSpec: userArgs=--model sonnet</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>7</td><td>Handovers and GitHub alpha features unchanged</td>
+  <td>With alpha off, the GitHub (Remote) tab is hidden (still alpha-gated); the alpha-gating lines
+      for Handovers/GitHub/quick-launch are byte-identical to origin/main</td>
+  <td>Screenshots 01/02 show only New Session / Resume Session / Handovers tabs &mdash; the
+      <b>GitHub (Remote)</b> tab is hidden with alpha off; <code>git show origin/main</code> confirms
+      the three IsVisible lines are unchanged</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshots</h2>
+<p><b>01 &mdash; Agent row, original order, first selected, disabled Gemini absent (alpha off):</b></p>
+<img src="01-agent-row.png" alt="agent row" />
+<p><b>02 &mdash; After reordering in config: Codex first and pre-selected (no alpha):</b></p>
+<img src="02-reordered.png" alt="reordered agent row" />
+<p><b>03 &mdash; AC6 launch command:</b> see <code>03-launch-command.txt</code> (Director log excerpt).</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a UI behavior change in <code>CcDirector.Avalonia</code> consuming the existing
+#489 model; no architecture container added/removed and no security posture change, so no
+<code>docs/cencon/</code> file needed updating.</p>
+
+<h2>Build &amp; tests</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> &mdash; Build succeeded, 0 Warnings, 0 Errors.</li>
+  <li>AgentEntry/AgentToolConfig unit tests: 19 passed, 0 failed.</li>
+</ul>
+
+<h2>Statement</h2>
+<p><b>I believe this is finished.</b> All seven acceptance criteria were verified with proof in the
+running app on an isolated test Director, the solution builds clean, and the user's real config was
+restored unchanged.</p>
+</body>
+</html>
