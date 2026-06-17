@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Director picker - mockup</title>
+<style>
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --button-hover:#505050;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --accent:#007ACC; --selected:#094771; --hover:#2A2D2E; --border:#3C3C3C;
+  --red:#F14C4C; --green:#22C55E; --blue:#3B82F6; --amber:#F59E0B;
+}
+*{box-sizing:border-box}
+body{background:#141414;margin:0;padding:28px;font-family:"Segoe UI",system-ui,sans-serif;
+  color:var(--text);display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin:0 0 8px}
+
+/* ===== the modal shell (matches the live New cron job modal) ===== */
+.modal{width:520px;background:var(--sidebar);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.modal-head{padding:14px 18px;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)}
+.modal-body{padding:16px 18px}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--border)}
+.fld{margin-bottom:14px}
+.fld-label{display:flex;align-items:baseline;gap:10px;font-size:11px;color:var(--text3);margin-bottom:5px}
+.fld-label .filter{margin-left:auto}
+.fld input,.fld select{width:100%;background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 10px;font-size:12.5px}
+.filter input{width:150px;padding:4px 8px;font-size:11.5px}
+.btn{border-radius:6px;font-size:12.5px;font-weight:600;padding:8px 16px;cursor:pointer;border:1px solid transparent}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-secondary{background:var(--button);color:var(--text);border-color:var(--border)}
+.mono{font-family:"Cascadia Mono",Consolas,monospace}
+
+/* ===== the Director picker (the change) ===== */
+.dpick{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;max-height:300px;overflow-y:auto;background:var(--panel)}
+.dcard{display:block;width:100%;text-align:left;background:transparent;border:none;
+  border-left:3px solid transparent;border-bottom:1px solid #2a2a2a;padding:9px 12px;cursor:pointer;color:var(--text)}
+.dcard:last-child{border-bottom:none}
+.dcard:hover{background:var(--hover)}
+.dcard.sel{background:var(--selected);border-left-color:var(--accent)}
+.dcard.dead{opacity:.5;cursor:not-allowed}
+.dcard-top{display:flex;align-items:center;gap:9px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.dot.ok{background:var(--green)} .dot.warn{background:var(--amber)} .dot.dead{background:var(--red)}
+.dname{font-weight:600;font-size:13px}
+.dport{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--accent);
+  background:#0d2b3e;border:1px solid #134a66;border-radius:4px;padding:0 6px}
+.dmeta{margin-left:auto;font-size:10.5px;color:var(--text3);font-family:"Cascadia Mono",Consolas,monospace}
+.dneeds{color:var(--red);font-weight:700;font-size:10px;border:1px solid var(--red);border-radius:8px;padding:0 6px}
+.dsub{font-size:11px;color:var(--text3);margin:5px 0 0 18px}
+.dsess{display:flex;align-items:center;gap:7px;font-size:11px;margin:3px 0 0 18px;color:var(--text2)}
+.sdot{width:7px;height:7px;border-radius:50%;flex:none}
+.sdot.run{background:var(--green)} .sdot.needs{background:var(--red)} .sdot.idle{background:var(--text3)}
+.sname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sstate{margin-left:auto;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text3)}
+.sstate.needs{color:var(--red)} .sstate.run{color:var(--green)}
+.dempty{font-style:italic;color:var(--muted)}
+
+/* before/after labels */
+.before .dropbox{width:100%;background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 10px;font-size:12.5px;display:flex;justify-content:space-between}
+.tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-radius:3px;padding:2px 7px}
+.tag.bad{color:var(--red);border:1px solid var(--red)}
+.tag.good{color:var(--green);border:1px solid var(--green)}
+</style>
+</head>
+<body>
+
+<!-- BEFORE -->
+<div class="before">
+  <p class="col-label">Before <span class="tag bad">today</span></p>
+  <div class="modal" style="width:380px">
+    <div class="modal-head">New cron job</div>
+    <div class="modal-body">
+      <div class="fld">
+        <div class="fld-label">Run on (Director)</div>
+        <div class="dropbox"><span>SOREN_NORTH (cc77a41f-9cf-47e9-a1db-98c3cc290267)</span><span>&#9662;</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">
+          4x &ldquo;SOREN_NORTH&rdquo;, told apart only by an unreadable GUID. You can&rsquo;t tell which is which,
+          and you can&rsquo;t see what each is doing.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AFTER -->
+<div class="after">
+  <p class="col-label">After <span class="tag good">proposed</span></p>
+  <div class="modal">
+    <div class="modal-head">New cron job</div>
+    <div class="modal-body">
+      <div class="fld">
+        <div class="fld-label">Run on (Director)
+          <span class="filter"><input type="text" placeholder="filter machine / port" /></span>
+        </div>
+        <div class="dpick">
+
+          <button class="dcard sel">
+            <div class="dcard-top">
+              <span class="dot ok"></span>
+              <span class="dname">SOREN_NORTH</span>
+              <span class="dport">:7882</span>
+              <span class="dmeta">v0.9.10 &middot; up 3h</span>
+              <span class="dneeds">1 NEEDS YOU</span>
+            </div>
+            <div class="dsess"><span class="sdot run"></span><span class="sname">implement #482 - cron store</span><span class="sstate run">running</span></div>
+            <div class="dsess"><span class="sdot needs"></span><span class="sname">qa #488 - schedule page</span><span class="sstate needs">needs you</span></div>
+            <div class="dsess"><span class="sdot idle"></span><span class="sname">drain Tonight</span><span class="sstate">idle</span></div>
+          </button>
+
+          <button class="dcard">
+            <div class="dcard-top">
+              <span class="dot ok"></span>
+              <span class="dname">SOREN_NORTH</span>
+              <span class="dport">:7885</span>
+              <span class="dmeta">v0.9.10 &middot; up 20m</span>
+            </div>
+            <div class="dsub dempty">idle &middot; 0 sessions</div>
+          </button>
+
+          <button class="dcard">
+            <div class="dcard-top">
+              <span class="dot ok"></span>
+              <span class="dname">SOREN</span>
+              <span class="dport">:7879</span>
+              <span class="dmeta">v0.9.10 &middot; up 1d</span>
+            </div>
+            <div class="dsess"><span class="sdot run"></span><span class="sname">discuss - release notes</span><span class="sstate run">running</span></div>
+            <div class="dsess"><span class="sdot idle"></span><span class="sname">support - codebase Q&amp;A</span><span class="sstate">idle</span></div>
+          </button>
+
+          <button class="dcard">
+            <div class="dcard-top">
+              <span class="dot ok"></span>
+              <span class="dname">SORENLAPTOP</span>
+              <span class="dport">:7891</span>
+              <span class="dmeta">v0.9.10 &middot; up 5h</span>
+            </div>
+            <div class="dsub dempty">idle &middot; 0 sessions</div>
+          </button>
+
+          <button class="dcard dead">
+            <div class="dcard-top">
+              <span class="dot dead"></span>
+              <span class="dname">SOREN_NORTH</span>
+              <span class="dport">:7888</span>
+              <span class="dmeta">unreachable</span>
+            </div>
+            <div class="dsub dempty">offline - cannot target</div>
+          </button>
+
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">
+          Machine name + the short <span class="mono">:port</span> (the value shown everywhere else) tells the four
+          SOREN_NORTHs apart at a glance; the live session preview shows what each is doing. The job still stores the
+          real DirectorId behind the card.
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary">Cancel</button>
+      <button class="btn btn-primary">Create job</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
