@@ -36,3 +36,66 @@
     border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: 12.5px;
 }
 .sched-modal .fld input:focus, .sched-modal .fld select:focus { outline: none; border-color: var(--accent); }
+
+/* ===== Director picker (#495) ===== */
+.fld-label { display: flex; align-items: baseline; gap: 10px; }
+.fld-label .filter { margin-left: auto; }
+.fld-label .filter input { width: 150px; padding: 4px 8px; font-size: 11.5px; }
+.dpick {
+    display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden auto; max-height: 260px; background: var(--panel);
+}
+.dpick-empty { color: var(--muted); font-style: italic; font-size: 12px; padding: 8px 2px; }
+.dcard {
+    display: block; width: 100%; text-align: left; background: transparent; color: var(--text);
+    border: none; border-left: 3px solid transparent; border-bottom: 1px solid #2a2a2a;
+    padding: 9px 12px; cursor: pointer; font: inherit;
+}
+.dcard:last-child { border-bottom: none; }
+.dcard:hover:not(:disabled) { background: var(--hover); }
+.dcard.sel { background: var(--selected); border-left-color: var(--accent); }
+.dcard:disabled, .dcard.dead { opacity: .5; cursor: not-allowed; }
+.dcard-top { display: flex; align-items: center; gap: 9px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.dot.ok { background: var(--green); }
+.dot.dead { background: var(--red); }
+.dname { font-weight: 600; font-size: 13px; }
+.dport {
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; color: var(--accent);
+    background: #0d2b3e; border: 1px solid #134a66; border-radius: 4px; padding: 0 6px;
+}
+.dmeta { margin-left: auto; font-size: 10.5px; color: var(--text3); font-family: "Cascadia Mono", Consolas, monospace; }
+.dneeds { color: var(--red); font-weight: 700; font-size: 10px; border: 1px solid var(--red); border-radius: 8px; padding: 0 6px; }
+.dsub { font-size: 11px; color: var(--text3); margin: 5px 0 0 18px; }
+.dsub.dempty { font-style: italic; color: var(--muted); }
+.dsess { display: flex; align-items: center; gap: 7px; font-size: 11px; margin: 3px 0 0 18px; color: var(--text2); }
+.sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.sdot.run { background: var(--green); }
+.sdot.needs { background: var(--red); }
+.sdot.idle { background: var(--text3); }
+.sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sstate { margin-left: auto; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); }
+.sstate.needs { color: var(--red); }
+.sstate.run { color: var(--green); }
+
+/* ===== compact Director field + picker dialog (#495 QA: no inline cram) ===== */
+.dpick-field { display: flex; align-items: center; gap: 10px; }
+.dpick-chosen {
+    flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12.5px; font-family: "Cascadia Mono", Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dpick-chosen.none { color: var(--muted); font-style: italic; font-family: inherit; }
+.dpick-choose { flex: none; }
+
+/* the picker is its own dialog, stacked above the form modal */
+.dpicker-over { z-index: 60; }
+.dpicker-modal { width: 560px; max-width: 94vw; display: flex; flex-direction: column; max-height: 82vh; }
+.dpicker-modal .modal-body { overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+.dpicker-filter {
+    width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 12.5px;
+}
+.dpicker-filter:focus { outline: none; border-color: var(--accent); }
+/* in the dialog the card list gets real room to scroll */
+.dpicker-modal .dpick { max-height: 56vh; }

@@ -40,7 +40,7 @@ public sealed class GatewayClientCronTests
     {
         Id = id, Name = "nightly", Enabled = true, ScheduleKind = "recurring", CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", WorkListName = "Tonight" },
     };
 

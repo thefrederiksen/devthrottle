@@ -25,7 +25,7 @@
 
     @if (_jobs.Count == 0 && _lastError is null && _lastRefresh is not null)
     {
-        <div class="tbl-empty">No cron jobs yet. Create one to schedule a session or a work-list drain on a Director.</div>
+        <div class="tbl-empty">No cron jobs yet. Create one to schedule a session or a work-list drain on a machine.</div>
     }
     else if (_jobs.Count > 0)
     {
@@ -42,7 +42,7 @@
                     var job = j;
                     <tr class="rowlink @(IsSelected(job) ? "sel" : "")" @key="job.Id" @onclick="() => SelectJob(job.Id)">
                         <td><span class="cell-name">@job.Name</span></td>
-                        <td class="mono">@job.Target.DirectorId</td>
+                        <td class="mono">@job.Target.Machine</td>
                         <td>@RunsLabel(job)</td>
                         <td>@ScheduleLabel(job)</td>
                         <td class="mono">@FmtUtc(job.NextRunUtc)</td>
@@ -118,14 +118,17 @@
                 </div>
 
                 <div class="fld">
-                    <label class="fld-label">Run on (Director)</label>
-                    <select @bind="_fDirectorId">
-                        <option value="">-- choose a Director --</option>
-                        @foreach (var d in _directors)
-                        {
-                            <option value="@d.DirectorId">@d.MachineName (@d.DirectorId)</option>
-                        }
-                    </select>
+                    <label class="fld-label">Run on (machine)</label>
+                    @* Compact field: shows the chosen machine; the rich, scrollable picker is a
+                       separate dialog (below) so this form modal never balloons (QA feedback #495).
+                       The cron job targets a MACHINE - it runs on the first available Director there,
+                       launching one on demand if none is running (#503). *@
+                    <div class="dpick-field">
+                        <span class="dpick-chosen @(_fMachine.Length == 0 ? "none" : "")">@ChosenMachineLabel()</span>
+                        <button type="button" class="btn dpick-choose" @onclick="OpenDirectorPicker">
+                            @(_fMachine.Length == 0 ? "Choose…" : "Change")
+                        </button>
+                    </div>
                 </div>
 
                 <div class="fld">
@@ -199,9 +202,83 @@
     </div>
 }
 
+@* ---- Director picker dialog (#495): opened from the compact field; the rich, scrollable, filterable
+   card list lives HERE in its own roomy dialog, never inline in the form modal. ---- *@
+@if (_showDirectorPicker)
+{
+    <div class="modal-backdrop dpicker-over" @onclick="CloseDirectorPicker">
+        <div class="modal dpicker-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">Choose a machine</div>
+            <div class="modal-body">
+                <input class="dpicker-filter" placeholder="filter machine" @bind="_machineFilter" @bind:event="oninput" />
+                @if (Machines().Count == 0)
+                {
+                    <div class="dpick-empty">No machines known to this Gateway yet.</div>
+                }
+                else
+                {
+                    <div class="dpick">
+                        @foreach (var m in FilteredMachines())
+                        {
+                            var machine = m;
+                            var dirs = DirectorsOn(machine);
+                            var reachable = dirs.Count(d => !IsUnreachable(d));
+                            var sessions = SessionsOn(machine);
+                            var needs = sessions.Count(s => s.NeedsYouSince is not null);
+                            <button type="button"
+                                    class="dcard @(_fMachine == machine ? "sel" : "")"
+                                    @onclick="() => ChooseMachine(machine)">
+                                <div class="dcard-top">
+                                    <span class="dot @(reachable > 0 ? "ok" : "dead")"></span>
+                                    <span class="dname">@machine</span>
+                                    <span class="dmeta">@reachable director@(reachable == 1 ? "" : "s") running</span>
+                                    @if (needs > 0)
+                                    {
+                                        <span class="dneeds">@needs NEEDS YOU</span>
+                                    }
+                                </div>
+                                @if (reachable == 0)
+                                {
+                                    <div class="dsub dempty">no Director running - one will be launched on demand</div>
+                                }
+                                else if (sessions.Count == 0)
+                                {
+                                    <div class="dsub dempty">idle · 0 sessions</div>
+                                }
+                                else
+                                {
+                                    @foreach (var s in sessions.OrderBy(x => x.SortOrder).Take(3))
+                                    {
+                                        <div class="dsess">
+                                            <span class="sdot @SessClass(s)"></span>
+                                            <span class="sname">@SessName(s)</span>
+                                            <span class="sstate @SessClass(s)">@SessState(s)</span>
+                                        </div>
+                                    }
+                                    @if (sessions.Count > 3)
+                                    {
+                                        <div class="dsub dempty">+@(sessions.Count - 3) more</div>
+                                    }
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn" @onclick="CloseDirectorPicker">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<CronJobDto> _jobs = new();
     private List<DirectorDto> _directors = new();
+    private List<SessionDto> _sessions = new();           // for the Director picker's live preview (#495)
+    private List<MachineErrorDto> _machineErrors = new();  // unreachable Directors from the roster envelope
+    private string _machineFilter = "";
+    private bool _showDirectorPicker;
     private List<CronRunRecord> _runs = new();
     private string? _selectedId;
     private DateTime? _lastRefresh;
@@ -214,7 +291,7 @@
     private bool _saving;
     private string? _editingId;
     private string _fName = "";
-    private string _fDirectorId = "";
+    private string _fMachine = "";
     private string _fRepoPath = "";
     private string _fActionKind = "worklist";
     private string _fWorkListName = "";
@@ -282,7 +359,7 @@
     private async Task OpenCreate()
     {
         _editingId = null;
-        _fName = ""; _fDirectorId = ""; _fRepoPath = "";
+        _fName = ""; _fMachine = ""; _fRepoPath = "";
         _fActionKind = "worklist"; _fWorkListName = ""; _fSeed = "";
         _fScheduleKind = "oneOff"; _fCron = ""; _fRunAt = ""; _fTimeZone = "";
         _fEnabled = true; _fPreventOverlap = true;
@@ -295,7 +372,7 @@
     {
         _editingId = job.Id;
         _fName = job.Name;
-        _fDirectorId = job.Target.DirectorId;
+        _fMachine = job.Target.Machine;
         _fRepoPath = job.Action.RepoPath;
         _fActionKind = string.IsNullOrWhiteSpace(job.Action.WorkListName) ? "seed" : "worklist";
         _fWorkListName = job.Action.WorkListName ?? "";
@@ -314,10 +391,73 @@
 
     private async Task LoadDirectorsAsync()
     {
-        try { _directors = await Gateway.GetDirectorsAsync(_cts.Token); }
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            // The picker previews what is running on each Director, from the shared roster envelope.
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _machineErrors = env.MachineErrors;
+        }
         catch (Exception ex) { Log.LogWarning("Load directors failed: {Error}", ex.Message); }
         await InvokeAsync(StateHasChanged);
     }
+
+    // ---- Director picker (#495) ----
+
+    private void OpenDirectorPicker() { _machineFilter = ""; _showDirectorPicker = true; }
+
+    private void CloseDirectorPicker() => _showDirectorPicker = false;
+
+    private void ChooseMachine(string machine)
+    {
+        _fMachine = machine;
+        _showDirectorPicker = false;
+    }
+
+    /// <summary>The chosen machine for the form field, or a prompt when none is chosen (#503).</summary>
+    private string ChosenMachineLabel() =>
+        string.IsNullOrEmpty(_fMachine) ? "No machine selected" : _fMachine;
+
+    /// <summary>Distinct machine names known to the Gateway (from the Director roster), sorted.</summary>
+    private List<string> Machines() =>
+        _directors.Select(d => d.MachineName)
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IEnumerable<string> FilteredMachines()
+    {
+        var all = Machines();
+        if (string.IsNullOrWhiteSpace(_machineFilter)) return all;
+        var f = _machineFilter.Trim();
+        return all.Where(m => m.Contains(f, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<DirectorDto> DirectorsOn(string machine) =>
+        _directors.Where(d => string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private List<SessionDto> SessionsOn(string machine) =>
+        _sessions.Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private bool IsUnreachable(DirectorDto d) =>
+        d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName ||
+        _machineErrors.Any(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+
+    private static string SessName(SessionDto s) =>
+        !string.IsNullOrWhiteSpace(s.Name) ? s.Name
+        : !string.IsNullOrWhiteSpace(s.Type) ? s.Type
+        : (s.SessionId.Length > 8 ? s.SessionId[..8] : s.SessionId);
+
+    private static string SessState(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs you"
+        : string.IsNullOrWhiteSpace(s.ActivityState) ? "idle" : s.ActivityState.ToLowerInvariant();
+
+    private static string SessClass(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs"
+        : string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase) ? "run"
+        : "idle";
 
     private void CloseForm() => _showForm = false;
 
@@ -329,7 +469,7 @@
         CronExpression = _fScheduleKind == "recurring" ? _fCron.Trim() : null,
         RunAt = _fScheduleKind == "oneOff" ? _fRunAt.Trim() : null,
         TimeZoneId = _fTimeZone.Trim(),
-        Target = new CronJobTarget { DirectorId = _fDirectorId.Trim() },
+        Target = new CronJobTarget { Machine = _fMachine.Trim() },
         Action = new CronJobAction
         {
             RepoPath = _fRepoPath.Trim(),
@@ -419,7 +559,7 @@
                 CronExpression = job.CronExpression,
                 RunAt = job.RunAt,
                 TimeZoneId = job.TimeZoneId,
-                Target = new CronJobTarget { DirectorId = job.Target.DirectorId },
+                Target = new CronJobTarget { Machine = job.Target.Machine },
                 Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
                 PreventOverlap = job.PreventOverlap,
             };

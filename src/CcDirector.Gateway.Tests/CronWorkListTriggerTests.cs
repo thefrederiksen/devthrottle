@@ -31,12 +31,12 @@ public sealed class CronWorkListTriggerTests : IDisposable
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", WorkListName = listName },
     };
 
     private static DirectorCronWorkListRunner Trigger(
-        WorkListStore store, ICronDirectorResolver resolver, WorkListRunnerManager manager, ICronWorkListDrainLauncher launcher) =>
+        WorkListStore store, IDirectorTargetResolver resolver, WorkListRunnerManager manager, ICronWorkListDrainLauncher launcher) =>
         new(store, resolver, manager, launcher);
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class CronWorkListTriggerTests : IDisposable
         store.Create("Tonight");
         store.AppendItem("Tonight", new WorkListItemRef { Source = "github", Id = "312" });
         var manager = new WorkListRunnerManager();
-        Assert.Equal(WorkListRunnerManager.AdmitResult.Admitted, manager.TryAdmit("machineA", "OtherList"));
+        Assert.Equal(WorkListRunnerManager.AdmitResult.Admitted, manager.TryAdmit("workstation-A", "OtherList"));
 
         var t = Trigger(store, new FakeResolver("http://d", "machineA"), manager, new FakeLauncher());
         Assert.Equal(CronWorkListOutcome.MachineBusy, await t.TriggerAsync(WorkListJob(), CancellationToken.None));
@@ -112,13 +112,13 @@ public sealed class CronWorkListTriggerTests : IDisposable
         await launcher.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal("Tonight", launcher.LastListName);
         Assert.StartsWith("cron:cj_test:", launcher.LastConsumer);
-        Assert.Equal("Tonight", manager.ActiveList("machineA")); // machineA's slot holds the "Tonight" drain
+        Assert.Equal("Tonight", manager.ActiveList("workstation-A")); // the machine's slot holds the "Tonight" drain
 
         launcher.Release.TrySetResult();
         await launcher.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         // The machine slot is released after the drain completes (poll briefly for the finally).
-        await WaitUntilAsync(() => manager.ActiveList("machineA") is null, TimeSpan.FromSeconds(10));
-        Assert.Null(manager.ActiveList("machineA"));
+        await WaitUntilAsync(() => manager.ActiveList("workstation-A") is null, TimeSpan.FromSeconds(10));
+        Assert.Null(manager.ActiveList("workstation-A"));
     }
 
     [Fact]
@@ -153,12 +153,15 @@ public sealed class CronWorkListTriggerTests : IDisposable
 
     // ---- fakes -------------------------------------------------------------------------------
 
-    private sealed class FakeResolver : ICronDirectorResolver
+    private sealed class FakeResolver : IDirectorTargetResolver
     {
         private readonly string? _endpoint;
-        private readonly string? _machine;
-        public FakeResolver(string? endpoint, string? machine) { _endpoint = endpoint; _machine = machine; }
-        public (string? endpoint, string? machineName) Resolve(string directorId) => (_endpoint, _machine);
+        private readonly string? _directorId;
+        public FakeResolver(string? endpoint, string? directorId) { _endpoint = endpoint; _directorId = directorId; }
+        public Task<DirectorTargetResult> ResolveAsync(string machine, CancellationToken ct) =>
+            Task.FromResult(string.IsNullOrEmpty(_endpoint)
+                ? new DirectorTargetResult(null, null, "no director on machine")
+                : new DirectorTargetResult(_endpoint, _directorId, null));
     }
 
     private sealed class FakeLauncher : ICronWorkListDrainLauncher

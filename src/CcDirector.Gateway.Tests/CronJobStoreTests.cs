@@ -30,7 +30,7 @@ public sealed class CronJobStoreTests : IDisposable
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/work-list run Tonight" },
     };
 

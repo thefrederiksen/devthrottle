@@ -55,7 +55,7 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
         scheduleKind = "recurring",
         cronExpression = "0 0 * * *",
         timeZoneId = "America/Chicago",
-        target = new { directorId = "workstation-A" },
+        target = new { machine = "workstation-A" },
         action = new { repoPath = @"D:\repo", seed = "/work-list run Tonight" },
     };
 
@@ -89,7 +89,7 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             scheduleKind = "recurring",
             cronExpression = "not a cron",
             timeZoneId = "America/Chicago",
-            target = new { directorId = "workstation-A" },
+            target = new { machine = "workstation-A" },
             action = new { repoPath = @"D:\repo", seed = "/help" },
         };
 
@@ -137,7 +137,7 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             scheduleKind = "recurring",
             cronExpression = "30 9 * * 1-5",
             timeZoneId = "America/Chicago",
-            target = new { directorId = "workstation-A" },
+            target = new { machine = "workstation-A" },
             action = new { repoPath = @"D:\repo", seed = "/help" },
         };
         var put = await _http.PutAsJsonAsync($"/cron/jobs/{created.Id}", edit);

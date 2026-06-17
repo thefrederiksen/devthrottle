@@ -54,7 +54,7 @@ public sealed class SchedulePageTests : TestContext
         ScheduleKind = cron is not null ? "recurring" : "oneOff",
         CronExpression = cron, RunAt = runAt, TimeZoneId = "America/Chicago",
         NextRunUtc = new DateTime(2026, 6, 18, 5, 0, 0, DateTimeKind.Utc),
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", WorkListName = workList, Seed = workList is null ? "/help" : "" },
     };
 
@@ -120,8 +120,10 @@ public sealed class SchedulePageTests : TestContext
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("New cron job", cut.Find(".modal-head").TextContent);
-            // Director dropdown populated from GET /directors.
-            Assert.Contains("workstation-A", cut.Find(".sched-modal").TextContent);
+            // The Director is chosen via a separate picker dialog (#495), so the create modal shows a
+            // compact field (Choose button), not the Director list inline.
+            Assert.NotNull(cut.Find(".dpick-field"));
+            Assert.NotNull(cut.Find(".dpick-choose"));
         });
     }
 

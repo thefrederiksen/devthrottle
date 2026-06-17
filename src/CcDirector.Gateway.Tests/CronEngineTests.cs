@@ -43,7 +43,7 @@ public sealed class CronEngineTests : IDisposable
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/work-list run Tonight" },
     };
 
@@ -53,7 +53,7 @@ public sealed class CronEngineTests : IDisposable
         ScheduleKind = CronSchedule.KindOneOff,
         RunAt = runAtLocal.ToString("yyyy-MM-ddTHH:mm:ss"),
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
     };
 
@@ -73,7 +73,7 @@ public sealed class CronEngineTests : IDisposable
 
         Assert.Single(fired);                                     // AC1: it fired
         Assert.Equal(1, starter.StartCount);                       // a session start was attempted
-        Assert.Equal("workstation-A", starter.LastJob?.Target.DirectorId);
+        Assert.Equal("workstation-A", starter.LastJob?.Target.Machine);
         Assert.Single(history.List(created.Id));                   // a run was recorded
         var after = store.Get(created.Id);
         Assert.NotNull(after);
@@ -211,18 +211,18 @@ public sealed class CronEngineTests : IDisposable
         public int StartCount { get; private set; }
         public CronJobDto? LastJob { get; private set; }
 
-        public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
         {
             StartCount++;
             LastJob = job;
-            return Task.FromResult<(string?, string?)>(($"sid-{StartCount}", null));
+            return Task.FromResult<(string?, string?, string?)>(($"sid-{StartCount}", "director-1", null));
         }
     }
 
     private sealed class FailingStarter : ICronSessionStarter
     {
-        public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
-            Task.FromResult<(string?, string?)>((null, "target director not registered"));
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
+            Task.FromResult<(string?, string?, string?)>((null, null, "target director not registered"));
     }
 
     private sealed class BlockingStarter : ICronSessionStarter
@@ -231,12 +231,12 @@ public sealed class CronEngineTests : IDisposable
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int StartCount { get; private set; }
 
-        public async Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+        public async Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
         {
             StartCount++;
             Entered.TrySetResult();
             await Release.Task;
-            return ($"sid-{StartCount}", null);
+            return ($"sid-{StartCount}", "director-1", null);
         }
     }
 }

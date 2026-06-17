@@ -1,0 +1,13 @@
+QA INDEPENDENT LIVE CURL - issue #503 AC1 (Gateway cron endpoints, real loopback HTTP host)
+Host: own qa-live-503 process invoking the shipped CronJobEndpoints.Map via reflection
+Date: 2026-06-17
+
+== AC1a: POST /cron/jobs with target.machine ==
+{"id":"cj_74a6d0","name":"nightly","enabled":true,"scheduleKind":"recurring","cronExpression":"0 0 * * *","runAt":null,"timeZoneId":"America/Chicago","target":{"machine":"SOREN_NORTH"},"action":{"repoPath":"D:\repo","seed":"/work-list run Tonight","workListName":null},"preventOverlap":true,"createdUtc":"2026-06-17T16:33:47.411535Z","lastFiredUtc":null,"nextRunUtc":"2026-06-18T05:00:00Z","lastStatus":null}
+HTTP=201
+
+== AC1c: POST /cron/jobs pinning only target.directorId (legacy) ==
+{"error":"target.machine is required"}
+HTTP=400
+
+RESULT: machine round-trips (201 + echoed); directorId-only body rejected 400 'target.machine is required'. AC1 PASS.

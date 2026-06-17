@@ -17,7 +17,7 @@ public sealed class CronScheduleTests
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/work-list run Tonight" },
     };
 
@@ -119,10 +119,10 @@ public sealed class CronScheduleTests
     }
 
     [Fact]
-    public void Validate_MissingTargetDirector_Fails()
+    public void Validate_MissingTargetMachine_Fails()
     {
         var job = ValidRecurring();
-        job.Target = new CronJobTarget { DirectorId = "" };
+        job.Target = new CronJobTarget { Machine = "" };
 
         var (ok, _) = CronSchedule.Validate(job);
         Assert.False(ok);
