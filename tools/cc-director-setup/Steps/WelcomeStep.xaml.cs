@@ -11,6 +11,10 @@ public partial class WelcomeStep : UserControl
     /// engine uninstaller; the step itself stays UI-only.</summary>
     public event EventHandler? UninstallRequested;
 
+    /// <summary>Raised on a fresh install when the user picks a role, so the wizard can enable
+    /// Next. Neither role is pre-selected, so Next stays disabled until this fires.</summary>
+    public event EventHandler? RoleSelected;
+
     public WelcomeStep(bool isUpdate, string? installedVersion, InstallRole installedRole = InstallRole.Workstation)
     {
         InitializeComponent();
@@ -49,14 +53,11 @@ public partial class WelcomeStep : UserControl
             DescriptionText.Visibility = Visibility.Collapsed;
             ClickNextHint.Visibility = Visibility.Collapsed;
 
-            // Default to Workstation (the safe pick - there should only be one Gateway). Asserted
-            // on Loaded, not in the ctor or via IsChecked="True" in XAML: grouped RadioButtons
-            // sharing a GroupName drop an initial check set before they are connected to the tree.
-            Loaded += (_, _) =>
-            {
-                if (WorkstationRadio.IsChecked != true && GatewayRadio.IsChecked != true)
-                    WorkstationRadio.IsChecked = true;
-            };
+            // No silent default: neither role is pre-selected, so the user is forced to make the
+            // one decision this screen exists for. Either pick raises RoleSelected so MainWindow can
+            // enable the (initially disabled) Next button.
+            WorkstationRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
+            GatewayRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
         }
 
         SetupLog.Write($"[WelcomeStep] Created: isUpdate={isUpdate}");
@@ -68,9 +69,12 @@ public partial class WelcomeStep : UserControl
         UninstallRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>The install type the user picked (Workstation by default).</summary>
-    public InstallRole SelectedRole =>
-        GatewayRadio.IsChecked == true ? InstallRole.Gateway : InstallRole.Workstation;
+    /// <summary>The install type the user picked, or null if neither card is selected yet.
+    /// There is no default - the wizard keeps Next disabled until this is non-null.</summary>
+    public InstallRole? SelectedRole =>
+        GatewayRadio.IsChecked == true ? InstallRole.Gateway
+        : WorkstationRadio.IsChecked == true ? InstallRole.Workstation
+        : null;
 
     public void UpdateVersionInfo(string? installedVersion, string? latestVersion)
     {

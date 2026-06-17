@@ -82,6 +82,13 @@ public partial class MainWindow : Window
     {
         var step = new WelcomeStep(_isUpdate, _installedVersion, _role);
         step.UninstallRequested += OnUninstallRequested;
+        // Fresh install: Next starts disabled and the user must pick a role. Enable it the moment
+        // they do. (Update mode hides the picker and never fires this.)
+        step.RoleSelected += (_, _) =>
+        {
+            if (_currentStep == 1)
+                NextButton.IsEnabled = true;
+        };
         return step;
     }
 
@@ -228,6 +235,13 @@ public partial class MainWindow : Window
         {
             NextButton.Content = "Next";
             UpdateNextButtonForPrereqs();
+        }
+        else if (_currentStep == 1 && !_isUpdate)
+        {
+            // Fresh install: no role is pre-selected, so Next stays disabled until the user picks one
+            // (RoleSelected re-enables it). On a return visit from step 2 a pick already exists.
+            NextButton.Content = "Next";
+            NextButton.IsEnabled = _welcomeStep?.SelectedRole != null;
         }
         else
         {
@@ -497,8 +511,11 @@ public partial class MainWindow : Window
             // so only a fresh install reads the user's pick (the hidden picker reports Workstation).
             if (_currentStep == 1)
             {
+                // Next is gated on a non-null pick (UpdateNavButtons), so SelectedRole is guaranteed
+                // here on a fresh install - no silent default. Fail loudly if that invariant breaks.
                 if (!_isUpdate)
-                    _role = _welcomeStep?.SelectedRole ?? InstallRole.Workstation;
+                    _role = _welcomeStep?.SelectedRole
+                        ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
                 _skillsStep = null;

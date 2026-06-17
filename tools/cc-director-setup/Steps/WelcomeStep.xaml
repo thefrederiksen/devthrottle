@@ -217,7 +217,8 @@
                     </Grid>
                 </Border>
 
-                <!-- The two choices, as big cards. Workstation is the default and the safe pick. -->
+                <!-- The two choices, as big cards. Neither is pre-selected: the user must pick one
+                     before Next is enabled (no silent default). -->
                 <Grid Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -245,7 +246,6 @@
                     <RadioButton x:Name="WorkstationRadio"
                                  Grid.Column="1"
                                  GroupName="role"
-                                 IsChecked="True"
                                  Style="{StaticResource RoleCard}"
                                  Margin="8,0,0,0">
                         <StackPanel>
