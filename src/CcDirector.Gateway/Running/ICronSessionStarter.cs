@@ -11,11 +11,11 @@ namespace CcDirector.Gateway.Running;
 public interface ICronSessionStarter
 {
     /// <summary>
-    /// Start a session for <paramref name="job"/> on its <see cref="CronJobTarget.DirectorId"/>,
-    /// seeded with <see cref="CronJobAction.Seed"/> in <see cref="CronJobAction.RepoPath"/>. Returns
-    /// the new session id, or a non-null error string when no session started (e.g. the target
-    /// Director is unknown/offline). Does not throw for an expected "could not start" - it reports
-    /// the error so the engine records a not-started run.
+    /// Start a session for <paramref name="job"/> on its target <see cref="CronJobTarget.Machine"/>,
+    /// seeded with <see cref="CronJobAction.Seed"/> in <see cref="CronJobAction.RepoPath"/>. Resolves
+    /// the machine to a Director (launching one if none is running) and returns the new session id +
+    /// the Director actually used, or a non-null error when no session started. Does not throw for an
+    /// expected "could not start" - it reports the error so the engine records a not-started run.
     /// </summary>
-    Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct);
+    Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct);
 }

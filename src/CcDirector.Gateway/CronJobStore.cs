@@ -129,7 +129,7 @@ public sealed class CronJobStore
             existing.CronExpression = incoming.CronExpression;
             existing.RunAt = incoming.RunAt;
             existing.TimeZoneId = incoming.TimeZoneId;
-            existing.Target = new CronJobTarget { DirectorId = incoming.Target.DirectorId };
+            existing.Target = new CronJobTarget { Machine = incoming.Target.Machine };
             existing.Action = new CronJobAction { RepoPath = incoming.Action.RepoPath, Seed = incoming.Action.Seed, WorkListName = incoming.Action.WorkListName };
             existing.PreventOverlap = incoming.PreventOverlap;
             existing.NextRunUtc = CronSchedule.ComputeNextRunUtc(existing, DateTime.UtcNow);
@@ -214,7 +214,7 @@ public sealed class CronJobStore
         CronExpression = job.CronExpression,
         RunAt = job.RunAt,
         TimeZoneId = job.TimeZoneId,
-        Target = new CronJobTarget { DirectorId = job.Target.DirectorId },
+        Target = new CronJobTarget { Machine = job.Target.Machine },
         Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
         PreventOverlap = job.PreventOverlap,
         CreatedUtc = job.CreatedUtc,

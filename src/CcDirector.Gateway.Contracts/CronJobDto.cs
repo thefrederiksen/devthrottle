@@ -65,11 +65,15 @@ public sealed class CronJobDto
     public string? LastStatus { get; set; }
 }
 
-/// <summary>The machine a cron job runs on (epic #479).</summary>
+/// <summary>
+/// The machine a cron job runs on (epic #479, #503). A job targets a MACHINE, not a specific
+/// Director: a DirectorId is per-process and changes on restart, so the engine resolves the machine
+/// to an available Director at fire time (launching one via the launcher if none is running).
+/// </summary>
 public sealed class CronJobTarget
 {
-    /// <summary>The target Director's id (from <c>GET /directors</c>).</summary>
-    public string DirectorId { get; set; } = "";
+    /// <summary>The target machine name (from <c>GET /directors</c>' machineName).</summary>
+    public string Machine { get; set; } = "";
 }
 
 /// <summary>

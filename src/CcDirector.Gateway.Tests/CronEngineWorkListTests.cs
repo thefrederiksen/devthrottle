@@ -30,7 +30,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", WorkListName = "Tonight" },
     };
 
@@ -40,7 +40,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
     };
 
@@ -142,16 +142,16 @@ public sealed class CronEngineWorkListTests : IDisposable
     private sealed class RecordingStarter : ICronSessionStarter
     {
         public int StartCount { get; private set; }
-        public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
         {
             StartCount++;
-            return Task.FromResult<(string?, string?)>(($"sid-{StartCount}", null));
+            return Task.FromResult<(string?, string?, string?)>(($"sid-{StartCount}", "director-1", null));
         }
     }
 
     private sealed class ThrowingStarter : ICronSessionStarter
     {
-        public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
             throw new InvalidOperationException("a work-list-job test must not start a single session");
     }
 }

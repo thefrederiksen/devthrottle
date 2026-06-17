@@ -5,38 +5,36 @@ using CcDirector.Gateway.Discovery;
 namespace CcDirector.Gateway.Running;
 
 /// <summary>
-/// Production <see cref="ICronSessionStarter"/> (epic #479, #483). Resolves the job's target Director
-/// from the <see cref="DirectorRegistry"/> and starts a session over the Gateway's existing
-/// <see cref="DirectorEndpointClient"/> using the SAME session-create + seed-prompt path the Cockpit
-/// and the work-list runner use (<see cref="NewSessionRequest.PrePrompt"/> is the seed channel). No
-/// new Director surface is introduced; an unknown/offline target is reported as an error, not thrown.
+/// Production <see cref="ICronSessionStarter"/> (epic #479, #483, #503). Resolves the job's target
+/// MACHINE to a Director via <see cref="IDirectorTargetResolver"/> (launching one if none is running)
+/// and starts a session over the Gateway's existing <see cref="DirectorEndpointClient"/> using the
+/// SAME session-create + seed-prompt path the Cockpit and the work-list runner use. No new Director
+/// surface is introduced; an unresolvable target is reported as an error, not thrown.
 /// </summary>
 public sealed class DirectorCronSessionStarter : ICronSessionStarter
 {
-    private readonly DirectorRegistry _registry;
     private readonly DirectorEndpointClient _client;
+    private readonly IDirectorTargetResolver _resolver;
 
-    public DirectorCronSessionStarter(DirectorRegistry registry, DirectorEndpointClient client)
+    public DirectorCronSessionStarter(DirectorEndpointClient client, IDirectorTargetResolver resolver)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
     }
 
-    public async Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+    public async Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
 
-        var directorId = job.Target.DirectorId;
-        var director = _registry.Get(directorId);
-        if (director is null)
+        var target = await _resolver.ResolveAsync(job.Target.Machine, ct);
+        if (string.IsNullOrEmpty(target.Endpoint))
         {
-            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, no such director={directorId}");
-            return (null, $"target director not registered: {directorId}");
+            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={job.Target.Machine}, {target.Error}");
+            return (null, target.DirectorId, target.Error ?? "could not resolve a director on the target machine");
         }
 
-        var endpoint = director.ControlEndpoint.TrimEnd('/');
-        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, director={directorId}, endpoint={endpoint}, seed={job.Action.Seed}");
+        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, director={target.DirectorId}, endpoint={target.Endpoint}, seed={job.Action.Seed}");
 
         var req = new NewSessionRequest
         {
@@ -46,14 +44,14 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             PrePrompt = job.Action.Seed,
         };
 
-        var (ok, body, error) = await _client.CreateSessionAsync(endpoint, req, ct);
+        var (ok, body, error) = await _client.CreateSessionAsync(target.Endpoint, req, ct);
         if (!ok || body is null || string.IsNullOrEmpty(body.SessionId))
         {
             FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, error={error}");
-            return (null, error ?? "director did not return a session id");
+            return (null, target.DirectorId, error ?? "director did not return a session id");
         }
 
-        FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={body.SessionId}");
-        return (body.SessionId, null);
+        FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={body.SessionId}, director={target.DirectorId}");
+        return (body.SessionId, target.DirectorId, null);
     }
 }

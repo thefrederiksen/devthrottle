@@ -62,7 +62,7 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
         ScheduleKind = CronSchedule.KindRecurring,
         CronExpression = "0 0 * * *",
         TimeZoneId = "America/Chicago",
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/work-list run Tonight" },
     });
 
@@ -76,7 +76,8 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
 
         var record = JsonSerializer.Deserialize<CronRunRecord>(await resp.Content.ReadAsStringAsync(), JsonOpts);
         Assert.NotNull(record);                              // AC2: run-now produced a record
-        Assert.Equal("workstation-A", record.TargetDirectorId);
+        Assert.Equal("workstation-A", record.Machine);       // #503: the target is the MACHINE
+        Assert.Equal("director-1", record.TargetDirectorId); // ...and the Director it resolved to
         Assert.Equal("fake-sid", record.SessionId);
         Assert.Equal("started", record.InfraStatus);         // AC3: infra status present
         Assert.Equal("unknown", record.TaskStatus);          // AC3: task status separate from infra
@@ -95,7 +96,7 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
         Assert.Equal(job.Id, doc.RootElement.GetProperty("jobId").GetString());
         var runs = doc.RootElement.GetProperty("runs");
         Assert.Equal(1, runs.GetArrayLength());
-        Assert.Equal("workstation-A", runs[0].GetProperty("targetDirectorId").GetString());
+        Assert.Equal("workstation-A", runs[0].GetProperty("machine").GetString());
     }
 
     [Fact]
@@ -116,8 +117,8 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
 
     private sealed class FakeStarter : ICronSessionStarter
     {
-        public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
-            Task.FromResult<(string?, string?)>(("fake-sid", null));
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
+            Task.FromResult<(string?, string?, string?)>(("fake-sid", "director-1", null));
     }
 
     private sealed class UnusedWorkListRunner : ICronWorkListRunner

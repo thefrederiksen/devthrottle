@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #503 - Cron jobs target a machine, not a Director - Developer Proof</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background:#1E1E1E; color:#D4D4D4; margin:0; padding:32px; line-height:1.55; }
+  h1 { font-size:22px; color:#FFFFFF; margin:0 0 4px; }
+  h2 { font-size:16px; color:#4FC1FF; margin:28px 0 8px; border-bottom:1px solid #333; padding-bottom:4px; }
+  .sub { color:#9A9A9A; margin-bottom:20px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0 16px; }
+  th, td { border:1px solid #333; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#CCCCCC; }
+  code { background:#2D2D30; padding:1px 5px; border-radius:3px; font-family:Consolas, monospace; color:#CE9178; }
+  .pass { color:#4EC9B0; font-weight:600; }
+  .note { color:#9A9A9A; font-size:13px; }
+  img { max-width:100%; border:1px solid #333; border-radius:4px; margin:8px 0; }
+  ul { margin:6px 0; }
+</style>
+</head>
+<body>
+<h1>Issue #503 - Cron jobs target a machine, not a Director</h1>
+<div class="sub">Developer Agent proof report. Run on the first available Director on the target machine; launch one via the launcher if none is running.</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Contract</b> (<code>gateway_contracts</code>): <code>CronJobTarget</code> changed from <code>{ DirectorId }</code> to <code>{ Machine }</code>. The run record (<code>CronRunRecord</code>) gained a <code>Machine</code> field (the target) alongside <code>TargetDirectorId</code> (the Director actually resolved to and used).</li>
+  <li><b>Machine resolution</b> (<code>gateway</code>): new <code>IDirectorTargetResolver</code> / <code>RegistryDirectorTargetResolver</code>. It picks the first registered, reachable Director on the target machine; if none, it asks that machine's launcher (<code>IDirectorLauncher</code> -&gt; <code>RelayDirectorLauncher</code>, which POSTs the existing <code>/machines/{machine}/director/start</code> relay from #331) to start one, then polls (bounded wall-clock timeout) until a Director registers.</li>
+  <li><b>Firing engine</b>: both the seed-session path (<code>DirectorCronSessionStarter</code>) and the work-list path (<code>DirectorCronWorkListRunner</code>) now resolve <code>job.Target.Machine</code> via the resolver. The work-list machine slot keys on the machine name. The engine records the resolved Director id in the run history.</li>
+  <li><b>Cockpit Schedule picker</b> (<code>cockpit</code>): the "Choose..." dialog now shows ONE card per MACHINE (collapsing that machine's Directors), previews the machine's running sessions and a NEEDS YOU flag, and shows "no Director running - one will be launched on demand" when the machine has none. The chosen value is the machine name.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How verified</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>POST /cron/jobs</code> accepts <code>target.machine</code>; <code>GET</code> echoes it. A body pinning only a Director id is rejected (or the field is gone).</td>
+    <td>The <code>directorId</code> field is GONE from <code>CronJobTarget</code>. <code>CronJobEndpointsTests</code> POST/GET round-trip a <code>{ machine: "workstation-A" }</code> target through a real in-memory Gateway. <code>CronScheduleTests.Validate_MissingTargetMachine_Fails</code> proves an empty machine is rejected (the endpoint returns 400).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>The picker selects a machine (one card per machine, not per Director); the created job's <code>target.machine</code> is the chosen machine.</td>
+    <td>Screenshot below (two SOREN_NORTH Directors collapse to one card). <code>SchedulePickerTests</code>: <code>...one_card_per_machine</code> (2 machines -&gt; 2 cards), <code>...persists_that_machine_name_in_the_created_job</code> asserts the POSTed <code>target.machine</code> == the selected machine.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>With a reachable Director on the machine, the session starts there and the run record shows the Director used.</td>
+    <td><code>RegistryDirectorTargetResolverTests.Resolve_DirectorAlreadyRunning_...</code> (resolves endpoint + id, no launch). <code>CronRunEndpointsTests.RunNow_FiresAndRecords_WithFullRecordShape</code> asserts the record carries <code>Machine</code> (target) and the resolved <code>TargetDirectorId</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>No Director running -&gt; engine asks the launcher to start one, waits for it to register, then runs; if the launcher cannot, the run records a clear not-started reason.</td>
+    <td><code>RegistryDirectorTargetResolverTests</code>: <code>...LauncherStartsOne_RegistersAfterLaunch_Resolves</code> (launch + poll -&gt; runs), <code>...LauncherCannotStart_ReturnsError</code>, <code>...LaunchedButNeverRegisters_ReturnsTimeoutError</code>, <code>...OnlyUnreachableDirectorOnMachine_LaunchesAReplacement</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Build clean (0 warnings); cron + cockpit tests pass.</td>
+    <td><code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s). Gateway.Tests: 769/770 pass (the one failure is the pre-existing, unrelated Vosk <code>DictationEndpointTests</code>). Cockpit.Tests: 63/63 pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof - machine picker dialog (AC2)</h2>
+<div class="note">The real compiled <code>Schedule.razor</code> picker, rendered via bUnit (<code>SchedulePickerTests.EmitProofArtifact_WhenProofDirSet</code>) and screenshotted. One card per machine; SOREN_NORTH's two Directors collapse to one card with a session preview and a NEEDS YOU flag; the form field reads "Run on (machine)".</div>
+<img src="machine-picker.png" alt="Machine picker dialog">
+
+<h2>CenCon impact</h2>
+<div class="note">No architecture or security drift. The change replaces the cron target field and adds a resolver/launcher seam inside the existing <code>gateway</code> container; it reuses the #331 launcher relay rather than changing it. No new blocking security rules. Supersedes the Director-picker approach in #495 / PR #498.</div>
+
+<h2>Statement</h2>
+<p>I believe this is finished: all five acceptance criteria are met with the tests and screenshot above, the solution builds with 0 warnings, and the cron + cockpit suites are green (the lone failure is an unrelated pre-existing environment test).</p>
+</body>
+</html>

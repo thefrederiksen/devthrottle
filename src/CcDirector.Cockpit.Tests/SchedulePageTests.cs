@@ -54,7 +54,7 @@ public sealed class SchedulePageTests : TestContext
         ScheduleKind = cron is not null ? "recurring" : "oneOff",
         CronExpression = cron, RunAt = runAt, TimeZoneId = "America/Chicago",
         NextRunUtc = new DateTime(2026, 6, 18, 5, 0, 0, DateTimeKind.Utc),
-        Target = new CronJobTarget { DirectorId = "workstation-A" },
+        Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", WorkListName = workList, Seed = workList is null ? "/help" : "" },
     };
 

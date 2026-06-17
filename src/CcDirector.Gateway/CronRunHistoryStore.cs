@@ -84,6 +84,7 @@ public sealed class CronRunHistoryStore
     {
         ScheduledUtc = r.ScheduledUtc,
         FiredUtc = r.FiredUtc,
+        Machine = r.Machine,
         TargetDirectorId = r.TargetDirectorId,
         SessionId = r.SessionId,
         InfraStatus = r.InfraStatus,

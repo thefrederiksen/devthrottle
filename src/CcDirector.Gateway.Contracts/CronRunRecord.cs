@@ -17,7 +17,10 @@ public sealed class CronRunRecord
     /// <summary>The UTC instant the run actually fired (may be staggered/jittered).</summary>
     public DateTime FiredUtc { get; set; }
 
-    /// <summary>The Director the run targeted.</summary>
+    /// <summary>The machine the job targets (#503).</summary>
+    public string Machine { get; set; } = "";
+
+    /// <summary>The Director the run actually resolved to / used (may be launched on demand), or empty if none.</summary>
     public string TargetDirectorId { get; set; } = "";
 
     /// <summary>The session the fire started, or null if no session started.</summary>

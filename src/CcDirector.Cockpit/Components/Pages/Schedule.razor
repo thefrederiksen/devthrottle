@@ -25,7 +25,7 @@
 
     @if (_jobs.Count == 0 && _lastError is null && _lastRefresh is not null)
     {
-        <div class="tbl-empty">No cron jobs yet. Create one to schedule a session or a work-list drain on a Director.</div>
+        <div class="tbl-empty">No cron jobs yet. Create one to schedule a session or a work-list drain on a machine.</div>
     }
     else if (_jobs.Count > 0)
     {
@@ -42,7 +42,7 @@
                     var job = j;
                     <tr class="rowlink @(IsSelected(job) ? "sel" : "")" @key="job.Id" @onclick="() => SelectJob(job.Id)">
                         <td><span class="cell-name">@job.Name</span></td>
-                        <td class="mono">@job.Target.DirectorId</td>
+                        <td class="mono">@job.Target.Machine</td>
                         <td>@RunsLabel(job)</td>
                         <td>@ScheduleLabel(job)</td>
                         <td class="mono">@FmtUtc(job.NextRunUtc)</td>
@@ -118,13 +118,15 @@
                 </div>
 
                 <div class="fld">
-                    <label class="fld-label">Run on (Director)</label>
-                    @* Compact field: shows the chosen Director; the rich, scrollable picker is a
-                       separate dialog (below) so this form modal never balloons (QA feedback #495). *@
+                    <label class="fld-label">Run on (machine)</label>
+                    @* Compact field: shows the chosen machine; the rich, scrollable picker is a
+                       separate dialog (below) so this form modal never balloons (QA feedback #495).
+                       The cron job targets a MACHINE - it runs on the first available Director there,
+                       launching one on demand if none is running (#503). *@
                     <div class="dpick-field">
-                        <span class="dpick-chosen @(_fDirectorId.Length == 0 ? "none" : "")">@ChosenDirectorLabel()</span>
+                        <span class="dpick-chosen @(_fMachine.Length == 0 ? "none" : "")">@ChosenMachineLabel()</span>
                         <button type="button" class="btn dpick-choose" @onclick="OpenDirectorPicker">
-                            @(_fDirectorId.Length == 0 ? "Choose…" : "Change")
+                            @(_fMachine.Length == 0 ? "Choose…" : "Change")
                         </button>
                     </div>
                 </div>
@@ -206,39 +208,38 @@
 {
     <div class="modal-backdrop dpicker-over" @onclick="CloseDirectorPicker">
         <div class="modal dpicker-modal" @onclick:stopPropagation="true">
-            <div class="modal-head">Choose a Director</div>
+            <div class="modal-head">Choose a machine</div>
             <div class="modal-body">
-                <input class="dpicker-filter" placeholder="filter machine / port" @bind="_directorFilter" @bind:event="oninput" />
-                @if (_directors.Count == 0)
+                <input class="dpicker-filter" placeholder="filter machine" @bind="_machineFilter" @bind:event="oninput" />
+                @if (Machines().Count == 0)
                 {
-                    <div class="dpick-empty">No Directors registered with this Gateway.</div>
+                    <div class="dpick-empty">No machines known to this Gateway yet.</div>
                 }
                 else
                 {
                     <div class="dpick">
-                        @foreach (var d in FilteredDirectors())
+                        @foreach (var m in FilteredMachines())
                         {
-                            var dir = d;
-                            var unreachable = IsUnreachable(dir);
-                            var sessions = SessionsFor(dir.DirectorId);
+                            var machine = m;
+                            var dirs = DirectorsOn(machine);
+                            var reachable = dirs.Count(d => !IsUnreachable(d));
+                            var sessions = SessionsOn(machine);
                             var needs = sessions.Count(s => s.NeedsYouSince is not null);
                             <button type="button"
-                                    class="dcard @(_fDirectorId == dir.DirectorId ? "sel" : "") @(unreachable ? "dead" : "")"
-                                    disabled="@unreachable"
-                                    @onclick="() => ChooseDirector(dir.DirectorId)">
+                                    class="dcard @(_fMachine == machine ? "sel" : "")"
+                                    @onclick="() => ChooseMachine(machine)">
                                 <div class="dcard-top">
-                                    <span class="dot @(unreachable ? "dead" : "ok")"></span>
-                                    <span class="dname">@dir.MachineName</span>
-                                    <span class="dport">@PortLabel(dir)</span>
-                                    <span class="dmeta">@(string.IsNullOrEmpty(dir.Version) ? "" : "v" + dir.Version)@(unreachable ? "" : " · up " + Uptime(dir.StartedAt))</span>
+                                    <span class="dot @(reachable > 0 ? "ok" : "dead")"></span>
+                                    <span class="dname">@machine</span>
+                                    <span class="dmeta">@reachable director@(reachable == 1 ? "" : "s") running</span>
                                     @if (needs > 0)
                                     {
                                         <span class="dneeds">@needs NEEDS YOU</span>
                                     }
                                 </div>
-                                @if (unreachable)
+                                @if (reachable == 0)
                                 {
-                                    <div class="dsub dempty">unreachable - cannot target</div>
+                                    <div class="dsub dempty">no Director running - one will be launched on demand</div>
                                 }
                                 else if (sessions.Count == 0)
                                 {
@@ -276,7 +277,7 @@
     private List<DirectorDto> _directors = new();
     private List<SessionDto> _sessions = new();           // for the Director picker's live preview (#495)
     private List<MachineErrorDto> _machineErrors = new();  // unreachable Directors from the roster envelope
-    private string _directorFilter = "";
+    private string _machineFilter = "";
     private bool _showDirectorPicker;
     private List<CronRunRecord> _runs = new();
     private string? _selectedId;
@@ -290,7 +291,7 @@
     private bool _saving;
     private string? _editingId;
     private string _fName = "";
-    private string _fDirectorId = "";
+    private string _fMachine = "";
     private string _fRepoPath = "";
     private string _fActionKind = "worklist";
     private string _fWorkListName = "";
@@ -358,7 +359,7 @@
     private async Task OpenCreate()
     {
         _editingId = null;
-        _fName = ""; _fDirectorId = ""; _fRepoPath = "";
+        _fName = ""; _fMachine = ""; _fRepoPath = "";
         _fActionKind = "worklist"; _fWorkListName = ""; _fSeed = "";
         _fScheduleKind = "oneOff"; _fCron = ""; _fRunAt = ""; _fTimeZone = "";
         _fEnabled = true; _fPreventOverlap = true;
@@ -371,7 +372,7 @@
     {
         _editingId = job.Id;
         _fName = job.Name;
-        _fDirectorId = job.Target.DirectorId;
+        _fMachine = job.Target.Machine;
         _fRepoPath = job.Action.RepoPath;
         _fActionKind = string.IsNullOrWhiteSpace(job.Action.WorkListName) ? "seed" : "worklist";
         _fWorkListName = job.Action.WorkListName ?? "";
@@ -404,69 +405,45 @@
 
     // ---- Director picker (#495) ----
 
-    private void OpenDirectorPicker() { _directorFilter = ""; _showDirectorPicker = true; }
+    private void OpenDirectorPicker() { _machineFilter = ""; _showDirectorPicker = true; }
 
     private void CloseDirectorPicker() => _showDirectorPicker = false;
 
-    private void ChooseDirector(string directorId)
+    private void ChooseMachine(string machine)
     {
-        _fDirectorId = directorId;
+        _fMachine = machine;
         _showDirectorPicker = false;
     }
 
-    /// <summary>The compact label for the chosen Director in the form field: "machine :port", or a
-    /// prompt when none is chosen, or the raw id when the Director is no longer registered.</summary>
-    private string ChosenDirectorLabel()
+    /// <summary>The chosen machine for the form field, or a prompt when none is chosen (#503).</summary>
+    private string ChosenMachineLabel() =>
+        string.IsNullOrEmpty(_fMachine) ? "No machine selected" : _fMachine;
+
+    /// <summary>Distinct machine names known to the Gateway (from the Director roster), sorted.</summary>
+    private List<string> Machines() =>
+        _directors.Select(d => d.MachineName)
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IEnumerable<string> FilteredMachines()
     {
-        if (string.IsNullOrEmpty(_fDirectorId))
-            return "No Director selected";
-        var d = _directors.FirstOrDefault(x => x.DirectorId == _fDirectorId);
-        return d is null ? _fDirectorId : $"{d.MachineName}  {PortLabel(d)}";
+        var all = Machines();
+        if (string.IsNullOrWhiteSpace(_machineFilter)) return all;
+        var f = _machineFilter.Trim();
+        return all.Where(m => m.Contains(f, StringComparison.OrdinalIgnoreCase));
     }
 
-    private IEnumerable<DirectorDto> FilteredDirectors()
-    {
-        var ordered = _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(d => PortLabel(d), StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(_directorFilter))
-            return ordered;
-        var f = _directorFilter.Trim();
-        return ordered.Where(d =>
-            d.MachineName.Contains(f, StringComparison.OrdinalIgnoreCase) ||
-            PortLabel(d).Contains(f, StringComparison.OrdinalIgnoreCase));
-    }
+    private List<DirectorDto> DirectorsOn(string machine) =>
+        _directors.Where(d => string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    private List<SessionDto> SessionsFor(string directorId) =>
-        _sessions.Where(s => string.Equals(s.DirectorId, directorId, StringComparison.OrdinalIgnoreCase)).ToList();
+    private List<SessionDto> SessionsOn(string machine) =>
+        _sessions.Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
 
     private bool IsUnreachable(DirectorDto d) =>
         d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName ||
         _machineErrors.Any(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>The short ":&lt;port&gt;" label parsed from the control endpoint (issue #237), or the
-    /// id's short prefix when no port can be parsed - never the bare GUID alone.</summary>
-    private static string PortLabel(DirectorDto d)
-    {
-        var port = PortOf(d.ControlEndpoint);
-        if (port is null) port = PortOf(d.TailnetEndpoint);
-        return port is null ? (d.DirectorId.Length > 8 ? d.DirectorId[..8] : d.DirectorId) : $":{port}";
-    }
-
-    private static string? PortOf(string? endpoint)
-    {
-        if (string.IsNullOrEmpty(endpoint)) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
-        return m.Success ? m.Groups[1].Value : null;
-    }
-
-    private static string Uptime(DateTime startedUtc)
-    {
-        var span = DateTime.UtcNow - startedUtc;
-        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
-        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
-        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h";
-        return $"{(int)span.TotalDays}d";
-    }
 
     private static string SessName(SessionDto s) =>
         !string.IsNullOrWhiteSpace(s.Name) ? s.Name
@@ -492,7 +469,7 @@
         CronExpression = _fScheduleKind == "recurring" ? _fCron.Trim() : null,
         RunAt = _fScheduleKind == "oneOff" ? _fRunAt.Trim() : null,
         TimeZoneId = _fTimeZone.Trim(),
-        Target = new CronJobTarget { DirectorId = _fDirectorId.Trim() },
+        Target = new CronJobTarget { Machine = _fMachine.Trim() },
         Action = new CronJobAction
         {
             RepoPath = _fRepoPath.Trim(),
@@ -582,7 +559,7 @@
                 CronExpression = job.CronExpression,
                 RunAt = job.RunAt,
                 TimeZoneId = job.TimeZoneId,
-                Target = new CronJobTarget { DirectorId = job.Target.DirectorId },
+                Target = new CronJobTarget { Machine = job.Target.Machine },
                 Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
                 PreventOverlap = job.PreventOverlap,
             };

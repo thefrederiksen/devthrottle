@@ -14,13 +14,13 @@ namespace CcDirector.Gateway.Running;
 public sealed class DirectorCronWorkListRunner : ICronWorkListRunner
 {
     private readonly WorkListStore _store;
-    private readonly ICronDirectorResolver _resolver;
+    private readonly IDirectorTargetResolver _resolver;
     private readonly WorkListRunnerManager _manager;
     private readonly ICronWorkListDrainLauncher _launcher;
 
     public DirectorCronWorkListRunner(
         WorkListStore store,
-        ICronDirectorResolver resolver,
+        IDirectorTargetResolver resolver,
         WorkListRunnerManager manager,
         ICronWorkListDrainLauncher launcher)
     {
@@ -30,7 +30,7 @@ public sealed class DirectorCronWorkListRunner : ICronWorkListRunner
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
     }
 
-    public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct)
+    public async Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
@@ -43,31 +43,34 @@ public sealed class DirectorCronWorkListRunner : ICronWorkListRunner
         if (list is null)
         {
             FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: no such list={listName}");
-            return Task.FromResult(CronWorkListOutcome.NoSuchList);
+            return CronWorkListOutcome.NoSuchList;
         }
         if (list.Items.Count == 0)
         {
             FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: list={listName} is empty; nothing to drain");
-            return Task.FromResult(CronWorkListOutcome.EmptyList);
+            return CronWorkListOutcome.EmptyList;
         }
         if (!string.IsNullOrEmpty(list.Consumer))
         {
             FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: list={listName} already claimed by {list.Consumer}");
-            return Task.FromResult(CronWorkListOutcome.AlreadyClaimed);
+            return CronWorkListOutcome.AlreadyClaimed;
         }
 
-        var (endpoint, machineName) = _resolver.Resolve(job.Target.DirectorId);
-        if (string.IsNullOrEmpty(endpoint))
+        // Resolve the target MACHINE to a Director (launching one if none is running, #503).
+        var machine = job.Target.Machine;
+        var target = await _resolver.ResolveAsync(machine, ct);
+        if (string.IsNullOrEmpty(target.Endpoint))
         {
-            FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: no such director={job.Target.DirectorId}");
-            return Task.FromResult(CronWorkListOutcome.NoSuchDirector);
+            FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: no director on machine={machine}: {target.Error}");
+            return CronWorkListOutcome.NoSuchDirector;
         }
+        var endpoint = target.Endpoint;
 
-        var machineKey = string.IsNullOrWhiteSpace(machineName) ? job.Target.DirectorId : machineName;
+        var machineKey = string.IsNullOrWhiteSpace(machine) ? endpoint : machine;
         if (_manager.TryAdmit(machineKey, listName) == WorkListRunnerManager.AdmitResult.RefusedMachineBusy)
         {
             FileLog.Write($"[DirectorCronWorkListRunner] job={job.Id}: machine={machineKey} busy (active={_manager.ActiveList(machineKey)})");
-            return Task.FromResult(CronWorkListOutcome.MachineBusy);
+            return CronWorkListOutcome.MachineBusy;
         }
 
         // Admitted: launch the drain in the background so the cron sweep is not blocked for the
@@ -95,6 +98,6 @@ public sealed class DirectorCronWorkListRunner : ICronWorkListRunner
             }
         }, CancellationToken.None);
 
-        return Task.FromResult(CronWorkListOutcome.Started);
+        return CronWorkListOutcome.Started;
     }
 }

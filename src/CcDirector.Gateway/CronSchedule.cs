@@ -34,8 +34,8 @@ public static class CronSchedule
             return (false, "timeZoneId is required");
         if (TryFindTimeZone(job.TimeZoneId) is null)
             return (false, $"unknown timeZoneId: {job.TimeZoneId}");
-        if (job.Target is null || string.IsNullOrWhiteSpace(job.Target.DirectorId))
-            return (false, "target.directorId is required");
+        if (job.Target is null || string.IsNullOrWhiteSpace(job.Target.Machine))
+            return (false, "target.machine is required");
         if (job.Action is null || string.IsNullOrWhiteSpace(job.Action.RepoPath))
             return (false, "action.repoPath is required");
         // The action is EITHER a seed (a prompt/skill) OR a work-list drain (#484). At least one is

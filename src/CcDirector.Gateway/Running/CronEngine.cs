@@ -136,6 +136,7 @@ public sealed class CronEngine
             var isWorkList = !string.IsNullOrWhiteSpace(job.Action.WorkListName);
             string? sessionId;
             string? error;
+            string? resolvedDirectorId = null;   // the Director the machine resolved to (#503)
             bool started;
             string baseStatus;
             if (isWorkList)
@@ -148,7 +149,7 @@ public sealed class CronEngine
             }
             else
             {
-                (sessionId, error) = await _starter.StartAsync(job, ct);
+                (sessionId, resolvedDirectorId, error) = await _starter.StartAsync(job, ct);
                 started = sessionId is not null;
                 baseStatus = started ? "started" : "not-started";
             }
@@ -161,7 +162,8 @@ public sealed class CronEngine
             {
                 ScheduledUtc = scheduledUtc,
                 FiredUtc = firedUtc,
-                TargetDirectorId = job.Target.DirectorId,
+                Machine = job.Target.Machine,
+                TargetDirectorId = resolvedDirectorId ?? "",
                 SessionId = sessionId,
                 InfraStatus = infraStatus,
                 TaskStatus = TaskStatusUnknown,
