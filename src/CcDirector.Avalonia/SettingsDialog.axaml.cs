@@ -52,6 +52,13 @@ public partial class SettingsDialog : Window
     // The id of the entry the editor is currently editing, or null when adding a new one.
     private string? _editingEntryId;
 
+    // Editor flow state (issue #494). _editorLoading suppresses auto-name / preview side effects
+    // while OpenEditor is populating the fields. _displayNameIsCustom is set once the user types
+    // their own name, so a later type change does not clobber it (AC9) - and so editing an existing
+    // entry never auto-renames it.
+    private bool _editorLoading;
+    private bool _displayNameIsCustom;
+
     public SettingsDialog() : this(null, 0, null) { }
 
     /// <param name="reapplyGateway">Re-registers the running Director with the gateway after a gateway change.</param>
@@ -212,16 +219,32 @@ public partial class SettingsDialog : Window
             _agentRows.Move(index, index + 1);
     }
 
-    private void BtnRemoveAgent_Click(object? sender, RoutedEventArgs e)
+    private async void BtnRemoveAgent_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[SettingsDialog] BtnRemoveAgent_Click");
-        var row = FindRow((sender as Control)?.Tag);
-        if (row is null) return;
-        _agentRows.Remove(row);
-        // If the removed row was being edited, close the editor.
-        if (_editingEntryId == row.Id)
-            CloseEditor();
-        UpdateAgentEntriesEmptyState();
+        try
+        {
+            var row = FindRow((sender as Control)?.Tag);
+            if (row is null) return;
+
+            // Confirm before deleting (AC2). Parity with other destructive actions in Settings.
+            var confirm = new ConfirmDialog(
+                "Remove agent",
+                $"Remove the agent \"{row.DisplayName}\" from the list? This does not delete the tool from your machine.");
+            var confirmed = await confirm.ShowDialog<bool?>(this);
+            if (confirmed != true)
+                return;
+
+            _agentRows.Remove(row);
+            // If the removed row was being edited, close the editor.
+            if (_editingEntryId == row.Id)
+                CloseEditor();
+            UpdateAgentEntriesEmptyState();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnRemoveAgent_Click FAILED: {ex.Message}");
+        }
     }
 
     private void BtnAddAgent_Click(object? sender, RoutedEventArgs e)
@@ -245,6 +268,7 @@ public partial class SettingsDialog : Window
     private void OpenEditor(AgentEntryRow? row)
     {
         _editingEntryId = row?.Id;
+        _editorLoading = true;
         AgentEditorTitle.Text = row is null ? "Add Agent" : "Edit Agent";
 
         // Type dropdown is the full AgentKind set (incl. Custom/RawCli).
@@ -252,7 +276,20 @@ public partial class SettingsDialog : Window
         var type = row?.Type ?? AgentKind.ClaudeCode;
         EditorTypeCombo.SelectedItem = AgentTypeOptions.FirstOrDefault(o => o.Kind == type) ?? AgentTypeOptions[0];
 
-        EditorDisplayNameBox.Text = row?.DisplayName ?? "";
+        if (row is null)
+        {
+            // New entry: auto-name from the default type, disambiguating against existing names.
+            _displayNameIsCustom = false;
+            EditorDisplayNameBox.Text = AgentEntryNaming.AutoNameForType(LabelForType(type), ExistingDisplayNames(null));
+        }
+        else
+        {
+            // Editing: keep the stored name verbatim and treat it as customized so a later type
+            // change does not overwrite it (AC9).
+            _displayNameIsCustom = true;
+            EditorDisplayNameBox.Text = row.DisplayName;
+        }
+
         EditorEnabledCheck.IsChecked = row?.Enabled ?? true;
         EditorPathBox.Text = row?.ExecutablePath ?? "";
         EditorModelBox.Text = row?.DefaultModel ?? "";
@@ -261,10 +298,38 @@ public partial class SettingsDialog : Window
         // The preset list depends on the type; populate then select the entry's preset.
         PopulatePresetCombo(type, row?.PresetId ?? "");
 
+        // Manual path area starts revealed for an existing entry that already has a path (so the
+        // user can see what is configured); for a new entry it stays collapsed until Detect fails.
+        var hasPath = !string.IsNullOrWhiteSpace(row?.ExecutablePath);
+        SetManualAreaVisible(hasPath);
+
+        // Advanced is always collapsed on open (assumption #2 in the issue).
+        EditorAdvancedToggle.IsChecked = false;
+        EditorAdvancedPanel.IsVisible = false;
+
         EditorStatus.IsVisible = false;
         AgentEditorPanel.IsVisible = true;
+        _editorLoading = false;
         RefreshEditorPreview();
     }
+
+    /// <summary>Show or hide the manual Executable / Browse / Quick-check area and its reveal link.</summary>
+    private void SetManualAreaVisible(bool visible)
+    {
+        EditorManualPanel.IsVisible = visible;
+        EditorShowManualButton.IsVisible = !visible;
+    }
+
+    /// <summary>The display label for an agent type, from the editor's Type dropdown options.</summary>
+    private static string LabelForType(AgentKind type) =>
+        AgentTypeOptions.First(o => o.Kind == type).Label;
+
+    /// <summary>
+    /// Display names already in the list, excluding the row being edited (so editing an entry does
+    /// not count its own name when disambiguating). Used by the auto-name "(N)" logic.
+    /// </summary>
+    private IEnumerable<string> ExistingDisplayNames(string? excludeId) =>
+        _agentRows.Where(r => r.Id != excludeId).Select(r => r.DisplayName);
 
     private void CloseEditor()
     {
@@ -291,7 +356,7 @@ public partial class SettingsDialog : Window
             var type = EditorSelectedType();
             var displayName = EditorDisplayNameBox.Text?.Trim() ?? "";
             if (displayName.Length == 0)
-                displayName = AgentTypeOptions.First(o => o.Kind == type).Label;
+                displayName = AgentEntryNaming.AutoNameForType(LabelForType(type), ExistingDisplayNames(_editingEntryId));
 
             var preset = EditorPresetCombo.SelectedItem as string ?? "";
             var model = EditorModelBox.Text?.Trim() ?? "";
@@ -371,12 +436,51 @@ public partial class SettingsDialog : Window
     {
         // The editor may not be fully built during initial template load; guard against nulls.
         if (EditorPresetCombo is null) return;
-        PopulatePresetCombo(EditorSelectedType(), "");
+
+        var type = EditorSelectedType();
+        PopulatePresetCombo(type, "");
+
+        // Auto-fill the Display name from the newly-selected type, but only while the name has not
+        // been customized (AC5). Done off the loading guard so OpenEditor's own type selection does
+        // not trigger a rename of an existing entry.
+        if (!_editorLoading && !_displayNameIsCustom)
+        {
+            var auto = AgentEntryNaming.AutoNameForType(LabelForType(type), ExistingDisplayNames(_editingEntryId));
+            // Setting Text fires EditorDisplayName_Changed; suppress the "custom" flag for our own write.
+            _editorLoading = true;
+            EditorDisplayNameBox.Text = auto;
+            _editorLoading = false;
+        }
+
         RefreshEditorPreview();
+    }
+
+    /// <summary>
+    /// The user edited the Display name. Mark it customized so a later type change does not clobber
+    /// it (AC9). Programmatic writes set <see cref="_editorLoading"/> first, so they do not count.
+    /// </summary>
+    private void EditorDisplayName_Changed(object? sender, TextChangedEventArgs e)
+    {
+        if (_editorLoading) return;
+        _displayNameIsCustom = true;
     }
 
     private void EditorPreset_Changed(object? sender, SelectionChangedEventArgs e) => RefreshEditorPreview();
     private void EditorInput_Changed(object? sender, TextChangedEventArgs e) => RefreshEditorPreview();
+
+    /// <summary>Reveal the manual Executable area when the user chooses to enter the path by hand.</summary>
+    private void BtnEditorShowManual_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorShowManual_Click");
+        SetManualAreaVisible(true);
+    }
+
+    /// <summary>The Advanced section (preset / model / args) follows its toggle.</summary>
+    private void EditorAdvancedToggle_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (EditorAdvancedPanel is null) return;
+        EditorAdvancedPanel.IsVisible = EditorAdvancedToggle.IsChecked == true;
+    }
 
     /// <summary>
     /// Recompute the editor's "what launches" preview from its live fields, using the same shared
@@ -409,7 +513,9 @@ public partial class SettingsDialog : Window
         var type = EditorSelectedType();
         if (!ToolDetectionService.SupportedTools.Contains(type))
         {
-            ShowEditorStatus("Detect is only available for the built-in agent types. Use Browse for a custom command.", error: true);
+            // Custom commands have nothing to detect; reveal the manual area so the user can type it.
+            SetManualAreaVisible(true);
+            ShowEditorStatus("Detect is only available for the built-in agent types. Enter the path manually below.", error: true);
             return;
         }
 
@@ -425,7 +531,15 @@ public partial class SettingsDialog : Window
                 EditorPathBox.Text = result.ResolvedPath;
                 RefreshEditorPreview();
             }
-            ShowEditorStatus($"{result.Message} Source: {result.Source}.", error: !result.Found);
+
+            // On success the manual area collapses (the path is filled and shown in the preview);
+            // on failure it is revealed so the user can supply the path themselves (AC7).
+            SetManualAreaVisible(!result.Found);
+
+            if (result.Found)
+                ShowEditorStatus($"Found {LabelForType(type)} at {result.ResolvedPath} (source: {result.Source}).", error: false);
+            else
+                ShowEditorStatus($"{result.Message} Source: {result.Source}. Enter the path manually below.", error: true);
         }
         catch (Exception ex)
         {
@@ -1009,8 +1123,37 @@ public sealed class AgentEntryRow : INotifyPropertyChanged
     public string StatusText
     {
         get => _statusText;
-        set { _statusText = value; OnChanged(); }
+        set
+        {
+            _statusText = value;
+            OnChanged();
+            OnChanged(nameof(HasStatus));
+            OnChanged(nameof(StatusPillBackground));
+            OnChanged(nameof(StatusPillForeground));
+        }
     }
+
+    /// <summary>Whether to show the Status pill at all (hidden when there is no status text).</summary>
+    public bool HasStatus => !string.IsNullOrEmpty(_statusText);
+
+    /// <summary>
+    /// Status pill background (issue #494): subtle green for "OK", subtle red for "Failed",
+    /// neutral grey for "Not checked" / anything else. Mirrors the badge palette in VisualStyle.md.
+    /// </summary>
+    public global::Avalonia.Media.IBrush StatusPillBackground => _statusText switch
+    {
+        "OK" => global::Avalonia.Media.Brush.Parse("#1B3A2A"),
+        "Failed" => global::Avalonia.Media.Brush.Parse("#3A2A1B"),
+        _ => global::Avalonia.Media.Brush.Parse("#404040"),
+    };
+
+    /// <summary>Status pill text colour, paired with <see cref="StatusPillBackground"/>.</summary>
+    public global::Avalonia.Media.IBrush StatusPillForeground => _statusText switch
+    {
+        "OK" => global::Avalonia.Media.Brush.Parse("#22C55E"),
+        "Failed" => global::Avalonia.Media.Brush.Parse("#F59E0B"),
+        _ => global::Avalonia.Media.Brush.Parse("#CCCCCC"),
+    };
 
     /// <summary>Human-readable type label shown in the Type column.</summary>
     public string TypeLabel => Type switch

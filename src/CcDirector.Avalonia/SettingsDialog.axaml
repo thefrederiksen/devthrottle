@@ -56,6 +56,20 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- Compact square icon button for the list's reorder arrows and trash (issue #494). -->
+        <Style Selector="Button.iconButton">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="MinWidth" Value="26" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
         <Style Selector="Button.primaryButton">
             <Setter Property="Height" Value="30" />
             <Setter Property="MinWidth" Value="140" />
@@ -147,45 +161,80 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- CRUD list of agent entries (issue #489). Columns: Order (Up/Down),
-                         Display name, Type, Enabled, Status, and per-row Edit/Remove. -->
+                    <!-- CRUD list of agent entries (issue #489, polished #494). Columns: Order
+                         (compact up/down arrows), Display name, Type, Enabled, Status pill, and a
+                         fixed-width right-aligned Actions cell (Edit + trash). The shared column
+                         definition is reused by the header and rows so they stay aligned, and the
+                         outer ScrollViewer disables horizontal scroll so the grid is constrained to
+                         the panel width - nothing clips at the right edge (AC1). -->
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                         <StackPanel Spacing="4">
-                            <!-- Header row -->
-                            <Grid ColumnDefinitions="64,*,110,70,*,140" Margin="8,0,8,2">
+                            <!-- Header row. Actions column is a fixed 96px with an 8px right margin so
+                                 the Edit/trash controls always sit inside the panel. -->
+                            <Grid ColumnDefinitions="56,*,100,64,86,96" Margin="8,0,16,2">
                                 <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Order" />
                                 <TextBlock Grid.Column="1" Classes="fieldLabel" Text="Display name" />
                                 <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Type" />
                                 <TextBlock Grid.Column="3" Classes="fieldLabel" Text="Enabled" />
                                 <TextBlock Grid.Column="4" Classes="fieldLabel" Text="Status" />
-                                <TextBlock Grid.Column="5" Classes="fieldLabel" Text="" />
+                                <TextBlock Grid.Column="5" Classes="fieldLabel" Text="Actions" HorizontalAlignment="Right" />
                             </Grid>
 
                             <ItemsControl x:Name="AgentEntriesList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6" Margin="0,0,0,2">
-                                            <Grid ColumnDefinitions="64,*,110,70,*,140" VerticalAlignment="Center">
+                                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6" Margin="0,0,8,2">
+                                            <Grid ColumnDefinitions="56,*,100,64,86,96" VerticalAlignment="Center">
+                                                <!-- Compact up/down arrow controls in one tight cell (AC3).
+                                                     Vector Path glyphs (no font/emoji dependency). -->
                                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
-                                                    <Button Classes="dialogButton" Content="up" MinWidth="28" Padding="6,0"
+                                                    <Button Classes="iconButton"
                                                             Tag="{Binding Id}" Click="BtnMoveUp_Click"
-                                                            ToolTip.Tip="Move this agent up" />
-                                                    <Button Classes="dialogButton" Content="dn" MinWidth="28" Padding="6,0"
+                                                            ToolTip.Tip="Move this agent up">
+                                                        <Path Data="M 0,5 L 5,0 L 10,5 Z" Fill="#CCCCCC"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    </Button>
+                                                    <Button Classes="iconButton"
                                                             Tag="{Binding Id}" Click="BtnMoveDown_Click"
-                                                            ToolTip.Tip="Move this agent down" />
+                                                            ToolTip.Tip="Move this agent down">
+                                                        <Path Data="M 0,0 L 5,5 L 10,0 Z" Fill="#CCCCCC"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    </Button>
                                                 </StackPanel>
                                                 <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Foreground="#CCCCCC"
-                                                           FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                           FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
                                                 <TextBlock Grid.Column="2" Text="{Binding TypeLabel}" Foreground="#AAAAAA"
-                                                           FontSize="12" VerticalAlignment="Center" />
+                                                           FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                                 <CheckBox Grid.Column="3" IsChecked="{Binding Enabled, Mode=TwoWay}"
                                                           Foreground="#CCCCCC" VerticalAlignment="Center"
                                                           ToolTip.Tip="Whether this agent is available for launching" />
-                                                <TextBlock Grid.Column="4" Text="{Binding StatusText}" Foreground="#888888"
-                                                           FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                <!-- Status as a small colored pill (AC3). -->
+                                                <Border Grid.Column="4" CornerRadius="8" Padding="8,2"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                        IsVisible="{Binding HasStatus}"
+                                                        Background="{Binding StatusPillBackground}">
+                                                    <TextBlock Text="{Binding StatusText}"
+                                                               Foreground="{Binding StatusPillForeground}"
+                                                               FontSize="10" FontWeight="SemiBold" />
+                                                </Border>
+                                                <!-- Fixed-width, right-aligned Actions cell: Edit + compact trash. -->
                                                 <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                                                    <Button Classes="dialogButton" Content="Edit" Tag="{Binding Id}" Click="BtnEditAgent_Click" />
-                                                    <Button Classes="dialogButton" Content="Remove" Tag="{Binding Id}" Click="BtnRemoveAgent_Click" />
+                                                    <Button Classes="dialogButton" Content="Edit" MinWidth="44" Padding="8,0"
+                                                            Tag="{Binding Id}" Click="BtnEditAgent_Click"
+                                                            ToolTip.Tip="Edit this agent" />
+                                                    <Button Classes="iconButton"
+                                                            Tag="{Binding Id}" Click="BtnRemoveAgent_Click"
+                                                            ToolTip.Tip="Remove this agent">
+                                                        <!-- Trash-can icon as a vector Path (no emoji). -->
+                                                        <Canvas Width="12" Height="13">
+                                                            <Rectangle Canvas.Left="1" Canvas.Top="3" Width="10" Height="1.4" Fill="#CCCCCC" />
+                                                            <Rectangle Canvas.Left="4" Canvas.Top="1" Width="4" Height="1.4" Fill="#CCCCCC" />
+                                                            <Path Data="M 2,4 L 10,4 L 9,12 L 3,12 Z"
+                                                                  Stroke="#CCCCCC" StrokeThickness="1.2" Fill="Transparent" />
+                                                            <Rectangle Canvas.Left="4.6" Canvas.Top="5.5" Width="1" Height="5" Fill="#CCCCCC" />
+                                                            <Rectangle Canvas.Left="6.4" Canvas.Top="5.5" Width="1" Height="5" Fill="#CCCCCC" />
+                                                        </Canvas>
+                                                    </Button>
                                                 </StackPanel>
                                             </Grid>
                                         </Border>
@@ -198,62 +247,91 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- Add/Edit editor (issue #489): collapsed until Add/Edit is clicked. Holds the
-                         per-entry fields that used to be inline on the fixed cards. -->
+                    <!-- Add/Edit editor (issue #489; flow polished in #494): collapsed until Add/Edit
+                         is clicked. Top-to-bottom order matches the decision order (AC4): (1) Type,
+                         (2) auto-filled Display name, (3) prominent Detect. Manual path entry is a
+                         fallback that stays collapsed when Detect succeeds (AC7), and the preset /
+                         model / args live in a collapsed Advanced section (AC8). -->
                     <Border Grid.Row="2" x:Name="AgentEditorPanel" IsVisible="False"
                             Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10" Margin="0,8,14,0">
                         <StackPanel Spacing="6">
                             <TextBlock x:Name="AgentEditorTitle" Text="Add Agent" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
 
-                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                                <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Display name" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBox x:Name="EditorDisplayNameBox" Grid.Column="1" Classes="settingsInput"
-                                         Watermark="e.g. Claude (read-only)" />
-                                <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Type" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                <ComboBox x:Name="EditorTypeCombo" Grid.Column="3" MinWidth="140"
-                                          Background="#1E1E1E" Foreground="#CCCCCC"
-                                          SelectionChanged="EditorTypeCombo_Changed" />
-                            </Grid>
+                            <!-- 1. Agent type (first / at the top). -->
+                            <TextBlock Classes="fieldLabel" Text="Agent type" />
+                            <ComboBox x:Name="EditorTypeCombo" MinWidth="200" HorizontalAlignment="Left"
+                                      Background="#1E1E1E" Foreground="#CCCCCC"
+                                      SelectionChanged="EditorTypeCombo_Changed"
+                                      ToolTip.Tip="Pick the tool first; the name below fills in automatically" />
+
+                            <!-- 2. Display name (auto-filled from the type; stays editable). -->
+                            <TextBlock Classes="fieldLabel" Text="Display name" />
+                            <TextBox x:Name="EditorDisplayNameBox" Classes="settingsInput"
+                                     Watermark="e.g. Claude (read-only)"
+                                     TextChanged="EditorDisplayName_Changed"
+                                     ToolTip.Tip="Auto-filled from the type; edit it for a custom name" />
 
                             <CheckBox x:Name="EditorEnabledCheck" Content="Enabled" IsChecked="True"
-                                      Foreground="#CCCCCC" FontSize="12"
+                                      Foreground="#CCCCCC" FontSize="12" Margin="0,2,0,0"
                                       ToolTip.Tip="Whether this agent is available for launching from this machine" />
 
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                <TextBox x:Name="EditorPathBox" Grid.Column="0" Classes="settingsInput"
-                                         Watermark="executable path or bare command"
-                                         TextChanged="EditorInput_Changed" />
-                                <Button x:Name="EditorDetectButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnEditorDetect_Click" />
-                                <Button x:Name="EditorQuickCheckButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                        ToolTip.Tip="Run a safe version probe of this executable" Click="BtnEditorQuickCheck_Click" />
-                                <Button x:Name="EditorLaunchPreviewButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                        ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnEditorLaunchPreview_Click" />
-                                <Button x:Name="EditorBrowseButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnEditorBrowse_Click" />
-                            </Grid>
+                            <!-- 3. Detect is the prominent next action. -->
+                            <Button x:Name="EditorDetectButton" Classes="primaryButton" Content="Detect this tool"
+                                    HorizontalAlignment="Left" Margin="0,4,0,0" Click="BtnEditorDetect_Click"
+                                    ToolTip.Tip="Scan this machine for the selected tool and fill in its path" />
 
-                            <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <ComboBox x:Name="EditorPresetCombo" Grid.Column="1"
-                                          Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                          SelectionChanged="EditorPreset_Changed"
-                                          ToolTip.Tip="The command-line preset for this agent type" />
-                                <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                <TextBox x:Name="EditorModelBox" Grid.Column="3" Classes="settingsInput"
-                                         Watermark="(none - tool default)"
+                            <TextBlock x:Name="EditorStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+
+                            <!-- Manual path entry: a fallback, collapsed when Detect succeeds and
+                                 revealed when it fails or via "Enter the path manually" (AC7). -->
+                            <Button x:Name="EditorShowManualButton" Classes="dialogButton" Content="Enter the path manually"
+                                    HorizontalAlignment="Left" IsVisible="False" Click="BtnEditorShowManual_Click"
+                                    ToolTip.Tip="Type or browse to the executable yourself" />
+
+                            <StackPanel x:Name="EditorManualPanel" Spacing="6" IsVisible="False">
+                                <TextBlock Classes="fieldLabel" Text="Executable" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="EditorPathBox" Grid.Column="0" Classes="settingsInput"
+                                             Watermark="executable path or bare command"
+                                             TextChanged="EditorInput_Changed" />
+                                    <Button x:Name="EditorBrowseButton" Grid.Column="1" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnEditorBrowse_Click" />
+                                    <Button x:Name="EditorQuickCheckButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
+                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnEditorQuickCheck_Click" />
+                                    <Button x:Name="EditorLaunchPreviewButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
+                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnEditorLaunchPreview_Click" />
+                                </Grid>
+                            </StackPanel>
+
+                            <!-- Advanced: preset / model / args, collapsed by default (AC8). -->
+                            <ToggleButton x:Name="EditorAdvancedToggle" Content="Advanced"
+                                          Background="Transparent" BorderThickness="0" Foreground="#3B82F6"
+                                          Padding="0" Cursor="Hand" HorizontalAlignment="Left" Margin="0,2,0,0"
+                                          IsCheckedChanged="EditorAdvancedToggle_Changed"
+                                          ToolTip.Tip="Command-line preset, default model, and args override" />
+
+                            <StackPanel x:Name="EditorAdvancedPanel" Spacing="6" IsVisible="False">
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="EditorPresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
+                                              SelectionChanged="EditorPreset_Changed"
+                                              ToolTip.Tip="The command-line preset for this agent type" />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="EditorModelBox" Grid.Column="3" Classes="settingsInput"
+                                             Watermark="(none - tool default)"
+                                             TextChanged="EditorInput_Changed"
+                                             ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
+                                </Grid>
+
+                                <TextBox x:Name="EditorArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
                                          TextChanged="EditorInput_Changed"
-                                         ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
-                            </Grid>
-
-                            <TextBox x:Name="EditorArgsOverrideBox" Classes="settingsInput"
-                                     Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                     TextChanged="EditorInput_Changed"
-                                     ToolTip.Tip="When set, these args replace the selected preset's arguments" />
+                                         ToolTip.Tip="When set, these args replace the selected preset's arguments" />
+                            </StackPanel>
 
                             <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
                             <TextBox x:Name="EditorPreviewStrip" Classes="previewStrip"
                                      ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-
-                            <TextBlock x:Name="EditorStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
 
                             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,4,0,0">
                                 <Button x:Name="EditorSaveButton" Classes="primaryButton" Content="Save agent" MinWidth="110" Click="BtnEditorSave_Click" />
