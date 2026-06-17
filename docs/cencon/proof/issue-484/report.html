@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proof Report - Issue #484</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Proof Report - Issue #484</h1>
+<h2>Cron jobs (3/3): named-work-list use case</h2>
+<p><strong>Part 3 of 3 of epic #479</strong> - the headline "midnight, run the loop over a list of work items" use case, on top of the merged #482 (store/CRUD) and #483 (firing engine).</p>
+<p><strong>Branch/PR:</strong> issue-484-cron-worklist-usecase (PR #487)
+        <strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.
+        <strong>Tests:</strong> <code>dotnet test --filter Cron</code> -&gt; <strong>61 Passed, 0 Failed, 0 Skipped</strong> (13 new for #484 + 48 from #482/#483).</p>
+<h2>How this slice is proven</h2>
+<p>A cron job's action gains an optional <code>workListName</code>. When set, the fire triggers the shipped #274 work-list runner to drain that list on the target Director instead of starting a single seeded session. The integration is proven without a live Director via three seams: <code>ICronWorkListRunner</code> (engine dispatch), <code>ICronDirectorResolver</code> (Director lookup), and <code>ICronWorkListDrainLauncher</code> (the actual drain) - the launcher's driver is injectable so a real <code>WorkListRunner.DrainAsync</code> is driven with a fake <code>IImplSessionDriver</code>, proving the claim + ordered drain through the new path.</p>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Proof (test)</th>
+<th>Expected</th>
+<th>Actual</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>A work-list cron job, when fired, causes the #274 runner to CLAIM the list and start processing</td>
+<td><code>CronWorkListTriggerTests.DrainLauncher_ClaimsList_AndDrainsItemsInOrder</code> (list claimed, items started) + <code>CronEngineWorkListTests.WorkListJob_Dispatches_ToWorkListRunner_RecordsWorklistStarted_NoSession</code> (engine routes the job to the runner, records <code>worklist-started</code>)</td>
+<td>claim taken; runner invoked</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Items processed in list order, advancing per terminal signal</td>
+<td><code>DrainLauncher_ClaimsList_AndDrainsItemsInOrder</code> - start order = 101,102,103 through the shipped #274 <code>WorkListRunner</code></td>
+<td>in order</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Empty / already-claimed / no-director / machine-busy handled cleanly, no crash, no duplicate claim</td>
+<td><code>Trigger_EmptyList...</code>, <code>Trigger_AlreadyClaimedList_ReturnsAlreadyClaimed_NoDuplicateClaim</code> (original claim untouched, launcher never invoked), <code>Trigger_NoSuchList...</code>, <code>Trigger_NoSuchDirector...</code>, <code>Trigger_MachineBusy...</code></td>
+<td>each a clean outcome, no launch</td>
+<td>PASS</td>
+</tr>
+</tbody>
+</table>
+<p>Supporting: <code>WorkListJob_Dispatches...</code> / <code>SeedJob_Dispatches_ToSessionStarter_NotWorkListRunner</code> prove the engine routes by action type (work-list vs seed); <code>WorkListJob_Recurring_Due_Fires_AndAdvancesSchedule</code> proves the schedule advances for a work-list job; <code>Trigger_Started_LaunchesDrain...</code> proves the background drain is launched with the list + a <code>cron:&lt;jobId&gt;:</code> consumer and the machine slot is held during and released after the drain; <code>CronScheduleTests.Validate_WorkListAction_NoSeed_Ok</code> / <code>Validate_NeitherSeedNorWorkList_Fails</code> cover validation.</p>
+<p>Note on AC1/AC2 scope: the per-item ordering and terminal-signal advancement are the shipped #274 <code>WorkListRunner</code>'s behavior (already covered by <code>WorkListRunnerTests</code>). This slice's new code is the GLUE (cron job -&gt; trigger that runner); the launcher test drives a real <code>WorkListRunner</code> through that glue to prove the claim + order end-to-end without a live Director.</p>
+<h2>CenCon impact</h2>
+<p>Adds the work-list trigger components to the <code>gateway</code> container and the <code>workListName</code> field to <code>gateway_contracts</code>. No security-posture change (reuses the shipped #274 drain path and the host-wide token middleware; no new Director surface; no secrets logged). With this slice the cron feature is complete; the Support Agent should now record the full cron component set (store, engine, run history, work-list trigger, Cronos dep) in <code>architecture_manifest.yaml</code>.</p>
+<h2>Statement</h2>
+<p>I believe this slice (#484) is finished: a cron job can drain a named work list on a schedule, the engine dispatches correctly by action type, the pre-check guards handle every edge cleanly with no duplicate claim, and the launch path claims + drains in order through the shipped runner. The solution builds clean with zero warnings. With #482 + #483 + #484 merged, the original request - "at midnight, run the implementation loop over a list of work items" - is functional end to end.</p>
+</article>
+</body>
+</html>
