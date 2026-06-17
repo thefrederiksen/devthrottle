@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -17,9 +20,9 @@ namespace CcDirector.Avalonia;
 
 /// <summary>
 /// CC Director's own settings page (distinct from the Claude Code config dialog). Edits
-/// config.json - screenshots directory and gateway connection - via the single
-/// round-trip-preserving writer <see cref="CcDirectorConfigService"/>, so untouched
-/// sections are never dropped.
+/// config.json - screenshots directory, gateway connection, and the user-defined ordered
+/// agent list (issue #489) - via the single round-trip-preserving writer
+/// <see cref="CcDirectorConfigService"/>, so untouched sections are never dropped.
 ///
 /// Gateway changes are applied live via the <c>reapplyGateway</c> delegate (the running
 /// ControlApiHost re-registers with the gateway), so the user doesn't have to restart.
@@ -39,12 +42,15 @@ public partial class SettingsDialog : Window
     private string _loadedGatewayUrl = "";
     private string _loadedGatewayAdvertised = "";
     private string _loadedGatewayToken = "";
-    private string _loadedClaudePath = "";
-    private string _loadedPiPath = "";
-    private string _loadedCodexPath = "";
-    private string _loadedGeminiPath = "";
-    private string _loadedOpenCodePath = "";
     private bool _loadedAlpha;
+
+    // The user-defined ordered agent list (issue #489) bound to the CRUD list. The baseline
+    // snapshot lets Save detect whether the list changed at all.
+    private readonly ObservableCollection<AgentEntryRow> _agentRows = new();
+    private string _loadedAgentsSnapshot = "";
+
+    // The id of the entry the editor is currently editing, or null when adding a new one.
+    private string? _editingEntryId;
 
     public SettingsDialog() : this(null, 0, null) { }
 
@@ -59,6 +65,8 @@ public partial class SettingsDialog : Window
         _reloadScreenshots = reloadScreenshots;
         InitializeComponent();
 
+        AgentEntriesList.ItemsSource = _agentRows;
+
         Loaded += async (_, _) => await LoadAsync();
     }
 
@@ -67,31 +75,21 @@ public partial class SettingsDialog : Window
         FileLog.Write("[SettingsDialog] LoadAsync: reading config.json");
         try
         {
-            var (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath) = await Task.Run(ReadConfigSnapshot);
+            var (screenshots, url, advertised, token) = await Task.Run(ReadConfigSnapshot);
 
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
-            _loadedClaudePath = claudePath;
-            _loadedPiPath = piPath;
-            _loadedCodexPath = codexPath;
-            _loadedGeminiPath = geminiPath;
-            _loadedOpenCodePath = openCodePath;
             _loadedAlpha = AlphaMode.IsEnabled;
 
             ScreenshotsDirBox.Text = screenshots;
             GatewayUrlBox.Text = url;
             GatewayAdvertisedBox.Text = advertised;
             GatewayTokenBox.Text = token;
-            ClaudePathBox.Text = claudePath;
-            PiPathBox.Text = piPath;
-            CodexPathBox.Text = codexPath;
-            GeminiPathBox.Text = geminiPath;
-            OpenCodePathBox.Text = openCodePath;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
 
-            LoadToolPresets();
+            LoadAgentEntries();
 
             LoadingText.IsVisible = false;
             SettingsTabs.IsVisible = true;
@@ -105,35 +103,468 @@ public partial class SettingsDialog : Window
         }
     }
 
-    /// <summary>Read config off the UI thread. Returns the current field values.</summary>
-    private static (string Screenshots, string Url, string Advertised, string Token, string ClaudePath, string PiPath, string CodexPath, string GeminiPath, string OpenCodePath) ReadConfigSnapshot()
+    /// <summary>Read config off the UI thread. Returns the current screenshots/gateway field values.</summary>
+    private static (string Screenshots, string Url, string Advertised, string Token) ReadConfigSnapshot()
     {
         var root = CcDirectorConfigService.ReadRaw();
         var gateway = root["gateway"] as JsonObject;
-        var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
-        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
-            ?? (global::Avalonia.Application.Current as App)?.Options
-            ?? new AgentOptions();
 
         string Get(JsonObject? obj, string key) =>
             obj?[key] is JsonNode n && n is JsonValue ? n.GetValue<string>() : "";
-        string GetTool(string snakeKey, string pascalKey, string fallback) =>
-            Get(agent, snakeKey).Length > 0 ? Get(agent, snakeKey)
-            : Get(agent, pascalKey).Length > 0 ? Get(agent, pascalKey)
-            : fallback;
 
         var screenshots = Get(root["screenshots"] as JsonObject, "source_directory");
         var url = Get(gateway, "url");
         var advertised = Get(gateway, "tailnetEndpoint");
         var token = Get(gateway, "token");
-        var claudePath = GetTool("claude_path", "ClaudePath", options.ClaudePath);
-        var piPath = GetTool("pi_path", "PiPath", options.PiPath);
-        var codexPath = GetTool("codex_path", "CodexPath", options.CodexPath);
-        var geminiPath = GetTool("gemini_path", "GeminiPath", options.GeminiPath);
-        var openCodePath = GetTool("opencode_path", "OpenCodePath", options.OpenCodePath);
 
-        return (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath);
+        return (screenshots, url, advertised, token);
     }
+
+    // ----------------------------------------------------------------------------------------
+    // Agent entries (issue #489): the user-defined ordered list, its CRUD operations, the
+    // add/edit editor, and per-entry detect/quick-check using the existing ToolDetectionService.
+    // ----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Load the ordered agent entries (seeding from the legacy <c>*_path</c> keys on first load),
+    /// fill the bound list, and remember a baseline snapshot so Save can tell if anything changed.
+    /// </summary>
+    private void LoadAgentEntries()
+    {
+        FileLog.Write("[SettingsDialog] LoadAgentEntries");
+        var options = CurrentOptions();
+        var entries = AgentEntryStore.LoadEntries(options);
+
+        _agentRows.Clear();
+        foreach (var entry in entries)
+            _agentRows.Add(AgentEntryRow.From(entry, ReadStatusText(entry)));
+
+        _loadedAgentsSnapshot = SnapshotAgents();
+        UpdateAgentEntriesEmptyState();
+    }
+
+    /// <summary>Show the empty-state hint only when the list has no entries.</summary>
+    private void UpdateAgentEntriesEmptyState() =>
+        AgentEntriesEmpty.IsVisible = _agentRows.Count == 0;
+
+    /// <summary>
+    /// Read the persisted validation status line for an entry's type/path, so the list's Status
+    /// column shows the last Quick-check result. Custom (RawCli) entries have no validation key.
+    /// </summary>
+    private string ReadStatusText(AgentEntry entry)
+    {
+        if (!ToolDetectionService.SupportedTools.Contains(entry.Type))
+            return "";
+
+        try
+        {
+            var status = ToolDetectionService.ReadValidationStatus(entry.Type, CurrentOptions());
+            if (status is null)
+                return "Not checked";
+            return status.Ok ? "OK" : "Failed";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] ReadStatusText FAILED: {ex.Message}");
+            return "";
+        }
+    }
+
+    /// <summary>A stable string snapshot of the agent list, used to detect changes on Save.</summary>
+    private string SnapshotAgents()
+    {
+        var array = new JsonArray();
+        foreach (var row in _agentRows)
+            array.Add(new JsonObject
+            {
+                ["id"] = row.Id,
+                ["display_name"] = row.DisplayName,
+                ["type"] = row.Type.ToString(),
+                ["enabled"] = row.Enabled,
+                ["executable_path"] = row.ExecutablePath,
+                ["preset_id"] = row.PresetId,
+                ["default_model"] = row.DefaultModel,
+                ["args_override"] = row.ArgsOverride,
+            });
+        return array.ToJsonString();
+    }
+
+    private AgentEntryRow? FindRow(object? tag) =>
+        tag is string id ? _agentRows.FirstOrDefault(r => r.Id == id) : null;
+
+    private void BtnMoveUp_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnMoveUp_Click");
+        var row = FindRow((sender as Control)?.Tag);
+        if (row is null) return;
+        var index = _agentRows.IndexOf(row);
+        if (index > 0)
+            _agentRows.Move(index, index - 1);
+    }
+
+    private void BtnMoveDown_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnMoveDown_Click");
+        var row = FindRow((sender as Control)?.Tag);
+        if (row is null) return;
+        var index = _agentRows.IndexOf(row);
+        if (index >= 0 && index < _agentRows.Count - 1)
+            _agentRows.Move(index, index + 1);
+    }
+
+    private void BtnRemoveAgent_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnRemoveAgent_Click");
+        var row = FindRow((sender as Control)?.Tag);
+        if (row is null) return;
+        _agentRows.Remove(row);
+        // If the removed row was being edited, close the editor.
+        if (_editingEntryId == row.Id)
+            CloseEditor();
+        UpdateAgentEntriesEmptyState();
+    }
+
+    private void BtnAddAgent_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnAddAgent_Click");
+        OpenEditor(null);
+    }
+
+    private void BtnEditAgent_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditAgent_Click");
+        var row = FindRow((sender as Control)?.Tag);
+        if (row is null) return;
+        OpenEditor(row);
+    }
+
+    /// <summary>
+    /// Open the add/edit editor. <paramref name="row"/> null = add a new entry; non-null =
+    /// pre-fill from the existing entry so editing changes only that one.
+    /// </summary>
+    private void OpenEditor(AgentEntryRow? row)
+    {
+        _editingEntryId = row?.Id;
+        AgentEditorTitle.Text = row is null ? "Add Agent" : "Edit Agent";
+
+        // Type dropdown is the full AgentKind set (incl. Custom/RawCli).
+        EditorTypeCombo.ItemsSource = AgentTypeOptions;
+        var type = row?.Type ?? AgentKind.ClaudeCode;
+        EditorTypeCombo.SelectedItem = AgentTypeOptions.FirstOrDefault(o => o.Kind == type) ?? AgentTypeOptions[0];
+
+        EditorDisplayNameBox.Text = row?.DisplayName ?? "";
+        EditorEnabledCheck.IsChecked = row?.Enabled ?? true;
+        EditorPathBox.Text = row?.ExecutablePath ?? "";
+        EditorModelBox.Text = row?.DefaultModel ?? "";
+        EditorArgsOverrideBox.Text = row?.ArgsOverride ?? "";
+
+        // The preset list depends on the type; populate then select the entry's preset.
+        PopulatePresetCombo(type, row?.PresetId ?? "");
+
+        EditorStatus.IsVisible = false;
+        AgentEditorPanel.IsVisible = true;
+        RefreshEditorPreview();
+    }
+
+    private void CloseEditor()
+    {
+        _editingEntryId = null;
+        AgentEditorPanel.IsVisible = false;
+    }
+
+    private void BtnEditorCancel_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorCancel_Click");
+        CloseEditor();
+    }
+
+    /// <summary>
+    /// Apply the editor fields back to the list: update the existing entry (by id) or add a new
+    /// one. Display name defaults to the type's name when left blank. The editor closes; nothing
+    /// is written to disk until the dialog's Save and Close.
+    /// </summary>
+    private void BtnEditorSave_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write($"[SettingsDialog] BtnEditorSave_Click: editingId={_editingEntryId ?? "(new)"}");
+        try
+        {
+            var type = EditorSelectedType();
+            var displayName = EditorDisplayNameBox.Text?.Trim() ?? "";
+            if (displayName.Length == 0)
+                displayName = AgentTypeOptions.First(o => o.Kind == type).Label;
+
+            var preset = EditorPresetCombo.SelectedItem as string ?? "";
+            var model = EditorModelBox.Text?.Trim() ?? "";
+            var argsOverride = EditorArgsOverrideBox.Text?.Trim() ?? "";
+            var path = EditorPathBox.Text?.Trim() ?? "";
+            var enabled = EditorEnabledCheck.IsChecked == true;
+
+            if (_editingEntryId is not null)
+            {
+                var existing = _agentRows.FirstOrDefault(r => r.Id == _editingEntryId);
+                if (existing is not null)
+                {
+                    existing.DisplayName = displayName;
+                    existing.Type = type;
+                    existing.Enabled = enabled;
+                    existing.ExecutablePath = path;
+                    existing.PresetId = preset;
+                    existing.DefaultModel = model;
+                    existing.ArgsOverride = argsOverride;
+                }
+            }
+            else
+            {
+                _agentRows.Add(new AgentEntryRow
+                {
+                    Id = Guid.NewGuid().ToString("D"),
+                    DisplayName = displayName,
+                    Type = type,
+                    Enabled = enabled,
+                    ExecutablePath = path,
+                    PresetId = preset,
+                    DefaultModel = model,
+                    ArgsOverride = argsOverride,
+                    StatusText = "Not checked",
+                });
+            }
+
+            CloseEditor();
+            UpdateAgentEntriesEmptyState();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnEditorSave_Click FAILED: {ex.Message}");
+            ShowEditorStatus($"Could not save agent: {ex.Message}", error: true);
+        }
+    }
+
+    private AgentKind EditorSelectedType() =>
+        (EditorTypeCombo.SelectedItem as AgentTypeOption)?.Kind ?? AgentKind.ClaudeCode;
+
+    /// <summary>
+    /// Populate the editor's command-line preset dropdown from the catalog for the given type, and
+    /// select the supplied preset (falling back to the catalog default). Custom (RawCli) types are
+    /// not in the catalog, so the preset dropdown shows a single "Custom (use args below)" entry.
+    /// </summary>
+    private void PopulatePresetCombo(AgentKind type, string selectedPreset)
+    {
+        if (AgentToolCatalog.Contains(type))
+        {
+            var entry = AgentToolCatalog.GetEntry(type);
+            var names = entry.Presets.Select(p => p.Name).ToList();
+            EditorPresetCombo.ItemsSource = names;
+            var index = names.FindIndex(n => string.Equals(n, selectedPreset, StringComparison.OrdinalIgnoreCase));
+            EditorPresetCombo.SelectedIndex = index >= 0 ? index : 0;
+            EditorPresetCombo.IsEnabled = true;
+        }
+        else
+        {
+            var names = new List<string> { "Custom (use args below)" };
+            EditorPresetCombo.ItemsSource = names;
+            EditorPresetCombo.SelectedIndex = 0;
+            EditorPresetCombo.IsEnabled = false;
+        }
+    }
+
+    private void EditorTypeCombo_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        // The editor may not be fully built during initial template load; guard against nulls.
+        if (EditorPresetCombo is null) return;
+        PopulatePresetCombo(EditorSelectedType(), "");
+        RefreshEditorPreview();
+    }
+
+    private void EditorPreset_Changed(object? sender, SelectionChangedEventArgs e) => RefreshEditorPreview();
+    private void EditorInput_Changed(object? sender, TextChangedEventArgs e) => RefreshEditorPreview();
+
+    /// <summary>
+    /// Recompute the editor's "what launches" preview from its live fields, using the same shared
+    /// resolver the App launch wiring uses, so the preview is always truthful.
+    /// </summary>
+    private void RefreshEditorPreview()
+    {
+        if (EditorPreviewStrip is null) return;
+
+        var type = EditorSelectedType();
+        var config = new AgentToolConfig
+        {
+            Tool = type,
+            PresetName = EditorPresetCombo?.SelectedItem as string ?? "",
+            DefaultModel = EditorModelBox?.Text?.Trim() ?? "",
+            ArgsOverride = EditorArgsOverrideBox?.Text?.Trim() ?? "",
+        };
+
+        var exe = EditorPathBox?.Text?.Trim() ?? "";
+        if (exe.Length == 0)
+            exe = AgentTypeOptions.First(o => o.Kind == type).Label.ToLowerInvariant();
+
+        var args = config.ResolveEffectiveCommandLineArguments();
+        EditorPreviewStrip.Text = string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
+    }
+
+    private async void BtnEditorDetect_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorDetect_Click");
+        var type = EditorSelectedType();
+        if (!ToolDetectionService.SupportedTools.Contains(type))
+        {
+            ShowEditorStatus("Detect is only available for the built-in agent types. Use Browse for a custom command.", error: true);
+            return;
+        }
+
+        EditorDetectButton.IsEnabled = false;
+        ShowEditorStatus("Detecting...", error: false);
+        try
+        {
+            var options = CurrentOptions();
+            var typedPath = EditorPathBox.Text?.Trim();
+            var result = await Task.Run(() => _toolDetector.DetectTool(type, options, typedPath));
+            if (result.ResolvedPath is not null)
+            {
+                EditorPathBox.Text = result.ResolvedPath;
+                RefreshEditorPreview();
+            }
+            ShowEditorStatus($"{result.Message} Source: {result.Source}.", error: !result.Found);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnEditorDetect_Click FAILED: {ex.Message}");
+            ShowEditorStatus($"Detection failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            EditorDetectButton.IsEnabled = true;
+        }
+    }
+
+    private async void BtnEditorQuickCheck_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorQuickCheck_Click");
+        var type = EditorSelectedType();
+        if (!ToolDetectionService.SupportedTools.Contains(type))
+        {
+            ShowEditorStatus("Quick check is only available for the built-in agent types.", error: true);
+            return;
+        }
+
+        EditorQuickCheckButton.IsEnabled = false;
+        ShowEditorStatus("Testing...", error: false);
+        try
+        {
+            var result = await _toolDetector.TestToolAsync(type, EditorPathBox.Text?.Trim() ?? "");
+            ShowEditorStatus(result.Message, error: !result.Ok);
+            await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
+
+            // Reflect the new status in the list row being edited, if any.
+            if (_editingEntryId is not null)
+            {
+                var existing = _agentRows.FirstOrDefault(r => r.Id == _editingEntryId);
+                if (existing is not null)
+                    existing.StatusText = result.Ok ? "OK" : "Failed";
+            }
+
+            FileLog.Write($"[SettingsDialog] BtnEditorQuickCheck_Click: persisted validation type={type}, ok={result.Ok}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnEditorQuickCheck_Click FAILED: {ex.Message}");
+            ShowEditorStatus($"Test failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            EditorQuickCheckButton.IsEnabled = true;
+        }
+    }
+
+    private async void BtnEditorBrowse_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorBrowse_Click");
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Select agent executable",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Executables")
+                    {
+                        Patterns = OperatingSystem.IsWindows()
+                            ? new[] { "*.exe", "*.cmd", "*.bat" }
+                            : new[] { "*" }
+                    }
+                }
+            });
+            if (files.Count == 0)
+                return;
+
+            EditorPathBox.Text = files[0].Path.LocalPath;
+            RefreshEditorPreview();
+            ShowEditorStatus($"Selected {EditorPathBox.Text}. Click Quick check to verify or Save agent to apply.", error: false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnEditorBrowse_Click FAILED: {ex.Message}");
+            ShowEditorStatus($"Browse failed: {ex.Message}", error: true);
+        }
+    }
+
+    private async void BtnEditorLaunchPreview_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnEditorLaunchPreview_Click");
+        try
+        {
+            var type = EditorSelectedType();
+            var exe = EditorPathBox.Text?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(exe) && ToolDetectionService.SupportedTools.Contains(type))
+                exe = ToolDetectionService.GetConfiguredPath(type, CurrentOptions());
+            if (string.IsNullOrWhiteSpace(exe))
+            {
+                ShowEditorStatus("Set the executable path first, then try Launch preview again.", error: true);
+                return;
+            }
+
+            var config = new AgentToolConfig
+            {
+                Tool = type,
+                PresetName = EditorPresetCombo.SelectedItem as string ?? "",
+                DefaultModel = EditorModelBox.Text?.Trim() ?? "",
+                ArgsOverride = EditorArgsOverrideBox.Text?.Trim() ?? "",
+            };
+            var args = config.ResolveEffectiveCommandLineArguments();
+            var workingDir = CurrentOptions().ChatSessionRepoPath ?? Environment.CurrentDirectory;
+            var name = AgentTypeOptions.First(o => o.Kind == type).Label;
+
+            var dialog = new LaunchPreviewDialog(exe, args, workingDir, name);
+            await dialog.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnEditorLaunchPreview_Click FAILED: {ex.Message}");
+            ShowEditorStatus($"Launch preview failed: {ex.Message}", error: true);
+        }
+    }
+
+    private void ShowEditorStatus(string text, bool error)
+    {
+        EditorStatus.Text = text;
+        EditorStatus.IsVisible = true;
+        EditorStatus.Foreground = error
+            ? global::Avalonia.Media.Brushes.IndianRed
+            : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    /// <summary>The selectable agent types in the editor's Type dropdown (the full AgentKind set).</summary>
+    private static readonly IReadOnlyList<AgentTypeOption> AgentTypeOptions = new[]
+    {
+        new AgentTypeOption(AgentKind.ClaudeCode, "Claude Code"),
+        new AgentTypeOption(AgentKind.Codex, "Codex"),
+        new AgentTypeOption(AgentKind.Gemini, "Gemini"),
+        new AgentTypeOption(AgentKind.Pi, "Pi"),
+        new AgentTypeOption(AgentKind.OpenCode, "OpenCode"),
+        new AgentTypeOption(AgentKind.RawCli, "Custom"),
+    };
 
     /// <summary>
     /// Fill the screenshots folder with the location this OS saves screenshots to (Windows
@@ -209,11 +640,6 @@ public partial class SettingsDialog : Window
             var url = GatewayUrlBox.Text?.Trim() ?? "";
             var advertised = GatewayAdvertisedBox.Text?.Trim() ?? "";
             var token = GatewayTokenBox.Text?.Trim() ?? "";
-            var claudePath = ClaudePathBox.Text?.Trim() ?? "";
-            var piPath = PiPathBox.Text?.Trim() ?? "";
-            var codexPath = CodexPathBox.Text?.Trim() ?? "";
-            var geminiPath = GeminiPathBox.Text?.Trim() ?? "";
-            var openCodePath = OpenCodePathBox.Text?.Trim() ?? "";
 
             // Build a patch with ONLY the sections the user changed, so we touch nothing else.
             var patch = new JsonObject();
@@ -235,33 +661,15 @@ public partial class SettingsDialog : Window
                 };
             }
 
-            var toolsChanged = claudePath != _loadedClaudePath
-                || piPath != _loadedPiPath
-                || codexPath != _loadedCodexPath
-                || geminiPath != _loadedGeminiPath
-                || openCodePath != _loadedOpenCodePath;
-            if (toolsChanged)
-            {
-                patch["agent"] = new JsonObject
-                {
-                    ["claude_path"] = claudePath,
-                    ["pi_path"] = piPath,
-                    ["codex_path"] = codexPath,
-                    ["gemini_path"] = geminiPath,
-                    ["opencode_path"] = openCodePath,
-                };
-            }
-
             var alpha = AlphaFeaturesCheck.IsChecked == true;
             var alphaChanged = alpha != _loadedAlpha;
 
-            // Per-tool presets/model/enabled are persisted separately to config.json
-            // (agent.tools.<key>) - a machine-level write, never a gateway call. The snapshot
-            // is read on the UI thread; the disk write runs off it.
-            var presetSnapshot = SnapshotToolPresets();
-            var presetsChanged = await Task.Run(() => PersistToolPresets(presetSnapshot));
+            // The user-defined agent list (issue #489) persists as the ordered agent.entries array.
+            // Snapshot it on the UI thread; the disk write runs off it.
+            var agentsChanged = SnapshotAgents() != _loadedAgentsSnapshot;
+            var agentEntries = agentsChanged ? BuildEntriesFromRows() : null;
 
-            if (patch.Count == 0 && !alphaChanged && !presetsChanged)
+            if (patch.Count == 0 && !alphaChanged && !agentsChanged)
             {
                 // Nothing changed - "Save and Close" just closes, same as Cancel.
                 FileLog.Write("[SettingsDialog] BtnSave_Click: no changes; closing");
@@ -269,10 +677,8 @@ public partial class SettingsDialog : Window
                 return;
             }
 
-            // A Claude preset/model change must take effect for the next session without a
-            // restart, so recompute the running Claude default args from the saved config.
-            if (presetsChanged)
-                ApplyClaudePresetToRunningOptions();
+            if (agentEntries is not null)
+                await Task.Run(() => AgentEntryStore.SaveEntries(agentEntries));
 
             if (patch.Count > 0)
                 await Task.Run(() => CcDirectorConfigService.MergePatch(patch));
@@ -283,10 +689,7 @@ public partial class SettingsDialog : Window
             if (alphaChanged)
                 await Task.Run(() => AlphaMode.SetEnabled(alpha));
 
-            if (toolsChanged)
-                ApplyToolPathsToRunningOptions(claudePath, piPath, codexPath, geminiPath, openCodePath);
-
-            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, toolsChanged={toolsChanged}, alphaChanged={alphaChanged}");
+            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, agentsChanged={agentsChanged}, alphaChanged={alphaChanged}");
 
             // Re-register with the gateway live so a URL/endpoint/token change takes effect now.
             if (gatewayChanged && _reapplyGateway is not null)
@@ -302,17 +705,13 @@ public partial class SettingsDialog : Window
                 FileLog.Write("[SettingsDialog] BtnSave_Click: screenshots panel reloaded");
             }
 
-            // Update the loaded baseline + raw view to reflect what's now on disk.
+            // Update the loaded baseline to reflect what's now on disk.
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
-            _loadedClaudePath = claudePath;
-            _loadedPiPath = piPath;
-            _loadedCodexPath = codexPath;
-            _loadedGeminiPath = geminiPath;
-            _loadedOpenCodePath = openCodePath;
             _loadedAlpha = alpha;
+            _loadedAgentsSnapshot = SnapshotAgents();
 
             // Saved cleanly - closing the dialog is the user's confirmation it worked.
             FileLog.Write("[SettingsDialog] BtnSave_Click: saved; closing");
@@ -325,6 +724,25 @@ public partial class SettingsDialog : Window
             StatusText.Text = $"Save failed: {ex.Message}";
             SaveButton.IsEnabled = true;
         }
+    }
+
+    /// <summary>Project the bound rows into the persistable <see cref="AgentEntry"/> list, in list order.</summary>
+    private List<AgentEntry> BuildEntriesFromRows()
+    {
+        var entries = new List<AgentEntry>();
+        foreach (var row in _agentRows)
+            entries.Add(new AgentEntry
+            {
+                Id = row.Id,
+                DisplayName = row.DisplayName,
+                Type = row.Type,
+                Enabled = row.Enabled,
+                ExecutablePath = row.ExecutablePath,
+                PresetId = row.PresetId,
+                DefaultModel = row.DefaultModel,
+                ArgsOverride = row.ArgsOverride,
+            });
+        return entries;
     }
 
     /// <summary>
@@ -439,104 +857,10 @@ public partial class SettingsDialog : Window
             : global::Avalonia.Media.Brushes.MediumSeaGreen;
     }
 
-    private async void BtnDetectClaude_Click(object? sender, RoutedEventArgs e) =>
-        await DetectToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, DetectClaudeButton);
-
-    private async void BtnDetectPi_Click(object? sender, RoutedEventArgs e) =>
-        await DetectToolAsync(AgentKind.Pi, PiPathBox, PiStatus, DetectPiButton);
-
-    private async void BtnDetectCodex_Click(object? sender, RoutedEventArgs e) =>
-        await DetectToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, DetectCodexButton);
-
-    private async void BtnDetectGemini_Click(object? sender, RoutedEventArgs e) =>
-        await DetectToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, DetectGeminiButton);
-
-    private async void BtnDetectOpenCode_Click(object? sender, RoutedEventArgs e) =>
-        await DetectToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, DetectOpenCodeButton);
-
-    private async void BtnTestClaude_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, QuickCheckClaudeButton);
-
-    private async void BtnTestPi_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, QuickCheckPiButton);
-
-    private async void BtnTestCodex_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, QuickCheckCodexButton);
-
-    private async void BtnTestGemini_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, QuickCheckGeminiButton);
-
-    private async void BtnTestOpenCode_Click(object? sender, RoutedEventArgs e) =>
-        await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, QuickCheckOpenCodeButton);
-
-    private async void BtnBrowseClaude_Click(object? sender, RoutedEventArgs e) =>
-        await BrowseToolAsync("Select Claude Code executable", ClaudePathBox, ClaudeStatus);
-
-    private async void BtnBrowsePi_Click(object? sender, RoutedEventArgs e) =>
-        await BrowseToolAsync("Select Pi executable", PiPathBox, PiStatus);
-
-    private async void BtnBrowseCodex_Click(object? sender, RoutedEventArgs e) =>
-        await BrowseToolAsync("Select Codex executable", CodexPathBox, CodexStatus);
-
-    private async void BtnBrowseGemini_Click(object? sender, RoutedEventArgs e) =>
-        await BrowseToolAsync("Select Gemini executable", GeminiPathBox, GeminiStatus);
-
-    private async void BtnBrowseOpenCode_Click(object? sender, RoutedEventArgs e) =>
-        await BrowseToolAsync("Select OpenCode executable", OpenCodePathBox, OpenCodeStatus);
-
-    private async void BtnLaunchPreviewClaude_Click(object? sender, RoutedEventArgs e) =>
-        await LaunchPreviewAsync(AgentKind.ClaudeCode, ClaudeStatus);
-
-    private async void BtnLaunchPreviewPi_Click(object? sender, RoutedEventArgs e) =>
-        await LaunchPreviewAsync(AgentKind.Pi, PiStatus);
-
-    private async void BtnLaunchPreviewCodex_Click(object? sender, RoutedEventArgs e) =>
-        await LaunchPreviewAsync(AgentKind.Codex, CodexStatus);
-
-    private async void BtnLaunchPreviewGemini_Click(object? sender, RoutedEventArgs e) =>
-        await LaunchPreviewAsync(AgentKind.Gemini, GeminiStatus);
-
-    private async void BtnLaunchPreviewOpenCode_Click(object? sender, RoutedEventArgs e) =>
-        await LaunchPreviewAsync(AgentKind.OpenCode, OpenCodeStatus);
-
     /// <summary>
-    /// Open the throwaway Launch preview popup (issue #436) for one tool: start the agent with the
-    /// exact resolved command line from that card in a disposable ConPTY terminal so the user can
-    /// watch it boot. The session is never saved and never added to the session roster - it lives
-    /// and dies inside <see cref="LaunchPreviewDialog"/>.
-    /// </summary>
-    private async Task LaunchPreviewAsync(AgentKind tool, TextBlock status)
-    {
-        FileLog.Write($"[SettingsDialog] LaunchPreviewAsync: tool={tool}");
-        var card = PresetControls().First(c => c.Tool == tool);
-
-        var exe = card.Path.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(exe))
-            exe = ToolDetectionService.GetConfiguredPath(tool, CurrentOptions());
-        if (string.IsNullOrWhiteSpace(exe))
-        {
-            ShowToolStatus(status, "Set the executable path first, then try Launch preview again.", error: true);
-            return;
-        }
-
-        var config = new AgentToolConfig
-        {
-            Tool = tool,
-            PresetName = card.Preset.SelectedItem as string ?? "",
-            DefaultModel = card.Model.Text?.Trim() ?? "",
-            ArgsOverride = card.Override.Text?.Trim() ?? "",
-        };
-        var args = config.ResolveEffectiveCommandLineArguments();
-        var workingDir = CurrentOptions().ChatSessionRepoPath ?? Environment.CurrentDirectory;
-
-        var dialog = new LaunchPreviewDialog(exe, args, workingDir, ToolDetectionService.DisplayName(tool));
-        await dialog.ShowDialog(this);
-    }
-
-    /// <summary>
-    /// Re-run the first-run tool-detection wizard on demand (issue #392). Opens the same wizard
-    /// that auto-opens on a fresh machine; on accept it writes the selected tools to config.json,
-    /// so we reload this page's path boxes and presets to show the newly-added tools.
+    /// Re-run the first-run tool-detection wizard on demand (issue #392). On accept it writes the
+    /// selected tools to config.json (legacy <c>*_path</c> keys); we reload the agent list so any
+    /// newly-added tools show up as entries.
     /// </summary>
     private async void BtnRunWizard_Click(object? sender, RoutedEventArgs e)
     {
@@ -549,9 +873,9 @@ public partial class SettingsDialog : Window
             var accepted = await dialog.ShowDialog<bool?>(this);
             if (accepted == true)
             {
-                await LoadAsync();
+                LoadAgentEntries();
                 ShowAgentToolsStatus("Detection wizard finished. The tools it added are shown above.", error: false);
-                FileLog.Write("[SettingsDialog] BtnRunWizard_Click: wizard accepted; reloaded page");
+                FileLog.Write("[SettingsDialog] BtnRunWizard_Click: wizard accepted; reloaded agent list");
             }
         }
         catch (Exception ex)
@@ -563,157 +887,6 @@ public partial class SettingsDialog : Window
         {
             RunWizardButton.IsEnabled = true;
         }
-    }
-
-    private async void BtnDetectAllTools_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnDetectAllTools_Click");
-        DetectAllToolsButton.IsEnabled = false;
-        ShowAgentToolsStatus("Detecting all agent tools...", error: false);
-        try
-        {
-            await DetectToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, DetectClaudeButton);
-            await DetectToolAsync(AgentKind.Pi, PiPathBox, PiStatus, DetectPiButton);
-            await DetectToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, DetectCodexButton);
-            await DetectToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, DetectGeminiButton);
-            await DetectToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, DetectOpenCodeButton);
-            ShowAgentToolsStatus("Detect All finished. Click Test All to validate working CLIs, then Save.", error: false);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnDetectAllTools_Click FAILED: {ex.Message}");
-            ShowAgentToolsStatus($"Detect All failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            DetectAllToolsButton.IsEnabled = true;
-        }
-    }
-
-    private async void BtnTestAllTools_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnTestAllTools_Click");
-        TestAllToolsButton.IsEnabled = false;
-        ShowAgentToolsStatus("Testing all configured agent tools...", error: false);
-        try
-        {
-            var results = new[]
-            {
-                await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, QuickCheckClaudeButton),
-                await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, QuickCheckPiButton),
-                await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, QuickCheckCodexButton),
-                await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, QuickCheckGeminiButton),
-                await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, QuickCheckOpenCodeButton),
-            };
-
-            var ok = results.Count(r => r.Ok);
-            ShowAgentToolsStatus($"Test All finished: {ok}/{results.Length} agent CLI(s) validated. Save to make validated tools available in New Session.", error: ok == 0);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnTestAllTools_Click FAILED: {ex.Message}");
-            ShowAgentToolsStatus($"Test All failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            TestAllToolsButton.IsEnabled = true;
-        }
-    }
-
-    private async Task DetectToolAsync(AgentKind tool, TextBox box, TextBlock status, Button button)
-    {
-        FileLog.Write($"[SettingsDialog] DetectToolAsync: tool={tool}");
-        var options = CurrentOptions();
-        button.IsEnabled = false;
-        ShowToolStatus(status, "Detecting...", error: false);
-        try
-        {
-            var typedPath = box.Text?.Trim();
-            var result = await Task.Run(() => _toolDetector.DetectTool(tool, options, typedPath));
-            if (result.ResolvedPath is not null)
-            {
-                box.Text = result.ResolvedPath;
-                RefreshAllPreviewStrips();
-            }
-            ShowToolStatus(status, $"{result.Message} Source: {result.Source}.", error: !result.Found);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] DetectToolAsync FAILED: tool={tool}, error={ex.Message}");
-            ShowToolStatus(status, $"Detection failed: {ex.Message}", error: true);
-        }
-        finally
-        {
-            button.IsEnabled = true;
-        }
-    }
-
-    private async Task<ToolTestResult> TestToolAsync(AgentKind tool, TextBox box, TextBlock status, Button button)
-    {
-        FileLog.Write($"[SettingsDialog] TestToolAsync: tool={tool}");
-        button.IsEnabled = false;
-        ShowToolStatus(status, "Testing...", error: false);
-        try
-        {
-            var result = await _toolDetector.TestToolAsync(tool, box.Text?.Trim() ?? "");
-            ShowToolStatus(status, result.Message, error: !result.Ok);
-            await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
-            FileLog.Write($"[SettingsDialog] TestToolAsync: persisted validation tool={tool}, ok={result.Ok}");
-            return result;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] TestToolAsync FAILED: tool={tool}, error={ex.Message}");
-            var result = new ToolTestResult(tool, ToolDetectionService.DisplayName(tool), false, box.Text?.Trim() ?? "", null, $"Test failed: {ex.Message}");
-            ShowToolStatus(status, result.Message, error: true);
-            return result;
-        }
-        finally
-        {
-            button.IsEnabled = true;
-        }
-    }
-
-    private async Task BrowseToolAsync(string title, TextBox box, TextBlock status)
-    {
-        FileLog.Write($"[SettingsDialog] BrowseToolAsync: title={title}");
-        try
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = title,
-                AllowMultiple = false,
-                FileTypeFilter = new[]
-                {
-                    new FilePickerFileType("Executables")
-                    {
-                        Patterns = OperatingSystem.IsWindows()
-                            ? new[] { "*.exe", "*.cmd", "*.bat" }
-                            : new[] { "*" }
-                    }
-                }
-            });
-            if (files.Count == 0)
-                return;
-
-            box.Text = files[0].Path.LocalPath;
-            RefreshAllPreviewStrips();
-            ShowToolStatus(status, $"Selected {box.Text}. Click Quick check to verify or Save to apply.", error: false);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BrowseToolAsync FAILED: {ex.Message}");
-            ShowToolStatus(status, $"Browse failed: {ex.Message}", error: true);
-        }
-    }
-
-    private void ShowToolStatus(TextBlock status, string text, bool error)
-    {
-        status.Text = text;
-        status.IsVisible = true;
-        status.Foreground = error
-            ? global::Avalonia.Media.Brushes.IndianRed
-            : global::Avalonia.Media.Brushes.MediumSeaGreen;
     }
 
     private void ShowAgentToolsStatus(string text, bool error)
@@ -730,178 +903,6 @@ public partial class SettingsDialog : Window
         var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
             ?? (global::Avalonia.Application.Current as App)?.Options;
         return options ?? throw new InvalidOperationException("AgentOptions not loaded.");
-    }
-
-    private static void ApplyToolPathsToRunningOptions(string claudePath, string piPath, string codexPath, string geminiPath, string openCodePath)
-    {
-        FileLog.Write("[SettingsDialog] ApplyToolPathsToRunningOptions");
-        var options = CurrentOptions();
-        ToolDetectionService.SetConfiguredPath(AgentKind.ClaudeCode, options, claudePath);
-        ToolDetectionService.SetConfiguredPath(AgentKind.Pi, options, piPath);
-        ToolDetectionService.SetConfiguredPath(AgentKind.Codex, options, codexPath);
-        ToolDetectionService.SetConfiguredPath(AgentKind.Gemini, options, geminiPath);
-        ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, options, openCodePath);
-    }
-
-    /// <summary>The control set for one tool's preset/model/enabled/override editors plus its
-    /// path box (used by Launch preview) and the read-only "what launches" preview strip.</summary>
-    private readonly record struct ToolPresetControls(
-        AgentKind Tool, ComboBox Preset, TextBox Model, TextBox Override, CheckBox Enabled,
-        TextBox Path, TextBox PreviewStrip);
-
-    private ToolPresetControls[] PresetControls() => new[]
-    {
-        new ToolPresetControls(AgentKind.ClaudeCode, ClaudePresetCombo, ClaudeModelBox, ClaudeArgsOverrideBox, ClaudeEnabledCheck, ClaudePathBox, ClaudePreviewStrip),
-        new ToolPresetControls(AgentKind.Pi, PiPresetCombo, PiModelBox, PiArgsOverrideBox, PiEnabledCheck, PiPathBox, PiPreviewStrip),
-        new ToolPresetControls(AgentKind.Codex, CodexPresetCombo, CodexModelBox, CodexArgsOverrideBox, CodexEnabledCheck, CodexPathBox, CodexPreviewStrip),
-        new ToolPresetControls(AgentKind.Gemini, GeminiPresetCombo, GeminiModelBox, GeminiArgsOverrideBox, GeminiEnabledCheck, GeminiPathBox, GeminiPreviewStrip),
-        new ToolPresetControls(AgentKind.OpenCode, OpenCodePresetCombo, OpenCodeModelBox, OpenCodeArgsOverrideBox, OpenCodeEnabledCheck, OpenCodePathBox, OpenCodePreviewStrip),
-    };
-
-    /// <summary>
-    /// Populate each tool section's command-line preset list (from the built-in catalog), and
-    /// fill the selected preset, default model, args override, and enabled flag from the
-    /// machine-level per-tool config in config.json (issue #391). A tool never configured shows
-    /// the catalog default - for Claude that is now the Automatic (skip permissions) preset
-    /// (issue #436, supersedes #391). Finally refresh every "what launches" preview strip.
-    /// </summary>
-    private void LoadToolPresets()
-    {
-        FileLog.Write("[SettingsDialog] LoadToolPresets");
-        foreach (var c in PresetControls())
-        {
-            var entry = AgentToolCatalog.GetEntry(c.Tool);
-            var presetNames = entry.Presets.Select(p => p.Name).ToList();
-            c.Preset.ItemsSource = presetNames;
-
-            var config = AgentToolConfig.Load(c.Tool);
-            var index = presetNames.FindIndex(n => string.Equals(n, config.PresetName, StringComparison.OrdinalIgnoreCase));
-            c.Preset.SelectedIndex = index >= 0 ? index : 0;
-            c.Model.Text = config.DefaultModel;
-            c.Override.Text = config.ArgsOverride;
-            c.Enabled.IsChecked = config.Enabled;
-        }
-
-        RefreshAllPreviewStrips();
-    }
-
-    /// <summary>
-    /// Live handler wired to every tool card's default-model box and advanced override box. Either
-    /// changing re-renders that card's "what launches" preview strip instantly, with no save/close
-    /// (issue #436). It refreshes ALL strips because the cost is trivial.
-    /// </summary>
-    private void ToolPreviewInput_Changed(object? sender, TextChangedEventArgs e) => RefreshAllPreviewStrips();
-
-    /// <summary>
-    /// Live handler wired to every tool card's command-line preset dropdown. Changing the preset
-    /// re-renders that card's "what launches" preview strip instantly, with no save/close (issue
-    /// #436).
-    /// </summary>
-    private void ToolPreviewInput_Changed(object? sender, SelectionChangedEventArgs e) => RefreshAllPreviewStrips();
-
-    /// <summary>Recompute and set every tool card's "what launches" preview strip text.</summary>
-    private void RefreshAllPreviewStrips()
-    {
-        foreach (var c in PresetControls())
-            c.PreviewStrip.Text = BuildPreviewCommandLine(c);
-    }
-
-    /// <summary>
-    /// Compose the fully-resolved command line a real launch would use for one tool card from its
-    /// LIVE editor state - exe path plus the effective preset/override arguments and the composed
-    /// <c>--model</c> flag. The argument composition is delegated to the shared
-    /// <see cref="AgentToolConfig.ResolveEffectiveCommandLineArguments"/> so the preview matches
-    /// exactly what App startup launches with (issue #436).
-    /// </summary>
-    private static string BuildPreviewCommandLine(ToolPresetControls c)
-    {
-        var config = new AgentToolConfig
-        {
-            Tool = c.Tool,
-            PresetName = c.Preset.SelectedItem as string ?? "",
-            DefaultModel = c.Model.Text?.Trim() ?? "",
-            ArgsOverride = c.Override.Text?.Trim() ?? "",
-        };
-
-        var exe = c.Path.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(exe))
-            exe = ToolDetectionService.DisplayName(c.Tool).ToLowerInvariant();
-
-        var args = config.ResolveEffectiveCommandLineArguments();
-        return string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
-    }
-
-    /// <summary>
-    /// Read the per-tool editor controls into a list of <see cref="AgentToolConfig"/>. Must run on
-    /// the UI thread (it reads Avalonia control state); the actual disk write is done off-thread by
-    /// <see cref="PersistToolPresets"/>.
-    /// </summary>
-    private List<AgentToolConfig> SnapshotToolPresets()
-    {
-        var snapshot = new List<AgentToolConfig>();
-        foreach (var c in PresetControls())
-        {
-            snapshot.Add(new AgentToolConfig
-            {
-                Tool = c.Tool,
-                PresetName = c.Preset.SelectedItem as string ?? "",
-                DefaultModel = c.Model.Text?.Trim() ?? "",
-                ArgsOverride = c.Override.Text?.Trim() ?? "",
-                Enabled = c.Enabled.IsChecked == true,
-            });
-        }
-
-        return snapshot;
-    }
-
-    /// <summary>
-    /// Persist each tool's snapshot to the machine-level config.json (no gateway call). Returns
-    /// true if any tool's persisted config changed from what was on disk. Runs off the UI thread;
-    /// the snapshot is taken on the UI thread by <see cref="SnapshotToolPresets"/>.
-    /// </summary>
-    private static bool PersistToolPresets(List<AgentToolConfig> snapshot)
-    {
-        FileLog.Write("[SettingsDialog] PersistToolPresets");
-        var anyChanged = false;
-        foreach (var desired in snapshot)
-        {
-            var loaded = AgentToolConfig.Load(desired.Tool);
-            var presetName = string.IsNullOrEmpty(desired.PresetName) ? loaded.PresetName : desired.PresetName;
-
-            var changed = presetName != loaded.PresetName
-                || desired.DefaultModel != loaded.DefaultModel
-                || desired.ArgsOverride != loaded.ArgsOverride
-                || desired.Enabled != loaded.Enabled;
-            if (!changed)
-                continue;
-
-            new AgentToolConfig
-            {
-                Tool = desired.Tool,
-                PresetName = presetName,
-                DefaultModel = desired.DefaultModel,
-                ArgsOverride = desired.ArgsOverride,
-                Enabled = desired.Enabled,
-            }.Save();
-            anyChanged = true;
-        }
-
-        return anyChanged;
-    }
-
-    /// <summary>
-    /// Recompute the running Claude default args from the just-saved Claude per-tool config so a
-    /// new session launched without restart uses the configured preset and default model. Mirrors
-    /// the App startup wiring (App.ApplyConfiguredToolPresets) for the live options instance.
-    /// </summary>
-    private static void ApplyClaudePresetToRunningOptions()
-    {
-        FileLog.Write("[SettingsDialog] ApplyClaudePresetToRunningOptions");
-        var options = CurrentOptions();
-        var config = AgentToolConfig.Load(AgentKind.ClaudeCode);
-        var args = config.ResolveEffectiveCommandLineArguments();
-        options.DefaultClaudeArgs = args;
-        FileLog.Write($"[SettingsDialog] ApplyClaudePresetToRunningOptions: defaultArgs='{args}'");
     }
 
     /// <summary>
@@ -959,4 +960,83 @@ public partial class SettingsDialog : Window
             StatusText.Text = $"Could not open wake-word test: {ex.Message}";
         }
     }
+}
+
+/// <summary>One selectable agent type in the editor's Type dropdown.</summary>
+public sealed record AgentTypeOption(AgentKind Kind, string Label)
+{
+    public override string ToString() => Label;
+}
+
+/// <summary>
+/// The bindable view of one <see cref="AgentEntry"/> for the Settings CRUD list. Mutable +
+/// change-notifying so the Enabled checkbox, reorder, and status updates reflect live in the list
+/// without rebuilding it.
+/// </summary>
+public sealed class AgentEntryRow : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Id { get; set; } = Guid.NewGuid().ToString("D");
+
+    private string _displayName = "";
+    public string DisplayName
+    {
+        get => _displayName;
+        set { _displayName = value; OnChanged(); }
+    }
+
+    private AgentKind _type = AgentKind.ClaudeCode;
+    public AgentKind Type
+    {
+        get => _type;
+        set { _type = value; OnChanged(); OnChanged(nameof(TypeLabel)); }
+    }
+
+    private bool _enabled = true;
+    public bool Enabled
+    {
+        get => _enabled;
+        set { _enabled = value; OnChanged(); }
+    }
+
+    public string ExecutablePath { get; set; } = "";
+    public string PresetId { get; set; } = "";
+    public string DefaultModel { get; set; } = "";
+    public string ArgsOverride { get; set; } = "";
+
+    private string _statusText = "";
+    public string StatusText
+    {
+        get => _statusText;
+        set { _statusText = value; OnChanged(); }
+    }
+
+    /// <summary>Human-readable type label shown in the Type column.</summary>
+    public string TypeLabel => Type switch
+    {
+        AgentKind.ClaudeCode => "Claude Code",
+        AgentKind.Pi => "Pi",
+        AgentKind.Codex => "Codex",
+        AgentKind.Gemini => "Gemini",
+        AgentKind.OpenCode => "OpenCode",
+        AgentKind.RawCli => "Custom",
+        _ => Type.ToString(),
+    };
+
+    public static AgentEntryRow From(AgentEntry entry, string statusText) => new()
+    {
+        Id = entry.Id,
+        DisplayName = entry.DisplayName,
+        Type = entry.Type,
+        Enabled = entry.Enabled,
+        ExecutablePath = entry.ExecutablePath,
+        PresetId = entry.PresetId,
+        DefaultModel = entry.DefaultModel,
+        ArgsOverride = entry.ArgsOverride,
+        StatusText = statusText,
+    };
+
+    private void OnChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

@@ -130,208 +130,137 @@
             </TabItem>
 
             <TabItem Header="Agents">
-                <Grid RowDefinitions="Auto,*">
+                <Grid RowDefinitions="Auto,*,Auto">
                     <StackPanel Grid.Row="0" Spacing="8" Margin="0,4,14,8">
-                        <TextBlock Classes="sectionTitle" Text="Agent tools" />
-                        <TextBlock Classes="hint" Text="The machine-level library of agent CLI tools CC Director can launch. Each tool has a command-line preset, a default model, and an Enabled flag; the read-only strip under each tool shows exactly what launches. Use Detect / Browse to locate an executable, Quick check for a safe version probe, or Launch preview to watch the agent start. Claude Code now defaults to Automatic (skip permissions), which passes --dangerously-skip-permissions, superseding the safe Standard default from issue #391; switch the Command line dropdown to Standard to restore permission prompts." />
+                        <TextBlock Classes="sectionTitle" Text="Agents" />
+                        <TextBlock Classes="hint" Text="Your agents, in the order they appear in New Session. Each entry is a configured agent CLI - you can add several of the same type (e.g. two Claude entries with different presets). Use the Up/Down arrows to reorder, Add Agent to create one, and Edit to set the executable, command-line preset, model, and arguments. The Detection wizard can scan this machine for known tools." />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button x:Name="AddAgentButton" Classes="dialogButton" Content="+ Add Agent"
+                                    Width="120" Click="BtnAddAgent_Click"
+                                    ToolTip.Tip="Add a new agent entry to the list" />
                             <Button x:Name="RunWizardButton" Classes="dialogButton" Content="Detection wizard..."
                                     Width="150" Click="BtnRunWizard_Click"
                                     ToolTip.Tip="Scan this machine for known tools and add the ones it finds with their recommended settings" />
-                            <Button x:Name="DetectAllToolsButton" Classes="dialogButton" Content="Detect All"
-                                    Width="120" Click="BtnDetectAllTools_Click" />
-                            <Button x:Name="TestAllToolsButton" Classes="dialogButton" Content="Test All"
-                                    Width="120" Click="BtnTestAllTools_Click" />
                             <TextBlock x:Name="AgentToolsStatus" Text="" Foreground="#888888"
                                        FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"
                                        IsVisible="False" />
                         </StackPanel>
                     </StackPanel>
 
+                    <!-- CRUD list of agent entries (issue #489). Columns: Order (Up/Down),
+                         Display name, Type, Enabled, Status, and per-row Edit/Remove. -->
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
-                        <StackPanel Spacing="6">
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Claude Code" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="ClaudeEnabledCheck" Grid.Column="1" Content="Enabled"
-                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center"
-                                              ToolTip.Tip="Whether this tool is available for launching from this machine" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                    <TextBox x:Name="ClaudePathBox" Grid.Column="0" Classes="settingsInput" Watermark="claude" />
-                                    <Button x:Name="DetectClaudeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectClaude_Click" />
-                                    <Button x:Name="QuickCheckClaudeButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnTestClaude_Click" />
-                                    <Button x:Name="LaunchPreviewClaudeButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnLaunchPreviewClaude_Click" />
-                                    <Button x:Name="BrowseClaudeButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseClaude_Click" />
-                                </Grid>
-                                <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox x:Name="ClaudePresetCombo" Grid.Column="1"
-                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                              SelectionChanged="ToolPreviewInput_Changed"
-                                              ToolTip.Tip="Automatic (skip permissions) is the default and passes --dangerously-skip-permissions. Standard restores permission prompts." />
-                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                    <TextBox x:Name="ClaudeModelBox" Grid.Column="3" Classes="settingsInput"
-                                             Watermark="(none - tool default)"
-                                             TextChanged="ToolPreviewInput_Changed"
-                                             ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
-                                </Grid>
-                                <TextBox x:Name="ClaudeArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                         TextChanged="ToolPreviewInput_Changed"
-                                         ToolTip.Tip="When set, these args replace the selected preset's arguments" />
-                                <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
-                                <TextBox x:Name="ClaudePreviewStrip" Classes="previewStrip"
-                                         ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-                                <TextBlock x:Name="ClaudeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Spacing="4">
+                            <!-- Header row -->
+                            <Grid ColumnDefinitions="64,*,110,70,*,140" Margin="8,0,8,2">
+                                <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Order" />
+                                <TextBlock Grid.Column="1" Classes="fieldLabel" Text="Display name" />
+                                <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Type" />
+                                <TextBlock Grid.Column="3" Classes="fieldLabel" Text="Enabled" />
+                                <TextBlock Grid.Column="4" Classes="fieldLabel" Text="Status" />
+                                <TextBlock Grid.Column="5" Classes="fieldLabel" Text="" />
+                            </Grid>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Pi" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="PiEnabledCheck" Grid.Column="1" Content="Enabled"
-                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                    <TextBox x:Name="PiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="pi or D:\Tools\Pi\pi.exe" />
-                                    <Button x:Name="DetectPiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectPi_Click" />
-                                    <Button x:Name="QuickCheckPiButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnTestPi_Click" />
-                                    <Button x:Name="LaunchPreviewPiButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnLaunchPreviewPi_Click" />
-                                    <Button x:Name="BrowsePiButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowsePi_Click" />
-                                </Grid>
-                                <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox x:Name="PiPresetCombo" Grid.Column="1"
-                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                              SelectionChanged="ToolPreviewInput_Changed" />
-                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                    <TextBox x:Name="PiModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)"
-                                             TextChanged="ToolPreviewInput_Changed" />
-                                </Grid>
-                                <TextBox x:Name="PiArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                         TextChanged="ToolPreviewInput_Changed" />
-                                <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
-                                <TextBox x:Name="PiPreviewStrip" Classes="previewStrip"
-                                         ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-                                <TextBlock x:Name="PiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
+                            <ItemsControl x:Name="AgentEntriesList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6" Margin="0,0,0,2">
+                                            <Grid ColumnDefinitions="64,*,110,70,*,140" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+                                                    <Button Classes="dialogButton" Content="up" MinWidth="28" Padding="6,0"
+                                                            Tag="{Binding Id}" Click="BtnMoveUp_Click"
+                                                            ToolTip.Tip="Move this agent up" />
+                                                    <Button Classes="dialogButton" Content="dn" MinWidth="28" Padding="6,0"
+                                                            Tag="{Binding Id}" Click="BtnMoveDown_Click"
+                                                            ToolTip.Tip="Move this agent down" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Foreground="#CCCCCC"
+                                                           FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="2" Text="{Binding TypeLabel}" Foreground="#AAAAAA"
+                                                           FontSize="12" VerticalAlignment="Center" />
+                                                <CheckBox Grid.Column="3" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                          Foreground="#CCCCCC" VerticalAlignment="Center"
+                                                          ToolTip.Tip="Whether this agent is available for launching" />
+                                                <TextBlock Grid.Column="4" Text="{Binding StatusText}" Foreground="#888888"
+                                                           FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                                    <Button Classes="dialogButton" Content="Edit" Tag="{Binding Id}" Click="BtnEditAgent_Click" />
+                                                    <Button Classes="dialogButton" Content="Remove" Tag="{Binding Id}" Click="BtnRemoveAgent_Click" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Codex" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="CodexEnabledCheck" Grid.Column="1" Content="Enabled"
-                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                    <TextBox x:Name="CodexPathBox" Grid.Column="0" Classes="settingsInput" Watermark="codex" />
-                                    <Button x:Name="DetectCodexButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectCodex_Click" />
-                                    <Button x:Name="QuickCheckCodexButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnTestCodex_Click" />
-                                    <Button x:Name="LaunchPreviewCodexButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnLaunchPreviewCodex_Click" />
-                                    <Button x:Name="BrowseCodexButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseCodex_Click" />
-                                </Grid>
-                                <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox x:Name="CodexPresetCombo" Grid.Column="1"
-                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                              SelectionChanged="ToolPreviewInput_Changed" />
-                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                    <TextBox x:Name="CodexModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)"
-                                             TextChanged="ToolPreviewInput_Changed" />
-                                </Grid>
-                                <TextBox x:Name="CodexArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                         TextChanged="ToolPreviewInput_Changed" />
-                                <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
-                                <TextBox x:Name="CodexPreviewStrip" Classes="previewStrip"
-                                         ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-                                <TextBlock x:Name="CodexStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Gemini" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="GeminiEnabledCheck" Grid.Column="1" Content="Enabled"
-                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                    <TextBox x:Name="GeminiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="gemini" />
-                                    <Button x:Name="DetectGeminiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectGemini_Click" />
-                                    <Button x:Name="QuickCheckGeminiButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnTestGemini_Click" />
-                                    <Button x:Name="LaunchPreviewGeminiButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnLaunchPreviewGemini_Click" />
-                                    <Button x:Name="BrowseGeminiButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseGemini_Click" />
-                                </Grid>
-                                <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox x:Name="GeminiPresetCombo" Grid.Column="1"
-                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                              SelectionChanged="ToolPreviewInput_Changed" />
-                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                    <TextBox x:Name="GeminiModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)"
-                                             TextChanged="ToolPreviewInput_Changed" />
-                                </Grid>
-                                <TextBox x:Name="GeminiArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                         TextChanged="ToolPreviewInput_Changed" />
-                                <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
-                                <TextBox x:Name="GeminiPreviewStrip" Classes="previewStrip"
-                                         ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-                                <TextBlock x:Name="GeminiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="OpenCode" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="OpenCodeEnabledCheck" Grid.Column="1" Content="Enabled"
-                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                                    <TextBox x:Name="OpenCodePathBox" Grid.Column="0" Classes="settingsInput" Watermark="opencode" />
-                                    <Button x:Name="DetectOpenCodeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectOpenCode_Click" />
-                                    <Button x:Name="QuickCheckOpenCodeButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
-                                            ToolTip.Tip="Run a safe version probe of this executable" Click="BtnTestOpenCode_Click" />
-                                    <Button x:Name="LaunchPreviewOpenCodeButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
-                                            ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnLaunchPreviewOpenCode_Click" />
-                                    <Button x:Name="BrowseOpenCodeButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseOpenCode_Click" />
-                                </Grid>
-                                <Grid ColumnDefinitions="Auto,*,Auto,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox x:Name="OpenCodePresetCombo" Grid.Column="1"
-                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
-                                              SelectionChanged="ToolPreviewInput_Changed" />
-                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
-                                    <TextBox x:Name="OpenCodeModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)"
-                                             TextChanged="ToolPreviewInput_Changed" />
-                                </Grid>
-                                <TextBox x:Name="OpenCodeArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
-                                         TextChanged="ToolPreviewInput_Changed" />
-                                <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
-                                <TextBox x:Name="OpenCodePreviewStrip" Classes="previewStrip"
-                                         ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
-                                <TextBlock x:Name="OpenCodeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
-
+                            <TextBlock x:Name="AgentEntriesEmpty" Text="No agents configured. Click + Add Agent to create one."
+                                       Foreground="#888888" FontSize="12" FontStyle="Italic" Margin="8,8,0,0" IsVisible="False" />
                         </StackPanel>
                     </ScrollViewer>
+
+                    <!-- Add/Edit editor (issue #489): collapsed until Add/Edit is clicked. Holds the
+                         per-entry fields that used to be inline on the fixed cards. -->
+                    <Border Grid.Row="2" x:Name="AgentEditorPanel" IsVisible="False"
+                            Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10" Margin="0,8,14,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="AgentEditorTitle" Text="Add Agent" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Display name" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBox x:Name="EditorDisplayNameBox" Grid.Column="1" Classes="settingsInput"
+                                         Watermark="e.g. Claude (read-only)" />
+                                <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Type" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                <ComboBox x:Name="EditorTypeCombo" Grid.Column="3" MinWidth="140"
+                                          Background="#1E1E1E" Foreground="#CCCCCC"
+                                          SelectionChanged="EditorTypeCombo_Changed" />
+                            </Grid>
+
+                            <CheckBox x:Name="EditorEnabledCheck" Content="Enabled" IsChecked="True"
+                                      Foreground="#CCCCCC" FontSize="12"
+                                      ToolTip.Tip="Whether this agent is available for launching from this machine" />
+
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                                <TextBox x:Name="EditorPathBox" Grid.Column="0" Classes="settingsInput"
+                                         Watermark="executable path or bare command"
+                                         TextChanged="EditorInput_Changed" />
+                                <Button x:Name="EditorDetectButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnEditorDetect_Click" />
+                                <Button x:Name="EditorQuickCheckButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
+                                        ToolTip.Tip="Run a safe version probe of this executable" Click="BtnEditorQuickCheck_Click" />
+                                <Button x:Name="EditorLaunchPreviewButton" Grid.Column="3" Classes="dialogButton" Content="Launch preview..." Margin="8,0,0,0"
+                                        ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line below (nothing is saved)" Click="BtnEditorLaunchPreview_Click" />
+                                <Button x:Name="EditorBrowseButton" Grid.Column="4" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnEditorBrowse_Click" />
+                            </Grid>
+
+                            <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox x:Name="EditorPresetCombo" Grid.Column="1"
+                                          Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
+                                          SelectionChanged="EditorPreset_Changed"
+                                          ToolTip.Tip="The command-line preset for this agent type" />
+                                <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                <TextBox x:Name="EditorModelBox" Grid.Column="3" Classes="settingsInput"
+                                         Watermark="(none - tool default)"
+                                         TextChanged="EditorInput_Changed"
+                                         ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
+                            </Grid>
+
+                            <TextBox x:Name="EditorArgsOverrideBox" Classes="settingsInput"
+                                     Watermark="optional: free-text args that REPLACE the preset (advanced)"
+                                     TextChanged="EditorInput_Changed"
+                                     ToolTip.Tip="When set, these args replace the selected preset's arguments" />
+
+                            <TextBlock Classes="fieldLabel" Text="This is what launches:" Margin="0,2,0,0" />
+                            <TextBox x:Name="EditorPreviewStrip" Classes="previewStrip"
+                                     ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the preset, model, or override" />
+
+                            <TextBlock x:Name="EditorStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,4,0,0">
+                                <Button x:Name="EditorSaveButton" Classes="primaryButton" Content="Save agent" MinWidth="110" Click="BtnEditorSave_Click" />
+                                <Button Classes="dialogButton" Content="Cancel" Width="90" Click="BtnEditorCancel_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </TabItem>
 
