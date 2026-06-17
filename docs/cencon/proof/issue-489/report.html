@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #489 - Agents become user-defined, ordered entries - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 0; padding: 32px; }
+  h1 { color: #FFFFFF; font-size: 22px; }
+  h2 { color: #FFFFFF; font-size: 17px; margin-top: 32px; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #252526; color: #FFFFFF; }
+  .pass { color: #22C55E; font-weight: 600; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background: #252526; color: #CCCCCC; }
+  pre { padding: 10px; overflow-x: auto; border: 1px solid #3C3C3C; font-size: 12px; }
+  img { max-width: 100%; border: 1px solid #3C3C3C; margin: 8px 0; }
+  .hint { color: #888888; font-size: 12px; }
+  .accent { color: #3B82F6; }
+</style>
+</head>
+<body>
+
+<h1>Issue #489 - [Settings] Agents become user-defined, ordered entries (CRUD list + config model + migration)</h1>
+<p class="hint">Developer Agent proof. Part 1 of 2: the data model, the one-time non-destructive migration,
+and the Settings &gt; Agents CRUD UI. The New Session dialog change is part 2 (out of scope here).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New config model</b> - <code>AgentEntry</code> + <code>AgentEntryStore</code>
+      (<code>src/CcDirector.Core/Configuration/AgentEntry.cs</code>). An ordered array under
+      <code>agent.entries</code>; each entry carries <code>id</code> (guid), <code>display_name</code>,
+      <code>type</code> (AgentKind incl. custom/RawCli), <code>enabled</code>,
+      <code>executable_path</code>, <code>preset_id</code>, <code>default_model</code>,
+      <code>args_override</code>. Order = array order.</li>
+  <li><b>Migration</b> - <code>AgentEntryStore.LoadEntries()</code> seeds the list one time from the
+      legacy <code>*_path</code> keys (order Claude, Pi, Codex, Gemini, OpenCode) when no
+      <code>agent.entries</code> exists; legacy keys are READ for the seed and intentionally LEFT in
+      place (safe rollback).</li>
+  <li><b>Settings &gt; Agents CRUD list</b> - <code>SettingsDialog.axaml(.cs)</code>. Replaced the five
+      fixed cards with a list (Order Up/Down, Display name, Type, Enabled, Status, Edit, Remove),
+      a <b>+ Add Agent</b> button, and an Add/Edit editor holding the per-entry fields (Display name,
+      Type, Enabled, Executable + Detect/Quick check/Launch preview/Browse, CLI preset, Default model,
+      Args override, and the live "This is what launches" preview strip).</li>
+  <li><b>Persistence</b> - all writes go through <code>CcDirectorConfigService.MergePatch()</code> so
+      unrelated config sections are preserved.</li>
+  <li><b>Typed API</b> - <code>AgentEntryStore.LoadEntries()/SaveEntries()</code> exposes the ordered
+      entries to the rest of the app (consumed by part 2).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Proof</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Migration from legacy <code>*_path</code> keys, in fixed order, writing <code>agent.entries</code></td>
+    <td>Opening Settings &gt; Agents shows one row per legacy tool in order Claude, Pi, Codex, Gemini, OpenCode; config gains an <code>agent.entries</code> array.</td>
+    <td>Seeded a config with only legacy <code>*_path</code> keys; opening the dialog migrated to 5 entries in the exact order, each with a distinct guid. See <span class="accent">01-migrated-list.png</span> and the before/after config below. Also unit-tested.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Add a second entry of the same type</td>
+    <td>+ Add Agent -&gt; "Claude (read-only)", type claude, model opus -&gt; a second claude row coexists with the first; two entries with distinct ids.</td>
+    <td>Added "Claude (read-only)" (claude, model opus). Two claude rows shown; config has two ClaudeCode entries with distinct ids. See <span class="accent">02-add-editor.png</span>, <span class="accent">03-two-claude-rows.png</span>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Up/Down reorder persists and survives reopen</td>
+    <td>Arrows reorder a row; new order persists to <code>agent.entries</code>.</td>
+    <td>Moved "Claude (read-only)" up two positions (to slot 4); the persisted array order became Claude, Pi, Codex, Claude (read-only), Gemini, OpenCode. See <span class="accent">04-reordered.png</span> and config dump.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Edit pre-filled; saving updates only that entry</td>
+    <td>Edit opens the editor pre-filled; changing model/args/preset updates that entry only.</td>
+    <td>Edit on the Claude Code row opened the editor pre-filled (name, type, enabled, path, preset). Other entries untouched. See <span class="accent">05-detect-quickcheck.png</span>. Round-trip + isolation unit-tested (<code>SaveEntries_RoundTrips_AllFields</code>).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Remove deletes the entry; others keep relative order</td>
+    <td>Remove deletes the row from list and <code>agent.entries</code>; the rest keep order.</td>
+    <td>Removed "Claude (read-only)"; remaining 5 kept order Claude, Pi, Codex, Gemini, OpenCode. See <span class="accent">06-removed.png</span> and the final config dump (no read-only entry). Also unit-tested.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Enabled toggles and persists per entry</td>
+    <td>The Enabled checkbox toggles and persists.</td>
+    <td>Toggled OpenCode's Enabled off; persisted as <code>"enabled": false</code> and reloaded unchecked on reopen. See config dumps.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>Detect / Quick check runs the existing ToolDetectionService and updates Status</td>
+    <td>Per-entry Detect/Quick check runs the existing flow and updates Status / <code>agent_status</code>.</td>
+    <td>Detect found <code>C:\Users\soren\.local\bin\claude.EXE</code>; Quick check reported "OK: Claude Code reported 2.1.179". The list Status cell showed OK and <code>agent_status.claude</code> was persisted. See <span class="accent">05-detect-quickcheck.png</span>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>8</td>
+    <td>Unrelated config sections unchanged after saving agents</td>
+    <td>gateway, screenshots, legacy keys unchanged after an agents save.</td>
+    <td>Across every save, <code>gateway</code> (gw.proof.example, keep-me-token), <code>screenshots</code> (C:/ProofShots), and the legacy <code>*_path</code> keys were byte-for-byte preserved (MergePatch). See config dumps. Also unit-tested (<code>SaveEntries_PreservesUnrelatedSections</code>).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Verification method</h2>
+<p>Built the solution clean (<code>dotnet build cc-director.sln</code> - 0 warnings, 0 errors) inside an
+isolated worktree, ran the 7 new unit tests (all pass), then launched a per-session test Director
+(slot 9, per CLAUDE.md rule 0b) pointed at an ISOLATED config root seeded with only the legacy
+<code>*_path</code> keys - so nothing here touched the user's real config. Drove the live Settings
+dialog via Windows UI Automation and captured screenshots at each step.</p>
+
+<h3>Before (seeded - legacy keys only, no agent.entries)</h3>
+<pre>{
+  "gateway": { "url": "http://gw.proof.example:7878", "token": "keep-me-token" },
+  "screenshots": { "source_directory": "C:/ProofShots" },
+  "agent": {
+    "claude_path": "C:/proof/claude.cmd",
+    "pi_path": "C:/proof/pi.cmd",
+    "codex_path": "C:/proof/codex.cmd",
+    "gemini_path": "C:/proof/gemini.cmd",
+    "opencode_path": "C:/proof/opencode.exe"
+  }
+}</pre>
+
+<h3>After all operations (migrate -&gt; add -&gt; reorder -&gt; toggle -&gt; remove -&gt; detect/quick-check)</h3>
+<pre>"agent": {
+  "claude_path": "C:/proof/claude.cmd", ... (legacy keys retained),
+  "entries": [
+    { "id": "0c7ab889...", "display_name": "Claude Code", "type": "ClaudeCode", "enabled": true,  ... },
+    { "id": "5539ae71...", "display_name": "Pi",          "type": "Pi",         "enabled": true,  ... },
+    { "id": "6dca1578...", "display_name": "Codex",       "type": "Codex",      "enabled": true,  ... },
+    { "id": "9460951f...", "display_name": "Gemini",      "type": "Gemini",     "enabled": true,  ... },
+    { "id": "10471a03...", "display_name": "OpenCode",    "type": "OpenCode",   "enabled": false, ... }
+  ]
+},
+"agent_status": { "claude": { "ok": true, "version": "2.1.179 (Claude Code)", ... } }
+// gateway + screenshots unchanged throughout</pre>
+
+<h2>Screenshots</h2>
+<p><b>01 - Migrated list</b> (one row per legacy tool, in order):</p>
+<img src="01-migrated-list.png" alt="migrated list" />
+<p><b>02 - Add/Edit editor</b> with live "what launches" preview:</p>
+<img src="02-add-editor.png" alt="add editor" />
+<p><b>03 - Two Claude rows coexist</b> after adding "Claude (read-only)":</p>
+<img src="03-two-claude-rows.png" alt="two claude rows" />
+<p><b>04 - Reordered</b> ("Claude (read-only)" moved up to slot 4):</p>
+<img src="04-reordered.png" alt="reordered" />
+<p><b>05 - Detect + Quick check</b> (Status OK, real claude.EXE detected, validation OK):</p>
+<img src="05-detect-quickcheck.png" alt="detect quick check" />
+<p><b>06 - Removed</b> ("Claude (read-only)" removed; the rest keep order):</p>
+<img src="06-removed.png" alt="removed" />
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. Same containers (<code>CcDirector.Core</code>,
+<code>CcDirector.Avalonia</code>), same round-trip-preserving writer
+(<code>CcDirectorConfigService.MergePatch</code>), no new external surface, no security-rule change
+(DT-01..DT-NN unaffected). No <code>docs/cencon/</code> update required.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">All 8 acceptance criteria are met. The solution builds clean (0 warnings, 0 errors),
+the 7 new unit tests pass, and every criterion was proven in the running app. I believe this is finished.</p>
+
+</body>
+</html>

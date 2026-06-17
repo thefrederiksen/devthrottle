@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #489 (Agents become user-defined, ordered entries)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1b1b1b; max-width: 1100px; }
+  h1 { border-bottom: 2px solid #5319e7; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; background: #f6f6f6; }
+  pre { padding: .6rem; overflow-x: auto; border: 1px solid #e0e0e0; }
+  img { max-width: 980px; border: 1px solid #ddd; margin: .4rem 0; display: block; }
+  .verdict { background: #e8f9ee; border: 1px solid #0a7d28; padding: 1rem; margin-top: 2rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #489</h1>
+<p><strong>Title:</strong> [Settings] Agents become user-defined, ordered entries (CRUD list + config model + migration)</p>
+<p><strong>PR:</strong> #492 &nbsp; <strong>Branch:</strong> issue-489-agent-entries &nbsp; <strong>Verified by:</strong> QA Agent (independent session)</p>
+
+<h2>How this was verified (independent)</h2>
+<p>The QA Agent built the PR branch in its own worktree (<code>D:\ReposFred\devthrottle-wt-489</code>),
+allocated isolated dev <strong>slot 9</strong>, and launched the test Director via a scheduled task with
+<code>CC_DIRECTOR_ROOT</code> pointed at a throwaway config root pre-seeded with <em>only</em> the legacy
+<code>*_path</code> keys (no <code>agent.entries</code>). The Settings &gt; Agents UI was driven via Windows
+UI Automation; every criterion was reproduced and screenshotted, and the on-disk <code>config.json</code> was
+inspected for state proof. The Director's own binary/screenshots were NOT reused.</p>
+<ul>
+  <li>Build: <code>scripts\local-build-avalonia.ps1 -Slot 9</code> -&gt; Build succeeded, 0 warnings, 0 errors.</li>
+  <li>Tests: full Core suite <strong>1971 passed / 0 failed / 3 skipped</strong>; the 7 new AgentEntry tests pass.</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Migration from legacy <code>*_path</code> -&gt; ordered <code>agent.entries</code> (Claude, Pi, Codex, Gemini, OpenCode); legacy keys retained</td>
+<td>Settings shows 5 rows in that order; config grows an <code>agent.entries</code> array</td>
+<td>5 rows shown in exact order; <code>agent.entries</code> written with 5 entries each with a distinct GUID, seeded from the <code>*_path</code> values; legacy keys still present</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Add a second claude-typed entry ("Claude (read-only)")</td>
+<td>A 6th row appears; two ClaudeCode entries with distinct ids</td>
+<td>Row "Claude (read-only)" (Type Claude Code) added; config has two ClaudeCode entries, ids <code>51f962ba...</code> and <code>436d59c1...</code> (distinct)</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Up/Down reorder persists and survives reopen</td>
+<td>Moved row's new position written to the array and shown after reopening</td>
+<td>"Claude (read-only)" moved up past OpenCode; array order = Claude Code, Pi, Gemini, Claude (read-only), OpenCode; reopening the dialog shows the same order</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Edit pre-fills; changing model/args updates only that entry</td>
+<td>Editor opens pre-filled; only edited entry changes</td>
+<td>Edit on Gemini opened pre-filled with its name + path; set model <code>gemini-2.5-pro</code> + args <code>--yolo</code>; only the Gemini entry changed, all others byte-identical</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Remove deletes the entry; remaining keep order</td>
+<td>Entry gone from list and array; order preserved</td>
+<td>Codex removed; 5 entries remain in their relative order</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Enabled checkbox toggles and persists per entry</td>
+<td>Toggle persists to that entry</td>
+<td>OpenCode toggled off -&gt; <code>"enabled": false</code>; all others <code>true</code>; survives reopen</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Detect / Quick check runs ToolDetectionService and updates Status / <code>agent_status</code></td>
+<td>Flow runs; status updated and persisted</td>
+<td>Quick check returned "OK: Claude Code reported 2.1.179 (Claude Code)."; <code>agent_status.claude</code> persisted with <code>ok:true</code>, version, path. Detect also resolved the tool.</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Unrelated config sections unchanged after saving agents</td>
+<td>gateway/screenshots byte-for-byte unchanged</td>
+<td>gateway and screenshots identical before vs after all agent edits; legacy <code>*_path</code> retained</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Config proof - BEFORE (legacy only, no entries)</h2>
+<pre>"agent": {
+  "claude_path": "C:/qa/claude.exe",
+  "pi_path": "C:/qa/pi.exe",
+  "codex_path": "C:/qa/codex.exe",
+  "gemini_path": "C:/qa/gemini.exe",
+  "opencode_path": "C:/qa/opencode.exe"
+}</pre>
+
+<h2>Config proof - AFTER all CRUD ops (excerpt)</h2>
+<pre>"agent": {
+  "claude_path": "C:/qa/claude.exe", "pi_path": "...", "codex_path": "...", "gemini_path": "...", "opencode_path": "...",
+  "entries": [
+    { "id": "51f962ba-...", "display_name": "Claude Code",        "type": "ClaudeCode", "enabled": true  },
+    { "id": "8b0c95e7-...", "display_name": "Pi",                 "type": "Pi",         "enabled": true  },
+    { "id": "379bbb89-...", "display_name": "Gemini",             "type": "Gemini",     "enabled": true,
+      "default_model": "gemini-2.5-pro", "args_override": "--yolo" },     // AC4 edit, only this entry
+    { "id": "436d59c1-...", "display_name": "Claude (read-only)", "type": "ClaudeCode", "enabled": true,
+      "default_model": "sonnet" },                                       // AC2 second claude, distinct id
+    { "id": "ac6e17b2-...", "display_name": "OpenCode",           "type": "OpenCode",   "enabled": false } // AC6
+  ]
+  // Codex removed (AC5). Order = AC3 reorder. gateway/screenshots unchanged (AC8).
+}
+// top-level agent_status.claude = { ok:true, version:"2.1.179 (Claude Code)", ... }  // AC7</pre>
+
+<h2>Screenshots (read and judged)</h2>
+<p>AC1 - migrated list, 5 rows in order:</p><img src="ac1-migrated-list.png">
+<p>AC2 - second Claude entry "Claude (read-only)" coexists (6 rows):</p><img src="ac2-two-claude.png">
+<p>AC3 - after reorder (Claude read-only moved up past OpenCode):</p><img src="ac3-reordered.png">
+<p>AC3 - order survives reopening the dialog:</p><img src="ac3-survives-reopen.png">
+<p>AC4 - Edit editor opened pre-filled (Gemini), resolved-command preview:</p><img src="ac4-editor-prefilled.png">
+<p>AC5/AC6 - Codex removed; OpenCode Enabled unchecked:</p><img src="ac5-removed-ac6-disabled.png">
+<p>AC7 - Quick check OK (green): "Claude Code reported 2.1.179":</p><img src="ac7-quickcheck-ok.png">
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>Negative sweep on every screenshot: no adjacent breakage (Gateway/Directories/Features tabs intact; list, editor, buttons render correctly).</li>
+  <li>Full Core test suite green (1971 passed). No new warnings in build.</li>
+  <li>review-code lens: handlers log at entry, try-catch only at event-handler entry points, async I/O off the UI thread (Task.Run), no fallback programming; reuses existing ToolDetectionService + CcDirectorConfigService.MergePatch. No new security surface; no architecture/security drift requiring docs/cencon updates.</li>
+</ul>
+
+<div class="verdict"><strong>VERIFIED - all 8 acceptance criteria met.</strong> Independent verification in a running test Director against an isolated config; UI behavior and on-disk config both confirmed for every criterion.</div>
+</body>
+</html>
