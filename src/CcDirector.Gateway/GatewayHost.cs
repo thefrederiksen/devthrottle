@@ -83,6 +83,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly GatewayTurnBriefStore _turnBriefStore;
     private readonly KeyVault _keyVault;
     private readonly WorkListStore _workLists;
+    private readonly CronJobStore _cronJobs;
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
     // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
@@ -113,7 +114,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\worklists.json</c>
     /// (the keyvault.json precedent).
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null)
+    /// <param name="cronJobsPath">
+    /// Override the cron-job store file (epic #479, #482). Tests pass an isolated temp path;
+    /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronjobs.json</c>.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -153,6 +158,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Gateway data dir, loaded here (stale claims released) and written through on every
         // mutation. Tests MUST pass an isolated path so they never touch the real store.
         _workLists = new WorkListStore(workListsPath ?? Path.Combine(CcStorage.Root(), "worklists.json"));
+        // Cron-job definitions persist across a Gateway restart (epic #479, #482): one JSON file in
+        // the Gateway data dir, loaded here (next-run times recomputed) and written through on every
+        // mutation - the WorkListStore precedent. Tests MUST pass an isolated path so they never
+        // touch the real store.
+        _cronJobs = new CronJobStore(cronJobsPath ?? Path.Combine(CcStorage.Root(), "cronjobs.json"));
     }
 
     /// <summary>
@@ -439,6 +449,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // release). Inherits the host-wide token middleware above and is reachable cross-machine
         // like the rest of the Gateway surface.
         WorkListEndpoints.Map(_app, _workLists);
+
+        // Cron jobs (epic #479, part 1 = #482): the REST CRUD surface over the cron-job definition
+        // store. Manages definitions only - the background firing engine is part 2 (#483).
+        // Persisted to cronjobs.json across restarts (write-through + reload-on-start with
+        // next-run recompute). Inherits the host-wide token middleware above.
+        CronJobEndpoints.Map(_app, _cronJobs);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,

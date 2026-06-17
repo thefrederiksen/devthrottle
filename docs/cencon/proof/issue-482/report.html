@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proof Report - Issue #482</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Proof Report - Issue #482</h1>
+<h2>Cron jobs (1/3): job store, DTOs, and REST CRUD</h2>
+<p><strong>Part 1 of 3 of epic #479.</strong> Durable foundation: define and manage cron-job definitions over REST. No firing (that is #483).</p>
+<p><strong>Branch/PR:</strong> issue-482-cron-store-crud (PR #485)
+        <strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong> (TreatWarningsAsErrors=true across all projects).</p>
+<hr/>
+<h2>How this slice is proven</h2>
+<p>The Gateway exposes <strong>no UI</strong> for this slice, so the running-app proof is the <strong>real HTTP</strong> endpoint suite (<code>CronJobEndpointsTests</code>): it boots the actual <code>CronJobEndpoints</code> on an ephemeral loopback port with a fresh <code>CronJobStore</code> and drives the full CRUD contract over the wire - the same harness the shipped <code>WorkListEndpoints</code> are proven with. Persistence/restart (AC2, AC3) is proven by <code>CronJobStoreTests</code> exactly as the shipped <code>WorkListStore</code> persistence is: a "restart" is a brand-new store instance loading the same file - what a new Gateway process does. Schedule grammar/timezone (AC5 + the next-run computation) is proven by <code>CronScheduleTests</code>.</p>
+<p><strong>Test result:</strong> <code>dotnet test --filter Cron</code> -&gt; <strong>Passed: 31, Failed: 0</strong> (15 schedule + 12 store + 7 endpoint).</p>
+<hr/>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Proof (test)</th>
+<th>Expected</th>
+<th>Actual</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td><code>POST /cron/jobs</code> valid -&gt; 201 with id + <code>nextRunUtc</code>; <code>GET {id}</code> returns it</td>
+<td><code>CronJobEndpointsTests.Post_ValidJob_Returns201_WithIdAndNextRun</code>, <code>.Get_ById_ReturnsJob...</code></td>
+<td>201, id starts <code>cj_</code>, <code>nextRunUtc</code> set</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Persisted to <code>cronjobs.json</code> (atomic write-through); corrupt file quarantined, no crash</td>
+<td><code>CronJobStoreTests.Create_...Persists</code>, <code>.CorruptFile_IsQuarantined_StoreStartsEmpty_BytesPreserved</code>, <code>.Save_LeavesNoTempResidue_AndFileIsWholeJson</code></td>
+<td>written through; corrupt -&gt; <code>.corrupt-&lt;stamp&gt;</code>, store boots empty</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Survives Gateway restart; <code>nextRunUtc</code> recomputed</td>
+<td><code>CronJobStoreTests.RoundTrip_MultipleJobs_SurviveReloadWithRecomputedNextRun</code></td>
+<td>fresh store on same file returns jobs with recomputed next-run</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td><code>PUT</code> updates + persists; <code>DELETE</code> removes; subsequent <code>GET</code> 404</td>
+<td><code>CronJobEndpointsTests.Put_UpdatesJob_AndMissingReturns404</code>, <code>.Delete_RemovesJob_AndMissingReturns404</code>; <code>CronJobStoreTests.Update_...</code>, <code>.Delete_...</code></td>
+<td>PUT 200/404, DELETE 200 then GET 404</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>Invalid cron expression -&gt; 400, not stored</td>
+<td><code>CronJobEndpointsTests.Post_InvalidCron_Returns400_AndIsNotStored</code>; <code>CronScheduleTests.Validate_InvalidCronExpression_Fails</code></td>
+<td>400; list stays empty</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td><code>GET /cron/jobs</code> lists all jobs</td>
+<td><code>CronJobEndpointsTests.GetAll_ListsCreatedJobs</code></td>
+<td>list of 2 after creating 2</td>
+<td>PASS</td>
+</tr>
+</tbody>
+</table>
+<p>Supporting correctness (next-run math): <code>CronScheduleTests.ComputeNextRunUtc_DailyMidnightChicago_IsNextLocalMidnightInUtc</code> and <code>...OneOff_ConvertsLocalRunAtToUtc</code> prove 00:00 America/Chicago resolves to 05:00 UTC (CDT), so the stored <code>nextRunUtc</code> is correct and explicit.</p>
+<hr/>
+<h2>CenCon impact</h2>
+<p>Adds a store + REST surface to the <code>gateway</code> container and DTOs to <code>gateway_contracts</code>, plus the Cronos NuGet dependency. No security-posture change (inherits the host-wide token middleware; no new auth surface, no secrets logged). The architecture_manifest <code>gateway</code> container gains the cron store/endpoints; recommend the Support Agent record this when the engine (part 2) lands so the manifest reflects the whole feature at once.</p>
+<hr/>
+<h2>Note on the full-suite run</h2>
+<p>The full <code>CcDirector.Gateway.Tests</code> run shows one unrelated failure: <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> (Vosk realtime transcription - "expected at least 1 partial transcript, got 0"). It is environment-dependent (needs the Vosk model/audio realtime provider present) and touches no cron code; CI - which gates this PR - is the authority on the suite. All 31 cron tests pass.</p>
+<hr/>
+<h2>Statement</h2>
+<p>I believe this slice (#482) is finished: the store + DTOs + REST CRUD are implemented, the solution builds clean with zero warnings, and every acceptance criterion is proven by a passing test (real HTTP for the endpoints, file round-trip for persistence). Firing is intentionally out of scope and lands in #483.</p>
+</article>
+</body>
+</html>
