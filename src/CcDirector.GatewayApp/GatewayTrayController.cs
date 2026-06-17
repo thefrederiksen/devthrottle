@@ -128,7 +128,7 @@ public sealed class GatewayTrayController : IDisposable
 
         var rows = new List<StatusRow>
         {
-            new("Version", AppVersion.Full),
+            new("Version", AppVersion.Full.Split('+')[0]), // trim the +githash, matching the launcher
             new("Directors", directors.ToString()),
             new("Mode", GatewayAppOptions.Managed ? "managed" : "dev"),
             new("Uptime", uptime),
