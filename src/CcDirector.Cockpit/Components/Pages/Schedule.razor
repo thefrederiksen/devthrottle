@@ -118,14 +118,67 @@
                 </div>
 
                 <div class="fld">
-                    <label class="fld-label">Run on (Director)</label>
-                    <select @bind="_fDirectorId">
-                        <option value="">-- choose a Director --</option>
-                        @foreach (var d in _directors)
+                    <label class="fld-label">
+                        Run on (Director)
+                        @if (_directors.Count > 4)
                         {
-                            <option value="@d.DirectorId">@d.MachineName (@d.DirectorId)</option>
+                            <span class="filter"><input placeholder="filter machine / port" @bind="_directorFilter" @bind:event="oninput" /></span>
                         }
-                    </select>
+                    </label>
+                    @if (_directors.Count == 0)
+                    {
+                        <div class="dpick-empty">No Directors registered with this Gateway.</div>
+                    }
+                    else
+                    {
+                        <div class="dpick">
+                            @foreach (var d in FilteredDirectors())
+                            {
+                                var dir = d;
+                                var unreachable = IsUnreachable(dir);
+                                var sessions = SessionsFor(dir.DirectorId);
+                                var needs = sessions.Count(s => s.NeedsYouSince is not null);
+                                <button type="button"
+                                        class="dcard @(_fDirectorId == dir.DirectorId ? "sel" : "") @(unreachable ? "dead" : "")"
+                                        disabled="@unreachable"
+                                        @onclick="() => SelectDirector(dir.DirectorId)">
+                                    <div class="dcard-top">
+                                        <span class="dot @(unreachable ? "dead" : "ok")"></span>
+                                        <span class="dname">@dir.MachineName</span>
+                                        <span class="dport">@PortLabel(dir)</span>
+                                        <span class="dmeta">@(string.IsNullOrEmpty(dir.Version) ? "" : "v" + dir.Version)@(unreachable ? "" : " · up " + Uptime(dir.StartedAt))</span>
+                                        @if (needs > 0)
+                                        {
+                                            <span class="dneeds">@needs NEEDS YOU</span>
+                                        }
+                                    </div>
+                                    @if (unreachable)
+                                    {
+                                        <div class="dsub dempty">unreachable - cannot target</div>
+                                    }
+                                    else if (sessions.Count == 0)
+                                    {
+                                        <div class="dsub dempty">idle · 0 sessions</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var s in sessions.OrderBy(x => x.SortOrder).Take(3))
+                                        {
+                                            <div class="dsess">
+                                                <span class="sdot @SessClass(s)"></span>
+                                                <span class="sname">@SessName(s)</span>
+                                                <span class="sstate @SessClass(s)">@SessState(s)</span>
+                                            </div>
+                                        }
+                                        @if (sessions.Count > 3)
+                                        {
+                                            <div class="dsub dempty">+@(sessions.Count - 3) more</div>
+                                        }
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div class="fld">
@@ -202,6 +255,9 @@
 @code {
     private List<CronJobDto> _jobs = new();
     private List<DirectorDto> _directors = new();
+    private List<SessionDto> _sessions = new();           // for the Director picker's live preview (#495)
+    private List<MachineErrorDto> _machineErrors = new();  // unreachable Directors from the roster envelope
+    private string _directorFilter = "";
     private List<CronRunRecord> _runs = new();
     private string? _selectedId;
     private DateTime? _lastRefresh;
@@ -314,10 +370,79 @@
 
     private async Task LoadDirectorsAsync()
     {
-        try { _directors = await Gateway.GetDirectorsAsync(_cts.Token); }
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            // The picker previews what is running on each Director, from the shared roster envelope.
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _machineErrors = env.MachineErrors;
+        }
         catch (Exception ex) { Log.LogWarning("Load directors failed: {Error}", ex.Message); }
         await InvokeAsync(StateHasChanged);
     }
+
+    // ---- Director picker (#495) ----
+
+    private void SelectDirector(string directorId) => _fDirectorId = directorId;
+
+    private IEnumerable<DirectorDto> FilteredDirectors()
+    {
+        var ordered = _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(d => PortLabel(d), StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(_directorFilter))
+            return ordered;
+        var f = _directorFilter.Trim();
+        return ordered.Where(d =>
+            d.MachineName.Contains(f, StringComparison.OrdinalIgnoreCase) ||
+            PortLabel(d).Contains(f, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<SessionDto> SessionsFor(string directorId) =>
+        _sessions.Where(s => string.Equals(s.DirectorId, directorId, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private bool IsUnreachable(DirectorDto d) =>
+        d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName ||
+        _machineErrors.Any(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The short ":&lt;port&gt;" label parsed from the control endpoint (issue #237), or the
+    /// id's short prefix when no port can be parsed - never the bare GUID alone.</summary>
+    private static string PortLabel(DirectorDto d)
+    {
+        var port = PortOf(d.ControlEndpoint);
+        if (port is null) port = PortOf(d.TailnetEndpoint);
+        return port is null ? (d.DirectorId.Length > 8 ? d.DirectorId[..8] : d.DirectorId) : $":{port}";
+    }
+
+    private static string? PortOf(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint)) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private static string Uptime(DateTime startedUtc)
+    {
+        var span = DateTime.UtcNow - startedUtc;
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h";
+        return $"{(int)span.TotalDays}d";
+    }
+
+    private static string SessName(SessionDto s) =>
+        !string.IsNullOrWhiteSpace(s.Name) ? s.Name
+        : !string.IsNullOrWhiteSpace(s.Type) ? s.Type
+        : (s.SessionId.Length > 8 ? s.SessionId[..8] : s.SessionId);
+
+    private static string SessState(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs you"
+        : string.IsNullOrWhiteSpace(s.ActivityState) ? "idle" : s.ActivityState.ToLowerInvariant();
+
+    private static string SessClass(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs"
+        : string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase) ? "run"
+        : "idle";
 
     private void CloseForm() => _showForm = false;
 

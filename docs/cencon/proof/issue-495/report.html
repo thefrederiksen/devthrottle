@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proof Report - Issue #495</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Proof Report - Issue #495</h1>
+<h2>Cockpit Director picker for cron jobs</h2>
+<p>Replaces the GUID <code>&lt;select&gt;</code> in the Schedule page's New/Edit cron-job modal with a card picker keyed on machine name + <code>:port</code>, previewing each Director's running sessions.</p>
+<p><strong>Branch/PR:</strong> issue-495-director-picker (PR pending)
+        <strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.
+        <strong>Tests:</strong> full Cockpit.Tests suite -&gt; <strong>61 Passed</strong> (+3 picker tests; no regression).</p>
+<h2>Scope of this PR</h2>
+<p>This PR implements the <strong>UI picker</strong> (the issue's required ACs 1-6, 8). The issue's optional <code>target.port</code> API resolution (AC7) is <strong>intentionally deferred to a separate issue</strong> - it touches <code>gateway</code>/<code>gateway_contracts</code> (a different container) and the issue's Assumption 4 sanctions the split. Recommend Product files it as a follow-up; I can do that on request.</p>
+<h2>How it is proven</h2>
+<p>Repo render-proof pattern (#239): bUnit renders the real compiled <code>Schedule</code> component backed by a real <code>GatewayClient</code> with a stubbed <code>HttpClient</code> serving <code>/directors</code> + <code>/sessions</code>. Screenshot of the genuine compiled picker: <code>picker-rendered.png</code> (modal open, two same-machine Directors + one other). No Gateway booted - zero fleet risk.</p>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Evidence</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>"Run on (Director)" is a card picker, not a <code>&lt;select&gt;</code></td>
+<td><code>SchedulePickerTests.Picker_is_cards_not_a_select_and_shows_ports</code> (<code>.dpick</code> + 3 <code>.dcard</code>); screenshot</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Same-machine Directors told apart by <code>:port</code>, not GUID</td>
+<td>same test asserts ports <code>:7882</code>/<code>:7885</code>/<code>:7879</code>; screenshot shows two SOREN_NORTH by port</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Each card shows reachability + a live session preview incl. NEEDS-YOU</td>
+<td><code>Picker_previews_running_sessions_and_needs_you</code> (<code>.dneeds</code>, session names, idle card "0 sessions"); screenshot</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>Selecting a card persists the selected Director's real id</td>
+<td><code>Selecting_a_card_persists_that_directors_real_id_in_the_created_job</code> asserts the POST body <code>target.directorId</code> == selected id (<code>north-7882-id</code>)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>Unreachable Director shown but not selectable</td>
+<td>card renders with <code>disabled</code>/<code>.dead</code> when <code>AdvertisedEndpointState=unreachable-by-name</code> or in the envelope's MachineErrors (code + CSS)</td>
+<td>PASS (code)</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>Edit modal uses the same picker, preselects current Director</td>
+<td><code>OpenEdit</code> sets <code>_fDirectorId=job.Target.DirectorId</code>; the picker highlights the matching card (<code>.sel</code>) - same component path as create</td>
+<td>PASS (code)</td>
+</tr>
+<tr>
+<td>AC8</td>
+<td>Async load, no freeze, immediate feedback</td>
+<td>picker data loads via <code>LoadDirectorsAsync</code> (GetDirectors + GetSessions) on modal open; selection is instant</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC7</td>
+<td>(optional) <code>target.port</code> API resolution</td>
+<td>OUT of this PR - deferred to a follow-up issue (see Scope)</td>
+<td>N/A</td>
+</tr>
+</tbody>
+</table>
+<h2>CenCon impact</h2>
+<p><code>cockpit</code> only: the Schedule page picker + scoped CSS. No <code>GatewayClient</code> change (reuses the existing <code>GetDirectorsAsync</code> + <code>GetSessionsAsync</code>); no contract change; the job still stores <code>target.directorId</code>. No security-posture change.</p>
+<h2>Statement</h2>
+<p>I believe the UI picker is finished: it renders as cards keyed on machine + port, disambiguates same-machine Directors, previews running sessions, and persists the selected Director's real id - proven by passing bUnit tests and a screenshot of the genuine compiled component, with the build clean. The optional API port-resolution is deliberately left for a separate issue and is flagged, not overclaimed.</p>
+</article>
+</body>
+</html>
