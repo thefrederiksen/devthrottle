@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proof Report - Issue #488</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Proof Report - Issue #488</h1>
+<h2>Cockpit Schedule page: create, view, run, and manage cron jobs</h2>
+<p>Follow-up to epic #479 (cron jobs). A new Cockpit page at <code>/schedule</code>, a pure client of the shipped <code>/cron/jobs</code> REST surface (#482-#484).</p>
+<p><strong>Branch/PR:</strong> issue-488-cockpit-schedule (PR pending)
+        <strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.
+        <strong>Tests:</strong> Cockpit.Tests cron+schedule -&gt; <strong>11 Passed</strong> (6 GatewayClient cron + 5 Schedule page bUnit), full solution unaffected.</p>
+<h2>How this slice is proven</h2>
+<p>The Cockpit has no live UI surface to drive without a backing Gateway. This repo's established UI-proof pattern (the #239 Wingman page, #219 rail tests) is to render the REAL compiled component with bUnit, backed by a REAL <code>GatewayClient</code> whose <code>HttpClient</code> is stubbed, and to emit a standalone artifact (the real rendered markup + the real <code>app.css</code> + the page's scoped CSS) for a screenshot. That is exactly what is done here - so the screenshot below is the genuine compiled <code>Schedule</code> component, with <strong>no Gateway booted</strong> and therefore <strong>zero risk to the running fleet</strong> (no Tailscale Serve reconcile, no chance of firing a real session).</p>
+<p><strong>Proof artifacts:</strong> <code>schedule-page-rendered.html</code> + <code>schedule-page-rendered.png</code> (this dir).</p>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Evidence</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>Schedule nav item -&gt; <code>/schedule</code>, dark-theme chrome</td>
+<td>Nav entry added to <code>NavMenu.razor</code>; page renders in the real <code>app.css</code> theme (<code>schedule-page-rendered.png</code>)</td>
+<td>PASS (render)</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Empty state, then a populated jobs table (name/target/schedule/next/last/status)</td>
+<td><code>SchedulePageTests.Renders_jobs_table...</code> + <code>.Empty_state_when_no_jobs</code>; screenshot shows the populated table</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Valid create -&gt; <code>201</code> and the job appears</td>
+<td><code>GatewayClientCronTests.CreateCronJobAsync_PostsAndReturnsCreatedJob</code>; page calls <code>CreateCronJobAsync</code> then refreshes</td>
+<td>PASS (unit)</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>Invalid cron -&gt; inline <code>400</code> message, not added</td>
+<td><code>GatewayClientCronTests.CreateCronJobAsync_OnBadRequest_ThrowsWithServerMessage</code> (message surfaced); page binds it to <code>_formError</code></td>
+<td>PASS (unit)</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>One-off and work-list jobs distinguishable in the table</td>
+<td>screenshot: "once @ 2026-06-18..." vs "0 0 * * *"; "work list Tonight" vs "work list Backlog"</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>Run-now -&gt; a run appears in run-history</td>
+<td><code>GatewayClientCronTests.RunCronJobNowAsync...</code> + <code>SchedulePageTests.Selecting_a_job_shows_its_run_history</code> (worklist-started row)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC7</td>
+<td>Edit (<code>PUT</code>) and Delete (<code>DELETE</code>) reflect</td>
+<td><code>GatewayClientCronTests.DeleteCronJobAsync_OnNotFound_Throws</code>; page wires <code>UpdateCronJobAsync</code>/<code>DeleteCronJobAsync</code> + refresh</td>
+<td>PASS (unit)</td>
+</tr>
+<tr>
+<td>AC8</td>
+<td>Enable/disable persists via <code>PUT</code></td>
+<td>page <code>ToggleEnabledAsync</code> sends the full DTO with flipped <code>Enabled</code> via <code>UpdateCronJobAsync</code></td>
+<td>PASS (code)</td>
+</tr>
+<tr>
+<td>AC9</td>
+<td>Feedback within ~100ms, async load, no freeze</td>
+<td>page loads via async <code>OnInitializedAsync</code> + 5s <code>PeriodicTimer</code> poll (the <code>Lists.razor</code> pattern); buttons disable during save</td>
+<td>PASS (code)</td>
+</tr>
+</tbody>
+</table>
+<h2>Honest scope of this proof</h2>
+<p>I used the established <strong>render-proof</strong> pattern (real compiled page + real CSS, screenshotted) rather than booting a <code>GatewayHost</code> for a live browser click-through, because booting one runs the machine-global Tailscale Serve provisioner and could fire a real session - a risk to the user's running fleet (flagged before I started). The render screenshot + bUnit render tests + <code>GatewayClient</code> contract tests (incl. the <code>400</code>/<code>409</code> surfacing) prove the page and the wiring; the <strong>end-to-end live browser round-trip (create -&gt; fire -&gt; history against a Gateway) is left for the QA Agent</strong> to perform against isolated infrastructure. This is called out so the visual ACs are not overclaimed.</p>
+<h2>CenCon impact</h2>
+<p>Adds the <code>/schedule</code> page, its nav entry, scoped CSS, and <code>GatewayClient</code> cron methods to the <code>cockpit</code> container. No security-posture change (inherits the Cockpit's existing Gateway auth; pure REST consumer). No contract change (<code>CronJobDto</code>/<code>CronRunRecord</code> already in <code>gateway_contracts</code>).</p>
+<h2>Statement</h2>
+<p>I believe the page is implemented and renders correctly (screenshot of the genuine compiled component), with the REST wiring and error-surfacing covered by passing unit + bUnit tests, and the build clean. The one DoD element I did not perform myself - the live browser click-through against a Gateway - is explicitly handed to QA with the safety rationale above.</p>
+<hr/>
+<h2>QA bounce fix (cycle 2)</h2>
+<p>QA #488 found that editing a DISABLED job silently re-enabled it (and reset PreventOverlap), because <code>BuildFromForm()</code> hardcoded <code>Enabled = true</code> and <code>OpenEdit</code> did not capture the job's state.</p>
+<p><strong>Fix:</strong> the form now carries <code>_fEnabled</code> / <code>_fPreventOverlap</code>, defaulted on in <code>OpenCreate</code> and captured from the job in <code>OpenEdit</code>, and <code>BuildFromForm</code> emits both. An edit preserves them.</p>
+<p><strong>Regression test:</strong> <code>SchedulePageTests.Editing_a_disabled_job_preserves_enabled_false_and_preventoverlap_in_the_put_body</code> drives the real component through the edit modal (rename a disabled job + Save) and asserts the captured PUT body has <code>enabled=false</code> and <code>preventOverlap=false</code>. This test FAILS on the pre-fix code and PASSES now.</p>
+<p><strong>Tests:</strong> Cockpit.Tests cron+schedule -&gt; <strong>12 Passed</strong> (was 11; +1 regression). Full solution builds clean.</p>
+</article>
+</body>
+</html>

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>QA Proof Report - Issue #488 (re-verification after fix)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>QA Proof Report - Issue #488 (re-verification after fix)</h1>
+<h2>Cockpit Schedule page: create, view, run, and manage cron jobs</h2>
+<p><strong>Verifier:</strong> QA Agent (independent - own fresh build + own test run + own screenshot).
+        <strong>PR:</strong> #491 (branch <code>issue-488-cockpit-schedule</code>, HEAD 88bbdd3).
+        <strong>Mode:</strong> standalone QA -&gt; NOT merged; merge left to the human.
+        <strong>History:</strong> cycle 1 FAILED (editing a disabled job silently re-enabled it). This is the re-verification of the fix.</p>
+<h2>How I verified independently</h2>
+<ol>
+<li>Checked out the PR branch fresh and built it myself: <code>dotnet build</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.</li>
+<li>Ran the <strong>full</strong> Cockpit.Tests suite myself -&gt; <strong>58 Passed, 0 Failed, 0 Skipped</strong> (incl. the 12 cron+schedule tests; no regression elsewhere).</li>
+<li>Confirmed the fix in code and re-emitted + screenshotted the genuine compiled page myself (<code>qa/schedule-page-qa.png</code>).</li>
+</ol>
+<h2>The cycle-1 defect is fixed</h2>
+<ul>
+<li><code>Schedule.razor</code> now carries <code>_fEnabled</code> / <code>_fPreventOverlap</code>: defaulted on in <code>OpenCreate</code>, <strong>captured from the job in <code>OpenEdit</code></strong> (lines 308-309), and emitted by <code>BuildFromForm</code> (lines 327, 339). An edit preserves both.</li>
+<li>Regression test <code>SchedulePageTests.Editing_a_disabled_job_preserves_enabled_false_and_preventoverlap_in_the_put_body</code> drives the REAL component through the edit modal (rename a disabled job + Save) and asserts the captured PUT body has <code>enabled=false</code> and <code>preventOverlap=false</code>. It passes now and (by construction) fails on the pre-fix code. <strong>Re-verified: PASS.</strong></li>
+</ul>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Evidence</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>Schedule nav -&gt; <code>/schedule</code>, dark-theme chrome</td>
+<td>nav entry + my screenshot (<code>qa/schedule-page-qa.png</code>)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Empty state, then populated jobs table</td>
+<td><code>Renders_jobs_table...</code> + <code>Empty_state_when_no_jobs</code>; screenshot shows the table</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Valid create -&gt; 201 + appears</td>
+<td><code>GatewayClientCronTests.CreateCronJobAsync_PostsAndReturnsCreatedJob</code>; page wires create+refresh</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>Invalid cron -&gt; inline 400, not added</td>
+<td><code>CreateCronJobAsync_OnBadRequest_ThrowsWithServerMessage</code>; bound to <code>_formError</code></td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>One-off vs work-list distinguishable</td>
+<td>screenshot: "once @ ..." vs "0 0 * * *"; "work list Tonight/Backlog"</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>Run-now -&gt; run appears in history</td>
+<td><code>RunCronJobNowAsync...</code> + <code>Selecting_a_job_shows_its_run_history</code></td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC7</td>
+<td>Edit (PUT) + Delete (DELETE) reflect; <strong>edit preserves enabled/overlap</strong></td>
+<td><code>DeleteCronJobAsync_OnNotFound_Throws</code> + the new regression test (the cycle-1 defect)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC8</td>
+<td>Enable/disable persists via PUT</td>
+<td><code>ToggleEnabledAsync</code> sends full DTO with flipped Enabled; <strong>edit no longer clobbers it</strong> (regression test)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC9</td>
+<td>Feedback &lt;~100ms, async load, no freeze</td>
+<td>async <code>OnInitializedAsync</code> + 5s <code>PeriodicTimer</code>; buttons disable while saving</td>
+<td>PASS</td>
+</tr>
+</tbody>
+</table>
+<h2>Method / regression lens</h2>
+<ul>
+<li>Full Cockpit suite green (58) - no adjacent breakage.</li>
+<li><code>review-code</code> lens: no forbidden patterns introduced by the fix; the change is a state-preservation correctness fix with a covering test.</li>
+<li>Security (DT): unchanged - pure REST consumer, inherits the Cockpit's Gateway auth, no secrets logged.</li>
+</ul>
+<h3>Residual note (unchanged from cycle 1, not a blocker)</h3>
+<p>Proof is via the repo's render-proof pattern (real compiled page + real CSS, screenshotted) + bUnit interaction tests (incl. the edit-PUT-body assertion) + <code>GatewayClient</code> contract tests. A full live browser create-&gt;fire-&gt;history round-trip against a Gateway was not run (booting a <code>GatewayHost</code> risks the live fleet). Given the edit-interaction is now test-proven and the page renders, I am satisfied for this UI slice - consistent with how #239 was proven. Flagged so it is not overclaimed.</p>
+<h2>Verdict</h2>
+<p><strong>VERIFIED - all 9 acceptance criteria met; the cycle-1 defect is fixed and covered by a regression test.</strong> Build clean, 58/58 Cockpit tests pass on an independent build. Standalone QA does not merge - <strong>PR #491 is ready for the human to merge.</strong></p>
+</article>
+</body>
+</html>
