@@ -43,6 +43,11 @@ public sealed class OpenAiKeyResolver
     // when the user switches modes within a session.
     private readonly Dictionary<string, string> _cachedGatewayKeys = new(StringComparer.Ordinal);
 
+    // Set by the on-Gateway routing resolve when the attached Gateway is too old to expose the
+    // /transcription/routing endpoint (issue #506). Surfaced via UnavailableMessage so the user is
+    // told to update the Gateway rather than the routing silently falling back to a baked-in URL.
+    private volatile bool _gatewayMissingRoutingEndpoint;
+
     /// <summary>
     /// Primary constructor. <paramref name="gatewayProvider"/> is invoked fresh every time the
     /// mode or key is resolved, so a config.json change (e.g. a gateway.url added after the
@@ -99,9 +104,16 @@ public sealed class OpenAiKeyResolver
         {
             var mode = _modeProvider();
             if (_gatewayProvider().IsEnabled)
+            {
+                // Older Gateway that predates the routing endpoint (issue #506): we will not guess
+                // a base URL, so tell the user to update the Gateway rather than fail obscurely.
+                if (_gatewayMissingRoutingEndpoint)
+                    return "Transcription routing is unavailable: this Gateway is out of date. Update your Gateway to the latest version.";
+
                 return mode == TranscriptionMode.DevThrottle
                     ? "DevThrottle key is not set. Open the Cockpit Settings > Transcription tab and add your DevThrottle key."
                     : "OpenAI key is not set. Open the Cockpit Settings > Transcription tab and add your OpenAI key.";
+            }
 
             return mode == TranscriptionMode.DevThrottle
                 ? "DevThrottle key is not set. Open Settings > Transcription and add your DevThrottle key."
@@ -110,14 +122,25 @@ public sealed class OpenAiKeyResolver
     }
 
     /// <summary>
-    /// Resolve the routing target for the current transcription mode (issue #497): the
-    /// OpenAI-compatible base URL plus the credential for that mode. Returns null when no key is
-    /// available for the active mode (transcription should then be reported unavailable, never
-    /// failed with a raw provider error). The bring-your-own OpenAI key is only ever paired with
-    /// the OpenAI base URL - it is NEVER sent to devthrottle.com.
+    /// Resolve the routing target for the current transcription mode: the OpenAI-compatible base
+    /// URL, the model, and the credential for that mode. Returns null when no routing is available
+    /// (transcription should then be reported unavailable via <see cref="UnavailableMessage"/>,
+    /// never failed with a raw provider error).
+    ///
+    /// On a Gateway (issue #506) the WHOLE target is served by the Gateway in one call
+    /// (GET /transcription/routing): the Director no longer resolves the URL/mode from compile-time
+    /// constants, so switching mode or changing the URL is a Gateway-side setting with no Director
+    /// rebuild or restart. The bring-your-own OpenAI key is only ever paired with the OpenAI base
+    /// URL because the Gateway composes URL+key together server-side - it is NEVER sent to
+    /// devthrottle.com. Standalone (no Gateway) still resolves locally, unchanged.
     /// </summary>
     public async Task<ResolvedTranscription?> ResolveEndpointAsync(CancellationToken ct = default)
     {
+        var gateway = _gatewayProvider();
+        if (gateway.IsEnabled)
+            return await ResolveEndpointFromGatewayAsync(gateway, ct);
+
+        // Standalone: resolve the URL/model/key locally for the active mode, exactly as before.
         var mode = _modeProvider();
         var endpoint = TranscriptionEndpointResolver.Resolve(mode);
         var key = await ResolveKeyAsync(endpoint.KeyName, ct);
@@ -128,6 +151,7 @@ public sealed class OpenAiKeyResolver
         {
             BaseUrl = endpoint.BaseUrl,
             ApiKey = key,
+            Model = endpoint.Model,
             Mode = mode,
         };
     }
@@ -204,6 +228,77 @@ public sealed class OpenAiKeyResolver
             return null;
         }
     }
+
+    /// <summary>
+    /// Fetch the WHOLE routing target from the Gateway (issue #506): mode + base URL + model + key,
+    /// composed server-side. Returns null when routing is unavailable. The on-Gateway path never
+    /// reads a compile-time URL constant. An older Gateway that lacks the route is detected by the
+    /// absence of the X-Transcription-Routing marker header on its 404 and flips
+    /// <see cref="_gatewayMissingRoutingEndpoint"/> so the "update your Gateway" message shows -
+    /// no silent fallback to a baked-in URL.
+    /// </summary>
+    private async Task<ResolvedTranscription?> ResolveEndpointFromGatewayAsync(GatewayConfig gateway, CancellationToken ct)
+    {
+        _gatewayMissingRoutingEndpoint = false;
+        var url = gateway.Url.TrimEnd('/') + "/transcription/routing";
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrWhiteSpace(gateway.Token))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", gateway.Token);
+
+            using var resp = await _http.SendAsync(req, ct);
+
+            // The routing route stamps every response with X-Transcription-Routing. Its absence on
+            // a 404 means an older Gateway that never mapped the route (vs. "mode has no key yet").
+            var fromRoutingRoute = resp.Headers.Contains("X-Transcription-Routing");
+
+            if (resp.StatusCode == HttpStatusCode.NotFound)
+            {
+                if (!fromRoutingRoute)
+                {
+                    _gatewayMissingRoutingEndpoint = true;
+                    FileLog.Write($"[OpenAiKeyResolver] routing GET {url} -> 404 with no routing marker; Gateway is out of date");
+                }
+                return null; // older Gateway, or key simply not set for the mode
+            }
+            if (!resp.IsSuccessStatusCode)
+            {
+                FileLog.Write($"[OpenAiKeyResolver] routing GET {url} -> {(int)resp.StatusCode}");
+                return null;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var baseUrl = root.TryGetProperty("baseUrl", out var b) ? b.GetString() : null;
+            var key = root.TryGetProperty("key", out var k) ? k.GetString() : null;
+            var model = root.TryGetProperty("model", out var m) ? m.GetString() : null;
+            var modeStr = root.TryGetProperty("mode", out var md) ? md.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)
+                || string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(modeStr))
+            {
+                FileLog.Write($"[OpenAiKeyResolver] routing GET {url} -> incomplete payload (baseUrl/key/model/mode)");
+                return null;
+            }
+
+            return new ResolvedTranscription
+            {
+                BaseUrl = baseUrl,
+                ApiKey = key,
+                Model = model,
+                Mode = TranscriptionModeExtensions.Parse(modeStr),
+            };
+        }
+        catch (Exception ex)
+        {
+            // Gateway configured but unreachable: transcription is unavailable for now. We do not
+            // silently use a local URL/key here - on a Gateway, the Gateway is the source of truth.
+            FileLog.Write($"[OpenAiKeyResolver] routing fetch failed ({url}): {ex.Message}");
+            return null;
+        }
+    }
 }
 
 /// <summary>
@@ -217,6 +312,10 @@ public sealed record ResolvedTranscription
 
     /// <summary>The credential to present (an <c>sk-</c> or <c>dt_</c> key, depending on mode).</summary>
     public required string ApiKey { get; init; }
+
+    /// <summary>The transcription model to use (e.g. <c>gpt-4o-transcribe</c>), part of the routing
+    /// target the Gateway serves (issue #506).</summary>
+    public required string Model { get; init; }
 
     /// <summary>The mode this target was resolved for.</summary>
     public required TranscriptionMode Mode { get; init; }

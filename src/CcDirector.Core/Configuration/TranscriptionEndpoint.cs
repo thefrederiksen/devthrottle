@@ -15,6 +15,13 @@ public sealed record TranscriptionEndpoint
     /// <summary>The vault key name that holds the credential for this mode.</summary>
     public required string KeyName { get; init; }
 
+    /// <summary>
+    /// The transcription model this mode uses (e.g. <c>gpt-4o-transcribe</c>). Part of the routing
+    /// target so the Gateway can serve the full pair in one call (issue #506) - the same pure spot
+    /// that pins the URL also pins the model, keeping the routing decision provable in one place.
+    /// </summary>
+    public required string Model { get; init; }
+
     /// <summary>The mode this endpoint was resolved for.</summary>
     public required TranscriptionMode Mode { get; init; }
 
@@ -40,6 +47,13 @@ public static class TranscriptionEndpointResolver
     /// <summary>Vault key name for the DevThrottle-issued key (the DevThrottle mode).</summary>
     public const string DevThrottleKeyName = "DEVTHROTTLE_API_KEY";
 
+    /// <summary>
+    /// The transcription model both modes default to. Matches the providers' own defaults
+    /// (<c>OpenAiRealtimeProvider.DefaultModel</c> / <c>OpenAiTranscriptionProvider.DefaultModel</c>),
+    /// kept here so the routing target carries the model the Gateway serves (issue #506).
+    /// </summary>
+    public const string DefaultModel = "gpt-4o-transcribe";
+
     /// <summary>Resolve the routing target for <paramref name="mode"/>.</summary>
     public static TranscriptionEndpoint Resolve(TranscriptionMode mode) => mode switch
     {
@@ -47,12 +61,14 @@ public static class TranscriptionEndpointResolver
         {
             BaseUrl = OpenAiBaseUrl,
             KeyName = OpenAiKeyName,
+            Model = DefaultModel,
             Mode = TranscriptionMode.Byo,
         },
         TranscriptionMode.DevThrottle => new TranscriptionEndpoint
         {
             BaseUrl = DevThrottleBaseUrl,
             KeyName = DevThrottleKeyName,
+            Model = DefaultModel,
             Mode = TranscriptionMode.DevThrottle,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown transcription mode"),
