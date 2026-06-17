@@ -120,8 +120,10 @@ public sealed class SchedulePageTests : TestContext
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("New cron job", cut.Find(".modal-head").TextContent);
-            // Director dropdown populated from GET /directors.
-            Assert.Contains("workstation-A", cut.Find(".sched-modal").TextContent);
+            // The Director is chosen via a separate picker dialog (#495), so the create modal shows a
+            // compact field (Choose button), not the Director list inline.
+            Assert.NotNull(cut.Find(".dpick-field"));
+            Assert.NotNull(cut.Find(".dpick-choose"));
         });
     }
 

@@ -69,6 +69,7 @@ public sealed class SchedulePickerTests : TestContext
         new() { DirectorId = "soren-7879-id", MachineName = "SOREN", ControlEndpoint = "http://127.0.0.1:7879", Version = "0.9.10", StartedAt = DateTime.UtcNow.AddDays(-1) },
     };
 
+    // Opens the New cron job modal (compact Director field, no inline list).
     private (IRenderedComponent<Schedule> cut, PickerHandler handler) RenderAndOpenCreate()
     {
         var handler = new PickerHandler();
@@ -77,8 +78,15 @@ public sealed class SchedulePickerTests : TestContext
         Services.AddSingleton(new GatewayClient(http, NullLogger<GatewayClient>.Instance));
         var cut = RenderComponent<Schedule>();
         cut.Find("button.btn.primary").Click(); // New cron job
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".dpick .dcard")));
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find(".dpick-field")));
         return (cut, handler);
+    }
+
+    // Opens the separate Director-picker dialog from the compact field's Choose button.
+    private void OpenPicker(IRenderedComponent<Schedule> cut)
+    {
+        cut.Find(".dpick-choose").Click();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".dpick .dcard")));
     }
 
     /// <summary>Emits the real compiled picker (modal open, multi-Director) for a visual screenshot when CC495_PROOF_DIR is set. No-op otherwise.</summary>
@@ -89,6 +97,7 @@ public sealed class SchedulePickerTests : TestContext
         if (string.IsNullOrWhiteSpace(proofDir)) return;
 
         var (cut, _) = RenderAndOpenCreate();
+        OpenPicker(cut);
         var pageHtml = cut.Markup;
 
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "CcDirector.Cockpit"));
@@ -102,12 +111,26 @@ public sealed class SchedulePickerTests : TestContext
     }
 
     [Fact]
+    public void Create_modal_Director_field_is_compact_with_no_inline_list()
+    {
+        // QA #495: the form modal must NOT cram the rich picker inline.
+        var (cut, _) = RenderAndOpenCreate();
+
+        Assert.NotNull(cut.Find(".dpick-field"));                 // compact chosen-value + Choose button
+        Assert.NotNull(cut.Find(".dpick-choose"));
+        Assert.Empty(cut.FindAll(".dpick"));                      // no inline card list in the form
+        Assert.Empty(cut.FindAll(".dcard"));
+        Assert.Contains("No Director selected", cut.Find(".dpick-field").TextContent);
+    }
+
+    [Fact]
     public void Picker_is_cards_not_a_select_and_shows_ports()
     {
         var (cut, _) = RenderAndOpenCreate();
+        OpenPicker(cut);
 
-        // AC1: it is a card picker (one .dcard per Director), not a <select> of Directors.
-        Assert.NotNull(cut.Find(".dpick"));
+        // AC1: the picker dialog is a card list (one .dcard per Director), not a <select>.
+        Assert.NotNull(cut.Find(".dpicker-modal .dpick"));
         Assert.Equal(3, cut.FindAll(".dcard").Count);
         var ports = cut.FindAll(".dcard .dport").Select(e => e.TextContent.Trim()).ToList();
         // AC2: same-machine Directors are told apart by port, not GUID.
@@ -120,6 +143,7 @@ public sealed class SchedulePickerTests : TestContext
     public void Picker_previews_running_sessions_and_needs_you()
     {
         var (cut, _) = RenderAndOpenCreate();
+        OpenPicker(cut);
 
         // AC3: the :7882 card previews its sessions and flags NEEDS YOU.
         var card = cut.FindAll(".dcard").First(c => c.QuerySelector(".dport")!.TextContent.Trim() == ":7882");
@@ -135,14 +159,16 @@ public sealed class SchedulePickerTests : TestContext
     public void Selecting_a_card_persists_that_directors_real_id_in_the_created_job()
     {
         var (cut, handler) = RenderAndOpenCreate();
+        OpenPicker(cut);
 
-        // Select the :7882 card.
+        // Pick the :7882 card -> the dialog closes and the compact field shows the chosen Director.
         cut.FindAll("button.dcard").First(c => c.QuerySelector(".dport")!.TextContent.Trim() == ":7882").Click();
         cut.WaitForAssertion(() =>
         {
-            var sel = cut.FindAll(".dcard.sel");
-            Assert.Single(sel);
-            Assert.Equal(":7882", sel[0].QuerySelector(".dport")!.TextContent.Trim());
+            Assert.Empty(cut.FindAll(".dpicker-modal"));          // picker dialog closed
+            var field = cut.Find(".dpick-chosen").TextContent;
+            Assert.Contains("SOREN_NORTH", field);
+            Assert.Contains(":7882", field);
         });
 
         // Fill the minimum and create.

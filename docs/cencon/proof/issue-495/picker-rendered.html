@@ -1106,42 +1106,66 @@ body{background:var(--panel);color:var(--text);
 .sstate.needs { color: var(--red); }
 .sstate.run { color: var(--green); }
 
+/* ===== compact Director field + picker dialog (#495 QA: no inline cram) ===== */
+.dpick-field { display: flex; align-items: center; gap: 10px; }
+.dpick-chosen {
+    flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12.5px; font-family: "Cascadia Mono", Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dpick-chosen.none { color: var(--muted); font-style: italic; font-family: inherit; }
+.dpick-choose { flex: none; }
+
+/* the picker is its own dialog, stacked above the form modal */
+.dpicker-over { z-index: 60; }
+.dpicker-modal { width: 560px; max-width: 94vw; display: flex; flex-direction: column; max-height: 82vh; }
+.dpicker-modal .modal-body { overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+.dpicker-filter {
+    width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 12.5px;
+}
+.dpicker-filter:focus { outline: none; border-color: var(--accent); }
+/* in the dialog the card list gets real room to scroll */
+.dpicker-modal .dpick { max-height: 56vh; }
+
 </style></head><body>
 
 <div class="page" b-7g76y8uo5n><header class="page-head" b-7g76y8uo5n><h1 b-7g76y8uo5n>Schedule</h1>
         <span class="page-sub" b-7g76y8uo5n>0 cron jobs</span>
-        <span class="page-refreshed" b-7g76y8uo5n>updated 10:20:40</span>
+        <span class="page-refreshed" b-7g76y8uo5n>updated 11:04:39</span>
         <button class="btn primary" blazor:onclick="1" b-7g76y8uo5n>New cron job</button></header><div class="tbl-empty" b-7g76y8uo5n>No cron jobs yet. Create one to schedule a session or a work-list drain on a Director.</div></div><div class="modal-backdrop" blazor:onclick="2" b-7g76y8uo5n><div class="modal sched-modal" blazor:onclick:stopPropagation b-7g76y8uo5n><div class="modal-head" b-7g76y8uo5n>New cron job</div>
             <div class="modal-body" b-7g76y8uo5n><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Name</label>
-                    <input placeholder="e.g. Tonight - drain work list" value="" blazor:oninput="3" b-7g76y8uo5n /></div>
+                    <input placeholder="e.g. Tonight - drain work list" value="" blazor:oninput="13" b-7g76y8uo5n /></div>
 
-                <div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>
-                        Run on (Director)
-</label><div class="dpick" b-7g76y8uo5n><button type="button" class="dcard  " blazor:onclick="4" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
-                                        <span class="dname" b-7g76y8uo5n>SOREN</span>
-                                        <span class="dport" b-7g76y8uo5n>:7879</span>
-                                        <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 1d</span></div><div class="dsub dempty" b-7g76y8uo5n>idle · 0 sessions</div></button><button type="button" class="dcard  " blazor:onclick="5" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
-                                        <span class="dname" b-7g76y8uo5n>SOREN_NORTH</span>
-                                        <span class="dport" b-7g76y8uo5n>:7882</span>
-                                        <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 3h</span><span class="dneeds" b-7g76y8uo5n>1 NEEDS YOU</span></div><div class="dsess" b-7g76y8uo5n><span class="sdot run" b-7g76y8uo5n></span>
-                                                <span class="sname" b-7g76y8uo5n>implement #482 - cron store</span>
-                                                <span class="sstate run" b-7g76y8uo5n>working</span></div><div class="dsess" b-7g76y8uo5n><span class="sdot needs" b-7g76y8uo5n></span>
-                                                <span class="sname" b-7g76y8uo5n>qa #488 - schedule page</span>
-                                                <span class="sstate needs" b-7g76y8uo5n>needs you</span></div></button><button type="button" class="dcard  " blazor:onclick="6" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
-                                        <span class="dname" b-7g76y8uo5n>SOREN_NORTH</span>
-                                        <span class="dport" b-7g76y8uo5n>:7885</span>
-                                        <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 20m</span></div><div class="dsub dempty" b-7g76y8uo5n>idle · 0 sessions</div></button></div></div>
+                <div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Run on (Director)</label>
+                    <div class="dpick-field" b-7g76y8uo5n><span class="dpick-chosen none" b-7g76y8uo5n>No Director selected</span>
+                        <button type="button" class="btn dpick-choose" blazor:onclick="4" b-7g76y8uo5n>Choose…</button></div></div>
 
                 <div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Repository path</label>
-                    <input class="mono" placeholder="D:\ReposFred\devthrottle" value="" blazor:oninput="7" b-7g76y8uo5n /></div>
+                    <input class="mono" placeholder="D:\ReposFred\devthrottle" value="" blazor:oninput="14" b-7g76y8uo5n /></div>
 
                 <div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>What to run</label>
-                    <select value="worklist" blazor:onchange="8" b-7g76y8uo5n><option value="worklist" b-7g76y8uo5n selected>Run a named work list</option>
+                    <select value="worklist" blazor:onchange="15" b-7g76y8uo5n><option value="worklist" b-7g76y8uo5n selected>Run a named work list</option>
                         <option value="seed" b-7g76y8uo5n>Run a skill / prompt</option></select></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Work list name</label>
-                        <input placeholder="e.g. Tonight" value="" blazor:oninput="9" b-7g76y8uo5n /></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Schedule</label>
-                    <select value="oneOff" blazor:onchange="10" b-7g76y8uo5n><option value="oneOff" b-7g76y8uo5n selected>Run once</option>
+                        <input placeholder="e.g. Tonight" value="" blazor:oninput="16" b-7g76y8uo5n /></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Schedule</label>
+                    <select value="oneOff" blazor:onchange="17" b-7g76y8uo5n><option value="oneOff" b-7g76y8uo5n selected>Run once</option>
                         <option value="recurring" b-7g76y8uo5n>Recurring (cron)</option></select></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Run at (local time)</label>
-                        <input class="mono" placeholder="2026-06-18T00:00:00" value="" blazor:oninput="11" b-7g76y8uo5n /></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Time zone</label>
-                    <input class="mono" placeholder="America/Chicago" value="" blazor:oninput="12" b-7g76y8uo5n /></div></div>
-            <div class="modal-foot" b-7g76y8uo5n><button class="btn" blazor:onclick="13" b-7g76y8uo5n>Cancel</button>
-                <button class="btn primary" blazor:onclick="14" b-7g76y8uo5n>Create job</button></div></div></div></body></html>
+                        <input class="mono" placeholder="2026-06-18T00:00:00" value="" blazor:oninput="18" b-7g76y8uo5n /></div><div class="fld" b-7g76y8uo5n><label class="fld-label" b-7g76y8uo5n>Time zone</label>
+                    <input class="mono" placeholder="America/Chicago" value="" blazor:oninput="19" b-7g76y8uo5n /></div></div>
+            <div class="modal-foot" b-7g76y8uo5n><button class="btn" blazor:onclick="11" b-7g76y8uo5n>Cancel</button>
+                <button class="btn primary" blazor:onclick="12" b-7g76y8uo5n>Create job</button></div></div></div><div class="modal-backdrop dpicker-over" blazor:onclick="20" b-7g76y8uo5n><div class="modal dpicker-modal" blazor:onclick:stopPropagation b-7g76y8uo5n><div class="modal-head" b-7g76y8uo5n>Choose a Director</div>
+            <div class="modal-body" b-7g76y8uo5n><input class="dpicker-filter" placeholder="filter machine / port" value="" blazor:oninput="21" b-7g76y8uo5n /><div class="dpick" b-7g76y8uo5n><button type="button" class="dcard  " blazor:onclick="22" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
+                                    <span class="dname" b-7g76y8uo5n>SOREN</span>
+                                    <span class="dport" b-7g76y8uo5n>:7879</span>
+                                    <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 1d</span></div><div class="dsub dempty" b-7g76y8uo5n>idle · 0 sessions</div></button><button type="button" class="dcard  " blazor:onclick="23" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
+                                    <span class="dname" b-7g76y8uo5n>SOREN_NORTH</span>
+                                    <span class="dport" b-7g76y8uo5n>:7882</span>
+                                    <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 3h</span><span class="dneeds" b-7g76y8uo5n>1 NEEDS YOU</span></div><div class="dsess" b-7g76y8uo5n><span class="sdot run" b-7g76y8uo5n></span>
+                                            <span class="sname" b-7g76y8uo5n>implement #482 - cron store</span>
+                                            <span class="sstate run" b-7g76y8uo5n>working</span></div><div class="dsess" b-7g76y8uo5n><span class="sdot needs" b-7g76y8uo5n></span>
+                                            <span class="sname" b-7g76y8uo5n>qa #488 - schedule page</span>
+                                            <span class="sstate needs" b-7g76y8uo5n>needs you</span></div></button><button type="button" class="dcard  " blazor:onclick="24" b-7g76y8uo5n><div class="dcard-top" b-7g76y8uo5n><span class="dot ok" b-7g76y8uo5n></span>
+                                    <span class="dname" b-7g76y8uo5n>SOREN_NORTH</span>
+                                    <span class="dport" b-7g76y8uo5n>:7885</span>
+                                    <span class="dmeta" b-7g76y8uo5n>v0.9.10 · up 20m</span></div><div class="dsub dempty" b-7g76y8uo5n>idle · 0 sessions</div></button></div></div>
+            <div class="modal-foot" b-7g76y8uo5n><button class="btn" blazor:onclick="25" b-7g76y8uo5n>Cancel</button></div></div></div></body></html>

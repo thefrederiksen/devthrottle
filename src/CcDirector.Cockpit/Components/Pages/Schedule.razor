@@ -118,67 +118,15 @@
                 </div>
 
                 <div class="fld">
-                    <label class="fld-label">
-                        Run on (Director)
-                        @if (_directors.Count > 4)
-                        {
-                            <span class="filter"><input placeholder="filter machine / port" @bind="_directorFilter" @bind:event="oninput" /></span>
-                        }
-                    </label>
-                    @if (_directors.Count == 0)
-                    {
-                        <div class="dpick-empty">No Directors registered with this Gateway.</div>
-                    }
-                    else
-                    {
-                        <div class="dpick">
-                            @foreach (var d in FilteredDirectors())
-                            {
-                                var dir = d;
-                                var unreachable = IsUnreachable(dir);
-                                var sessions = SessionsFor(dir.DirectorId);
-                                var needs = sessions.Count(s => s.NeedsYouSince is not null);
-                                <button type="button"
-                                        class="dcard @(_fDirectorId == dir.DirectorId ? "sel" : "") @(unreachable ? "dead" : "")"
-                                        disabled="@unreachable"
-                                        @onclick="() => SelectDirector(dir.DirectorId)">
-                                    <div class="dcard-top">
-                                        <span class="dot @(unreachable ? "dead" : "ok")"></span>
-                                        <span class="dname">@dir.MachineName</span>
-                                        <span class="dport">@PortLabel(dir)</span>
-                                        <span class="dmeta">@(string.IsNullOrEmpty(dir.Version) ? "" : "v" + dir.Version)@(unreachable ? "" : " · up " + Uptime(dir.StartedAt))</span>
-                                        @if (needs > 0)
-                                        {
-                                            <span class="dneeds">@needs NEEDS YOU</span>
-                                        }
-                                    </div>
-                                    @if (unreachable)
-                                    {
-                                        <div class="dsub dempty">unreachable - cannot target</div>
-                                    }
-                                    else if (sessions.Count == 0)
-                                    {
-                                        <div class="dsub dempty">idle · 0 sessions</div>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var s in sessions.OrderBy(x => x.SortOrder).Take(3))
-                                        {
-                                            <div class="dsess">
-                                                <span class="sdot @SessClass(s)"></span>
-                                                <span class="sname">@SessName(s)</span>
-                                                <span class="sstate @SessClass(s)">@SessState(s)</span>
-                                            </div>
-                                        }
-                                        @if (sessions.Count > 3)
-                                        {
-                                            <div class="dsub dempty">+@(sessions.Count - 3) more</div>
-                                        }
-                                    }
-                                </button>
-                            }
-                        </div>
-                    }
+                    <label class="fld-label">Run on (Director)</label>
+                    @* Compact field: shows the chosen Director; the rich, scrollable picker is a
+                       separate dialog (below) so this form modal never balloons (QA feedback #495). *@
+                    <div class="dpick-field">
+                        <span class="dpick-chosen @(_fDirectorId.Length == 0 ? "none" : "")">@ChosenDirectorLabel()</span>
+                        <button type="button" class="btn dpick-choose" @onclick="OpenDirectorPicker">
+                            @(_fDirectorId.Length == 0 ? "Choose…" : "Change")
+                        </button>
+                    </div>
                 </div>
 
                 <div class="fld">
@@ -252,12 +200,84 @@
     </div>
 }
 
+@* ---- Director picker dialog (#495): opened from the compact field; the rich, scrollable, filterable
+   card list lives HERE in its own roomy dialog, never inline in the form modal. ---- *@
+@if (_showDirectorPicker)
+{
+    <div class="modal-backdrop dpicker-over" @onclick="CloseDirectorPicker">
+        <div class="modal dpicker-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">Choose a Director</div>
+            <div class="modal-body">
+                <input class="dpicker-filter" placeholder="filter machine / port" @bind="_directorFilter" @bind:event="oninput" />
+                @if (_directors.Count == 0)
+                {
+                    <div class="dpick-empty">No Directors registered with this Gateway.</div>
+                }
+                else
+                {
+                    <div class="dpick">
+                        @foreach (var d in FilteredDirectors())
+                        {
+                            var dir = d;
+                            var unreachable = IsUnreachable(dir);
+                            var sessions = SessionsFor(dir.DirectorId);
+                            var needs = sessions.Count(s => s.NeedsYouSince is not null);
+                            <button type="button"
+                                    class="dcard @(_fDirectorId == dir.DirectorId ? "sel" : "") @(unreachable ? "dead" : "")"
+                                    disabled="@unreachable"
+                                    @onclick="() => ChooseDirector(dir.DirectorId)">
+                                <div class="dcard-top">
+                                    <span class="dot @(unreachable ? "dead" : "ok")"></span>
+                                    <span class="dname">@dir.MachineName</span>
+                                    <span class="dport">@PortLabel(dir)</span>
+                                    <span class="dmeta">@(string.IsNullOrEmpty(dir.Version) ? "" : "v" + dir.Version)@(unreachable ? "" : " · up " + Uptime(dir.StartedAt))</span>
+                                    @if (needs > 0)
+                                    {
+                                        <span class="dneeds">@needs NEEDS YOU</span>
+                                    }
+                                </div>
+                                @if (unreachable)
+                                {
+                                    <div class="dsub dempty">unreachable - cannot target</div>
+                                }
+                                else if (sessions.Count == 0)
+                                {
+                                    <div class="dsub dempty">idle · 0 sessions</div>
+                                }
+                                else
+                                {
+                                    @foreach (var s in sessions.OrderBy(x => x.SortOrder).Take(3))
+                                    {
+                                        <div class="dsess">
+                                            <span class="sdot @SessClass(s)"></span>
+                                            <span class="sname">@SessName(s)</span>
+                                            <span class="sstate @SessClass(s)">@SessState(s)</span>
+                                        </div>
+                                    }
+                                    @if (sessions.Count > 3)
+                                    {
+                                        <div class="dsub dempty">+@(sessions.Count - 3) more</div>
+                                    }
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn" @onclick="CloseDirectorPicker">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<CronJobDto> _jobs = new();
     private List<DirectorDto> _directors = new();
     private List<SessionDto> _sessions = new();           // for the Director picker's live preview (#495)
     private List<MachineErrorDto> _machineErrors = new();  // unreachable Directors from the roster envelope
     private string _directorFilter = "";
+    private bool _showDirectorPicker;
     private List<CronRunRecord> _runs = new();
     private string? _selectedId;
     private DateTime? _lastRefresh;
@@ -384,7 +404,25 @@
 
     // ---- Director picker (#495) ----
 
-    private void SelectDirector(string directorId) => _fDirectorId = directorId;
+    private void OpenDirectorPicker() { _directorFilter = ""; _showDirectorPicker = true; }
+
+    private void CloseDirectorPicker() => _showDirectorPicker = false;
+
+    private void ChooseDirector(string directorId)
+    {
+        _fDirectorId = directorId;
+        _showDirectorPicker = false;
+    }
+
+    /// <summary>The compact label for the chosen Director in the form field: "machine :port", or a
+    /// prompt when none is chosen, or the raw id when the Director is no longer registered.</summary>
+    private string ChosenDirectorLabel()
+    {
+        if (string.IsNullOrEmpty(_fDirectorId))
+            return "No Director selected";
+        var d = _directors.FirstOrDefault(x => x.DirectorId == _fDirectorId);
+        return d is null ? _fDirectorId : $"{d.MachineName}  {PortLabel(d)}";
+    }
 
     private IEnumerable<DirectorDto> FilteredDirectors()
     {

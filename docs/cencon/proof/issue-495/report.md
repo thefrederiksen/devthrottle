@@ -32,3 +32,18 @@ Repo render-proof pattern (#239): bUnit renders the real compiled `Schedule` com
 
 ## Statement
 I believe the UI picker is finished: it renders as cards keyed on machine + port, disambiguates same-machine Directors, previews running sessions, and persists the selected Director's real id - proven by passing bUnit tests and a screenshot of the genuine compiled component, with the build clean. The optional API port-resolution is deliberately left for a separate issue and is flagged, not overclaimed.
+
+---
+
+## Revision: inline picker -> selection dialog (QA feedback)
+
+The first cut put the rich Director picker INLINE in the New/Edit cron-job modal. At real scale (several Directors, many sessions each) that made the form modal outgrow the page - a nested scrollbox with the form fields buried. **Fixed:** the form field is now compact (shows the chosen Director + a "Choose…/Change" button); the rich, filterable, scrollable card list lives in a **separate "Choose a Director" dialog** opened from that button. The form modal stays small regardless of fleet size.
+
+**Proof:** `picker-dialog.png` (compact field in the form + the separate picker dialog stacked above it, against a 3-Director sample incl. two same-machine SOREN_NORTHs by port).
+
+**Tests (updated to the dialog flow):**
+- `Create_modal_Director_field_is_compact_with_no_inline_list` - the form modal has the compact field and **no** inline `.dpick`/`.dcard` list.
+- `Picker_is_cards_not_a_select_and_shows_ports` / `..._previews_running_sessions_and_needs_you` - the cards now render in the **picker dialog** (opened via Choose), with ports + live preview.
+- `Selecting_a_card_persists_..._real_id` - choosing a card closes the dialog, the compact field shows the chosen Director, and the created job persists the real id.
+
+Full Cockpit suite: **63 pass**, build clean.

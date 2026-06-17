@@ -374,6 +374,17 @@
 <p><code>cockpit</code> only: the Schedule page picker + scoped CSS. No <code>GatewayClient</code> change (reuses the existing <code>GetDirectorsAsync</code> + <code>GetSessionsAsync</code>); no contract change; the job still stores <code>target.directorId</code>. No security-posture change.</p>
 <h2>Statement</h2>
 <p>I believe the UI picker is finished: it renders as cards keyed on machine + port, disambiguates same-machine Directors, previews running sessions, and persists the selected Director's real id - proven by passing bUnit tests and a screenshot of the genuine compiled component, with the build clean. The optional API port-resolution is deliberately left for a separate issue and is flagged, not overclaimed.</p>
+<hr/>
+<h2>Revision: inline picker -&gt; selection dialog (QA feedback)</h2>
+<p>The first cut put the rich Director picker INLINE in the New/Edit cron-job modal. At real scale (several Directors, many sessions each) that made the form modal outgrow the page - a nested scrollbox with the form fields buried. <strong>Fixed:</strong> the form field is now compact (shows the chosen Director + a "Choose…/Change" button); the rich, filterable, scrollable card list lives in a <strong>separate "Choose a Director" dialog</strong> opened from that button. The form modal stays small regardless of fleet size.</p>
+<p><strong>Proof:</strong> <code>picker-dialog.png</code> (compact field in the form + the separate picker dialog stacked above it, against a 3-Director sample incl. two same-machine SOREN_NORTHs by port).</p>
+<p><strong>Tests (updated to the dialog flow):</strong></p>
+<ul>
+<li><code>Create_modal_Director_field_is_compact_with_no_inline_list</code> - the form modal has the compact field and <strong>no</strong> inline <code>.dpick</code>/<code>.dcard</code> list.</li>
+<li><code>Picker_is_cards_not_a_select_and_shows_ports</code> / <code>..._previews_running_sessions_and_needs_you</code> - the cards now render in the <strong>picker dialog</strong> (opened via Choose), with ports + live preview.</li>
+<li><code>Selecting_a_card_persists_..._real_id</code> - choosing a card closes the dialog, the compact field shows the chosen Director, and the created job persists the real id.</li>
+</ul>
+<p>Full Cockpit suite: <strong>63 pass</strong>, build clean.</p>
 </article>
 </body>
 </html>

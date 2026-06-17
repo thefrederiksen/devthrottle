@@ -77,3 +77,25 @@
 .sstate { margin-left: auto; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); }
 .sstate.needs { color: var(--red); }
 .sstate.run { color: var(--green); }
+
+/* ===== compact Director field + picker dialog (#495 QA: no inline cram) ===== */
+.dpick-field { display: flex; align-items: center; gap: 10px; }
+.dpick-chosen {
+    flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12.5px; font-family: "Cascadia Mono", Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dpick-chosen.none { color: var(--muted); font-style: italic; font-family: inherit; }
+.dpick-choose { flex: none; }
+
+/* the picker is its own dialog, stacked above the form modal */
+.dpicker-over { z-index: 60; }
+.dpicker-modal { width: 560px; max-width: 94vw; display: flex; flex-direction: column; max-height: 82vh; }
+.dpicker-modal .modal-body { overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+.dpicker-filter {
+    width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 12.5px;
+}
+.dpicker-filter:focus { outline: none; border-color: var(--accent); }
+/* in the dialog the card list gets real room to scroll */
+.dpicker-modal .dpick { max-height: 56vh; }
