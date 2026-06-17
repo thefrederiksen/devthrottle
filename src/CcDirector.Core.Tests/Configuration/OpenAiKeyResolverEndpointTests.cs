@@ -130,6 +130,73 @@ public sealed class OpenAiKeyResolverEndpointTests
     }
 
     [Fact]
+    public async Task ResolveEndpoint_OnGateway_NoTransportField_StaleModel_SelfHealsModelFromMode()
+    {
+        // Issue #513 QA defect: a #506-but-pre-#513 Gateway omits transport AND still serves the
+        // stale shared default model (gpt-4o-transcribe for every mode). For DevThrottle that is the
+        // exact transport=batch + model=gpt-4o-transcribe combination the proxy rejects with 404
+        // model_not_found. When transport is absent the served model is equally untrustworthy, so the
+        // resolver must derive the provider-correct model from the (authoritative) mode - never honor
+        // the stale gpt-4o-transcribe on the batch path. This is the live on-Gateway path that failed.
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("devthrottle", "https://devthrottle.com/api/v1", "gpt-4o-transcribe", "dt_live_old"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
+        // The defect was that this came back as gpt-4o-transcribe; it must be the Groq model.
+        Assert.Equal(TranscriptionEndpointResolver.DevThrottleModel, ep.Model);
+        Assert.Equal("whisper-large-v3", ep.Model);
+        Assert.NotEqual("gpt-4o-transcribe", ep.Model);
+    }
+
+    [Fact]
+    public async Task ResolveEndpoint_OnGateway_TransportServed_TrustsGatewayModel()
+    {
+        // A current #513 Gateway serves transport AND a model consistent with it. When transport is
+        // present the served model is authoritative and honored verbatim - the self-heal only fires
+        // for the pre-#513 (transport-absent) Gateway, so a future Groq model the Director never baked
+        // in still flows through unchanged.
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("devthrottle", "batch", "https://devthrottle.com/api/v1", "whisper-future-v9", "dt_live_new"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
+        Assert.Equal("whisper-future-v9", ep.Model);
+    }
+
+    [Fact]
+    public async Task ResolveEndpoint_OnGateway_NoTransportField_Byo_StaleConsistentModel_Unchanged()
+    {
+        // For BYO an older Gateway's gpt-4o-transcribe is already the provider-correct model, so the
+        // self-heal is a no-op there - it derives the same value. Pins that the fix does not disturb
+        // the BYO path (acceptance: BYO mode dictation is unchanged).
+        var handler = new RoutingHandler
+        {
+            Body = RoutingJson("byo", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-old"),
+        };
+        var http = new HttpClient(handler);
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+
+        var ep = await resolver.ResolveEndpointAsync();
+
+        Assert.NotNull(ep);
+        Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
+        Assert.Equal("gpt-4o-transcribe", ep.Model);
+    }
+
+    [Fact]
     public async Task ResolveEndpoint_OnGateway_UsesGatewayBaseUrl_NotLocalConstant()
     {
         // A custom URL the Director could never have baked in proves the URL came from the Gateway.

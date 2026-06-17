@@ -22,6 +22,20 @@
 <h1>Issue #513 - DevThrottle dictation uses the batch Whisper path</h1>
 <p><strong>Branch:</strong> issue-513-batch-whisper-transport &nbsp;|&nbsp; <strong>Role:</strong> Developer Agent (CenCon)</p>
 
+<div class="note">
+<strong>QA-defect fix (2026-06-17) - now re-handed to QA.</strong> The first QA pass found a live
+defect: against the <em>deployed</em> Gateway (0.9.12, pre-#513) DevThrottle resolved
+<code>transport=batch</code> but <code>model=gpt-4o-transcribe</code> - the resolver self-healed the
+transport from the mode for an older Gateway but trusted the Gateway's <strong>stale model</strong>
+verbatim, leaving the exact 404 <code>model_not_found</code> combination this issue exists to
+eliminate. <strong>Fixed:</strong> in <code>OpenAiKeyResolver.ResolveEndpointFromGatewayAsync</code>,
+when the Gateway omits <code>transport</code> (proving it is a pre-#513 Gateway whose model field is
+equally untrustworthy) the resolver now derives <strong>both</strong> the transport and the
+provider-correct model from the authoritative mode. When the Gateway <em>does</em> serve
+<code>transport</code> (a current #513 Gateway), its model is trusted as-is. See the
+<a href="#qa-defect-fix">QA-defect fix proof</a> below.
+</div>
+
 <h2>Release Notes</h2>
 <p>
 DevThrottle-mode dictation now works by routing through the <strong>batch Whisper</strong> path
@@ -43,7 +57,7 @@ pipeline honors the transport. This is the proper fix for the model/endpoint mis
   <tr><td><code>src/CcDirector.Core/Configuration/TranscriptionEndpoint.cs</code></td>
       <td>Added <code>TranscriptionTransport</code> enum (Realtime/Batch) + parse/format helpers; added <code>Transport</code> to <code>TranscriptionEndpoint</code>; replaced the shared model constant with a per-mode mapping (<code>OpenAiModel=gpt-4o-transcribe</code>, <code>DevThrottleModel=whisper-large-v3</code>). The resolver now pairs each mode with its transport + provider-correct model.</td></tr>
   <tr><td><code>src/CcDirector.Core/Configuration/OpenAiKeyResolver.cs</code></td>
-      <td><code>ResolvedTranscription</code> gains <code>Transport</code>; standalone resolve fills it from the endpoint; the Gateway resolve reads the <code>transport</code> field, deriving it deterministically from the (authoritative) mode when an older Gateway omits it (not a fallback).</td></tr>
+      <td><code>ResolvedTranscription</code> gains <code>Transport</code>; standalone resolve fills it from the endpoint; the Gateway resolve reads the <code>transport</code> field, deriving it deterministically from the (authoritative) mode when an older Gateway omits it (not a fallback). <strong>QA-defect fix:</strong> when <code>transport</code> is absent (pre-#513 Gateway), the resolver now also derives the provider-correct <strong>model</strong> from the mode - never honoring a stale <code>gpt-4o-transcribe</code> on the DevThrottle batch path.</td></tr>
   <tr><td><code>src/CcDirector.Gateway/Api/TranscriptionRoutingEndpoint.cs</code></td>
       <td>Routing JSON now includes <code>transport</code> alongside mode/baseUrl/model/key.</td></tr>
   <tr><td><code>src/CcDirector.Core/Dictation/DictationSession.cs</code></td>
@@ -117,6 +131,40 @@ environment fragility - <code>ResolveAsync()</code>, which this change does not 
 running the same tests against <code>D:\ReposFred\devthrottle</code> (main) where they fail the same
 way. Every test that exercises the issue #513 code paths passes.
 </div>
+
+<h2 id="qa-defect-fix">QA-defect fix - live proof (running Director against a stale, pre-#513 Gateway)</h2>
+<p>
+This is the exact live on-Gateway path the QA defect failed on. A running slot-11 Director (PID 23636,
+launched via the <code>cc-director11-launch</code> scheduled task, svchost parentage, rule 0b) was put
+in <strong>DevThrottle</strong> mode and attached to a stub Gateway that returns the
+<strong>identical stale response the deployed Gateway returns</strong>: DevThrottle mode,
+<strong>no <code>transport</code> field</strong>, <code>model=gpt-4o-transcribe</code>, with the
+<code>X-Transcription-Routing</code> marker (so it is treated as a real-but-old Gateway, not a
+missing endpoint). Driving the <code>/dictate</code> WebSocket with <code>{"type":"start"}</code>
+runs the resolver under test and logs the resolved routing:
+</p>
+<pre>Stub Gateway (mimics the live deployed pre-#513 Gateway) GET /transcription/routing ->
+  X-Transcription-Routing: 1
+  {"mode":"devthrottle","baseUrl":"https://devthrottle.com/api/v1","model":"gpt-4o-transcribe","key":"dt_live_..."}
+
+Director log (isolated CC_DIRECTOR_ROOT):
+  [OpenAiKeyResolver] routing GET .../transcription/routing -> Gateway omits transport (pre-#513);
+       deriving transport+model from mode=devthrottle, model gpt-4o-transcribe->whisper-large-v3
+  [DictationEndpoint] routing: mode=devthrottle transport=batch model=whisper-large-v3 baseUrl=https://devthrottle.com/api/v1
+  [OpenAiTranscriptionProvider] StartAsync: prompt_len=126, model=whisper-large-v3</pre>
+<table>
+  <tr><th></th><th>Resolved model on the batch path</th><th>Status</th></tr>
+  <tr><td><strong>Before</strong> (QA defect, same stale Gateway)</td><td><code>gpt-4o-transcribe</code> (proxy 404 model_not_found)</td><td style="color:#b00;font-weight:bold;">FAIL</td></tr>
+  <tr><td><strong>After</strong> (this fix, same stale Gateway)</td><td><code>whisper-large-v3</code></td><td class="pass">PASS</td></tr>
+</table>
+<p>(Captured in <code>qa-fix-live-director-routing.txt</code> and <code>qa-fix-stub-gateway-routing-response.txt</code>.)</p>
+<p>
+<strong>Regression test:</strong> <code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_NoTransportField_StaleModel_SelfHealsModelFromMode</code>
+reproduces the stale-Gateway response (DevThrottle, no transport, <code>gpt-4o-transcribe</code>) and
+asserts the resolved model is <code>whisper-large-v3</code>. Companion tests pin that a transport-serving
+#513 Gateway's model is still trusted verbatim and that the BYO path is unchanged. All 13
+<code>OpenAiKeyResolverEndpointTests</code> pass (<code>qa-fix-unit-tests.txt</code>).
+</p>
 
 <h2>CenCon Impact</h2>
 <p>

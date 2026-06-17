@@ -1,0 +1,8 @@
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.11.6
+Date: Wed, 17 Jun 2026 22:29:52 GMT
+Content-Type: application/json
+X-Transcription-Routing: 1
+Content-Length: 136
+
+{"mode": "devthrottle", "baseUrl": "https://devthrottle.com/api/v1", "model": "gpt-4o-transcribe", "key": "dt_live_fake_proof_key_0000"}

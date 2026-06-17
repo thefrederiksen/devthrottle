@@ -286,21 +286,39 @@ public sealed class OpenAiKeyResolver
             }
 
             var mode = TranscriptionModeExtensions.Parse(modeStr);
-            // The transport joins the routing pair in issue #513. A current Gateway serves it
-            // explicitly. A Gateway in the #506-but-pre-#513 window omits it; rather than guess, we
-            // derive it deterministically from the (authoritative) mode the Gateway DID serve - the
-            // transport is a pure function of the mode in the one resolver, so this is not a
-            // fallback, it is the same decision the Gateway would have made.
-            var transport = string.IsNullOrWhiteSpace(transportStr)
-                ? TranscriptionEndpointResolver.Resolve(mode).Transport
-                : TranscriptionTransportExtensions.Parse(transportStr);
+
+            // The transport + provider-correct model join the routing target in issue #513. A current
+            // Gateway serves the transport explicitly AND a model consistent with it. A Gateway in the
+            // #506-but-pre-#513 window omits transport entirely AND still serves the stale shared
+            // default model (gpt-4o-transcribe for every mode) - so when transport is absent the served
+            // model is equally untrustworthy and must NOT be honored verbatim (issue #513 QA defect:
+            // DevThrottle resolved transport=batch + model=gpt-4o-transcribe, the exact 404
+            // model_not_found combination this issue exists to eliminate). Both transport and model are
+            // a pure function of the (authoritative) mode the Gateway DID serve, so deriving the WHOLE
+            // pair from the mode is not a fallback - it is the same decision a #513 Gateway would make.
+            // When the Gateway DOES serve transport it is a #513 Gateway whose model is trusted as-is.
+            TranscriptionTransport transport;
+            string resolvedModel;
+            if (string.IsNullOrWhiteSpace(transportStr))
+            {
+                var byMode = TranscriptionEndpointResolver.Resolve(mode);
+                transport = byMode.Transport;
+                resolvedModel = byMode.Model;
+                if (!string.Equals(model, resolvedModel, StringComparison.Ordinal))
+                    FileLog.Write($"[OpenAiKeyResolver] routing GET {url} -> Gateway omits transport (pre-#513); deriving transport+model from mode={mode.ToConfigString()}, model {model}->{resolvedModel}");
+            }
+            else
+            {
+                transport = TranscriptionTransportExtensions.Parse(transportStr);
+                resolvedModel = model;
+            }
 
             return new ResolvedTranscription
             {
                 BaseUrl = baseUrl,
                 ApiKey = key,
                 Transport = transport,
-                Model = model,
+                Model = resolvedModel,
                 Mode = mode,
             };
         }
