@@ -72,12 +72,25 @@ public sealed class CronJobTarget
     public string DirectorId { get; set; } = "";
 }
 
-/// <summary>What a cron job runs when it fires (epic #479).</summary>
+/// <summary>
+/// What a cron job runs when it fires (epic #479). Two action shapes:
+///   - SEED (parts 1-2): start one session on the target Director seeded with <see cref="Seed"/>.
+///   - WORK LIST (part 3, #484): when <see cref="WorkListName"/> is set, the fire instead triggers
+///     the named-work-list runner (#274) to drain that list on the target Director - the headline
+///     "midnight, run the loop over a list of work items" use case.
+/// A job sets one or the other; <see cref="WorkListName"/> takes precedence when both are present.
+/// </summary>
 public sealed class CronJobAction
 {
-    /// <summary>Working directory for the session the fire starts.</summary>
+    /// <summary>Working directory for the session(s) the fire starts.</summary>
     public string RepoPath { get; set; } = "";
 
-    /// <summary>The skill or prompt text the session runs (e.g. <c>/work-list run Tonight</c>).</summary>
+    /// <summary>The skill or prompt text a seed-action session runs (e.g. <c>/help</c>). Optional when <see cref="WorkListName"/> is set.</summary>
     public string Seed { get; set; } = "";
+
+    /// <summary>
+    /// When set, the fire drains this named work list (#274) on the target Director instead of
+    /// starting a single seeded session. Null/empty = a seed action.
+    /// </summary>
+    public string? WorkListName { get; set; }
 }

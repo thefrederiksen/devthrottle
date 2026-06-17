@@ -25,6 +25,17 @@ public sealed class CronEngineTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
     }
 
+    // All tests in this file exercise SEED jobs, so the work-list runner is never invoked; this
+    // helper supplies a stub for the #484 constructor parameter without changing any test.
+    private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, IClock clock) =>
+        new(store, history, starter, new UnusedWorkListRunner(), clock);
+
+    private sealed class UnusedWorkListRunner : ICronWorkListRunner
+    {
+        public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct) =>
+            throw new InvalidOperationException("a seed-job test must not trigger the work-list runner");
+    }
+
     private static CronJobDto Recurring(string name = "nightly", bool enabled = true) => new()
     {
         Name = name,
@@ -56,7 +67,7 @@ public sealed class CronEngineTests : IDisposable
         Assert.NotNull(created.NextRunUtc);
 
         var clock = new FakeClock(created.NextRunUtc.Value.AddMinutes(1));
-        var engine = new CronEngine(store, history, starter, clock);
+        var engine = Engine(store, history, starter, clock);
 
         var fired = await engine.EvaluateDueAsync(CancellationToken.None);
 
@@ -79,7 +90,7 @@ public sealed class CronEngineTests : IDisposable
         var starter = new RecordingStarter();
         var created = store.Create(Recurring(enabled: false));
         var clock = new FakeClock((created.NextRunUtc ?? DateTime.UtcNow).AddDays(1));
-        var engine = new CronEngine(store, history, starter, clock);
+        var engine = Engine(store, history, starter, clock);
 
         var firedWhileDisabled = await engine.EvaluateDueAsync(CancellationToken.None);
         Assert.Empty(firedWhileDisabled);                          // AC5: disabled never fires
@@ -104,7 +115,7 @@ public sealed class CronEngineTests : IDisposable
         // The Gateway was "down" for ~3 days: now is far past the due time, spanning several missed
         // daily occurrences.
         var clock = new FakeClock(created.NextRunUtc!.Value.AddDays(3).AddHours(2));
-        var engine = new CronEngine(store, history, starter, clock);
+        var engine = Engine(store, history, starter, clock);
 
         await engine.EvaluateDueAsync(CancellationToken.None);
         await engine.EvaluateDueAsync(CancellationToken.None);     // a second sweep at the same instant
@@ -125,7 +136,7 @@ public sealed class CronEngineTests : IDisposable
         var starter = new RecordingStarter();
         var created = store.Create(OneOff(DateTime.Now.Date.AddDays(1)));
         var clock = new FakeClock(created.NextRunUtc!.Value.AddMinutes(1));
-        var engine = new CronEngine(store, history, starter, clock);
+        var engine = Engine(store, history, starter, clock);
 
         await engine.EvaluateDueAsync(CancellationToken.None);
         var after = store.Get(created.Id);
@@ -134,7 +145,7 @@ public sealed class CronEngineTests : IDisposable
         Assert.Null(after.NextRunUtc);
 
         // A later sweep does not fire it again.
-        var clock2Engine = new CronEngine(store, history, starter, new FakeClock(clock.UtcNow.AddDays(1)));
+        var clock2Engine = Engine(store, history, starter, new FakeClock(clock.UtcNow.AddDays(1)));
         var firedAgain = await clock2Engine.EvaluateDueAsync(CancellationToken.None);
         Assert.Empty(firedAgain);
         Assert.Equal(1, starter.StartCount);
@@ -147,7 +158,7 @@ public sealed class CronEngineTests : IDisposable
         var history = NewHistory();
         var blocking = new BlockingStarter();
         var created = store.Create(Recurring());                   // PreventOverlap defaults true
-        var engine = new CronEngine(store, history, blocking, new FakeClock(DateTime.UtcNow));
+        var engine = Engine(store, history, blocking, new FakeClock(DateTime.UtcNow));
 
         // Start the first run; it blocks inside the starter.
         var firstRun = engine.RunNowAsync(created.Id, CancellationToken.None);
@@ -166,7 +177,7 @@ public sealed class CronEngineTests : IDisposable
     [Fact]
     public async Task RunNow_NoSuchJob_ReturnsNoSuchJob()
     {
-        var engine = new CronEngine(NewJobStore(), NewHistory(), new RecordingStarter(), new FakeClock(DateTime.UtcNow));
+        var engine = Engine(NewJobStore(), NewHistory(), new RecordingStarter(), new FakeClock(DateTime.UtcNow));
         var result = await engine.RunNowAsync("cj_nope", CancellationToken.None);
         Assert.Equal(CronFireOutcome.NoSuchJob, result.Outcome);
     }
@@ -177,7 +188,7 @@ public sealed class CronEngineTests : IDisposable
         var store = NewJobStore();
         var history = NewHistory();
         var created = store.Create(Recurring());
-        var engine = new CronEngine(store, history, new FailingStarter(), new FakeClock(DateTime.UtcNow));
+        var engine = Engine(store, history, new FailingStarter(), new FakeClock(DateTime.UtcNow));
 
         var result = await engine.RunNowAsync(created.Id, CancellationToken.None);
 

@@ -34,7 +34,7 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
 
         _store = new CronJobStore(_jobsPath);
         var history = new CronRunHistoryStore(_runsPath);
-        var engine = new CronEngine(_store, history, new FakeStarter(), new SystemClock());
+        var engine = new CronEngine(_store, history, new FakeStarter(), new UnusedWorkListRunner(), new SystemClock());
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -118,6 +118,12 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
     {
         public Task<(string? sessionId, string? error)> StartAsync(CronJobDto job, CancellationToken ct) =>
             Task.FromResult<(string?, string?)>(("fake-sid", null));
+    }
+
+    private sealed class UnusedWorkListRunner : ICronWorkListRunner
+    {
+        public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct) =>
+            throw new InvalidOperationException("seed-job endpoint test must not trigger the work-list runner");
     }
 
     private static int AllocateFreePort()

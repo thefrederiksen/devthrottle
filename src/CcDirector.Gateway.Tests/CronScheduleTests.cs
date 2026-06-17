@@ -43,6 +43,28 @@ public sealed class CronScheduleTests
     }
 
     [Fact]
+    public void Validate_WorkListAction_NoSeed_Ok()
+    {
+        // A work-list job (#484) may omit the seed; the work-list name is the action.
+        var job = ValidRecurring();
+        job.Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "", WorkListName = "Tonight" };
+
+        var (ok, error) = CronSchedule.Validate(job);
+        Assert.True(ok);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void Validate_NeitherSeedNorWorkList_Fails()
+    {
+        var job = ValidRecurring();
+        job.Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "", WorkListName = null };
+
+        var (ok, _) = CronSchedule.Validate(job);
+        Assert.False(ok);
+    }
+
+    [Fact]
     public void Validate_InvalidCronExpression_Fails()
     {
         var job = ValidRecurring();

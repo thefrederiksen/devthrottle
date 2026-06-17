@@ -177,8 +177,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // target Director from the registry and starts a session over the shared client (the same
         // path the work-list runner uses). The background sweep timer is started in StartAsync.
         _cronRuns = new CronRunHistoryStore(cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        // A work-list cron job (#484) drains a named list via the shipped #274 runner: resolve the
+        // target Director, then launch the drain in the background on the shared runner manager.
+        var cronWorkListRunner = new Running.DirectorCronWorkListRunner(
+            _workLists,
+            new Running.RegistryDirectorResolver(Registry),
+            _runnerManager,
+            new Running.DirectorWorkListDrainLauncher(_workLists, _client));
         _cronEngine = new Running.CronEngine(
-            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(Registry, _client), new Running.SystemClock());
+            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(Registry, _client),
+            cronWorkListRunner, new Running.SystemClock());
     }
 
     /// <summary>
