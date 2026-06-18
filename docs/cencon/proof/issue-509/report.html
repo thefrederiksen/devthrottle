@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #509: Drivers ask-a-question over a real session</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .3rem; }
+  h2 { color: #007ACC; margin-top: 1.8rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; background: #f5f5f5; }
+  pre { padding: .8rem; border: 1px solid #ddd; overflow-x: auto; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .muted { color: #555; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #509</h1>
+<p><strong>[Wingman] Drivers: ask a question via a real session and read back a formatted answer</strong></p>
+<p class="muted">Branch: <code>issue-509-session-ask</code> &middot; Container: <code>core_services</code> (CcDirector.Core)</p>
+
+<h2>What was implemented</h2>
+<p>
+A single public helper, <code>SessionAskRunner</code> (in
+<code>src/CcDirector.Core/Drivers/SessionAskRunner.cs</code>), runs a short throwaway
+agentic question over a REAL driver-backed session and reads back a parseable answer,
+then tears the session down. This is the engine that replaces the metered
+<code>claude --print</code> one-shot path, so the work bills against the user's
+subscription (issue #509; the engine that #510 / #511 / #512 build on).
+</p>
+<p>The flow uses the existing driver protocol, nothing new:</p>
+<ol>
+  <li><code>IAgentDriver.BuildLaunchSpec</code> &mdash; spawn arguments (never <code>--print</code> / <code>-p</code>);</li>
+  <li>spawn an <code>ISessionBackend</code> and wait for the CLI to paint and settle;</li>
+  <li><code>IAgentDriver.SubmitAsync</code> &mdash; submit the prompt, which asks the agent to wrap its answer in a fixed delimiter pair;</li>
+  <li><code>IAgentDriver.ReadWidgets</code> &mdash; read the reply from the transcript (the answer channel, never the screen) once it stops growing;</li>
+  <li>extract exactly the delimited block;</li>
+  <li>tear the backend down (logged <code>session closed</code>).</li>
+</ol>
+
+<h2>Output-format contract (documented assumption resolved)</h2>
+<p>
+The agent is told to emit its answer between a unique delimiter pair, each on its own line:
+</p>
+<pre>===DEVTHROTTLE-ANSWER-BEGIN===
+&lt;the answer&gt;
+===DEVTHROTTLE-ANSWER-END===</pre>
+<p>
+The helper extracts exactly the text between the first opening marker and the next
+closing marker, trimmed. If the markers are missing it fails loud
+(<code>InvalidOperationException</code>) rather than falling back to the whole reply
+(no-fallback rule). Other resolved assumptions: helper lives in <code>CcDirector.Core</code>
+(callable without the Gateway, does not reuse HostedAgent); default timeout 60s
+(<code>SessionAskRunner.DefaultTimeout</code>); a kind whose driver lacks
+<code>TranscriptRead</code> returns the same typed unsupported result as RawCli.
+</p>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+<tr><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+<tr><td>Single public helper taking (kind + executable/args, working dir, prompt, timeout) returning the reply text</td>
+    <td><code>SessionAskRunner.AskAsync(kind, executablePath, agentArgs, workingDirectory, prompt, timeout, ct)</code> returns <code>SessionAskResult.Answer</code></td>
+    <td class="pass">PASS (all 18 tests)</td></tr>
+<tr><td>Opens a real session via BuildLaunchSpec + SubmitAsync, reads via ReadWidgets, contains no <code>--print</code> / <code>-p</code> (assertable on the launch spec)</td>
+    <td>Runner uses the driver protocol verbatim; never appends print flags</td>
+    <td class="pass">PASS &mdash; <code>AskAsync_LaunchSpec_ContainsNoPrintFlag</code>, <code>ClaudeDriver_DefaultLaunchSpec_HasNoPrintFlag</code></td></tr>
+<tr><td>Prompt asks for a single fixed delimited block; helper extracts exactly that block (test feeds a transcript with the block, asserts equality)</td>
+    <td><code>WrapPrompt</code> embeds the markers; <code>ExtractAnswer</code> pulls exactly the block</td>
+    <td class="pass">PASS &mdash; <code>WrapPrompt_EmbedsBothDelimiters</code>, <code>ExtractAnswer_FixtureTranscriptBlock_ReturnsExactlyTheBlock</code></td></tr>
+<tr><td>ClaudeCode and Pi return the parsed answer (recorded/fixture transcript, no live network)</td>
+    <td>ClaudeCode drives the real <code>ClaudeDriver</code> with a fixture transcript via the injectable <code>ITranscriptReader</code> seam; Pi drives a transcript-reading driver keyed to <code>AgentKind.Pi</code> (the runner is kind-agnostic, capability-gated)</td>
+    <td class="pass">PASS &mdash; <code>AskAsync_ClaudeCode_RealDriverWithFixtureTranscript_ReturnsParsedAnswer</code>, <code>AskAsync_Pi_TranscriptReadingDriverWithFixture_ReturnsParsedAnswer</code></td></tr>
+<tr><td>Custom / RawCli returns a clear typed unsupported result (NotSupportedException naming the agent)</td>
+    <td><code>RequireSupported</code> throws <code>NotSupportedException</code> when the driver lacks <code>TranscriptRead</code>; the message names the kind</td>
+    <td class="pass">PASS &mdash; <code>AskAsync_RawCli_RealDriver_ThrowsNotSupportedNamingTheAgent</code> + generic kinds theory (Codex/Gemini/OpenCode)</td></tr>
+<tr><td>Session is torn down after the answer is read (no orphan), asserted by test or a <code>session closed</code> log line</td>
+    <td>The teardown is in a <code>finally</code>; logs <code>[SessionAskRunner] session closed</code></td>
+    <td class="pass">PASS &mdash; <code>AskAsync_OnSuccess_ClosesTheSession</code>, <code>AskAsync_OnFailure_StillClosesTheSession</code></td></tr>
+<tr><td>Timeout enforced; on timeout the helper returns/raises a distinct logged result rather than hanging</td>
+    <td>Distinct <code>SessionAskTimeoutException</code>; the session is still torn down</td>
+    <td class="pass">PASS &mdash; <code>AskAsync_NoReplyWithinTimeout_ThrowsSessionAskTimeout</code></td></tr>
+<tr><td>Entry, exit, and failure logged in <code>[ClassName] Method: context</code> format</td>
+    <td>All log lines use the <code>[SessionAskRunner] AskAsync: ...</code> format</td>
+    <td class="pass">PASS &mdash; see the captured sequence below</td></tr>
+</table>
+
+<h2>Proof target item 1 &mdash; passing test run</h2>
+<pre>Passed!  - Failed: 0, Passed: 18, Skipped: 0, Total: 18 - CcDirector.Core.Tests.dll (net10.0)
+
+Full solution build: Build succeeded. 0 Warning(s) 0 Error(s).</pre>
+<p>Includes the ClaudeCode + Pi fixture-transcript cases, the RawCli + generic-kind
+unsupported cases, and the "no <code>--print</code> in launch spec" assertions.</p>
+
+<h2>Proof target item 2 &mdash; captured ask sequence</h2>
+<p>From <code>AskAsync_LogsLaunchSubmitReadCloseSequence</code> (fixture transcript, no live
+network). Working-directory path redacted to <code>&lt;TEMP&gt;</code> so this public file leaks no
+personal information. Full file:
+<code>docs/cencon/proof/issue-509/ask-sequence.log</code>.</p>
+<pre>[SessionAskRunner] AskAsync: kind=ClaudeCode, workdir=&lt;TEMP&gt;\session-ask-tests\..., promptLen=26, timeout=2s
+[SessionAskRunner] AskAsync: launched pid=4242, agentSessionId=...
+[SessionAskRunner] AskAsync OK: replySeconds=0.0, answerLen=17
+[SessionAskRunner] session closed: agentSessionId=...
+Parsed answer: THE-PROVEN-ANSWER</pre>
+<p>Sequence: launch (spec without <code>-p</code>) &rarr; submit &rarr; reply read &rarr; session closed.</p>
+
+<h2>Real-app boot check</h2>
+<p>
+The new Core assembly was built into an isolated test slot
+(<code>local_builds/cc-director11.exe</code>) from this worktree and launched via its own
+scheduled task (clean svchost parentage). The Director booted and its Control API answered
+<code>GET /healthz</code> with HTTP 200 (<code>{"status":"ok","version":"0.9.12"}</code>),
+proving the assembly containing <code>SessionAskRunner</code> loads and runs in the real app.
+The test Director and its task were then torn down (only the slot-11 process was stopped;
+no other Director was touched).
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+No drift. The change is purely additive within the existing <code>core_services</code>
+container, built on the existing <code>IAgentDriver</code> protocol. No new container, no new
+external surface, no security-posture change &mdash; <code>architecture_manifest.yaml</code> and
+<code>security_profile.yaml</code> need no update (both verified current).
+</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished.</p>
+<p>All eight acceptance criteria are met and proven; full-solution build is clean (0 warnings,
+0 errors); 18 tests pass; the change is reviewed against CodingStyle.md (no fallbacks, no
+null-forgiving, enterprise logging, entry/early validation) and is PII-clean.</p>
+
+</body>
+</html>
