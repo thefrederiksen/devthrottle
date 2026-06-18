@@ -54,6 +54,37 @@ public sealed class SlashCommandProviderDriverTests : IDisposable
     }
 
     [Fact]
+    public void GetComposerCommands_ClaudeSession_UsesDriverSafetyMetadata()
+    {
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetComposerCommands(AgentKind.ClaudeCode, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("clear", names);
+        Assert.Contains("compact", names);
+        Assert.DoesNotContain("permissions", names);
+        Assert.DoesNotContain("model", names);
+        Assert.DoesNotContain("theme", names);
+        Assert.DoesNotContain("resume", names);
+    }
+
+    [Fact]
+    public void GetComposerCommands_PiSession_UsesPiDriverSafetyMetadata()
+    {
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetComposerCommands(AgentKind.Pi, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("new", names);
+        Assert.Contains("export", names);
+        Assert.DoesNotContain("settings", names);
+        Assert.DoesNotContain("model", names);
+        Assert.DoesNotContain("scoped-models", names);
+    }
+
+    [Fact]
     public void GetCommands_PiSession_DiscoversProjectPromptsAndSkills()
     {
         var promptDir = Path.Combine(_repoPath, ".pi", "prompts");

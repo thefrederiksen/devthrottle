@@ -30,6 +30,29 @@ public sealed class ClaudeDriver : IAgentDriver
     private static readonly byte[] EnterByte = [0x0D];
     private static readonly byte[] CtrlC = [0x03];
 
+    private static readonly HashSet<string> ComposerUnsafeSlashCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "config", "settings",
+        "status",
+        "help",
+        "context",
+        "copy",
+        "diff",
+        "hooks",
+        "model",
+        "theme",
+        "permissions", "allowed-tools",
+        "resume", "continue",
+        "rewind", "checkpoint",
+        "export",
+        "output-style",
+        "memory",
+        "stats",
+        "plugin",
+        "mcp",
+        "agents",
+    };
+
     private readonly ITranscriptReader _transcripts;
     private readonly TimeSpan _echoTimeout;
     private readonly TimeSpan _echoPollInterval;
@@ -55,13 +78,19 @@ public sealed class ClaudeDriver : IAgentDriver
         | DriverCapabilities.PreassignedSessionId;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => BuiltInSlashCommands.All
-        .Select(command => new AgentSlashCommand(
-            command.Name,
-            command.Description,
-            command.Category,
-            command.Source,
-            AgentKind.ClaudeCode,
-            Documentation: command.Documentation))
+        .Select(command =>
+        {
+            var terminalOnly = ComposerUnsafeSlashCommands.Contains(command.Name);
+            return new AgentSlashCommand(
+                command.Name,
+                command.Description,
+                command.Category,
+                command.Source,
+                AgentKind.ClaudeCode,
+                IsSafeFromComposer: !terminalOnly,
+                IsTerminalOnly: terminalOnly,
+                Documentation: command.Documentation);
+        })
         .ToList();
 
     public string ResolveExecutable(string? configuredPath)
