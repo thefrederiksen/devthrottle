@@ -17,6 +17,18 @@ public partial class LoadWorkspaceDialog : Window
 
     public WorkspaceDefinition? SelectedWorkspace { get; private set; }
 
+    /// <summary>
+    /// True when the user ticked "Seed each session from its handover note" (issue #512).
+    /// When set, <see cref="MainWindow"/> seeds each restored session from its
+    /// <see cref="WorkspaceSessionEntry.HandoverPath"/>; when clear (or no handovers exist)
+    /// the workspace degrades to today's "re-open repos fresh" behavior.
+    /// </summary>
+    public bool SeedFromHandovers { get; private set; }
+
+    /// <summary>True when the given workspace has at least one entry carrying a handover note.</summary>
+    private static bool HasAnyHandover(WorkspaceDefinition workspace) =>
+        workspace.Sessions.Any(s => !string.IsNullOrWhiteSpace(s.HandoverPath));
+
     public LoadWorkspaceDialog()
     {
         InitializeComponent();
@@ -73,6 +85,7 @@ public partial class LoadWorkspaceDialog : Window
         {
             BtnLoad.IsEnabled = false;
             BtnDelete.IsEnabled = false;
+            SetSeedAvailability(false);
             TxtPreviewEmpty.IsVisible = true;
             PreviewList.IsVisible = false;
             TxtPreviewDescription.IsVisible = false;
@@ -81,6 +94,7 @@ public partial class LoadWorkspaceDialog : Window
 
         BtnLoad.IsEnabled = true;
         BtnDelete.IsEnabled = true;
+        SetSeedAvailability(HasAnyHandover(item.Definition));
 
         if (!string.IsNullOrWhiteSpace(item.Definition.Description))
         {
@@ -109,12 +123,27 @@ public partial class LoadWorkspaceDialog : Window
         PreviewList.IsVisible = true;
     }
 
+    /// <summary>
+    /// Enable the "Seed from handovers" toggle only when the selected workspace actually
+    /// carries handover notes. When unavailable the toggle is disabled and unchecked, so the
+    /// load degrades to today's "re-open repos fresh" behavior.
+    /// </summary>
+    private void SetSeedAvailability(bool available)
+    {
+        ChkSeedFromHandovers.IsEnabled = available;
+        if (!available)
+            ChkSeedFromHandovers.IsChecked = false;
+    }
+
     private void BtnLoadDefault_Click(object? sender, RoutedEventArgs e)
     {
         if (_defaultWorkspace == null)
             return;
 
-        FileLog.Write("[LoadWorkspaceDialog] BtnLoadDefault_Click: loading _default workspace");
+        // The default button bypasses the list selection, so derive seeding directly from
+        // the default workspace: only honor the toggle when it actually has handovers.
+        SeedFromHandovers = ChkSeedFromHandovers.IsChecked == true && HasAnyHandover(_defaultWorkspace);
+        FileLog.Write($"[LoadWorkspaceDialog] BtnLoadDefault_Click: loading _default workspace, seed={SeedFromHandovers}");
         SelectedWorkspace = _defaultWorkspace;
         Close(true);
     }
@@ -124,7 +153,8 @@ public partial class LoadWorkspaceDialog : Window
         if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
             return;
 
-        FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click: name={item.Definition.Name}");
+        SeedFromHandovers = ChkSeedFromHandovers.IsChecked == true && HasAnyHandover(item.Definition);
+        FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click: name={item.Definition.Name}, seed={SeedFromHandovers}");
         SelectedWorkspace = item.Definition;
         Close(true);
     }

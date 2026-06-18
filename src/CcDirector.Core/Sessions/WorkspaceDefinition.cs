@@ -11,6 +11,15 @@ public class WorkspaceSessionEntry
     public string? CustomColor { get; set; }
     public int SortOrder { get; set; }
     public string? ClaudeArgs { get; set; }
+
+    /// <summary>
+    /// Optional reference to a handover document the wingman wrote for this session at
+    /// save time (issue #512). When the workspace is reopened with "Seed from handovers"
+    /// enabled, the restored session is seeded from this note so it picks up where the
+    /// original left off. Null means the entry carries no handover - the session is
+    /// restored fresh (today's behavior).
+    /// </summary>
+    public string? HandoverPath { get; set; }
 }
 
 /// <summary>

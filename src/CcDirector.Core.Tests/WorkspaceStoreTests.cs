@@ -125,7 +125,8 @@ public class WorkspaceStoreTests : IDisposable
                     CustomName = "Frontend",
                     CustomColor = "#2563EB",
                     SortOrder = 0,
-                    ClaudeArgs = "--allowedTools bash"
+                    ClaudeArgs = "--allowedTools bash",
+                    HandoverPath = @"C:\handovers\20260301_1000_frontend-handover.md"
                 },
                 new()
                 {
@@ -147,7 +148,9 @@ public class WorkspaceStoreTests : IDisposable
         Assert.Equal("#2563EB", loaded.Sessions[0].CustomColor);
         Assert.Equal(0, loaded.Sessions[0].SortOrder);
         Assert.Equal("--allowedTools bash", loaded.Sessions[0].ClaudeArgs);
+        Assert.Equal(@"C:\handovers\20260301_1000_frontend-handover.md", loaded.Sessions[0].HandoverPath);
         Assert.Null(loaded.Sessions[1].CustomName);
+        Assert.Null(loaded.Sessions[1].HandoverPath);
     }
 
     [Fact]

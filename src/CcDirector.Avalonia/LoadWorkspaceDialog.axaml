@@ -118,28 +118,43 @@
         </Grid>
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button x:Name="BtnDelete" Content="Delete"
-                    Width="80" Height="28"
-                    Click="BtnDelete_Click"
-                    Background="#3C3C3C" Foreground="#F44847"
-                    BorderThickness="0" Cursor="Hand"
-                    IsEnabled="False"
-                    Margin="0,0,8,0" />
-            <Button x:Name="BtnLoad" Content="Load"
-                    Width="100" Height="28"
-                    Click="BtnLoad_Click"
-                    Background="#007ACC" Foreground="White"
-                    BorderThickness="0" Cursor="Hand"
-                    IsEnabled="False" />
-            <Button x:Name="BtnCancel" Content="Cancel"
-                    Width="80" Height="28"
-                    Click="BtnCancel_Click"
-                    Background="#3C3C3C" Foreground="#CCCCCC"
-                    BorderThickness="0" Cursor="Hand"
-                    Margin="8,0,0,0" />
-        </StackPanel>
+        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Seed from handovers (issue #512) -->
+            <CheckBox x:Name="ChkSeedFromHandovers" Grid.Column="0"
+                      Content="Seed each session from its handover note"
+                      Foreground="#CCCCCC" FontSize="12"
+                      VerticalAlignment="Center"
+                      IsEnabled="False"
+                      ToolTip.Tip="Available when the selected workspace has handover notes. Each restored session is seeded from its note." />
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="BtnDelete" Content="Delete"
+                        Width="80" Height="28"
+                        Click="BtnDelete_Click"
+                        Background="#3C3C3C" Foreground="#F44847"
+                        BorderThickness="0" Cursor="Hand"
+                        IsEnabled="False"
+                        Margin="0,0,8,0" />
+                <Button x:Name="BtnLoad" Content="Load"
+                        Width="100" Height="28"
+                        Click="BtnLoad_Click"
+                        Background="#007ACC" Foreground="White"
+                        BorderThickness="0" Cursor="Hand"
+                        IsEnabled="False" />
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Width="80" Height="28"
+                        Click="BtnCancel_Click"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand"
+                        Margin="8,0,0,0" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

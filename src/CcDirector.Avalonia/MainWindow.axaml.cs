@@ -900,9 +900,11 @@ public partial class MainWindow : Window
 
     // ==================== WORKSPACE LOADING ====================
 
-    private async Task LoadWorkspaceAsync(WorkspaceDefinition workspace)
+    private async Task LoadWorkspaceAsync(WorkspaceDefinition workspace, bool seedFromHandovers = false)
     {
-        FileLog.Write($"[MainWindow] LoadWorkspaceAsync: '{workspace.Name}' with {workspace.Sessions.Count} sessions");
+        FileLog.Write(
+            $"[MainWindow] LoadWorkspaceAsync: '{workspace.Name}' with {workspace.Sessions.Count} sessions, " +
+            $"seedFromHandovers={seedFromHandovers}");
 
         var progress = new WorkspaceProgressDialog(workspace.Name);
         progress.Show(this);
@@ -924,6 +926,17 @@ public partial class MainWindow : Window
                 {
                     vm.Rename(entry.CustomName, entry.CustomColor);
                     SaveSessionToHistory(vm);
+
+                    // Seed the restored session from its handover note (issue #512). Only when
+                    // the user opted in AND this entry actually carries a note; otherwise the
+                    // session starts fresh (today's behavior). The handover path was written
+                    // by the wingman at save time and lives in the Director's handover folder.
+                    if (seedFromHandovers && !string.IsNullOrWhiteSpace(entry.HandoverPath))
+                    {
+                        FileLog.Write(
+                            $"[MainWindow] LoadWorkspaceAsync: seeding session {vm.Session.Id} from {entry.HandoverPath}");
+                        _ = InjectHandoverPromptAsync(vm.Session, entry.HandoverPath);
+                    }
                 }
 
                 // Delay between sessions to prevent Claude Code settings corruption
@@ -933,6 +946,68 @@ public partial class MainWindow : Window
 
             progress.SetComplete();
             FileLog.Write($"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' loaded");
+        }
+        finally
+        {
+            progress.Close();
+        }
+    }
+
+    /// <summary>
+    /// Have the wingman write one handover note per saved session and record each note's path
+    /// on its <see cref="WorkspaceSessionEntry"/>, then re-save the workspace (issue #512). The
+    /// note is produced by a REAL wingman session via <see cref="WorkspaceHandoverWriter"/>
+    /// (the issue #509 <c>SessionAskRunner</c> engine - no /handover skill, no --print). Each
+    /// session is written independently: if one fails (its repo is gone, the agent can't answer,
+    /// or the ask times out) that single entry simply gets no handover and the rest still save.
+    /// </summary>
+    private async Task WriteWorkspaceHandoversAsync(
+        WorkspaceStore store, WorkspaceDefinition workspace, IReadOnlyList<SessionData> sessions)
+    {
+        FileLog.Write(
+            $"[MainWindow] WriteWorkspaceHandoversAsync: '{workspace.Name}', {sessions.Count} sessions");
+
+        var progress = new WorkspaceProgressDialog(workspace.Name);
+        progress.Show(this);
+
+        try
+        {
+            var writer = new WorkspaceHandoverWriter();
+            int total = sessions.Count;
+
+            for (int i = 0; i < total; i++)
+            {
+                var session = sessions[i];
+                progress.UpdateHandoverProgress(i + 1, total, session.CustomName ?? session.DisplayName);
+
+                var request = new WorkspaceHandoverRequest
+                {
+                    RepoPath = session.RepoPath,
+                    AgentKind = session.AgentKind,
+                    SessionName = session.CustomName ?? session.DisplayName,
+                    AgentArgs = session.ClaudeArgs,
+                };
+
+                var result = await writer.WriteForSessionAsync(request);
+                if (result.Success && result.HandoverPath is not null)
+                {
+                    // Pair the note back to its entry by repo path + sort order. The dialog
+                    // built the entries from the same selected sessions in the same order.
+                    var entry = workspace.Sessions.FirstOrDefault(
+                        s => s.SortOrder == i && string.Equals(s.RepoPath, session.RepoPath, StringComparison.OrdinalIgnoreCase));
+                    if (entry is not null)
+                        entry.HandoverPath = result.HandoverPath;
+                }
+            }
+
+            workspace.UpdatedAt = DateTimeOffset.UtcNow;
+            store.Save(workspace);
+
+            var written = workspace.Sessions.Count(s => !string.IsNullOrWhiteSpace(s.HandoverPath));
+            progress.SetComplete();
+            FileLog.Write(
+                $"[MainWindow] WriteWorkspaceHandoversAsync: '{workspace.Name}' re-saved with " +
+                $"{written}/{total} handover notes");
         }
         finally
         {
@@ -2856,9 +2931,16 @@ public partial class MainWindow : Window
             var app = AppRef();
             var sessionData = _sessions.Select(vm => new SessionData(
                 vm.DisplayName, vm.Session.RepoPath, vm.Session.CustomName,
-                vm.Session.CustomColor, vm.Session.ClaudeArgs));
+                vm.Session.CustomColor, vm.Session.ClaudeArgs, vm.Session.AgentKind));
             var dialog = new SaveWorkspaceDialog(app.WorkspaceStore, sessionData);
-            await dialog.ShowDialog<bool?>(this);
+            var result = await dialog.ShowDialog<bool?>(this);
+
+            // The workspace itself was saved by the dialog. If the user asked to include
+            // handover documents (issue #512), have the wingman write a note per session and
+            // record the path on each entry, then re-save - done here, not in the dialog,
+            // because each note is a slow real-session ask and belongs off the dialog code path.
+            if (result == true && dialog.Result != null && dialog.IncludeHandovers)
+                await WriteWorkspaceHandoversAsync(app.WorkspaceStore, dialog.Result, dialog.SelectedSessions);
         }));
         file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
@@ -2867,7 +2949,7 @@ public partial class MainWindow : Window
             if (result == true && dialog.SelectedWorkspace != null)
             {
                 if (_sessions.Count > 0) await CloseAllSessionsAsync();
-                await LoadWorkspaceAsync(dialog.SelectedWorkspace);
+                await LoadWorkspaceAsync(dialog.SelectedWorkspace, dialog.SeedFromHandovers);
             }
         }));
         file.Menu.Items.Add(Item("Clear Workspace", async () =>

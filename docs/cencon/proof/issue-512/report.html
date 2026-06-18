@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #512 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #FFFFFF; font-size: 24px; border-bottom: 2px solid #007ACC; padding-bottom: 8px; }
+  h2 { color: #FFFFFF; font-size: 19px; margin-top: 32px; border-bottom: 1px solid #3C3C3C; padding-bottom: 4px; }
+  h3 { color: #FFFFFF; font-size: 15px; margin-top: 20px; }
+  code { font-family: Cascadia Mono, Consolas, monospace; background: #252526; padding: 2px 5px; border-radius: 3px; color: #D7BA7D; }
+  pre { background: #252526; padding: 12px; border-radius: 4px; overflow-x: auto; border: 1px solid #3C3C3C; }
+  pre code { background: none; padding: 0; color: #CCCCCC; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #252526; color: #FFFFFF; }
+  .ok { color: #22C55E; font-weight: bold; }
+  .warn { color: #D97706; font-weight: bold; }
+  .muted { color: #888888; }
+  .banner { background: #3A2A1B; border: 1px solid #D97706; padding: 12px 16px; border-radius: 4px; margin: 16px 0; }
+  .banner strong { color: #F59E0B; }
+  a { color: #3B82F6; }
+  img { max-width: 100%; border: 1px solid #3C3C3C; border-radius: 4px; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #512 - Save and reopen a whole Director, with a wingman-written handover note per session</h1>
+
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method)<br/>
+<strong>Branch:</strong> <code>issue-512-director-handover-ws</code><br/>
+<strong>Base:</strong> <code>origin/main</code> at <code>ec16301</code><br/>
+<strong>Date:</strong> 2026-06-18</p>
+
+<div class="banner">
+  <strong>Verification scope - read this first.</strong>
+  This report documents <strong>static verification only</strong>: a clean full-solution build,
+  the affected unit-test suite passing, and a line-by-line code review against
+  <code>docs/CodingStyle.md</code> and <code>docs/VisualStyle.md</code>.
+  Per explicit operator instruction for this run, the application was <strong>NOT launched</strong>
+  (no slot Director, no scheduled task, no Control API, no runtime screenshots) because many
+  people are actively working on this machine and a Director window appearing would be disruptive.
+  <strong>Runtime QA is therefore deferred to the human operator.</strong>
+  This report does <strong>not</strong> claim the feature is runtime-proven. The
+  "How a human should test this" section below gives the step-by-step manual verification with an
+  Expected Result for every acceptance criterion.
+</div>
+
+<h2>1. What was implemented</h2>
+
+<p>The bulk Save/Load Workspace feature is upgraded from "re-open repos in fresh sessions" to a real
+state transfer with an optional, per-session <em>handover note written by the wingman running as a
+REAL Claude session</em>. Reopening a workspace can optionally seed each restored session from its note
+so a new Director picks up where the old one left off.</p>
+
+<h3>New files</h3>
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>src/CcDirector.Core/Sessions/WorkspaceHandoverWriter.cs</code></td>
+    <td>Core orchestration. For one session it drives the issue #509 <code>SessionAskRunner</code>
+        engine (a real driver-backed session, never <code>--print</code>/<code>-p</code>), reads the
+        wingman's answer back from the transcript, and persists it through
+        <code>HandoverScanner.WriteNew</code> (the same parser the Handovers tab uses). Both the ask
+        and the persistence are injected seams, so it is fully unit-testable with fakes. Per-session
+        failures (repo gone, agent cannot answer, ask times out) return a
+        <code>WorkspaceHandoverResult.Fail</code> rather than aborting the whole save.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Core.Tests/Sessions/WorkspaceHandoverWriterTests.cs</code></td>
+    <td>Six unit tests covering the happy path, missing repo, empty answer, ask throwing,
+        the handover prompt contract, and the title builder.</td>
+  </tr>
+</table>
+
+<h3>Changed files</h3>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.Core/Sessions/WorkspaceDefinition.cs</code></td>
+      <td>Added <code>WorkspaceSessionEntry.HandoverPath</code> (nullable) - the optional reference to
+          the handover doc the wingman wrote at save time. Null means "no handover; restore fresh".</td></tr>
+  <tr><td><code>src/CcDirector.Avalonia/SaveWorkspaceDialog.axaml(.cs)</code></td>
+      <td>Added the "Include handover documents" toggle and a one-line explanation. Carries
+          <code>AgentKind</code> through <code>SessionData</code>, and exposes
+          <code>IncludeHandovers</code> + <code>SelectedSessions</code> so the caller can write notes
+          off the dialog code path (each note is a slow real-session ask).</td></tr>
+  <tr><td><code>src/CcDirector.Avalonia/LoadWorkspaceDialog.axaml(.cs)</code></td>
+      <td>Added the "Seed each session from its handover note" toggle, enabled only when the selected
+          workspace actually has notes; exposes <code>SeedFromHandovers</code>.</td></tr>
+  <tr><td><code>src/CcDirector.Avalonia/MainWindow.axaml.cs</code></td>
+      <td><code>WriteWorkspaceHandoversAsync</code> (new) runs after the Save dialog when the toggle is
+          on: writes one note per session via <code>WorkspaceHandoverWriter</code>, records each path
+          on its entry, re-saves. <code>LoadWorkspaceAsync</code> gained a
+          <code>seedFromHandovers</code> parameter and reuses the existing
+          <code>InjectHandoverPromptAsync</code> to seed each restored session from its note.</td></tr>
+  <tr><td><code>src/CcDirector.Avalonia/WorkspaceProgressDialog.axaml.cs</code></td>
+      <td>Added <code>UpdateHandoverProgress</code> so the save shows "Writing handover notes - session
+          N/M" while the wingman works.</td></tr>
+  <tr><td><code>src/CcDirector.Core.Tests/WorkspaceStoreTests.cs</code></td>
+      <td>Extended the load/save round-trip test to assert <code>HandoverPath</code> persists and that
+          an entry without one round-trips as null.</td></tr>
+</table>
+
+<h2>2. Acceptance criteria - traced to the exact code</h2>
+
+<table>
+  <tr><th>Acceptance criterion</th><th>Code that satisfies it</th><th class="muted">How a human verifies (section 5)</th></tr>
+  <tr>
+    <td><strong>AC1.</strong> Save with handovers writes one note per live session, via the wingman,
+        with no <code>/handover</code> skill dependency and no <code>-p</code>.</td>
+    <td>
+      The Save dialog "Include handover documents" toggle sets
+      <code>SaveWorkspaceDialog.IncludeHandovers</code>
+      (<code>SaveWorkspaceDialog.axaml.cs</code>). When set, the File menu lambda calls
+      <code>WriteWorkspaceHandoversAsync</code> (<code>MainWindow.axaml.cs</code>:957), which loops
+      <em>every</em> selected session and calls
+      <code>WorkspaceHandoverWriter.WriteForSessionAsync</code>. That method calls
+      <code>SessionAskRunner.AskAsync</code> - a <em>real</em> driver-backed session (issue #509),
+      whose <code>BuildLaunchSpec</code> never emits <code>--print</code>/<code>-p</code> - and then
+      persists the answer with <code>HandoverScanner.WriteNew</code>. There is no call to the
+      <code>/handover</code> skill anywhere in this path; the only <code>--print</code>/<code>-p</code>
+      tokens in the new code are comments documenting their <em>absence</em>. The default agent kind
+      <code>ClaudeCode</code> (<code>ClaudeDriver</code>) declares both <code>TranscriptRead</code> and
+      <code>PreassignedSessionId</code>, the two capabilities the ask requires.</td>
+    <td>Steps 1-4</td>
+  </tr>
+  <tr>
+    <td><strong>AC2.</strong> Open with seeding starts each session from its note; with and without the
+        toggles both work.</td>
+    <td>
+      The Load dialog "Seed each session from its handover note" toggle is enabled only when the
+      selected workspace has at least one <code>HandoverPath</code>
+      (<code>LoadWorkspaceDialog.SetSeedAvailability</code>) and sets
+      <code>SeedFromHandovers</code>. The File menu lambda passes it to
+      <code>LoadWorkspaceAsync(workspace, seedFromHandovers)</code>
+      (<code>MainWindow.axaml.cs</code>). Inside the restore loop, a session is seeded
+      <em>only</em> when <code>seedFromHandovers &amp;&amp; entry.HandoverPath</code> is present, by
+      reusing the existing <code>InjectHandoverPromptAsync</code> (the same seeding path the New
+      Session dialog's Handovers tab already uses). With the toggle off, or for an entry without a
+      note, the session restores fresh - today's behavior - so both toggle states work.</td>
+    <td>Steps 5-7</td>
+  </tr>
+</table>
+
+<h2>3. Build-clean evidence (the hard gate)</h2>
+
+<p>Full solution build, run from the worktree root:</p>
+<pre><code>$ dotnet build cc-director.sln -c Debug
+
+  CcDirector.Avalonia -> ...\bin\Debug\net10.0\cc-director.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</code></pre>
+
+<p>The project enforces <code>&lt;TreatWarningsAsErrors&gt;true&lt;/TreatWarningsAsErrors&gt;</code>, so
+"0 Warning(s)" is a meaningful gate.</p>
+
+<h3>Affected unit tests</h3>
+<pre><code>$ dotnet test CcDirector.Core.Tests --filter "FullyQualifiedName~Workspace"
+Passed!  - Failed: 0, Passed: 23, Skipped: 0, Total: 23</code></pre>
+
+<p>This covers the six new <code>WorkspaceHandoverWriterTests</code> and the extended
+<code>WorkspaceStoreTests</code> round-trip.</p>
+
+<h3>Full Core suite - the two pre-existing failures are NOT caused by this change</h3>
+<p>The full <code>CcDirector.Core.Tests</code> run reports 2086 passed / 2 failed. Both failures exist
+on <code>origin/main</code> independently of issue #512:</p>
+<table>
+  <tr><th>Failing test</th><th>Why it is unrelated</th></tr>
+  <tr>
+    <td><code>CleanupOrchestratorLiveTests.Mistranscription_OnlyTheTermIsCorrected_RestVerbatim</code></td>
+    <td>A <em>live</em> test that calls a real language-model HTTP endpoint; it failed with
+        "The request was canceled due to the configured HttpClient.Timeout of 60 seconds elapsing."
+        It is a network/live-dependency timeout, in the Dictation area, untouched by this change.</td>
+  </tr>
+  <tr>
+    <td><code>NoCrossMachineLoopbackGuardTests.No_new_production_file_hardcodes_cross_machine_loopback</code></td>
+    <td>Flags <code>src/CcDirector.Gateway/Running/IDirectorLauncher.cs</code> - a Gateway file that is
+        <em>byte-identical to origin/main</em> (<code>git diff origin/main -- &lt;that file&gt;</code> is
+        empty) and is not part of this change. This is a pre-existing guard finding on the base branch.</td>
+  </tr>
+</table>
+<p>Neither failing test references the workspace or handover code. All workspace/handover tests pass.</p>
+
+<h2>4. Code-review notes (self-review against the standards)</h2>
+<ul>
+  <li><span class="ok">No fallback programming.</span> Per-session failures use the documented
+      <em>Result Objects for Expected Failures</em> pattern (<code>WorkspaceHandoverResult</code>),
+      not a swallowing <code>catch</code> - one bad session yields "no handover for that session"
+      with a logged reason, the rest still save.</li>
+  <li><span class="ok">No null-forgiving operator</span> (<code>!</code>) anywhere in the new code;
+      null is handled with explicit <code>is null</code> / <code>is not null</code> checks.</li>
+  <li><span class="ok">Enterprise logging.</span> Entry/exit/failure are logged via
+      <code>FileLog.Write</code> with <code>[ClassName] Method: context</code> formatting throughout
+      <code>WorkspaceHandoverWriter</code> and the new MainWindow methods.</li>
+  <li><span class="ok">Responsive UI.</span> The slow per-session asks run off the dialog code path,
+      behind a <code>WorkspaceProgressDialog</code> showing "Writing handover notes - session N/M";
+      the dialog is closed in a <code>finally</code>.</li>
+  <li><span class="ok">Core has no UI dependency.</span> The orchestration lives in
+      <code>CcDirector.Core</code> with injected seams; the WPF/Avalonia layer only wires it up.</li>
+  <li><span class="ok">VisualStyle compliance.</span> The two new toggles use the dialog palette
+      (foreground <code>#CCCCCC</code> primary / <code>#888888</code> hint, accent buttons unchanged),
+      match the existing dialog grid/margins, and add no new hard-coded colors outside the documented
+      tokens. The Save dialog height was bumped 420->480 to fit the toggle.</li>
+  <li><span class="ok">Naming + async conventions.</span> <code>*Async</code> suffixes,
+      <code>_camelCase</code> fields, verb-noun methods, <code>Task</code>-returning helpers.</li>
+  <li><span class="ok">Tests.</span> Every new public Core method is exercised by a unit test using
+      Arrange-Act-Assert and the <code>Method_Scenario_Result</code> naming convention.</li>
+  <li><span class="ok">CenCon impact: no drift.</span> This is a feature inside existing containers
+      (Desktop app + Core sessions). It introduces no new container, no new external dependency, and
+      no change to the security posture - it reuses the issue #509 real-session engine that is already
+      on main. No <code>docs/cencon/</code> manifest or security-profile update is required.</li>
+</ul>
+
+<h2>5. How a human should test this (runtime QA, deferred to the operator)</h2>
+
+<p>Build a slot exe from this branch and launch it via the project's per-session isolation flow (or the
+operator's normal test path), then:</p>
+
+<h3>AC1 - Save writes one note per live session via the wingman</h3>
+<ol>
+  <li>Open two or three sessions in the Director, each in a real git repo, and do a little work in each
+      so there is something to summarize.</li>
+  <li><strong>File -&gt; Save Workspace...</strong> Tick <strong>"Include handover documents (the
+      wingman writes a note per session)"</strong>, name the workspace, click Save.
+      <br/><span class="muted">Expected:</span> a progress dialog appears showing
+      "Writing handover notes - session 1/N", "2/N", ... cycling through the sessions.</li>
+  <li>Watch the director log
+      (<code>%LOCALAPPDATA%\cc-director\logs\director\director-*.log</code>).
+      <br/><span class="muted">Expected:</span> for each session you see
+      <code>[WorkspaceHandoverWriter] WriteForSessionAsync</code> followed by
+      <code>[SessionAskRunner] AskAsync</code> and <code>session closed</code>, and finally
+      <code>WriteWorkspaceHandoversAsync: '...' re-saved with N/N handover notes</code>. There must be
+      <strong>no</strong> <code>--print</code> or <code>-p</code> in any launched command, and no
+      <code>/handover</code> skill invocation.</li>
+  <li>Inspect the saved workspace JSON (in the workspaces folder) and the handover folder.
+      <br/><span class="muted">Expected:</span> each session entry has a <code>HandoverPath</code>
+      pointing at a real markdown note whose body is a plain-prose handover summary (what we did /
+      current state / next steps), not a transcript dump.</li>
+</ol>
+
+<h3>AC2 - Open with seeding (and without)</h3>
+<ol start="5">
+  <li>Close all sessions (or use a second Director). <strong>File -&gt; Load Workspace...</strong>,
+      select the workspace you just saved.
+      <br/><span class="muted">Expected:</span> the <strong>"Seed each session from its handover
+      note"</strong> checkbox is now <em>enabled</em> (because the workspace has notes).</li>
+  <li>Tick the seed checkbox and click Load.
+      <br/><span class="muted">Expected:</span> each session reopens and, once Claude has started, a
+      prompt is auto-sent referencing its handover file (<code>@...handover.md ... summary of what was
+      done ... what we should work on next</code>); the log shows
+      <code>[MainWindow] LoadWorkspaceAsync: seeding session ... from ...</code> and
+      <code>InjectHandoverPromptAsync: sent handover prompt</code> for each seeded session.</li>
+  <li>Repeat the Load <em>without</em> ticking the seed checkbox (and, separately, load a workspace
+      saved without handovers).
+      <br/><span class="muted">Expected:</span> sessions reopen fresh with no auto-sent prompt -
+      today's behavior - confirming both toggle states work and the feature degrades cleanly.</li>
+</ol>
+
+<h2>6. Statement</h2>
+<p>The implementation is complete, the full solution builds clean (0 warnings / 0 errors), all
+workspace and handover unit tests pass, and the change has been self-reviewed against
+<code>docs/CodingStyle.md</code> and <code>docs/VisualStyle.md</code>. Per operator instruction for
+this run, the application was not launched; <strong>runtime QA is deferred to the human operator</strong>
+using section 5 above. This report does not claim runtime-proven behavior.</p>
+
+</body>
+</html>

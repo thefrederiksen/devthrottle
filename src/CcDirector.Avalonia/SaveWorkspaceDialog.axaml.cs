@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
@@ -16,7 +17,8 @@ public record SessionData(
     string RepoPath,
     string? CustomName,
     string? CustomColor,
-    string? ClaudeArgs);
+    string? ClaudeArgs,
+    AgentKind AgentKind);
 
 public partial class SaveWorkspaceDialog : Window
 {
@@ -24,6 +26,17 @@ public partial class SaveWorkspaceDialog : Window
     private readonly List<SaveSessionItem> _items;
 
     public WorkspaceDefinition? Result { get; private set; }
+
+    /// <summary>
+    /// True when the user ticked "Include handover documents" (issue #512). When set, the
+    /// caller has the wingman write one handover note per selected session and records the
+    /// path on each entry. The selected sessions, in their saved entry order, are exposed
+    /// via <see cref="SelectedSessions"/> so the caller can pair each handover with its entry.
+    /// </summary>
+    public bool IncludeHandovers { get; private set; }
+
+    /// <summary>The sessions that were saved, in entry order, when the dialog succeeded.</summary>
+    public IReadOnlyList<SessionData> SelectedSessions { get; private set; } = Array.Empty<SessionData>();
 
     public SaveWorkspaceDialog(WorkspaceStore store, IEnumerable<SessionData> sessions)
     {
@@ -39,6 +52,7 @@ public partial class SaveWorkspaceDialog : Window
             CustomName = s.CustomName,
             CustomColor = s.CustomColor,
             ClaudeArgs = s.ClaudeArgs,
+            AgentKind = s.AgentKind,
             SortOrder = i,
             HasColor = !string.IsNullOrWhiteSpace(s.CustomColor),
             ColorBrush = GetColorBrush(s.CustomColor)
@@ -131,8 +145,16 @@ public partial class SaveWorkspaceDialog : Window
             }).ToList()
         };
 
+        IncludeHandovers = ChkIncludeHandovers.IsChecked == true;
+        SelectedSessions = selected
+            .Select(s => new SessionData(
+                s.DisplayName, s.RepoPath, s.CustomName, s.CustomColor, s.ClaudeArgs, s.AgentKind))
+            .ToList();
+
         _store.Save(Result);
-        FileLog.Write($"[SaveWorkspaceDialog] Workspace saved: {name} ({selected.Count} sessions)");
+        FileLog.Write(
+            $"[SaveWorkspaceDialog] Workspace saved: {name} ({selected.Count} sessions), " +
+            $"includeHandovers={IncludeHandovers}");
 
         Close(true);
     }
@@ -158,6 +180,7 @@ public partial class SaveWorkspaceDialog : Window
         public string? CustomName { get; set; }
         public string? CustomColor { get; set; }
         public string? ClaudeArgs { get; set; }
+        public AgentKind AgentKind { get; set; } = AgentKind.ClaudeCode;
         public int SortOrder { get; set; }
         public bool HasColor { get; set; }
         public ISolidColorBrush ColorBrush { get; set; } = new SolidColorBrush(Colors.Transparent);
