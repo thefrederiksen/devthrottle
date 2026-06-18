@@ -256,6 +256,7 @@ public sealed class DictationPipeline : IAsyncDisposable
     /// </summary>
     private async Task PumpAsync(CancellationToken ct)
     {
+        Exception? failure = null;
         try
         {
             await _connected.Task.WaitAsync(ct);
@@ -270,12 +271,23 @@ public sealed class DictationPipeline : IAsyncDisposable
         catch (OperationCanceledException)
         {
             // Pipeline cancelled/disposed before connecting; nothing to flush.
+            return;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DictationPipeline] PumpAsync error: {ex.Message}");
-            throw;
+            failure = ex;
         }
+
+        if (failure is null) return;
+
+        // Notify the UI immediately so the user sees "connection lost" within
+        // one audio chunk (~50ms) rather than discovering it at Stop time.
+        // Storing failure above and notifying here (outside the catch block)
+        // ensures a misbehaving handler cannot replace the real error.
+        FileLog.Write("[DictationPipeline] PumpAsync: notifying UI of connection loss");
+        OnStateChanged?.Invoke(ConnectionState.Buffering);
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private void ForwardPartial(string partial) => OnPartial?.Invoke(partial);

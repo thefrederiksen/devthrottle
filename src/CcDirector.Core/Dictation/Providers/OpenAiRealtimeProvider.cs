@@ -104,7 +104,23 @@ public sealed class OpenAiRealtimeProvider : IDictationProvider
 
         // Configure the session with the vocabulary prompt.
         var configFrame = OpenAiRealtimeProtocol.BuildSessionUpdate(_model, sttPrompt ?? "");
-        await SendTextAsync(configFrame, ct);
+        try
+        {
+            await SendTextAsync(configFrame, ct);
+        }
+        catch (InvalidOperationException ex) when (_ws?.State != WebSocketState.Open)
+        {
+            // Exception TRANSLATION, not silencing: the server closed the connection
+            // immediately after the HTTP upgrade (rate limit, transient backend problem).
+            // The raw InvalidOperationException text ("WebSocket state is CloseReceived,
+            // expected Open") is accurate but tells the user nothing actionable.
+            // DictationConnectException carries "try again" wording the UI can surface.
+            FileLog.Write($"[OpenAiRealtimeProvider] StartAsync: server closed immediately after connect: state={_ws?.State}, error={ex.Message}");
+            throw new DictationConnectException(
+                lastError: $"server closed immediately after connecting ({_ws?.State})",
+                attempts: 1,
+                inner: ex);
+        }
     }
 
     public async Task PushAudioAsync(ReadOnlyMemory<byte> chunk, CancellationToken ct = default)

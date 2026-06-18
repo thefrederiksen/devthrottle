@@ -96,6 +96,21 @@ public sealed class DictationPipelineTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    /// Provider that connects fine but fails on the first audio push with an
+    /// InvalidOperationException (the shape thrown by OpenAiRealtimeProvider
+    /// when the WebSocket drops mid-session: "WebSocket state is Aborted, expected Open").
+    /// </summary>
+    private sealed class FailingPushProvider : IDictationProvider
+    {
+        public event Action<string>? OnPartial { add { } remove { } }
+        public Task StartAsync(string sttPrompt, CancellationToken ct = default) => Task.CompletedTask;
+        public Task PushAudioAsync(ReadOnlyMemory<byte> chunk, CancellationToken ct = default)
+            => throw new InvalidOperationException("WebSocket state is Aborted, expected Open.");
+        public Task<string> StopAsync(CancellationToken ct = default) => Task.FromResult("");
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     // ===== helpers ==========================================================
 
     private static DictionaryLoader BuildLoader()
@@ -482,5 +497,50 @@ public sealed class DictationPipelineTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => pipeline.ConnectAsync(session, "default"));
+    }
+
+    // ===== connection-loss detection (early warning fix) ========================
+
+    [Fact]
+    public async Task PumpFails_MidSession_FiresStateChangedBuffering()
+    {
+        // Regression test for the silent-failure bug: when the WebSocket dies
+        // mid-recording, the pump task faults. Before the fix the UI only
+        // discovered this at Stop time (up to 54 seconds later). After the fix
+        // OnStateChanged(Buffering) fires within one chunk interval (~50ms) so
+        // the dialog can immediately show "connection lost".
+        //
+        // FailingPushProvider simulates OpenAiRealtimeProvider throwing the same
+        // InvalidOperationException it raises when ws.State != Open.
+        using var dict = BuildLoader();
+        var provider = new FailingPushProvider();
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src);
+
+        var states = new List<ConnectionState>();
+        pipeline.OnStateChanged += s => { lock (states) states.Add(s); };
+
+        await pipeline.StartAsync(session, "default");
+
+        // Emit a chunk - this triggers the push which faults the pump.
+        src.Emit(new byte[] { 1, 2, 3 });
+
+        // Give the pump task time to catch the failure and fire OnStateChanged.
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (states)
+            {
+                if (states.Contains(ConnectionState.Buffering)) break;
+            }
+            await Task.Delay(10);
+        }
+
+        lock (states)
+        {
+            Assert.Contains(ConnectionState.Buffering, states);
+        }
     }
 }
