@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #517 - Cursor CLI (cursor-agent) provider - QA Report (FAIL)</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:24px; }
+  h1 { color:#fff; font-size:22px; } h2 { color:#fff; border-bottom:1px solid #3C3C3C; padding-bottom:6px; margin-top:32px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; } .fail { color:#EF4444; font-weight:700; } .note { color:#F59E0B; font-weight:600; }
+  code { background:#252526; padding:1px 5px; border-radius:3px; color:#9CDCFE; }
+  img { max-width:100%; border:1px solid #3C3C3C; border-radius:4px; margin:8px 0; display:block; }
+  .cap { color:#888; font-size:12px; margin-bottom:18px; }
+  .box { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:14px 18px; margin:14px 0; }
+  .verdict { background:#3A1212; border:1px solid #EF4444; }
+</style>
+</head>
+<body>
+<h1>Issue #517 - Add Cursor CLI (<code>cursor-agent</code>) provider - QA Report</h1>
+
+<div class="box verdict">
+  <strong class="fail">VERDICT: FAIL (flow:qa-failed)</strong><br/>
+  One acceptance criterion (<strong>AC7</strong>) is not met: a session created with the Cursor agent is
+  <strong>mislabeled "Claude Code"</strong> (with the Claude-blue badge color) in the Director's session rail, because
+  <code>SessionViewModel.AgentLabel</code> and <code>SessionViewModel.AgentBadgeBrush</code> have no
+  <code>AgentKind.Cursor</code> case and fall through to the Claude default. The Cursor provider is therefore not
+  represented as a first-class agent "exactly like Claude or Pi" in the primary UI surface that identifies a session's agent.
+  All other criteria pass. Specific, reproducible defect and fix below.
+</div>
+
+<div class="box">
+  <strong>Independent verification basis (QA Agent, separate identity from Developer):</strong><br/>
+  - <strong>Own worktree:</strong> <code>C:\ReposFred\devthrottle-qa517</code> on branch <code>issue-517-cursor-agent</code> @ <code>df3eaf74</code> (PR #521 HEAD).<br/>
+  - <strong>Own slot/build:</strong> slot 6, <code>scripts\local-build-avalonia.ps1 -Slot 6</code> - Build succeeded, <strong>0 Warning(s), 0 Error(s)</strong> (AC12).<br/>
+  - <strong>Own test runs:</strong> Core.Tests (Cursor/catalog/detection/agent-entry filter) = <strong>58 passed / 0 failed</strong>;
+    HostedAgent.Tests <code>DriverRegistry</code> = <strong>27 passed / 0 failed</strong>; full HostedAgent.Tests = <strong>74 passed / 0 failed</strong>.<br/>
+  - <strong>Own running app:</strong> launched via <code>cc-director6-launch</code> scheduled task (CLAUDE.md rule 0b); captured my build via PrintWindow showing <code>v0.9.12 (df3eaf7)</code>.<br/>
+  - <strong><code>cursor-agent</code> on this machine:</strong> <span class="note">NOT installed on PATH</span> (independently confirmed). Per the issue's OUT-of-scope list (A1/A5) the binary is the user's to provide; a faithful <code>cursor-agent</code> stub is an acceptable proxy for the provider-integration intent of AC7/AC8 (the Director correctly selects, launches, passes <code>--force</code>, and relays output). The stub is NOT the reason for the FAIL.
+</div>
+
+<h2>Acceptance Criteria - Expected vs Actual (independently judged)</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual (QA)</th><th>Verdict</th></tr>
+<tr><td>AC1 Provider exists</td><td><code>AgentKind.Cursor</code> exists; round-trips via sessions.json.</td><td><code>Cursor = 6</code>; <code>AgentKind_Cursor_RoundTripsThroughJsonSerialization</code> green in my run.</td><td class="pass">PASS</td></tr>
+<tr><td>AC2 Launch spec</td><td>(a) no <code>--session-id</code>; (b) <code>--resume="&lt;id&gt;"</code>; (c) yolo <code>--force</code>; (d) <code>SupportsPreassignedSessionId == false</code>.</td><td>All four <code>CursorAgentTests.BuildLaunchSpec_*</code> + <code>SupportsPreassignedSessionId_IsFalse</code> green in my run; source confirms.</td><td class="pass">PASS</td></tr>
+<tr><td>AC3 Executable resolution</td><td>Configured <code>CursorPath</code> used; PATH case skippable when binary absent.</td><td><code>DetectTool_ConfiguredExistingCursorPath_ReturnsFound</code> + <code>ExecutablePath_UsesConfiguredCursorPath</code> green in my run.</td><td class="pass">PASS</td></tr>
+<tr><td>AC4 Driver registry</td><td><code>AgentDrivers.For(Cursor)</code> returns <code>CursorDriver</code>.</td><td><code>DriverRegistryTests.For_ResolvesTheVerifiedDrivers</code> green; source confirms <code>AgentKind.Cursor =&gt; new CursorDriver()</code>.</td><td class="pass">PASS</td></tr>
+<tr><td>AC5 Detection</td><td><code>ToolDetectionService</code> reports <code>cursor-agent</code> on PATH.</td><td><code>SupportedTools</code> includes Cursor; known-candidate probe present; configured-path detection green in my run.</td><td class="pass">PASS</td></tr>
+<tr><td>AC6 Selectable in UI</td><td>New Session lists "Cursor" as a selectable agent.</td><td>Source: picker renders one radio per enabled <code>agent.entries</code>; <code>AgentEntryTests</code> proves Cursor seeds as entry[5]; <code>ApplyAgentSelection</code> handles Cursor. Dev screenshots 01/02 corroborate the Cursor radio + relabeled checkbox.</td><td class="pass">PASS</td></tr>
+<tr><td><strong>AC7 Runs inside the Director</strong></td><td>Creating a session with the Cursor agent launches <code>cursor-agent</code> into a Director session tab; the session is presented as a Cursor session.</td><td class="fail">The binary launches into a tab (stub: banner + <code>Args: --force</code>), BUT the session is <strong>mislabeled "Claude Code"</strong> with the Claude-blue badge in the session rail - <code>SessionViewModel.AgentLabel</code>/<code>AgentBadgeBrush</code> have no <code>AgentKind.Cursor</code> arm and fall to the Claude default. Visible in dev proof 03/04 and confirmed at source. Cursor is not a first-class provider in the primary session-identification UI, unlike Pi/Codex/Gemini/OpenCode which all have their case.</td><td class="fail">FAIL</td></tr>
+<tr><td>AC8 Accepts a prompt and responds</td><td>A prompt produces a visible response in the tab.</td><td>Dev proof 04: prompt sent, stub echoed + responded in the tab. Behavior (Director relays stdin/stdout to the cursor-agent process) is sound.</td><td class="pass">PASS (behavior)</td></tr>
+<tr><td>AC9 <code>--force</code> honored</td><td>Yolo preset / bypass checkbox puts <code>--force</code> in the launch command.</td><td>Source: <code>MainWindow</code> appends <code>AgentToolCatalog.CursorForceArg</code> for Cursor when bypass is checked (de-duped vs preset). Dialog relabels checkbox "(--force)"; stub banner shows <code>Args: --force</code>.</td><td class="pass">PASS</td></tr>
+<tr><td>AC10 Session-id capture</td><td>Cursor's <code>session_id</code> captured from stream-json <code>init</code>.</td><td><code>CursorDriver.TryCaptureSessionId</code> handles <code>system/init</code> + bare <code>init</code>, returns null when absent; tests green in my run.</td><td class="pass">PASS</td></tr>
+<tr><td>AC11 Capabilities honesty</td><td>Only verified verbs advertised; unsupported throw <code>NotSupported</code>.</td><td><code>Capabilities == Interrupt</code> only; Cancel/Clear/History/transcript verbs throw; tests green in my run.</td><td class="pass">PASS</td></tr>
+<tr><td>AC12 Build clean</td><td>Builds with no new warnings.</td><td>My slot-6 build: Build succeeded, 0 Warning(s), 0 Error(s).</td><td class="pass">PASS</td></tr>
+<tr><td>AC13 No regression</td><td>Claude/Pi still launch and run; existing tests green.</td><td>6 failures in full Core.Tests are pre-existing/environmental (OpenAiRealtime + RealTranscription need a live OpenAI key; loopback-guard hits <code>src/CcDirector.Gateway/Running/IDirectorLauncher.cs</code>, last changed by #505, NOT in this PR's diff). Confirmed reproducing on <code>main</code>. No PR-touched file fails. Claude/Pi labels/paths unchanged.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2 class="fail">DEFECT (AC7): Cursor sessions are mislabeled "Claude Code" in the session rail</h2>
+<div class="box">
+  <strong>File (NOT in PR #521 diff - the missing change):</strong> <code>src/CcDirector.Avalonia/SessionViewModel.cs</code><br/>
+  <strong>Lines 250-258 and 260-268:</strong>
+  <pre style="color:#9CDCFE;white-space:pre-wrap">public string AgentLabel =&gt; Session.AgentKind switch
+{
+    AgentKind.Pi =&gt; "Pi",
+    AgentKind.Codex =&gt; "Codex",
+    AgentKind.Gemini =&gt; "Gemini",
+    AgentKind.OpenCode =&gt; "OpenCode",
+    AgentKind.RawCli =&gt; "Custom CLI",
+    _ =&gt; "Claude Code"          // &lt;-- AgentKind.Cursor falls through here
+};
+
+public ISolidColorBrush AgentBadgeBrush =&gt; Session.AgentKind switch
+{
+    AgentKind.Pi =&gt; PiAgentBrush,
+    ...
+    AgentKind.RawCli =&gt; RawCliAgentBrush,
+    _ =&gt; ClaudeAgentBrush        // &lt;-- AgentKind.Cursor falls through here
+};</pre>
+</div>
+
+<h3>Steps to reproduce</h3>
+<ol>
+  <li>Configure an enabled Cursor <code>agent.entries</code> row (executable = <code>cursor-agent</code> or a stub on the path).</li>
+  <li>New Session - select <strong>Cursor</strong> - pick a repo - Start Session.</li>
+  <li>Look at the SESSIONS rail (left). <strong>Expected:</strong> badge reads "Cursor" with a distinct Cursor color.
+      <strong>Actual:</strong> badge reads <strong>"Claude Code"</strong> with the Claude-blue brush.</li>
+</ol>
+
+<h3>Why this is a fail, not cosmetic</h3>
+<p>The session rail is the primary place a user identifies which agent a session is running. Every other added provider
+(Pi/Codex/Gemini/OpenCode) added its <code>AgentLabel</code>/<code>AgentBadgeBrush</code> case when introduced
+(OpenCode in commit <code>f39315de</code>). This PR added Cursor to the factory, dialog, and drivers but did not update
+<code>SessionViewModel</code>, so a real Cursor session is indistinguishable from - and actively mislabeled as - a Claude
+session. The issue's goal is Cursor "selectable... and driven inside a Director session tab exactly like Claude or Pi";
+AC7 is not met while the running session misrepresents its agent. The defect is visible in the Developer's own AC7/AC8
+screenshots (03/04), where a session running the cursor-agent stub carries a "Claude Code" badge.</p>
+
+<h3>Suggested fix (Developer)</h3>
+<p>Add the missing arms in <code>src/CcDirector.Avalonia/SessionViewModel.cs</code>:
+<code>AgentKind.Cursor =&gt; "Cursor"</code> in <code>AgentLabel</code>, and a dedicated Cursor brush in
+<code>AgentBadgeBrush</code> (mirroring the Pi/Codex/Gemini/OpenCode pattern). Then re-capture the AC7/AC8 proof showing
+a "Cursor" badge on the running session.</p>
+
+<h2>Evidence</h2>
+<img src="qa-running-build-df3eaf7.png" alt="QA running the PR build" />
+<div class="cap">QA-1 - My own slot-6 Director (PrintWindow capture), <code>v0.9.12 (df3eaf7)</code> = PR #521 HEAD, port 7891. Confirms I built and ran the actual change.</div>
+<img src="qa-defect-badge-mislabel.png" alt="Cursor session mislabeled Claude Code" />
+<div class="cap">QA-2 - Annotated crop of the Developer's AC8 proof (04-cursor-responded.png): the session running <code>cursor-agent</code> carries a <strong>"Claude Code"</strong> rail badge (red box) - the AC7 defect.</div>
+<img src="03-cursor-session-launched.png" alt="cursor-agent session tab" />
+<div class="cap">Context (dev proof 03) - the cursor-agent stub launched into a tab with <code>Args: --force</code>; rail badge still says "Claude Code".</div>
+
+<h2>Regression / method check</h2>
+<p>No CenCon architecture/security drift; <code>CURSOR_API_KEY</code> is injected into the child env and never logged
+(verified in <code>SessionManager</code>). The only defect is the missing UI label/badge mapping above. No fix applied by
+QA (separation of duties); bounced to the Developer Agent via <code>flow:qa-failed</code>.</p>
+
+<p><strong>Result:</strong> 12/13 acceptance criteria pass; <strong>AC7 FAILS</strong> on the Cursor session-badge mislabel.
+Specific, reproducible, one-file fix identified.</p>
+</body>
+</html>
