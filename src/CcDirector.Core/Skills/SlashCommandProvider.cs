@@ -60,17 +60,6 @@ public sealed class SlashCommandProvider
     }
 
     /// <summary>
-    /// Returns slash commands that the selected agent driver says are safe for the composer.
-    /// </summary>
-    public List<SlashCommandItem> GetComposerCommands(AgentKind agentKind, string? repoPath)
-    {
-        FileLog.Write($"[SlashCommandProvider] GetComposerCommands: agent={agentKind}, repoPath={repoPath ?? "(null)"}");
-        var result = GetCommands(agentKind, repoPath).Where(command => command.IsSafeFromComposer).ToList();
-        FileLog.Write($"[SlashCommandProvider] GetComposerCommands: agent={agentKind}, found {result.Count} composer-safe commands");
-        return result;
-    }
-
-    /// <summary>
     /// Returns only custom skill commands (global + project), excluding built-in.
     /// </summary>
     public List<SlashCommandItem> GetCustomSkills(string? repoPath)
@@ -127,7 +116,6 @@ public sealed class SlashCommandProvider
                 command.Documentation,
                 command.Category,
                 command.DriverKind,
-                command.IsSafeFromComposer,
                 command.IsTerminalOnly);
         }
     }

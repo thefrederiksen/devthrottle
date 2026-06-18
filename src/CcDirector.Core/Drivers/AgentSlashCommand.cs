@@ -12,7 +12,6 @@ public sealed record AgentSlashCommand(
     string Category,
     string Source,
     AgentKind DriverKind,
-    bool IsSafeFromComposer = true,
     bool IsTerminalOnly = false,
     string Documentation = "")
 {

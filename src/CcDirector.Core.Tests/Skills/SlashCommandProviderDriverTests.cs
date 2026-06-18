@@ -54,34 +54,34 @@ public sealed class SlashCommandProviderDriverTests : IDisposable
     }
 
     [Fact]
-    public void GetComposerCommands_ClaudeSession_UsesDriverSafetyMetadata()
+    public void GetCommands_ClaudeSession_IncludesInteractiveCommandsInComposerList()
     {
         var provider = new SlashCommandProvider();
 
-        var commands = provider.GetComposerCommands(AgentKind.ClaudeCode, _repoPath);
+        var commands = provider.GetCommands(AgentKind.ClaudeCode, _repoPath);
         var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         Assert.Contains("clear", names);
         Assert.Contains("compact", names);
-        Assert.DoesNotContain("permissions", names);
-        Assert.DoesNotContain("model", names);
-        Assert.DoesNotContain("theme", names);
-        Assert.DoesNotContain("resume", names);
+        Assert.Contains("permissions", names);
+        Assert.Contains("model", names);
+        Assert.Contains("theme", names);
+        Assert.Contains("resume", names);
     }
 
     [Fact]
-    public void GetComposerCommands_PiSession_UsesPiDriverSafetyMetadata()
+    public void GetCommands_PiSession_IncludesInteractiveCommandsInComposerList()
     {
         var provider = new SlashCommandProvider();
 
-        var commands = provider.GetComposerCommands(AgentKind.Pi, _repoPath);
+        var commands = provider.GetCommands(AgentKind.Pi, _repoPath);
         var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         Assert.Contains("new", names);
         Assert.Contains("export", names);
-        Assert.DoesNotContain("settings", names);
-        Assert.DoesNotContain("model", names);
-        Assert.DoesNotContain("scoped-models", names);
+        Assert.Contains("settings", names);
+        Assert.Contains("model", names);
+        Assert.Contains("scoped-models", names);
     }
 
     [Fact]

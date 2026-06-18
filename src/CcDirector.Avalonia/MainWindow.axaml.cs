@@ -4051,7 +4051,7 @@ public partial class MainWindow : Window
 
         var repoPath = _activeSession?.Session.RepoPath;
         var agentKind = _activeSession?.Session.AgentKind ?? AgentKind.ClaudeCode;
-        var available = _slashCommandProvider.GetComposerCommands(agentKind, repoPath);
+        var available = _slashCommandProvider.GetCommands(agentKind, repoPath);
 
         _filteredSlashCommands = string.IsNullOrEmpty(filter)
             ? available

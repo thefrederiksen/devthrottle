@@ -45,7 +45,6 @@ public static class PiSlashCommands
             category,
             "builtin",
             Agents.AgentKind.Pi,
-            IsSafeFromComposer: !terminalOnly,
             IsTerminalOnly: terminalOnly,
             Documentation: documentation);
     }
