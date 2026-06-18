@@ -10,6 +10,12 @@ This is **enterprise-level software** requiring robust error handling, comprehen
 
 ## Critical Rules
 
+### 0a. WRITE IN PLAIN ENGLISH - NO ABBREVIATIONS
+
+**Never use abbreviations, acronyms, initialisms, or jargon. Write out the full words in plain English, everywhere.**
+
+This applies to chat replies, issue text, commit messages, code comments, reports, documentation - all output. Spell out what you mean. Say "pull request" not "PR", "the readiness checklist" not "DoR", and so on. If a short form exists, do not use it - use the ordinary words. Clarity over brevity, always. Do not be clever or terse at the cost of being understood.
+
 ### 0. NEVER KILL RUNNING PROCESSES WITHOUT PERMISSION
 
 **ABSOLUTELY NEVER use taskkill or any command to terminate cc-director.exe or any other running application without explicit user approval.**
