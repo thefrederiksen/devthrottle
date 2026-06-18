@@ -8,9 +8,11 @@ namespace CcDirector.Core.Tests.Configuration;
 /// <summary>
 /// Tests for <see cref="BrainToolConfig"/> (issue #393), the Gateway brain's tool choice.
 /// The contract: missing file/key = the default (Claude Code), a set value is parsed
-/// case-insensitively, and a present-but-invalid value (unknown name, or a known-but-not-
-/// brain-hostable tool) THROWS (no-fallback - the brain must never silently run as a tool
-/// nobody chose, or one that cannot be hosted).
+/// case-insensitively, and a present-but-invalid value (unknown name, blank, or non-string)
+/// THROWS (no-fallback - the brain must never silently run as a tool nobody chose). As of
+/// issue #510 the value may be ANY recognised <see cref="AgentKind"/> name, not just the
+/// brain-hostable list, because the wingman agent is chosen from the machine's registered
+/// agents (the driver-level hostability work landed in issue #509).
 /// </summary>
 [Collection("CcStorageRoot")] // serializes all classes that mutate the process-wide CC_DIRECTOR_ROOT
 public sealed class BrainToolConfigTests : IDisposable
@@ -76,13 +78,13 @@ public sealed class BrainToolConfigTests : IDisposable
     }
 
     [Fact]
-    public void Get_KnownButNotHostableTool_Throws()
+    public void Get_AnyRegisteredAgentKind_IsAccepted()
     {
-        // Pi is a known AgentKind but its driver cannot host a brain (no preassigned session id /
-        // transcript reads), so it must be rejected rather than silently accepted.
+        // Issue #510: the wingman agent is chosen from the machine's registered agents, so any
+        // recognised AgentKind name is now a valid brain_tool - not just the brain-hostable list.
+        // Pi (a known kind that was previously rejected) now parses straight through.
         SeedConfig("""{ "brain_tool": "Pi" }""");
-        var ex = Assert.Throws<InvalidOperationException>(() => BrainToolConfig.Get());
-        Assert.Contains("brain_tool", ex.Message);
+        Assert.Equal(AgentKind.Pi, BrainToolConfig.Get());
     }
 
     [Fact]

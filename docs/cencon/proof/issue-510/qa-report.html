@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA verification - issue #510 (Wingman agent picker)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #1a7f1a; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  .verdict { font-size: 1.2em; padding: 12px; border-radius: 6px; }
+  .verdict.fail { background: #fde8ea; border: 1px solid #b00020; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>QA verification - issue #510</h1>
+<p><strong>Title:</strong> [Wingman] Wingman settings: rename Tool to Agent and list every agent registered on this machine</p>
+<p><strong>PR:</strong> #522, branch <code>issue-510-wingman-agent-picker</code></p>
+<p><strong>Method:</strong> Independent verification against the REAL <code>CcDirector.Gateway.GatewayHost</code> booted
+in-process from the PR branch, serving the REAL unmodified Cockpit <code>settings.html</code> same-origin. The
+Developer's fake Python proof server was NOT used. Read-only "real" mode confirmed the live agent list from the real
+<code>AgentEntryStore</code>; "isolated" mode (a fresh temp <code>CC_DIRECTOR_ROOT</code>) exercised Save without
+touching the user's config.json.</p>
+
+<div class="verdict fail">VERDICT: FAIL - acceptance criterion 3 is not met. The saved <em>model</em> does not survive a page reload.</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>The Wingman tab shows the label "Agent" (the word "Tool" no longer appears there).</td>
+  <td>Picker label reads "Agent"; no "Tool" word on the tab.</td>
+  <td>Picker label and Brain runtime row both read "Agent". The old <code>label[for=braintool]</code> is absent and the
+      word "Tool" does not appear anywhere on the page (DOM check + screenshot).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>The Agent dropdown lists every agent registered on this machine and matches the machine's agent list (more than one).</td>
+  <td>Dropdown shows all enabled machine agents.</td>
+  <td>Live <code>/gateway/settings</code> (real root) returned all 5 machine agents - Claude (ClaudeCode), Codex, Pi,
+      Gemini, OpenCode - with ids matching the real <code>agent.entries</code> (qa-c2, qa-cx, qa-pi, and the two GUID
+      entries). The dropdown rendered all 5.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Choosing an agent, entering a model, and clicking Save stores both; reloading the page shows the saved agent <strong>and model</strong>.</td>
+  <td>After Save + reload, the dropdown pre-selects the saved agent AND the Model field shows the saved model.</td>
+  <td>Saved Gemini + <code>gemini-2.5-pro</code> via the real PUT (confirmation "Saved Gemini (Gemini) + gemini-2.5-pro").
+      After reload the dropdown DID pre-select Gemini, but the Model field showed <code>opus</code>, NOT the saved
+      <code>gemini-2.5-pro</code>. The agent round-trips; the model does not.</td>
+  <td class="fail">FAIL</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>The saved choice is written to the gateway config (config.json + the settings response).</td>
+  <td>config.json holds the saved agent + model; GET reflects the saved agent.</td>
+  <td>Isolated config.json held <code>brain_agent_id=90fddfdb-...</code> (Gemini), <code>brain_tool=Gemini</code>,
+      <code>brain_model=gemini-2.5-pro</code>. The live GET <code>brain.agentId</code> reflected the saved id. (Write IS
+      durable - the defect in #3 is purely the GET/page not surfacing the saved model.)</td>
+  <td class="pass">PASS (write side)</td>
+</tr>
+</table>
+
+<h2>The defect (criterion 3) - reproducible</h2>
+<ol>
+<li>Open Cockpit Settings &gt; Wingman.</li>
+<li>Choose an agent other than the default (Gemini), enter a model (<code>gemini-2.5-pro</code>), click Save. The
+    confirmation reads "Saved Gemini (Gemini) + gemini-2.5-pro".</li>
+<li>Reload the page and open the Wingman tab.</li>
+<li><strong>Expected:</strong> dropdown = Gemini AND Model = <code>gemini-2.5-pro</code>.
+    <strong>Actual:</strong> dropdown = Gemini (correct), Model = <code>opus</code> (the running-brain default, NOT the saved value).</li>
+</ol>
+<p><strong>Root cause:</strong> the agent picker pre-selects from the saved config (<code>brain.agentId</code> reads
+<code>brain_agent_id</code> live), but the Model field is bound to <code>brain.model</code>, which the GET sources from
+the running brain (<code>host.BrainModel</code>, fixed at GatewayHost construction), not from the saved
+<code>brain_model</code> in config.json. So a freshly-saved model is persisted to disk but never shown back on reload -
+the two halves of the same picker disagree. The PR's own endpoint test even asserts this
+(<code>Assert.Equal(BrainModelConfig.Default, brain["model"])</code> after saving "sonnet"), which encodes the very
+behaviour that violates AC3's "reloading the page shows the saved agent and model".</p>
+
+<h2>Evidence</h2>
+<p>Agent label + all 5 registered machine agents (criteria 1 and 2):</p>
+<img src="qa-agent-label-and-5-agents.png" alt="Agent label and 5 agents">
+<p>After Save(Gemini, gemini-2.5-pro) + reload: agent pre-selected = Gemini, but Model = opus, not the saved model (criterion 3 FAIL):</p>
+<img src="qa-reload-model-not-persisted.png" alt="Reload shows wrong model">
+
+<p><strong>Regression sweep:</strong> No adjacent breakage observed. Build clean
+(<code>scripts\local-build-avalonia.ps1 -Slot 11</code> -&gt; 0 Warning(s), 0 Error(s)); the 6 Gateway brain-config
+endpoint tests pass on a QA rebuild. The single defect is the model not round-tripping to the page on reload.</p>
+
+<p class="fail">Conclusion: 3 of 4 criteria pass; criterion 3 fails. Bounced to the Developer Agent (flow:qa-failed).</p>
+</body>
+</html>

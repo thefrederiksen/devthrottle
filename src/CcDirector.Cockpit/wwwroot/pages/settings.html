@@ -228,11 +228,11 @@
     <!-- Wingman config: enable + which tool + which model -->
     <div class="section">
       <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
-      <p class="hint">The Gateway's always-on intelligence: when enabled it reads every session turn and stamps a brief for the Cockpit's Wingman tab. Choose which agent tool and model run as the wingman. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Disabled by default; changes take effect after a Gateway restart.</p>
+      <p class="hint">The Gateway's always-on intelligence: when enabled it reads every session turn and stamps a brief for the Cockpit's Wingman tab. Choose which agent and model run as the wingman, from the agents registered on this machine. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Disabled by default; changes take effect after a Gateway restart.</p>
       <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
       <div class="field">
-        <label for="braintool">Tool</label>
-        <select id="braintool" disabled></select>
+        <label for="brainagent">Agent</label>
+        <select id="brainagent" disabled></select>
       </div>
       <div class="field">
         <label for="brainmodelsel">Model</label>
@@ -247,13 +247,13 @@
     <!-- Brain runtime: the hosted process that does the work, plus the recovery verb -->
     <div class="section">
       <h2>Brain <span class="pill">hosted agent</span></h2>
-      <p class="hint">The hosted agent process the wingman runs on. It starts on first use; restart replaces a wedged or dead brain or applies a saved tool/model change without a full Gateway restart.</p>
+      <p class="hint">The hosted agent process the wingman runs on. It starts on first use; restart replaces a wedged or dead brain or applies a saved agent/model change without a full Gateway restart.</p>
       <div class="status">
         <span class="dot" id="braindot"></span>
         <span id="brainstate">Loading...</span>
       </div>
       <div class="kv">
-        <span class="k">Tool</span><span class="v" id="braintoolnow">-</span>
+        <span class="k">Agent</span><span class="v" id="braintoolnow">-</span>
         <span class="k">Model</span><span class="v" id="brainmodel">-</span>
         <span class="k">Session</span><span class="v mono" id="brainsession">-</span>
       </div>
@@ -390,16 +390,18 @@
     document.getElementById('brainsession').textContent =
       b.sessionId ? `${b.sessionId} (pid ${b.pid})` : '-';
 
-    // Populate the tool selector from the Gateway's brain-hostable tool list and pre-select
-    // the configured tool. The model input is pre-filled with the configured model. Both stay
-    // disabled until the wingman enable state has loaded (toggling controls editability).
-    const sel = document.getElementById('braintool');
-    const tools = Array.isArray(b.tools) ? b.tools : [];
+    // Populate the agent selector from the agents registered on this machine (issue #510) and
+    // pre-select the saved agent by its id, so the choice round-trips across a page reload. The
+    // model input is pre-filled with the configured model. Both stay disabled until the wingman
+    // enable state has loaded (toggling controls editability).
+    const sel = document.getElementById('brainagent');
+    const agents = Array.isArray(b.agents) ? b.agents : [];
     sel.innerHTML = '';
-    tools.forEach(function(t){
+    agents.forEach(function(a){
       const opt = document.createElement('option');
-      opt.value = t; opt.textContent = t;
-      if (t === b.tool) opt.selected = true;
+      opt.value = a.id;
+      opt.textContent = a.displayName ? `${a.displayName} (${a.type})` : a.type;
+      if (a.id === b.agentId) opt.selected = true;
       sel.appendChild(opt);
     });
     document.getElementById('brainmodelsel').value = b.model || '';
@@ -502,9 +504,9 @@
       const box = document.getElementById('wingman');
       box.checked = !!d.enabled;
       box.disabled = false;
-      // The tool/model/Save controls are editable once the Gateway has answered - you may
+      // The agent/model/Save controls are editable once the Gateway has answered - you may
       // configure the wingman before or after enabling it.
-      document.getElementById('braintool').disabled = false;
+      document.getElementById('brainagent').disabled = false;
       document.getElementById('brainmodelsel').disabled = false;
       document.getElementById('brainsavebtn').disabled = false;
     } catch (e) {
@@ -516,19 +518,20 @@
   async function saveBrainConfig(){
     const btn = document.getElementById('brainsavebtn');
     const msg = document.getElementById('wingmanmsg');
-    const tool = document.getElementById('braintool').value;
+    const agentId = document.getElementById('brainagent').value;
+    const agentLabel = document.getElementById('brainagent').selectedOptions[0]?.textContent || agentId;
     const model = document.getElementById('brainmodelsel').value.trim();
-    if (!tool){ msg.className = 'msg err'; msg.textContent = 'Choose a tool first.'; return; }
+    if (!agentId){ msg.className = 'msg err'; msg.textContent = 'Choose an agent first.'; return; }
     if (!model){ msg.className = 'msg err'; msg.textContent = 'Enter a model (e.g. opus).'; return; }
     btn.disabled = true; msg.className = 'msg ok'; msg.textContent = 'Saving...';
     try {
       const r = await fetch('/gateway/brain/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tool, model }),
+        body: JSON.stringify({ agentId, model }),
       });
       const d = await r.json().catch(()=>({}));
       if (r.ok){
-        msg.textContent = `Saved ${d.tool} + ${d.model}. Restart the Brain (or the Gateway) to apply.`;
+        msg.textContent = `Saved ${agentLabel} + ${d.model}. Restart the Brain (or the Gateway) to apply.`;
       } else {
         msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
       }
