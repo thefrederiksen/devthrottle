@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -686,6 +687,84 @@ public partial class SettingsDialog : Window
 
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
             { UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// Turn off the Windows notification that pops up the first time each new build opens its
+    /// local network port ("Do you want to allow ... on public and private networks?"). Changing a
+    /// firewall profile needs administrator rights, which CC Director does not have, so we launch a
+    /// short elevated PowerShell command. Windows shows one User Account Control approval prompt; if
+    /// the user declines it, the launch throws error 1223 and we say so plainly. The work runs off
+    /// the UI thread so the window stays responsive while the approval prompt is up.
+    /// </summary>
+    private async void BtnSuppressFirewallPrompt_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnSuppressFirewallPrompt_Click");
+        SuppressFirewallButton.IsEnabled = false;
+        ShowFirewallStatus("Asking Windows for administrator approval...", error: false);
+        try
+        {
+            var (ok, message) = await Task.Run(RunFirewallPromptSuppression);
+            ShowFirewallStatus(message, error: !ok);
+            FileLog.Write($"[SettingsDialog] BtnSuppressFirewallPrompt_Click: ok={ok}");
+        }
+        catch (Win32Exception wex) when (wex.NativeErrorCode == 1223)
+        {
+            // 1223 = the user clicked No on the User Account Control approval prompt.
+            FileLog.Write("[SettingsDialog] BtnSuppressFirewallPrompt_Click: administrator approval declined");
+            ShowFirewallStatus("No change was made - administrator approval was declined.", error: true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnSuppressFirewallPrompt_Click FAILED: {ex.Message}");
+            ShowFirewallStatus($"Could not change the setting: {ex.Message}", error: true);
+        }
+        finally
+        {
+            SuppressFirewallButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Run, with administrator rights, the PowerShell command that disables the "notify me when a new
+    /// app is blocked" firewall notification on all three profiles. Returns whether it applied and a
+    /// message to show the user. The elevated script reports success or failure through its exit code
+    /// (0 = applied, 1 = the firewall cmdlet itself failed, e.g. blocked by organization policy).
+    /// </summary>
+    private static (bool Ok, string Message) RunFirewallPromptSuppression()
+    {
+        FileLog.Write("[SettingsDialog] RunFirewallPromptSuppression: launching elevated PowerShell");
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command " +
+                        "\"try { Set-NetFirewallProfile -Profile Domain,Public,Private -NotifyOnListen False -ErrorAction Stop; exit 0 } catch { exit 1 }\"",
+            Verb = "runas",            // Raises the Windows administrator approval prompt.
+            UseShellExecute = true,    // Required for Verb to take effect.
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+
+        var process = Process.Start(startInfo);
+        if (process is null)
+            throw new InvalidOperationException("Windows did not start the elevated PowerShell process.");
+
+        process.WaitForExit();
+        FileLog.Write($"[SettingsDialog] RunFirewallPromptSuppression: exit code={process.ExitCode}");
+
+        if (process.ExitCode == 0)
+            return (true, "Done. Windows will no longer pop up the firewall question when a new build runs for the first time.");
+
+        return (false, "The setting could not be applied. The firewall may be controlled by your organization's policy.");
+    }
+
+    private void ShowFirewallStatus(string text, bool error)
+    {
+        FirewallStatus.Text = text;
+        FirewallStatus.IsVisible = true;
+        FirewallStatus.Foreground = error
+            ? global::Avalonia.Media.Brushes.IndianRed
+            : global::Avalonia.Media.Brushes.MediumSeaGreen;
     }
 
     /// <summary>The alpha-gated wake-word section follows the checkbox live (before Save).</summary>

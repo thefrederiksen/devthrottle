@@ -45,6 +45,14 @@
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
             <Setter Property="FontSize" Value="12" />
         </Style>
+        <!-- Rounded "card" container that groups related settings on the Advanced tab. -->
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="16" />
+        </Style>
         <Style Selector="Button.dialogButton">
             <Setter Property="Height" Value="30" />
             <Setter Property="MinWidth" Value="76" />
@@ -265,28 +273,53 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Features">
+            <TabItem Header="Advanced">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
-                    <StackPanel Spacing="8" Margin="0,4,0,0">
-                        <TextBlock Classes="sectionTitle" Text="Alpha Features" />
-                        <TextBlock Classes="hint" Text="Unfinished features we are still testing. They may break, change, or disappear without notice, and no support is provided while they are in alpha." />
-                        <CheckBox x:Name="AlphaFeaturesCheck"
-                                  Content="Enable alpha features"
-                                  IsChecked="False"
-                                  Foreground="#CCCCCC" FontSize="13"
-                                  Margin="0,4,0,0"
-                                  IsCheckedChanged="AlphaCheck_Changed"
-                                  ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
-                        <TextBlock Classes="hint" Margin="24,0,0,0"
-                                   Text="When enabled you get: unverified coding agents, session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below. Claude Code and Pi have verified drivers and are always available." />
+                    <StackPanel Spacing="12" Margin="0,4,0,0">
 
-                        <StackPanel x:Name="AlphaVoicePanel" Spacing="6" Margin="24,8,0,0" IsVisible="False">
-                            <TextBlock Text="Voice wake-word test" Foreground="#CCCCCC" FontSize="12" FontWeight="SemiBold" />
-                            <TextBlock Classes="hint" Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session." />
-                            <Button x:Name="WakeWordTestButton" Classes="dialogButton"
-                                    Content="Open Wake-Word Test" Width="170" HorizontalAlignment="Left"
-                                    Click="BtnWakeWordTest_Click" />
-                        </StackPanel>
+                        <!-- Network and Firewall card. Lets the user turn off the Windows
+                             notification that pops up the first time each new build opens its
+                             local network port. -->
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Margin="0" Text="Network and Firewall" />
+                                <TextBlock Classes="hint" Text="The first time you run a new build, Windows pops up a dialog asking whether to allow CC Director on public and private networks. It appears because CC Director opens a network port so its tools can reach it. CC Director only needs that port on this same computer, so the block does no harm - but the dialog interrupts testing every time the build changes." />
+                                <TextBlock Classes="hint" Text="The button below turns off that Windows notification. Windows will ask you for administrator approval once; after you approve it, the dialog stops appearing for good." />
+                                <Button x:Name="SuppressFirewallButton" Classes="dialogButton"
+                                        Content="Stop the Windows firewall pop-up"
+                                        HorizontalAlignment="Left" Margin="0,4,0,0"
+                                        ToolTip.Tip="Turns off the Windows notification that asks to allow a new app on the network. Windows will ask you for administrator approval."
+                                        Click="BtnSuppressFirewallPrompt_Click" />
+                                <TextBlock x:Name="FirewallStatus" Text="" Foreground="#888888"
+                                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Alpha Features card. -->
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Margin="0" Text="Alpha Features" />
+                                <TextBlock Classes="hint" Text="Unfinished features we are still testing. They may break, change, or disappear without notice, and no support is provided while they are in alpha." />
+                                <CheckBox x:Name="AlphaFeaturesCheck"
+                                          Content="Enable alpha features"
+                                          IsChecked="False"
+                                          Foreground="#CCCCCC" FontSize="13"
+                                          Margin="0,4,0,0"
+                                          IsCheckedChanged="AlphaCheck_Changed"
+                                          ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
+                                <TextBlock Classes="hint" Margin="24,0,0,0"
+                                           Text="When enabled you get: unverified coding agents, session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below. Claude Code and Pi have verified drivers and are always available." />
+
+                                <StackPanel x:Name="AlphaVoicePanel" Spacing="6" Margin="24,8,0,0" IsVisible="False">
+                                    <TextBlock Text="Voice wake-word test" Foreground="#CCCCCC" FontSize="12" FontWeight="SemiBold" />
+                                    <TextBlock Classes="hint" Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session." />
+                                    <Button x:Name="WakeWordTestButton" Classes="dialogButton"
+                                            Content="Open Wake-Word Test" Width="170" HorizontalAlignment="Left"
+                                            Click="BtnWakeWordTest_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
