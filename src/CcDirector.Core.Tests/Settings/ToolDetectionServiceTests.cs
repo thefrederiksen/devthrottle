@@ -68,12 +68,21 @@ public class ToolDetectionServiceTests
         ToolDetectionService.SetConfiguredPath(AgentKind.Codex, options, "codex-custom");
         ToolDetectionService.SetConfiguredPath(AgentKind.Gemini, options, "gemini-custom");
         ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, options, "opencode-custom");
+        ToolDetectionService.SetConfiguredPath(AgentKind.Cursor, options, "cursor-custom");
 
         Assert.Equal("claude-custom", options.ClaudePath);
         Assert.Equal("pi-custom", options.PiPath);
         Assert.Equal("codex-custom", options.CodexPath);
         Assert.Equal("gemini-custom", options.GeminiPath);
         Assert.Equal("opencode-custom", options.OpenCodePath);
+        Assert.Equal("cursor-custom", options.CursorPath);
+    }
+
+    [Fact]
+    public void SupportedTools_IncludesCursor()
+    {
+        // AC5: cursor-agent is a supported tool, so the wizard probes for it on PATH.
+        Assert.Contains(AgentKind.Cursor, ToolDetectionService.SupportedTools);
     }
 
     [Fact]

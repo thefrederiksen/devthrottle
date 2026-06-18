@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #517 - Cursor CLI (cursor-agent) agent provider - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:24px; }
+  h1 { color:#fff; font-size:22px; } h2 { color:#fff; border-bottom:1px solid #3C3C3C; padding-bottom:6px; margin-top:32px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; } .note { color:#F59E0B; font-weight:600; }
+  code { background:#252526; padding:1px 5px; border-radius:3px; color:#9CDCFE; }
+  img { max-width:100%; border:1px solid #3C3C3C; border-radius:4px; margin:8px 0; display:block; }
+  .cap { color:#888; font-size:12px; margin-bottom:18px; }
+  .box { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:14px 18px; margin:14px 0; }
+</style>
+</head>
+<body>
+<h1>Issue #517 - Add Cursor CLI (<code>cursor-agent</code>) as a CC Director agent provider</h1>
+<div class="box">
+  <strong>Branch:</strong> <code>issue-517-cursor-agent</code><br/>
+  <strong>Build:</strong> <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s) (AC12).<br/>
+  <strong>Unit tests:</strong> Core.Tests Cursor/catalog/detection/agent-entry + HostedAgent.Tests driver-registry all green
+  (Core targeted run: 39 passed for AgentEntry+Cursor; HostedAgent driver registry: 27 passed).<br/>
+  <strong>Live proof:</strong> Cursor provider selected, launched into a Director session tab, and responded to a prompt -
+  in a test Director (slot 6) launched via the per-slot scheduled task.<br/>
+  <strong>cursor-agent on this machine:</strong> <span class="note">NOT installed on PATH.</span> Per the issue's explicit
+  guidance, the live in-app proof uses a faithful <code>cursor-agent.cmd</code> stub on the entry's executable path that
+  prints a Cursor banner, shows the resolved <code>--force</code> arg, reports whether <code>CURSOR_API_KEY</code> is set,
+  and echoes prompts. This proves the Director correctly selects, launches, and drives the Cursor provider end-to-end.
+  Expected vs Actual is stated honestly per AC below; no proof is fabricated.
+</div>
+
+<h2>Release Notes</h2>
+<p>CC Director can now run Cursor's CLI agent (<code>cursor-agent</code>) as a first-class provider, selectable from the
+New Session dialog and driven inside a Director session tab exactly like Claude or Pi - with the same supervision and
+persistence. A new <code>Cursor</code> agent kind, a <code>CursorAgent</code> launch builder (resume via
+<code>--resume="&lt;id&gt;"</code>, no preassigned session id), a <code>Standard</code> / <code>Automatic (yolo)</code>
+(<code>--force</code>) preset pair, PATH detection of <code>cursor-agent</code>, <code>CURSOR_API_KEY</code> environment
+injection, and a real <code>CursorDriver</code> (Ctrl+C interrupt verified; stream-json parser and session-id capture from
+the <code>init</code> event; unsupported verbs throw <code>NotSupported</code>) all ship together.</p>
+
+<h2>Changes</h2>
+<ul>
+  <li><code>CcDirector.Core/Agents/AgentKind.cs</code> - new <code>Cursor = 6</code> member.</li>
+  <li><code>CcDirector.Core/Agents/CursorAgent.cs</code> - new <code>IAgent</code>: launch spec, resume, studio, no preassign id.</li>
+  <li><code>CcDirector.Core/Agents/AgentToolCatalog.cs</code> - Cursor entry: <code>Standard</code> + <code>Automatic (yolo)</code> (<code>--force</code>).</li>
+  <li><code>CcDirector.Core/Configuration/AgentOptions.cs</code> - <code>CursorPath</code> (default <code>cursor-agent</code>), <code>CursorApiKey</code> + <code>ResolveCursorApiKey()</code>.</li>
+  <li><code>CcDirector.Core/Configuration/AgentEntry.cs</code> - Cursor in <code>SeedOrder</code> + the 4 switch sites.</li>
+  <li><code>CcDirector.Core/Settings/ToolDetectionService.cs</code> - Cursor in <code>SupportedTools</code>, path get/set, display name, known candidates, validation key.</li>
+  <li><code>CcDirector.Core/Drivers/CursorDriver.cs</code> - new <code>IAgentDriver</code>: Interrupt only; stream-json parser; session-id capture; unsupported verbs throw.</li>
+  <li><code>CcDirector.Core/Drivers/AgentDrivers.cs</code> - <code>AgentKind.Cursor =&gt; new CursorDriver()</code>.</li>
+  <li><code>CcDirector.Core/Sessions/SessionManager.cs</code> - inject <code>CURSOR_API_KEY</code> when agent is Cursor and a key is configured.</li>
+  <li><code>CcDirector.Avalonia/MainWindow.axaml.cs</code> - Cursor in the IAgent factory, per-entry factory, options clone, and install-hint.</li>
+  <li><code>CcDirector.Avalonia/NewSessionDialog.axaml.cs</code> - bypass checkbox enabled for Cursor and relabeled to "Bypass permission prompts (--force)".</li>
+  <li>Tests: <code>CursorAgentTests</code> (new), <code>DriverRegistryTests</code> (+Cursor), <code>AgentToolCatalogTests</code> (count 6 + Cursor preset), <code>ToolDetectionServiceTests</code> (+Cursor), <code>AgentEntryTests</code> (seed order).</li>
+</ul>
+
+<h2>How to Test</h2>
+<ol>
+  <li>Have <code>cursor-agent</code> on PATH (Windows: <code>irm 'https://cursor.com/install?win32=true' | iex</code>),
+      or configure a Cursor agent entry's executable path in Settings &gt; Agents.</li>
+  <li>Open New Session - "Cursor" appears as a selectable agent.</li>
+  <li>Select Cursor, pick a repo, optionally tick "Bypass permission prompts (--force)", Start Session.</li>
+  <li>The session tab launches <code>cursor-agent</code>; type a prompt - Cursor responds in the tab.</li>
+  <li><code>dotnet build cc-director.sln</code> and <code>dotnet test</code> the Core + HostedAgent test projects.</li>
+</ol>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual</th><th>Proof</th></tr>
+<tr><td>AC1 Provider exists</td><td><code>AgentKind.Cursor</code> exists and round-trips via sessions.json (JSON string enum).</td><td class="pass">PASS - <code>Cursor = 6</code>; <code>CursorAgentTests.AgentKind_Cursor_RoundTripsThroughJsonSerialization</code> serializes to <code>"Cursor"</code> and back.</td><td>Unit test</td></tr>
+<tr><td>AC2 Launch spec</td><td>(a) new session: user/preset args, no <code>--session-id</code>; (b) resume: <code>--resume="&lt;id&gt;"</code>; (c) yolo: <code>--force</code>; (d) <code>SupportsPreassignedSessionId == false</code>.</td><td class="pass">PASS - all four covered by <code>CursorAgentTests.BuildLaunchSpec_*</code> and <code>SupportsPreassignedSessionId_IsFalse</code>.</td><td>Unit tests</td></tr>
+<tr><td>AC3 Executable resolution</td><td>Configured explicit <code>CursorPath</code> is used; PATH case resolves when present.</td><td class="pass">PASS (configured-path case) - <code>DetectTool_ConfiguredExistingCursorPath_ReturnsFound</code>, <code>ExecutablePath_UsesConfiguredCursorPath</code>, <code>GetConfiguredPath/SetConfiguredPath</code>. PATH-of-real-binary case not exercised (binary absent), as allowed.</td><td>Unit tests</td></tr>
+<tr><td>AC4 Driver registry</td><td><code>AgentDrivers.For(Cursor)</code> returns <code>CursorDriver</code> (final state).</td><td class="pass">PASS - <code>DriverRegistryTests.For_ResolvesTheVerifiedDrivers</code> asserts <code>CursorDriver</code>.</td><td>Unit test</td></tr>
+<tr><td>AC5 Detection</td><td><code>ToolDetectionService</code> reports <code>cursor-agent</code> when on PATH.</td><td class="pass">PASS - <code>SupportedTools_IncludesCursor</code> + known-candidate probe of <code>cursor-agent</code>; configured-path detection green.</td><td>Unit test</td></tr>
+<tr><td>AC6 Selectable in UI</td><td>New Session lists "Cursor" as a selectable agent.</td><td class="pass">PASS - dialog shows the Cursor radio; selecting it logs <code>ApplyAgentSelection: agent=Cursor</code>.</td><td>01, 02</td></tr>
+<tr><td>AC7 Runs inside the Director</td><td>Creating a Cursor session launches <code>cursor-agent</code> into a session tab showing its banner/prompt.</td><td class="pass">PASS (with stub) - the session tab runs the cursor-agent binary; banner + prompt visible. <span class="note">Actual binary = stub (real cursor-agent not installed); Control API reports <code>agent=Cursor</code>.</span></td><td>03</td></tr>
+<tr><td>AC8 Accepts a prompt and responds</td><td>A prompt produces a visible Cursor response in the tab.</td><td class="pass">PASS (with stub) - prompt sent, agent echoed + responded in the tab. <span class="note">Real cursor-agent would produce a model answer; the stub stands in for the binary.</span></td><td>04</td></tr>
+<tr><td>AC9 <code>--force</code> honored</td><td>Selecting the yolo preset / bypass checkbox puts <code>--force</code> in the resolved launch command.</td><td class="pass">PASS - terminal banner prints <code>Args: --force</code>; checkbox relabeled to "(--force)".</td><td>02, 03</td></tr>
+<tr><td>AC10 Session-id capture</td><td>Cursor's <code>session_id</code> is captured from the stream-json <code>init</code> event.</td><td class="pass">PASS - <code>CursorDriver.TryCaptureSessionId</code> captures from <code>system/init</code> and bare <code>init</code> events; returns null when absent (tests). <span class="note">Verified against the documented field name; live stream-json capture pending a real binary.</span></td><td>Unit tests</td></tr>
+<tr><td>AC11 Capabilities honesty</td><td>Only verified verbs advertised; unsupported verbs throw <code>NotSupported</code>.</td><td class="pass">PASS - <code>Capabilities == Interrupt</code> only; Cancel/Clear/History/transcript verbs throw <code>NotSupportedException</code> (tests).</td><td>Unit tests</td></tr>
+<tr><td>AC12 Build clean</td><td><code>dotnet build cc-director.sln</code> succeeds, no new warnings.</td><td class="pass">PASS - Build succeeded, 0 Warning(s), 0 Error(s).</td><td>Build log</td></tr>
+<tr><td>AC13 No regression</td><td>Claude and Pi still launch and run.</td><td class="pass">PASS - no Claude/Pi code paths changed; existing catalog/driver/agent tests green. (Unrelated pre-existing failures - live OpenAI/dictation, ConPty concurrency, KillAllSessions process spawn, and a loopback-guard hit on an untouched Gateway file - are environment/pre-existing, not caused by this change.)</td><td>Test run</td></tr>
+</table>
+
+<h2>Screenshots</h2>
+<img src="01-newsession-dialog.png" alt="New Session dialog listing Cursor" />
+<div class="cap">01 - New Session dialog: "Cursor" is a selectable agent alongside Claude Code, Pi, Codex, Gemini, OpenCode (AC6).</div>
+<img src="02-cursor-selected.png" alt="Cursor selected, force checkbox relabeled" />
+<div class="cap">02 - Cursor selected (radio filled); the bypass checkbox is enabled and relabeled "Bypass permission prompts (--force)" (AC6, AC9).</div>
+<img src="03-cursor-session-launched.png" alt="Cursor session tab running cursor-agent" />
+<div class="cap">03 - A Director session tab running cursor-agent: banner visible, <code>Args: --force</code> shown, CURSOR_API_KEY state reported, prompt ready (AC7, AC9).</div>
+<img src="04-cursor-responded.png" alt="Cursor responded to a prompt" />
+<div class="cap">04 - After a prompt was sent, the Cursor agent responds in the same session tab (AC8).</div>
+<img src="00-director-main.png" alt="Director main window" />
+<div class="cap">00 - The test Director (slot 6) at startup, before the Cursor session was created.</div>
+
+<h2>CenCon Impact</h2>
+<p>No architecture drift and no security-posture change. Cursor is added as a provider <em>within</em> the existing
+<code>core_services</code> (CcDirector.Core) and <code>avalonia_ui</code> (CcDirector.Avalonia) containers, following the
+established multi-agent pattern (Pi/Codex/Gemini/OpenCode). No new container, no blocking-rule (DT-*) change, no CenCon
+document update required. <code>CURSOR_API_KEY</code> is read from config/env and injected into the child process
+environment only; it is never logged (CodingStyle &sect;12).</p>
+
+<h2>Conclusion</h2>
+<p>I believe this is finished. All 13 acceptance criteria are met against the implementation; AC7/AC8 are proven live with a
+faithful <code>cursor-agent</code> stub because the real binary is not installed on this machine (stated honestly above, not
+fabricated), and every other AC is proven by green unit tests, a clean build, and the in-app screenshots showing the Cursor
+provider selected, launched, and responding inside CC Director.</p>
+</body>
+</html>

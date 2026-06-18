@@ -640,11 +640,19 @@ public partial class NewSessionDialog : Window
         var entry = SelectedAgentEntry;
         var agentKind = entry?.Type ?? AgentKind.ClaudeCode;
 
-        // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
-        // when the user picks a non-Claude agent so the UI does not mislead.
+        // The Bypass-permissions checkbox maps to each agent's permission-bypass flag:
+        // Claude's --dangerously-skip-permissions and Cursor's --force (issue #517). It is
+        // enabled for those two and disabled (with a neutral label) for agents that have no
+        // such per-session flag, so the UI never misleads.
         var isClaude = agentKind == AgentKind.ClaudeCode;
+        var isCursor = agentKind == AgentKind.Cursor;
         if (BypassPermissionsCheckBox is not null)
-            BypassPermissionsCheckBox.IsEnabled = isClaude;
+        {
+            BypassPermissionsCheckBox.IsEnabled = isClaude || isCursor;
+            BypassPermissionsCheckBox.Content = isCursor
+                ? "Bypass permission prompts (--force)"
+                : "Bypass permission prompts";
+        }
 
         // Show the custom-CLI command/args panel only when a Custom CLI entry is selected, and
         // seed it from the entry's configured executable/args so the user sees what will run.

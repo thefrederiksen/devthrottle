@@ -18,6 +18,7 @@ public static class AgentDrivers
     {
         AgentKind.ClaudeCode => new ClaudeDriver(),
         AgentKind.Pi => new PiDriver(),
+        AgentKind.Cursor => new CursorDriver(),
         _ => new GenericDriver(k),
     });
 }
