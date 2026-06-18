@@ -85,11 +85,22 @@ public sealed class SlashCommandProvider
     }
 
     /// <summary>
-    /// Clears the cache for a specific repo path.
+    /// Clears the cache for a specific repository path across all agent drivers.
     /// </summary>
     public void InvalidateCache(string? repoPath)
     {
-        var cacheKey = repoPath ?? "__global__";
+        var repoKey = repoPath ?? "__global__";
+        var suffix = $":{repoKey}";
+        foreach (var key in _cache.Keys.Where(key => key.EndsWith(suffix, StringComparison.Ordinal)).ToList())
+            _cache.Remove(key);
+    }
+
+    /// <summary>
+    /// Clears the cache for a specific agent driver and repository path.
+    /// </summary>
+    public void InvalidateCache(AgentKind agentKind, string? repoPath)
+    {
+        var cacheKey = $"{agentKind}:{repoPath ?? "__global__"}";
         _cache.Remove(cacheKey);
     }
 

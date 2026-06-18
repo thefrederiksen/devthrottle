@@ -73,6 +73,23 @@ public sealed class SlashCommandProviderDriverTests : IDisposable
         Assert.Contains("skill:browser", names);
     }
 
+    [Fact]
+    public void InvalidateCache_PiPromptAddedAfterFirstRead_RefreshesCommands()
+    {
+        var promptDir = Path.Combine(_repoPath, ".pi", "prompts");
+        Directory.CreateDirectory(promptDir);
+        var provider = new SlashCommandProvider();
+
+        var before = provider.GetCommands(AgentKind.Pi, _repoPath);
+        File.WriteAllText(Path.Combine(promptDir, "late.md"), "---\ndescription: Added after first read\n---\nRun this later.");
+        provider.InvalidateCache(AgentKind.Pi, _repoPath);
+
+        var after = provider.GetCommands(AgentKind.Pi, _repoPath);
+
+        Assert.DoesNotContain(before, command => string.Equals(command.Name, "late", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(after, command => string.Equals(command.Name, "late", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_repoPath))
