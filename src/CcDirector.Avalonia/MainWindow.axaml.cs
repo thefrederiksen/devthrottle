@@ -414,7 +414,6 @@ public partial class MainWindow : Window
 
     private global::Avalonia.Threading.DispatcherTimer? _gatewayAttachTimer;
     private GatewayConnectionMonitor? _gatewayMonitor;
-    private string? _lastAutoPoppedFailure;
     private bool _troubleshooterOpen;
 
     private const string GatewayIconRing = "M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 Z M8,3 A5,5 0 1 1 8,13 A5,5 0 1 1 8,3 Z";
@@ -573,18 +572,6 @@ public partial class MainWindow : Window
         _gatewayError = gatewayError;
         ApplyHomeHealth();
 
-        // #223: auto-pop the troubleshooter ONCE per distinct failure. A failure that
-        // repeats (same summary on every re-verify) never re-pops; a NEW failure does.
-        // #324: the identity-failure state is a failure too - same once-per-summary rule.
-        if (m.Status is GatewayConnectionStatus.Failed or GatewayConnectionStatus.NoTailnetIdentity
-            && m.FailureSummary is { } failure
-            && failure != _lastAutoPoppedFailure
-            && !_troubleshooterOpen)
-        {
-            _lastAutoPoppedFailure = failure;
-            FileLog.Write($"[MainWindow] Gateway verification failed - auto-opening troubleshooter: {failure}");
-            OpenGatewayTroubleshooter();
-        }
     }
 
     private void GatewayIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
