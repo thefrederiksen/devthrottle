@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #517 - QA-bounce fix: Cursor session-rail badge - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #d4d4d4; max-width: 960px; margin: 24px auto; padding: 0 20px; line-height: 1.5; }
+  h1 { color: #4ea1ff; font-size: 22px; }
+  h2 { color: #6cc04a; border-bottom: 1px solid #333; padding-bottom: 4px; margin-top: 28px; }
+  code { background: #2d2d2d; padding: 1px 5px; border-radius: 3px; color: #ce9178; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3a3a3a; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #2a2a2a; }
+  .pass { color: #6cc04a; font-weight: 600; }
+  .fail { color: #ef4444; font-weight: 600; }
+  .note { color: #c9a227; }
+  img { max-width: 100%; border: 1px solid #3a3a3a; border-radius: 4px; margin: 8px 0; }
+  .cap { color: #999; font-size: 13px; margin-bottom: 18px; }
+  .pill { display: inline-block; background: #06b6d4; color: #fff; border-radius: 8px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+  .pillblue { display: inline-block; background: #2563eb; color: #fff; border-radius: 8px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Issue #517 - QA-bounce fix: Cursor session is now labeled "Cursor" in the session rail (AC7)</h1>
+<p>
+  <strong>Branch:</strong> <code>issue-517-cursor-agent</code> (PR #521) &nbsp;|&nbsp;
+  <strong>Flow:</strong> <code>flow:qa-failed</code> &rarr; (this fix) &rarr; <code>flow:ready-qa</code>
+</p>
+
+<h2>The defect QA reported</h2>
+<p>
+  A session running <code>cursor-agent</code> showed a <span class="pillblue">Claude Code</span> badge (Claude blue) in the
+  SESSIONS rail. Root cause: <code>src/CcDirector.Avalonia/SessionViewModel.cs</code> had no
+  <code>AgentKind.Cursor</code> arm in <code>AgentLabel</code> or <code>AgentBadgeBrush</code>, so a Cursor session
+  fell through to the <code>_ =&gt; "Claude Code"</code> / <code>_ =&gt; ClaudeAgentBrush</code> default. Every other
+  provider (Pi/Codex/Gemini/OpenCode/RawCli) added its arm when introduced; this PR missed it.
+</p>
+
+<h2>The fix (one file + a regression test)</h2>
+<ul>
+  <li><code>src/CcDirector.Avalonia/SessionViewModel.cs</code> - added the <code>AgentKind.Cursor</code> arm to the
+      agent-label and agent-badge mappings:
+      <ul>
+        <li><code>AgentKind.Cursor =&gt; "Cursor"</code> (label)</li>
+        <li>a dedicated <code>CursorAgentBrush</code> = <span class="pill">#06B6D4</span> cyan badge, distinct from
+            Claude blue (<code>#2563EB</code>), Pi violet, Codex teal-green, Gemini red, OpenCode orange, and the
+            RawCli slate. Readable on the dark rail; no hard-coded color reused from another provider.</li>
+      </ul>
+      The two instance properties were refactored to delegate to pure static
+      <code>LabelFor(AgentKind)</code> / <code>BadgeBrushFor(AgentKind)</code> methods so the mapping is unit-testable
+      without constructing a live <code>Session</code> (whose ctor + <code>AgentKind</code> setter are internal to Core).
+      No behavior change for any existing provider.</li>
+  <li><code>src/CcDirector.Avalonia.Tests/SessionViewModelAgentBadgeTests.cs</code> (new) - pins that
+      <code>AgentKind.Cursor</code> maps to "Cursor" (not "Claude Code") and to the cyan brush (not Claude blue),
+      that every provider has its own label, and that every provider's badge color is distinct. 10 tests, all green.</li>
+</ul>
+
+<h2>Acceptance criterion re-verified</h2>
+<table>
+  <tr><th>AC</th><th>Expected</th><th>Actual (this fix)</th><th>Proof</th></tr>
+  <tr>
+    <td>AC7 - Cursor runs inside the Director, represented as a first-class provider</td>
+    <td>A session running <code>cursor-agent</code> is labeled <strong>"Cursor"</strong> with its own badge color in the SESSIONS rail.</td>
+    <td class="pass">PASS - the rail now shows a cyan <span class="pill">Cursor</span> badge. The Control API reports
+        <code>agent=Cursor</code> for the live session. The blue "Claude Code" mislabel is gone.</td>
+    <td>05, 06</td>
+  </tr>
+</table>
+
+<h2>How this was proven in the running app</h2>
+<ol>
+  <li>Built the fix in an isolated worktree; full-solution build clean (<code>0 Warning(s), 0 Error(s)</code>).</li>
+  <li>Allocated test slot 6, built <code>cc-director6.exe</code> in the worktree, launched via the per-slot scheduled task
+      (clean svchost parentage; Control API on port 7892).</li>
+  <li>Configured a Cursor <code>agent.entries</code> row pointing at a faithful <code>cursor-agent.cmd</code> stub
+      (the real binary is not installed on this machine - same honest proxy used by the prior Dev/QA passes; the stub is
+      <em>not</em> what was under test - the badge mapping is). The shared <code>config.json</code> was backed up and
+      restored to its original bytes afterward; the stub was removed.</li>
+  <li>Drove the <strong>real New Session dialog</strong> via UI Automation: selected the <strong>Cursor</strong> radio,
+      picked the <code>devthrottle</code> repo, clicked Start Session. This exercises the genuine
+      SessionManager &rarr; CursorAgent path that stamps <code>AgentKind.Cursor</code> - not a synthetic shortcut.</li>
+  <li>Captured the main window via PrintWindow.</li>
+</ol>
+
+<h2>Screenshots</h2>
+<img src="05-cursor-rail-fixed.png" alt="Director rail with a Cursor session showing the cyan Cursor badge" />
+<div class="cap">05 - The SESSIONS rail: the <code>devthrottle</code> Cursor session now carries a cyan <span class="pill">Cursor</span>
+  badge (next to the <code>[I] Implementation</code> type chip). The terminal pane shows the running
+  <code>cursor-agent</code> with <code>Args: --force</code>. Control API: <code>agent=Cursor</code>.</div>
+<img src="06-cursor-badge-crop.png" alt="Close-up of the cyan Cursor badge in the rail" />
+<div class="cap">06 - Close-up of the rail row: the badge reads <strong>Cursor</strong> in cyan - NOT
+  <span class="pillblue">Claude Code</span> in blue. This is the exact pixel region QA flagged in
+  <code>03-cursor-session-launched.png</code> / <code>04-cursor-responded.png</code>, now fixed.</div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. A pure presentation mapping in the desktop view-model; no new container, no
+  security-relevant surface. No <code>docs/cencon/</code> update required.</p>
+
+<h2>Conclusion</h2>
+<p>The single defect QA reported (AC7 - Cursor mislabeled "Claude Code" in the session rail) is fixed and proven in the
+  running app, with a regression test that fails if the Cursor arm is ever dropped again.
+  <strong>I believe this is finished.</strong></p>
+</body>
+</html>

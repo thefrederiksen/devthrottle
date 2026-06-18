@@ -61,9 +61,19 @@ public static class AgentToolCatalog
     /// <summary>The exact Claude flag the automatic preset adds (and the standard preset omits).</summary>
     public const string ClaudeSkipPermissionsArg = "--dangerously-skip-permissions";
 
+    /// <summary>The name of the Cursor opt-in permission-bypass preset (issue #517).</summary>
+    public const string CursorAutomaticPresetName = "Automatic (yolo)";
+
+    /// <summary>
+    /// The exact Cursor flag the automatic preset adds (and the standard preset omits).
+    /// Cursor's permission-bypass equivalent of Claude's --dangerously-skip-permissions
+    /// is <c>--force</c> (assumption A2).
+    /// </summary>
+    public const string CursorForceArg = "--force";
+
     private static readonly IReadOnlyList<AgentToolCatalogEntry> CatalogEntries = BuildCatalog();
 
-    /// <summary>The five known agent tools, in display order, with their recommended defaults.</summary>
+    /// <summary>The known agent tools, in display order, with their recommended defaults.</summary>
     public static IReadOnlyList<AgentToolCatalogEntry> Entries => CatalogEntries;
 
     /// <summary>Look up the catalog entry for one tool. Throws if the tool is not in the catalog.</summary>
@@ -114,7 +124,19 @@ public static class AgentToolCatalog
         var gemini = StandardOnly(AgentKind.Gemini, "Gemini");
         var openCode = StandardOnly(AgentKind.OpenCode, "OpenCode");
 
-        return new[] { claude, pi, codex, gemini, openCode };
+        // Cursor (issue #517): Standard (no flags) is the default; "Automatic (yolo)"
+        // is the opt-in permission-bypass preset that adds --force (assumption A2).
+        var cursor = new AgentToolCatalogEntry(
+            AgentKind.Cursor,
+            "Cursor",
+            new[]
+            {
+                new AgentCommandPreset(StandardPresetName, ""),
+                new AgentCommandPreset(CursorAutomaticPresetName, CursorForceArg),
+            },
+            "");
+
+        return new[] { claude, pi, codex, gemini, openCode, cursor };
     }
 
     private static AgentToolCatalogEntry StandardOnly(AgentKind tool, string displayName) =>

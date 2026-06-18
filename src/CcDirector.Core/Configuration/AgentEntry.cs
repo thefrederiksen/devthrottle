@@ -85,6 +85,7 @@ public static class AgentEntryStore
         AgentKind.Codex,
         AgentKind.Gemini,
         AgentKind.OpenCode,
+        AgentKind.Cursor,
     };
 
     /// <summary>
@@ -225,6 +226,7 @@ public static class AgentEntryStore
         AgentKind.Codex => "codex_path",
         AgentKind.Gemini => "gemini_path",
         AgentKind.OpenCode => "opencode_path",
+        AgentKind.Cursor => "cursor_path",
         _ => "custom_path",
     };
 
@@ -235,6 +237,7 @@ public static class AgentEntryStore
         AgentKind.Codex => "CodexPath",
         AgentKind.Gemini => "GeminiPath",
         AgentKind.OpenCode => "OpenCodePath",
+        AgentKind.Cursor => "CursorPath",
         _ => "CustomPath",
     };
 
@@ -245,6 +248,7 @@ public static class AgentEntryStore
         AgentKind.Codex => options.CodexPath,
         AgentKind.Gemini => options.GeminiPath,
         AgentKind.OpenCode => options.OpenCodePath,
+        AgentKind.Cursor => options.CursorPath,
         _ => "",
     };
 
@@ -255,6 +259,7 @@ public static class AgentEntryStore
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
         AgentKind.OpenCode => "OpenCode",
+        AgentKind.Cursor => "Cursor",
         AgentKind.RawCli => "Custom",
         _ => tool.ToString(),
     };

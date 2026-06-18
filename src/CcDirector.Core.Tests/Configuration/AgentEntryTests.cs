@@ -58,14 +58,17 @@ public sealed class AgentEntryTests : IDisposable
 
         var entries = AgentEntryStore.LoadEntries(new AgentOptions());
 
-        Assert.Equal(5, entries.Count);
+        Assert.Equal(6, entries.Count);
         Assert.Equal(
-            new[] { AgentKind.ClaudeCode, AgentKind.Pi, AgentKind.Codex, AgentKind.Gemini, AgentKind.OpenCode },
+            new[] { AgentKind.ClaudeCode, AgentKind.Pi, AgentKind.Codex, AgentKind.Gemini, AgentKind.OpenCode, AgentKind.Cursor },
             entries.Select(e => e.Type).ToArray());
         Assert.Equal("C:/tools/claude.cmd", entries[0].ExecutablePath);
         Assert.Equal("C:/tools/opencode.exe", entries[4].ExecutablePath);
+        // Cursor has no legacy *_path key in this config, so it seeds from the default path.
+        Assert.Equal(AgentKind.Cursor, entries[5].Type);
+        Assert.Equal("cursor-agent", entries[5].ExecutablePath);
         // Each seeded entry has a stable, unique id.
-        Assert.Equal(5, entries.Select(e => e.Id).Distinct().Count());
+        Assert.Equal(6, entries.Select(e => e.Id).Distinct().Count());
         Assert.All(entries, e => Assert.False(string.IsNullOrWhiteSpace(e.Id)));
     }
 

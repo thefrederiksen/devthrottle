@@ -1113,6 +1113,7 @@ public partial class MainWindow : Window
         AgentKind.Codex => new CodexAgent(_sessionManager.Options),
         AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
         AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
+        AgentKind.Cursor => new CursorAgent(_sessionManager.Options),
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
@@ -1139,6 +1140,7 @@ public partial class MainWindow : Window
             AgentKind.Codex => new CodexAgent(perLaunch),
             AgentKind.Gemini => new GeminiAgent(perLaunch),
             AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
+            AgentKind.Cursor => new CursorAgent(perLaunch),
             _ => new ClaudeAgent(perLaunch)
         };
     }
@@ -1160,6 +1162,8 @@ public partial class MainWindow : Window
             CodexPath = source.CodexPath,
             GeminiPath = source.GeminiPath,
             OpenCodePath = source.OpenCodePath,
+            CursorPath = source.CursorPath,
+            CursorApiKey = source.CursorApiKey,
             ChatSessionRepoPath = source.ChatSessionRepoPath,
             TtsVoice = source.TtsVoice,
             TtsModel = source.TtsModel,
@@ -1175,6 +1179,7 @@ public partial class MainWindow : Window
             case AgentKind.Codex: copy.CodexPath = path; break;
             case AgentKind.Gemini: copy.GeminiPath = path; break;
             case AgentKind.OpenCode: copy.OpenCodePath = path; break;
+            case AgentKind.Cursor: copy.CursorPath = path; break;
             default: copy.ClaudePath = path; break;
         }
 
@@ -1280,6 +1285,10 @@ public partial class MainWindow : Window
             "Install it from https://opencode.ai (for example: 'npm install -g opencode-ai', "
             + "'brew install sst/tap/opencode', or 'scoop install opencode'), then make sure the "
             + "'opencode' command is on your PATH."),
+        AgentKind.Cursor => ("Cursor",
+            "Install it from https://cursor.com (on Windows: run "
+            + "\"irm 'https://cursor.com/install?win32=true' | iex\"), then make sure the "
+            + "'cursor-agent' command is on your PATH."),
         _ => ("Claude Code",
             "Install Claude Code and make sure the 'claude' command is on your PATH.")
     };
@@ -2664,8 +2673,21 @@ public partial class MainWindow : Window
             if (dialog.EnableRemoteControl)
                 claudeArgs = $"remote-control {claudeArgs}".Trim();
             if (dialog.BypassPermissions)
-                claudeArgs = $"{claudeArgs} --dangerously-skip-permissions".Trim();
+                claudeArgs = $"{claudeArgs} {AgentToolCatalog.ClaudeSkipPermissionsArg}".Trim();
             agentArgs = claudeArgs.Length > 0 ? claudeArgs : null;
+        }
+        else if (agentKind == AgentKind.Cursor)
+        {
+            // Cursor's permission-bypass equivalent is --force (issue #517, AC9). The bypass
+            // checkbox is a per-session opt-in on top of the entry's preset; if the preset
+            // already carries --force (the "Automatic (yolo)" preset), don't add it twice.
+            var cursorArgs = entryArgs;
+            if (dialog.BypassPermissions
+                && !cursorArgs.Contains(AgentToolCatalog.CursorForceArg, StringComparison.Ordinal))
+            {
+                cursorArgs = $"{cursorArgs} {AgentToolCatalog.CursorForceArg}".Trim();
+            }
+            agentArgs = cursorArgs.Length > 0 ? cursorArgs : null;
         }
         else
         {

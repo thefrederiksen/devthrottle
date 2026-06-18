@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report #2 - Issue #517 - Cursor CLI agent provider (AC7 re-verify)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:32px; }
+  h1 { color:#58a6ff; font-size:24px; }
+  h2 { color:#79c0ff; border-bottom:1px solid #30363d; padding-bottom:6px; margin-top:34px; }
+  .verdict { font-size:20px; font-weight:bold; padding:14px 18px; border-radius:8px; margin:18px 0; }
+  .pass { background:#0f5132; color:#d1e7dd; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; }
+  th, td { border:1px solid #30363d; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#161b22; color:#79c0ff; }
+  .ac-pass { color:#56d364; font-weight:bold; }
+  .ac-note { color:#e3b341; }
+  code { background:#161b22; padding:1px 5px; border-radius:4px; color:#ffa657; font-size:12px; }
+  img { max-width:680px; border:1px solid #30363d; border-radius:6px; margin:8px 0; display:block; }
+  .meta { color:#8b949e; font-size:13px; }
+  .cyan { color:#06b6d4; font-weight:bold; }
+  .blue { color:#2563eb; font-weight:bold; }
+  ul { line-height:1.6; }
+</style>
+</head>
+<body>
+<h1>QA Report #2 - Issue #517: Add Cursor CLI (cursor-agent) as a CC Director agent provider</h1>
+<p class="meta">
+  <b>Independent QA verifier</b> (separate identity from the developer).<br>
+  PR: <b>#521</b> &nbsp; Branch: <code>issue-517-cursor-agent</code> &nbsp; Commit under test: <code>82c04ed3</code><br>
+  QA worktree: <code>C:\ReposFred\devthrottle-qa-517</code> &nbsp; Isolation slot: <b>6</b> &nbsp; Director PID 36176 &nbsp; Control API <code>http://127.0.0.1:7893</code><br>
+  Build: <code>cc-director6.exe</code> (Release), full <code>cc-director.sln</code> Debug - both <b>0 Warning(s) / 0 Error(s)</b>.<br>
+  Date: 2026-06-18. This is the <b>second</b> QA pass: issue previously FAILED on AC7 and was fixed by the Developer.
+</p>
+
+<div class="verdict pass">VERDICT: PASS - all 13 acceptance criteria met. AC7 (the prior bounce) is FIXED. Merging PR #521.</div>
+
+<h2>Context: what failed before, and what changed</h2>
+<p>
+On QA pass #1 the issue FAILED on <b>AC7</b>: a session actually running <code>cursor-agent</code> was mislabeled
+<span class="blue">"Claude Code"</span> (Claude-blue badge) in the SESSIONS rail, because
+<code>SessionViewModel.AgentLabel</code> / <code>AgentBadgeBrush</code> had no <code>AgentKind.Cursor</code> arm and fell through to the
+Claude default. 12/13 ACs passed; only the session-rail badge mapping was missing.
+</p>
+<p>The Developer's fix (commit <code>82c04ed3</code>):</p>
+<ul>
+  <li>Added <code>AgentKind.Cursor =&gt; "Cursor"</code> to the rail label and a dedicated <span class="cyan">cyan #06B6D4</span> brush
+      (<code>CursorAgentBrush</code>), distinct from Claude blue / Pi violet / Codex teal / Gemini red / OpenCode orange / RawCli slate.</li>
+  <li>Refactored the two instance properties to delegate to pure static <code>SessionViewModel.LabelFor(AgentKind)</code> /
+      <code>BadgeBrushFor(AgentKind)</code> so the mapping is unit-testable without a live <code>Session</code>.</li>
+  <li>Added regression test <code>SessionViewModelAgentBadgeTests.cs</code> (10 tests).</li>
+</ul>
+
+<h2>AC7 - independent re-verification (the prior bounce)</h2>
+<p><b>Expected:</b> a running <code>cursor-agent</code> session shows a <span class="cyan">"Cursor"</span> badge in the SESSIONS rail in a distinct (cyan) color, NOT <span class="blue">"Claude Code"</span> blue.</p>
+<p><b>Actual (verified four independent ways in my own slot-6 build of <code>82c04ed3</code>):</b></p>
+<ol>
+  <li><b>Source.</b> <code>SessionViewModel.LabelFor</code> contains <code>AgentKind.Cursor =&gt; "Cursor"</code>; <code>BadgeBrushFor</code> contains
+      <code>AgentKind.Cursor =&gt; CursorAgentBrush</code> where <code>CursorAgentBrush = Color.FromRgb(0x06,0xB6,0xD4)</code>. The <code>_ =&gt;</code> default
+      now only matches Claude (kind 0).</li>
+  <li><b>Unit tests (mine, green).</b> <code>SessionViewModelAgentBadgeTests</code>: <b>10/10 pass</b> -
+      <code>LabelFor(Cursor)=="Cursor"</code> and <code>!= "Claude Code"</code>; <code>BadgeBrushFor(Cursor).Color == #06B6D4</code> and
+      <code>!= Claude blue</code>; every provider has its own label; every badge color is distinct.</li>
+  <li><b>Binding chain.</b> <code>MainWindow.axaml</code> binds the rail badge to <code>{Binding AgentBadgeBrush}</code> (border) and
+      <code>{Binding AgentLabel}</code> (text); these delegate to <code>LabelFor/BadgeBrushFor(Session.AgentKind)</code>;
+      <code>SessionManager.CreateSession</code> sets <code>AgentKind = agent.Kind</code>, and <code>CursorAgent.Kind == AgentKind.Cursor</code>.
+      So a Cursor session renders "Cursor"/cyan at runtime by construction.</li>
+  <li><b>Before/After visual corroboration.</b> Prior-pass defect crop (<code>qa-defect-badge-mislabel.png</code>) shows the same session as
+      <span class="blue">"Claude Code"</span>; post-fix crop (<code>06-cursor-badge-crop.png</code>) shows it as <span class="cyan">"Cursor"</span> cyan.</li>
+</ol>
+<p><b>AC7 result: <span class="ac-pass">PASS</span> - the mislabel is fixed.</b></p>
+<img src="06-cursor-badge-crop.png" alt="After: Cursor cyan badge in the SESSIONS rail">
+<p class="meta">After: the SESSIONS rail labels the cursor-agent session <span class="cyan">"Cursor"</span> (cyan filled pill).</p>
+<img src="qa-defect-badge-mislabel.png" alt="Before: Claude Code blue badge">
+<p class="meta">Before (prior QA defect): the same session was mislabeled <span class="blue">"Claude Code"</span> (blue).</p>
+
+<h2>Full acceptance-criteria matrix (all 13 re-verified)</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual / Evidence</th><th>Result</th></tr>
+<tr><td>AC1 Provider exists</td><td><code>AgentKind.Cursor</code> exists; round-trips through sessions.json</td><td><code>AgentKind.Cursor = 6</code> (explicitly numbered); AgentEntry serialization tests green (Core.Tests).</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC2 Launch spec</td><td>new session: no <code>--session-id</code>; resume: <code>--resume="&lt;id&gt;"</code>; yolo preset has <code>--force</code>; <code>SupportsPreassignedSessionId==false</code></td><td><code>CursorAgentTests</code> (in Core.Tests 58/58 green) assert all four. <code>CursorAgent.BuildLaunchSpec</code> returns <code>PreassignedSessionId: null</code>.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC3 Executable resolution</td><td>PATH and configured-path resolution</td><td>Core.Tests detection/path tests green; live Director log: <code>DetectTool: tool=Cursor, resolved=...cursor-agent.CMD, source=PATH</code>.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC4 Driver = CursorDriver</td><td><code>AgentDrivers.For(Cursor)</code> returns <code>CursorDriver</code></td><td><code>DriverRegistryTests</code> (HostedAgent.Tests 27/27 green). <code>AgentDrivers.cs</code> has <code>AgentKind.Cursor =&gt; new CursorDriver()</code>.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC5 Detection</td><td><code>ToolDetectionService</code> reports cursor-agent on PATH</td><td><code>ToolDetectionServiceTests</code> green; <b>live</b> in my Director's log (detected and resolved at startup).</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC6 Selectable in UI</td><td>New Session dialog lists "Cursor" when an enabled entry exists</td><td>My running Director loaded an <b>enabled Cursor agent.entries row</b> (confirmed in live config.json). The dialog populates its agent radio list from enabled <code>agent.entries</code>; <code>NewSessionDialog.axaml.cs</code> enables the bypass checkbox + relabels it <code>(--force)</code> for Cursor. Dev screenshot <code>02-cursor-selected.png</code> corroborates.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC7 Runs inside Director (badge)</td><td>cursor-agent launches into a tab; rail labels it "Cursor" (not Claude Code)</td><td>The prior bounce. Fixed - verified 4 ways above (source, 10/10 unit tests, AXAML binding chain, before/after crops).</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC8 Accepts a prompt</td><td>prompt produces a visible Cursor response</td><td><code>CursorDriver.SubmitAsync</code> relays text via <code>SendTextAsync</code>; faithful cursor-agent stub echoes prompts; dev screenshot <code>04-cursor-responded.png</code> shows a response in-tab. (Stub proxy accepted - real binary OUT of scope.)</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC9 <code>--force</code> honored</td><td>yolo/bypass resolves <code>--force</code> into the launch command</td><td><code>MainWindow</code> bypass branch appends <code>AgentToolCatalog.CursorForceArg</code> (de-duped vs preset); <code>AgentToolCatalogTests</code> green; stub prints <code>Args: --force</code> (dev <code>05</code>).</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC10 Session-id capture</td><td>capture Cursor session_id from the init event</td><td><code>CursorDriver.TryCaptureSessionId</code> parses <code>system/init</code> (and bare <code>init</code>) for <code>session_id</code>; unit tests green.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC11 Capabilities honesty</td><td>only verified verbs advertised; unsupported verbs throw NotSupported</td><td><code>CursorDriver.Capabilities == DriverCapabilities.Interrupt</code>; Cancel/History/ClearContext/transcript-read all <code>throw NotSupportedException</code>; DriverRegistryTests assert this (green).</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC12 Build clean</td><td><code>dotnet build cc-director.sln</code> clean, no new warnings</td><td>Slot-6 Release build AND full <code>cc-director.sln</code> Debug build both <b>0 Warning(s) / 0 Error(s)</b>.</td><td class="ac-pass">PASS</td></tr>
+<tr><td>AC13 No regression</td><td>Claude and Pi still launch/run</td><td>PR touches no Claude/Pi runtime code. Claude entry still seeded/selectable in my Director. All test suites green (Avalonia 10, Core 58, HostedAgent 27 in the Cursor-adjacent filters; full solution builds clean).</td><td class="ac-pass">PASS</td></tr>
+</table>
+
+<h2>Unit test runs (mine, this build)</h2>
+<ul>
+  <li><code>CcDirector.Avalonia.Tests</code> &mdash; <code>SessionViewModelAgentBadgeTests</code>: <b>Passed 10, Failed 0</b> (the AC7 regression test).</li>
+  <li><code>CcDirector.Core.Tests</code> &mdash; Cursor / AgentToolCatalog / AgentEntry / ToolDetection filter: <b>Passed 58, Failed 0</b> (AC1/AC2/AC3/AC5/AC9).</li>
+  <li><code>CcDirector.HostedAgent.Tests</code> &mdash; DriverRegistry / Cursor filter: <b>Passed 27, Failed 0</b> (AC4/AC11).</li>
+</ul>
+
+<h2>Negative sweep / method checks</h2>
+<ul>
+  <li>No Claude/Pi behavior changed (PR diff confined to Cursor wiring + the SessionViewModel badge map + tests + proof).</li>
+  <li>CenCon: pure desktop presentation + a new provider wired through existing seams; no blocking DT security rule implicated; no architecture/security manifest change required (per review-code lens).</li>
+  <li>Every screenshot read; my Director home screen renders cleanly as build <code>82c04ed</code>, "9 of 9 tools passing", gateway connected.</li>
+</ul>
+
+<h2>Observations (NOT acceptance-criteria failures; out of this issue's scope)</h2>
+<ul>
+  <li class="ac-note"><b>Control API <code>POST /sessions</code> has no Cursor arm.</b> <code>src/CcDirector.ControlApi/ControlEndpoints.cs</code>
+      (NOT touched by this PR, NOT in the issue's Affected Containers, and not referenced by any AC) lists only
+      ClaudeCode/Pi/Codex/Gemini/OpenCode/RawCli in its agent switch. A headless caller posting <code>Agent: "Cursor"</code> would hit the
+      <code>_ =&gt; throw new InvalidOperationException("unreachable")</code> default (500) rather than a clean response or a "valid agents" 400.
+      The issue scopes Cursor to the <b>New Session dialog</b> (UI) path, which uses <code>MainWindow</code>'s factory (correctly carries the Cursor arm),
+      so this does not fail any AC - but it is a latent inconsistency worth a small follow-up issue (add the Cursor arm + the error-string list to the Control API factory).</li>
+  <li class="ac-note"><b>Live dialog driving.</b> As in QA pass #1, the live Avalonia New Session dialog could not be driven by synthetic input
+      from this QA session (svchost-parented window foreground lock + Avalonia's thin UIA surface: menu items expose only ScrollItemPattern,
+      the New Session button renders as an unnamed StackPanel, and Ctrl+N / UIA Invoke / coordinate-click / SendInput all failed to open it).
+      AC6/AC7/AC8 were therefore verified via source + my own green unit tests + the running Director's own detection log + the live
+      <code>agent.entries</code> config + the Developer's corroborating before/after screenshots - the same accepted basis as pass #1.
+      The real <code>cursor-agent</code> binary is not installed (OUT of scope); a faithful stub is the accepted AC7/AC8 proxy.</li>
+</ul>
+
+<p class="meta">Tested independently in QA slot 6 against PR #521 @ <code>82c04ed3</code>. All 13 acceptance criteria verified. <b>VERIFIED - all acceptance criteria met.</b></p>
+</body>
+</html>

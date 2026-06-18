@@ -233,6 +233,19 @@ public sealed class SessionManager : IDisposable
             if (!string.IsNullOrEmpty(DirectorId))
                 envVars["CC_DIRECTOR_ID"] = DirectorId;
 
+            // Cursor authenticates via CURSOR_API_KEY (issue #517, assumption A5). Inject the
+            // configured key into the session environment so cursor-agent picks it up. The key
+            // value is never logged.
+            if (agent.Kind == AgentKind.Cursor)
+            {
+                var cursorKey = _options.ResolveCursorApiKey();
+                if (!string.IsNullOrEmpty(cursorKey))
+                {
+                    envVars["CURSOR_API_KEY"] = cursorKey;
+                    _log?.Invoke("Injected CURSOR_API_KEY into the Cursor session environment.");
+                }
+            }
+
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
             // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from

@@ -44,6 +44,25 @@ public class AgentOptions
     public string OpenCodePath { get; set; } = "opencode";
 
     /// <summary>
+    /// Path to the Cursor CLI agent (the <c>cursor-agent</c> binary from cursor.com).
+    /// cursor-agent is not an npm package; its installer (the cursor.com install
+    /// script) puts <c>cursor-agent</c> on PATH, so the default relies on PATH
+    /// resolution. Users can override in config.json if cursor-agent is installed
+    /// somewhere off PATH or named differently (issue #517, assumption A1).
+    /// </summary>
+    public string CursorPath { get; set; } = "cursor-agent";
+
+    /// <summary>
+    /// Cursor authentication key, injected into a Cursor session's environment as
+    /// <c>CURSOR_API_KEY</c> when set (issue #517, assumption A5). Loaded from
+    /// config.json "agent.cursor_api_key" first, then falls back to the
+    /// <c>CURSOR_API_KEY</c> environment variable. Null/empty means Director injects
+    /// nothing and cursor-agent uses whatever key is already in the environment.
+    /// Never logged.
+    /// </summary>
+    public string? CursorApiKey { get; set; }
+
+    /// <summary>
     /// Absolute path to the repository the Director chat will relay every chat
     /// message to. Set via appsettings.json "Chat.SessionRepoPath" - e.g.
     /// "D:/ReposFred/private" - so the Director's /chat endpoint knows which
@@ -124,6 +143,19 @@ public class AgentOptions
         if (!string.IsNullOrWhiteSpace(OpenAiKey))
             return OpenAiKey.Trim();
         var env = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        return string.IsNullOrWhiteSpace(env) ? null : env.Trim();
+    }
+
+    /// <summary>
+    /// Resolve the effective Cursor API key: explicit config wins, then the
+    /// <c>CURSOR_API_KEY</c> environment variable. Returns null if neither is set,
+    /// in which case Director injects nothing (issue #517, assumption A5).
+    /// </summary>
+    public string? ResolveCursorApiKey()
+    {
+        if (!string.IsNullOrWhiteSpace(CursorApiKey))
+            return CursorApiKey.Trim();
+        var env = Environment.GetEnvironmentVariable("CURSOR_API_KEY");
         return string.IsNullOrWhiteSpace(env) ? null : env.Trim();
     }
 
