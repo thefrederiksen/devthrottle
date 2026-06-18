@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue 509 - SessionAskRunner</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: 0.4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a6b1f; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #e0a800; padding: 0.6rem 1rem; margin: 1rem 0; }
+  code { background: #f5f5f5; padding: 0.1rem 0.3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #e0e0e0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+  .verdict { font-size: 1.2rem; padding: 1rem; border-radius: 6px; margin-top: 2rem; }
+  .verdict-pass { background: #e6f4ea; border: 2px solid #0a6b1f; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue 509</h1>
+<p><strong>Title:</strong> [Wingman] Drivers: ask a question via a real session and read back a formatted answer</p>
+<p><strong>Pull Request:</strong> #520 &nbsp; <strong>Branch:</strong> issue-509-session-ask</p>
+<p><strong>QA Agent:</strong> independent verification (separate identity from the Developer Agent).
+   The Developer Agent's report and screenshots were treated as context only, not as proof.</p>
+<p><strong>Verified at PR head:</strong> f46eedc (rebuilt and re-tested in an isolated QA worktree;
+   the developer binary and developer screenshots were not reused).</p>
+
+<h2>Nature of the change</h2>
+<p>This is a driver-level, library-only feature in <code>CcDirector.Core</code> with no user-interface
+   surface. The issue's Proof Target is a passing test run plus a captured log sequence, not a screenshot
+   of a running application. Verification was therefore done by an independent clean build, an independent
+   run of the feature tests, and direct source inspection of the new files against each acceptance criterion.
+   A running Director / Control API check does not apply to this issue and would add no evidence.</p>
+
+<h2>Build (independent)</h2>
+<pre>dotnet build cc-director.sln  ->  Build succeeded.  0 Warning(s)  0 Error(s)</pre>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (evidence)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Single public helper takes (kind + exe/args, working dir, prompt, timeout) and returns the reply text.</td>
+  <td>One entry point in <code>CcDirector.Core</code>.</td>
+  <td><code>SessionAskRunner.AskAsync(AgentKind, executablePath, agentArgs, workingDirectory, prompt, timeout, ct)</code>
+      returns <code>SessionAskResult</code> (Answer, RawReply, ReplySeconds). All tests call this one method.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Opens via BuildLaunchSpec + SubmitAsync + ReadWidgets; no <code>--print</code>/<code>-p</code> anywhere (assertable on the launch spec).</td>
+  <td>Launch spec carries no print flag.</td>
+  <td>Code uses <code>driver.BuildLaunchSpec</code> -> backend Start -> <code>SubmitAsync</code> -> <code>ReadWidgets</code>.
+      Tests <code>AskAsync_LaunchSpec_ContainsNoPrintFlag</code> and <code>ClaudeDriver_DefaultLaunchSpec_HasNoPrintFlag</code> assert no <code>--print</code>/<code>-p</code>. Both pass.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Prompt asks the agent to emit the answer inside a fixed documented delimiter; helper extracts exactly that block.</td>
+  <td>Delimited block extracted; a fixture transcript yields the expected string.</td>
+  <td>Contract documented: <code>===DEVTHROTTLE-ANSWER-BEGIN===</code> / <code>===DEVTHROTTLE-ANSWER-END===</code>.
+      <code>WrapPrompt_EmbedsBothDelimiters</code> and <code>ExtractAnswer_FixtureTranscriptBlock_ReturnsExactlyTheBlock</code> (asserts == "FORTY-TWO") pass.
+      Missing-marker cases fail loud (no fallback) - <code>ExtractAnswer_MissingMarkers_ThrowsNoFallback</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>ClaudeCode and Pi return the parsed answer against a fixture transcript (no live network).</td>
+  <td>Both kinds return the expected parsed answer.</td>
+  <td><code>AskAsync_ClaudeCode_RealDriverWithFixtureTranscript_ReturnsParsedAnswer</code> drives the real <code>ClaudeDriver</code>
+      via an injected transcript reader -> "CLAUDE-FIXTURE-ANSWER". <code>AskAsync_Pi_TranscriptReadingDriverWithFixture_ReturnsParsedAnswer</code>
+      -> "PI-FIXTURE-ANSWER". The runner is kind-agnostic and capability-gated; per the issue's Assumptions clause, a kind
+      lacking <code>TranscriptRead</code> returns the same unsupported result as RawCli (the real PiDriver lacks it today and is covered by criterion 5).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Custom / RawCli returns a clear typed "unsupported" result (NotSupportedException naming the agent).</td>
+  <td>Typed exception naming the agent; nothing launched.</td>
+  <td><code>AskAsync_RawCli_RealDriver_ThrowsNotSupportedNamingTheAgent</code> (message contains "RawCli", backend never started)
+      plus the theory over Codex/Gemini/OpenCode. All pass. Gating matches real driver capabilities
+      (ClaudeDriver declares TranscriptRead; Pi/Generic/RawCli do not).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Session torn down after the answer is read (no orphan), asserted by test or log line <code>session closed</code>.</td>
+  <td>Backend closed on success and on failure; log line emitted.</td>
+  <td><code>AskAsync_OnSuccess_ClosesTheSession</code> and <code>AskAsync_OnFailure_StillClosesTheSession</code> assert
+      <code>backend.HasExited</code> and the <code>[SessionAskRunner] session closed</code> log (teardown is in a finally block). Both pass.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td>Timeout enforced; on timeout a distinct logged result rather than a hang.</td>
+  <td>Distinct exception, session still torn down.</td>
+  <td><code>AskAsync_NoReplyWithinTimeout_ThrowsSessionAskTimeout</code> -> <code>SessionAskTimeoutException</code>
+      with "No reply", and <code>backend.HasExited</code> true. Pass.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td>Entry, exit, and failure logged in <code>[ClassName] Method: context</code> format.</td>
+  <td>Ordered launch -> submit -> reply read -> session closed log.</td>
+  <td><code>AskAsync_LogsLaunchSubmitReadCloseSequence</code> asserts the ordered sequence and writes
+      <code>ask-sequence.log</code>. Log lines use the <code>[SessionAskRunner] Method: context</code> format. Pass.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Independent test run</h2>
+<pre>dotnet test src/CcDirector.Core.Tests --filter SessionAskRunnerTests
+Passed!  - Failed: 0, Passed: 18, Skipped: 0, Total: 18</pre>
+
+<h2>Regression sweep (full CcDirector.Core.Tests)</h2>
+<pre>dotnet test src/CcDirector.Core.Tests
+Failed: 1, Passed: 2047, Skipped: 3, Total: 2051</pre>
+<div class="note">
+  <strong>The single failing test is pre-existing on <code>main</code> and is NOT caused by this PR.</strong>
+  The failure is <code>NoCrossMachineLoopbackGuardTests.No_new_production_file_hardcodes_cross_machine_loopback</code>,
+  an architecture fitness function that flags <code>src/CcDirector.Gateway/Running/IDirectorLauncher.cs</code> for an
+  un-allowlisted loopback literal on line 36. That file:
+  <ul>
+    <li>is NOT part of PR #520's diff (the PR touches only <code>src/CcDirector.Core/Drivers/</code> and its test);</li>
+    <li>exists identically on <code>origin/main</code> - <code>git diff origin/main...HEAD</code> for that file is empty;</li>
+    <li>was last changed by commit 7d9b573, already merged to main.</li>
+  </ul>
+  The three new SessionAskRunner production files contain no loopback literal, so they do not add an offender.
+  This regression therefore exists on main regardless of #520 and is out of scope for issue #509. It should be
+  filed/fixed separately (either allowlist <code>IDirectorLauncher.cs</code> with a same-machine reason, or route it).
+</div>
+
+<h2>CenCon / method check</h2>
+<p>Additive within the <code>core_services</code> container, built entirely on the existing <code>IAgentDriver</code> protocol.
+   No architecture or security profile change; no blocking DT rule affected. Logging follows the
+   <code>[ClassName] Method: context</code> CodingStyle format. No-fallback rule honored (missing answer block fails loud).</p>
+
+<div class="verdict verdict-pass">
+  <span class="pass">VERIFIED - all 8 acceptance criteria met.</span><br>
+  The one failing regression test is a pre-existing, unrelated main failure (loopback guard on
+  IDirectorLauncher.cs), not introduced by this PR. The merged build is clean (0 errors).
+</div>
+</body>
+</html>
