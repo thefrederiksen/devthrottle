@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Xunit;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
@@ -12,13 +11,8 @@ public class ToolDetectionWizardModelTests
     private static string NewRoot() =>
         Path.Combine(Path.GetTempPath(), "cc-director-wizard-tests", Guid.NewGuid().ToString("N"));
 
-    private static JsonObject ReadConfig()
-    {
-        return CcDirectorConfigService.ReadRaw();
-    }
-
     [Fact]
-    public void IsFirstRun_NoAgentToolsSection_ReturnsTrue()
+    public void IsFirstRun_NoAgentEntries_ReturnsTrue()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         var root = NewRoot();
@@ -82,28 +76,29 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void AcceptSelected_WritesOnlySelectedTools()
+    public void AcceptSelected_AddsOnlySelectedToolsToEntries()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         var root = NewRoot();
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
         try
         {
-            var written = ToolDetectionWizardModel.AcceptSelected(new[]
+            var result = ToolDetectionWizardModel.AcceptSelected(new[]
             {
                 new AcceptedToolSelection(AgentKind.ClaudeCode, "claude"),
                 new AcceptedToolSelection(AgentKind.Pi, "pi"),
             });
 
-            Assert.Equal(2, written);
+            Assert.Equal(2, result.AddedTools.Count);
+            Assert.Empty(result.SkippedTools);
 
-            var config = ReadConfig();
-            var tools = (config["agent"] as JsonObject)?["tools"] as JsonObject;
-            Assert.NotNull(tools);
-            Assert.True(tools!.ContainsKey("claude"));
-            Assert.True(tools.ContainsKey("pi"));
-            // A deselected tool (Codex was never passed) is NOT written.
-            Assert.False(tools.ContainsKey("codex"));
+            // The accepted tools land in the live agent.entries list (what the New Session picker
+            // launches from) - the regression this fix is about.
+            var entries = AgentEntryStore.ReadCurrentEntries();
+            Assert.Contains(entries, e => e.Type == AgentKind.ClaudeCode);
+            Assert.Contains(entries, e => e.Type == AgentKind.Pi);
+            // A deselected tool (Codex was never passed) is NOT added.
+            Assert.DoesNotContain(entries, e => e.Type == AgentKind.Codex);
         }
         finally
         {
@@ -113,7 +108,7 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void AcceptSelected_Claude_WritesAutomaticDefaultPreset()
+    public void AcceptSelected_Claude_WritesAutomaticDefaultPresetOnEntry()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         var root = NewRoot();
@@ -125,12 +120,12 @@ public class ToolDetectionWizardModelTests
                 new AcceptedToolSelection(AgentKind.ClaudeCode, "claude"),
             });
 
-            // Issue #436: accepting Claude from the wizard now writes the Automatic (skip
-            // permissions) catalog default, so a freshly configured Claude skips permissions.
-            var loaded = AgentToolConfig.Load(AgentKind.ClaudeCode);
-            Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, loaded.PresetName);
-            Assert.Equal(AgentToolCatalog.ClaudeSkipPermissionsArg, loaded.ResolveEffectiveArguments());
-            Assert.True(loaded.Enabled);
+            // Issue #436: accepting Claude from the wizard seeds the Automatic (skip permissions)
+            // catalog default on the new entry, so a freshly configured Claude skips permissions.
+            var entry = AgentEntryStore.ReadCurrentEntries().Single(e => e.Type == AgentKind.ClaudeCode);
+            Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, entry.PresetId);
+            Assert.Equal(AgentToolCatalog.ClaudeSkipPermissionsArg, entry.ToToolConfig().ResolveEffectiveArguments());
+            Assert.True(entry.Enabled);
         }
         finally
         {
@@ -140,7 +135,7 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void AcceptSelected_RecordsResolvedPathUnderAgentSection()
+    public void AcceptSelected_RecordsResolvedPathOnEntry()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         var root = NewRoot();
@@ -152,10 +147,53 @@ public class ToolDetectionWizardModelTests
                 new AcceptedToolSelection(AgentKind.ClaudeCode, @"C:\tools\claude.cmd"),
             });
 
-            var config = ReadConfig();
-            var agent = config["agent"] as JsonObject;
-            Assert.NotNull(agent);
-            Assert.Equal(@"C:\tools\claude.cmd", (agent!["claude_path"] as JsonValue)?.GetValue<string>());
+            var entry = AgentEntryStore.ReadCurrentEntries().Single(e => e.Type == AgentKind.ClaudeCode);
+            Assert.Equal(@"C:\tools\claude.cmd", entry.ExecutablePath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", old);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AcceptSelected_WhenTypeAlreadyInEntries_SkipsItAndAddsTheRest()
+    {
+        var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        var root = NewRoot();
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
+        try
+        {
+            // Pre-existing list already has a (customized) Codex entry, like the user's real
+            // machine in the bug report. Re-running the wizard and selecting Codex + Gemini must
+            // add only Gemini and leave the existing Codex entry untouched.
+            AgentEntryStore.SaveEntries(new[]
+            {
+                new AgentEntry
+                {
+                    DisplayName = "My Codex",
+                    Type = AgentKind.Codex,
+                    ExecutablePath = @"C:\custom\codex.exe",
+                },
+            });
+
+            var result = ToolDetectionWizardModel.AcceptSelected(new[]
+            {
+                new AcceptedToolSelection(AgentKind.Codex, @"C:\detected\codex.exe"),
+                new AcceptedToolSelection(AgentKind.Gemini, @"C:\detected\gemini.cmd"),
+            });
+
+            Assert.Equal(new[] { AgentKind.Gemini }, result.AddedTools);
+            Assert.Equal(new[] { AgentKind.Codex }, result.SkippedTools);
+
+            var entries = AgentEntryStore.ReadCurrentEntries();
+            // Exactly one Codex, still the original customized one (not overwritten).
+            var codex = Assert.Single(entries, e => e.Type == AgentKind.Codex);
+            Assert.Equal("My Codex", codex.DisplayName);
+            Assert.Equal(@"C:\custom\codex.exe", codex.ExecutablePath);
+            // Gemini was genuinely added.
+            Assert.Contains(entries, e => e.Type == AgentKind.Gemini);
         }
         finally
         {

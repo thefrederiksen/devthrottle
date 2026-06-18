@@ -114,6 +114,29 @@ public static class AgentEntryStore
     }
 
     /// <summary>
+    /// Read the persisted <c>agent.entries</c> WITHOUT triggering the first-run legacy seed:
+    /// returns the current entries in array order, or an empty list when <c>agent.entries</c> is
+    /// absent. The tool-detection wizard uses this (not <see cref="LoadEntries"/>) so it sees the
+    /// user's REAL current list - if it seeded, every tool would look already-present and the
+    /// wizard could never add anything.
+    /// </summary>
+    public static List<AgentEntry> ReadCurrentEntries()
+    {
+        FileLog.Write("[AgentEntryStore] ReadCurrentEntries");
+        var root = CcDirectorConfigService.ReadRaw();
+        var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
+        if (agent?["entries"] is JsonArray array)
+        {
+            var loaded = ReadEntries(array);
+            FileLog.Write($"[AgentEntryStore] ReadCurrentEntries: read {loaded.Count} entries");
+            return loaded;
+        }
+
+        FileLog.Write("[AgentEntryStore] ReadCurrentEntries: no agent.entries; returning empty (no seed)");
+        return new List<AgentEntry>();
+    }
+
+    /// <summary>
     /// Persist the ordered entries to <c>config.json</c> under <c>agent.entries</c>. The array is
     /// REPLACED wholesale (MergePatch replaces arrays), so removing/reordering takes effect; all
     /// other config sections are left exactly as they were.

@@ -639,7 +639,7 @@ public partial class SettingsDialog : Window
             if (accepted == true)
             {
                 LoadAgentEntries();
-                ShowAgentToolsStatus("Detection wizard finished. The tools it added are shown above.", error: false);
+                ShowAgentToolsStatus(BuildWizardResultMessage(dialog.LastResult), error: false);
                 FileLog.Write("[SettingsDialog] BtnRunWizard_Click: wizard accepted; reloaded agent list");
             }
         }
@@ -652,6 +652,32 @@ public partial class SettingsDialog : Window
         {
             RunWizardButton.IsEnabled = true;
         }
+    }
+
+    /// <summary>
+    /// Build the honest after-wizard status: name the agents that were actually added to the list
+    /// and how many selected ones were skipped because they were already present. Avoids the old
+    /// "the tools it added are shown above" message that lied when nothing new was added.
+    /// </summary>
+    private static string BuildWizardResultMessage(WizardAcceptResult? result)
+    {
+        if (result is null)
+            return "Detection wizard finished.";
+
+        var addedNames = result.AddedTools.Select(t => AgentToolCatalog.GetEntry(t).DisplayName).ToList();
+        var addedPart = addedNames.Count switch
+        {
+            0 => "No new agents added",
+            1 => $"Added 1 new agent: {addedNames[0]}",
+            _ => $"Added {addedNames.Count} new agents: {string.Join(", ", addedNames)}",
+        };
+
+        var skippedCount = result.SkippedTools.Count;
+        var skippedPart = skippedCount == 0
+            ? ""
+            : $" {skippedCount} selected {(skippedCount == 1 ? "tool was" : "tools were")} already in your list and left unchanged.";
+
+        return addedPart + "." + skippedPart;
     }
 
     private void ShowAgentToolsStatus(string text, bool error)
