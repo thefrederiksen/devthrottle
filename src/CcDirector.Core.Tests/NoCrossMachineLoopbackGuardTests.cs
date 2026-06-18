@@ -43,6 +43,7 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Gateway/Tailscale/TailscaleServeProvisioner.cs"] = "Maps the tailnet front door to local loopback backends.",
         ["src/CcDirector.Gateway/Api/RecordingEndpoints.cs"] = "Local recording paths.",
         ["src/CcDirector.Gateway/Api/MachineEndpoints.cs"] = "Same-machine relay/launcher wiring.",
+        ["src/CcDirector.Gateway/Running/IDirectorLauncher.cs"] = "RelayDirectorLauncher posts to the local Gateway's own loopback port to relay a Director start request (same-machine self-call to the Gateway's own /machines/{machine}/director/start endpoint).",
         ["src/CcDirector.GatewayApp/Program.cs"] = "Local Gateway bootstrap.",
         ["src/CcDirector.GatewayApp/GatewayTrayController.cs"] = "Opens the local Cockpit/Gateway via loopback.",
         ["src/CcDirector.GatewayApp/SettingsWindow.axaml.cs"] = "Local settings UI references.",
