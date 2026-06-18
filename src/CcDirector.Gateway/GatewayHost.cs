@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Storage;
@@ -477,6 +478,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure
         // resolver, so the bring-your-own OpenAI key is never paired with the devthrottle.com URL.
         TranscriptionRoutingEndpoint.Map(_app, _keyVault);
+
+        // Transcription smoke test: the Cockpit Settings page records a short clip and posts it here;
+        // the Gateway transcribes it with the SAME configured mode + key the pipeline uses and returns
+        // the text. Proves the stored key actually works (the status dot only proves one is stored).
+        TranscriptionTestEndpoint.Map(_app, _keyVault);
 
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,

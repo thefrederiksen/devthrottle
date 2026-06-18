@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-17"
+last_updated: "2026-06-18"
 
 # C4 Level 1: System Context
 context:
@@ -651,6 +651,12 @@ containers:
       - name: VaultEndpoints
         description: REST surface over KeyVault (GET/PUT/DELETE /vault/keys/{name}, GET /vault/keys names-only) backing the Cockpit "API Keys" page; values leave the Gateway only via a single-key GET, never the list. Behind the host-wide auth middleware.
         file: Api/VaultEndpoints.cs
+      - name: TranscriptionRoutingEndpoint
+        description: The Gateway as the single source of truth for the whole transcription routing target (issues #497/#506/#513). GET /transcription/routing composes the (mode, baseUrl, model, transport, key) tuple server-side from the one pure TranscriptionEndpointResolver, so the bring-your-own OpenAI key is only ever paired with the OpenAI URL and never with the devthrottle.com URL. 404 (with an X-Transcription-Routing marker header) when no key is set for the configured mode - never a baked-in fallback URL.
+        file: Api/TranscriptionRoutingEndpoint.cs
+      - name: TranscriptionTestEndpoint
+        description: One-shot transcription smoke test backing the Cockpit Settings > Transcription "Test it" panel. POST /transcription/test takes a short recorded audio clip and runs it through the SAME configured mode + key the live pipeline uses (always the OpenAI-compatible batch /audio/transcriptions, which both OpenAI and the DevThrottle/Groq proxy implement), returning the transcribed text - so the user can prove the stored key actually works, not just that one is stored. 409 when no key is set for the mode, 400 when no audio, 502 when the provider rejects the request. Behind the host-wide auth middleware.
+        file: Api/TranscriptionTestEndpoint.cs
       - name: WorkListStore
         description: In-memory fleet-wide named work-list store (issue #273, child of #270). A named list is an ordered set of structured item refs { source, id, area? } plus a single-consumer claim; stores order + refs + claim ONLY (never item status). source github is runnable, devops/jira stored-only in v1; persistence across restart is OUT for v1.
         file: WorkListStore.cs

@@ -157,6 +157,22 @@
         </div>
         <div class="msg" id="byomsg"></div>
       </div>
+
+      <!-- One-click smoke test: record a short clip and prove speech -> text works with the
+           current mode + key. The status dots above only prove a key is stored, not that it works. -->
+      <div class="keypanel" id="panel-tx-test">
+        <div class="keylabel">Test it</div>
+        <p class="hint" style="margin-top:0">Record a few seconds and the Gateway transcribes it with your current settings. This is the only thing that proves the stored key actually works.</p>
+        <div class="row">
+          <button id="txtestbtn">Start recording</button>
+          <span class="hint" id="txteststate" style="margin:0"></span>
+        </div>
+        <div id="txtestresultwrap" style="display:none;margin-top:12px">
+          <div class="keylabel" style="margin-bottom:6px">Heard:</div>
+          <div id="txtestresult" style="background:#0B1020;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:14px;min-height:20px;white-space:pre-wrap"></div>
+        </div>
+        <div class="msg" id="txtestmsg"></div>
+      </div>
     </div>
   </div>
 
@@ -561,6 +577,97 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadWingman(); }
   }
 
+  // ===== Transcription smoke test: record a clip, prove speech -> text =====
+  // One toggle button. First click records via MediaRecorder; second click stops, uploads the
+  // clip to the Gateway, and shows the text it heard - using the current mode + key.
+  let txMediaRecorder = null;
+  let txChunks = [];
+  let txStream = null;
+
+  function txTestState(text){
+    document.getElementById('txteststate').textContent = text || '';
+  }
+
+  // A successful test is the only thing that proves the stored key works, so flip that mode's status
+  // dot green and say so. In-session only: loadKeyStatus() (and a page reload) re-derives the dot
+  // from "is a key stored", which is honest - the next visit hasn't re-verified anything yet.
+  function markModeVerified(mode){
+    if (mode === 'devthrottle'){
+      document.getElementById('dtdot').className = 'dot green';
+      document.getElementById('dtstate').textContent = 'Verified - whisper-large-v3 via DevThrottle';
+    } else {
+      document.getElementById('byodot').className = 'dot green';
+      document.getElementById('byostate').textContent = 'Verified - your OpenAI key works';
+    }
+  }
+
+  async function txTestClick(){
+    const btn = document.getElementById('txtestbtn');
+    // If we are mid-recording, this click stops + transcribes (onstop fires transcribeTxTest).
+    if (txMediaRecorder && txMediaRecorder.state === 'recording'){
+      txMediaRecorder.stop();
+      return;
+    }
+    // Fresh recording.
+    txMsg('txtestmsg', '', true);
+    document.getElementById('txtestresultwrap').style.display = 'none';
+    try {
+      txStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      txMsg('txtestmsg', 'Could not open the microphone: ' + e.message + '. Grant microphone permission and try again.', false);
+      return;
+    }
+    txChunks = [];
+    txMediaRecorder = new MediaRecorder(txStream);
+    txMediaRecorder.ondataavailable = function(ev){ if (ev.data && ev.data.size) txChunks.push(ev.data); };
+    txMediaRecorder.onstop = transcribeTxTest;
+    txMediaRecorder.start();
+    btn.textContent = 'Stop and transcribe';
+    txTestState('Recording... speak now, then click Stop.');
+  }
+
+  async function transcribeTxTest(){
+    const btn = document.getElementById('txtestbtn');
+    // Release the microphone regardless of what happens next.
+    if (txStream){ txStream.getTracks().forEach(function(t){ t.stop(); }); txStream = null; }
+    btn.textContent = 'Start recording';
+
+    const mime = (txMediaRecorder && txMediaRecorder.mimeType) ? txMediaRecorder.mimeType : 'audio/webm';
+    const blob = new Blob(txChunks, { type: mime });
+    txChunks = [];
+    if (!blob.size){
+      txTestState('');
+      txMsg('txtestmsg', 'No audio was captured. Click Start, speak, then Stop.', false);
+      return;
+    }
+
+    btn.disabled = true;
+    txTestState('Transcribing...');
+    try {
+      const r = await fetch('/transcription/test', {
+        method: 'POST',
+        headers: { 'Content-Type': blob.type || 'audio/webm' },
+        body: blob,
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok){
+        txTestState(d.model ? ('Done - transcribed with ' + d.model + '.') : 'Done.');
+        document.getElementById('txtestresult').textContent = d.text || '(silence - nothing was transcribed)';
+        document.getElementById('txtestresultwrap').style.display = 'block';
+        markModeVerified(d.mode || currentMode);
+        txMsg('txtestmsg', '', true);
+      } else {
+        txTestState('');
+        const hint = r.status === 409 ? ' Save a key for the selected mode first.' : '';
+        txMsg('txtestmsg', 'Test failed: ' + (d.error || r.status) + hint, false);
+      }
+    } catch (e){
+      txTestState('');
+      txMsg('txtestmsg', 'Test failed: ' + e, false);
+    }
+    btn.disabled = false;
+  }
+
   // ===== Phone pairing (issue #385) =====
   let phonePayload = '';
   let phoneUrl = '';
@@ -627,6 +734,7 @@
   document.getElementById('dtshowbox').addEventListener('change', function(e){
     document.getElementById('dtkeybox').type = e.target.checked ? 'text' : 'password';
   });
+  document.getElementById('txtestbtn').addEventListener('click', txTestClick);
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
   document.getElementById('addrmode').addEventListener('change', changeAddressingMode);
