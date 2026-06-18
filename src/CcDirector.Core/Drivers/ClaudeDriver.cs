@@ -2,6 +2,7 @@ using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
+using CcDirector.Core.Skills;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -52,6 +53,16 @@ public sealed class ClaudeDriver : IAgentDriver
         | DriverCapabilities.History
         | DriverCapabilities.TranscriptRead
         | DriverCapabilities.PreassignedSessionId;
+
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => BuiltInSlashCommands.All
+        .Select(command => new AgentSlashCommand(
+            command.Name,
+            command.Description,
+            command.Category,
+            command.Source,
+            AgentKind.ClaudeCode,
+            Documentation: command.Documentation))
+        .ToList();
 
     public string ResolveExecutable(string? configuredPath)
     {

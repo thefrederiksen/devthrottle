@@ -31,6 +31,8 @@ public sealed class GenericDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel | DriverCapabilities.Interrupt;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => [];
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             $"[GenericDriver] Executable resolution for {Kind} is not implemented - launching is " +

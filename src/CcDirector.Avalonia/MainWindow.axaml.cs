@@ -4050,11 +4050,14 @@ public partial class MainWindow : Window
         }
 
         var repoPath = _activeSession?.Session.RepoPath;
-        var allCommands = _slashCommandProvider.GetCommands(repoPath);
+        var agentKind = _activeSession?.Session.AgentKind ?? AgentKind.ClaudeCode;
+        var allCommands = _slashCommandProvider.GetCommands(agentKind, repoPath);
 
-        // Exclude interactive TUI commands from PromptInput autocomplete -- they don't work here.
+        // Exclude Claude interactive terminal commands from PromptInput autocomplete -- they do not work here.
         // Users who know these commands can use them in the Terminal tab directly.
-        var available = allCommands.Where(c => !InteractiveTuiCommands.Contains(c.Name)).ToList();
+        var available = agentKind == AgentKind.ClaudeCode
+            ? allCommands.Where(c => !InteractiveTuiCommands.Contains(c.Name)).ToList()
+            : allCommands;
 
         _filteredSlashCommands = string.IsNullOrEmpty(filter)
             ? available
@@ -4085,7 +4088,13 @@ public partial class MainWindow : Window
         }
 
         SlashCommandDocTitle.Text = "/" + selected.Name;
-        SlashCommandDocSource.Text = selected.Source == "project" ? "Project skill" : "Global skill";
+        SlashCommandDocSource.Text = selected.Source switch
+        {
+            "project" => "Project",
+            "global" => "Global",
+            "builtin" => selected.DriverKind?.ToString() ?? "Built in",
+            _ => selected.Source
+        };
         SlashCommandDocDesc.Text = selected.Description;
 
         if (!string.IsNullOrWhiteSpace(selected.Documentation))
@@ -4124,6 +4133,9 @@ public partial class MainWindow : Window
     private bool TryHandleSlashCommand(string text)
     {
         if (string.IsNullOrEmpty(text) || !text.StartsWith("/"))
+            return false;
+
+        if (_activeSession?.Session.AgentKind != AgentKind.ClaudeCode)
             return false;
 
         var commandName = text.ToLowerInvariant().TrimStart('/');
@@ -4251,7 +4263,9 @@ public partial class MainWindow : Window
         }
 
         // Check if this is an interactive TUI command
-        var isInteractiveCommand = text.StartsWith("/") && InteractiveTuiCommands.Contains(text.TrimStart('/'));
+        var isInteractiveCommand = _activeSession.Session.AgentKind == AgentKind.ClaudeCode
+            && text.StartsWith("/")
+            && InteractiveTuiCommands.Contains(text.TrimStart('/'));
 
         // Backends send Enter (CR/LF) explicitly after the text -- don't append a submit
         // newline here. Appending one used to trip LargeInputHandler's multi-line check
