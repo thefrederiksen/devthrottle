@@ -22,7 +22,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /gateway/settings        -> { version, state, port, uptimeSeconds, directors, mode,
 ///                                       cockpit:{port,up,url}, brain:{...}, autostart:{supported,enabled} }
 ///   POST /gateway/brain/restart   -> { ok, brain:{...} } (restarts the warm brain, issue #184)
-///   PUT  /gateway/brain/config    body { "tool": str, "model": str } -> { tool, model } (issue #393)
+///   PUT  /gateway/brain/config    body { "agentId": str, "model": str } -> { agentId, tool, model }
+///                                  (issue #510; legacy { "tool": str, ... } still accepted)
 ///   GET  /gateway/wingman         -> { enabled } (issue #185)
 ///   PUT  /gateway/wingman         body { "enabled": bool } -> { enabled }
 ///   PUT  /gateway/autostart       body { "enabled": bool } -> { supported, enabled }
@@ -100,15 +101,35 @@ internal static class SettingsEndpoints
                 var body = await JsonSerializer.DeserializeAsync<BrainConfigBody>(
                     ctx.Request.Body, JsonOpts, ctx.RequestAborted);
                 if (body is null)
-                    return Results.BadRequest(new { error = "body { \"tool\": \"<AgentKind>\", \"model\": \"<model>\" } is required" });
+                    return Results.BadRequest(new { error = "body { \"agentId\": \"<id>\", \"model\": \"<model>\" } is required" });
 
-                if (string.IsNullOrWhiteSpace(body.Tool))
-                    return Results.BadRequest(new { error = "tool is required" });
-                if (!Enum.TryParse<Core.Agents.AgentKind>(body.Tool.Trim(), ignoreCase: true, out var tool)
-                    || !Core.Configuration.BrainToolConfig.IsHostable(tool))
+                // Issue #510: the wingman agent is chosen by its registered-agent id (the same
+                // machine list the New Session picker offers), not a hardcoded Claude-only tool
+                // name. The legacy "tool" field (an AgentKind name, issue #393) is still accepted
+                // so existing callers keep working - it is matched to the first enabled entry of
+                // that kind. Either way we resolve to a real registered entry and persist its id,
+                // its AgentKind (for the runtime), and the model.
+                var agents = LoadMachineAgents();
+                Core.Configuration.AgentEntry? entry = null;
+
+                if (!string.IsNullOrWhiteSpace(body.AgentId))
                 {
-                    var allowed = string.Join(", ", Core.Configuration.BrainToolConfig.BrainHostableTools);
-                    return Results.BadRequest(new { error = $"tool must be a brain-hostable agent tool (one of: {allowed})" });
+                    var id = body.AgentId.Trim();
+                    entry = agents.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.Ordinal));
+                    if (entry is null)
+                        return Results.BadRequest(new { error = "agentId must be a registered, enabled agent on this machine" });
+                }
+                else if (!string.IsNullOrWhiteSpace(body.Tool))
+                {
+                    if (!Enum.TryParse<Core.Agents.AgentKind>(body.Tool.Trim(), ignoreCase: true, out var tool))
+                        return Results.BadRequest(new { error = "tool must be a recognised agent-kind name" });
+                    entry = agents.FirstOrDefault(a => a.Type == tool);
+                    if (entry is null)
+                        return Results.BadRequest(new { error = $"no registered, enabled agent of kind {tool} on this machine" });
+                }
+                else
+                {
+                    return Results.BadRequest(new { error = "agentId is required (a registered agent on this machine)" });
                 }
 
                 if (string.IsNullOrWhiteSpace(body.Model))
@@ -118,11 +139,12 @@ internal static class SettingsEndpoints
                 Core.Configuration.CcDirectorConfigService.MergePatch(
                     new System.Text.Json.Nodes.JsonObject
                     {
-                        ["brain_tool"] = tool.ToString(),
+                        ["brain_agent_id"] = entry.Id,
+                        ["brain_tool"] = entry.Type.ToString(),
                         ["brain_model"] = model,
                     });
-                FileLog.Write($"[SettingsEndpoints] brain config set: tool={tool}, model={model}");
-                return Results.Json(new { tool = tool.ToString(), model });
+                FileLog.Write($"[SettingsEndpoints] brain config set: agentId={entry.Id}, tool={entry.Type}, model={model}");
+                return Results.Json(new { agentId = entry.Id, tool = entry.Type.ToString(), model });
             }
             catch (JsonException ex)
             {
@@ -252,12 +274,24 @@ internal static class SettingsEndpoints
     {
         var brain = host.Brain;
         var health = await brain.GetHealthAsync();
+
+        // Issue #510: the wingman agent picker is filled from the agents registered on this machine
+        // (the same enabled agent.entries the New Session dialog offers), not a hardcoded
+        // Claude-only list. The Cockpit selects the saved agent by id; "agentId" is the saved
+        // choice (brain_agent_id) so the picker round-trips across a page reload.
+        var agents = LoadMachineAgents();
+        var savedAgentId = Core.Configuration.CcDirectorConfigService.ReadRaw()["brain_agent_id"] is { } idNode
+            && idNode.GetValueKind() == System.Text.Json.JsonValueKind.String
+                ? idNode.GetValue<string>()
+                : null;
+
         return new
         {
             tool = host.BrainTool.ToString(),
-            // The tools the brain can be set to, in display order (issue #393). Today only Claude
-            // Code's driver can host a brain; the list grows as new hostable drivers land.
-            tools = Core.Configuration.BrainToolConfig.BrainHostableTools.Select(t => t.ToString()).ToArray(),
+            // The agents registered on this machine, in list order (issue #510): the wingman can
+            // run as any of them (the driver-level hostability work landed in issue #509).
+            agents = agents.Select(a => new { id = a.Id, displayName = a.DisplayName, type = a.Type.ToString() }).ToArray(),
+            agentId = savedAgentId,
             model = host.BrainModel,
             sessionId = brain.SessionId,
             pid = brain.ProcessId,
@@ -266,6 +300,20 @@ internal static class SettingsEndpoints
             status = health.Status,
             detail = BrainDetail(health),
         };
+    }
+
+    /// <summary>
+    /// The agents registered on THIS machine, filtered to the enabled entries - exactly the set the
+    /// New Session dialog offers (issue #510). Uses <see cref="Core.Configuration.AgentEntryStore.LoadEntries"/>
+    /// with the same default <see cref="Core.Configuration.AgentOptions"/> the New Session dialog
+    /// falls back to, so the picker mirrors that list (including the one-time legacy seed when
+    /// agent.entries has never been written) rather than showing an empty dropdown.
+    /// </summary>
+    private static List<Core.Configuration.AgentEntry> LoadMachineAgents()
+    {
+        return Core.Configuration.AgentEntryStore.LoadEntries(new Core.Configuration.AgentOptions())
+            .Where(e => e.Enabled)
+            .ToList();
     }
 
     /// <summary>Human-readable one-liner for the brain state. Pure, for tests.</summary>
@@ -300,5 +348,5 @@ internal static class SettingsEndpoints
     private sealed record TranscriptionModeBody(string? Mode);
     private sealed record AutostartBody(bool Enabled);
     private sealed record WingmanBody(bool Enabled);
-    private sealed record BrainConfigBody(string? Tool, string? Model);
+    private sealed record BrainConfigBody(string? AgentId, string? Tool, string? Model);
 }

@@ -156,9 +156,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 AgentArgs = $"{ClaudeDriver.DefaultArgs} --model {BrainModel}",
                 Log = FileLog.Write,
             },
-            // Host the chosen tool through its own driver. Only brain-hostable tools reach here
-            // (BrainToolConfig validates against BrainHostableTools, default ClaudeCode), so the
-            // driver is always one the hosted-agent path can drive.
+            // Host the chosen agent through its own driver. As of issue #510 the wingman agent is
+            // chosen from the machine's registered agents (any AgentKind), since the driver-level
+            // hostability work landed in issue #509; BrainToolConfig.Get validates the configured
+            // name is a recognised AgentKind (default ClaudeCode).
             agentFactory: o => new CcDirector.HostedAgent.HostedAgent(o, brainDriver));
         _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
         // Production omits keyVaultPath for the shared default; tests pass an isolated path so
