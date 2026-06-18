@@ -2665,7 +2665,12 @@ public partial class MainWindow : Window
         // Per-entry preset/model/args resolve to the same effective command line the Tools/Agents
         // page previews (issue #436's shared resolver). For Claude the dialog's Bypass-permissions
         // checkbox still applies on top, because it is a per-session choice, not a stored preset.
-        var entryArgs = selectedEntry.ToToolConfig().ResolveEffectiveCommandLineArguments().Trim();
+        // The dialog's Model box (issue #508) is a per-launch override of the entry's default model;
+        // when set, it replaces DefaultModel in the resolved command line.
+        var toolConfig = selectedEntry.ToToolConfig();
+        if (!string.IsNullOrWhiteSpace(dialog.SelectedModel))
+            toolConfig.DefaultModel = dialog.SelectedModel;
+        var entryArgs = toolConfig.ResolveEffectiveCommandLineArguments().Trim();
         string? agentArgs;
         if (agentKind == AgentKind.ClaudeCode)
         {

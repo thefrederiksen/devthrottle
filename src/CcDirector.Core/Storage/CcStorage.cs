@@ -211,6 +211,9 @@ public static class CcStorage
     /// <summary>Workspace definitions directory: config/director/workspaces/</summary>
     public static string Workspaces() => Path.Combine(ToolConfig("director"), "workspaces");
 
+    /// <summary>Named-session preset directory (issue #508): config/director/named-sessions/</summary>
+    public static string NamedSessions() => Path.Combine(ToolConfig("director"), "named-sessions");
+
     // -- Browser Connections --
 
     /// <summary>Browser connections directory: base/connections/</summary>

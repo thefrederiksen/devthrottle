@@ -392,6 +392,26 @@ public sealed class AgentEntryOption
     public bool IsSelected { get; set; }
 }
 
+/// <summary>
+/// One entry in the compact "Named session" dropdown (issue #508). The leading placeholder carries
+/// a null <see cref="Preset"/> and the label "(none)"; every other entry carries a launchable
+/// preset. Orphaned presets are never added here - they live only in the Manage dialog.
+/// </summary>
+public sealed class NamedSessionComboItem
+{
+    public NamedSessionComboItem(NamedSessionDefinition? preset, string label)
+    {
+        Preset = preset;
+        Label = label;
+    }
+
+    /// <summary>The saved preset this entry applies, or null for the "(none)" placeholder.</summary>
+    public NamedSessionDefinition? Preset { get; }
+
+    /// <summary>The text shown in the dropdown.</summary>
+    public string Label { get; }
+}
+
 public partial class NewSessionDialog : Window
 {
     private static readonly ISolidColorBrush ResumeButtonBrush = new SolidColorBrush(Color.Parse("#22C55E"));
@@ -413,6 +433,34 @@ public partial class NewSessionDialog : Window
     public string? SelectedPath { get; private set; }
     public string? SelectedResumeSessionId { get; private set; }
     public string? SelectedHandoverPath { get; private set; }
+
+    /// <summary>
+    /// The named-session preset store (issue #508). The compact dropdown lists its launchable
+    /// presets; the Save button writes to it; the Manage dialog edits it.
+    /// </summary>
+    private readonly NamedSessionStore _namedSessionStore = new();
+
+    /// <summary>The dropdown options - a leading "(none)" placeholder plus one per launchable
+    /// preset (orphans are excluded from the start flow by design, issue #508).</summary>
+    private readonly List<NamedSessionComboItem> _namedSessionItems = new();
+
+    /// <summary>Guards the fill-the-fields logic so programmatic updates (when a preset is applied)
+    /// do not re-enter selection handlers and clear the dropdown.</summary>
+    private bool _applyingNamedSession;
+
+    /// <summary>
+    /// The model selected for this launch (issue #508). Read from the compact Model box; empty
+    /// means "use the selected agent's own default model". MainWindow passes this as the agent's
+    /// model when non-empty.
+    /// </summary>
+    public string? SelectedModel
+    {
+        get
+        {
+            var text = ModelBox?.Text?.Trim();
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+    }
 
     /// <summary>
     /// When <see cref="SelectedAgentKind"/> is <see cref="AgentKind.RawCli"/>, the
@@ -572,6 +620,9 @@ public partial class NewSessionDialog : Window
             GroupCombo.SelectedIndex = 0;
         FileLog.Write($"[NewSessionDialog] Loaded {SessionGroupDefinition.BuiltIn.Count} group definitions");
 
+        // Named sessions (issue #508): load the launchable presets into the compact dropdown.
+        LoadNamedSessions();
+
         Loaded += async (_, _) =>
         {
             Dispatcher.UIThread.Post(() => RepoSearchBox.Focus());
@@ -667,6 +718,12 @@ public partial class NewSessionDialog : Window
                 CustomArgsBox.Text = entry.ArgsOverride;
         }
 
+        // Seed the Model box from the newly selected agent's default model (issue #508), so the
+        // user sees what model will launch. Skipped while a named-session preset is being applied,
+        // because the preset's own saved model wins in that case.
+        if (!_applyingNamedSession && ModelBox is not null)
+            ModelBox.Text = entry?.DefaultModel ?? string.Empty;
+
         // Refresh the Start button - it is disabled when Custom CLI is chosen but
         // the Command box is empty (validated inside UpdateActionButton).
         UpdateActionButton();
@@ -677,6 +734,193 @@ public partial class NewSessionDialog : Window
     private void CustomCommandBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
         UpdateActionButton();
+    }
+
+    private void ModelBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        UpdateActionButton();
+    }
+
+    /// <summary>
+    /// Rebuild the compact "Named session" dropdown (issue #508): a leading "(none)" placeholder
+    /// plus one entry per LAUNCHABLE preset, in saved (name) order. Orphaned presets are
+    /// deliberately excluded - they appear only in the Manage dialog. The placeholder is selected,
+    /// so opening the dialog never auto-fills a preset.
+    /// </summary>
+    private void LoadNamedSessions()
+    {
+        FileLog.Write("[NewSessionDialog] LoadNamedSessions");
+
+        var knownAgentIds = AgentEntryStore.LoadEntries(CurrentOptions()).Select(en => en.Id);
+        var launchable = _namedSessionStore.LoadAllWithStatus(knownAgentIds)
+            .Where(s => s.IsLaunchable)
+            .Select(s => s.Preset)
+            .ToList();
+
+        _namedSessionItems.Clear();
+        _namedSessionItems.Add(new NamedSessionComboItem(null, "(none)"));
+        foreach (var preset in launchable)
+            _namedSessionItems.Add(new NamedSessionComboItem(preset, preset.Name));
+
+        _applyingNamedSession = true;
+        NamedSessionCombo.ItemsSource = _namedSessionItems;
+        NamedSessionCombo.SelectedIndex = 0;
+        _applyingNamedSession = false;
+
+        FileLog.Write($"[NewSessionDialog] LoadNamedSessions: {launchable.Count} launchable presets");
+    }
+
+    /// <summary>
+    /// Apply a chosen named-session preset to the existing fields (issue #508): set the repository,
+    /// select the matching agent radio, and set the model box. This fills the normal controls so
+    /// the user sees exactly what will launch; it does NOT start a session.
+    /// </summary>
+    private void NamedSessionCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingNamedSession)
+            return;
+
+        if (NamedSessionCombo.SelectedItem is not NamedSessionComboItem item || item.Preset is null)
+            return;
+
+        var preset = item.Preset;
+        FileLog.Write($"[NewSessionDialog] NamedSessionCombo_SelectionChanged: applying preset {preset.Name}");
+
+        _applyingNamedSession = true;
+        try
+        {
+            // Repository: set the path box and select the matching repo-list row when present.
+            PathInput.Text = preset.RepositoryPath;
+            SelectedPath = preset.RepositoryPath;
+            SelectedResumeSessionId = null;
+            RepoList.SelectedItem = _allRepos?.FirstOrDefault(
+                r => string.Equals(r.Path, preset.RepositoryPath, StringComparison.OrdinalIgnoreCase));
+
+            // Agent: select the radio whose entry id matches the saved preset.
+            SelectAgentById(preset.AgentId);
+
+            // Model: the preset's saved model wins over the agent default seeded above.
+            if (ModelBox is not null)
+                ModelBox.Text = preset.Model;
+        }
+        finally
+        {
+            _applyingNamedSession = false;
+        }
+
+        UpdateActionButton();
+    }
+
+    /// <summary>Select the agent radio whose entry id matches <paramref name="agentId"/> (issue #508).</summary>
+    private void SelectAgentById(string agentId)
+    {
+        var match = _agentOptions.FirstOrDefault(o => string.Equals(o.Entry.Id, agentId, StringComparison.Ordinal));
+        if (match is null)
+            return;
+
+        foreach (var option in _agentOptions)
+            option.IsSelected = ReferenceEquals(option, match);
+
+        // Rebind so the radio visuals reflect the new selection.
+        AgentEntryList.ItemsSource = null;
+        AgentEntryList.ItemsSource = _agentOptions;
+
+        ApplyAgentSelection();
+    }
+
+    /// <summary>The configured agents' id -> display name map, for the Manage dialog (issue #508).</summary>
+    private static IReadOnlyDictionary<string, string> AgentNameMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in AgentEntryStore.LoadEntries(CurrentOptions()))
+            map[entry.Id] = entry.DisplayName;
+        return map;
+    }
+
+    private async void BtnManageNamedSessions_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            FileLog.Write("[NewSessionDialog] BtnManageNamedSessions_Click");
+            var dialog = new ManageNamedSessionsDialog(_namedSessionStore, AgentNameMap());
+            var changed = await dialog.ShowDialog<bool?>(this);
+            if (changed == true)
+                LoadNamedSessions();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] BtnManageNamedSessions_Click FAILED: {ex.Message}");
+        }
+    }
+
+    private async void BtnSaveNamedSession_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var repoPath = PathInput.Text?.Trim();
+            var entry = SelectedAgentEntry;
+            var model = ModelBox?.Text?.Trim() ?? string.Empty;
+
+            // The button is only enabled when all three are present, but re-validate before writing.
+            if (string.IsNullOrWhiteSpace(repoPath) || entry is null || string.IsNullOrWhiteSpace(model))
+            {
+                FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: incomplete selection; aborting");
+                return;
+            }
+
+            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click: repo={repoPath}, agent={entry.Id}, model={model}");
+
+            var input = new Controls.InputDialog("Save named session", "Name this preset:", string.Empty);
+            if (await input.ShowDialog<bool?>(this) != true)
+                return;
+
+            var name = input.InputText.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            // Duplicate-name handling: overwrite after a confirm (issue #508 assumption).
+            var slug = NamedSessionStore.ToSlug(name);
+            if (_namedSessionStore.Exists(slug))
+            {
+                var overwrite = new ConfirmDialog(
+                    "Name in use",
+                    $"A named session called \"{name}\" already exists. Overwrite it?",
+                    "Overwrite");
+                if (await overwrite.ShowDialog<bool?>(this) != true)
+                    return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var existing = _namedSessionStore.Load(slug);
+            var preset = new NamedSessionDefinition
+            {
+                Version = 1,
+                Name = name,
+                RepositoryPath = repoPath,
+                AgentId = entry.Id,
+                Model = model,
+                CreatedAt = existing?.CreatedAt ?? now,
+                UpdatedAt = now
+            };
+
+            if (_namedSessionStore.Save(preset))
+            {
+                LoadNamedSessions();
+                // Reflect the just-saved preset as the current dropdown selection.
+                var saved = _namedSessionItems.FirstOrDefault(
+                    i => i.Preset is not null && NamedSessionStore.ToSlug(i.Preset.Name) == slug);
+                if (saved is not null)
+                {
+                    _applyingNamedSession = true;
+                    NamedSessionCombo.SelectedItem = saved;
+                    _applyingNamedSession = false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click FAILED: {ex.Message}");
+        }
     }
 
     private async Task LoadSessionHistoryAsync()
@@ -753,6 +997,10 @@ public partial class NewSessionDialog : Window
 
         BtnCopyHandover.IsVisible = MainTabs.SelectedIndex == 2 && HandoverList.SelectedItem != null;
 
+        // The "Save as named session..." button belongs only to the New Session tab (issue #508).
+        if (BtnSaveNamedSession is not null)
+            BtnSaveNamedSession.IsVisible = MainTabs.SelectedIndex == 0;
+
         if (MainTabs.SelectedIndex == 0)
         {
             // In Group mode the button reflects how many sessions get created (issue #259).
@@ -768,6 +1016,14 @@ public partial class NewSessionDialog : Window
             BtnAction.IsEnabled = isEnabled;
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
+
+            // Save-as-named-session (issue #508) is enabled only when a repository + agent + model
+            // are all selected, so it always writes a valid, complete preset.
+            if (BtnSaveNamedSession is not null)
+            {
+                var hasModel = !string.IsNullOrWhiteSpace(ModelBox?.Text);
+                BtnSaveNamedSession.IsEnabled = hasPath && hasAgent && hasModel;
+            }
         }
         else if (MainTabs.SelectedIndex == 1)
         {

@@ -60,6 +60,35 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Vertical">
+                    <!-- Named session row (issue #508): ONE compact row - a "Named session"
+                         dropdown (placeholder "(none)") plus a small "Manage..." button. This is
+                         the entire in-dialog footprint for named sessions; it does NOT crowd out
+                         the primary Agent/Model/repository/Start flow below. Selecting a preset
+                         fills the repository, agent, and model fields; it does NOT auto-launch. -->
+                    <StackPanel x:Name="NamedSessionRow" Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Named session:"
+                                   Foreground="#CCCCCC" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <ComboBox x:Name="NamedSessionCombo" Width="320"
+                                  Background="#1E1E1E" Foreground="#CCCCCC"
+                                  BorderBrush="#3C3C3C"
+                                  VerticalAlignment="Center"
+                                  SelectionChanged="NamedSessionCombo_SelectionChanged"
+                                  ToolTip.Tip="Pick a saved preset to fill the repository, agent, and model below">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" Foreground="#CCCCCC" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button x:Name="BtnManageNamedSessions" Content="Manage..."
+                                Width="90" Height="28" Margin="8,0,0,0"
+                                Click="BtnManageNamedSessions_Click"
+                                Background="#3C3C3C" Foreground="#CCCCCC"
+                                BorderThickness="0" Cursor="Hand"
+                                ToolTip.Tip="Rename, delete, or fix saved named sessions" />
+                    </StackPanel>
+
                     <!-- Create-mode toggle (issue #254): "Single session" (the Type dropdown
                          applies) vs "Group" (a preset that creates several tied, typed sessions
                          at once). Exactly one of the Type dropdown / Group panel is shown below,
@@ -116,6 +145,23 @@
                                    Foreground="#888888" FontSize="13" FontStyle="Italic"
                                    VerticalAlignment="Center"
                                    IsVisible="False" />
+                    </StackPanel>
+
+                    <!-- Model row (issue #508): a compact per-launch model field. Defaults to the
+                         selected agent's configured default model; a named-session preset fills it
+                         with its saved model. Empty means "use the agent's own default model". It
+                         is one of the three fields a named-session preset captures. -->
+                    <StackPanel x:Name="ModelRow" Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Model:"
+                                   Foreground="#CCCCCC" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <TextBox x:Name="ModelBox" Width="320"
+                                 Background="#1E1E1E" Foreground="#CCCCCC"
+                                 BorderBrush="#3C3C3C" Padding="6,4"
+                                 VerticalContentAlignment="Center"
+                                 TextChanged="ModelBox_TextChanged"
+                                 Watermark="Agent default model"
+                                 ToolTip.Tip="Model passed to the agent; leave blank for the agent's own default" />
                     </StackPanel>
 
                     <!-- Custom CLI panel (issue #333): shown only when "Custom CLI" agent is selected.
@@ -694,8 +740,18 @@
                     IsVisible="False"
                     ToolTip.Tip="Copy handover content to clipboard" />
 
-            <!-- Right: Action + Cancel -->
+            <!-- Right: Save preset + Action + Cancel -->
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <!-- Save as named session (issue #508): one small action next to Start. Enabled only
+                     when a repository + agent + model are all selected, so it always saves a valid,
+                     complete preset. Shown only on the New Session tab. -->
+                <Button x:Name="BtnSaveNamedSession" Content="Save as named session..." Width="190"
+                        Click="BtnSaveNamedSession_Click"
+                        BorderThickness="0" Margin="0,0,8,0"
+                        IsEnabled="False"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        Cursor="Hand"
+                        ToolTip.Tip="Save the current repository, agent, and model as a reusable named session" />
                 <Button x:Name="BtnAction" Content="Resume Selected" Width="120"
                         Click="BtnAction_Click"
                         BorderThickness="0" Margin="0,0,8,0"
