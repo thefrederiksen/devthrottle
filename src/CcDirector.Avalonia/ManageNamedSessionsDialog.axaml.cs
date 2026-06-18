@@ -98,14 +98,20 @@ public partial class ManageNamedSessionsDialog : Window
             var oldSlug = NamedSessionStore.ToSlug(row.Name);
 
             // Renaming to an existing different preset's slug would overwrite it; confirm first.
-            if (!string.Equals(newSlug, oldSlug, StringComparison.Ordinal) && _store.Exists(newSlug))
+            // Show the colliding preset's actual stored name, not the name just typed, because two
+            // different display names can collapse to the same slug.
+            if (!string.Equals(newSlug, oldSlug, StringComparison.Ordinal))
             {
-                var overwrite = new ConfirmDialog(
-                    "Name in use",
-                    $"A named session called \"{newName}\" already exists. Overwrite it?",
-                    "Overwrite");
-                if (await overwrite.ShowDialog<bool?>(this) != true)
-                    return;
+                var colliding = _store.Load(newSlug);
+                if (colliding is not null)
+                {
+                    var overwrite = new ConfirmDialog(
+                        "Name in use",
+                        $"A named session called \"{colliding.Name}\" already exists. Overwrite it?",
+                        "Overwrite");
+                    if (await overwrite.ShowDialog<bool?>(this) != true)
+                        return;
+                }
             }
 
             var preset = _store.Load(oldSlug);

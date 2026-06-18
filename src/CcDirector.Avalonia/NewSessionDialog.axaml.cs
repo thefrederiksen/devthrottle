@@ -843,8 +843,13 @@ public partial class NewSessionDialog : Window
         {
             FileLog.Write("[NewSessionDialog] BtnManageNamedSessions_Click");
             var dialog = new ManageNamedSessionsDialog(_namedSessionStore, AgentNameMap());
-            var changed = await dialog.ShowDialog<bool?>(this);
-            if (changed == true)
+            await dialog.ShowDialog<bool?>(this);
+
+            // Read the Changed flag off the dialog instance rather than the dialog result. Closing
+            // via the title-bar window X returns a null result, which would skip the refresh and
+            // leave the dropdown showing stale presets after a rename or delete. The flag is set
+            // however the change was made and survives any close path.
+            if (dialog.Changed)
                 LoadNamedSessions();
         }
         catch (Exception ex)
@@ -880,18 +885,21 @@ public partial class NewSessionDialog : Window
 
             // Duplicate-name handling: overwrite after a confirm (issue #508 assumption).
             var slug = NamedSessionStore.ToSlug(name);
-            if (_namedSessionStore.Exists(slug))
+            var existing = _namedSessionStore.Load(slug);
+            if (existing is not null)
             {
+                // Show the colliding preset's actual stored name, not the name just typed. Two
+                // different display names can collapse to the same slug, so the preset about to be
+                // overwritten may carry a different name than what the user typed.
                 var overwrite = new ConfirmDialog(
                     "Name in use",
-                    $"A named session called \"{name}\" already exists. Overwrite it?",
+                    $"A named session called \"{existing.Name}\" already exists. Overwrite it?",
                     "Overwrite");
                 if (await overwrite.ShowDialog<bool?>(this) != true)
                     return;
             }
 
             var now = DateTimeOffset.UtcNow;
-            var existing = _namedSessionStore.Load(slug);
             var preset = new NamedSessionDefinition
             {
                 Version = 1,
