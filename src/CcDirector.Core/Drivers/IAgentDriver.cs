@@ -54,6 +54,10 @@ public interface IAgentDriver
 
     DriverCapabilities Capabilities { get; }
 
+    /// <summary>Slash command metadata for the agent's own composer model. This is
+    /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
+    IReadOnlyList<AgentSlashCommand> SlashCommands { get; }
+
     /// <summary>Resolve the tool's executable: validate an explicit path, or search
     /// PATH. Throws with install guidance when not found - no silent fallback.</summary>
     string ResolveExecutable(string? configuredPath);

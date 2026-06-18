@@ -32,6 +32,8 @@ public sealed class PiDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel | DriverCapabilities.ClearContext;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => PiSlashCommands.All;
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             "[PiDriver] Executable resolution is owned by the Director's PiAgent path; " +

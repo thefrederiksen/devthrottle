@@ -475,6 +475,8 @@ internal sealed class FixtureAskDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.TranscriptRead | DriverCapabilities.PreassignedSessionId;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => [];
+
     public void SetReply(string agentSessionId, string replyText)
     {
         var list = _widgets.TryGetValue(agentSessionId, out var w) ? w : _widgets[agentSessionId] = new();

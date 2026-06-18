@@ -42,6 +42,8 @@ public sealed class CursorDriver : IAgentDriver
     /// </summary>
     public DriverCapabilities Capabilities => DriverCapabilities.Interrupt;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => [];
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             "[CursorDriver] Executable resolution is owned by the Director's CursorAgent path; " +
