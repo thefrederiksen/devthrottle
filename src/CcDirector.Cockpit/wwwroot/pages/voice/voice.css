@@ -16,6 +16,9 @@
   --badge-pending-line:#5a4a1f; --badge-uploading-line:#2a4170;
   --badge-uploaded-line:#1f5a37; --badge-failed-line:#5a2a2d;
   --badge-stale-line:#7a5a1f; --badge-stale-bg:#3a2f12;
+  /* Terminal view: kept dark in both themes so the read-only screen reads like a terminal
+     and its light text never collides with the page's theme ink. */
+  --term-bg:#05080f; --term-ink:#D6DEEC;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
@@ -185,5 +188,24 @@ button:disabled{opacity:.45;cursor:default}
     --badge-pending-line:#E2C98A; --badge-uploading-line:#A9C2F6;
     --badge-uploaded-line:#A6D7BB; --badge-failed-line:#E4B6B8;
     --badge-stale-line:#D9BE7F; --badge-stale-bg:#FBF1D6;
+    /* Terminal stays dark even in light mode (a dark terminal panel is the convention and
+       keeps the monospace screen high-contrast). */
+    --term-bg:#0E1424; --term-ink:#D6DEEC;
   }
 }
+
+/* Terminal view: a live, read-only look at the session's terminal, sized for a phone. The
+   <pre> is the scroll container (so "follow the bottom" can detect the user's scroll), and a
+   Wrap toggle switches between horizontal scroll (true terminal layout) and soft-wrapping. */
+.tm-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 2px 12px}
+.tm-toolbar .secondary{padding:10px 14px;font-size:14px}
+.tm-live.on{color:var(--green);border-color:var(--badge-uploaded-line)}
+.tm-toggle.on{color:var(--blue);border-color:var(--badge-uploading-line)}
+.tm-ctl{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}
+.tm-select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:9px 10px}
+.tm-screen{margin:0;background:var(--term-bg);border:1px solid var(--line);border-radius:14px;
+  padding:14px;color:var(--term-ink);font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:12px;line-height:1.4;white-space:pre;overflow:auto;
+  max-height:calc(100vh - 230px);-webkit-overflow-scrolling:touch}
+.tm-screen.wrap{white-space:pre-wrap;word-break:break-word}

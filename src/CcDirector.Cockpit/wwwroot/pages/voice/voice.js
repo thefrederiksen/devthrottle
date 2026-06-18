@@ -47,6 +47,7 @@
     $("session-view").classList.toggle("hidden", view !== "session");
     $("newsession-view").classList.toggle("hidden", view !== "newsession");
     $("wingman-view").classList.toggle("hidden", view !== "wingman");
+    $("terminal-view").classList.toggle("hidden", view !== "terminal");
   }
 
   async function api(path, opts) {
@@ -1148,6 +1149,85 @@
     wmAppend("wingman", "Escape sent to the session.", "explicit action");
   }
 
+  // ===== Terminal view (live, read-only screen) =====
+  // A phone-sized, auto-refreshing look at the session's terminal so you can see what the
+  // agent is doing without the desktop. READ-ONLY: it only polls GET /sessions/{id}/buffer
+  // (ANSI-stripped text) and never sends anything to the session. Polling stops the moment
+  // the view is left (or the tab is hidden) so a backgrounded screen does not keep hitting
+  // the Gateway.
+  var tmSession = null;     // the session the terminal is bound to (null when the view is closed)
+  var tmTimer = null;       // the auto-refresh interval handle
+  var tmLive = true;        // whether auto-refresh is on (the Live/Paused toggle)
+  var tmInFlight = false;   // guard so a slow fetch does not stack another on top of it
+  var TM_POLL_MS = 2000;
+
+  function openTerminal(s) {
+    tmSession = s;
+    $("tm-title").textContent = sessionTitle(s);
+    $("tm-screen").textContent = "";
+    $("tm-status").textContent = "Connecting...";
+    setTmLive(true);
+    show("terminal");
+    refreshTerminal();          // immediate first paint, do not wait for the first tick
+    startTerminalPolling();
+  }
+
+  function startTerminalPolling() {
+    stopTerminalPolling();
+    tmTimer = setInterval(function () {
+      // Skip while paused or while the tab is hidden (no point polling a screen nobody sees).
+      if (tmLive && !document.hidden) refreshTerminal();
+    }, TM_POLL_MS);
+  }
+
+  function stopTerminalPolling() {
+    if (tmTimer) { clearInterval(tmTimer); tmTimer = null; }
+  }
+
+  // Leaving the terminal view: stop polling and unbind the session so a late fetch is ignored.
+  function closeTerminal() {
+    stopTerminalPolling();
+    tmSession = null;
+  }
+
+  function setTmLive(on) {
+    tmLive = on;
+    var btn = $("tm-live-btn");
+    btn.textContent = on ? "Live" : "Paused";
+    btn.classList.toggle("on", on);
+  }
+
+  function tmLines() {
+    var v = parseInt($("tm-lines").value, 10);
+    return (isFinite(v) && v > 0) ? v : 200;
+  }
+
+  // Fetch the latest buffer and render it. Preserves the user's scroll position unless they
+  // are already pinned to the bottom (then it auto-follows new output), so scrolling back
+  // through scrollback to read is not yanked away on every 2-second refresh.
+  async function refreshTerminal() {
+    if (!tmSession || tmInFlight) return;
+    tmInFlight = true;
+    var sid = tmSession.sessionId;
+    try {
+      var r = await api("/sessions/" + sid + "/buffer?lines=" + tmLines());
+      if (!tmSession || tmSession.sessionId !== sid) return; // user switched away mid-flight
+      if (!r.ok || !r.data) {
+        $("tm-status").textContent = r.status === 401
+          ? "Not connected. Pair this phone with the Gateway first."
+          : "Could not read the terminal (" + r.status + ").";
+        return;
+      }
+      var pre = $("tm-screen");
+      var nearBottom = (pre.scrollHeight - pre.scrollTop - pre.clientHeight) < 40;
+      pre.textContent = (r.data.text || "").replace(/\s+$/, "") || "(terminal is empty)";
+      if (nearBottom) pre.scrollTop = pre.scrollHeight;
+      $("tm-status").textContent = tmLive ? "Live - updates every 2s" : "Paused";
+    } finally {
+      tmInFlight = false;
+    }
+  }
+
   // ===== util =====
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -1174,6 +1254,18 @@
   $("back-btn").addEventListener("click", function () { show("list"); loadSessions(); });
   $("speak-btn").addEventListener("click", function () { toggleSpeak(); });
   $("play-btn").addEventListener("click", playReply);
+
+  // Terminal view (live read-only screen). Opening it binds to the open session; Back returns
+  // to that session view and stops the polling.
+  $("terminal-btn").addEventListener("click", function () { if (current) openTerminal(current); });
+  $("tm-back-btn").addEventListener("click", function () { closeTerminal(); show("session"); });
+  $("tm-live-btn").addEventListener("click", function () { setTmLive(!tmLive); if (tmLive) refreshTerminal(); });
+  $("tm-refresh-btn").addEventListener("click", function () { refreshTerminal(); });
+  $("tm-lines").addEventListener("change", function () { refreshTerminal(); });
+  $("tm-wrap-btn").addEventListener("click", function () {
+    var wrapped = $("tm-screen").classList.toggle("wrap");
+    $("tm-wrap-btn").classList.toggle("on", wrapped);
+  });
 
   // Wingman Chat (issue #424)
   $("wingman-btn").addEventListener("click", function () { if (current) openWingman(current); });

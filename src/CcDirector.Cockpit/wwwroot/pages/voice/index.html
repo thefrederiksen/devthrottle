@@ -49,6 +49,7 @@
     </div>
 
     <div class="controls-row">
+      <button id="terminal-btn" class="secondary">Watch terminal</button>
       <button id="wingman-btn" class="secondary">Talk to Wingman</button>
     </div>
 
@@ -117,6 +118,33 @@
         <button id="wm-escape-btn" class="danger">Escape</button>
       </div>
     </div>
+  </section>
+
+  <!-- Terminal view: a live, auto-refreshing, read-only look at the session's terminal so
+       you can see what the agent is doing from a phone. It ONLY polls
+       GET /sessions/{id}/buffer (ANSI-stripped text) and NEVER sends anything to the
+       session - to act on the session, use the Wingman screen's explicit actions. -->
+  <section id="terminal-view" class="view hidden">
+    <header class="bar">
+      <button id="tm-back-btn" class="ghost">&larr; Back</button>
+      <h1 id="tm-title" class="session-name">Terminal</h1>
+    </header>
+
+    <div class="tm-toolbar">
+      <button id="tm-live-btn" class="secondary tm-live">Live</button>
+      <button id="tm-refresh-btn" class="secondary">Refresh</button>
+      <label class="tm-ctl">Lines
+        <select id="tm-lines" class="tm-select">
+          <option value="80">80</option>
+          <option value="200" selected>200</option>
+          <option value="500">500</option>
+        </select>
+      </label>
+      <button id="tm-wrap-btn" class="secondary tm-toggle">Wrap</button>
+    </div>
+
+    <p id="tm-status" class="status-line">Connecting...</p>
+    <pre id="tm-screen" class="tm-screen" aria-live="polite"></pre>
   </section>
 
   <!-- The Gateway token is injected server-side by the /voice route (same box reads
