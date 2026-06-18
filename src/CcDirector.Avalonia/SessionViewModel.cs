@@ -245,24 +245,37 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
     private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
     private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
+    private static readonly ISolidColorBrush CursorAgentBrush = new SolidColorBrush(Color.FromRgb(0x06, 0xB6, 0xD4));  // cyan - distinct from Claude blue / Pi violet / RawCli slate, readable on the dark rail
     private static readonly ISolidColorBrush RawCliAgentBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));  // slate gray - neutral, not tied to any brand
 
-    public string AgentLabel => Session.AgentKind switch
+    public string AgentLabel => LabelFor(Session.AgentKind);
+
+    public ISolidColorBrush AgentBadgeBrush => BadgeBrushFor(Session.AgentKind);
+
+    /// <summary>Pure agent-kind -> rail label mapping. Every provider has its own arm; the
+    /// default is Claude Code (kind 0). Static so it can be unit-tested without a live
+    /// <see cref="Session"/> (issue #517 regression: Cursor must not fall through to "Claude Code").</summary>
+    public static string LabelFor(AgentKind kind) => kind switch
     {
         AgentKind.Pi => "Pi",
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
         AgentKind.OpenCode => "OpenCode",
+        AgentKind.Cursor => "Cursor",
         AgentKind.RawCli => "Custom CLI",
         _ => "Claude Code"
     };
 
-    public ISolidColorBrush AgentBadgeBrush => Session.AgentKind switch
+    /// <summary>Pure agent-kind -> rail badge brush mapping. Each provider uses its own brand
+    /// hue; the default is the Claude blue (kind 0). Static for the same reason as
+    /// <see cref="LabelFor"/> (issue #517).</summary>
+    public static ISolidColorBrush BadgeBrushFor(AgentKind kind) => kind switch
     {
         AgentKind.Pi => PiAgentBrush,
         AgentKind.Codex => CodexAgentBrush,
         AgentKind.Gemini => GeminiAgentBrush,
         AgentKind.OpenCode => OpenCodeAgentBrush,
+        AgentKind.Cursor => CursorAgentBrush,
         AgentKind.RawCli => RawCliAgentBrush,
         _ => ClaudeAgentBrush
     };
