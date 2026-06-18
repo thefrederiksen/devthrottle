@@ -4051,13 +4051,7 @@ public partial class MainWindow : Window
 
         var repoPath = _activeSession?.Session.RepoPath;
         var agentKind = _activeSession?.Session.AgentKind ?? AgentKind.ClaudeCode;
-        var allCommands = _slashCommandProvider.GetCommands(agentKind, repoPath);
-
-        // Exclude Claude interactive terminal commands from PromptInput autocomplete -- they do not work here.
-        // Users who know these commands can use them in the Terminal tab directly.
-        var available = agentKind == AgentKind.ClaudeCode
-            ? allCommands.Where(c => !InteractiveTuiCommands.Contains(c.Name)).ToList()
-            : allCommands;
+        var available = _slashCommandProvider.GetCommands(agentKind, repoPath);
 
         _filteredSlashCommands = string.IsNullOrEmpty(filter)
             ? available

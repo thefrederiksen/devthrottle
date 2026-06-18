@@ -13,7 +13,6 @@ public sealed class SlashCommandItem
     public string Documentation { get; } // Body content from skill file, when available.
     public string Category { get; } // For built-in commands: "Session", "Config", "Navigation", etc.
     public AgentKind? DriverKind { get; }
-    public bool IsSafeFromComposer { get; }
     public bool IsTerminalOnly { get; }
 
     public SlashCommandItem(
@@ -23,7 +22,6 @@ public sealed class SlashCommandItem
         string documentation,
         string category = "",
         AgentKind? driverKind = null,
-        bool isSafeFromComposer = true,
         bool isTerminalOnly = false)
     {
         Name = name;
@@ -32,7 +30,6 @@ public sealed class SlashCommandItem
         Documentation = documentation;
         Category = category;
         DriverKind = driverKind;
-        IsSafeFromComposer = isSafeFromComposer;
         IsTerminalOnly = isTerminalOnly;
     }
 

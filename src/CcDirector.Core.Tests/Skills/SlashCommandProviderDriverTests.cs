@@ -44,13 +44,62 @@ public sealed class SlashCommandProviderDriverTests : IDisposable
     }
 
     [Fact]
-    public void GetCommands_GenericSession_ReturnsNoBuiltInCommands()
+    public void GetCommands_RawCustomSession_ReturnsNoBuiltInCommands()
     {
         var provider = new SlashCommandProvider();
 
-        var commands = provider.GetCommands(AgentKind.Codex, _repoPath);
+        var commands = provider.GetCommands(AgentKind.RawCli, _repoPath);
 
         Assert.Empty(commands);
+    }
+
+    [Theory]
+    [InlineData(AgentKind.Codex, "model")]
+    [InlineData(AgentKind.Gemini, "theme")]
+    [InlineData(AgentKind.OpenCode, "models")]
+    [InlineData(AgentKind.Cursor, "model")]
+    public void GetCommands_NonClaudeDriverSession_ReturnsOwnCommandCatalog(AgentKind agentKind, string expectedCommand)
+    {
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetCommands(agentKind, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("help", names);
+        Assert.Contains(expectedCommand, names);
+        Assert.DoesNotContain("output-style", names);
+        Assert.DoesNotContain("scoped-models", names);
+    }
+
+    [Fact]
+    public void GetCommands_ClaudeSession_IncludesInteractiveCommandsInComposerList()
+    {
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetCommands(AgentKind.ClaudeCode, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("clear", names);
+        Assert.Contains("compact", names);
+        Assert.Contains("permissions", names);
+        Assert.Contains("model", names);
+        Assert.Contains("theme", names);
+        Assert.Contains("resume", names);
+    }
+
+    [Fact]
+    public void GetCommands_PiSession_IncludesInteractiveCommandsInComposerList()
+    {
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetCommands(AgentKind.Pi, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("new", names);
+        Assert.Contains("export", names);
+        Assert.Contains("settings", names);
+        Assert.Contains("model", names);
+        Assert.Contains("scoped-models", names);
     }
 
     [Fact]

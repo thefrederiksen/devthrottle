@@ -116,7 +116,6 @@ public sealed class SlashCommandProvider
                 command.Documentation,
                 command.Category,
                 command.DriverKind,
-                command.IsSafeFromComposer,
                 command.IsTerminalOnly);
         }
     }
