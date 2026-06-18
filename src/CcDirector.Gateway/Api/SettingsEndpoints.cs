@@ -285,6 +285,15 @@ internal static class SettingsEndpoints
                 ? idNode.GetValue<string>()
                 : null;
 
+        // Issue #510 (QA bounce, criterion 3): the Model field must round-trip across a page reload
+        // exactly as the agent does. We surface the SAVED model (config.json "brain_model" via
+        // BrainModelConfig.Get) - the same value the PUT writes - NOT host.BrainModel (the running
+        // brain's model, fixed at host construction). Sourcing the GET from the running brain meant a
+        // freshly-saved model was persisted to disk yet never shown back on reload. The saved value is
+        // what the user chose; the running brain still picks it up on the next Gateway restart (the
+        // documented "applies on next restart" contract for the live process is unchanged).
+        var savedModel = Core.Configuration.BrainModelConfig.Get();
+
         return new
         {
             tool = host.BrainTool.ToString(),
@@ -292,7 +301,7 @@ internal static class SettingsEndpoints
             // run as any of them (the driver-level hostability work landed in issue #509).
             agents = agents.Select(a => new { id = a.Id, displayName = a.DisplayName, type = a.Type.ToString() }).ToArray(),
             agentId = savedAgentId,
-            model = host.BrainModel,
+            model = savedModel,
             sessionId = brain.SessionId,
             pid = brain.ProcessId,
             alive = health.IsAlive,

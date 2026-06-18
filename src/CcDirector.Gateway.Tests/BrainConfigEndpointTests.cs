@@ -108,13 +108,17 @@ public sealed class BrainConfigEndpointTests : IAsyncLifetime
         Assert.Equal(agentType, (string?)onDisk["brain_tool"]);
         Assert.Equal("sonnet", (string?)onDisk["brain_model"]);
 
-        // The GET reflects the saved agent id so the Cockpit picker pre-selects it after a page
-        // reload (the issue #510 acceptance criterion). The running brain's model stays the value
-        // fixed at host construction (the documented "applies on next restart" contract).
+        // The GET reflects BOTH the saved agent id AND the saved model so the Cockpit picker
+        // pre-selects the agent and the Model field shows the saved value after a page reload (the
+        // issue #510 acceptance criterion 3). The GET sources the model from the saved config.json
+        // "brain_model" (BrainModelConfig.Get), NOT the running brain's model: a freshly-saved model
+        // must round-trip on reload even though the live brain only adopts it on the next Gateway
+        // restart. (This is the QA-bounce regression: the prior code returned the running brain's
+        // model here, so the saved value never came back.)
         var obj = await _http.GetFromJsonAsync<JsonObject>("gateway/settings");
         var brain = obj!["brain"] as JsonObject;
         Assert.Equal(agentId, (string?)brain!["agentId"]);
-        Assert.Equal(BrainModelConfig.Default, (string?)brain["model"]);
+        Assert.Equal("sonnet", (string?)brain["model"]);
     }
 
     [Fact]
