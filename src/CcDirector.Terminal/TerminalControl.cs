@@ -582,10 +582,10 @@ public class TerminalControl : FrameworkElement
                 return;
             }
 
-            // Ctrl+Shift+V = paste clipboard as slow keystrokes
-            if (ctrl && shift && e.Key == Key.V)
+            // Ctrl+V / Ctrl+Shift+V = paste clipboard as slow keystrokes
+            if (ctrl && e.Key == Key.V)
             {
-                FileLog.Write("[TerminalControl] Ctrl+Shift+V detected, pasting to terminal");
+                FileLog.Write($"[TerminalControl] {(shift ? "Ctrl+Shift+V" : "Ctrl+V")} detected, pasting to terminal");
                 _ = PasteToTerminalAsync();
                 e.Handled = true;
                 return;
@@ -623,29 +623,11 @@ public class TerminalControl : FrameworkElement
                 return;
             }
 
-            // Right-click without selection: show context menu with Paste option
-            if (_session != null && Clipboard.ContainsText())
+            // Right-click without selection: always show paste affordance for terminal input.
+            if (_session != null)
             {
                 var menu = new ContextMenu();
-                var pasteItem = new MenuItem
-                {
-                    Header = "Paste to Terminal",
-                    IsEnabled = !_isPasting,
-                };
-                pasteItem.Click += (_, _) => _ = PasteToTerminalAsync();
-                menu.Items.Add(pasteItem);
-
-                if (_isPasting)
-                {
-                    var cancelItem = new MenuItem { Header = "Cancel Paste" };
-                    cancelItem.Click += (_, _) =>
-                    {
-                        FileLog.Write("[TerminalControl] Paste cancelled by user");
-                        _isPasting = false;
-                    };
-                    menu.Items.Add(cancelItem);
-                }
-
+                AddPasteItems(menu, ClipboardContainsTextSafe());
                 menu.PlacementTarget = this;
                 menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                 menu.IsOpen = true;
@@ -655,6 +637,41 @@ public class TerminalControl : FrameworkElement
         catch (Exception ex)
         {
             FileLog.Write($"[TerminalControl] OnMouseRightButtonUp FAILED: {ex.Message}");
+        }
+    }
+
+    private bool ClipboardContainsTextSafe()
+    {
+        try
+        {
+            return Clipboard.ContainsText();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalControl] ClipboardContainsTextSafe failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void AddPasteItems(ContextMenu menu, bool hasClipboardText = true)
+    {
+        var pasteItem = new MenuItem
+        {
+            Header = "Paste to Terminal",
+            IsEnabled = _session != null && !_isPasting && hasClipboardText,
+        };
+        pasteItem.Click += (_, _) => _ = PasteToTerminalAsync();
+        menu.Items.Add(pasteItem);
+
+        if (_isPasting)
+        {
+            var cancelItem = new MenuItem { Header = "Cancel Paste" };
+            cancelItem.Click += (_, _) =>
+            {
+                FileLog.Write("[TerminalControl] Paste cancelled by user");
+                _isPasting = false;
+            };
+            menu.Items.Add(cancelItem);
         }
     }
 
@@ -1062,6 +1079,12 @@ public class TerminalControl : FrameworkElement
             var browserItem = new MenuItem { Header = "Open in Browser" };
             browserItem.Click += (_, _) => OpenInBrowser();
             _linkContextMenu.Items.Add(browserItem);
+        }
+
+        if (_session != null)
+        {
+            _linkContextMenu.Items.Add(new Separator());
+            AddPasteItems(_linkContextMenu);
         }
 
         _linkContextMenu.PlacementTarget = this;
