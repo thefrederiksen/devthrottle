@@ -30,7 +30,11 @@ body{background:var(--bg);color:var(--text);
 .scard:active{background:var(--panel2)}
 .scard .dot{flex:0 0 auto}
 .scard-main{min-width:0}
-.scard-name{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard-name{font-size:16px;font-weight:600;display:flex;align-items:center;gap:6px;min-width:0}
+.scard-name-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* In-voice-mode ear (#554): a small vector ear before the name on voice-driven rows;
+   accent-tinted, never shrinks so the name ellipsizes around it. */
+.scard-name .ear-icon{width:16px;height:16px;flex:0 0 auto;color:var(--accent)}
 .scard-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .scard-chev{color:var(--muted);font-size:20px;flex:0 0 auto}
 .scard-play{flex:0 0 auto;width:48px;height:48px;border-radius:50%;border:none;cursor:pointer;
