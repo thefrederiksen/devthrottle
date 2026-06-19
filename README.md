@@ -4,62 +4,49 @@
 
 # DevThrottle
 
-A desktop application for managing multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions simultaneously. Run, monitor, and switch between independent Claude Code instances -- each working on its own repository -- from a single unified interface.
+Mission control for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Run, watch, and switch between many Claude Code sessions at once -- each working on its own repository -- from one desktop app, with an embedded terminal, a live git view, voice control, and 35+ bundled `cc-*` command-line tools.
 
-> **Platform:** Runs on **Windows 10/11** and **macOS (Apple Silicon)**. Both have shipping builds; Windows is currently the most complete experience.
+![DevThrottle](images/cc-director-main.png)
+
+> **Platform:** Windows 10/11 and macOS (Apple Silicon). Windows is the most complete experience.
 
 ## Install
 
-**[Download the latest release](https://github.com/thefrederiksen/devthrottle/releases/latest)** -- this link always points to the newest version, all platforms, all assets.
+**[Download the latest release](https://github.com/thefrederiksen/devthrottle/releases/latest)** -- always the newest version, all platforms.
 
 ### Windows
 
 [![Download DevThrottle Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-win-x64.exe)
 
-1. Download **[devthrottle-setup-win-x64.exe](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-win-x64.exe)**.
-2. Double-click it. The wizard is self-contained -- it runs even with no .NET installed. If SmartScreen appears, click **More info** -> **Run anyway** (the exe is not code-signed yet).
-3. Follow the wizard. It checks prerequisites (and can auto-install the **.NET 10 runtime** for you via winget), then installs the Director app, 35+ `cc-*` CLI tools, and 14 Claude Code skills. Everything goes to user-writable locations -- **no admin needed**.
+1. Download **[devthrottle-setup-win-x64.exe](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-win-x64.exe)** and run it. If SmartScreen appears, click **More info -> Run anyway** (the exe is not code-signed yet).
+2. The wizard checks prerequisites (and can auto-install the **.NET 10 runtime**), then installs the Director app, the `cc-*` CLI tools, and the Claude Code skills -- all to user-writable locations, **no admin needed**.
 
 ### macOS (Apple Silicon)
 
 [![Download DevThrottle Setup for macOS](https://img.shields.io/badge/Download-Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-mac-arm64.zip)
 
-1. Download **[devthrottle-setup-mac-arm64.zip](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-mac-arm64.zip)** and unzip it.
-2. Right-click **DevThrottle Setup.app** -> **Open** (the app is not code-signed, so a plain double-click is blocked by Gatekeeper).
-3. Follow the wizard. It installs the Director to `~/Applications`, every `cc-*` tool into one shared Python environment, and links them into `~/.local/bin` (added to your shell `PATH`). **No sudo needed.**
+1. Download and unzip **[devthrottle-setup-mac-arm64.zip](https://github.com/thefrederiksen/devthrottle/releases/latest/download/devthrottle-setup-mac-arm64.zip)**, then right-click **DevThrottle Setup.app -> Open** (not code-signed, so a plain double-click is blocked by Gatekeeper).
+2. The wizard installs the Director to `~/Applications` and the `cc-*` tools into `~/.local/bin`. **No sudo needed.**
 
 ### Prerequisite: Claude Code
 
-DevThrottle manages [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions, so you need a **paid Claude plan** (Pro, Max, Team, or Enterprise -- the free Claude.ai plan does **not** include Claude Code) and Claude Code installed. Use Anthropic's official **native installer** (no Node.js; **do not use `npm`** -- it's the usual cause of "`claude` command not found" and PATH problems), then run `claude` once to sign in:
+DevThrottle drives [Claude Code](https://docs.anthropic.com/en/docs/claude-code), so you need a **paid Claude plan** (Pro, Max, Team, or Enterprise) and Claude Code installed. Use Anthropic's official **native installer** -- not `npm`, which is the usual cause of "`claude` command not found":
 
 - **Windows (PowerShell):** `irm https://claude.ai/install.ps1 | iex`
 - **macOS / Linux:** `curl -fsSL https://claude.ai/install.sh | bash`
 
-More options and troubleshooting: [Anthropic's setup guide](https://code.claude.com/docs/en/setup).
+Then run `claude` once to sign in. Full prerequisites and troubleshooting are in the **[installation guide](docs/public/getting-started/02-installation.md)**.
 
 <details>
-<summary><b>What the DevThrottle setup wizard looks like</b></summary>
+<summary><b>Other ways to install (setup wizard screenshots, one Claude Code prompt, direct download)</b></summary>
 
-**Welcome -- choose your install type.** **Workstation** installs the DevThrottle app plus all `cc-*` CLI tools (per-user, no administrator rights); **Gateway** adds the Gateway tray app (starts at logon) and the Cockpit web UI on top.
+**What the setup wizard looks like.** **Workstation** installs the app plus all `cc-*` tools (per-user, no admin); **Gateway** adds the Gateway tray app and the Cockpit web UI on top.
 
 ![DevThrottle Setup - Welcome](images/setup-1-welcome.png)
-
-**Prerequisites check.** DevThrottle verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
-
 ![DevThrottle Setup - Prerequisites](images/setup-2-prerequisites.png)
-
-**Install tools and skills.** DevThrottle installs 15+ `cc-*` CLI tools and the Claude Code skills, all placed on your PATH.
-
 ![DevThrottle Setup - Install](images/setup-3-update.png)
 
-</details>
-
-<details>
-<summary><b>Alternative install: paste one prompt into Claude Code (no wizard)</b></summary>
-
-DevThrottle can also install itself **through Claude Code**: paste a single prompt that downloads and installs DevThrottle for you. Works on **Windows** and **macOS (Apple Silicon)**, no admin needed. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
-
-Open Claude Code in any folder and paste the prompt below. It detects your OS, finds the latest release, verifies the download against the release manifest (SHA-256), and installs DevThrottle to a **user-writable** location -- so it needs no admin/sudo and the built-in auto-updater can later replace it in place.
+**Install through Claude Code (no wizard).** Paste a single prompt into Claude Code in any folder; it detects your OS, finds the latest release, verifies the download against the release manifest (SHA-256), and installs DevThrottle to a user-writable location -- no admin/sudo. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
 
 ```text
 Install the latest release of DevThrottle on THIS machine. You are doing the install yourself -
@@ -97,211 +84,58 @@ TARGET: ~/Applications/CC Director.app  (user-writable, NOT /Applications -> aut
    It's now in Launchpad/Spotlight. OPTIONAL: add to the Dock; OPTIONAL autostart via Login Items.
 
 == BOTH ==
-6. Launch it once and confirm the running version matches the release tag (check the newest log under
-   %LOCALAPPDATA%\cc-director\logs\director\ on Windows, or the app's log dir on macOS).
+6. Launch it once and confirm the running version matches the release tag.
 7. Report: release tag installed, install path, the SHA you verified, and the shortcut/Dock entry.
-   Note the runtime prerequisites if not set up: on Windows the .NET 10 runtime must be installed
-   (the setup wizard can install it automatically; or get it from
-   https://dotnet.microsoft.com/download/dotnet/10.0), a Claude subscription (for Claude Code), and an
-   OpenAI API key (audio/transcription/TTS) in the cc-director config dir
-   (%LOCALAPPDATA%\cc-director\config\credentials.env on Windows; the equivalent config dir on macOS).
 
 DO NOT: use Program Files or /Applications, require admin/sudo, build from source, or skip SHA verification.
 ```
 
-Full reference, including why the prompt installs where it does: [docs/install/install-prompt.md](docs/install/install-prompt.md).
+The one-prompt install covers the Director app; the `cc-*` tools and skills come with the setup wizard above. Full reference: [docs/install/install-prompt.md](docs/install/install-prompt.md).
 
-Note: the one-prompt install covers the Director app itself; the `cc-*` CLI tools and skills come with the setup wizard above.
-
-</details>
-
-<details>
-<summary><b>Alternative: direct download (skip the prompt and the wizard)</b></summary>
-
-Grab the app directly from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest):
-
-| Platform | Download | Notes |
-|----------|----------|-------|
-| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/devthrottle/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
-| macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/devthrottle/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
-
-This installs the Director app only. The `cc-*` CLI tools and skills come with the **setup wizard** (see [Install](#install) above).
+**Direct download.** Grab the app binary straight from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest) (`cc-director-win-x64.exe` or `cc-director-mac-arm64.zip`). This installs the Director only -- the `cc-*` tools come with the wizard.
 
 </details>
 
 ## Getting Started
 
-### Start your first session
+Launch DevThrottle, point it at a repository, and create a session. Each session is a real Claude Code instance running in an embedded console -- anything Claude Code can do, it does here. From the one window you switch between sessions in the sidebar, watch each one's live status, review its git changes, and answer it by voice when you step away from the keyboard.
 
-Launch DevThrottle, point it at a repository, and create a session. That session is a real Claude Code instance running in an embedded console -- anything Claude Code can do, it does here.
+New here? Walk through the **[Quick Start](docs/public/getting-started/03-quick-start.md)**.
 
-![DevThrottle](images/cc-director-main.png)
+Voice mode and the media tools (`cc-voice`, `cc-whisper`, `cc-transcribe`, `cc-image`) call OpenAI, so they need an OpenAI API key. They are **optional** -- add the key only when you want those features.
 
-### Optional: voice and image features
+## Documentation
 
-Voice mode and the media tools (`cc-voice`, `cc-whisper`, `cc-transcribe`, `cc-image`) call OpenAI, so they need an OpenAI API key. They are **not** required to run DevThrottle -- add the key only when you want those features (see the [installation guide](docs/public/getting-started/02-installation.md)).
+The full documentation lives in [`docs/public/`](docs/public/):
 
-## Why DevThrottle
+| Guide | What's in it |
+|-------|--------------|
+| [Introduction](docs/public/getting-started/01-introduction.md) | What DevThrottle is and how the pieces fit |
+| [Installation](docs/public/getting-started/02-installation.md) | Full install, prerequisites, troubleshooting |
+| [Quick Start](docs/public/getting-started/03-quick-start.md) | Your first session and first conversions |
+| [Features](docs/public/features/01-overview.md) | Every screen, with screenshots |
+| [Tools](docs/public/tools/01-overview.md) | The 35+ bundled `cc-*` command-line tools |
+| [Control API](docs/public/api/01-control-api.md) | Drive a running Director over its REST interface |
 
-I built DevThrottle because I was running 5+ Claude Code sessions at once and nothing fit. Terminal programs were missing features I needed -- file browsing, GitHub integration, easy screenshot handling. VS Code had too many things I didn't want getting in the way. So I built my own Claude Code session manager. I use it every day as my primary development environment. It ships with 35+ purpose-built CLI tools and 14 Claude Code skills that handle everything from document generation to browser automation to email management.
-
-![DevThrottle - Multiple sessions with workflow recording](images/cc-director-workflow.png)
-
-## Features
-
-### Multi-Session Management
-- Run multiple Claude Code sessions side-by-side, each in its own embedded console
-- Switch between sessions instantly from the sidebar
-- Drag-and-drop to reorder sessions
-- Name and color-code sessions for easy identification
-- Right-click context menu: Rename, Open in Explorer, Open in VS Code, Close
-
-### Embedded Console
-- Claude Code runs in a native Windows console window overlaid directly onto the Avalonia application
-- Full interactive terminal — no emulation, no limitations
-- Send prompts from a dedicated input bar at the bottom (Ctrl+Enter to submit)
-
-### Real-Time Activity Tracking
-- Monitors each session's state in real-time: **Idle**, **Working**, **Waiting for Input**, **Waiting for Permission**, **Exited**
-- Color-coded status indicators on each session in the sidebar
-- Powered by Claude Code's hook system — every tool call, prompt, and notification is captured
-
-### Session Persistence
-- Sessions survive app restarts — DevThrottle reconnects to running Claude processes on launch
-- "Reconnect" button scans for orphaned `claude.exe` processes and reclaims them
-- Recent sessions are remembered with their custom names and colors
-
-### Git Integration
-- **Source Control tab** shows staged and unstaged changes for the active session's repository
-- File tree with status indicators (Modified, Added, Deleted, Renamed, etc.)
-- Current branch display with ahead/behind sync status
-- Click a file to open it in VS Code
-
-### Repository Management
-- **Repositories tab** for registering, cloning, and initializing Git repositories
-- Clone from URL or browse your GitHub repos
-- Quick-launch a new session from any registered repository
-
-### Hook Integration
-- Automatically installs hooks into Claude Code's `~/.claude/settings.json`
-- Captures 14 hook event types: session start/end, tool use, notifications, subagent activity, task completion, and more
-- Named pipe IPC (`CC_ClaudeDirector`) for fast, async event delivery
-- Optional pipe message log panel (toggle from sidebar) for debugging and observability
-
-### Logging & Diagnostics
-- File logging to `%LOCALAPPDATA%\cc-director\logs\director\`
-- "Open Logs" button in the sidebar for quick access
-
-## Bundled CLI Tools
-
-DevThrottle ships with 35+ command-line tools that are installed on your PATH and available from any terminal or Claude Code session. Every tool follows the `cc-*` naming convention.
-
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Documents** | `cc-pdf`, `cc-html`, `cc-word`, `cc-excel`, `cc-powerpoint` | Convert Markdown to PDF, HTML, Word, Excel, and PowerPoint with 7 built-in themes |
-| **Email** | `cc-gmail`, `cc-outlook` | Read, search, and manage Gmail and Outlook (calendar, attachments, labels) |
-| **Browser** | `cc-browser` | Persistent browser automation with named workspaces and connection management |
-| **Social** | `cc-reddit`, `cc-spotify` | Reddit automation with human-like delays, Spotify playback control |
-| **Web** | `cc-crawl4ai`, `cc-websiteaudit`, `cc-brandingrecommendations` | AI-ready web crawling, SEO/security audits, branding action plans |
-| **Desktop** | `cc-click`, `cc-trisight`, `cc-computer` | Windows UI automation, 3-tier element detection (UIA + OCR + pixel), AI desktop agent |
-| **Media** | `cc-image`, `cc-voice`, `cc-whisper`, `cc-video`, `cc-transcribe`, `cc-photos` | Image generation/OCR, text-to-speech, transcription, video processing, photo organization |
-| **Data** | `cc-vault`, `cc-youtube-info`, `cc-personresearch`, `cc-docgen` | Personal vault (contacts/tasks/goals), YouTube transcripts, person research, C4 diagrams |
-| **System** | `cc-hardware`, `cc-comm-queue`, `cc-director-setup` | Hardware info, communication approval queue, installer/updater |
-
-All tools work standalone from the command line and are also designed to be called by Claude Code during sessions.
-
-## Architecture
-
-The main app is an Avalonia desktop application (`src/CcDirector.Avalonia`) backed by a cross-platform core (`src/CcDirector.Core`), a Gateway HTTP API, and an embedded terminal stack. The full solution lives in `cc-director.sln`.
-
-**How it works:**
-
-1. DevThrottle spawns Claude Code with a pseudo-terminal (ConPTY on Windows, PTY on Mac/Linux)
-2. A relay script is installed as a Claude Code hook — it forwards hook events (JSON) over IPC
-3. An IPC server inside DevThrottle receives events, routes them to the correct session, and updates the activity state
-4. The UI reflects state changes in real-time via data binding
-
-```
-                          Windows                              Mac/Linux
-                          -------                              ---------
-Claude Code ──hook──▶ PowerShell relay               Python relay script
-                            │                                   │
-                      Named pipe                         Unix domain socket
-                      (CC_ClaudeDirector)              (~/.cc_director/director.sock)
-                            │                                   │
-                            └──────────────┬────────────────────┘
-                                           ▼
-                                     DevThrottle
-                                           │
-                               ┌───────────┴───────────┐
-                           EventRouter          Session UI
-                         (maps session_id)    (activity colors,
-                                                status badges)
-```
-
-## Requirements
-
-- **Windows 10/11** or **macOS (Apple Silicon)**
-- A paid Claude plan and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and on PATH
-- .NET 10 SDK (only needed if building from source; the pre-built downloads are self-contained)
-- **Windows only:** Windows Console Host as the default terminal (not Windows Terminal — a warning dialog will guide you if needed)
-
-## Building
+## Build from source
 
 ```bash
-dotnet build src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
-```
-
-## Running
-
-```bash
+dotnet build cc-director.sln
 dotnet run --project src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
-```
-
-Or open `cc-director.sln` in Visual Studio and run the `CcDirector.Avalonia` project.
-
-## Running Tests
-
-```bash
 dotnet test cc-director.sln
 ```
 
-## Configuration
+Requires the **.NET 10 SDK**. On Windows, set the default terminal to the **Windows Console Host** (not Windows Terminal); a warning dialog guides you if needed. App data lives under `%LOCALAPPDATA%\cc-director\` (override with `CC_DIRECTOR_ROOT`).
 
-The Avalonia app loads `appsettings.json` from the same directory as the executable. The setup wizard writes a working default; the most useful settings are:
+## Why DevThrottle
 
-- **Agent.ClaudePath** — path to the `claude` executable (default: `"claude"`)
-- **Agent.DefaultClaudeArgs** — CLI arguments passed to each session (default: `"--dangerously-skip-permissions"`)
-
-Session state, logs, vault data, and tool config live under `%LOCALAPPDATA%\cc-director\` (override with the `CC_DIRECTOR_ROOT` environment variable).
-
-## Platform Support
-
-DevThrottle ships builds for **Windows 10/11** and **macOS (Apple Silicon)**. The core backend (`CcDirector.Core`) and the Avalonia UI are a single cross-platform codebase; only the platform-specific plumbing differs:
-
-| Component | Windows | macOS |
-|-----------|---------|-------|
-| Terminal backend | ConPTY | Unix PTY (openpty) |
-| IPC for hooks | Named pipes | Unix domain sockets |
-| Hook relay | PowerShell | Python |
-| UI | Avalonia | Avalonia (same codebase) |
-
-**Current macOS limitations:**
-
-- **Apple Silicon only** — there is no Intel (x64) macOS build yet.
-- **The macOS apps are not code-signed**, so Gatekeeper quarantines them on first launch (the installer/updater strips the quarantine flag from what it places).
-- **The embedded native console** (`SessionBackendType.Embedded`) is Windows-only; macOS uses the cross-platform terminal.
-- **The Gateway role is Windows-only** — macOS installs are Workstation-only (the Director app + the `cc-*` CLI tools). There is no Gateway service or Cockpit on macOS.
-
-Linux builds from source but is not yet packaged as a release.
+I was running five or more Claude Code sessions at once and nothing fit -- terminals lacked file browsing and GitHub integration, and editors got in the way. So I built my own session manager, and I use it every day as my primary development environment. ([The philosophy behind the install model.](docs/PHILOSOPHY.md))
 
 ## Stay Updated
 
-This project is actively developed. To stay in the loop:
-
-- **Watch this repo** (click "Watch" at the top) to get notified of new releases
-- **Join the [Discussions](https://github.com/thefrederiksen/devthrottle/discussions)** to ask questions, share your setup, or request features
-- **Follow along** at [sorenfrederiksen.com](https://sorenfrederiksen.com)
+- **Watch this repo** (the "Watch" button up top) to hear about new releases.
+- **Join the [Discussions](https://github.com/thefrederiksen/devthrottle/discussions)** to ask questions, share your setup, or request features.
+- **Follow along** at [sorenfrederiksen.com](https://sorenfrederiksen.com).
 
 ## License
 
