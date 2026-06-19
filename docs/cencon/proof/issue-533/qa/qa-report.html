@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #533</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;background:#0b1020;color:#e6e9f0;max-width:980px;margin:0 auto;padding:24px}
+  h1{border-bottom:2px solid #3b82f6;padding-bottom:8px}
+  table{border-collapse:collapse;width:100%;margin:16px 0}
+  th,td{border:1px solid #2a3350;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#16203a}
+  .pass{color:#22c55e;font-weight:bold}
+  .verdict{background:#0f2a14;border:1px solid #22c55e;padding:14px;border-radius:8px;margin:20px 0;font-size:18px}
+  img{max-width:460px;border:1px solid #2a3350;border-radius:6px;margin:8px 0}
+  code{background:#16203a;padding:2px 5px;border-radius:4px}
+  figure{margin:16px 0}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #533</h1>
+<p><strong>Title:</strong> [Voice] /m/ list: play triangle opens the session then plays (not headless)</p>
+<p><strong>Pull Request:</strong> #539 (branch <code>issue-533-triangle-open-play</code>)</p>
+<p><strong>Verification method:</strong> The QA Agent independently ran the REAL, unmodified
+<code>/m/</code> assets (<code>index.html</code>, <code>m.js</code>, <code>m.css</code>) from the
+pull-request branch worktree, served on a loopback port with only the gateway network calls and a
+real playable audio file stubbed (the page logic is untouched). A browser was driven at a mobile
+viewport; each acceptance criterion was reproduced and the live page state and screenshots were read
+by the QA Agent (the Developer Agent's screenshots were not trusted).</p>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Tapping the play triangle navigates to the session view (session-view visible, list-view hidden); no longer headless.</td>
+  <td>In session view after triangle tap.</td>
+  <td>After triangle tap: <code>__proof.inSessionView()</code> returned <code>true</code> (session-view shown, list-view hidden) for "Voice Ready Session".</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>After the triangle opens the session, the ready voice begins playing automatically (in-session Play button enters "speaking" state) without a further tap.</td>
+  <td>Play button in green "speaking" state; audio playing.</td>
+  <td>A MutationObserver on the Play button recorded the <code>speaking</code> class (speakSeen=true) and the audio element fired its <code>play</code> event (audioPlayed=true). Captured mid-playback: <code>play.speaking=true, paused=false</code>. Big Play button rendered green.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Tapping the row body (not the triangle) still opens the session and does NOT auto-play (preserved by stopPropagation on the triangle).</td>
+  <td>Session opens; Play button idle/ready (blue), not speaking.</td>
+  <td>Row-body tap (<code>.scard-main</code>): <code>inSession=true</code>, <code>audioPlayed=false</code>, <code>speakSeen=false</code>, <code>play.speaking=false, ready=true, paused=true</code>. Play button rendered blue/idle.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>If audio not yet buffered, the session still opens and shows "Preparing audio..." then auto-play-when-ready; it does not silently do nothing.</td>
+  <td>Session opens; "Preparing audio..." shown; plays once buffered.</td>
+  <td><code>preparePlaybackUrl</code> sets <code>heroStatus="Preparing audio..."</code> synchronously before <code>await waitPlayable</code>, and the session opens regardless of buffering; on the buffered-ready branch it auto-plays (verified in criterion 2). Verified by observation of the happy path plus code inspection of the buffering branch.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>If audio fails to load, the session opens and shows the existing audio-failure state ("Audio not ready - tap the triangle to try again."); the failure is not hidden.</td>
+  <td>Session opens; failure status shown.</td>
+  <td>Audio src forced to fail: <code>inSession=true</code>, <code>heroStatus="Audio not ready - tap the triangle to try again."</code>, Play button not speaking. Failure surfaced, not hidden.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Cache-busting version (m.js?v= / m.css?v= and on-screen label) incremented so the new behavior loads.</td>
+  <td>Version bumped from v15.</td>
+  <td><code>index.html</code> now references <code>m.css?v=16</code> and <code>m.js?v=16</code>; the on-screen header shows <code>v16</code> (visible in the list screenshot).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<div class="verdict">VERIFIED - all 6 acceptance criteria met.</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Diff is scoped to <code>wwwroot/m/</code> static assets only - no server-side, no desktop Cockpit, no Avalonia change (matches issue Scope/Out).</li>
+<li>Removed <code>playListAudio</code>, the <code>listPlayBtn</code> variable, and the <code>.scard-play.playing</code> CSS - no dangling references remain (grep clean).</li>
+<li>Whole-solution build: <code>dotnet build cc-director.sln</code> = Build succeeded, 0 Error(s) (includes the NU1903 SQLitePCLRaw pin).</li>
+</ul>
+
+<h2>Screenshots (QA Agent's own)</h2>
+<figure><figcaption>1. List view - voice-ready row with play triangle, version label "v16".</figcaption>
+<img src="qa-01-list.png" alt="list view" /></figure>
+<figure><figcaption>2. After triangle tap - session view for "Voice Ready Session", Play button GREEN (speaking / auto-playing).</figcaption>
+<img src="qa-02-triangle-speaking.png" alt="triangle opens session and auto-plays" /></figure>
+<figure><figcaption>3. After row-body tap - session view opens, Play button BLUE (idle/ready), no auto-play.</figcaption>
+<img src="qa-03-rowtap-idle.png" alt="row body opens session idle" /></figure>
+</body>
+</html>
