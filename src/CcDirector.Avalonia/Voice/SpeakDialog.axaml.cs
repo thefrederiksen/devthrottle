@@ -400,6 +400,13 @@ public partial class SpeakDialog : Window
     private void OnStateChanged(ConnectionState state)
     {
         FileLog.Write($"[SpeakDialog] state -> {state}");
+        if (state != ConnectionState.Buffering) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_stage != Stage.Recording) return;
+            StatusLabel.Text = "RECORDING - no connection";
+            LevelHint.Text = "Connection to transcription service lost. Press Stop now to save what was captured.";
+        });
     }
 
     /// <summary>

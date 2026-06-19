@@ -36,8 +36,20 @@ public sealed record ToolDetectionSuggestion(
 /// user left checked.
 /// </summary>
 /// <param name="Tool">Which agent CLI to write.</param>
-/// <param name="ResolvedPath">The detected executable path to record under agent.&lt;key&gt;_path.</param>
+/// <param name="ResolvedPath">The detected executable path to record on the new agent entry.</param>
 public sealed record AcceptedToolSelection(AgentKind Tool, string ResolvedPath);
+
+/// <summary>
+/// Outcome of accepting tools in the wizard: which tools became NEW entries in
+/// <c>agent.entries</c> and which were skipped because an entry of that type already existed.
+/// Lets the UI report honestly ("Added 2, skipped 3 already in your list") instead of a bare
+/// count that hides the skip.
+/// </summary>
+/// <param name="AddedTools">Tools that were appended to <c>agent.entries</c> as new entries.</param>
+/// <param name="SkippedTools">Selected tools left untouched because their type was already present.</param>
+public sealed record WizardAcceptResult(
+    IReadOnlyList<AgentKind> AddedTools,
+    IReadOnlyList<AgentKind> SkippedTools);
 
 /// <summary>
 /// UI-free engine for the first-run tool-detection wizard (issue #392): decides whether this is
@@ -57,18 +69,19 @@ public sealed class ToolDetectionWizardModel
     }
 
     /// <summary>
-    /// True when no agent tools have been configured yet - the first-run trigger (issue #392):
-    /// the <c>agent.tools</c> section is absent or empty in <c>config.json</c>. Accepting the
-    /// wizard writes at least one tool under <c>agent.tools.&lt;key&gt;</c>, after which this
-    /// returns false and the wizard never auto-opens again.
+    /// True when no agent has been configured yet - the first-run trigger: the
+    /// <c>agent.entries</c> list is absent or empty in <c>config.json</c>. Accepting the wizard
+    /// appends at least one entry under <c>agent.entries</c>, after which this returns false and
+    /// the wizard never auto-opens again. (Checks <c>agent.entries</c> - the live source of truth
+    /// the New Session picker launches from - not the retired <c>agent.tools</c> section.)
     /// </summary>
     public static bool IsFirstRun()
     {
         FileLog.Write("[ToolDetectionWizardModel] IsFirstRun");
         var root = CcDirectorConfigService.ReadRaw();
         var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
-        var tools = agent?["tools"] as JsonObject;
-        var firstRun = tools is null || tools.Count == 0;
+        var entries = agent?["entries"] as JsonArray;
+        var firstRun = entries is null || entries.Count == 0;
         FileLog.Write($"[ToolDetectionWizardModel] IsFirstRun: result={firstRun}");
         return firstRun;
     }
@@ -104,61 +117,58 @@ public sealed class ToolDetectionWizardModel
     }
 
     /// <summary>
-    /// Write the user-accepted tools to the machine-level <c>config.json</c>: each selected tool
-    /// is saved with the catalog's recommended default preset and model (enabled), and its
-    /// detected executable path is recorded under <c>agent.&lt;key&gt;_path</c>. Tools the user
-    /// deselected are NOT written. No tool is ever written with
-    /// <c>--dangerously-skip-permissions</c> - the catalog default preset is the Standard one.
-    /// Returns the number of tools written.
+    /// Append the user-accepted tools to the live <c>agent.entries</c> list in the machine-level
+    /// <c>config.json</c> - the same list the Settings Agents tab and the New Session picker read,
+    /// so an accepted tool actually shows up and is launchable. Each new entry is seeded from the
+    /// catalog's recommended default preset and model (enabled) and carries the detector's resolved
+    /// executable path. A selected tool whose <em>type</em> already has an entry is SKIPPED (not
+    /// duplicated and not overwritten), so the wizard is safely re-runnable and never clobbers a
+    /// user's customized entry. Reads the current list WITHOUT seeding (see
+    /// <see cref="AgentEntryStore.ReadCurrentEntries"/>) and only writes when something new was
+    /// added. Returns which tools were added versus skipped.
     /// </summary>
-    public static int AcceptSelected(IReadOnlyList<AcceptedToolSelection> selections)
+    public static WizardAcceptResult AcceptSelected(IReadOnlyList<AcceptedToolSelection> selections)
     {
         FileLog.Write($"[ToolDetectionWizardModel] AcceptSelected: count={selections?.Count ?? 0}");
         if (selections is null) throw new ArgumentNullException(nameof(selections));
 
+        var entries = AgentEntryStore.ReadCurrentEntries();
+        var existingTypes = new HashSet<AgentKind>(entries.Select(e => e.Type));
+
+        var added = new List<AgentKind>();
+        var skipped = new List<AgentKind>();
+
         foreach (var selection in selections)
         {
-            // Seed from the catalog defaults so a freshly accepted tool gets the recommended
-            // Standard command line (never skip-permissions) and recommended model, enabled.
-            var config = AgentToolConfig.FromCatalogDefaults(selection.Tool);
-            config.Save();
+            if (existingTypes.Contains(selection.Tool))
+            {
+                skipped.Add(selection.Tool);
+                FileLog.Write($"[ToolDetectionWizardModel] AcceptSelected: skipped tool={selection.Tool} (type already in agent.entries)");
+                continue;
+            }
 
-            if (!string.IsNullOrWhiteSpace(selection.ResolvedPath))
-                SavePath(selection.Tool, selection.ResolvedPath);
-
-            FileLog.Write($"[ToolDetectionWizardModel] AcceptSelected: wrote tool={selection.Tool}, preset={config.PresetName}");
+            // Seed the new entry from the catalog defaults so it gets the recommended command line
+            // and model, enabled, plus the detected executable path.
+            var defaults = AgentToolConfig.FromCatalogDefaults(selection.Tool);
+            entries.Add(new AgentEntry
+            {
+                DisplayName = AgentToolCatalog.GetEntry(selection.Tool).DisplayName,
+                Type = selection.Tool,
+                Enabled = true,
+                ExecutablePath = selection.ResolvedPath ?? "",
+                PresetId = defaults.PresetName,
+                DefaultModel = defaults.DefaultModel,
+                ArgsOverride = defaults.ArgsOverride,
+            });
+            existingTypes.Add(selection.Tool);
+            added.Add(selection.Tool);
+            FileLog.Write($"[ToolDetectionWizardModel] AcceptSelected: added tool={selection.Tool}, preset={defaults.PresetName}");
         }
 
-        return selections.Count;
-    }
+        if (added.Count > 0)
+            AgentEntryStore.SaveEntries(entries);
 
-    /// <summary>
-    /// Persist a tool's detected executable path under <c>agent.&lt;key&gt;_path</c> in
-    /// config.json (machine-level), so the path the detector resolved is the path Director
-    /// launches with. Untouched sections are preserved by the merge writer.
-    /// </summary>
-    private static void SavePath(AgentKind tool, string resolvedPath)
-    {
-        var patch = new JsonObject
-        {
-            ["agent"] = new JsonObject
-            {
-                [PathKeyFor(tool)] = resolvedPath,
-            }
-        };
-        CcDirectorConfigService.MergePatch(patch);
+        FileLog.Write($"[ToolDetectionWizardModel] AcceptSelected: added={added.Count}, skipped={skipped.Count}");
+        return new WizardAcceptResult(added, skipped);
     }
-
-    /// <summary>The config.json key for a tool's executable path, e.g. <c>claude_path</c>.</summary>
-    private static string PathKeyFor(AgentKind tool) => tool switch
-    {
-        AgentKind.ClaudeCode => "claude_path",
-        AgentKind.Pi => "pi_path",
-        AgentKind.Codex => "codex_path",
-        AgentKind.Gemini => "gemini_path",
-        AgentKind.OpenCode => "opencode_path",
-        AgentKind.Cursor => "cursor_path",
-        AgentKind.Grok => "grok_path",
-        _ => throw new NotSupportedException($"[ToolDetectionWizardModel] Tool {tool} has no path config key.")
-    };
 }

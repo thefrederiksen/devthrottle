@@ -151,12 +151,14 @@ public sealed class SpeakService : IAsyncDisposable
                 _provider = new OpenAiRealtimeProvider(apiKey: routing.ApiKey, model: routing.Model);
                 _cleanup = new CleanupOrchestrator(
                     apiKey: routing.ApiKey,
-                    model: _options.DictationCleanupModel);
+                    model: _options.DictationCleanupModel,
+                    baseUrl: routing.BaseUrl);
                 // Live transcript preview (#215): re-transcribes the growing clip every few seconds
                 // so the dialog shows the words while the user is still talking.
                 preview = new LivePreviewTranscriber(
                     apiKey: routing.ApiKey,
-                    model: _options.DictationPreviewModel);
+                    model: _options.DictationPreviewModel,
+                    baseUrl: routing.BaseUrl);
             }
 
             _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());

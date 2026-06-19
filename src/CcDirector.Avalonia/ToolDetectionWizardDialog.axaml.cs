@@ -33,7 +33,13 @@ public partial class ToolDetectionWizardDialog : Window
     // and the resolved path the scan found for it.
     private readonly List<ToolRow> _rows = new();
 
-    private sealed record ToolRow(AgentKind Tool, CheckBox Check, string ResolvedPath, bool Found);
+    private sealed record ToolRow(AgentKind Tool, string DisplayName, CheckBox Check, string ResolvedPath, bool Found, bool AlreadyAdded);
+
+    /// <summary>
+    /// The outcome of the last accept (added vs skipped tools), so the caller can report honestly
+    /// after the dialog closes. Null until the user accepts at least once.
+    /// </summary>
+    public WizardAcceptResult? LastResult { get; private set; }
 
     public ToolDetectionWizardDialog() : this(new AgentOptions()) { }
 
@@ -56,16 +62,33 @@ public partial class ToolDetectionWizardDialog : Window
         FileLog.Write("[ToolDetectionWizardDialog] ScanAsync");
         try
         {
-            var suggestions = await Task.Run(() => _model.ScanSuggestions(_options));
-            BuildRows(suggestions);
+            // Scan the catalog AND read the user's current agent.entries (without seeding) on the
+            // background thread, so we can mark tools already in the list and pre-check only the
+            // genuinely new ones.
+            var (suggestions, existingTypes) = await Task.Run(() =>
+            {
+                var scanned = _model.ScanSuggestions(_options);
+                var present = new HashSet<AgentKind>(AgentEntryStore.ReadCurrentEntries().Select(e => e.Type));
+                return (scanned, present);
+            });
+            BuildRows(suggestions, existingTypes);
 
             var foundCount = suggestions.Count(s => s.Found);
-            ScanStatusText.Text = foundCount > 0
-                ? $"Found {foundCount} of {suggestions.Count} known tools. Review the selection and click Add selected tools."
-                : $"No known agent tools were found on this machine. Install one, or close this and configure a path on the Agents tab in Settings.";
+            var addableCount = suggestions.Count(s => s.Found && !existingTypes.Contains(s.Tool));
+            var alreadyCount = suggestions.Count(s => s.Found && existingTypes.Contains(s.Tool));
+
+            if (foundCount == 0)
+                ScanStatusText.Text = "No known agent tools were found on this machine. Install one, or close this and configure a path on the Agents tab in Settings.";
+            else if (addableCount == 0)
+                ScanStatusText.Text = $"Found {foundCount} of {suggestions.Count} known tools, but all are already in your Agents list. Nothing new to add.";
+            else
+                ScanStatusText.Text = alreadyCount > 0
+                    ? $"Found {foundCount} of {suggestions.Count} known tools ({addableCount} new, {alreadyCount} already in your list). Review the selection and click Add selected tools."
+                    : $"Found {foundCount} of {suggestions.Count} known tools. Review the selection and click Add selected tools.";
+
             ScanStatusText.FontStyle = FontStyle.Normal;
-            AcceptButton.IsEnabled = foundCount > 0;
-            FileLog.Write($"[ToolDetectionWizardDialog] ScanAsync: found={foundCount}, total={suggestions.Count}");
+            AcceptButton.IsEnabled = addableCount > 0;
+            FileLog.Write($"[ToolDetectionWizardDialog] ScanAsync: found={foundCount}, addable={addableCount}, alreadyAdded={alreadyCount}, total={suggestions.Count}");
         }
         catch (Exception ex)
         {
@@ -75,17 +98,23 @@ public partial class ToolDetectionWizardDialog : Window
         }
     }
 
-    private void BuildRows(IReadOnlyList<ToolDetectionSuggestion> suggestions)
+    private void BuildRows(IReadOnlyList<ToolDetectionSuggestion> suggestions, ISet<AgentKind> existingTypes)
     {
         _rows.Clear();
         ToolListPanel.Children.Clear();
 
         foreach (var s in suggestions)
         {
+            // A tool already in agent.entries is shown disabled and unchecked with an "ALREADY
+            // ADDED" badge, so the checkboxes represent exactly what Accept will add. Only a found
+            // tool that is NOT already present is checkable/pre-checked.
+            var alreadyAdded = existingTypes.Contains(s.Tool);
+            var addable = s.Found && !alreadyAdded;
+
             var check = new CheckBox
             {
-                IsChecked = s.Found,
-                IsEnabled = s.Found,
+                IsChecked = addable,
+                IsEnabled = addable,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             check.IsCheckedChanged += (_, _) => UpdateAcceptEnabled();
@@ -99,16 +128,19 @@ public partial class ToolDetectionWizardDialog : Window
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
+            var badgeText = alreadyAdded ? "ALREADY ADDED" : s.Found ? "FOUND" : "NOT FOUND";
+            var badgeBg = alreadyAdded ? "#1B2A3A" : s.Found ? "#1B3A2A" : "#3A2A1B";
+            var badgeFg = alreadyAdded ? "#60A5FA" : s.Found ? "#22C55E" : "#F59E0B";
             var statusBadge = new Border
             {
-                Background = Brush(s.Found ? "#1B3A2A" : "#3A2A1B"),
+                Background = Brush(badgeBg),
                 CornerRadius = new global::Avalonia.CornerRadius(3),
                 Padding = new global::Avalonia.Thickness(6, 1),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
-                    Text = s.Found ? "FOUND" : "NOT FOUND",
-                    Foreground = Brush(s.Found ? "#22C55E" : "#F59E0B"),
+                    Text = badgeText,
+                    Foreground = Brush(badgeFg),
                     FontSize = 10,
                     FontWeight = FontWeight.SemiBold,
                 },
@@ -124,7 +156,13 @@ public partial class ToolDetectionWizardDialog : Window
             headerRow.Children.Add(statusBadge);
 
             var details = new StackPanel { Spacing = 2, Margin = new global::Avalonia.Thickness(28, 4, 0, 0) };
-            if (s.Found)
+            if (alreadyAdded)
+            {
+                details.Children.Add(DetailLine("Already in your Agents list - it will not be added again."));
+                if (s.Found)
+                    details.Children.Add(DetailLine($"Path: {s.ResolvedPath}"));
+            }
+            else if (s.Found)
             {
                 details.Children.Add(DetailLine($"Path: {s.ResolvedPath}"));
                 details.Children.Add(DetailLine($"Command line: {s.RecommendedPresetName}"));
@@ -147,7 +185,7 @@ public partial class ToolDetectionWizardDialog : Window
             };
 
             ToolListPanel.Children.Add(card);
-            _rows.Add(new ToolRow(s.Tool, check, s.ResolvedPath, s.Found));
+            _rows.Add(new ToolRow(s.Tool, s.DisplayName, check, s.ResolvedPath, s.Found, alreadyAdded));
         }
     }
 
@@ -184,13 +222,10 @@ public partial class ToolDetectionWizardDialog : Window
                 return;
             }
 
-            var written = await Task.Run(() => ToolDetectionWizardModel.AcceptSelected(selections));
+            var result = await Task.Run(() => ToolDetectionWizardModel.AcceptSelected(selections));
+            LastResult = result;
 
-            // Apply the accepted Claude command line + paths to the running options so the next
-            // session launched without a restart uses them (mirrors the Settings dialog wiring).
-            ApplyAcceptedToRunningOptions(selections);
-
-            FileLog.Write($"[ToolDetectionWizardDialog] BtnAccept_Click: wrote {written} tool(s)");
+            FileLog.Write($"[ToolDetectionWizardDialog] BtnAccept_Click: added={result.AddedTools.Count}, skipped={result.SkippedTools.Count}");
             Close(true);
         }
         catch (Exception ex)
@@ -199,35 +234,6 @@ public partial class ToolDetectionWizardDialog : Window
             ShowResult($"Could not save the selected tools: {ex.Message}", error: true);
             AcceptButton.IsEnabled = true;
         }
-    }
-
-    /// <summary>
-    /// Push the just-saved per-tool config onto the running AgentOptions so a session launched
-    /// without restarting picks up the accepted tool paths and the Claude default command line.
-    /// </summary>
-    private void ApplyAcceptedToRunningOptions(IReadOnlyList<AcceptedToolSelection> selections)
-    {
-        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
-            ?? (global::Avalonia.Application.Current as App)?.Options;
-        if (options is null)
-        {
-            FileLog.Write("[ToolDetectionWizardDialog] ApplyAcceptedToRunningOptions: no running options; skipped");
-            return;
-        }
-
-        foreach (var selection in selections)
-        {
-            if (!string.IsNullOrWhiteSpace(selection.ResolvedPath))
-                ToolDetectionService.SetConfiguredPath(selection.Tool, options, selection.ResolvedPath);
-        }
-
-        var claudeConfig = AgentToolConfig.Load(AgentKind.ClaudeCode);
-        var args = claudeConfig.ResolveEffectiveArguments().Trim();
-        var model = claudeConfig.DefaultModel?.Trim() ?? "";
-        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
-            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
-        options.DefaultClaudeArgs = args;
-        FileLog.Write($"[ToolDetectionWizardDialog] ApplyAcceptedToRunningOptions: claudeArgs='{args}'");
     }
 
     private void BtnCancel_Click(object? sender, RoutedEventArgs e)
