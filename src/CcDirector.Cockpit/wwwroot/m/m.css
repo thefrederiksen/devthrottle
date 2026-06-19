@@ -18,6 +18,10 @@ body{background:var(--bg);color:var(--text);
 .ver{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:1px 7px}
 .ghost{background:none;border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
 .ghost:active{background:var(--panel2)}
+/* Session view back button: comfortable phone tap target (>= 44x44 CSS px, issue #536).
+   Keeps the .ghost color identity, just larger; never shrinks so #sv-name keeps the ellipsis. */
+.back-btn{flex:0 0 auto;min-height:44px;min-width:44px;padding:10px 16px;font-size:15px;font-weight:600;
+  border-radius:10px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 .status-line{color:var(--muted);font-size:13px;padding:14px 16px;margin:0}
 
 /* ----- session list ----- */
