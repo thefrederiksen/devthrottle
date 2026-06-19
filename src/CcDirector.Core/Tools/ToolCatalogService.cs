@@ -16,14 +16,33 @@ namespace CcDirector.Core.Tools;
 public sealed class ToolCatalogService
 {
     private readonly string _binDir;
+    private readonly string? _searchPath;
+    private readonly string? _pathExt;
 
-    /// <summary>Construct against the real bin directory.</summary>
+    /// <summary>Construct against the real bin directory and the current process PATH/PATHEXT.</summary>
     public ToolCatalogService() : this(CcStorage.Bin()) { }
 
-    /// <summary>Construct against an explicit bin directory (used by tests).</summary>
+    /// <summary>
+    /// Construct against an explicit bin directory, using the current process PATH/PATHEXT for the
+    /// on-PATH availability check (used by tests that only care about bin-dir resolution).
+    /// </summary>
     public ToolCatalogService(string binDir)
+        : this(binDir,
+               Environment.GetEnvironmentVariable("PATH"),
+               Environment.GetEnvironmentVariable("PATHEXT"))
+    {
+    }
+
+    /// <summary>
+    /// Construct against an explicit bin directory AND an explicit PATH/PATHEXT search list. Exposed so
+    /// the on-PATH availability determination can be exercised deterministically without depending on
+    /// (or mutating) the real machine PATH.
+    /// </summary>
+    public ToolCatalogService(string binDir, string? searchPath, string? pathExt)
     {
         _binDir = binDir ?? throw new ArgumentNullException(nameof(binDir));
+        _searchPath = searchPath;
+        _pathExt = pathExt;
     }
 
     /// <summary>
@@ -47,7 +66,7 @@ public sealed class ToolCatalogService
                 return byCategory != 0 ? byCategory : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
             });
 
-            FileLog.Write($"[ToolCatalogService] GetCatalog: {descriptors.Count} tools, {descriptors.Count(d => d.IsBuilt)} built");
+            FileLog.Write($"[ToolCatalogService] GetCatalog: {descriptors.Count} tools, {descriptors.Count(d => d.IsBuilt)} built, {descriptors.Count(d => d.IsOnPath)} on PATH, {descriptors.Count(d => d.IsAvailable)} available");
             return descriptors;
         }
         catch (Exception ex)
@@ -97,16 +116,27 @@ public sealed class ToolCatalogService
 
     private ToolDescriptor BuildDescriptor(ToolManifestEntry entry)
     {
-        var resolved = ResolveRunnableBinary(entry.Name);
-        var binaryPath = resolved ?? Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
-        var isBuilt = resolved is not null;
+        // "Built into this build" = present in the app's bundled bin dir (or its sibling pyenv\Scripts).
+        var resolvedInBin = ResolveRunnableBinary(entry.Name);
+        var isBuilt = resolvedInBin is not null;
 
-        // "Expected here" = the installer placed a shim (bin\<name>.cmd) or the tool is built. A tool
-        // with neither was never installed on this machine (extras tier, a different bundle, or drift),
-        // so the home readiness must not nag about it. A shim WITHOUT a built binary is the broken
-        // half-install case (the shim survives a venv wipe, the pyenv\Scripts exe does not).
+        // "Available on PATH" = the command name resolves on the user's PATH (PATH + PATHEXT), the same
+        // resolution rule the session-launch preflight uses. This is independent of the bundled bin dir:
+        // a fully-installed machine resolves cc-* on PATH even when this build ships an empty bin dir.
+        var resolvedOnPath = Utilities.ExecutableResolver.Resolve(entry.Name, _searchPath, _pathExt);
+        var isOnPath = resolvedOnPath is not null;
+
+        // BinaryPath is the runnable path the test runner / Control API will launch: prefer the bundled
+        // build, then the PATH-resolved exe, then the expected (non-existent) bin path for display only.
+        var binaryPath = resolvedInBin ?? resolvedOnPath ?? Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
+
+        // "Expected here" = the install is meant to provide the tool: it placed a shim (bin\<name>.cmd),
+        // built it into this bundle, or the tool resolves on the user's PATH. A tool with none of these
+        // was never installed on this machine (extras tier, a different bundle, or drift), so the home
+        // readiness must not nag about it. A shim WITHOUT a runnable binary is the broken half-install
+        // case (the shim survives a venv wipe, the pyenv\Scripts exe does not).
         var hasShim = File.Exists(Path.Combine(_binDir, entry.Name + ".cmd"));
-        var isExpected = hasShim || isBuilt;
+        var isExpected = hasShim || isBuilt || isOnPath;
 
         var tests = new List<ToolTest>
         {
@@ -124,6 +154,7 @@ public sealed class ToolCatalogService
             note: entry.Note,
             binaryPath: binaryPath,
             isBuilt: isBuilt,
+            isOnPath: isOnPath,
             isExpected: isExpected,
             tests: tests);
     }

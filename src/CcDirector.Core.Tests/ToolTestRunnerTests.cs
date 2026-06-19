@@ -30,13 +30,13 @@ public class ToolTestRunnerTests : IDisposable
     // A descriptor whose binary is cmd.exe and whose declared test set is exactly the one passed in,
     // so the runner's "test must belong to the tool" guard is satisfied with the same instance.
     private static ToolDescriptor CmdTool(ToolTest test)
-        => new("stub", "Test", "stub tool", null, Cmd, isBuilt: true, isExpected: true, new[] { test });
+        => new("stub", "Test", "stub tool", null, Cmd, isBuilt: true, isOnPath: false, isExpected: true, new[] { test });
 
     [Fact]
     public async Task RunTest_OnPathBinaryExists_Passes()
     {
         var onPath = new ToolTest(ToolTestKind.OnPath, Array.Empty<string>(), null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isExpected: true, new[] { onPath });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isOnPath: false, isExpected: true, new[] { onPath });
 
         var result = await new ToolTestRunner().RunTestAsync(tool, onPath);
 
@@ -49,7 +49,7 @@ public class ToolTestRunnerTests : IDisposable
     {
         var missing = Path.Combine(_dir, "nope.exe");
         var onPath = new ToolTest(ToolTestKind.OnPath, Array.Empty<string>(), null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, missing, isBuilt: false, isExpected: true, new[] { onPath });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, missing, isBuilt: false, isOnPath: false, isExpected: true, new[] { onPath });
 
         var result = await new ToolTestRunner().RunTestAsync(tool, onPath);
 
@@ -61,7 +61,7 @@ public class ToolTestRunnerTests : IDisposable
     {
         var declared = new ToolTest(ToolTestKind.OnPath, Array.Empty<string>(), null);
         var foreign = new ToolTest(ToolTestKind.Smoke, new[] { "rm", "-rf" }, null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isExpected: true, new[] { declared });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isOnPath: false, isExpected: true, new[] { declared });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new ToolTestRunner().RunTestAsync(tool, foreign));
@@ -72,7 +72,7 @@ public class ToolTestRunnerTests : IDisposable
     {
         var missing = Path.Combine(_dir, "nope.exe");
         var version = new ToolTest(ToolTestKind.Version, new[] { "--version" }, null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, missing, isBuilt: false, isExpected: true, new[] { version });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, missing, isBuilt: false, isOnPath: false, isExpected: true, new[] { version });
 
         var result = await new ToolTestRunner().RunTestAsync(tool, version);
 
@@ -134,7 +134,7 @@ public class ToolTestRunnerTests : IDisposable
         if (!OperatingSystem.IsWindows()) return;
         var onPath = new ToolTest(ToolTestKind.OnPath, Array.Empty<string>(), null);
         var smoke = new ToolTest(ToolTestKind.Smoke, new[] { "/c", "exit", "0" }, null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isExpected: true, new[] { onPath, smoke });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isOnPath: false, isExpected: true, new[] { onPath, smoke });
 
         var results = await new ToolTestRunner().RunAllForToolAsync(tool);
 

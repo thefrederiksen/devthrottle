@@ -17,7 +17,9 @@ internal static class ToolStatusVisuals
     {
         ToolStatus.Pass => ("PASS", Brush("#22C55E")),
         ToolStatus.Fail => ("FAIL", Brush("#DC2626")),
-        ToolStatus.NotBuilt => ("NOT BUILT", Brush("#6B7280")),
+        // "NOT BUILT" now means genuinely unavailable: on neither the bundled bin dir nor the user's
+        // PATH (issue #448). A tool that resolves on PATH is available and is never labelled this.
+        ToolStatus.NotBuilt => ("UNAVAILABLE", Brush("#6B7280")),
         _ => ("untested", Brush("#888888")),
     };
 
@@ -35,7 +37,9 @@ public sealed class ToolItemViewModel : INotifyPropertyChanged
     internal ToolItemViewModel(ToolDescriptor descriptor)
     {
         Descriptor = descriptor;
-        _status = descriptor.IsBuilt ? ToolStatus.Untested : ToolStatus.NotBuilt;
+        // Availability (PATH or bundled bin), not bin-only IsBuilt, decides the initial chip: a
+        // PATH-available tool starts "untested" (its checks will run), never "unavailable" (issue #448).
+        _status = descriptor.IsAvailable ? ToolStatus.Untested : ToolStatus.NotBuilt;
     }
 
     internal ToolDescriptor Descriptor { get; }
@@ -43,6 +47,9 @@ public sealed class ToolItemViewModel : INotifyPropertyChanged
     public string Name => Descriptor.Name;
     public string Category => Descriptor.Category;
     public bool IsBuilt => Descriptor.IsBuilt;
+
+    /// <summary>The user-facing availability signal: runnable from the bundled bin dir OR the user's PATH.</summary>
+    public bool IsAvailable => Descriptor.IsAvailable;
 
     internal ToolStatus Status
     {

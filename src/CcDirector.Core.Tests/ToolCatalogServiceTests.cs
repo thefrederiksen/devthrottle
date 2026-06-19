@@ -11,6 +11,9 @@ public class ToolCatalogServiceTests : IDisposable
 {
     private readonly string _binDir;
 
+    // PATHEXT must let a bare "cc-vault" resolve to "cc-vault.exe" on Windows; ignored on POSIX.
+    private const string TestPathExt = ".COM;.EXE;.BAT;.CMD";
+
     public ToolCatalogServiceTests()
     {
         _binDir = Path.Combine(Path.GetTempPath(), "ToolCatalogTests_" + Guid.NewGuid().ToString("N"));
@@ -21,6 +24,12 @@ public class ToolCatalogServiceTests : IDisposable
     {
         try { if (Directory.Exists(_binDir)) Directory.Delete(_binDir, recursive: true); }
         catch { /* temp dir cleanup is best-effort */ }
+
+        foreach (var dir in _pathDirs)
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+            catch { /* temp dir cleanup is best-effort */ }
+        }
     }
 
     // Mirrors ToolCatalogService.ResolveBinaryFileName so IsBuilt resolution matches on each OS.
@@ -57,7 +66,9 @@ public class ToolCatalogServiceTests : IDisposable
     [Fact]
     public void GetCatalog_BinaryAbsent_MarksNotBuilt()
     {
-        var svc = new ToolCatalogService(_binDir); // empty bin dir
+        // Empty bin dir AND empty PATH so the result does not depend on the test machine's real PATH
+        // (where cc-vault may legitimately resolve). IsBuilt is strictly the bundled-bin diagnostic.
+        var svc = new ToolCatalogService(_binDir, searchPath: "", pathExt: TestPathExt);
 
         var vault = svc.GetCatalog().Single(d => d.Name == "cc-vault");
 
@@ -207,10 +218,13 @@ public class ToolCatalogServiceTests : IDisposable
     public void GetCatalog_NoShimNoExe_NotExpected()
     {
         // Never installed here (extras tier / other bundle / drift): the home must not nag about it.
-        var vault = new ToolCatalogService(_binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+        // Empty PATH so the test is deterministic regardless of whether cc-vault resolves on the real machine.
+        var vault = new ToolCatalogService(_binDir, searchPath: "", pathExt: TestPathExt)
+            .GetCatalog().Single(d => d.Name == "cc-vault");
 
         Assert.False(vault.IsExpected);
         Assert.False(vault.IsBuilt);
+        Assert.False(vault.IsOnPath);
     }
 
     [Fact]
@@ -222,6 +236,88 @@ public class ToolCatalogServiceTests : IDisposable
 
         Assert.True(vault.IsExpected);
         Assert.True(vault.IsBuilt);
+    }
+
+    // ---------- Availability: judged by PATH OR the bundled bin dir (issue #448) ----------
+
+    /// <summary>
+    /// Build an isolated directory that holds a runnable file for <paramref name="tool"/> so it can be
+    /// fed to ToolCatalogService as an explicit PATH entry, exercising the on-PATH availability check
+    /// without depending on (or mutating) the real machine PATH.
+    /// </summary>
+    private string NewPathDirWith(string tool)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ToolCatalogPath_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, BinName(tool)), "stub");
+        _pathDirs.Add(dir);
+        return dir;
+    }
+
+    private readonly List<string> _pathDirs = new();
+
+    [Fact]
+    public void GetCatalog_OnPathButNotInBinDir_IsAvailable()
+    {
+        // The reported bug: the bundled bin dir is empty, but the tool resolves on the user's PATH.
+        var pathDir = NewPathDirWith("cc-vault");
+        var svc = new ToolCatalogService(_binDir, pathDir, TestPathExt); // _binDir is empty
+
+        var vault = svc.GetCatalog().Single(d => d.Name == "cc-vault");
+
+        Assert.False(vault.IsBuilt, "not bundled in this build");
+        Assert.True(vault.IsOnPath, "resolves on the user's PATH");
+        Assert.True(vault.IsAvailable, "available because it is on PATH");
+        Assert.True(vault.IsExpected, "on-PATH tools count toward readiness, not nagged as never-installed");
+    }
+
+    [Fact]
+    public void GetCatalog_OnNeitherPathNorBinDir_IsUnavailable()
+    {
+        var emptyPathDir = Path.Combine(Path.GetTempPath(), "ToolCatalogPath_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(emptyPathDir);
+        _pathDirs.Add(emptyPathDir);
+        var svc = new ToolCatalogService(_binDir, emptyPathDir, TestPathExt); // empty bin AND empty PATH dir
+
+        var vault = svc.GetCatalog().Single(d => d.Name == "cc-vault");
+
+        Assert.False(vault.IsBuilt);
+        Assert.False(vault.IsOnPath);
+        Assert.False(vault.IsAvailable, "on neither PATH nor the bin dir = unavailable, the signal stays honest");
+    }
+
+    [Fact]
+    public void GetCatalog_InBinDirOnly_IsAvailable_NoRegression()
+    {
+        StubBuilt("cc-vault");
+        var emptyPathDir = Path.Combine(Path.GetTempPath(), "ToolCatalogPath_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(emptyPathDir);
+        _pathDirs.Add(emptyPathDir);
+        var svc = new ToolCatalogService(_binDir, emptyPathDir, TestPathExt); // PATH dir empty; only bin has it
+
+        var vault = svc.GetCatalog().Single(d => d.Name == "cc-vault");
+
+        Assert.True(vault.IsBuilt, "bundled in this build");
+        Assert.False(vault.IsOnPath, "not on PATH in this test");
+        Assert.True(vault.IsAvailable, "available because it is built into this build");
+    }
+
+    [Fact]
+    public void GetCatalog_OnPathButNotInBinDir_BinaryPathPointsAtThePathResolvedExe()
+    {
+        // A PATH-only tool's runnable path must be the PATH-resolved exe so the test runner and the
+        // Control API actually execute it (not a non-existent bin path).
+        var pathDir = NewPathDirWith("cc-vault");
+        var svc = new ToolCatalogService(_binDir, pathDir, TestPathExt);
+
+        var vault = svc.GetCatalog().Single(d => d.Name == "cc-vault");
+
+        // The resolved exe lives in the PATH dir; the extension casing follows PATHEXT (e.g. ".EXE"),
+        // so compare case-insensitively rather than asserting an exact lowercase extension.
+        Assert.Equal(
+            Path.Combine(pathDir, BinName("cc-vault")),
+            vault.BinaryPath,
+            ignoreCase: true);
     }
 
     [Fact]

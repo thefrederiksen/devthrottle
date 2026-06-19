@@ -67,14 +67,15 @@ public partial class ToolsView : UserControl
 
             ApplyFilter();
 
-            var built = _allItems.Count(i => i.IsBuilt);
-            var notBuilt = _allItems.Count - built;
-            SummaryText.Text = $"{_allItems.Count} tools   {built} built   {notBuilt} not built";
+            // Availability (PATH or bundled bin), not bin-only IsBuilt, is the user-facing signal (issue #448).
+            var available = _allItems.Count(i => i.IsAvailable);
+            var unavailable = _allItems.Count - available;
+            SummaryText.Text = $"{_allItems.Count} tools   {available} available   {unavailable} unavailable";
 
             var unmanagedNote = unmanaged.Count > 0
                 ? $"\nUnmanaged binaries (not in manifest): {string.Join(", ", unmanaged)}"
                 : "";
-            ListSummary.Text = $"{built}/{_allItems.Count} built.{unmanagedNote}";
+            ListSummary.Text = $"{available}/{_allItems.Count} available.{unmanagedNote}";
 
             // Auto-run the checks once so built tools show PASS/FAIL right away instead of a wall of
             // "untested" the user has to clear manually (the screenshot complaint). Fire-and-forget;
@@ -121,7 +122,10 @@ public partial class ToolsView : UserControl
         DetailName.Text = d.Name;
         DetailDescription.Text = d.Description;
         DetailCategory.Text = d.Category;
-        DetailBinaryPath.Text = d.BinaryPath + (d.IsBuilt ? "" : "   (not built)");
+        DetailBinaryPath.Text = d.BinaryPath
+            + (d.IsAvailable
+                ? (d.IsBuilt ? "" : "   (on PATH)")
+                : "   (unavailable)");
         DetailVersion.Text = "";
 
         if (!string.IsNullOrWhiteSpace(d.Note))
@@ -208,7 +212,7 @@ public partial class ToolsView : UserControl
         var d = vm.Descriptor;
         var results = await _runner.RunAllForToolAsync(d);
 
-        var status = !d.IsBuilt
+        var status = !d.IsAvailable
             ? ToolStatus.NotBuilt
             : results.All(r => r.Passed) ? ToolStatus.Pass : ToolStatus.Fail;
         vm.Status = status;
@@ -256,20 +260,20 @@ public partial class ToolsView : UserControl
 
     private void UpdateSummary()
     {
-        var built = _allItems.Count(i => i.IsBuilt);
+        var available = _allItems.Count(i => i.IsAvailable);
         var pass = _allItems.Count(i => i.Status == ToolStatus.Pass);
         var fail = _allItems.Count(i => i.Status == ToolStatus.Fail);
-        var notBuilt = _allItems.Count - built;
-        SummaryText.Text = $"{_allItems.Count} tools   {pass} PASS   {fail} FAIL   {notBuilt} NOT BUILT";
+        var unavailable = _allItems.Count - available;
+        SummaryText.Text = $"{_allItems.Count} tools   {pass} PASS   {fail} FAIL   {unavailable} UNAVAILABLE";
     }
 
     private async void LoadCommandsButton_Click(object? sender, RoutedEventArgs e)
     {
         if (ToolList.SelectedItem is not ToolItemViewModel vm) return;
         var d = vm.Descriptor;
-        if (!d.IsBuilt)
+        if (!d.IsAvailable)
         {
-            CommandsOutput.Text = "(tool not built - cannot read --help)";
+            CommandsOutput.Text = "(tool unavailable - cannot read --help)";
             return;
         }
 

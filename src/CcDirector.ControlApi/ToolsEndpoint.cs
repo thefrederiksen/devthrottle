@@ -152,8 +152,8 @@ internal static class ToolsEndpoint
                 return Results.NotFound(new { error = $"unknown tool: {req.Name} (not in the catalog)" });
             }
 
-            if (!tool.IsBuilt)
-                return Results.Json(new { error = $"tool is not built on this Director: {tool.Name} ({tool.BinaryPath})" },
+            if (!tool.IsAvailable)
+                return Results.Json(new { error = $"tool is not available on this Director (neither bundled nor on PATH): {tool.Name} ({tool.BinaryPath})" },
                     statusCode: StatusCodes.Status409Conflict);
 
             // The audit line: resolved exe path + args + caller, on every invocation (issue #328).
@@ -194,6 +194,8 @@ internal static class ToolsEndpoint
         note = t.Note,
         binaryPath = t.BinaryPath,
         isBuilt = t.IsBuilt,
+        isOnPath = t.IsOnPath,
+        isAvailable = t.IsAvailable,
         tests = t.Tests.Select(test => new { kind = test.Kind.ToString(), label = test.Label, args = test.Args }),
     };
 
@@ -219,7 +221,7 @@ internal static class ToolsEndpoint
     /// <summary>Roll the individual results up into the tool's status chip value.</summary>
     private static ToolStatus RollUp(ToolDescriptor tool, IReadOnlyList<ToolTestResult> results)
     {
-        if (!tool.IsBuilt) return ToolStatus.NotBuilt;
+        if (!tool.IsAvailable) return ToolStatus.NotBuilt;
         if (results.Count == 0) return ToolStatus.Untested;
         return results.All(r => r.Passed) ? ToolStatus.Pass : ToolStatus.Fail;
     }
