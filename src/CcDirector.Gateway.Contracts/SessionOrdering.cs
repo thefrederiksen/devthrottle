@@ -50,6 +50,26 @@ public static class SessionOrdering
         s.BriefingState == "Explaining";
 
     /// <summary>
+    /// Issue #553: true while a VOICE-MODE session that is waiting for the user must hold yellow
+    /// ("preparing voice / not ready yet") rather than red. The voice is not ready to play until the
+    /// Gateway has fetchable audio (<see cref="SessionDto.VoiceAudioReady"/>), so a voice-mode session
+    /// whose raw color is red stays yellow while the wingman is still generating
+    /// (<see cref="SessionDto.VoiceGenerating"/>) OR before the audio exists. It only turns red once
+    /// audio is ready - it must NEVER show red/needs-you in voice mode before audio is available.
+    /// Gated on raw red and on WaitingForInput/WaitingForPerm so a working (blue) session is untouched.
+    /// </summary>
+    public static bool IsVoicePreparing(SessionDto s)
+    {
+        if (!s.VoiceMode) return false;
+        if (!string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)) return false;
+        var state = s.AssessedState ?? s.ActivityState;
+        var waiting = string.Equals(state, "WaitingForInput", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(state, "WaitingForPerm", StringComparison.OrdinalIgnoreCase);
+        if (!waiting) return false;
+        return s.VoiceGenerating || !s.VoiceAudioReady;
+    }
+
+    /// <summary>
     /// The ONE effective status color every client renders and triages on (issue #196).
     /// The Director stamps the raw <see cref="SessionDto.StatusColor"/> (it no longer knows
     /// about briefing since #187 moved the pipeline to the Gateway), and the Gateway stamps
@@ -57,12 +77,14 @@ public static class SessionOrdering
     /// each view - is what keeps the dot, the "wingman reading..." chip, and the triage
     /// bucket atomic: while the wingman reads a finished turn the session IS yellow; while
     /// a user-requested deep dive runs it IS orange (issue #217); red ("needs you") may
-    /// only appear after the brief or report lands.
+    /// only appear after the brief or report lands. Issue #553: a voice-mode session also
+    /// holds yellow until its playable audio exists (<see cref="IsVoicePreparing"/>).
     /// </summary>
     public static string EffectiveColor(SessionDto s) =>
         s.OnHold ? "grey"
         : IsExplaining(s) ? "orange"
         : IsBriefing(s) ? "yellow"
+        : IsVoicePreparing(s) ? "yellow"
         : s.StatusColor;
 
     /// <summary>

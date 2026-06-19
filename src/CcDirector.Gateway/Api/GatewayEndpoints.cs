@@ -25,6 +25,9 @@ internal static class GatewayEndpoints
     /// <param name="briefStampFor">Issue #187: the Gateway-owned briefing state + latest
     /// rail line per session, stamped onto the aggregation now that the Director-side
     /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
+    /// <param name="voiceAudioReadyFor">Issue #553: whether the Gateway has fetchable, playable
+    /// cached audio for a session id (<c>WingmanVoiceService.HasVoice</c>), stamped onto
+    /// <see cref="SessionDto.VoiceAudioReady"/>. Null leaves the field false.</param>
     /// <param name="needsYouStampFor">Issue #218: given (sessionId, isRed) where isRed is the
     /// session's final EffectiveColor=="red" this refresh, returns the Gateway-owned UTC
     /// timestamp the session entered red (held while red, null when not red), stamped onto
@@ -48,6 +51,7 @@ internal static class GatewayEndpoints
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
         Func<string, bool>? voiceGeneratingFor = null,
+        Func<string, bool>? voiceAudioReadyFor = null,
         Func<string, bool, DateTime?>? needsYouStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
@@ -512,6 +516,16 @@ internal static class GatewayEndpoints
                     {
                         s.BriefingState = "Briefing";
                     }
+                    // Issue #553: surface the two voice readiness booleans the color rule and the /m
+                    // client read directly. VoiceGenerating = the wingman is producing this session's
+                    // spoken summary now; VoiceAudioReady = the gateway has fetchable, playable audio
+                    // (the SINGLE truthful "there is voice you can play right now" signal). These hold
+                    // a voice-mode waiting session yellow until audio exists, then let it go red - see
+                    // SessionOrdering.IsVoicePreparing (the color fold reads these next refresh).
+                    if (voiceGeneratingFor is not null)
+                        s.VoiceGenerating = voiceGeneratingFor(s.SessionId);
+                    if (voiceAudioReadyFor is not null)
+                        s.VoiceAudioReady = voiceAudioReadyFor(s.SessionId);
                     // Issue #218: stamp NeedsYouSince AFTER the briefing/rail fields above, so the
                     // EffectiveColor fold sees this refresh's final BriefingState/RailLine/OnHold -
                     // a session still being briefed/explained is effective yellow/orange (not red)

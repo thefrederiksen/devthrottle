@@ -216,6 +216,32 @@ public sealed class SessionStatusWingman : IDisposable
     }
 
     /// <summary>
+    /// The voice-mode "yellow until audio ready" color rule (issue #553). A VOICE-MODE session that
+    /// is waiting for the user (WaitingForInput / WaitingForPerm) must NOT show red "needs you" while
+    /// its spoken audio is still being prepared: it stays YELLOW ("preparing voice / not ready yet")
+    /// while the wingman is still generating (<paramref name="voiceGenerating"/>) OR there is no
+    /// playable audio yet (<c>!</c><paramref name="voiceAudioReady"/>), and only turns RED once
+    /// playable audio exists. Non-voice sessions, and voice sessions that are not at a waiting
+    /// turn-end, are returned with their <paramref name="baseColor"/> unchanged.
+    ///
+    /// The actual play-readiness signals (HasVoice / IsGenerating) live in the Gateway's
+    /// WingmanVoiceService, surfaced to clients on SessionDto.VoiceAudioReady / VoiceGenerating; the
+    /// Gateway's SessionOrdering.EffectiveColor and the /m client's effColor apply this same rule on
+    /// those fields. This pure helper keeps the rule defined and unit-tested once, next to the rest of
+    /// the color mapping.
+    /// </summary>
+    internal static (string color, string reason) VoiceColorFor(
+        bool voiceMode, ActivityState state, bool voiceGenerating, bool voiceAudioReady,
+        (string color, string reason) baseColor)
+    {
+        var atTurnEnd = state is ActivityState.WaitingForInput or ActivityState.WaitingForPerm;
+        if (voiceMode && atTurnEnd && string.Equals(baseColor.color, StatusColor.Red, StringComparison.OrdinalIgnoreCase)
+            && (voiceGenerating || !voiceAudioReady))
+            return (StatusColor.Yellow, "preparing voice");
+        return baseColor;
+    }
+
+    /// <summary>
     /// Resolve the dot colour for a session given its current ActivityState plus the
     /// Wingman overlays (BriefingState, IsExplaining, IsBackgroundRunning). Yellow is
     /// emitted only when the session is parked at a turn-end (WaitingForInput /

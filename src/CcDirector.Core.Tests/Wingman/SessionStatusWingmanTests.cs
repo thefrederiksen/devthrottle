@@ -105,6 +105,62 @@ public sealed class SessionStatusWingmanTests
         Assert.Equal("starting", reason);
     }
 
+    // ---------- Voice-mode "yellow until audio ready" color rule (issue #553) ----------
+    // A voice-mode session waiting for the user must hold yellow ("preparing voice") while the
+    // wingman is generating OR before playable audio exists, and only go red once audio is ready.
+
+    [Fact]
+    public void VoiceMode_waiting_and_not_ready_is_yellow()
+    {
+        var baseColor = (StatusColor.Red, "needs you");
+        var (color, reason) = SessionStatusWingman.VoiceColorFor(
+            voiceMode: true, ActivityState.WaitingForInput, voiceGenerating: false, voiceAudioReady: false, baseColor);
+        Assert.Equal(StatusColor.Yellow, color);
+        Assert.Equal("preparing voice", reason);
+    }
+
+    [Fact]
+    public void VoiceMode_waiting_and_generating_is_yellow_even_if_audio_ready()
+    {
+        // Still generating a fresh summary (a new turn landed) -> yellow, regardless of stale audio.
+        var baseColor = (StatusColor.Red, "needs you");
+        var (color, _) = SessionStatusWingman.VoiceColorFor(
+            voiceMode: true, ActivityState.WaitingForPerm, voiceGenerating: true, voiceAudioReady: true, baseColor);
+        Assert.Equal(StatusColor.Yellow, color);
+    }
+
+    [Fact]
+    public void VoiceMode_waiting_and_audio_ready_is_red()
+    {
+        var baseColor = (StatusColor.Red, "needs you");
+        var (color, reason) = SessionStatusWingman.VoiceColorFor(
+            voiceMode: true, ActivityState.WaitingForInput, voiceGenerating: false, voiceAudioReady: true, baseColor);
+        Assert.Equal(StatusColor.Red, color);
+        Assert.Equal("needs you", reason);
+    }
+
+    [Fact]
+    public void VoiceMode_while_working_is_unchanged_blue()
+    {
+        // The yellow hold is a turn-end overlay: while the agent is producing bytes (blue) it must
+        // not apply even in voice mode with no audio.
+        var baseColor = (StatusColor.Blue, "working");
+        var (color, _) = SessionStatusWingman.VoiceColorFor(
+            voiceMode: true, ActivityState.Working, voiceGenerating: true, voiceAudioReady: false, baseColor);
+        Assert.Equal(StatusColor.Blue, color);
+    }
+
+    [Fact]
+    public void NonVoice_session_color_is_unchanged()
+    {
+        // A non-voice session is never touched by the rule: a waiting non-voice session stays red.
+        var baseColor = (StatusColor.Red, "needs you");
+        var (color, reason) = SessionStatusWingman.VoiceColorFor(
+            voiceMode: false, ActivityState.WaitingForInput, voiceGenerating: true, voiceAudioReady: false, baseColor);
+        Assert.Equal(StatusColor.Red, color);
+        Assert.Equal("needs you", reason);
+    }
+
     // ---------- End-to-end: the timer flip drives the badge ----------
 
     // ---------- Yellow overlay (Wingman auto-explain in flight) ----------

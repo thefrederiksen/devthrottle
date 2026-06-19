@@ -1,4 +1,5 @@
-// Wingman Voice - standalone mobile screen (issue #531), v18. Plain static JS (not Blazor); recording
+// Wingman Voice - standalone mobile screen (issue #531), v19 (issue #553: gesture-safe mobile
+// autoplay, voice-before-menu, yellow-until-audio-ready). Plain static JS (not Blazor); recording
 // works offline; a network-first service worker loads the page offline.
 //
 // Voice-first + proactive:
@@ -32,7 +33,21 @@
   // The ONE effective color (mirrors gateway SessionOrdering.EffectiveColor): a session the
   // wingman is reading/summarizing shows yellow ("not ready yet"), a user-requested explain
   // deep dive shows orange, an on-hold session greys out - otherwise the raw status color.
-  function effColor(s){ if(!s)return "unknown"; if(s.onHold)return "grey"; if(s.briefingState==="Explaining")return "orange"; if(s.briefingState==="Briefing"&&(s.statusColor||"").toLowerCase()==="red")return "yellow"; return s.statusColor; }
+  function effColor(s){
+    if(!s)return "unknown";
+    if(s.onHold)return "grey";
+    if(s.briefingState==="Explaining")return "orange";
+    if(s.briefingState==="Briefing"&&(s.statusColor||"").toLowerCase()==="red")return "yellow";
+    // Voice-mode color rule (issue #553): a voice-mode session that is waiting for the user must
+    // stay YELLOW ("preparing voice / not ready yet") while the wingman is generating OR before the
+    // playable audio exists, and only turn RED once there is audio to play. It must never show
+    // red/needs-you in voice mode before audio is ready. Non-voice color behavior is unchanged.
+    var st=s.assessedState||s.activityState;
+    var waiting=(st==="WaitingForInput"||st==="WaitingForPerm");
+    if(s.voiceMode && waiting && (s.statusColor||"").toLowerCase()==="red" && (s.voiceGenerating || !s.voiceAudioReady))
+      return "yellow";
+    return s.statusColor;
+  }
   function repoBase(p){ if(!p)return "(no repo)"; var n=p.replace(/\\/g,"/").replace(/\/+$/,""); var i=n.lastIndexOf("/"); return i>=0?n.slice(i+1):n; }
   function titleOf(s){ return (s.name&&s.name.trim())?s.name.trim():repoBase(s.repoPath); }
   function humanState(st){ if(st==="WaitingForInput")return "waiting for input"; if(st==="WaitingForPerm")return "waiting for permission"; return st||"-"; }
@@ -80,10 +95,14 @@
         // Tapping the row BODY opens the session WITHOUT auto-playing (drive-safe; unchanged).
         li.addEventListener("click", function(){ openSession(s, false); });
         var pb=li.querySelector(".scard-play");
-        // Tapping the play triangle opens the session AND auto-plays its ready voice once buffered
-        // (issue #533 - no longer headless from the list). stopPropagation keeps the row body's
-        // open-without-autoplay path intact.
-        if(pb) pb.addEventListener("click", function(ev){ ev.stopPropagation(); openSession(s, true); });
+        // Tapping the play triangle opens the session AND auto-plays its ready voice (issue #533 -
+        // no longer headless from the list). Mobile autoplay fix (issue #553): iOS/Android only let
+        // audioEl.play() run while the tap's user-gesture is still alive, so we START playback HERE -
+        // synchronously inside the tap handler, on the session's voice-audio URL, BEFORE any await.
+        // That "unlocks" the element so it begins as soon as the bytes arrive; openSession() then
+        // syncs the buffered-ready UI state. stopPropagation keeps the row body's open-without-
+        // autoplay path intact.
+        if(pb) pb.addEventListener("click", function(ev){ ev.stopPropagation(); startGesturePlayback(s.sessionId); openSession(s, true); });
         sessionList.appendChild(li);
       });
     }catch(e){
@@ -205,18 +224,29 @@
   // set (the triangle entry path, issue #533) the cached voice starts playing once buffered.
   async function openVoice(autoPlay){
     if(!current) return;
+    var sid=current.sid;
     showIdle();   // neutral: no summary, button says "Explain"
     clearMenu();
+    // Issue #553: playback must NOT be gated behind menu detection. The /wingman/menu call can take
+    // up to 90 s (a brain call when the terminal looks like a menu), and previously it ran FIRST,
+    // blocking the cached-voice fetch entirely. Now both fetches run IN PARALLEL: the moment the
+    // cached voice resolves AND it is ready, we show it (and, if autoPlay was requested from the
+    // triangle, begin playback - gesture-safe per startGesturePlayback). The menu, when present,
+    // still wins the on-screen surface, but only the menu render waits on the menu call.
+    var voiceP=fetchJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice",{},T.http)
+      .then(function(v){ return v; }, function(){ return null; });
+    var menuP=fetchJson("/sessions/"+encodeURIComponent(sid)+"/wingman/menu",{},T.explain)
+      .then(function(m){ return m; }, function(){ return null; });
+
+    // Cached voice first / in parallel: surface it as soon as it lands so playback is not delayed by
+    // the menu call. A later menu (below) overrides the on-screen surface if one is actually present.
+    var v=await voiceP;
+    if(current && current.sid===sid && v && v.ready){ heroReady(v.spoken, v.reply, !!autoPlay); }
+
     // A pending on-screen MENU takes priority - show the options to tap or say. The server gates this
     // behind a cheap look, so it only costs a brain call when the terminal actually shows a menu.
-    try{
-      var m=await fetchJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/menu",{},T.explain);
-      if(m && m.isMenu && current){ showMenu(m); return; }
-    }catch(e){ /* no menu / unreachable -> fall through to cached voice */ }
-    try{
-      var v=await fetchJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/voice",{},T.http);
-      if(v && v.ready){ heroReady(v.spoken, v.reply, !!autoPlay); }   // cached -> show it (button becomes "Explain again")
-    }catch(e){ /* leave idle; do not auto-explain */ }
+    var m=await menuP;
+    if(current && current.sid===sid && m && m.isMenu){ stopListen(); showMenu(m); }
   }
 
   // ===== on-screen menu: read the options, take a spoken/tapped choice, press it =====
@@ -321,19 +351,55 @@
   async function runWingmanDirect(text){ if(busy||!text||!text.trim()){ if(!text||!text.trim()) heroStatus.textContent="Type a question first."; return; } if(typedText.value===text) typedText.value=""; collapseTextSection(); heroLoading("Asking the wingman..."); try{ var r=await postJson("/wingman/ask-direct",{text:text.trim()},T.direct); busy=false; busyBar.classList.add("hidden"); spoken=r.spoken||""; renderText(spoken,null); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; if(spoken) preparePlaybackText(spoken); }catch(e){ heroFailed(e.message, function(){ runWingmanDirect(text); }); } }
 
   // ===== play (ready only when the audio is fully buffered) =====
-  function waitPlayable(url){ return new Promise(function(res,rej){ var done=false; function ok(){ if(done)return; done=true; cleanup(); res(); } function bad(){ if(done)return; done=true; cleanup(); rej(new Error("audio load failed")); } function cleanup(){ audioEl.removeEventListener("canplaythrough",ok); audioEl.removeEventListener("loadeddata",soft); audioEl.removeEventListener("error",bad); clearTimeout(t); } function soft(){ setTimeout(ok,1200); } audioEl.addEventListener("canplaythrough",ok); audioEl.addEventListener("loadeddata",soft); audioEl.addEventListener("error",bad); var t=setTimeout(ok,12000); audioEl.src=url; audioEl.load(); }); }
+  // Gesture-safe playback (issue #553): on a phone, audioEl.play() only succeeds while the tap's
+  // user-gesture is still live. preparePlaybackUrl plays only AFTER an awaited buffer, by which time
+  // the gesture is gone and the play() promise silently rejects. So when the user TAPS (the list
+  // triangle, or the in-session Play button on a not-yet-buffered session) we call this FIRST,
+  // synchronously inside the handler: set the element's src to the session's voice-audio URL and
+  // call play() right here. The element unlocks and starts as soon as bytes arrive; preparePlaybackUrl
+  // (kicked off by openVoice/heroReady) then flips the button to "ready"/"speaking" once buffered.
+  // A rejection (no audio yet, or the URL 404s) is swallowed - the normal "Audio not ready" UI shows.
+  function startGesturePlayback(sid){
+    if(!sid) return;
+    var url=voiceAudioUrl(sid);
+    try{ if(audioEl.src!==url) audioEl.src=url; }catch(e){}
+    audioUrl=url; audioReady=false;
+    playBtn.classList.add("speaking"); playBtn.classList.remove("ready");
+    var p=audioEl.play();
+    if(p&&p.catch) p.catch(function(){ /* not buffered yet / no audio - the buffered-ready path retakes the UI */ });
+  }
+  // waitPlayable resolves once the element can play <url>. Issue #553: if a gesture already pointed
+  // the element at this exact url (startGesturePlayback) we must NOT reset src+load() again - that
+  // would tear down the in-flight, gesture-authorized playback. So we only (re)assign src when it
+  // differs, and if the element is already buffered enough we resolve immediately.
+  function waitPlayable(url){ return new Promise(function(res,rej){ var done=false; function ok(){ if(done)return; done=true; cleanup(); res(); } function bad(){ if(done)return; done=true; cleanup(); rej(new Error("audio load failed")); } function cleanup(){ audioEl.removeEventListener("canplaythrough",ok); audioEl.removeEventListener("loadeddata",soft); audioEl.removeEventListener("error",bad); clearTimeout(t); } function soft(){ setTimeout(ok,1200); } audioEl.addEventListener("canplaythrough",ok); audioEl.addEventListener("loadeddata",soft); audioEl.addEventListener("error",bad); var t=setTimeout(ok,12000); if(audioEl.src!==url){ audioEl.src=url; audioEl.load(); } else if(audioEl.readyState>=3){ ok(); } }); }
   // autoPlay (issue #533): once the audio is buffered, start playing without a further tap (the
   // session must already be the one the user opened from the triangle). On a buffering failure the
-  // existing "Audio not ready - tap the triangle to try again." state is shown, not hidden.
+  // existing "Audio not ready - tap the triangle to try again." state is shown, not hidden. Issue
+  // #553: when the gesture already started playback on this url (audioEl is mid-play), we keep it
+  // going - we only call play() if it is not already running, so the buffered-ready transition does
+  // not restart audio that is already speaking.
   async function preparePlaybackUrl(url, autoPlay){
     var sidAtStart=current?current.sid:null;
-    playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); playBtn.disabled=true; heroStatus.textContent="Preparing audio...";
-    try{ await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.classList.add("ready"); playBtn.disabled=false; heroStatus.textContent="Tap to listen."; if(autoPlay && current && current.sid===sidAtStart) play(); }
-    catch(e){ playBtn.classList.remove("loading","ready"); playBtn.disabled=false; heroStatus.textContent="Audio not ready - tap the triangle to try again."; }
+    var gestureRunning=(audioEl.src===url && !audioEl.paused);
+    if(gestureRunning){ playBtn.classList.add("speaking"); playBtn.classList.remove("ready","loading"); }
+    else { playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); playBtn.disabled=true; heroStatus.textContent="Preparing audio..."; }
+    try{ await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.disabled=false; if(!audioEl.paused){ playBtn.classList.add("speaking"); playBtn.classList.remove("ready"); heroStatus.textContent="Speaking..."; } else { playBtn.classList.add("ready"); playBtn.classList.remove("speaking"); heroStatus.textContent="Tap to listen."; if(autoPlay && current && current.sid===sidAtStart) play(); } }
+    catch(e){ playBtn.classList.remove("loading","ready","speaking"); playBtn.disabled=false; heroStatus.textContent="Audio not ready - tap the triangle to try again."; }
   }
   // Direct-wingman answers are not stored server-side; synthesize them on the spot via /wingman/tts.
   async function preparePlaybackText(text){ playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); playBtn.disabled=true; heroStatus.textContent="Preparing audio..."; try{ var ctrl=new AbortController(); var timer=setTimeout(function(){ctrl.abort();},T.http); var resp; try{ resp=await fetch("/wingman/tts",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text}),signal:ctrl.signal}); } finally{ clearTimeout(timer); } if(!resp.ok) throw new Error("tts"); var url=URL.createObjectURL(await resp.blob()); await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.classList.add("ready"); playBtn.disabled=false; heroStatus.textContent="Tap to listen."; }catch(e){ playBtn.classList.remove("loading","ready"); playBtn.disabled=false; heroStatus.textContent="Audio not ready - tap to try again."; } }
-  function play(){ if(!audioReady||!audioUrl){ if(spoken&&current) preparePlaybackUrl(voiceAudioUrl(current.sid)); return; } if(!audioEl.paused){ stopListen(); return; } if(audioEl.src!==audioUrl){ try{ audioEl.src=audioUrl; }catch(e){} } playBtn.classList.add("speaking"); playBtn.classList.remove("ready"); audioEl.play().catch(function(){ endAudioUi(); }); }
+  // play() runs on the in-session Play button tap (and on autoPlay). Issue #553: when the audio is
+  // not yet buffered we must STILL start it inside this tap's gesture or a phone will reject the
+  // play() that would otherwise fire after the awaited buffer. So we call startGesturePlayback FIRST
+  // (synchronous play() on the session's voice url), then kick preparePlaybackUrl to drive the
+  // buffered-ready UI. For an already-buffered url we just play (or stop if already speaking).
+  function play(){
+    if(!audioReady||!audioUrl){ if(spoken&&current){ startGesturePlayback(current.sid); preparePlaybackUrl(voiceAudioUrl(current.sid)); } return; }
+    if(!audioEl.paused){ stopListen(); return; }
+    if(audioEl.src!==audioUrl){ try{ audioEl.src=audioUrl; }catch(e){} }
+    playBtn.classList.add("speaking"); playBtn.classList.remove("ready"); audioEl.play().catch(function(){ endAudioUi(); });
+  }
   function endAudioUi(){ playBtn.classList.remove("speaking"); if(audioReady) playBtn.classList.add("ready"); }
   function stopListen(){ try{ audioEl.pause(); }catch(e){} endAudioUi(); }
 
