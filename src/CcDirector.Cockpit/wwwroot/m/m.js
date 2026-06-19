@@ -1,4 +1,4 @@
-// Wingman Voice - standalone mobile screen (issue #531), v17. Plain static JS (not Blazor); recording
+// Wingman Voice - standalone mobile screen (issue #531), v18. Plain static JS (not Blazor); recording
 // works offline; a network-first service worker loads the page offline.
 //
 // Voice-first + proactive:
@@ -241,7 +241,36 @@
   // view - the user just typed at the bottom inside the collapsed <details>, so the only confirmation
   // is off-screen otherwise (issue #532).
   function collapseTextSection(){ if(textSection) textSection.open=false; }
-  async function runAgentTurn(sid,text){ if(!sid||!text||!text.trim())return; if(current&&current.sid===sid) heroLoading("Working on it - the wingman will summarize when the agent finishes..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn); if(current&&current.sid===sid){ if(r.needsChoice && r.menu){ showMenu(r.menu, r.spoken); } else { clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); } } }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ runAgentTurn(sid,text); }); } }
+  // Send a turn to the AGENT (text or transcribed voice). Issue #535: the agent path is "fire it and
+  // let it run" - the caller drops back to the LIST on send (so the user watches the session's dot),
+  // so this MUST NOT rely on the session view being open to keep the turn alive or to surface a
+  // failure. It blocks the session row (blocked[sid] -> the list shows "sending...") and retries the
+  // delivery on a connection/server failure until it lands, so a navigated-away agent send is never
+  // silently lost (no-silent-failure rule). On success it clears the block and refreshes whichever
+  // screen is visible; if the user is still on this session it also shows the spoken summary / menu.
+  async function runAgentTurn(sid,text){
+    if(!sid||!text||!text.trim())return;
+    function onThis(){ return current && current.sid===sid; }
+    blocked[sid]=true;
+    if(onThis()){ heroLoading("Working on it - the wingman will summarize when the agent finishes..."); showTalkState(); }
+    var backoff=1000;
+    while(true){
+      try{
+        var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn);
+        delete blocked[sid];
+        if(onThis()){ if(r.needsChoice && r.menu){ showMenu(r.menu, r.spoken); } else { clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); } }
+        else { showTalkState(); refreshVisible(true); }   // back on the list: clear "sending..." + reflect the dot
+        return;
+      }catch(e){
+        // Keep the row honest while we keep trying. On the session view show the failure with a Retry
+        // (it can be tapped to fail fast); off-view the persistent "sending..." on the row plus the
+        // automatic retry guarantee the message is not lost with no indication.
+        if(onThis()){ heroFailed(e.message, function(){ runAgentTurn(sid,text); }); return; }
+        showTalkState();
+        await delay(backoff); backoff=Math.min(backoff*1.6,8000);
+      }
+    }
+  }
   async function runWingmanDirect(text){ if(busy||!text||!text.trim()){ if(!text||!text.trim()) heroStatus.textContent="Type a question first."; return; } if(typedText.value===text) typedText.value=""; collapseTextSection(); heroLoading("Asking the wingman..."); try{ var r=await postJson("/wingman/ask-direct",{text:text.trim()},T.direct); busy=false; busyBar.classList.add("hidden"); spoken=r.spoken||""; renderText(spoken,null); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; if(spoken) preparePlaybackText(spoken); }catch(e){ heroFailed(e.message, function(){ runWingmanDirect(text); }); } }
 
   // ===== play (ready only when the audio is fully buffered) =====
@@ -277,7 +306,19 @@
     showTalkState();
   }
   function finishRecording(action){ if(!rec)return; rec.action=action; if(rec.timer) clearInterval(rec.timer); try{ if(rec.recorder.state!=="inactive") rec.recorder.stop(); else onRecordingStopped(); }catch(e){ onRecordingStopped(); } }
-  async function onRecordingStopped(){ var r=rec; rec=null; try{ r.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} showTalkState(); if(r.action!=="send") return; var blob=new Blob(r.chunks,{type:r.mime}); if(!blob.size){ heroStatus.textContent="Did not catch any audio - tap Talk and try again."; return; } var entry={ id:uid(), sid:current.sid, name:current.name, mime:r.mime, blob:blob, ts:Date.now(), mode:r.mode||"agent" }; try{ await outboxPut(entry); }catch(e){} sendEntry(entry); }
+  async function onRecordingStopped(){
+    var r=rec; rec=null; try{ r.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} showTalkState();
+    if(r.action!=="send") return;
+    var blob=new Blob(r.chunks,{type:r.mime}); if(!blob.size){ heroStatus.textContent="Did not catch any audio - tap Talk and try again."; return; }
+    var entry={ id:uid(), sid:current.sid, name:current.name, mime:r.mime, blob:blob, ts:Date.now(), mode:r.mode||"agent" };
+    try{ await outboxPut(entry); }catch(e){}
+    sendEntry(entry);
+    // Issue #535: a voice recording TO THE AGENT returns to the list promptly once Send is tapped -
+    // the upload/transcribe/send continues in the background via the durable outbox (sendEntry blocks
+    // the row -> the list shows "sending..."). A recording TO THE WINGMAN stays on the session view to
+    // hear the spoken answer.
+    if(entry.mode==="agent") showList();
+  }
 
   // ===== transcribe the recording, then route it to the agent (or the wingman) =====
   // A network failure (offline) is tagged .net -> keep the recording and wait forever. An HTTP
@@ -345,9 +386,13 @@
   playBtn.addEventListener("click", function(){ if(playBtn.classList.contains("speaking")) stopListen(); else play(); });
   explainBtn.addEventListener("click", explain);
   // Both text sends clear the box immediately on tap (the sent text is no longer relevant); the
-  // original text stays captured in `t` so a Retry re-sends it (issue #532). The agent path's
-  // post-send destination is owned by #535; here it only clears on tap.
-  askAgentBtn.addEventListener("click", function(){ var t=typedText.value; if(!t||!t.trim()){ heroStatus.textContent="Type or record something first."; return; } typedText.value=""; runAgentTurn(current&&current.sid, t); });
+  // original text stays captured in `t` so a Retry re-sends it (issue #532).
+  // Issue #535 - post-send DESTINATION differs by target:
+  //   Send to agent  -> fire the turn, then return to the LIST promptly (on send, not after the turn
+  //                     completes); runAgentTurn keeps the delivery alive + shows "sending..." on the
+  //                     row, so leaving immediately is safe and a failure is never silently lost.
+  //   Ask the wingman -> STAY on the session view to hear the spoken answer (runWingmanDirect).
+  askAgentBtn.addEventListener("click", function(){ var t=typedText.value; if(!t||!t.trim()){ heroStatus.textContent="Type or record something first."; return; } var sid=current&&current.sid; if(!sid) return; typedText.value=""; runAgentTurn(sid, t); showList(); });
   askWingmanBtn.addEventListener("click", function(){ var t=typedText.value; if(busy||!t||!t.trim()){ if(!t||!t.trim()) heroStatus.textContent="Type a question first."; return; } typedText.value=""; runWingmanDirect(t); });
   talkBtn.addEventListener("click", function(){ startRecording("agent"); });
   talkWingmanBtn.addEventListener("click", function(){ startRecording("wingman"); });
