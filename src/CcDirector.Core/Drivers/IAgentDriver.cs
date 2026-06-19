@@ -35,6 +35,11 @@ public enum DriverCapabilities
     /// "jump to a previous message"). A VISIBLE-terminal feature: only meaningful when
     /// a human is watching the rendered terminal.</summary>
     History = 32,
+
+    /// <summary>The tool takes a model on the command line (claude's <c>--model</c>), so the
+    /// Edit Agent dialog can offer a driver-supplied model picker. When absent, model
+    /// selection is hidden and the tool's own default is used.</summary>
+    ModelSelection = 64,
 }
 
 /// <summary>
@@ -57,6 +62,21 @@ public interface IAgentDriver
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }
+
+    /// <summary>The command-line flag this tool takes a model on (e.g. <c>--model</c>), or
+    /// empty when the tool has no model flag. Used to compose the effective launch command so
+    /// the flag is owned by the driver, not hard-coded in the config layer.</summary>
+    string ModelFlag { get; }
+
+    /// <summary>The models this driver knows about, for the Edit Agent model picker. Empty
+    /// when the tool has no <see cref="DriverCapabilities.ModelSelection"/>. "Use the tool's
+    /// own default" is NOT an entry here - it is represented by an unset model.</summary>
+    IReadOnlyList<AgentModelOption> KnownModels { get; }
+
+    /// <summary>The model the tool is currently configured to default to (read from the tool's
+    /// own settings), or null when none is set / it cannot be determined. A display hint only -
+    /// never written, never used to compose the launch command.</summary>
+    string? ReadConfiguredDefaultModel();
 
     /// <summary>Resolve the tool's executable: validate an explicit path, or search
     /// PATH. Throws with install guidance when not found - no silent fallback.</summary>

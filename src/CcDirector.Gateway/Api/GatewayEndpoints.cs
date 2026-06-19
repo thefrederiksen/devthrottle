@@ -47,6 +47,7 @@ internal static class GatewayEndpoints
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
+        Func<string, bool>? voiceGeneratingFor = null,
         Func<string, bool, DateTime?>? needsYouStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
@@ -498,6 +499,18 @@ internal static class GatewayEndpoints
                         var (briefingState, railLine) = briefStampFor(s.SessionId);
                         s.BriefingState = briefingState;
                         s.RailLine = railLine;
+                    }
+                    // Issue #531 voice mode: while the gateway's warm-brain wingman is producing this
+                    // session's spoken summary, present it through the SAME yellow "wingman reading"
+                    // window (red -> yellow -> red). Gated on raw red so a working (blue) session is
+                    // untouched, and on a brief agent NOT already claiming the yellow/orange window.
+                    // Works with the brief agent OFF (CC_TURNBRIEFS=0) and never spawns a --print explain.
+                    if (voiceGeneratingFor is not null
+                        && (s.BriefingState is null or "None" or "Briefed")
+                        && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+                        && voiceGeneratingFor(s.SessionId))
+                    {
+                        s.BriefingState = "Briefing";
                     }
                     // Issue #218: stamp NeedsYouSince AFTER the briefing/rail fields above, so the
                     // EffectiveColor fold sees this refresh's final BriefingState/RailLine/OnHold -

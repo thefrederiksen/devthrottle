@@ -3,6 +3,7 @@ using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Dictation.Providers;
 using CcDirector.Core.Utilities;
+using static CcDirector.Core.Configuration.TranscriptionTransport;
 
 namespace CcDirector.Avalonia.Voice;
 
@@ -32,7 +33,7 @@ public sealed class SpeakService : IAsyncDisposable
 
     private MicAudioCapture? _mic;
     private DictionaryLoader? _dictionary;
-    private OpenAiRealtimeProvider? _provider;
+    private IDictationProvider? _provider;
     private CleanupOrchestrator? _cleanup;
     private AudioBuffer? _audioBuffer;
     private DictationSession? _session;
@@ -108,11 +109,12 @@ public sealed class SpeakService : IAsyncDisposable
 
         try
         {
-            // Resolve the key for this session (Gateway vault or local key, per mode). No key
-            // means dictation is unavailable; surface where to set one instead of a raw connect
-            // error. Overlapped with live capture now, not blocking the mic.
-            var apiKey = await _keyResolver.ResolveAsync(ct);
-            if (string.IsNullOrWhiteSpace(apiKey))
+            // Resolve the full routing target for this session (mode, transport, key, model, base
+            // URL) from the Gateway vault or local settings. No routing means dictation is
+            // unavailable; surface a mode-appropriate message instead of a raw connect error.
+            // Overlapped with live capture now so the mic is already buffering while we wait.
+            var routing = await _keyResolver.ResolveEndpointAsync(ct);
+            if (routing is null)
                 throw new InvalidOperationException(_keyResolver.UnavailableMessage);
 
             // Pull the latest glossary from the Gateway when connected and refresh the local cache
@@ -122,17 +124,43 @@ public sealed class SpeakService : IAsyncDisposable
             var dictPath = _options.ResolveDictationDictionaryPath();
             _dictionary = new DictionaryLoader(dictPath, watch: false);
 
-            _provider = new OpenAiRealtimeProvider(apiKey: apiKey);
-            _cleanup = new CleanupOrchestrator(
-                apiKey: apiKey,
-                model: _options.DictationCleanupModel);
+            FileLog.Write($"[SpeakService] routing: mode={routing.Mode.ToConfigString()} transport={routing.Transport.ToConfigString()} model={routing.Model} baseUrl={routing.BaseUrl}");
+
+            // Route by transport (issue #513): realtime for BYO/OpenAI, batch for DevThrottle/Groq.
+            // The batch path wraps the raw PCM mic audio in a WAV container before the upload
+            // because Groq's Whisper API requires a properly-formed audio file. Cleanup and live
+            // preview are only available on the realtime path; DevThrottle/batch skips both.
+            LivePreviewTranscriber? preview;
+            if (routing.Transport == Batch)
+            {
+                _provider = new OpenAiTranscriptionProvider(
+                    apiKey: routing.ApiKey,
+                    model: routing.Model,
+                    audioContentType: "audio/wav",
+                    audioFileName: "audio.wav",
+                    baseUrl: routing.BaseUrl,
+                    wrapPcmInWav: true,
+                    pcmSampleRate: MicAudioCapture.SampleRate,
+                    pcmChannels: MicAudioCapture.Channels,
+                    pcmBitsPerSample: MicAudioCapture.BitsPerSample);
+                _cleanup = null;
+                preview = null;
+            }
+            else
+            {
+                _provider = new OpenAiRealtimeProvider(apiKey: routing.ApiKey, model: routing.Model);
+                _cleanup = new CleanupOrchestrator(
+                    apiKey: routing.ApiKey,
+                    model: _options.DictationCleanupModel);
+                // Live transcript preview (#215): re-transcribes the growing clip every few seconds
+                // so the dialog shows the words while the user is still talking.
+                preview = new LivePreviewTranscriber(
+                    apiKey: routing.ApiKey,
+                    model: _options.DictationPreviewModel);
+            }
+
             _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
-            // Live transcript preview (#215): re-transcribes the growing clip
-            // every few seconds so the dialog shows the words while the user is
-            // still talking. The session owns and disposes it.
-            var preview = new LivePreviewTranscriber(
-                apiKey: apiKey,
-                model: _options.DictationPreviewModel);
+            // The session owns and disposes both the provider and the preview.
             _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer, preview);
 
             // Connect (the slow part): the buffered audio captured during the

@@ -110,17 +110,68 @@ public class AgentToolConfigTests
     }
 
     [Fact]
-    public void ResolveEffectiveCommandLineArguments_OverridePinsModel_DoesNotDoubleAddModel()
+    public void ResolveEffectiveCommandLineArguments_CustomMode_UsesOverrideVerbatim_NoModelAppended()
     {
+        // Issue #527: Full-custom mode uses the override verbatim and appends NOTHING - not even
+        // the configured DefaultModel. This is the key regression guard for the new launch mode.
         var config = new AgentToolConfig
         {
             Tool = AgentKind.ClaudeCode,
+            LaunchMode = LaunchMode.Custom,
             ArgsOverride = "--model custom-model",
             DefaultModel = "opus",
         };
 
-        // The override already pins a model, so the configured DefaultModel is NOT appended again.
         Assert.Equal("--model custom-model", config.ResolveEffectiveCommandLineArguments());
+    }
+
+    [Fact]
+    public void ResolveEffectiveCommandLineArguments_CustomMode_IgnoresPresetAndModel()
+    {
+        // Custom mode ignores the preset entirely; only the free-text args launch.
+        var config = new AgentToolConfig
+        {
+            Tool = AgentKind.ClaudeCode,
+            PresetName = AgentToolCatalog.ClaudeAutomaticPresetName,
+            LaunchMode = LaunchMode.Custom,
+            ArgsOverride = "--verbose",
+            DefaultModel = "opus",
+        };
+
+        Assert.Equal("--verbose", config.ResolveEffectiveCommandLineArguments());
+    }
+
+    [Fact]
+    public void ResolveEffectiveCommandLineArguments_GuidedMode_IgnoresOverride()
+    {
+        // Guided mode ignores the free-text override; the preset + model are what launch.
+        var config = new AgentToolConfig
+        {
+            Tool = AgentKind.ClaudeCode,
+            PresetName = AgentToolCatalog.StandardPresetName,
+            LaunchMode = LaunchMode.Guided,
+            ArgsOverride = "--should-be-ignored",
+            DefaultModel = "opus[1m]",
+        };
+
+        Assert.Equal("--model opus[1m]", config.ResolveEffectiveCommandLineArguments());
+    }
+
+    [Fact]
+    public void ResolveEffectiveCommandLineArguments_GuidedOneMillionModel_UsesDriverFlag()
+    {
+        // The model flag comes from the driver (--model for Claude), and the [1m] suffix is the
+        // 1M-context request - carried through unchanged.
+        var config = new AgentToolConfig
+        {
+            Tool = AgentKind.ClaudeCode,
+            PresetName = AgentToolCatalog.ClaudeAutomaticPresetName,
+            DefaultModel = "opus[1m]",
+        };
+
+        Assert.Equal(
+            $"{AgentToolCatalog.ClaudeSkipPermissionsArg} --model opus[1m]",
+            config.ResolveEffectiveCommandLineArguments());
     }
 
     [Fact]

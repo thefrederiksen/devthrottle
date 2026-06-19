@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
 
@@ -44,6 +45,13 @@ public partial class AgentEditorDialog : Window
 
     // True once the user has confirmed discarding, so OnClosing does not prompt twice.
     private bool _allowClose;
+
+    // The chosen model id ("" = use the tool's own default). Replaces the old free-text ModelBox;
+    // set via the driver-driven ModelPickerDialog (issue #527).
+    private string _model = "";
+
+    // The tool's driver-detected configured default model, cached for the "Use default" hint.
+    private string? _detectedDefault;
 
     /// <summary>The agent the user committed via Save, or null if they cancelled/discarded.</summary>
     public AgentEntry? Result { get; private set; }
@@ -95,10 +103,16 @@ public partial class AgentEditorDialog : Window
 
             EnabledCheck.IsChecked = existing?.Enabled ?? true;
             PathBox.Text = existing?.ExecutablePath ?? "";
-            ModelBox.Text = existing?.DefaultModel ?? "";
+            _model = existing?.DefaultModel ?? "";
             ArgsOverrideBox.Text = existing?.ArgsOverride ?? "";
 
             PopulatePresetCombo(type, existing?.PresetId ?? "");
+
+            var mode = existing?.LaunchMode ?? LaunchMode.Guided;
+            GuidedRadio.IsChecked = mode == LaunchMode.Guided;
+            CustomRadio.IsChecked = mode == LaunchMode.Custom;
+            ApplyLaunchModeVisibility();
+            RefreshModelMetadata(type);
 
             // Display name: editing keeps the stored (possibly customized) name; adding auto-fills
             // from the type. AC12 - a customized name must show unchanged on open.
@@ -159,6 +173,7 @@ public partial class AgentEditorDialog : Window
 
         var type = SelectedType();
         PopulatePresetCombo(type, "");
+        RefreshModelMetadata(type);
 
         // Auto-fill the display name from the new type ONLY when the user has not customized it
         // (AC7/AC12). ShouldAutoFillName treats blank and prior auto names as fill-able.
@@ -180,9 +195,79 @@ public partial class AgentEditorDialog : Window
     }
 
     private void PresetCombo_Changed(object? sender, SelectionChangedEventArgs e) => RefreshPreview();
-    private void ModelBox_Changed(object? sender, TextChangedEventArgs e) { if (!_loading) RefreshPreview(); }
     private void ArgsOverrideBox_Changed(object? sender, TextChangedEventArgs e) { if (!_loading) RefreshPreview(); }
     private void PathBox_Changed(object? sender, TextChangedEventArgs e) { if (!_loading) RefreshPreview(); }
+
+    private void LaunchMode_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        ApplyLaunchModeVisibility();
+        RefreshPreview();
+    }
+
+    /// <summary>The launch mode the radios currently select.</summary>
+    private LaunchMode SelectedLaunchMode() =>
+        CustomRadio?.IsChecked == true ? LaunchMode.Custom : LaunchMode.Guided;
+
+    /// <summary>Show the Guided sub-panel (preset + model) or the Full-custom sub-panel.</summary>
+    private void ApplyLaunchModeVisibility()
+    {
+        var guided = SelectedLaunchMode() == LaunchMode.Guided;
+        if (GuidedPanel is not null) GuidedPanel.IsVisible = guided;
+        if (CustomPanel is not null) CustomPanel.IsVisible = !guided;
+    }
+
+    /// <summary>
+    /// Recompute driver-derived model state for a type: hide the model row entirely for drivers
+    /// without model selection, cache the driver-detected default, and refresh the compact display.
+    /// </summary>
+    private void RefreshModelMetadata(AgentKind type)
+    {
+        var driver = AgentDrivers.For(type);
+        var supportsModel = driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection);
+        if (ModelRow is not null) ModelRow.IsVisible = supportsModel;
+        _detectedDefault = supportsModel ? driver.ReadConfiguredDefaultModel() : null;
+        UpdateModelDisplay(type);
+    }
+
+    /// <summary>Render the compact "Model" value block from the chosen model id and the driver.</summary>
+    private void UpdateModelDisplay(AgentKind type)
+    {
+        if (ModelValueText is null || ModelValueSub is null) return;
+
+        var driver = AgentDrivers.For(type);
+        if (string.IsNullOrWhiteSpace(_model))
+        {
+            ModelValueText.Text = "Use default";
+            ModelValueSub.Text = string.IsNullOrWhiteSpace(_detectedDefault)
+                ? "No model flag; the tool uses its own default."
+                : $"No model flag; tool default is currently \"{_detectedDefault}\".";
+            return;
+        }
+
+        var known = driver.KnownModels.FirstOrDefault(
+            m => string.Equals(m.Id, _model, StringComparison.OrdinalIgnoreCase));
+        ModelValueText.Text = known?.DisplayName ?? _model;
+        var flag = driver.ModelFlag;
+        ModelValueSub.Text = string.IsNullOrEmpty(flag)
+            ? $"model: {_model}"
+            : $"launches with {flag} {_model}";
+    }
+
+    private async void BtnChooseModel_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[AgentEditorDialog] BtnChooseModel_Click");
+        var type = SelectedType();
+        var driver = AgentDrivers.For(type);
+        var dialog = new ModelPickerDialog(driver.KnownModels, _model, _detectedDefault, LabelFor(type));
+        await dialog.ShowDialog(this);
+        if (dialog.SelectedModelId is not null)
+        {
+            _model = dialog.SelectedModelId;
+            UpdateModelDisplay(type);
+            RefreshPreview();
+        }
+    }
 
     /// <summary>Recompute the right-side "what launches" preview from the live form fields.</summary>
     private void RefreshPreview()
@@ -194,8 +279,9 @@ public partial class AgentEditorDialog : Window
         {
             Tool = type,
             PresetName = PresetCombo?.SelectedItem as string ?? "",
-            DefaultModel = ModelBox?.Text?.Trim() ?? "",
+            DefaultModel = _model,
             ArgsOverride = ArgsOverrideBox?.Text?.Trim() ?? "",
+            LaunchMode = SelectedLaunchMode(),
         };
 
         var exe = PathBox?.Text?.Trim() ?? "";
@@ -346,8 +432,9 @@ public partial class AgentEditorDialog : Window
             {
                 Tool = type,
                 PresetName = PresetCombo.SelectedItem as string ?? "",
-                DefaultModel = ModelBox.Text?.Trim() ?? "",
+                DefaultModel = _model,
                 ArgsOverride = ArgsOverrideBox.Text?.Trim() ?? "",
+                LaunchMode = SelectedLaunchMode(),
             };
             var args = config.ResolveEffectiveCommandLineArguments();
             var workingDir = _options.ChatSessionRepoPath ?? Environment.CurrentDirectory;
@@ -382,8 +469,9 @@ public partial class AgentEditorDialog : Window
             Enabled = EnabledCheck.IsChecked == true,
             ExecutablePath = PathBox.Text?.Trim() ?? "",
             PresetId = PresetCombo.SelectedItem as string ?? "",
-            DefaultModel = ModelBox.Text?.Trim() ?? "",
+            DefaultModel = _model,
             ArgsOverride = ArgsOverrideBox.Text?.Trim() ?? "",
+            LaunchMode = SelectedLaunchMode(),
         };
 
         _allowClose = true;
@@ -441,8 +529,9 @@ public partial class AgentEditorDialog : Window
         (EnabledCheck.IsChecked == true).ToString(),
         PathBox.Text ?? "",
         PresetCombo.SelectedItem as string ?? "",
-        ModelBox.Text ?? "",
+        _model,
         ArgsOverrideBox.Text ?? "",
+        SelectedLaunchMode().ToString(),
     });
 
     // ----------------------------------------------------------------------------------------

@@ -185,6 +185,45 @@ public sealed class AgentEntryTests : IDisposable
     }
 
     [Fact]
+    public void SaveEntries_RoundTripsLaunchMode()
+    {
+        // Issue #527: launch_mode round-trips so Guided/Custom survives save/load.
+        AgentEntryStore.SaveEntries(new List<AgentEntry>
+        {
+            new() { Id = "g", DisplayName = "Guided", Type = AgentKind.ClaudeCode, LaunchMode = LaunchMode.Guided },
+            new() { Id = "c", DisplayName = "Custom", Type = AgentKind.ClaudeCode, LaunchMode = LaunchMode.Custom,
+                    ArgsOverride = "--foo" },
+        });
+
+        var loaded = AgentEntryStore.LoadEntries(new AgentOptions());
+
+        Assert.Equal(LaunchMode.Guided, loaded[0].LaunchMode);
+        Assert.Equal(LaunchMode.Custom, loaded[1].LaunchMode);
+    }
+
+    [Fact]
+    public void LoadEntries_LegacyNoLaunchMode_InfersCustomFromArgsOverride()
+    {
+        // Issue #527 migration: a legacy entry without launch_mode that has a free-text override
+        // becomes Custom (so its args are honored verbatim); one without becomes Guided.
+        SeedConfig("""
+        {
+          "agent": {
+            "entries": [
+              { "id": "with", "display_name": "W", "type": "ClaudeCode", "args_override": "--foo" },
+              { "id": "without", "display_name": "X", "type": "ClaudeCode", "args_override": "" }
+            ]
+          }
+        }
+        """);
+
+        var entries = AgentEntryStore.LoadEntries(new AgentOptions());
+
+        Assert.Equal(LaunchMode.Custom, entries[0].LaunchMode);
+        Assert.Equal(LaunchMode.Guided, entries[1].LaunchMode);
+    }
+
+    [Fact]
     public void LoadEntries_EntryMissingId_GetsGeneratedId()
     {
         // Defensive: a hand-edited entry without an id still loads with a fresh stable id.

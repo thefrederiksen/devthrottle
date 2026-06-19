@@ -15,6 +15,7 @@ public sealed class DirectorEndpointClient : IDisposable
 {
     private readonly HttpClient _http;
     private readonly HttpClient _verifyHttp;
+    private readonly HttpClient _actionHttp;
     private readonly string? _token;
 
     public DirectorEndpointClient(string? token = null)
@@ -31,11 +32,20 @@ public sealed class DirectorEndpointClient : IDisposable
         // the aggregator's 2s budget. The per-call CTS in VerifyCallbackAsync is the
         // effective timeout; this client-level value is just the hard ceiling behind it.
         _verifyHttp = new HttpClient { Timeout = VerifyCallbackTimeout + TimeSpan.FromSeconds(2) };
+        // On-demand, mutating session-drive calls (prompt/interrupt/escape) must NOT ride the 2s
+        // aggregator budget: they are not fleet-wide polls, they happen one at a time on a person's
+        // action, and the hop to the owning Director can cross a DERP-relayed tailnet leg that
+        // legitimately exceeds 2s (same reasoning as the verify callback above). Sharing _http's 2s
+        // ceiling cancels prompt delivery mid-send and surfaces as "send failed: ... HttpClient.Timeout
+        // of 2 seconds elapsing", which breaks the voice turn. Give these a generous, bounded deadline.
+        _actionHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         if (!string.IsNullOrEmpty(token))
         {
             _http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             _verifyHttp.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _actionHttp.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         }
     }
@@ -453,7 +463,7 @@ public sealed class DirectorEndpointClient : IDisposable
         try
         {
             // Director side ignores WaitForIdle - that's a Gateway-side concern.
-            var resp = await _http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/prompt", req, ct);
+            var resp = await _actionHttp.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/prompt", req, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
@@ -473,7 +483,7 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         try
         {
-            var resp = await _http.PostAsync($"{endpoint}/sessions/{sessionId}/interrupt", null, ct);
+            var resp = await _actionHttp.PostAsync($"{endpoint}/sessions/{sessionId}/interrupt", null, ct);
             return resp.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -487,7 +497,7 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         try
         {
-            var resp = await _http.PostAsync($"{endpoint}/sessions/{sessionId}/escape", null, ct);
+            var resp = await _actionHttp.PostAsync($"{endpoint}/sessions/{sessionId}/escape", null, ct);
             return resp.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -835,5 +845,6 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         _http.Dispose();
         _verifyHttp.Dispose();
+        _actionHttp.Dispose();
     }
 }

@@ -44,6 +44,11 @@ public sealed class CursorDriver : IAgentDriver
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => CursorSlashCommands.All;
 
+    // cursor-agent's model-selection flag is not yet live-verified (issue #517): no model selection.
+    public string ModelFlag => "";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             "[CursorDriver] Executable resolution is owned by the Director's CursorAgent path; " +

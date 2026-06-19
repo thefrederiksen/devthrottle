@@ -477,6 +477,10 @@ internal sealed class FixtureAskDriver : IAgentDriver
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => [];
 
+    public string ModelFlag => "";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
+
     public void SetReply(string agentSessionId, string replyText)
     {
         var list = _widgets.TryGetValue(agentSessionId, out var w) ? w : _widgets[agentSessionId] = new();

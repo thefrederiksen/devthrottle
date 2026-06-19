@@ -97,6 +97,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly NeedsYouClock _needsYouClock = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
+    private Wingman.WingmanVoiceService? _voiceService;
+    private System.Threading.Timer? _voiceSweepTimer;
     private AdvertisedEndpointMonitor? _endpointMonitor;
     private WebApplication? _app;
     private bool _stopped;
@@ -222,6 +224,45 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// Pre-build voice for voice sessions that are idle and missing it, so the session list shows
+    /// them "voice ready" BEFORE the person enters - including after a gateway restart (the voice-
+    /// session set is persisted). Gentle: at most a few per cycle, idle sessions only (a working
+    /// session regenerates on its turn-end). Best-effort; never throws into the timer.
+    /// </summary>
+    private async Task SweepVoiceSessionsAsync()
+    {
+        var vs = _voiceService;
+        if (vs is null) return;
+        try
+        {
+            var directors = Registry.ListDirectors();
+            if (directors.Count == 0) return;
+            var generated = 0;
+            foreach (var sid in vs.VoiceSessionIds())
+            {
+                if (generated >= 3) break;          // gentle on the serialized brain
+                if (vs.HasVoice(sid)) continue;     // already cached, nothing to do
+                foreach (var d in directors)
+                {
+                    var ep = (d.ControlEndpoint ?? d.TailnetEndpoint ?? "").TrimEnd('/');
+                    if (string.IsNullOrWhiteSpace(ep)) continue;
+                    var s = await _client.GetSessionAsync(ep, sid);
+                    if (s is null) continue;        // not owned by this Director
+                    var st = s.ActivityState ?? "";
+                    if (st is "Idle" or "WaitingForInput" or "WaitingForPerm")
+                    {
+                        FileLog.Write($"[GatewayHost] voice sweep: pre-building voice for idle session {sid}");
+                        await vs.GenerateAsync(sid, ep, CancellationToken.None);
+                        generated++;
+                    }
+                    break;  // found the owning Director
+                }
+            }
+        }
+        catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep error: {ex.Message}"); }
+    }
+
+    /// <summary>
     /// The Gateway's warm brain (issue #184): a claude.exe this process hosts itself - no
     /// Director dependency. Dormant until first use; RestartAsync is the recovery verb.
     /// </summary>
@@ -283,20 +324,28 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client,
                 generatorId: $"{GatewayTurnBriefAgent.GeneratorId}/{BrainModel}");
+            _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client);
             _turnEndWatcher = new TurnEndWatcher(
                 Registry, _client,
                 _briefAgent.OnTurnEnd,
                 sid =>
                 {
-                    // Working again: the brief is moot AND the standing assessment is stale.
+                    // Working again: the brief is moot AND the standing assessment is stale AND the
+                    // cached voice/text summary is now stale - clear it so the list stops showing it
+                    // ready and nothing stale plays (issue #531). It regenerates on the next turn-end.
                     _briefAgent.OnSessionWorking(sid);
                     _assessments.Invalidate(sid);
+                    _voiceService?.OnSessionWorking(sid);
                 });
             _briefAgent.OnBriefStored = (sid, endpoint, brief) =>
             {
                 var assessed = _assessments.RecordBrief(sid, brief);
                 if (assessed is not null)
                     _ = _client.PostAssessmentAsync(endpoint, sid, assessed);
+                // Voice sessions (issue #531): the turn just finished, so re-make the spoken summary
+                // + audio in the background. It is then "ready" in the session list with no wait.
+                if (_voiceService is { } vs && vs.IsVoiceSession(sid))
+                    _ = vs.GenerateAsync(sid, endpoint, CancellationToken.None);
             };
             // First tick = the startup catch-up sweep; then the 15s reconcile poll for
             // Directors that never push (file-discovered locals, old builds).
@@ -428,6 +477,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // the aggregated /sessions view carries the Gateway-owned assessedState.
             onSessionState: (directorId, sessionId, newState) =>
             {
+                // Any observed Working state means a new turn is in progress, so the cached voice/text
+                // summary is stale - clear it (broad net for turns started outside the voice app, e.g.
+                // the desktop cockpit). The voice-turn endpoint also clears deterministically on send.
+                if (string.Equals(newState, "Working", StringComparison.OrdinalIgnoreCase))
+                    _voiceService?.OnSessionWorking(sessionId);
                 if (_turnEndWatcher is null) return;
                 var endpoint = Registry.Get(directorId)?.ControlEndpoint;
                 if (string.IsNullOrEmpty(endpoint)) return;
@@ -438,6 +492,10 @@ public sealed class GatewayHost : IAsyncDisposable
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
                 : null,
+            // Voice mode (issue #531): while the gateway's wingman is producing a session's spoken
+            // summary, paint it yellow ("not ready yet") and back to red - independent of the brief
+            // agent (which is OFF when CC_TURNBRIEFS=0) and never via the Director's --print explain.
+            voiceGeneratingFor: sid => _voiceService?.IsGenerating(sid) == true,
             // Issue #218: stamp the Gateway-owned NeedsYouSince entry clock onto each session.
             needsYouStampFor: (sid, isRed) => _needsYouClock.Stamp(sid, isRed),
             // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always
@@ -467,6 +525,18 @@ public sealed class GatewayHost : IAsyncDisposable
         // Pass the fleet token (issue #457): the proxy injects it as the Bearer on every forward
         // so an auth-enabled Director (LAN mode) accepts the call. Harmless for auth-off Directors.
         SessionWsProxyEndpoints.Map(_app, Registry, _client, SessionOwners, Token);
+
+        // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
+        // session and have the persistent wingman brain translate the reply into speakable form,
+        // plus the direct-to-wingman path. Backed by the same warm Brain the brief agent uses.
+        _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client);
+        GatewayWingmanVoiceEndpoint.Map(_app, Registry, _client, ct => Brain.GetAsync(ct), _keyVault, _voiceService);
+        // The gateway OWNS keeping voice sessions' summaries pre-built (issue #531): a gentle
+        // background sweep regenerates voice for any idle voice session that is missing it, so the
+        // list shows it ready BEFORE you enter - including after a gateway restart (the voice-session
+        // set is persisted). Turn-end regeneration + the deterministic voice-turn path also feed it.
+        _voiceSweepTimer = new System.Threading.Timer(_ => { _ = SweepVoiceSessionsAsync(); }, null,
+            TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(45));
 
         // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
@@ -608,6 +678,8 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Brief pipeline first (it drives the brain), then the brain itself - the
         // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).
+        try { _voiceSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep dispose error: {ex.Message}"); }
+        _voiceSweepTimer = null;
         try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { _briefAgent?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brief agent dispose error: {ex.Message}"); }

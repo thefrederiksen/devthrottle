@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Utilities;
 
@@ -36,6 +37,10 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
     private readonly string _audioContentType;
     private readonly string _audioFileName;
     private readonly string _transcriptionEndpoint;
+    private readonly bool _wrapPcmInWav;
+    private readonly int _pcmSampleRate;
+    private readonly int _pcmChannels;
+    private readonly int _pcmBitsPerSample;
 
     private readonly object _gate = new();
     private readonly MemoryStream _audioBuffer = new();
@@ -52,13 +57,21 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
     /// <param name="audioFileName">Filename hint sent in the multipart upload. Extension matters: it tells the server how to decode the bytes.</param>
     /// <param name="httpClient">Optional shared HttpClient. The provider creates and owns one if null.</param>
     /// <param name="baseUrl">OpenAI-compatible base URL (issue #497). Defaults to <see cref="DefaultBaseUrl"/>; pass DevThrottle's base URL to route through its managed proxy.</param>
+    /// <param name="wrapPcmInWav">When true, the raw PCM bytes pushed via <see cref="PushAudioAsync"/> are wrapped in a RIFF WAV header on <see cref="StopAsync"/> before the multipart upload. Use this for the desktop mic path where NAudio delivers raw PCM16 that the transcription API cannot accept without a container header.</param>
+    /// <param name="pcmSampleRate">Sample rate of the incoming PCM, used only when <paramref name="wrapPcmInWav"/> is true.</param>
+    /// <param name="pcmChannels">Channel count of the incoming PCM, used only when <paramref name="wrapPcmInWav"/> is true.</param>
+    /// <param name="pcmBitsPerSample">Bits per sample of the incoming PCM, used only when <paramref name="wrapPcmInWav"/> is true.</param>
     public OpenAiTranscriptionProvider(
         string? apiKey = null,
         string model = DefaultModel,
         string audioContentType = "audio/mpeg",
         string audioFileName = "audio.mp3",
         HttpClient? httpClient = null,
-        string? baseUrl = null)
+        string? baseUrl = null,
+        bool wrapPcmInWav = false,
+        int pcmSampleRate = 24000,
+        int pcmChannels = 1,
+        int pcmBitsPerSample = 16)
     {
         _apiKey = ResolveApiKey(apiKey);
         _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model;
@@ -66,6 +79,10 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
         _audioFileName = audioFileName;
         _transcriptionEndpoint =
             (string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.TrimEnd('/')) + "/audio/transcriptions";
+        _wrapPcmInWav = wrapPcmInWav;
+        _pcmSampleRate = pcmSampleRate;
+        _pcmChannels = pcmChannels;
+        _pcmBitsPerSample = pcmBitsPerSample;
 
         if (httpClient is null)
         {
@@ -123,7 +140,10 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
             prompt = _sttPrompt;
         }
 
-        FileLog.Write($"[OpenAiTranscriptionProvider] StopAsync: audio={audioBytes.Length} bytes");
+        if (_wrapPcmInWav)
+            audioBytes = WrapPcmInWav(audioBytes);
+
+        FileLog.Write($"[OpenAiTranscriptionProvider] StopAsync: audio={audioBytes.Length} bytes, wrapPcmInWav={_wrapPcmInWav}");
 
         if (audioBytes.Length == 0)
             return "";
@@ -196,6 +216,33 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
         }
         if (_ownsHttp) _http.Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Wrap raw PCM bytes in a minimal RIFF WAV container. Transcription APIs
+    /// require a properly-formed audio file; raw PCM without a header is rejected.
+    /// </summary>
+    private byte[] WrapPcmInWav(byte[] pcm)
+    {
+        int byteRate = _pcmSampleRate * _pcmChannels * _pcmBitsPerSample / 8;
+        int blockAlign = _pcmChannels * _pcmBitsPerSample / 8;
+        using var ms = new MemoryStream(44 + pcm.Length);
+        using var bw = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
+        bw.Write(Encoding.ASCII.GetBytes("RIFF"));
+        bw.Write(36 + pcm.Length);
+        bw.Write(Encoding.ASCII.GetBytes("WAVE"));
+        bw.Write(Encoding.ASCII.GetBytes("fmt "));
+        bw.Write(16);
+        bw.Write((short)1);
+        bw.Write((short)_pcmChannels);
+        bw.Write(_pcmSampleRate);
+        bw.Write(byteRate);
+        bw.Write((short)blockAlign);
+        bw.Write((short)_pcmBitsPerSample);
+        bw.Write(Encoding.ASCII.GetBytes("data"));
+        bw.Write(pcm.Length);
+        bw.Write(pcm, 0, pcm.Length);
+        return ms.ToArray();
     }
 
     private static string ResolveApiKey(string? explicitKey)

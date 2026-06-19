@@ -2,7 +2,7 @@ using System.Text.Json;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
-namespace CcDirector.Gateway;
+namespace CcDirector.Core;
 
 /// <summary>
 /// The fleet's central API-key store (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).

@@ -16,6 +16,22 @@ public class ClaudeDriverTests
         Assert.True(driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
         Assert.True(driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
         Assert.True(driver.Capabilities.HasFlag(DriverCapabilities.PreassignedSessionId));
+        Assert.True(driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection));
+    }
+
+    [Fact]
+    public void ModelMetadata_DeclaresFlagAndKnownModels()
+    {
+        // Issue #527: the driver owns model knowledge (flag + list), mirroring slash commands.
+        var driver = new ClaudeDriver();
+
+        Assert.Equal("--model", driver.ModelFlag);
+        Assert.NotEmpty(driver.KnownModels);
+        // The 1M-context Opus option uses the [1m] suffix - the only way to request 1M context.
+        Assert.Contains(driver.KnownModels, m => m.Id == "opus[1m]");
+        Assert.Contains(driver.KnownModels, m => m.Id == "sonnet");
+        // No entry is the empty "use default" sentinel - that is the unset-model state, not a model.
+        Assert.DoesNotContain(driver.KnownModels, m => string.IsNullOrEmpty(m.Id));
     }
 
     [Fact]

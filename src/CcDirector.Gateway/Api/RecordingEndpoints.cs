@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using CcDirector.Core;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Network;
@@ -393,12 +394,23 @@ internal static class RecordingEndpoints
 
         FileLog.Write($"[RecordingEndpoints] BuildService: root={root}, collection={collectionDir}");
 
-        // The OpenAI key comes from the Gateway's own key vault (read in-process). A missing
-        // key leaves apiKey null and the transcriber fails the request loudly when used.
-        var openAiKey = new KeyVault().Get("OPENAI_API_KEY");
-        var transcriber = new OpenAiRecordingTranscriber(apiKey: openAiKey, dictionaryPath: DictionaryFilePath());
         var filer = new CcVaultFiler(collectionDir);
-        return new RecordingIngestService(root, transcriber, filer, collectionDir);
+
+        // The transcriber is built LAZILY, only when the background worker actually transcribes -
+        // never during register/chunk/complete. This is what guarantees audio + notes always
+        // land on the server regardless of transcription: a missing OpenAI key no longer fails
+        // ingest, it just fails (and reschedules) the downstream transcription job. The key is
+        // read from the Gateway's own vault inside the factory, so a key set/rotated in the
+        // Cockpit after the Gateway started is picked up on the next job attempt without a restart.
+        return new RecordingIngestService(
+            root,
+            transcriberFactory: () =>
+            {
+                var openAiKey = new KeyVault().Get("OPENAI_API_KEY");
+                return new OpenAiRecordingTranscriber(apiKey: openAiKey, dictionaryPath: DictionaryFilePath());
+            },
+            filer,
+            collectionDir);
     }
 
     /// <summary>

@@ -101,10 +101,10 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         Assert.False(withKey.UsesGateway);
         Assert.Equal("sk-local-standalone", await withKey.ResolveAsync());
 
-        // No local key either: unavailable, pointed at Settings > Voice (not the Cockpit).
+        // No local key either: unavailable, pointed at Settings > Transcription (not the Cockpit).
         var noKey = new OpenAiKeyResolver(new AgentOptions(), new GatewayConfig());
         Assert.Null(await noKey.ResolveAsync());
-        Assert.Contains("Settings > Voice", noKey.UnavailableMessage);
+        Assert.Contains("Settings > Transcription", noKey.UnavailableMessage);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         var resolver = new OpenAiKeyResolver(new AgentOptions(), () => mode);
         Assert.False(resolver.UsesGateway);
         Assert.Null(await resolver.ResolveAsync());
-        Assert.Contains("Settings > Voice", resolver.UnavailableMessage);
+        Assert.Contains("Settings > Transcription", resolver.UnavailableMessage);
 
         // config.json gains a gateway block (what writing it later did) - same resolver instance.
         mode = new GatewayConfig { Url = _gatewayBase, Token = Token };

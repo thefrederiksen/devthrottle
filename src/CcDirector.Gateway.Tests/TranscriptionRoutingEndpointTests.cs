@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
+using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Storage;
 using CcDirector.Gateway.Api;

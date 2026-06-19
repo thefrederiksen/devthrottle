@@ -40,6 +40,36 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Issue #531: drive ONE turn of a session through the wingman. Sends the person's message
+    /// into the working session, waits for the agent to finish, and returns the agent's reply
+    /// plus the wingman's faithful, speakable translation of it. Never throws on a handled error;
+    /// the result carries <see cref="WingmanVoiceResult.Error"/> instead so the Voice tab can show it.
+    /// </summary>
+    public async Task<WingmanVoiceResult> WingmanVoiceTurnAsync(string sid, string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"sessions/{Uri.EscapeDataString(sid)}/wingman/voice-turn", new { text }, ct);
+        if (resp.IsSuccessStatusCode)
+            return await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct)
+                   ?? new WingmanVoiceResult { Error = "empty response from gateway" };
+        var err = await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct);
+        return new WingmanVoiceResult { Error = err?.Error ?? $"gateway returned {(int)resp.StatusCode}" };
+    }
+
+    /// <summary>
+    /// Issue #531: the direct-to-wingman path - the person talks to the wingman itself, not the
+    /// working session. Returns the wingman's speakable answer.
+    /// </summary>
+    public async Task<WingmanVoiceResult> WingmanAskDirectAsync(string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("wingman/ask-direct", new { text }, ct);
+        if (resp.IsSuccessStatusCode)
+            return await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct)
+                   ?? new WingmanVoiceResult { Error = "empty response from gateway" };
+        var err = await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct);
+        return new WingmanVoiceResult { Error = err?.Error ?? $"gateway returned {(int)resp.StatusCode}" };
+    }
+
+    /// <summary>
     /// The cross-fleet "Interrupted sessions" list (issue #212 W3): sessions whose Director
     /// died abnormally, enriched with last-known rail line + headline. Empty list when there
     /// is nothing to recover. Throws on transport failure (surfaced as a banner).

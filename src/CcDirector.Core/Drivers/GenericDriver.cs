@@ -36,6 +36,12 @@ public sealed class GenericDriver : IAgentDriver
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => _slashCommands;
 
+    // Unverified tools declare no model flag: model selection stays hidden until a tool-specific
+    // driver is written and verified (same conservative contract as the other capabilities here).
+    public string ModelFlag => "";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             $"[GenericDriver] Executable resolution for {Kind} is not implemented - launching is " +

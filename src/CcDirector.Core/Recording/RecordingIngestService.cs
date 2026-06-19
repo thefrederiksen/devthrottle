@@ -55,7 +55,16 @@ public sealed class RecordingIngestService : IDisposable
     private const string StateError = "error";
 
     private readonly string _root;
-    private readonly IRecordingTranscriber _transcriber;
+    // The transcription engine is built LAZILY, never at construction: the factory is
+    // invoked only when the background worker actually transcribes (see ResolveTranscriber).
+    // This is what decouples audio + notes ingest from transcription - registering a
+    // recording, storing its audio chunks, and saving its manifest (the notes) never touch
+    // the transcriber, so a missing OpenAI key or a not-yet-configured transcription route
+    // can never block the audio from landing on the server. Transcription is attempted
+    // afterwards and, if it cannot run, fails as a retryable job (never as an ingest error).
+    private readonly Func<IRecordingTranscriber> _transcriberFactory;
+    private IRecordingTranscriber? _transcriber;
+    private readonly object _transcriberGate = new();
     private readonly IVaultFiler _vaultFiler;
     private readonly string _collectionDir;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
@@ -72,7 +81,12 @@ public sealed class RecordingIngestService : IDisposable
     private readonly Task? _workerTask;
 
     /// <param name="recordingsRoot">Root folder for received recordings.</param>
-    /// <param name="transcriber">Transcription + cleanup engine.</param>
+    /// <param name="transcriberFactory">Builds the transcription + cleanup engine on demand.
+    /// Invoked lazily, only when the background worker first transcribes - NEVER during
+    /// register/chunk/complete - so a transcriber that cannot be built (e.g. no OpenAI key)
+    /// can never block audio + notes ingest. A throw from the factory is treated as a
+    /// retryable transcription failure; it is re-invoked on the next job attempt, so a key
+    /// rotated in after startup is picked up without a restart.</param>
     /// <param name="vaultFiler">Vault filing back-end.</param>
     /// <param name="collectionDir">Folder where the final transcript + audio are placed for the vault.</param>
     /// <param name="runWorker">Start the background transcription worker. Tests pass false to drive transcription deterministically via <see cref="ProcessRecordingAsync"/>.</param>
@@ -82,7 +96,7 @@ public sealed class RecordingIngestService : IDisposable
     /// <param name="workerTick">How often the worker re-scans the queue for due retries.</param>
     public RecordingIngestService(
         string recordingsRoot,
-        IRecordingTranscriber transcriber,
+        Func<IRecordingTranscriber> transcriberFactory,
         IVaultFiler vaultFiler,
         string collectionDir,
         bool runWorker = true,
@@ -92,7 +106,7 @@ public sealed class RecordingIngestService : IDisposable
         TimeSpan? workerTick = null)
     {
         _root = recordingsRoot;
-        _transcriber = transcriber;
+        _transcriberFactory = transcriberFactory;
         _vaultFiler = vaultFiler;
         _collectionDir = collectionDir;
         _maxChunkAttempts = Math.Max(1, maxChunkAttempts);
@@ -250,6 +264,12 @@ public sealed class RecordingIngestService : IDisposable
                 status.State = StateTranscribing;
                 SaveStatus(status);
 
+                // Resolve the transcriber now, only because we are actually transcribing. A
+                // build failure here (no key / transcription not configured) throws straight
+                // into the catch below - failing THIS job and rescheduling it - without ever
+                // having touched the already-safe audio + notes. See ResolveTranscriber.
+                var transcriber = ResolveTranscriber();
+
                 var ext = CodecToExt(status.Codec);
                 var (contentType, fileName) = CodecToHttp(status.Codec, ext);
 
@@ -263,7 +283,7 @@ public sealed class RecordingIngestService : IDisposable
                         throw new InvalidOperationException($"Chunk {chunk.Index} audio missing at {audioPath}.");
 
                     var audio = await File.ReadAllBytesAsync(audioPath, ct);
-                    var raw = await TranscribeChunkWithRetryAsync(audio, contentType, fileName, chunk.Index, ct);
+                    var raw = await TranscribeChunkWithRetryAsync(transcriber, audio, contentType, fileName, chunk.Index, ct);
                     await WriteAtomicAsync(txtPath, Encoding.UTF8.GetBytes(raw), ct);
                     FileLog.Write($"[RecordingIngestService] transcribed chunk {chunk.Index}: len={raw.Length}");
                 }
@@ -272,7 +292,7 @@ public sealed class RecordingIngestService : IDisposable
 
                 status.State = StateCleaning;
                 SaveStatus(status);
-                var cleanup = await _transcriber.CleanupAsync(assembledRaw, ct);
+                var cleanup = await transcriber.CleanupAsync(assembledRaw, ct);
                 status.Transcript = cleanup.Text;
 
                 var markdown = BuildMarkdown(status, manifest, cleanup.Text, assembledRaw);
@@ -354,20 +374,39 @@ public sealed class RecordingIngestService : IDisposable
     }
 
     /// <summary>
+    /// Builds the transcription engine on first use and caches it. Deliberately NOT built at
+    /// construction: ingest (register/chunk/complete) must never depend on the transcriber, so
+    /// audio + notes always land even when transcription cannot run. A factory throw is NOT
+    /// cached - it propagates to the job's catch (failing + rescheduling that job) and the
+    /// factory is re-invoked on the next attempt, so a key/route configured after startup is
+    /// picked up without a Gateway restart.
+    /// </summary>
+    private IRecordingTranscriber ResolveTranscriber()
+    {
+        if (_transcriber is not null) return _transcriber;
+        lock (_transcriberGate)
+        {
+            // Assign only on success: if the factory throws, _transcriber stays null and the
+            // next job attempt tries again (no cached failure).
+            return _transcriber ??= _transcriberFactory();
+        }
+    }
+
+    /// <summary>
     /// Transcribes one segment, retrying a transient failure up to
     /// <c>maxChunkAttempts</c> times with a doubling backoff. A cancellation is
     /// never retried. If every attempt fails the last error is surfaced so the
     /// caller fails the whole job (which then becomes eligible for a job retry).
     /// </summary>
     private async Task<string> TranscribeChunkWithRetryAsync(
-        byte[] audio, string contentType, string fileName, int chunkIndex, CancellationToken ct)
+        IRecordingTranscriber transcriber, byte[] audio, string contentType, string fileName, int chunkIndex, CancellationToken ct)
     {
         Exception? last = null;
         for (int attempt = 1; attempt <= _maxChunkAttempts; attempt++)
         {
             try
             {
-                return await _transcriber.TranscribeChunkAsync(audio, contentType, fileName, ct);
+                return await transcriber.TranscribeChunkAsync(audio, contentType, fileName, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

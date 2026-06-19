@@ -32,9 +32,18 @@ public sealed class RecordingIngestServiceTests : IDisposable
     private RecordingIngestService NewService(
         IRecordingTranscriber transcriber, FakeFiler filer,
         bool runWorker = false, int maxChunkAttempts = 3, int maxJobAttempts = 5)
+        => NewServiceWithFactory(() => transcriber, filer, runWorker, maxChunkAttempts, maxJobAttempts);
+
+    /// <summary>
+    /// Build a service with a transcriber FACTORY, so a test can make the transcriber
+    /// impossible to construct (the factory throws) and prove that ingest still succeeds.
+    /// </summary>
+    private RecordingIngestService NewServiceWithFactory(
+        Func<IRecordingTranscriber> transcriberFactory, FakeFiler filer,
+        bool runWorker = false, int maxChunkAttempts = 3, int maxJobAttempts = 5)
         => new(
             recordingsRoot: Path.Combine(_tmp, "recordings"),
-            transcriber: transcriber,
+            transcriberFactory: transcriberFactory,
             vaultFiler: filer,
             collectionDir: Path.Combine(_tmp, "collection"),
             runWorker: runWorker,
@@ -521,6 +530,72 @@ public sealed class RecordingIngestServiceTests : IDisposable
                || md.Contains("Soren", StringComparison.OrdinalIgnoreCase)
                || md.Contains("mindzie", StringComparison.OrdinalIgnoreCase);
         Assert.True(hit, "expected a known company term in the transcript markdown");
+    }
+
+    // ===== decoupling: audio + notes ingest never depends on transcription ==
+
+    [Fact]
+    public async Task Ingest_SucceedsAndPersistsNotes_EvenWhenTranscriberCannotBeBuilt()
+    {
+        // Simulate "transcription is unavailable" - e.g. no OpenAI key, or a not-yet-configured
+        // transcription route on the Gateway: the transcriber FACTORY throws. Audio + notes
+        // ingest MUST still fully succeed (register -> chunk -> complete) and the notes MUST be
+        // persisted server-side. This is the core guarantee: the audio always uploads no matter
+        // what happens to transcription.
+        var svc = NewServiceWithFactory(
+            () => throw new InvalidOperationException("OpenAI API key not set"),
+            new FakeFiler());
+
+        svc.Register(Reg("rec1"));
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0)); // must not throw
+
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
+            new() { new RecordingNote(1234, "important note") });
+
+        var queued = await svc.CompleteAsync("rec1", manifest); // must not throw
+        Assert.Equal("queued", queued.State);
+
+        // The notes were saved to manifest.json regardless of transcription being unavailable.
+        var manifestPath = Path.Combine(_tmp, "recordings", "rec1", "manifest.json");
+        Assert.True(File.Exists(manifestPath), "manifest.json (carrying the notes) must be persisted");
+        Assert.Contains("important note", await File.ReadAllTextAsync(manifestPath));
+
+        // Transcription itself fails gracefully - loud, recorded, and retryable. It does NOT
+        // throw out of the worker, and the audio + notes are untouched.
+        await svc.ProcessRecordingAsync("rec1");
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("error", status.State);
+        Assert.NotNull(status.NextRetryAtUtc); // will retry when a key/route appears
+    }
+
+    [Fact]
+    public async Task Ingest_TranscriberBuiltLazily_RecoversOnceItBecomesAvailable()
+    {
+        // The factory throws on the FIRST job attempt (transcription not configured yet) and
+        // succeeds on the next - exactly the "transcribe on the Gateway side afterwards if we
+        // can" path. A failed build must NOT be cached, so the recording transcribes once the
+        // engine is available, with no restart and no re-upload.
+        var available = false;
+        var svc = NewServiceWithFactory(
+            () => available
+                ? new FakeTranscriber()
+                : throw new InvalidOperationException("transcription not configured yet"),
+            new FakeFiler());
+
+        await EnqueueOneChunk(svc, "rec1");
+
+        await svc.ProcessRecordingAsync("rec1"); // transcription unavailable -> error + retry
+        Assert.Equal("error", svc.GetStatus("rec1").State);
+
+        available = true; // key/route configured in the meantime
+        await svc.ProcessRecordingAsync("rec1"); // now succeeds against the same uploaded audio
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        Assert.NotNull(svc.LocalTranscriptPath("rec1"));
     }
 
     // ===== test helpers =====================================================

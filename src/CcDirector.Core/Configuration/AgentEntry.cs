@@ -45,10 +45,16 @@ public sealed class AgentEntry
     public string DefaultModel { get; set; } = "";
 
     /// <summary>
-    /// Optional free-text argument override. When non-empty it REPLACES the preset's arguments
-    /// for the effective command line.
+    /// Optional free-text argument override. Used verbatim when <see cref="LaunchMode"/> is
+    /// <see cref="Configuration.LaunchMode.Custom"/>; ignored in Guided mode.
     /// </summary>
     public string ArgsOverride { get; set; } = "";
+
+    /// <summary>
+    /// How this entry's command line is composed: Guided (preset + model) or Custom (the free-text
+    /// override used verbatim). Defaults to Guided.
+    /// </summary>
+    public LaunchMode LaunchMode { get; set; } = LaunchMode.Guided;
 
     /// <summary>
     /// Build the per-tool config view of this entry so the shared resolver
@@ -61,6 +67,7 @@ public sealed class AgentEntry
         PresetName = PresetId,
         ArgsOverride = ArgsOverride,
         DefaultModel = DefaultModel,
+        LaunchMode = LaunchMode,
         Enabled = Enabled,
     };
 }
@@ -165,6 +172,7 @@ public static class AgentEntryStore
                 PresetId = toolConfig.PresetName,
                 DefaultModel = toolConfig.DefaultModel,
                 ArgsOverride = toolConfig.ArgsOverride,
+                LaunchMode = toolConfig.LaunchMode,
             });
         }
 
@@ -188,6 +196,7 @@ public static class AgentEntryStore
             if (string.IsNullOrWhiteSpace(id))
                 id = Guid.NewGuid().ToString("D");
 
+            var argsOverride = GetString("args_override", "");
             entries.Add(new AgentEntry
             {
                 Id = id,
@@ -197,7 +206,8 @@ public static class AgentEntryStore
                 ExecutablePath = GetString("executable_path", ""),
                 PresetId = GetString("preset_id", ""),
                 DefaultModel = GetString("default_model", ""),
-                ArgsOverride = GetString("args_override", ""),
+                ArgsOverride = argsOverride,
+                LaunchMode = AgentToolConfig.ParseLaunchMode(GetString("launch_mode", ""), argsOverride),
             });
         }
 
@@ -214,6 +224,7 @@ public static class AgentEntryStore
         ["preset_id"] = entry.PresetId,
         ["default_model"] = entry.DefaultModel,
         ["args_override"] = entry.ArgsOverride,
+        ["launch_mode"] = entry.LaunchMode.ToString(),
     };
 
     private static AgentKind ParseType(string value) =>

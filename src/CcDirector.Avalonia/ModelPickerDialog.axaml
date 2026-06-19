@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.ModelPickerDialog"
+        Title="Choose model"
+        Width="480" Height="520"
+        MinWidth="420" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.header">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.subheader">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBox.settingsInput">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="CaretBrush" Value="#CCCCCC" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style Selector="Button.dialogButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="100" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="120" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto">
+        <TextBlock Grid.Row="0" x:Name="HeaderText" Classes="header" Text="Choose model" />
+        <TextBlock Grid.Row="1" x:Name="DetectedText" Classes="subheader" Margin="0,6,0,10"
+                   Text="" />
+
+        <Border Grid.Row="2" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="OptionsPanel" Spacing="2" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <Button x:Name="UseButton" Classes="primaryButton" Content="Use this model"
+                    IsDefault="True" Click="BtnUse_Click" />
+            <Button x:Name="CancelButton" Classes="dialogButton" Content="Cancel"
+                    Click="BtnCancel_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

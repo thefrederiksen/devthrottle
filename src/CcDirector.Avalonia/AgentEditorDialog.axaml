@@ -144,23 +144,52 @@
                                     Click="BtnToggleAdvanced_Click"
                                     ToolTip.Tip="Show the command-line preset, default model, and args override" />
                             <StackPanel x:Name="AdvancedPanel" Spacing="6" Margin="10,0,10,10" IsVisible="False">
-                                <TextBlock Classes="fieldLabel" Text="Command-line preset" />
-                                <ComboBox x:Name="PresetCombo" HorizontalAlignment="Stretch"
-                                          Background="#1E1E1E" Foreground="#CCCCCC"
-                                          SelectionChanged="PresetCombo_Changed"
-                                          ToolTip.Tip="The command-line preset for this agent type" />
+                                <TextBlock Classes="fieldLabel" Text="How to launch" />
+                                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,2,0,2">
+                                    <RadioButton x:Name="GuidedRadio" GroupName="launchMode" Content="Guided"
+                                                 IsChecked="True" Foreground="#CCCCCC" FontSize="12"
+                                                 IsCheckedChanged="LaunchMode_Changed"
+                                                 ToolTip.Tip="CC Director builds the command line from a preset and a chosen model" />
+                                    <RadioButton x:Name="CustomRadio" GroupName="launchMode" Content="Full custom command line"
+                                                 Foreground="#CCCCCC" FontSize="12"
+                                                 IsCheckedChanged="LaunchMode_Changed"
+                                                 ToolTip.Tip="You type the whole argument string; CC Director appends nothing" />
+                                </StackPanel>
 
-                                <TextBlock Classes="fieldLabel" Text="Default model" />
-                                <TextBox x:Name="ModelBox" Classes="settingsInput"
-                                         Watermark="(none - tool default)"
-                                         TextChanged="ModelBox_Changed"
-                                         ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
+                                <!-- Guided: preset + model. -->
+                                <StackPanel x:Name="GuidedPanel" Spacing="6">
+                                    <TextBlock Classes="fieldLabel" Text="Command-line preset" />
+                                    <ComboBox x:Name="PresetCombo" HorizontalAlignment="Stretch"
+                                              Background="#1E1E1E" Foreground="#CCCCCC"
+                                              SelectionChanged="PresetCombo_Changed"
+                                              ToolTip.Tip="The command-line preset for this agent type" />
 
-                                <TextBlock Classes="fieldLabel" Text="Args override (advanced)" />
-                                <TextBox x:Name="ArgsOverrideBox" Classes="settingsInput"
-                                         Watermark="optional: free-text args that REPLACE the preset"
-                                         TextChanged="ArgsOverrideBox_Changed"
-                                         ToolTip.Tip="When set, these args replace the selected preset's arguments" />
+                                    <StackPanel x:Name="ModelRow" Spacing="6">
+                                        <TextBlock Classes="fieldLabel" Text="Model" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="ModelValueText" Text="Use default" Foreground="#CCCCCC" FontSize="13" />
+                                                    <TextBlock x:Name="ModelValueSub" Text="" Foreground="#777777" FontSize="11" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Button x:Name="ChooseModelButton" Grid.Column="1" Classes="dialogButton"
+                                                    Content="Choose model..." Margin="8,0,0,0" VerticalAlignment="Top"
+                                                    Click="BtnChooseModel_Click"
+                                                    ToolTip.Tip="Pick a model from the list this tool's driver provides" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Full custom: args used verbatim. -->
+                                <StackPanel x:Name="CustomPanel" Spacing="6" IsVisible="False">
+                                    <TextBlock Classes="fieldLabel" Text="Command-line arguments (used verbatim - CC Director adds nothing)" />
+                                    <TextBox x:Name="ArgsOverrideBox" Classes="settingsInput"
+                                             Watermark="e.g. --dangerously-skip-permissions --model opus[1m]"
+                                             TextChanged="ArgsOverrideBox_Changed"
+                                             ToolTip.Tip="The exact arguments to launch with. No preset and no model flag are added." />
+                                    <TextBlock Classes="hint" Text="The model picker is off in this mode - include any --model flag yourself." />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     </Border>

@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Configuration;
@@ -31,19 +32,35 @@ public sealed class AgentToolConfig
     /// <summary>The default model passed to the tool's model argument. Empty = no model flag.</summary>
     public string DefaultModel { get; set; } = "";
 
+    /// <summary>
+    /// How the command line is composed. <see cref="LaunchMode.Guided"/> = preset + model;
+    /// <see cref="LaunchMode.Custom"/> = the free-text override used verbatim with nothing appended.
+    /// </summary>
+    public LaunchMode LaunchMode { get; set; } = LaunchMode.Guided;
+
     /// <summary>Whether the tool is enabled/available for launching from this machine.</summary>
     public bool Enabled { get; set; } = true;
 
     /// <summary>
     /// The effective command-line arguments for this tool: the free-text override when set,
-    /// otherwise the selected preset's arguments (falling back to the catalog default preset
-    /// when the stored preset name is empty or unknown).
+    /// otherwise the selected preset's arguments. Kept for callers that want the override-or-preset
+    /// resolution; the full launch line goes through <see cref="ResolveEffectiveCommandLineArguments"/>.
     /// </summary>
     public string ResolveEffectiveArguments()
     {
         if (!string.IsNullOrWhiteSpace(ArgsOverride))
             return ArgsOverride.Trim();
 
+        return ResolvePresetArguments();
+    }
+
+    /// <summary>
+    /// The selected preset's arguments (falling back to the catalog default preset when the stored
+    /// preset name is empty or unknown), ignoring any free-text override. Empty for tools not in the
+    /// catalog.
+    /// </summary>
+    private string ResolvePresetArguments()
+    {
         if (!AgentToolCatalog.Contains(Tool))
             return "";
 
@@ -58,21 +75,35 @@ public sealed class AgentToolConfig
     }
 
     /// <summary>
-    /// The full effective command-line arguments a real launch uses: the effective preset/override
-    /// arguments (<see cref="ResolveEffectiveArguments"/>) plus a <c>--model &lt;model&gt;</c> flag
-    /// when a default model is configured and the args do not already pin a model. This is the
-    /// single source of truth shared by the App launch wiring and the Agents-tab "what launches"
-    /// preview strip (issue #436), so the preview is always truthful.
+    /// The full effective command-line arguments a real launch uses. This is the single source of
+    /// truth shared by the App launch wiring and the Edit Agent "what launches" preview strip
+    /// (issue #436), so the preview is always truthful.
+    ///
+    /// <see cref="LaunchMode.Custom"/>: the free-text override is used verbatim and nothing is
+    /// appended - the user owns the whole line. <see cref="LaunchMode.Guided"/>: the selected
+    /// preset's arguments plus the configured model, appended via the DRIVER's model flag (issue
+    /// #527) when the driver supports model selection and the args do not already pin a model.
     /// </summary>
     public string ResolveEffectiveCommandLineArguments()
     {
-        var args = ResolveEffectiveArguments().Trim();
+        if (LaunchMode == LaunchMode.Custom)
+            return (ArgsOverride ?? "").Trim();
+
+        var args = ResolvePresetArguments().Trim();
 
         var model = DefaultModel?.Trim() ?? "";
-        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
-            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
+        if (model.Length == 0)
+            return args;
 
-        return args;
+        var driver = AgentDrivers.For(Tool);
+        if (!driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection))
+            return args;
+
+        var flag = driver.ModelFlag;
+        if (string.IsNullOrEmpty(flag) || args.Contains(flag, StringComparison.OrdinalIgnoreCase))
+            return args;
+
+        return string.IsNullOrEmpty(args) ? $"{flag} {model}" : $"{args} {flag} {model}";
     }
 
     /// <summary>The config.json key for a tool, e.g. <c>claude</c>, <c>pi</c>.</summary>
@@ -99,6 +130,7 @@ public sealed class AgentToolConfig
             PresetName = entry.DefaultPreset.Name,
             ArgsOverride = "",
             DefaultModel = entry.DefaultModel,
+            LaunchMode = LaunchMode.Guided,
             Enabled = true,
         };
     }
@@ -127,15 +159,17 @@ public sealed class AgentToolConfig
         bool GetBool(string key, bool fallback) =>
             node[key] is JsonValue v && v.TryGetValue<bool>(out var b) ? b : fallback;
 
+        var argsOverride = GetString("args_override", defaults.ArgsOverride);
         var config = new AgentToolConfig
         {
             Tool = tool,
             PresetName = GetString("preset", defaults.PresetName),
-            ArgsOverride = GetString("args_override", defaults.ArgsOverride),
+            ArgsOverride = argsOverride,
             DefaultModel = GetString("default_model", defaults.DefaultModel),
+            LaunchMode = ParseLaunchMode(GetString("launch_mode", ""), argsOverride),
             Enabled = GetBool("enabled", defaults.Enabled),
         };
-        FileLog.Write($"[AgentToolConfig] Load: tool={tool}, preset={config.PresetName}, model={config.DefaultModel}, enabled={config.Enabled}, hasOverride={!string.IsNullOrWhiteSpace(config.ArgsOverride)}");
+        FileLog.Write($"[AgentToolConfig] Load: tool={tool}, preset={config.PresetName}, model={config.DefaultModel}, mode={config.LaunchMode}, enabled={config.Enabled}, hasOverride={!string.IsNullOrWhiteSpace(config.ArgsOverride)}");
         return config;
     }
 
@@ -146,7 +180,7 @@ public sealed class AgentToolConfig
     /// </summary>
     public void Save()
     {
-        FileLog.Write($"[AgentToolConfig] Save: tool={Tool}, preset={PresetName}, model={DefaultModel}, enabled={Enabled}");
+        FileLog.Write($"[AgentToolConfig] Save: tool={Tool}, preset={PresetName}, model={DefaultModel}, mode={LaunchMode}, enabled={Enabled}");
         var patch = new JsonObject
         {
             ["agent"] = new JsonObject
@@ -158,6 +192,7 @@ public sealed class AgentToolConfig
                         ["preset"] = PresetName,
                         ["args_override"] = ArgsOverride,
                         ["default_model"] = DefaultModel,
+                        ["launch_mode"] = LaunchMode.ToString(),
                         ["enabled"] = Enabled,
                     }
                 }
@@ -165,4 +200,15 @@ public sealed class AgentToolConfig
         };
         CcDirectorConfigService.MergePatch(patch);
     }
+
+    /// <summary>
+    /// Parse a persisted <c>launch_mode</c> string. Migration: a legacy entry without the field
+    /// that has a non-empty free-text override is treated as <see cref="LaunchMode.Custom"/> so its
+    /// custom args are honored verbatim (and the model is no longer double-appended); otherwise
+    /// <see cref="LaunchMode.Guided"/>.
+    /// </summary>
+    public static LaunchMode ParseLaunchMode(string raw, string argsOverride) =>
+        Enum.TryParse<LaunchMode>(raw, ignoreCase: true, out var parsed)
+            ? parsed
+            : string.IsNullOrWhiteSpace(argsOverride) ? LaunchMode.Guided : LaunchMode.Custom;
 }
