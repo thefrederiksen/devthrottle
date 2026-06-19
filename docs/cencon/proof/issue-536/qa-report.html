@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Verification Report - Issue #536 (RE-VERIFICATION) - PASS</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:900px;margin:24px auto;padding:0 16px;color:#1a1a1a}
+  h1{border-bottom:2px solid #333;padding-bottom:6px}
+  table{border-collapse:collapse;width:100%;margin:14px 0}
+  th,td{border:1px solid #ccc;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f0f0f0}
+  .pass{color:#147a14;font-weight:bold}
+  .verdict{background:#e7f6e7;border:1px solid #147a14;padding:12px;border-radius:6px;font-size:18px;font-weight:bold;color:#147a14}
+  img{max-width:380px;border:1px solid #ccc;border-radius:6px}
+  code{background:#f4f4f4;padding:1px 5px;border-radius:3px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #536 (RE-VERIFICATION)</h1>
+<p><strong>Issue:</strong> [Voice] /m/ session: enlarge the Sessions back button (bigger tap target)<br/>
+<strong>Pull request:</strong> #543 (branch <code>issue-536-enlarge-back-button</code>)<br/>
+<strong>Verifier:</strong> QA Agent (independent, isolated git worktree)<br/>
+<strong>Prior result:</strong> FAIL - cache-bust version was v18, equal to origin/main (not strictly ahead). Developer bumped to v19.</p>
+
+<p class="verdict">VERIFIED - all acceptance criteria met. RECOMMEND MERGE.</p>
+
+<h2>Test method</h2>
+<p>Verified independently in an isolated worktree off the PR branch with <code>origin/main</code> merged in
+(already up to date - clean, no conflicts). The exact byte-identical <code>wwwroot/m/</code> static assets the
+Cockpit serves were served over a local static server and driven in a real Chromium browser
+(cc-playwright) at a 360 CSS-pixel phone width. Geometry measured via <code>getBoundingClientRect()</code>
+and computed style.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Back button visibly larger, tap target >= 44 x 44 CSS px</td>
+  <td>>= 44 x 44 CSS px</td>
+  <td>Measured <strong>119 x 44</strong> CSS px at 360px width; computed <code>min-height:44px; min-width:44px; font-size:15px</code> (was 95 x 33 / 13px)</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Tapping returns to the session list - behavior unchanged</td>
+  <td>list-view visible, session-view hidden</td>
+  <td>Clicked <code>#back-btn</code>: session-view hidden=true, list-view visible=true (<code>showList()</code> unchanged in m.js)</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Complies with VisualStyle.md (colors, radius, spacing)</td>
+  <td>Consistent with other ghost controls</td>
+  <td>Keeps <code>.ghost</code> color identity (class="ghost back-btn"); border-radius:10px; only the back button enlarged - Refresh ghost button untouched</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Header bar does not break/overflow at 360px; sv-name ellipsizes; one row</td>
+  <td>No overflow; ellipsis; single row</td>
+  <td>At 360px: bar width 360, no overflow (scrollW=clientW=360); sv-name scrollWidth 1171 &gt; clientWidth 199 = ellipsized; flex-wrap:nowrap, single row</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Cache-bust version incremented (strictly ahead of main)</td>
+  <td>&gt; v18 (main)</td>
+  <td><strong>v19</strong> on all three spots (<code>m.css?v=19</code>, <code>m.js?v=19</code>, on-screen <code>.ver</code> = v19), strictly greater than origin/main's v18. Confirmed on the freshly served page.</td>
+  <td class="pass">PASS</td></tr>
+</table>
+
+<h2>Re-verification of prior defect</h2>
+<p>The prior QA fail was: cache-bust v18 == origin/main v18 (not strictly ahead). Now fixed:
+origin/main = v18, PR branch = v19 on all three cache-bust locations (CSS query, JS query, on-screen
+label). Strictly ahead. The new <code>.back-btn</code> CSS will be fetched, not masked by a cached v18 bundle.</p>
+
+<h2>Regression sweep</h2>
+<ul>
+<li>PR production diff is two files only: <code>index.html</code> (back-btn class + 3x v18-&gt;v19) and
+  <code>m.css</code> (new <code>.back-btn</code> rule). <code>m.js</code> is NOT touched.</li>
+<li>#534 (auto-refresh quiet <code>loadSessions(true)</code> path) - unaffected (m.js untouched).</li>
+<li>#535 (post-send navigation) - unaffected (m.js untouched).</li>
+<li>Whole-solution build: <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s),
+  0 Error(s) (NU1903 fixed).</li>
+</ul>
+
+<h2>Proof screenshot (session view at 360px, v19)</h2>
+<img src="qa-verify-session-360-v19.png" alt="Session view at 360px with enlarged back button and ellipsized name" />
+<p>The "&larr; Sessions" back button is a comfortable bordered tap target (119 x 44); the long session
+name ellipsizes to "This is an extremely lo..." on one row with no overflow. The back button is clearly
+larger than the small Explain ghost button below, confirming the enlargement is scoped to the back button.</p>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA-fix Proof - Issue #536: cache-bust bumped to v19 (ahead of main)</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#1b1b1b;line-height:1.5}
+  h1{font-size:22px;border-bottom:2px solid #007ACC;padding-bottom:6px}
+  h2{font-size:17px;margin-top:28px;color:#0b3d6b}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid #ccc;padding:8px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#eef4fb}
+  .pass{color:#1a7f37;font-weight:700}
+  code{background:#f0f0f0;padding:1px 5px;border-radius:4px;font-size:13px}
+  .shots{display:flex;gap:20px;flex-wrap:wrap}
+  .shots figure{margin:0;max-width:340px}
+  .shots img{width:100%;border:1px solid #ccc;border-radius:6px}
+  figcaption{font-size:13px;color:#444;margin-top:6px}
+  .verdict{background:#e8f5e9;border:1px solid #1a7f37;border-radius:6px;padding:12px 14px;margin-top:24px;font-weight:600}
+</style>
+</head>
+<body>
+<h1>QA-fix Proof - Issue #536: enlarge the /m/ session Sessions back button</h1>
+
+<h2>The QA defect (flow:qa-failed)</h2>
+<p>The QA Agent confirmed the functional CSS change is correct (the <code>.back-btn</code> rule meets
+the 44 x 44 CSS pixel minimum) but found one blocking defect against acceptance criterion 5: the asset
+cache-bust version on the pull request branch was <code>v18</code>, which is <b>equal</b> to what was
+already shipped on <code>origin/main</code> by issue #535 - not strictly greater. Because the version is
+not ahead of main, any browser that already cached <code>m.css?v=18</code> from issue #535 would reuse
+the cached stylesheet and never load the new <code>.back-btn</code> rule, so the enlarged tap target
+would be invisible to those users. Criterion 5 exists precisely to prevent this "masked by a cached
+bundle" failure.</p>
+
+<h2>The fix</h2>
+<p>Worked in an isolated git worktree off the pull request branch with current <code>origin/main</code>
+merged in (clean, no conflicts). The only change is to bump the cache-bust version from <code>v18</code>
+to <code>v19</code> - strictly greater than current main - in all three spots in
+<code>src/CcDirector.Cockpit/wwwroot/m/index.html</code>:</p>
+<ul>
+  <li><code>&lt;link rel="stylesheet" href="/m/m.css?v=19" /&gt;</code> (was <code>?v=18</code>)</li>
+  <li><code>&lt;span class="ver"&gt;v19&lt;/span&gt;</code> (was <code>v18</code>)</li>
+  <li><code>&lt;script src="/m/m.js?v=19"&gt;&lt;/script&gt;</code> (was <code>?v=18</code>)</li>
+</ul>
+<p>No other file changed. The <code>.back-btn</code> CSS rule that QA already verified as correct is
+untouched. Client-only static-asset change; no server-side change.</p>
+
+<h2>Version is now strictly ahead of main</h2>
+<table>
+  <tr><th>Location</th><th>origin/main</th><th>This branch (after fix)</th><th>Ahead of main?</th></tr>
+  <tr><td><code>m.css?v=</code></td><td>18</td><td>19</td><td class="pass">YES</td></tr>
+  <tr><td><code>m.js?v=</code></td><td>18</td><td>19</td><td class="pass">YES</td></tr>
+  <tr><td>on-screen <code>.ver</code> label</td><td>v18</td><td>v19</td><td class="pass">YES</td></tr>
+</table>
+
+<h2>Re-proof of the acceptance criteria (real /m/ assets rendered at 360px mobile width)</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th></tr>
+  <tr>
+    <td>Back button touch target at least 44 x 44 CSS px</td>
+    <td>&gt;= 44 x 44 px</td>
+    <td><code>#back-btn</code> getBoundingClientRect = <b>119 x 44 px</b>; computed
+        <code>min-height:44px</code>, <code>min-width:44px</code>, <code>padding:10px 16px</code>,
+        <code>font-size:15px</code>. The <code>.back-btn</code> rule is loaded (not masked) under the
+        new <code>v19</code> bundle.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Asset cache-bust version strictly greater than main's v18</td>
+    <td>&gt; v18 (i.e. v19) on css/js query and on-screen label</td>
+    <td>Served <code>/m/index.html</code> shows <code>m.css?v=19</code>, <code>m.js?v=19</code>, and the
+        rendered on-screen badge reads <b>v19</b> (see list-view screenshot).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshots</h2>
+<div class="shots">
+  <figure>
+    <img src="qafix-list-view-v19.png" alt="List view header showing the v19 version label" />
+    <figcaption>List view header - the on-screen version badge now reads <b>v19</b> (was v18).</figcaption>
+  </figure>
+  <figure>
+    <img src="qafix-session-view-v19.png" alt="Session view with the enlarged back button" />
+    <figcaption>Session view at 360px - the enlarged "Sessions" back button (119 x 44 px) renders from
+        the new <code>v19</code> bundle. Header is one row; session name visible.</figcaption>
+  </figure>
+</div>
+<p>Screenshots were taken by serving the actual <code>wwwroot/m/</code> files and rendering
+<code>/m/index.html</code> with the real <code>m.css?v=19</code> at a 360px mobile viewport, then
+measuring <code>#back-btn</code> with getBoundingClientRect after the view swap that
+<code>m.js</code> performs on session selection.</p>
+
+<h2>Test environment note</h2>
+<p>The per-session test Director (slot 13) booted from this worktree's own build but could not obtain a
+Control API port because the Control API port range (7879..7898) was fully occupied by the many other
+Director instances running on this machine at the time. That is an environmental port-exhaustion
+constraint, not a defect in this change. Because this is a client-only static-asset (CSS + HTML) change,
+the criteria were proven by rendering the exact <code>wwwroot/m/</code> files the Cockpit serves, which
+is byte-identical to what the Director's Cockpit would serve.</p>
+
+<h2>Build</h2>
+<p><code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s) (no NU1903; branch
+is current with origin/main merged in).</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. Client-only static-asset (CSS + HTML) change in the <code>cockpit</code> container; no
+architecture or security-posture change, no <code>docs/cencon/</code> update required.</p>
+
+<div class="verdict">I believe this is finished. The cache-bust version is now v19 - strictly ahead of
+main's v18 - so the new .back-btn CSS is fetched and no longer masked by a cached bundle, and the back
+button still measures 119 x 44 CSS px. Both criteria are met with measured proof above.</div>
+</body>
+</html>
