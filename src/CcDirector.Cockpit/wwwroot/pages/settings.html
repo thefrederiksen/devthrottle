@@ -74,6 +74,46 @@
   a.link{color:var(--blue);text-decoration:none}
   a.link:hover{text-decoration:underline}
   @media (max-width:560px){.mode-cards{grid-template-columns:1fr}}
+
+  /* Wingman instructions editor (issue #537) */
+  .instr-editor{width:100%;min-height:340px;resize:vertical;background:#0B1020;color:var(--ink);
+        border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.55;
+        font-family:ui-monospace,Consolas,monospace;white-space:pre;overflow:auto}
+  .instr-editor:focus{outline:none;border-color:var(--blue)}
+  .update-banner{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+        background:#2a2410;border:1px solid #5a4d1d;border-radius:12px;padding:14px 16px;margin:0 0 14px}
+  .update-banner .ub-text{display:flex;flex-direction:column;gap:3px}
+  .diff{max-height:420px;overflow:auto;background:#0B1020;border:1px solid var(--line);border-radius:10px;
+        padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;margin:0 0 12px}
+  .diff .add{background:#10331e;color:#9fe6bd;display:block}
+  .diff .del{background:#3a1417;color:#f3a9ac;display:block}
+  .diff .ctx{color:var(--muted);display:block}
+  .ver-list{display:flex;flex-direction:column;gap:8px}
+  .ver-item{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);
+        border-radius:10px;padding:10px 12px}
+  .ver-item.active{border-color:var(--blue)}
+  .ver-meta{flex:1;min-width:0}
+  .ver-title{font-size:13.5px;color:var(--ink)}
+  .ver-sub{font-size:12px;color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+  .ver-badge{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#06210f;
+        background:var(--green);border-radius:7px;padding:1px 7px}
+  /* A/B test record picker + results */
+  .rec-pick{display:flex;align-items:flex-start;gap:10px;background:var(--panel2);border:1px solid var(--line);
+        border-radius:10px;padding:10px 12px;cursor:pointer}
+  .rec-pick input{accent-color:var(--blue);width:16px;height:16px;margin-top:2px;flex:0 0 auto}
+  .rec-pick .rp-body{min-width:0;flex:1}
+  .rec-pick .rp-src{font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+  .rec-pick .rp-reply{font-size:13px;color:var(--ink);margin:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rec-pick .rp-spoken{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ab-result{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:12px 0 0}
+  .ab-reply{font-size:12.5px;color:var(--muted);margin:0 0 10px;white-space:pre-wrap;max-height:140px;overflow:auto;
+        border-left:2px solid var(--line);padding-left:10px}
+  .ab-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .ab-col h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .ab-col .body{font-size:13px;line-height:1.5;white-space:pre-wrap;background:#0B1020;border:1px solid var(--line);
+        border-radius:8px;padding:10px 12px;min-height:60px}
+  .ab-col.after .body{border-color:#2a9c5b}
+  @media (max-width:560px){.ab-cols{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -88,6 +128,7 @@
     <button class="tab-btn active" data-tab="transcription">Transcription</button>
     <button class="tab-btn" data-tab="gateway">Gateway</button>
     <button class="tab-btn" data-tab="wingman">Wingman</button>
+    <button class="tab-btn" data-tab="instructions">Instructions</button>
     <button class="tab-btn" data-tab="phone">Phone</button>
   </div>
 
@@ -287,6 +328,61 @@
         <button id="restartbtn">Restart Brain</button>
         <span class="hint" id="brainmsg" style="margin:0"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== Wingman Instructions tab (issue #537) ===== -->
+  <div class="tab-panel" id="tab-instructions">
+    <!-- "DevThrottle updated the recommended instructions" banner (only when customized + a new default shipped) -->
+    <div class="update-banner" id="instr-update" style="display:none">
+      <div class="ub-text">
+        <strong>DevThrottle updated the recommended wingman instructions.</strong>
+        <span id="instr-update-detail" class="hint" style="margin:0"></span>
+      </div>
+      <div class="row">
+        <button id="instr-viewchanges">View changes</button>
+        <button id="instr-switch" class="save">Switch to DevThrottle's latest</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Wingman instructions <span class="pill" id="instr-active-pill">default</span></h2>
+      <p class="hint">The exact instructions the wingman follows to turn a coding session into the spoken/readable summary. Edit and Save to use your own version (the running wingman picks it up immediately); your edits are versioned and you can revert. Changes apply gateway-wide.</p>
+      <textarea id="instr-editor" class="instr-editor" spellcheck="false" placeholder="Loading..."></textarea>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="instr-label" placeholder="Optional label for this version (e.g. 'more technical')" style="min-width:280px">
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="save" id="instr-save">Save as new version</button>
+        <button id="instr-revertdefault">Reset to DevThrottle default</button>
+        <span class="msg" id="instr-msg" style="margin:0"></span>
+      </div>
+    </div>
+
+    <!-- Diff view (the dev team's changes, or a version comparison) -->
+    <div class="section" id="instr-diff-section" style="display:none">
+      <h2>Changes <span class="pill" id="instr-diff-label"></span></h2>
+      <p class="hint">Lines the DevThrottle dev team added (green) or removed (red) versus the version you are based on.</p>
+      <pre class="diff" id="instr-diff"></pre>
+      <div class="row"><button id="instr-diff-close">Close</button></div>
+    </div>
+
+    <div class="section">
+      <h2>Version history</h2>
+      <p class="hint">Every Save is a version. The active one is marked; revert to make an earlier version active again.</p>
+      <div id="instr-versions" class="ver-list"><span class="hint">Loading...</span></div>
+    </div>
+
+    <!-- A/B test the editor's instructions against real captured sessions (issue #537) -->
+    <div class="section">
+      <h2>Test against saved sessions</h2>
+      <p class="hint">Re-run the instructions in the editor above over real captured sessions and compare the new spoken summary with what the wingman said before &mdash; so you can improve the prompt against real cases before saving. Requires training capture (Wingman tab); each session you pick is one wingman call, so keep it to a few.</p>
+      <div id="instr-records" class="ver-list"><span class="hint">Loading saved sessions...</span></div>
+      <div class="row" style="margin-top:12px">
+        <button class="save" id="instr-test-run">Run test with the editor's instructions</button>
+        <span class="msg" id="instr-test-msg" style="margin:0"></span>
+      </div>
+      <div id="instr-test-results"></div>
     </div>
   </div>
 </div>
@@ -780,6 +876,171 @@
   document.getElementById('dtshowbox').addEventListener('change', function(e){
     document.getElementById('dtkeybox').type = e.target.checked ? 'text' : 'password';
   });
+  // ===== Wingman instructions (issue #537): edit, version, manage the DevThrottle default =====
+  const gid = function(id){ return document.getElementById(id); };
+  let instrUpdate = null;   // last /update payload (for the "view changes" diff)
+
+  function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // Simple LCS line diff -> array of {t:'ctx'|'add'|'del', s:line}.
+  function lineDiff(a, b){
+    const A=(a||'').split('\n'), B=(b||'').split('\n'), n=A.length, m=B.length;
+    const dp=[]; for(let i=0;i<=n;i++){ dp.push(new Array(m+1).fill(0)); }
+    for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--) dp[i][j]=(A[i]===B[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+    const out=[]; let i=0,j=0;
+    while(i<n&&j<m){ if(A[i]===B[j]){out.push({t:'ctx',s:A[i]});i++;j++;} else if(dp[i+1][j]>=dp[i][j+1]){out.push({t:'del',s:A[i]});i++;} else {out.push({t:'add',s:B[j]});j++;} }
+    while(i<n){out.push({t:'del',s:A[i]});i++;}
+    while(j<m){out.push({t:'add',s:B[j]});j++;}
+    return out;
+  }
+  function renderDiff(el, oldText, newText){
+    const d=lineDiff(oldText,newText);
+    el.innerHTML = d.map(function(x){ const p=x.t==='add'?'+ ':x.t==='del'?'- ':'  '; return '<span class="'+x.t+'">'+escHtml(p+x.s)+'</span>'; }).join('');
+  }
+
+  async function loadInstructions(){
+    try{
+      const r = await fetch('/gateway/wingman/instructions');
+      if(!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      gid('instr-editor').value = d.active.content || '';
+      gid('instr-active-pill').textContent = d.isCustomized
+        ? ('your version' + (d.active.label ? ' - ' + d.active.label : ''))
+        : ('DevThrottle default v' + d.defaultVersion);
+      gid('instr-revertdefault').style.display = d.isCustomized ? '' : 'none';
+      await loadInstrUpdate();
+      await loadInstrVersions();
+    }catch(e){ gid('instr-msg').className='msg err'; gid('instr-msg').textContent='Failed to load instructions.'; }
+  }
+
+  async function loadInstrUpdate(){
+    try{
+      const r = await fetch('/gateway/wingman/instructions/update');
+      instrUpdate = r.ok ? await r.json() : null;
+    }catch(e){ instrUpdate = null; }
+    const show = !!(instrUpdate && instrUpdate.updateAvailable);
+    gid('instr-update').style.display = show ? 'flex' : 'none';
+    if(show) gid('instr-update-detail').textContent =
+      'You are on default v' + instrUpdate.acknowledgedDefaultVersion + '; the latest is v' + instrUpdate.newDefaultVersion + '. Your customized instructions are unchanged.';
+  }
+
+  async function loadInstrVersions(){
+    const box = gid('instr-versions');
+    try{
+      const r = await fetch('/gateway/wingman/instructions/versions');
+      const d = await r.json();
+      const active = await (await fetch('/gateway/wingman/instructions')).json();
+      const activeId = active.isCustomized ? active.active.id : null;
+      if(!d.versions.length){ box.innerHTML = '<span class="hint">No saved versions yet - you are on the DevThrottle default.</span>'; return; }
+      box.innerHTML='';
+      d.versions.forEach(function(v){
+        const item=document.createElement('div'); item.className='ver-item'+(v.id===activeId?' active':'');
+        const meta=document.createElement('div'); meta.className='ver-meta';
+        const title=document.createElement('div'); title.className='ver-title'; title.textContent=(v.label||'(no label)');
+        const sub=document.createElement('div'); sub.className='ver-sub'; sub.textContent=new Date(v.createdAt).toLocaleString()+' - '+v.contentLength+' chars - '+v.hash;
+        meta.appendChild(title); meta.appendChild(sub); item.appendChild(meta);
+        if(v.id===activeId){ const b=document.createElement('span'); b.className='ver-badge'; b.textContent='active'; item.appendChild(b); }
+        else { const btn=document.createElement('button'); btn.textContent='Revert to this'; btn.addEventListener('click',function(){ revertInstr(v.id); }); item.appendChild(btn); }
+        box.appendChild(item);
+      });
+    }catch(e){ box.innerHTML='<span class="hint">Failed to load versions.</span>'; }
+  }
+
+  async function saveInstructions(){
+    const content = gid('instr-editor').value;
+    const label = gid('instr-label').value.trim();
+    const msg = gid('instr-msg');
+    if(!content.trim()){ msg.className='msg err'; msg.textContent='Instructions cannot be empty.'; return; }
+    msg.className='msg ok'; msg.textContent='Saving...';
+    try{
+      const r = await fetch('/gateway/wingman/instructions', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content, label}) });
+      const d = await r.json().catch(()=>({}));
+      if(r.ok){ gid('instr-label').value=''; msg.textContent='Saved. The wingman is now using your version.'; await loadInstructions(); }
+      else { msg.className='msg err'; msg.textContent='Save failed: '+(d.error||r.status); }
+    }catch(e){ msg.className='msg err'; msg.textContent='Failed: '+e; }
+  }
+
+  async function switchToDefaultInstr(){
+    const msg = gid('instr-msg'); msg.className='msg ok'; msg.textContent='Switching...';
+    try{
+      const r = await fetch('/gateway/wingman/instructions/switch-to-default', { method:'POST' });
+      if(r.ok){ msg.textContent='Now using the DevThrottle default.'; gid('instr-diff-section').style.display='none'; await loadInstructions(); }
+      else { msg.className='msg err'; msg.textContent='Switch failed: '+r.status; }
+    }catch(e){ msg.className='msg err'; msg.textContent='Failed: '+e; }
+  }
+
+  async function revertInstr(id){
+    const msg = gid('instr-msg'); msg.className='msg ok'; msg.textContent='Reverting...';
+    try{
+      const r = await fetch('/gateway/wingman/instructions/revert', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id}) });
+      if(r.ok){ msg.textContent='Reverted - the wingman is using that version.'; await loadInstructions(); }
+      else { msg.className='msg err'; msg.textContent='Revert failed: '+r.status; }
+    }catch(e){ msg.className='msg err'; msg.textContent='Failed: '+e; }
+  }
+
+  function viewInstrChanges(){
+    if(!instrUpdate){ return; }
+    gid('instr-diff-label').textContent = 'v'+instrUpdate.acknowledgedDefaultVersion+' -> v'+instrUpdate.newDefaultVersion;
+    renderDiff(gid('instr-diff'), instrUpdate.acknowledgedDefaultContent, instrUpdate.newDefaultContent);
+    gid('instr-diff-section').style.display='';
+    gid('instr-diff-section').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  async function loadInstrRecords(){
+    const box = gid('instr-records');
+    try{
+      const r = await fetch('/gateway/wingman/instructions/records?limit=20');
+      const d = await r.json();
+      if(!d.records || !d.records.length){
+        box.innerHTML = d.captureEnabled
+          ? '<span class="hint">No saved sessions captured yet - use the wingman for a few turns.</span>'
+          : '<span class="hint">No saved sessions. Turn on <strong>Capture wingman training data</strong> (Wingman tab), use the wingman for a few turns, then come back.</span>';
+        return;
+      }
+      box.innerHTML='';
+      d.records.forEach(function(rec){
+        const lab=document.createElement('label'); lab.className='rec-pick';
+        const cb=document.createElement('input'); cb.type='checkbox'; cb.value=rec.id; cb.className='rec-cb';
+        const body=document.createElement('div'); body.className='rp-body';
+        const src=document.createElement('div'); src.className='rp-src'; src.textContent=rec.source+' - '+new Date(rec.atUtc).toLocaleString();
+        const rep=document.createElement('div'); rep.className='rp-reply'; rep.textContent='Reply: '+(rec.replyPreview||'(none)');
+        const sp=document.createElement('div'); sp.className='rp-spoken'; sp.textContent='Said: '+(rec.spokenPreview||'(none)');
+        body.appendChild(src); body.appendChild(rep); body.appendChild(sp);
+        lab.appendChild(cb); lab.appendChild(body); box.appendChild(lab);
+      });
+    }catch(e){ box.innerHTML='<span class="hint">Failed to load saved sessions.</span>'; }
+  }
+
+  async function runInstrTest(){
+    const ids = [].slice.call(document.querySelectorAll('.rec-cb:checked')).map(function(c){ return c.value; });
+    const content = gid('instr-editor').value;
+    const msg = gid('instr-test-msg'); const out = gid('instr-test-results'); const btn = gid('instr-test-run');
+    if(!content.trim()){ msg.className='msg err'; msg.textContent='The editor is empty.'; return; }
+    if(!ids.length){ msg.className='msg err'; msg.textContent='Pick at least one saved session.'; return; }
+    msg.className='msg ok'; msg.textContent='Running '+ids.length+' session(s) through the wingman - this can take a bit...';
+    out.innerHTML=''; btn.disabled=true;
+    try{
+      const r = await fetch('/gateway/wingman/instructions/test', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content, recordIds: ids}) });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ msg.className='msg err'; msg.textContent='Test failed: '+(d.error||r.status); btn.disabled=false; return; }
+      msg.textContent='Done - compare before and after below.';
+      (d.results||[]).forEach(function(res){
+        const card=document.createElement('div'); card.className='ab-result';
+        if(res.error){ card.innerHTML='<div class="rp-src">'+escHtml(res.source||'')+'</div><div class="msg err">'+escHtml(res.error)+'</div>'; out.appendChild(card); return; }
+        card.innerHTML =
+          '<div class="rp-src">'+escHtml(res.source||'')+'</div>'+
+          '<div class="ab-reply">'+escHtml(res.reply||'')+'</div>'+
+          '<div class="ab-cols">'+
+            '<div class="ab-col"><h4>Before (what the wingman said)</h4><div class="body">'+escHtml(res.oldSpoken||'')+'</div></div>'+
+            '<div class="ab-col after"><h4>After (your draft)</h4><div class="body">'+escHtml(res.newSpoken||'')+'</div></div>'+
+          '</div>';
+        out.appendChild(card);
+      });
+      if(d.capped){ const n=document.createElement('div'); n.className='hint'; n.style.marginTop='10px'; n.textContent='Only the first few selected sessions were run (kept small to limit wingman calls).'; out.appendChild(n); }
+    }catch(e){ msg.className='msg err'; msg.textContent='Failed: '+e; }
+    btn.disabled=false;
+  }
+
   document.getElementById('txtestbtn').addEventListener('click', txTestClick);
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
@@ -790,12 +1051,20 @@
   document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));
   document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
   document.getElementById('phonecopylink').addEventListener('click', () => copyText(phonePayload, 'Pairing link'));
+  document.getElementById('instr-save').addEventListener('click', saveInstructions);
+  document.getElementById('instr-revertdefault').addEventListener('click', switchToDefaultInstr);
+  document.getElementById('instr-switch').addEventListener('click', switchToDefaultInstr);
+  document.getElementById('instr-viewchanges').addEventListener('click', viewInstrChanges);
+  document.getElementById('instr-diff-close').addEventListener('click', function(){ document.getElementById('instr-diff-section').style.display='none'; });
+  document.getElementById('instr-test-run').addEventListener('click', runInstrTest);
 
   loadMode();
   loadKeyStatus();
   loadSnapshot();
   loadWingman();
   loadTrainingCapture();
+  loadInstructions();
+  loadInstrRecords();
   loadPhone();
 </script>
 </body>

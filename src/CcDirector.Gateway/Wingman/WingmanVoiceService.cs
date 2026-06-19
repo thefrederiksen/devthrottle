@@ -35,9 +35,9 @@ public sealed class WingmanVoiceService
     private readonly ConcurrentDictionary<string, byte> _generating = new();       // sid -> wingman is running now
     private readonly string _persistPath;
 
-    public WingmanVoiceService(Func<CancellationToken, Task<IAgentBrain>> brainProvider, KeyVault vault, DirectorEndpointClient client, string? persistPath = null, WingmanTrainingStore? training = null)
+    public WingmanVoiceService(Func<CancellationToken, Task<IAgentBrain>> brainProvider, KeyVault vault, DirectorEndpointClient client, string? persistPath = null, WingmanTrainingStore? training = null, Func<string>? instructionsProvider = null)
     {
-        _translator = new WingmanTranslator(brainProvider);
+        _translator = new WingmanTranslator(brainProvider, instructionsProvider: instructionsProvider);
         _vault = vault;
         _client = client;
         _training = training ?? new WingmanTrainingStore();

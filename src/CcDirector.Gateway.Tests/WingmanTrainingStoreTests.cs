@@ -80,4 +80,34 @@ public sealed class WingmanTrainingStoreTests : IDisposable
         Assert.Contains("sid-1", lines[0]);
         Assert.Contains("sid-2", lines[1]);
     }
+
+    [Fact]
+    public async Task ListRecords_ReturnsNewestFirst_AndGetRecord_RoundTrips()
+    {
+        var store = new WingmanTrainingStore(isEnabled: () => true, dir: _dir);
+        await store.WriteAsync("sid-A", "explain", "TERMINAL A", "reply A", "context A", "spoken A", 1.0);
+        await store.WriteAsync("sid-B", "voice-turn", "TERMINAL B", "reply B", "context B", "spoken B", 2.0);
+
+        var list = store.ListRecords(10);
+        Assert.Equal(2, list.Count);
+        Assert.Equal("sid-B", list[0].SessionId);          // newest first
+        Assert.Equal("sid-A", list[1].SessionId);
+        Assert.Equal("reply B", list[0].ReplyPreview);
+
+        var full = store.GetRecord(list[0].Id);
+        Assert.NotNull(full);
+        Assert.Equal("reply B", full!.Reply);
+        Assert.Equal("context B", full.RecentContext);
+        Assert.Equal("spoken B", full.Spoken);
+        Assert.Equal("TERMINAL B", full.Terminal);
+    }
+
+    [Fact]
+    public void GetRecord_BadId_ReturnsNull()
+    {
+        var store = new WingmanTrainingStore(isEnabled: () => true, dir: _dir);
+        Assert.Null(store.GetRecord("nope"));
+        Assert.Null(store.GetRecord("missing.jsonl#3"));
+        Assert.Null(store.GetRecord("../escape.jsonl#0"));
+    }
 }
