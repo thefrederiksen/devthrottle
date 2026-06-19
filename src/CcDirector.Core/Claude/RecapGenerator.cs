@@ -1,34 +1,39 @@
 using System.Diagnostics;
 using System.Text;
+using CcDirector.Core.Agents;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Claude;
 
 /// <summary>
-/// Generates a "what was done / what is next" recap by spawning a side-claude
-/// process in --print mode against a digest of the session. Does NOT touch the
-/// live session that is being recapped. Designed to use the cheapest model
-/// available (Haiku) since recap quality only needs to be good enough.
+/// Generates a "what was done / what is next" recap by asking a REAL driver-backed
+/// session (via <see cref="SessionAskRunner"/>, issue #509) over a digest of the
+/// session. Does NOT touch the live session that is being recapped, and no longer
+/// uses the metered <c>--print</c> one-shot path - a real session bills against the
+/// user's subscription (issue #511).
 /// </summary>
 public static class RecapGenerator
 {
-    /// <summary>Default cheap model for recap generation. Haiku 4.5 family.</summary>
-    public const string DefaultModel = "haiku";
+    /// <summary>Default model for recap generation.</summary>
+    public const string DefaultModel = "opus";
 
-    /// <summary>How long to wait for the side-claude process before killing it.</summary>
+    /// <summary>How long to wait for the recap session before giving up.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// Spawn <c>claude --print --model &lt;model&gt; ...</c> with the digest as the prompt
-    /// and capture its stdout. Returns the markdown recap text on success.
+    /// Open a real, throwaway ClaudeCode session over the digest and read back the
+    /// markdown recap text. Returns the recap on success. The model argument is
+    /// accepted for signature compatibility but the real session runs on the user's
+    /// configured default model; recap no longer pins a cheap one-shot model.
     /// </summary>
     /// <param name="digestText">
     /// The session digest, ideally pre-formatted by
     /// <see cref="SummaryBuilder.FormatAsHandoverPrompt"/>. We treat it as opaque
-    /// context to feed claude.
+    /// context to feed the session.
     /// </param>
     /// <param name="claudeExePath">Absolute path to claude.exe (from AgentOptions.ClaudePath).</param>
-    /// <param name="model">Model alias or full name. Defaults to "haiku".</param>
+    /// <param name="model">Model alias or full name (kept for signature compatibility).</param>
     /// <param name="ct">Cancellation token.</param>
     public static async Task<string> GenerateAsync(
         string digestText,
@@ -44,88 +49,42 @@ public static class RecapGenerator
         var prompt = BuildPrompt(digestText);
         FileLog.Write($"[RecapGenerator] GenerateAsync: model={model}, digestChars={digestText.Length}, promptChars={prompt.Length}");
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = claudeExePath,
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        psi.ArgumentList.Add("--print");
-        psi.ArgumentList.Add("--model");
-        psi.ArgumentList.Add(model);
-        // NOTE: --bare is intentionally NOT passed (issue #168). --bare disables keychain
-        // reads, which prevents the side-call from picking up the user's OAuth credentials
-        // and fails with "Not logged in" (printed to STDOUT, exit 1). --tools "" below
-        // already prevents tool use, which was the main safety reason for --bare. Same
-        // rationale as WingmanService.RunSideClaudeAsync.
-        // Don't save the recap to the resume picker / session history.
-        psi.ArgumentList.Add("--no-session-persistence");
-        // Disable all tools. "" means "no tools enabled" per claude --help.
-        psi.ArgumentList.Add("--tools");
-        psi.ArgumentList.Add("");
-        // No file or shell access needed, but we still need to bypass permission
-        // dialogs that would otherwise block --print.
-        psi.ArgumentList.Add("--dangerously-skip-permissions");
-        psi.ArgumentList.Add("--output-format");
-        psi.ArgumentList.Add("text");
-        // The prompt goes as the positional argument to --print.
-        psi.ArgumentList.Add(prompt);
-
-        // Run in a neutral working directory (system temp). The side-claude has no
-        // tools enabled so cwd does not matter, but using temp avoids polluting any
-        // repo with .claude state.
-        psi.WorkingDirectory = Path.GetTempPath();
-
-        // Strip the same Claude-Code-related env vars the ConPty backend strips,
-        // so the side-claude is not detected as a nested session.
-        foreach (var k in new[] { "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CC_SESSION_ID", "GIT_EDITOR" })
-        {
-            psi.Environment.Remove(k);
-        }
+        // Issue #511: the recap now opens a REAL session (SessionAskRunner) billed against
+        // the user's subscription instead of the metered `claude --print` one-shot path.
+        // A neutral temp working directory is used: the recap reads only the digest in the
+        // prompt, so it needs no repo on disk, and temp keeps any session state out of the
+        // user's repos.
+        var workDir = CreateRecapWorkingDirectory();
+        FileLog.Write($"[RecapGenerator] GenerateAsync: opening a real session (no --print), workDir={workDir}");
 
         var sw = Stopwatch.StartNew();
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException("Process.Start returned null for claude --print");
-
-        // Close stdin -- we're passing the prompt via argv, not via stdin.
-        proc.StandardInput.Close();
-
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(ProcessTimeout);
         try
         {
-            await proc.WaitForExitAsync(cts.Token);
+            var runner = new SessionAskRunner();
+            var result = await runner.AskAsync(
+                AgentKind.ClaudeCode,
+                claudeExePath,
+                agentArgs: null,
+                workingDirectory: workDir,
+                prompt: prompt,
+                timeout: ProcessTimeout,
+                ct: ct);
+            sw.Stop();
+            FileLog.Write($"[RecapGenerator] done in {sw.ElapsedMilliseconds}ms (real session), output chars={result.Answer.Length}");
+            return result.Answer.Trim();
         }
-        catch (OperationCanceledException)
+        finally
         {
-            try { proc.Kill(entireProcessTree: true); } catch { }
-            throw new TimeoutException($"claude --print did not finish within {ProcessTimeout.TotalSeconds}s");
+            try { Directory.Delete(workDir, recursive: true); } catch { /* temp cleanup best-effort */ }
         }
+    }
 
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-        sw.Stop();
-
-        if (proc.ExitCode != 0)
-        {
-            // claude --print writes some fatal errors (e.g. "Not logged in") to STDOUT
-            // with an empty stderr, so report both or the failure is undiagnosable.
-            var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
-            FileLog.Write($"[RecapGenerator] claude --print failed: exit={proc.ExitCode}, error={error.Substring(0, Math.Min(400, error.Length))}");
-            throw new InvalidOperationException(
-                $"claude --print exited {proc.ExitCode}: {error}");
-        }
-
-        FileLog.Write($"[RecapGenerator] done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
-        return stdout.Trim();
+    /// <summary>Create the throwaway working directory the recap session runs in.</summary>
+    private static string CreateRecapWorkingDirectory()
+    {
+        var workDir = Path.Combine(Path.GetTempPath(), $"cc-recap-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+        return workDir;
     }
 
     private static string BuildPrompt(string digestText)

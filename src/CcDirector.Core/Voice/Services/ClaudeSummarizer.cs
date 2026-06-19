@@ -1,18 +1,22 @@
 using System.Diagnostics;
+using CcDirector.Core.Agents;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Voice.Interfaces;
 
 namespace CcDirector.Core.Voice.Services;
 
 /// <summary>
-/// Summarizes Claude responses using the Claude CLI with haiku model.
-/// Produces short, conversational summaries suitable for TTS.
+/// Summarizes Claude responses by asking a REAL driver-backed session
+/// (<see cref="SessionAskRunner"/>, issue #509) instead of the metered
+/// <c>claude -p</c> one-shot path, so the work bills against the user's
+/// subscription (issue #511). Produces short, conversational summaries
+/// suitable for text-to-speech.
 /// </summary>
 public class ClaudeSummarizer : IResponseSummarizer
 {
     private const string ClaudeExecutable = "claude";
-    private const string Model = "haiku";
-    private const int TimeoutSeconds = 30;
+    private static readonly TimeSpan AskTimeout = TimeSpan.FromSeconds(30);
 
     private bool? _isAvailable;
     private string? _unavailableReason;
@@ -176,56 +180,42 @@ public class ClaudeSummarizer : IResponseSummarizer
     }
 
     /// <summary>
-    /// Run <c>claude -p &lt;prompt&gt;</c> with <paramref name="input"/> piped to
-    /// stdin and return the trimmed stdout. Throws when the CLI exits non-zero.
+    /// Ask a REAL ClaudeCode session (<see cref="SessionAskRunner"/>) to apply
+    /// <paramref name="prompt"/> to <paramref name="input"/> and return the trimmed
+    /// answer. Issue #511: this replaced the metered <c>claude -p</c> one-shot path,
+    /// so the summary work bills against the user's subscription. Throws when the
+    /// session fails or no answer block comes back.
     /// </summary>
     private static async Task<string> RunClaudeAsync(string prompt, string input, CancellationToken cancellationToken)
     {
-        // UTF-8 on all redirected pipes (issue #367): without this, Windows
-        // defaults redirected stdin/stdout to the legacy console code page,
-        // which destroys non-Latin scripts (Korean, Japanese, ...) into "?"
-        // mojibake before the model ever sees them - the model then reports
-        // the text as unreadable corruption and the spoken summary is lost.
-        var utf8NoBom = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-        var psi = new ProcessStartInfo
+        // The instruction template and the reply-to-summarize are joined into one
+        // prompt for the session (the old -p path piped the reply on stdin).
+        var combinedPrompt = prompt + "\n\n=== REPLY TO SUMMARIZE ===\n" + input;
+
+        // Issue #511: open a real session instead of `claude -p`. A neutral temp
+        // working directory keeps any session state out of the user's repos; the
+        // summary reads only the text in the prompt, so it needs no repo on disk.
+        var workDir = Path.Combine(Path.GetTempPath(), $"cc-voice-summary-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+        FileLog.Write($"[ClaudeSummarizer] RunClaudeAsync: opening a real session (no -p), workDir={workDir}");
+
+        try
         {
-            FileName = ClaudeExecutable,
-            Arguments = $"-p \"{prompt}\" --model {Model} --output-format text",
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardInputEncoding = utf8NoBom,
-            StandardOutputEncoding = utf8NoBom,
-            StandardErrorEncoding = utf8NoBom,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        await process.StandardInput.WriteAsync(input);
-        process.StandardInput.Close();
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
-
-        var outputTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-        var errorTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-
-        await Task.WhenAll(outputTask, errorTask);
-        await process.WaitForExitAsync(timeoutCts.Token);
-
-        var output = await outputTask;
-        var error = await errorTask;
-
-        if (process.ExitCode != 0)
-        {
-            FileLog.Write($"[ClaudeSummarizer] Claude exited with code {process.ExitCode}: {error}");
-            throw new InvalidOperationException($"Claude CLI failed: {error}");
+            var runner = new SessionAskRunner();
+            var result = await runner.AskAsync(
+                AgentKind.ClaudeCode,
+                executablePath: ClaudeExecutable,
+                agentArgs: null,
+                workingDirectory: workDir,
+                prompt: combinedPrompt,
+                timeout: AskTimeout,
+                ct: cancellationToken);
+            return result.Answer.Trim();
         }
-
-        return output.Trim();
+        finally
+        {
+            try { Directory.Delete(workDir, recursive: true); } catch { /* temp cleanup best-effort */ }
+        }
     }
 
     private void CheckAvailability()

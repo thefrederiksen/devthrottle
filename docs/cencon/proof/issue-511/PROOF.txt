@@ -1,0 +1,96 @@
+Issue 511 proof - move wingman/recap/voice side-calls off --print to a real
+session + scoped audit ban
+==============================================================================
+
+THE FOUR MIGRATED EMITTERS (all now open a real session via SessionAskRunner,
+issue 509; none emit --print / -p)
+
+1. src/CcDirector.Core/Wingman/WingmanService.cs -> RunSideClaudeAsync
+   Was: claude --print --tools "" --model <model> ... (temp workdir, stdout).
+   Now: new SessionAskRunner().AskAsync(ClaudeCode, ...) in a throwaway temp
+   workdir, returns the parsed answer. Private helper, so all callers
+   (SummarizeTurnAsync, CheckRulesAsync, AskAboutSessionAsync, AssessGoalAsync,
+   DecideSessionActionAsync) migrate at once with no signature change.
+   Logs: "RunSideClaudeAsync: opening a real session (no --print), workDir=...".
+
+2. src/CcDirector.Core/Wingman/WingmanService.cs -> RunWingmanSessionAsync
+   (desktop Explain / voice "Ask the Wingman" path via AnswerViaSessionAsync)
+   Was: claude --print --allowedTools "Read Grep Glob" --mcp-config ...
+   --max-turns ... (repo workdir, stdout).
+   Now: SessionAskRunner real session rooted at the same repo workdir, returns
+   the parsed answer. AnswerViaSessionAsync public contract unchanged.
+   Logs: "RunWingmanSessionAsync: opening a real session (no --print), workDir=...".
+
+3. src/CcDirector.Core/Claude/RecapGenerator.cs -> GenerateAsync
+   Was: claude --print --tools "" --model <model> ... (temp workdir, stdout).
+   Now: SessionAskRunner real session in a throwaway temp workdir, returns the
+   parsed recap markdown. Public signature unchanged; the model parameter kept
+   for compatibility (default literal changed from "haiku" to "opus" since the
+   real session uses the configured default model, not a pinned one-shot model).
+   Logs: "GenerateAsync: opening a real session (no --print), workDir=...".
+
+4. src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs -> RunClaudeAsync
+   Was: claude -p "<prompt>" --model haiku --output-format text (reply on stdin).
+   Now: joins the instruction template + reply into one prompt and opens a
+   SessionAskRunner real session in a throwaway temp workdir, returns the parsed
+   answer. SummarizeAsync / SummarizeProgressAsync unchanged. Model = "haiku"
+   constant removed. The "claude --version" availability probe in
+   CheckAvailability is a diagnostic (not a -p emitter) and was left as-is.
+   Logs: "RunClaudeAsync: opening a real session (no -p), workDir=...".
+
+THE SCOPED AUDIT TEST
+src/CcDirector.Core.Tests/Claude/PrintBanAuditTests.cs - deterministic source
+scan over src/CcDirector.Core. Fails the build if a --print / -p argument
+literal reappears on the in-scope side-call surface, while ALLOWING the
+explicitly-exempt files. The exemption list is encoded IN the test as the
+single source of truth (ExemptFiles + ExemptProjectDirectories), each entry with
+a reason:
+  - ClaudeAgent.cs, ClaudeProcess.cs - interactive session streaming transport.
+  - CursorAgent.cs - interactive streaming transport for the Cursor agent (same
+    exempt category as the Claude transport).
+  - PipeBackend.cs - selectable interactive Pipe backend.
+  - ClaudeArgBuilder.cs, ClaudeClient.cs - structured one-shot client behind
+    QuickActions.
+  - CcDirector.CliExplorer (project dir) - diagnostic tool whose job is probing
+    --print / -p (a sibling project, naturally outside the Core-scoped scan;
+    recorded for completeness).
+A second method, Exempt_files_still_exist_so_the_allowlist_cannot_silently_rot,
+fails if an exempt file is renamed/deleted so the allowlist stays accurate.
+The existing --bare gate (RecapGeneratorAuditTests, issue 168) guards a
+different flag and is not contradictory, so it was left in place.
+
+BUILD + TEST RESULTS
+  dotnet build cc-director.sln  -> Build succeeded, 0 Warning(s), 0 Error(s).
+  dotnet test CcDirector.Core.Tests -> 2122 passed, 4 skipped, 1 failed.
+  The single failure is SessionLifecycleTests.KillAllSessions_KillsAllRunning
+  (Expected: Running, Actual: Exited) - an environment-dependent
+  session-lifecycle timing test, the known unrelated flakiness tracked in
+  issue 566. It touches none of the migrated code.
+  New audit tests (PrintBanAuditTests) pass - see audit-test-pass.txt.
+
+AUDIT DEMONSTRABLY FAILS WHEN -p IS REINTRODUCED
+A "-p" literal was temporarily added to the in-scope RecapGenerator.cs and the
+audit re-run. It FAILED naming the offender:
+  "The metered one-shot --print / -p path is banned on the wingman / recap /
+   voice side-call surface (issue #511). ... Offending file(s):
+     RecapGenerator.cs
+   Failed!  - Failed: 1, Passed: 0"
+The injection was reverted; the working tree is clean.
+
+WHAT A HUMAN MUST RUN TO CONFIRM THE THREE FEATURES STILL PRODUCE OUTPUT
+These need a live Claude session, so they were not exercised headlessly here (no
+fabricated output). Run a Director from a clean process (Task Scheduler
+cc-director-launch, NOT from inside a Claude Code session - CLAUDE.md 0b) and:
+  1. Desktop Explain: open a session, press the Terminal "Explain" button,
+     confirm a briefing returns. Log: "[WingmanService] RunWingmanSessionAsync:
+     opening a real session (no --print)" then "[SessionAskRunner] ... session
+     closed".
+  2. Recap: call the /recap Control API endpoint for a session with a .jsonl
+     transcript, confirm the two-section markdown recap returns. Log:
+     "[RecapGenerator] GenerateAsync: opening a real session (no --print)".
+  3. Voice summary: drive a voice turn (or chat summarize) over a reply longer
+     than 200 chars, confirm a spoken summary returns. Log:
+     "[ClaudeSummarizer] RunClaudeAsync: opening a real session (no -p)".
+The Director must be hosted from a clean (non-nested-ConPty) process, the
+constraint SessionAskRunner documents, or the spawned grandchild session exits
+early.
