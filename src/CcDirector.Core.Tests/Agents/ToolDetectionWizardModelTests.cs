@@ -140,6 +140,43 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
+    public void AcceptSelected_Grok_DoesNotThrow_AndRecordsPathKey()
+    {
+        // Regression: the wizard's PathKeyFor switch was missing Grok (and Cursor), so accepting a
+        // detected Grok threw "Tool Grok has no path config key" and aborted the whole save - no
+        // tools were added. Accepting Grok must now save its config + path like any other tool.
+        var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        var root = NewRoot();
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
+        try
+        {
+            var written = ToolDetectionWizardModel.AcceptSelected(new[]
+            {
+                new AcceptedToolSelection(AgentKind.Grok, @"C:\Users\me\.grok\bin\grok.exe"),
+                new AcceptedToolSelection(AgentKind.Cursor, "cursor-agent"),
+            });
+
+            Assert.Equal(2, written);
+
+            var config = ReadConfig();
+            var agent = config["agent"] as JsonObject;
+            Assert.NotNull(agent);
+            Assert.Equal(@"C:\Users\me\.grok\bin\grok.exe", (agent!["grok_path"] as JsonValue)?.GetValue<string>());
+            Assert.Equal("cursor-agent", (agent["cursor_path"] as JsonValue)?.GetValue<string>());
+
+            var tools = agent["tools"] as JsonObject;
+            Assert.NotNull(tools);
+            Assert.True(tools!.ContainsKey("grok"));
+            Assert.True(tools.ContainsKey("cursor"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", old);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void AcceptSelected_RecordsResolvedPathUnderAgentSection()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");

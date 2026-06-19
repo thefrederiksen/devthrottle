@@ -10,13 +10,14 @@ public class AgentToolCatalogTests
     {
         var kinds = AgentToolCatalog.Entries.Select(e => e.Tool).ToHashSet();
 
-        Assert.Equal(6, AgentToolCatalog.Entries.Count);
+        Assert.Equal(7, AgentToolCatalog.Entries.Count);
         Assert.Contains(AgentKind.ClaudeCode, kinds);
         Assert.Contains(AgentKind.Pi, kinds);
         Assert.Contains(AgentKind.Codex, kinds);
         Assert.Contains(AgentKind.Gemini, kinds);
         Assert.Contains(AgentKind.OpenCode, kinds);
         Assert.Contains(AgentKind.Cursor, kinds);
+        Assert.Contains(AgentKind.Grok, kinds);
     }
 
     [Fact]

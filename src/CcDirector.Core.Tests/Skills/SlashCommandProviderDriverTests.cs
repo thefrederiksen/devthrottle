@@ -72,6 +72,29 @@ public sealed class SlashCommandProviderDriverTests : IDisposable
     }
 
     [Fact]
+    public void GetCommands_GrokSession_ReturnsInteractiveSlashCommands_NotCliSubcommands()
+    {
+        // The Grok catalog must list Grok's INTERACTIVE slash commands (the menu shown when you
+        // type "/" at its prompt), not the shell subcommands of `grok --help` (login/sessions/...).
+        var provider = new SlashCommandProvider();
+
+        var commands = provider.GetCommands(AgentKind.Grok, _repoPath);
+        var names = commands.Select(command => command.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Real interactive commands captured live from Grok Build Beta v0.2.56.
+        Assert.Contains("new", names);
+        Assert.Contains("compact", names);
+        Assert.Contains("fork", names);
+        Assert.Contains("quit", names);
+        // The wrong (CLI-subcommand) surface must not leak in.
+        Assert.DoesNotContain("login", names);
+        Assert.DoesNotContain("sessions", names);
+        // And it must never inherit Claude's commands.
+        Assert.DoesNotContain("output-style", names);
+        Assert.DoesNotContain("permissions", names);
+    }
+
+    [Fact]
     public void GetCommands_ClaudeSession_IncludesInteractiveCommandsInComposerList()
     {
         var provider = new SlashCommandProvider();

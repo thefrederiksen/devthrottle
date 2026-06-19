@@ -1114,6 +1114,7 @@ public partial class MainWindow : Window
         AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
         AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
         AgentKind.Cursor => new CursorAgent(_sessionManager.Options),
+        AgentKind.Grok => new GrokAgent(_sessionManager.Options),
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
@@ -1141,6 +1142,7 @@ public partial class MainWindow : Window
             AgentKind.Gemini => new GeminiAgent(perLaunch),
             AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
             AgentKind.Cursor => new CursorAgent(perLaunch),
+            AgentKind.Grok => new GrokAgent(perLaunch),
             _ => new ClaudeAgent(perLaunch)
         };
     }
@@ -1164,6 +1166,7 @@ public partial class MainWindow : Window
             OpenCodePath = source.OpenCodePath,
             CursorPath = source.CursorPath,
             CursorApiKey = source.CursorApiKey,
+            GrokPath = source.GrokPath,
             ChatSessionRepoPath = source.ChatSessionRepoPath,
             TtsVoice = source.TtsVoice,
             TtsModel = source.TtsModel,
@@ -1180,6 +1183,7 @@ public partial class MainWindow : Window
             case AgentKind.Gemini: copy.GeminiPath = path; break;
             case AgentKind.OpenCode: copy.OpenCodePath = path; break;
             case AgentKind.Cursor: copy.CursorPath = path; break;
+            case AgentKind.Grok: copy.GrokPath = path; break;
             default: copy.ClaudePath = path; break;
         }
 
@@ -1289,6 +1293,10 @@ public partial class MainWindow : Window
             "Install it from https://cursor.com (on Windows: run "
             + "\"irm 'https://cursor.com/install?win32=true' | iex\"), then make sure the "
             + "'cursor-agent' command is on your PATH."),
+        AgentKind.Grok => ("Grok",
+            "Install it from https://x.ai (on Windows: run "
+            + "\"irm https://x.ai/cli/install.ps1 | iex\"), then make sure the "
+            + "'grok' command is on your PATH."),
         _ => ("Claude Code",
             "Install Claude Code and make sure the 'claude' command is on your PATH.")
     };

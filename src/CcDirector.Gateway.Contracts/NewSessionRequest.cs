@@ -10,7 +10,7 @@ public sealed class NewSessionRequest
 
     /// <summary>
     /// Which agent CLI to launch. Valid values: "ClaudeCode" (default), "Pi", "Codex",
-    /// "Gemini", "OpenCode", "RawCli". When "RawCli" is specified, <see cref="Command"/>
+    /// "Gemini", "OpenCode", "Grok", "RawCli". When "RawCli" is specified, <see cref="Command"/>
     /// must also be set to the executable to run.
     /// </summary>
     public string Agent { get; set; } = "ClaudeCode";

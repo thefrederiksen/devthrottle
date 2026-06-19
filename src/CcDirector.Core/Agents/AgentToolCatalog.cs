@@ -136,7 +136,9 @@ public static class AgentToolCatalog
             },
             "");
 
-        return new[] { claude, pi, codex, gemini, openCode, cursor };
+        var grok = StandardOnly(AgentKind.Grok, "Grok");
+
+        return new[] { claude, pi, codex, gemini, openCode, cursor, grok };
     }
 
     private static AgentToolCatalogEntry StandardOnly(AgentKind tool, string displayName) =>

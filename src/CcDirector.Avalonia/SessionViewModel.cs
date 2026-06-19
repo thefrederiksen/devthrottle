@@ -246,6 +246,7 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
     private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
     private static readonly ISolidColorBrush CursorAgentBrush = new SolidColorBrush(Color.FromRgb(0x06, 0xB6, 0xD4));  // cyan - distinct from Claude blue / Pi violet / RawCli slate, readable on the dark rail
+    private static readonly ISolidColorBrush GrokAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));  // amber - Grok, distinct from OpenCode orange / Gemini red, readable on the dark rail
     private static readonly ISolidColorBrush RawCliAgentBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));  // slate gray - neutral, not tied to any brand
 
     public string AgentLabel => LabelFor(Session.AgentKind);
@@ -262,6 +263,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Gemini => "Gemini",
         AgentKind.OpenCode => "OpenCode",
         AgentKind.Cursor => "Cursor",
+        AgentKind.Grok => "Grok",
         AgentKind.RawCli => "Custom CLI",
         _ => "Claude Code"
     };
@@ -276,6 +278,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Gemini => GeminiAgentBrush,
         AgentKind.OpenCode => OpenCodeAgentBrush,
         AgentKind.Cursor => CursorAgentBrush,
+        AgentKind.Grok => GrokAgentBrush,
         AgentKind.RawCli => RawCliAgentBrush,
         _ => ClaudeAgentBrush
     };

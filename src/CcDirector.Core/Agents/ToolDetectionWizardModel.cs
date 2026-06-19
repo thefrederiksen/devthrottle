@@ -157,6 +157,8 @@ public sealed class ToolDetectionWizardModel
         AgentKind.Codex => "codex_path",
         AgentKind.Gemini => "gemini_path",
         AgentKind.OpenCode => "opencode_path",
+        AgentKind.Cursor => "cursor_path",
+        AgentKind.Grok => "grok_path",
         _ => throw new NotSupportedException($"[ToolDetectionWizardModel] Tool {tool} has no path config key.")
     };
 }

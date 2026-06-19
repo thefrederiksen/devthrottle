@@ -114,6 +114,8 @@ public sealed class AgentToolConfig
         AgentKind.Codex => "codex",
         AgentKind.Gemini => "gemini",
         AgentKind.OpenCode => "opencode",
+        AgentKind.Cursor => "cursor",
+        AgentKind.Grok => "grok",
         _ => throw new NotSupportedException($"[AgentToolConfig] Tool {tool} has no config key.")
     };
 

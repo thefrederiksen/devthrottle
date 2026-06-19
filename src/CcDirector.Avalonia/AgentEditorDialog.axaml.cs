@@ -83,6 +83,8 @@ public partial class AgentEditorDialog : Window
         new AgentTypeOption(AgentKind.Gemini, "Gemini"),
         new AgentTypeOption(AgentKind.Pi, "Pi"),
         new AgentTypeOption(AgentKind.OpenCode, "OpenCode"),
+        new AgentTypeOption(AgentKind.Cursor, "Cursor"),
+        new AgentTypeOption(AgentKind.Grok, "Grok"),
         new AgentTypeOption(AgentKind.RawCli, "Custom"),
     };
 

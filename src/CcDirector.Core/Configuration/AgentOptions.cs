@@ -53,6 +53,14 @@ public class AgentOptions
     public string CursorPath { get; set; } = "cursor-agent";
 
     /// <summary>
+    /// Path to the xAI Grok CLI (<c>grok</c> binary).
+    /// The Grok installer places <c>grok.exe</c> under <c>~/.grok/bin/</c> and adds that
+    /// directory to the user PATH, so the default relies on PATH resolution. Users can
+    /// override in config.json if grok is installed to a non-standard location.
+    /// </summary>
+    public string GrokPath { get; set; } = "grok";
+
+    /// <summary>
     /// Cursor authentication key, injected into a Cursor session's environment as
     /// <c>CURSOR_API_KEY</c> when set (issue #517, assumption A5). Loaded from
     /// config.json "agent.cursor_api_key" first, then falls back to the
