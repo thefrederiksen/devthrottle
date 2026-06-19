@@ -37,6 +37,20 @@ public class AgentToolCatalogTests
     }
 
     [Fact]
+    public void CodexEntry_DefaultPresetIsStandard_AndOffersFullAccess()
+    {
+        var codex = AgentToolCatalog.GetEntry(AgentKind.Codex);
+
+        Assert.Equal(AgentToolCatalog.StandardPresetName, codex.DefaultPreset.Name);
+        Assert.Equal("", codex.DefaultPreset.Arguments);
+
+        var fullAccess = codex.Presets.FirstOrDefault(p => p.Name == AgentToolCatalog.CodexFullAccessPresetName);
+        Assert.NotNull(fullAccess);
+        Assert.Equal(AgentToolCatalog.CodexFullAccessArg, fullAccess.Arguments);
+        Assert.Equal("--sandbox danger-full-access --ask-for-approval never", AgentToolCatalog.CodexFullAccessArg);
+    }
+
+    [Fact]
     public void ClaudeEntry_DefaultPresetIsAutomatic_WithSkipPermissions()
     {
         // Issue #436 (supersedes #391): Claude now defaults to Automatic (skip permissions).

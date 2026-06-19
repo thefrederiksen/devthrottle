@@ -64,6 +64,12 @@ public static class AgentToolCatalog
     /// <summary>The name of the Cursor opt-in permission-bypass preset (issue #517).</summary>
     public const string CursorAutomaticPresetName = "Automatic (yolo)";
 
+    /// <summary>The name of the Codex opt-in full-access preset.</summary>
+    public const string CodexFullAccessPresetName = "Full access";
+
+    /// <summary>The exact Codex flags for full filesystem and network access with no approval prompts.</summary>
+    public const string CodexFullAccessArg = "--sandbox danger-full-access --ask-for-approval never";
+
     /// <summary>
     /// The exact Cursor flag the automatic preset adds (and the standard preset omits).
     /// Cursor's permission-bypass equivalent of Claude's --dangerously-skip-permissions
@@ -120,7 +126,15 @@ public static class AgentToolCatalog
         // The other agents have a single standard preset and no recommended model argument
         // (their model is selected inside the tool, not via a Director-passed flag in v1).
         var pi = StandardOnly(AgentKind.Pi, "Pi");
-        var codex = StandardOnly(AgentKind.Codex, "Codex");
+        var codex = new AgentToolCatalogEntry(
+            AgentKind.Codex,
+            "Codex",
+            new[]
+            {
+                new AgentCommandPreset(StandardPresetName, ""),
+                new AgentCommandPreset(CodexFullAccessPresetName, CodexFullAccessArg),
+            },
+            "");
         var gemini = StandardOnly(AgentKind.Gemini, "Gemini");
         var openCode = StandardOnly(AgentKind.OpenCode, "OpenCode");
 

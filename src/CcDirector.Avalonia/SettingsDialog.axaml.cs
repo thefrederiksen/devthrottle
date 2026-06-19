@@ -182,6 +182,7 @@ public partial class SettingsDialog : Window
                 ["preset_id"] = row.PresetId,
                 ["default_model"] = row.DefaultModel,
                 ["args_override"] = row.ArgsOverride,
+                ["launch_mode"] = row.LaunchMode.ToString(),
             });
         return array.ToJsonString();
     }
@@ -276,6 +277,7 @@ public partial class SettingsDialog : Window
                 PresetId = row.PresetId,
                 DefaultModel = row.DefaultModel,
                 ArgsOverride = row.ArgsOverride,
+                LaunchMode = row.LaunchMode,
             };
 
             var dialog = new AgentEditorDialog(existing, siblingNames, CurrentOptions());
@@ -311,6 +313,7 @@ public partial class SettingsDialog : Window
             existing.PresetId = result.PresetId;
             existing.DefaultModel = result.DefaultModel;
             existing.ArgsOverride = result.ArgsOverride;
+            existing.LaunchMode = result.LaunchMode;
             existing.StatusText = ReadStatusText(result);
         }
         else
@@ -507,6 +510,7 @@ public partial class SettingsDialog : Window
                 PresetId = row.PresetId,
                 DefaultModel = row.DefaultModel,
                 ArgsOverride = row.ArgsOverride,
+                LaunchMode = row.LaunchMode,
             });
         return entries;
     }
@@ -874,6 +878,7 @@ public sealed class AgentEntryRow : INotifyPropertyChanged
     public string PresetId { get; set; } = "";
     public string DefaultModel { get; set; } = "";
     public string ArgsOverride { get; set; } = "";
+    public LaunchMode LaunchMode { get; set; } = LaunchMode.Guided;
 
     private string _statusText = "";
     public string StatusText
@@ -930,6 +935,7 @@ public sealed class AgentEntryRow : INotifyPropertyChanged
         PresetId = entry.PresetId,
         DefaultModel = entry.DefaultModel,
         ArgsOverride = entry.ArgsOverride,
+        LaunchMode = entry.LaunchMode,
         StatusText = statusText,
     };
 
