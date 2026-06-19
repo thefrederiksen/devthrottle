@@ -59,4 +59,98 @@ public sealed class WingmanVoiceServiceTests
         svc.OnSessionWorking("sid-1");
         Assert.False(svc.IsGenerating("sid-1"));
     }
+
+    // ---------- Durable audio cache (issue #553) ----------
+
+    /// <summary>Build a service over a SPECIFIC persist path so a second instance can reload from
+    /// the same on-disk cache (the gateway-restart case). The empty vault means TtsAsync returns null.</summary>
+    private static WingmanVoiceService ServiceAt(string persistPath)
+    {
+        Func<CancellationToken, Task<IAgentBrain>> brain =
+            _ => throw new InvalidOperationException("brain must not be called");
+        var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
+        return new WingmanVoiceService(brain, new KeyVault(vaultPath), new DirectorEndpointClient(), persistPath);
+    }
+
+    private static void Cleanup(string persistPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(persistPath);
+            if (dir is not null && Directory.Exists(Path.Combine(dir, "voice-audio")))
+                Directory.Delete(Path.Combine(dir, "voice-audio"), recursive: true);
+            if (File.Exists(persistPath)) File.Delete(persistPath);
+        }
+        catch { /* best-effort cleanup */ }
+    }
+
+    [Fact]
+    public async Task StoreSpokenAsync_WithFailingTts_DoesNotMarkReady()
+    {
+        // No OpenAI key in the vault -> TtsAsync returns null -> the "if anything fails, remove the
+        // triangle" rule: the session is a voice session but has NO playable audio, so no triangle.
+        var svc = NewService();
+        await svc.StoreSpokenAsync("sid-1", "a spoken summary", "the reply");
+        Assert.True(svc.IsVoiceSession("sid-1"));
+        Assert.False(svc.HasVoice("sid-1"));
+        Assert.DoesNotContain("sid-1", svc.ReadySessionIds());
+    }
+
+    [Fact]
+    public async Task StoreSpokenAsync_WithEmptySpoken_DoesNotMarkReady()
+    {
+        var svc = NewService();
+        await svc.StoreSpokenAsync("sid-1", "   ", "the reply");
+        Assert.False(svc.HasVoice("sid-1"));
+    }
+
+    [Fact]
+    public void ReadyAudio_PersistsAndReloadsAcrossRestart()
+    {
+        // A successful synthesis is durable: a fresh service over the same persist path reloads the
+        // ready audio, so the triangle/playability survives a gateway restart and a tap still plays.
+        var persistPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var svc = ServiceAt(persistPath);
+            var audio = new byte[] { 1, 2, 3, 4, 5 };
+            svc.StoreReadyAudioForTest("sid-1", "spoken text", "reply text", audio);
+            Assert.True(svc.HasVoice("sid-1"));
+
+            // Simulate a gateway restart: a brand-new service over the same path.
+            var reloaded = ServiceAt(persistPath);
+            Assert.True(reloaded.HasVoice("sid-1"));
+            Assert.Contains("sid-1", reloaded.ReadySessionIds());
+            var got = reloaded.GetAudio("sid-1");
+            Assert.NotNull(got);
+            Assert.Equal(audio, got);
+            var ready = reloaded.Get("sid-1");
+            Assert.NotNull(ready);
+            Assert.Equal("spoken text", ready.Spoken);
+            Assert.Equal("reply text", ready.Reply);
+        }
+        finally { Cleanup(persistPath); }
+    }
+
+    [Fact]
+    public void OnSessionWorking_DeletesDurableAudio()
+    {
+        // A new turn drops the stale audio from disk too, so a 5s-stale list row cannot point at
+        // audio that no longer exists (which would 404 on /audio).
+        var persistPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var svc = ServiceAt(persistPath);
+            svc.StoreReadyAudioForTest("sid-1", "spoken", "reply", new byte[] { 9, 9, 9 });
+            Assert.True(svc.HasVoice("sid-1"));
+
+            svc.OnSessionWorking("sid-1");
+            Assert.False(svc.HasVoice("sid-1"));
+
+            // A restart must NOT resurrect the dropped audio.
+            var reloaded = ServiceAt(persistPath);
+            Assert.False(reloaded.HasVoice("sid-1"));
+        }
+        finally { Cleanup(persistPath); }
+    }
 }

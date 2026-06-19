@@ -500,6 +500,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // summary, paint it yellow ("not ready yet") and back to red - independent of the brief
             // agent (which is OFF when CC_TURNBRIEFS=0) and never via the Director's --print explain.
             voiceGeneratingFor: sid => _voiceService?.IsGenerating(sid) == true,
+            // Issue #553: whether the gateway has fetchable, playable cached audio for this session -
+            // the single truthful "voice you can play right now" signal. Holds a voice-mode waiting
+            // session yellow until this is true, then lets it go red (SessionOrdering.IsVoicePreparing).
+            voiceAudioReadyFor: sid => _voiceService?.HasVoice(sid) == true,
             // Issue #218: stamp the Gateway-owned NeedsYouSince entry clock onto each session.
             needsYouStampFor: (sid, isRed) => _needsYouClock.Stamp(sid, isRed),
             // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always

@@ -184,6 +184,24 @@ public sealed class SessionDto
     public bool OnHold { get; set; }
 
     /// <summary>
+    /// Issue #553: true while the Gateway's wingman is actively producing this session's spoken
+    /// summary (<c>WingmanVoiceService.IsGenerating</c>). Stamped by the Gateway aggregator only;
+    /// always false in Director-local responses. Drives the voice-mode "yellow until ready" color
+    /// rule (see <see cref="SessionOrdering.EffectiveColor"/>): a voice-mode session waiting for the
+    /// user stays yellow while this is true.
+    /// </summary>
+    public bool VoiceGenerating { get; set; }
+
+    /// <summary>
+    /// Issue #553: true when the Gateway has fetchable, playable cached audio for this session
+    /// (<c>WingmanVoiceService.HasVoice</c>) - the SINGLE truthful "there is voice you can play right
+    /// now" signal. Stamped by the Gateway aggregator only; always false in Director-local responses.
+    /// A voice-mode session waiting for the user only turns red once this is true; before then it
+    /// holds yellow (see <see cref="SessionOrdering.EffectiveColor"/>).
+    /// </summary>
+    public bool VoiceAudioReady { get; set; }
+
+    /// <summary>
     /// Whether the Wingman experience is enabled for this session: auto-explain briefing on
     /// turn-end, Voice + Wingman tabs visible, Yellow "Wingman is reading" state available.
     /// Default OFF. When false the session behaves as a plain terminal -- clients hide the

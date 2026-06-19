@@ -138,6 +138,67 @@ public sealed class SessionOrderingTests
         Assert.Equal("orange", SessionOrdering.EffectiveColor(S("x", color: "red", briefingState: "Explaining")));
     }
 
+    // ---------- Voice-mode "yellow until audio ready" (issue #553) ----------
+
+    private static SessionDto Voice(string color, string activityState, bool generating, bool audioReady) => new()
+    {
+        SessionId = "v",
+        StatusColor = color,
+        ActivityState = activityState,
+        VoiceMode = true,
+        VoiceGenerating = generating,
+        VoiceAudioReady = audioReady,
+    };
+
+    [Fact]
+    public void EffectiveColor_VoiceWaiting_NoAudio_IsYellow()
+    {
+        // Voice mode, waiting for the user, no playable audio yet -> hold yellow, not red.
+        Assert.Equal("yellow", SessionOrdering.EffectiveColor(
+            Voice("red", "WaitingForInput", generating: false, audioReady: false)));
+    }
+
+    [Fact]
+    public void EffectiveColor_VoiceWaiting_Generating_IsYellow_EvenWithStaleAudio()
+    {
+        // A new turn is being summarized: yellow regardless of any stale cached audio.
+        Assert.Equal("yellow", SessionOrdering.EffectiveColor(
+            Voice("red", "WaitingForPerm", generating: true, audioReady: true)));
+    }
+
+    [Fact]
+    public void EffectiveColor_VoiceWaiting_AudioReady_IsRed()
+    {
+        // Playable audio exists and nothing is generating -> red "needs you".
+        Assert.Equal("red", SessionOrdering.EffectiveColor(
+            Voice("red", "WaitingForInput", generating: false, audioReady: true)));
+    }
+
+    [Fact]
+    public void EffectiveColor_VoiceWorking_StaysBlue()
+    {
+        // While the agent is working the dot stays blue even in voice mode with no audio.
+        Assert.Equal("blue", SessionOrdering.EffectiveColor(
+            Voice("blue", "Working", generating: true, audioReady: false)));
+    }
+
+    [Fact]
+    public void EffectiveColor_NonVoiceWaiting_NoAudio_StaysRed()
+    {
+        // A non-voice session is untouched by the voice rule: waiting + red stays red.
+        var s = Voice("red", "WaitingForInput", generating: true, audioReady: false);
+        s.VoiceMode = false;
+        Assert.Equal("red", SessionOrdering.EffectiveColor(s));
+    }
+
+    [Fact]
+    public void Classify_VoiceWaitingNoAudio_IsActive_NotNeedsYou()
+    {
+        // While voice is still preparing the session must not sit in NEEDS YOU.
+        Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(
+            Voice("red", "WaitingForInput", generating: false, audioReady: false)));
+    }
+
     [Fact]
     public void Classify_RedWhileExplaining_IsActive_NotNeedsYou()
     {
