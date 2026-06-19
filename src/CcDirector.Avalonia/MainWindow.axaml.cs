@@ -3022,6 +3022,14 @@ public partial class MainWindow : Window
 
         // ===== Help =====
         var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
+        help.Menu.Items.Add(Item("Documentation", () =>
+        {
+            FileLog.Write("[MainWindow] Menu: Documentation -> https://devthrottle.com/docs");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://devthrottle.com/docs")
+                { UseShellExecute = true });
+        }));
+        help.Menu.Items.Add(Item("Send Feedback...", () => BtnFeedback_Click(this, new RoutedEventArgs())));
+        help.Menu.Items.Add(new NativeMenuItemSeparator());
         help.Menu.Items.Add(Item("About CC Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
         menu.Items.Add(help);
 
@@ -3029,6 +3037,15 @@ public partial class MainWindow : Window
     }
 
     // ==================== TOP APP BAR ====================
+
+    private async void BtnFeedback_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnFeedback_Click: opening feedback dialog");
+        var dialog = new FeedbackDialog(this);
+        var result = await dialog.ShowDialog<bool?>(this);
+        if (result == true)
+            ShowNotification("Thank you. Your feedback has been submitted.");
+    }
 
     private async void BtnClaudeConfig_Click(object? sender, RoutedEventArgs e)
     {

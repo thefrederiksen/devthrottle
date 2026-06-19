@@ -1,0 +1,130 @@
+<Window x:Class="CcDirector.Avalonia.FeedbackDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Send Feedback"
+        Width="560" Height="600"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#252526">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0"
+                   Text="Send Feedback"
+                   Foreground="#CCCCCC"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,4" />
+
+        <TextBlock Grid.Row="1"
+                   Text="This creates a ticket in the DevThrottle repository. The team is notified by email automatically."
+                   Foreground="#AAAAAA"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,16" />
+
+        <!-- Title -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="TITLE"
+                       Foreground="#007ACC"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,4" />
+            <TextBox x:Name="TitleBox"
+                     Watermark="Short summary of your feedback"
+                     Background="#3C3C3C"
+                     Foreground="#CCCCCC"
+                     BorderThickness="0"
+                     Height="30" />
+        </StackPanel>
+
+        <!-- Description label -->
+        <TextBlock Grid.Row="3"
+                   Text="DESCRIPTION"
+                   Foreground="#007ACC"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,4" />
+
+        <!-- Description box -->
+        <TextBox Grid.Row="4"
+                 x:Name="DescriptionBox"
+                 Watermark="What happened? What did you expect? Steps to reproduce, if any."
+                 Background="#3C3C3C"
+                 Foreground="#CCCCCC"
+                 BorderThickness="0"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 VerticalContentAlignment="Top"
+                 VerticalAlignment="Stretch"
+                 Margin="0,0,0,12" />
+
+        <!-- Screenshot row -->
+        <StackPanel Grid.Row="5" Margin="0,0,0,8">
+            <TextBlock Text="SCREENSHOT (OPTIONAL)"
+                       Foreground="#007ACC"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,4" />
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="BtnAttachScreenshot"
+                        Content="Attach screenshot of CC Director"
+                        Height="28"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand"
+                        Click="BtnAttachScreenshot_Click" />
+                <Button x:Name="BtnRemoveScreenshot"
+                        Content="Remove"
+                        Height="28" Width="80"
+                        Margin="8,0,0,0"
+                        IsVisible="False"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand"
+                        Click="BtnRemoveScreenshot_Click" />
+            </StackPanel>
+            <Border x:Name="ScreenshotPreviewBorder"
+                    IsVisible="False"
+                    BorderBrush="#3C3C3C" BorderThickness="1"
+                    Margin="0,8,0,0"
+                    HorizontalAlignment="Left">
+                <Image x:Name="ScreenshotPreview"
+                       MaxHeight="140"
+                       Stretch="Uniform" />
+            </Border>
+        </StackPanel>
+
+        <!-- Status -->
+        <TextBlock Grid.Row="6"
+                   x:Name="StatusText"
+                   Foreground="#AAAAAA"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   IsVisible="False"
+                   Margin="0,4,0,0" />
+
+        <!-- Action buttons -->
+        <StackPanel Grid.Row="7" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnSubmit" Content="Submit" Width="110" Height="28"
+                    Background="#007ACC" Foreground="#FFFFFF"
+                    BorderThickness="0" Cursor="Hand"
+                    Margin="0,0,8,0"
+                    Click="BtnSubmit_Click" />
+            <Button x:Name="BtnCancel" Content="Cancel" Width="80" Height="28"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    Click="BtnCancel_Click" />
+        </StackPanel>
+    </Grid>
+</Window>
