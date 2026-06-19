@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue 448 proof - tool availability judged by PATH</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1f2933; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2563eb; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #0f3a8c; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef2ff; }
+  .pass { color: #15803d; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; margin: 8px 0; }
+  .note { background: #f1f5f9; border-left: 4px solid #2563eb; padding: 10px 14px; }
+</style>
+</head>
+<body>
+<h1>Issue 448 - Tool availability judged by PATH, not the bundled bin directory</h1>
+
+<p><strong>Branch:</strong> fix/448-tools-on-path &nbsp; <strong>Machine:</strong> SOREN_NORTH &nbsp; <strong>Test build:</strong> slot 6 (v0.9.12)</p>
+
+<h2>The problem</h2>
+<p>The Director judged whether a cc-* tool was "available" by checking only the application's bundled
+bin directory. On a machine where the tools resolve on the user's PATH but the running build's bundled
+bin directory is empty, the Home readiness row reported "0 of 32 on PATH" (red) and the Tools dashboard
+showed "0 built" - a fully working setup looked broken.</p>
+
+<h2>What changed</h2>
+<table>
+<tr><th>Concept</th><th>Meaning</th><th>Field</th></tr>
+<tr><td>Built into this build</td><td>Present in the application's bundled bin directory (or its sibling python scripts directory). Kept as a diagnostic.</td><td><code>ToolDescriptor.IsBuilt</code> (unchanged meaning)</td></tr>
+<tr><td>Available on PATH</td><td>The command name resolves on the user's PATH (PATH + PATHEXT), using the same primitive the session-launch preflight uses (<code>ExecutableResolver.Resolve</code>).</td><td><code>ToolDescriptor.IsOnPath</code> (new)</td></tr>
+<tr><td>Available (user-facing signal)</td><td>Runnable on this machine: built into this build OR on PATH. Unavailable only when on neither.</td><td><code>ToolDescriptor.IsAvailable</code> (new, computed)</td></tr>
+</table>
+<p>The Home readiness count and the Tools dashboard now report <code>IsAvailable</code>. The Control API
+<code>/tools</code> endpoint gates execution on <code>IsAvailable</code> and exposes the new
+<code>isOnPath</code> / <code>isAvailable</code> fields. The <code>IsBuilt</code> diagnostic is preserved
+everywhere it was used (version reading, gateway facts inventory).</p>
+
+<h2>Acceptance criterion 1 + 2: PATH-only environment reproduced on the real machine</h2>
+<p>Running the production <code>ToolCatalogService</code> against an EMPTY bundled bin directory plus this
+machine's real PATH/PATHEXT - the exact reported bug environment. Before the fix this reported 0 available;
+now every tool that resolves on PATH is available even though none are built in the (empty) bin directory.</p>
+<pre>bundled bin dir : ...\issue448_emptybin_...  (EMPTY - the bug condition)
+tools=9  built(in bin)=0  onPath=9  available=9
+
+  cc-comm-queue    IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-settings      IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-vault         IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-html          IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-pdf           IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-word          IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-gmail         IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-outlook       IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-playwright    IsBuilt=False IsOnPath=True  IsAvailable=True
+
+=== where.exe cc-vault (confirms PATH presence) ===
+C:\Users\soren\AppData\Local\cc-director\bin\cc-vault.cmd</pre>
+<p>Full text: <code>path-only-availability.txt</code>.</p>
+
+<h2>Acceptance criterion 1: Home readiness reports tools available (live app)</h2>
+<p>The Home page reports <span class="pass">All systems go - 9 of 9 tools passing</span> (green). The
+tools resolve on PATH (<code>where.exe cc-vault</code> above), and the readiness count reflects them.</p>
+<img src="home-readiness-live.png" alt="Home page: All systems go, 9 of 9 tools passing">
+
+<h2>Acceptance criterion 3: Tools dashboard does not show PATH-available tools as unavailable (live app)</h2>
+<p>The Tools dashboard summary reads <span class="pass">9 tools  9 PASS  0 FAIL  0 UNAVAILABLE</span>, the
+footer reads <span class="pass">9/9 available</span>, and every tool carries a green PASS chip. No tool is
+labelled "NOT BUILT" / unavailable. (The "NOT BUILT" badge was renamed to "UNAVAILABLE" and now means on
+neither PATH nor the bin directory.)</p>
+<img src="tools-dashboard-live.png" alt="Tools dashboard: 9 tools, 9 PASS, 0 UNAVAILABLE, 9/9 available">
+
+<h2>Acceptance criteria 4 + 5: unit tests (Core)</h2>
+<p>Deterministic tests inject an explicit PATH/PATHEXT so they never depend on the real machine PATH:</p>
+<table>
+<tr><th>Test</th><th>Asserts</th><th>Result</th></tr>
+<tr><td>GetCatalog_OnPathButNotInBinDir_IsAvailable</td><td>on PATH, absent from bin = Available (IsBuilt false, IsOnPath true)</td><td class="pass">PASS</td></tr>
+<tr><td>GetCatalog_OnNeitherPathNorBinDir_IsUnavailable</td><td>on neither = Unavailable, signal stays honest</td><td class="pass">PASS</td></tr>
+<tr><td>GetCatalog_InBinDirOnly_IsAvailable_NoRegression</td><td>built into the bundle = Available (no regression)</td><td class="pass">PASS</td></tr>
+<tr><td>GetCatalog_OnPathButNotInBinDir_BinaryPathPointsAtThePathResolvedExe</td><td>PATH-only tool's runnable path is the PATH-resolved exe</td><td class="pass">PASS</td></tr>
+</table>
+<p>Full ToolCatalogServiceTests: <strong class="pass">19 passed, 0 failed</strong>. Full CcDirector.Core.Tests
+suite: <strong class="pass">2116 passed, 0 failed, 4 skipped</strong> (no regressions). Output:
+<code>unit-tests.txt</code>.</p>
+
+<h2>Control API verified (not broken)</h2>
+<p><code>GET /tools</code> returns each tool with <code>isBuilt</code>, <code>isOnPath</code>, and
+<code>isAvailable</code>; all 9 reported available. Full response: <code>tools-endpoint.json</code>.
+The Cockpit tools page and the gateway read the same catalog and reflect the change automatically.</p>
+
+<div class="note">
+The live machine has the cc-* tools both built into the install AND on PATH, so the live screenshots show
+"available". The PATH-ONLY branch (empty bin, on PATH) - the literal bug condition - is proven by the
+real-machine reproduction above and by the deterministic unit tests.
+</div>
+
+</body>
+</html>

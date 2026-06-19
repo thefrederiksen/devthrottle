@@ -32,6 +32,7 @@ public sealed class ToolDescriptor
         string? note,
         string binaryPath,
         bool isBuilt,
+        bool isOnPath,
         bool isExpected,
         IReadOnlyList<ToolTest> tests)
     {
@@ -41,6 +42,7 @@ public sealed class ToolDescriptor
         Note = note;
         BinaryPath = binaryPath;
         IsBuilt = isBuilt;
+        IsOnPath = isOnPath;
         IsExpected = isExpected;
         Tests = tests;
     }
@@ -60,11 +62,34 @@ public sealed class ToolDescriptor
     /// </summary>
     public string? Note { get; }
 
-    /// <summary>Absolute path to where the binary should live in the bin directory.</summary>
+    /// <summary>
+    /// Absolute path to the runnable binary. When the tool is built in the app's bundled bin
+    /// directory (or its sibling python scripts directory) this points there; otherwise, when the
+    /// tool only resolves on the user's PATH, it points at the PATH-resolved executable; otherwise it
+    /// is the expected (non-existent) bin path, kept for display so the user can see where it was sought.
+    /// </summary>
     public string BinaryPath { get; }
 
-    /// <summary>True when <see cref="BinaryPath"/> exists on disk.</summary>
+    /// <summary>
+    /// True when the binary is present in the app's bundled bin directory (the "built into this build"
+    /// diagnostic). This is deliberately separate from <see cref="IsAvailable"/>: a tool can be usable
+    /// (resolvable on the user's PATH) without being bundled in this particular build.
+    /// </summary>
     public bool IsBuilt { get; }
+
+    /// <summary>
+    /// True when the tool's command name resolves on the user's PATH (PATH + PATHEXT), using the same
+    /// resolution rule the session-launch preflight uses (<see cref="Utilities.ExecutableResolver"/>).
+    /// </summary>
+    public bool IsOnPath { get; }
+
+    /// <summary>
+    /// The user-facing AVAILABILITY signal: the tool can actually be run on this machine because it is
+    /// either bundled in this build (<see cref="IsBuilt"/>) or resolves on the user's PATH
+    /// (<see cref="IsOnPath"/>). Unavailable only when it is on neither. This is what the Home readiness
+    /// row and the Tools dashboard report, per issue #448.
+    /// </summary>
+    public bool IsAvailable => IsBuilt || IsOnPath;
 
     /// <summary>
     /// True when this machine's install is expected to provide the tool: it has an installer shim

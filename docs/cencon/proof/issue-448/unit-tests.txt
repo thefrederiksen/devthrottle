@@ -1,0 +1,8 @@
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_InBinDirOnly_IsAvailable_NoRegression [2 ms]
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_BinaryAbsent_MarksNotBuilt [1 ms]
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_NoShimNoExe_NotExpected [1 ms]
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_OnPathButNotInBinDir_BinaryPathPointsAtThePathResolvedExe [2 ms]
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_OnPathButNotInBinDir_IsAvailable [2 ms]
+Passed CcDirector.Core.Tests.ToolCatalogServiceTests.GetCatalog_OnNeitherPathNorBinDir_IsUnavailable [1 ms]
+---
+Full ToolCatalogServiceTests run: Passed 19, Failed 0.

@@ -1,0 +1,19 @@
+=== PATH-only availability proof (real machine, empty bundled bin dir) ===
+Produced by running the production CcDirector.Core.Tools.ToolCatalogService against an EMPTY
+bin dir + this machine's real PATH/PATHEXT - the exact reported bug environment.
+
+bundled bin dir : C:\Users\soren\AppData\Local\Temp\issue448_emptybin_eccaf173aece4e03a6d7c319ff5c8144  (EMPTY - the bug condition)
+tools=9  built(in bin)=0  onPath=9  available=9
+
+  cc-comm-queue    IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-settings      IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-vault         IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-html          IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-pdf           IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-word          IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-gmail         IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-outlook       IsBuilt=False IsOnPath=True  IsAvailable=True
+  cc-playwright    IsBuilt=False IsOnPath=True  IsAvailable=True
+
+=== where.exe cc-vault (confirms PATH presence) ===
+C:\Users\soren\AppData\Local\cc-director\bin\cc-vault.cmd

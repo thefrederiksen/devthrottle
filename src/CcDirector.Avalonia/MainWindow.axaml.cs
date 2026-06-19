@@ -725,13 +725,15 @@ public partial class MainWindow : Window
                     return new AgentCliFact(ToolDetectionService.DisplayName(tool), det.Found, version);
                 }).ToList();
 
-                // Only consider tools this install is EXPECTED to provide (shim or built); tools never
-                // installed here (extras tier, other bundles, manifest drift) must not raise a warning.
+                // Only consider tools this install is EXPECTED to provide (shim, built, or on PATH); tools
+                // never installed here (extras tier, other bundles, manifest drift) must not raise a warning.
+                // Availability is judged by PATH OR the bundled bin dir (issue #448), not bin-dir presence
+                // alone - a machine where cc-* resolve on PATH is fully working even if this build's bin is empty.
                 var catalog = new ToolCatalogService().GetCatalog();
                 var expected = catalog.Where(d => d.IsExpected).ToList();
-                var built = expected.Count(d => d.IsBuilt);
+                var built = expected.Count(d => d.IsAvailable);
                 var total = expected.Count;
-                var missing = expected.Where(d => !d.IsBuilt).Select(d => d.Name).ToList();
+                var missing = expected.Where(d => !d.IsAvailable).Select(d => d.Name).ToList();
 
                 return (clis, built, total, missing);
             });
@@ -828,7 +830,9 @@ public partial class MainWindow : Window
                 using var gate = new System.Threading.SemaphoreSlim(Math.Max(1, Environment.ProcessorCount - 1));
                 var inputs = await Task.WhenAll(catalog.Select(async d =>
                 {
-                    if (!d.IsBuilt)
+                    // Availability (PATH or bundled bin), not bin-only IsBuilt, decides whether the tool
+                    // can run its checks (issue #448). A PATH-only tool's BinaryPath is its PATH-resolved exe.
+                    if (!d.IsAvailable)
                         return new CcDirector.Core.Tools.ToolHealthInput(d.Name, false, d.IsExpected, false);
                     await gate.WaitAsync();
                     try
