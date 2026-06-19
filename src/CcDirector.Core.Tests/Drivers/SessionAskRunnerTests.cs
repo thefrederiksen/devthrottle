@@ -111,7 +111,15 @@ public class SessionAskRunnerTests : IDisposable
 
     // --------------------------------- per-driver: ClaudeCode + Pi answers
 
-    [Fact]
+    // This integration smoke test drives the REAL ClaudeDriver, which resolves and requires
+    // claude.exe on PATH (ClaudeDriver.ResolveExecutable throws FileNotFoundException when it
+    // is absent). GitHub continuous integration runners have no Claude Code install, so the
+    // test always throws there. xUnit version 2 (the version this project uses) has no clean
+    // runtime skip such as Assert.Skip, so it is statically skipped, matching the existing
+    // convention on the main branch (see NulFileWatcherTests and SessionEdgeCaseTests). The
+    // deterministic fake-backend tests in this same file keep the ask/parse coverage running
+    // everywhere. Developers with claude.exe on PATH can remove the Skip locally to run it.
+    [Fact(Skip = "Requires claude.exe on PATH; not available on CI runners")]
     public async Task AskAsync_ClaudeCode_RealDriverWithFixtureTranscript_ReturnsParsedAnswer()
     {
         // Drive the REAL ClaudeDriver, feeding it a fixture transcript through the
