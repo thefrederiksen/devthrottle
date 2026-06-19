@@ -380,7 +380,25 @@ public sealed class Session : IDisposable
     /// and <see cref="VoiceMode"/> are derived from it. Off by default. Not persisted: it tracks
     /// what a remote viewer is looking at right now, not durable session state.
     /// </summary>
-    public MobileViewMode ViewMode { get; set; } = MobileViewMode.Off;
+    public MobileViewMode ViewMode
+    {
+        get => _viewMode;
+        set
+        {
+            if (_viewMode == value) return;
+            var old = _viewMode;
+            _viewMode = value;
+            OnViewModeChanged?.Invoke(old, value);
+        }
+    }
+    private MobileViewMode _viewMode = MobileViewMode.Off;
+
+    /// <summary>
+    /// Raised when <see cref="ViewMode"/> changes (old, new). The desktop session view-model
+    /// listens so the in-voice-mode ear indicator (issue #554) appears and clears live as a
+    /// phone enters and leaves the Voice tab, without waiting for a list rebuild.
+    /// </summary>
+    public event Action<MobileViewMode, MobileViewMode>? OnViewModeChanged;
 
     /// <summary>
     /// True when a phone is actively watching this session in either mobile mode (Text or Voice).

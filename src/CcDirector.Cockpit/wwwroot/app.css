@@ -275,7 +275,11 @@ body{background:var(--panel);color:var(--text);
 .sess-state{font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
 .tag{font-size:9px;border-radius:6px;padding:0 5px;line-height:14px}
 .tag-hold{color:var(--text3);background:#404040}
-.tag-voice{color:#04101f;background:var(--blue)}
+/* In-voice-mode ear (#554): the blue pill now holds a vector ear instead of the word
+   "voice"; the ear inherits the dark pill text color via currentColor. */
+.tag-voice{color:#04101f;background:var(--blue);display:inline-flex;align-items:center;
+  padding:0 4px}
+.tag-voice .ear-icon{width:12px;height:12px;display:block}
 /* session type (#211): OUTLINED chips in a palette distinct from the state colors
    (red/green/amber/blue), so type-as-identity can never be mistaken for a state. */
 .tag-type{background:transparent;border:1px solid;line-height:12px;font-weight:600}
