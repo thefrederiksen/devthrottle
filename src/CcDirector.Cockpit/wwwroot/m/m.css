@@ -90,6 +90,15 @@ body{background:var(--bg);color:var(--text);
 .explain:active{background:var(--panel2)}
 .explain:disabled{opacity:.5}
 
+/* Session lifecycle buttons at the bottom (issue #545): large, one-handed tap targets. */
+.session-actions{display:flex;gap:12px;margin:18px 16px 8px}
+.act-btn{flex:1;min-height:64px;border-radius:14px;font-size:17px;font-weight:800;cursor:pointer;border:1px solid var(--border)}
+.act-btn:disabled{opacity:.5}
+.act-hold{background:var(--panel2);color:var(--text)}
+.act-hold.held{background:#3a3320;border-color:#6b5d2a;color:#ffe9a8}   /* on hold -> amber/grey tint */
+.act-kill{background:#2a1116;color:#ff9aa0;border-color:#5a1d24}
+.act-kill.armed{background:var(--red);color:#2a0608;border-color:var(--red);animation:pulse 1.1s ease-in-out infinite}
+
 /* TEXT at the bottom, collapsed by default */
 .text-section{margin:18px 16px;border-top:1px solid var(--border);padding-top:12px}
 .text-section>summary{color:var(--muted);font-size:14px;cursor:pointer;padding:6px 0}

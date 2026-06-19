@@ -22,6 +22,7 @@
   var talkWingmanBtn=$("talk-wingman-btn"), recControls=$("rec-controls"), recTime=$("rec-time"), recTarget=$("rec-target"), cancelBtn=$("cancel-btn"), sendBtn=$("send-btn");
   var sendingStatus=$("sending-status"), sendingText=$("sending-text"), busyBar=$("busy-bar"), busyText=$("busy-text"), errorBox=$("error-box"), audioEl=$("tts-audio");
   var menuBox=$("menu-box"), textSection=$("text-section");
+  var holdBtn=$("hold-btn"), killBtn=$("kill-btn"), killArmTimer=null;
 
   var current=null, spoken="", busy=false, audioUrl=null, audioReady=false, rec=null, blocked={};
   var CHUNK=64*1024;
@@ -51,7 +52,7 @@
   function postJson(url,p,t){ return fetchJson(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p||{})},t); }
 
   // ===== session list (with voice-ready play triangles) =====
-  function showList(){ stopListen(); clearMenu(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
+  function showList(){ stopListen(); clearMenu(); disarmKill(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
   // quiet (issue #534): the 5 s auto-refresh ticker and the foreground refresh call loadSessions(true)
   // so it does NOT blank the already-rendered list to "Loading sessions..." while re-fetching, and a
   // transient failure leaves the last good list visible instead of replacing it with an error. The
@@ -97,7 +98,8 @@
   // voice as soon as it is buffered. A row-body tap passes false and stays idle (manual Play).
   function openSession(s, autoPlay){
     stopListen();
-    current={ sid:s.sessionId, name:titleOf(s) };
+    current={ sid:s.sessionId, name:titleOf(s), dto:s, onHold:!!s.onHold };
+    updateHoldBtn(); disarmKill();
     svName.textContent=current.name; svDot.style.background=dotColor(effColor(s));
     svState.textContent=humanState(s.assessedState||s.activityState); svMachine.textContent=s.machineName||"";
     hideError(); spoken=""; renderText("",null); audioUrl=null; audioReady=false;
@@ -131,6 +133,51 @@
     if(!s) return;                           // session gone from the list: leave the view as-is
     svDot.style.background=dotColor(effColor(s));
     svState.textContent=humanState(s.assessedState||s.activityState);
+    current.dto=s; current.onHold=!!s.onHold; updateHoldBtn();   // keep the Hold button in sync with reality
+  }
+
+  // ===== session lifecycle (issue #545): on-hold toggle (gray, in place) + kill (confirm -> list) =====
+  function updateHoldBtn(){
+    if(!holdBtn) return; var h=!!(current&&current.onHold);
+    holdBtn.textContent = h ? "Take off hold" : "Put on hold";
+    holdBtn.classList.toggle("held", h);
+  }
+  function disarmKill(){
+    if(killArmTimer){ clearTimeout(killArmTimer); killArmTimer=null; }
+    if(killBtn){ killBtn.classList.remove("armed"); killBtn.textContent="Kill session"; killBtn.disabled=false; }
+    if(holdBtn) holdBtn.disabled=false;
+  }
+  async function toggleHold(){
+    if(!current) return; var sid=current.sid, want=!current.onHold;
+    holdBtn.disabled=true; disarmKill();
+    try{
+      await postJson("/sessions/"+encodeURIComponent(sid)+"/hold", {onHold:want}, T.http);
+      if(current&&current.sid===sid){
+        current.onHold=want; if(current.dto) current.dto.onHold=want;
+        updateHoldBtn();
+        svDot.style.background=dotColor(effColor(current.dto||{onHold:want}));
+        heroStatus.textContent = want ? "On hold." : "Off hold.";
+      }
+    }catch(e){ heroStatus.textContent="Couldn't change hold: "+e.message; }
+    holdBtn.disabled=false;
+  }
+  // Kill arms on the first tap (drive-safe: one extra tap, no typing) and kills on the second.
+  function killTap(){
+    if(!current) return;
+    if(!killBtn.classList.contains("armed")){
+      killBtn.classList.add("armed"); killBtn.textContent="Tap again to kill";
+      killArmTimer=setTimeout(disarmKill, 4000);
+      return;
+    }
+    disarmKill(); killSession();
+  }
+  async function killSession(){
+    if(!current) return; var sid=current.sid;
+    killBtn.disabled=true; heroStatus.textContent="Killing session...";
+    try{
+      await fetchJson("/sessions/"+encodeURIComponent(sid), {method:"DELETE"}, T.http);
+      showList();                              // gone -> back to the list
+    }catch(e){ heroStatus.textContent="Kill failed: "+e.message; killBtn.disabled=false; }
   }
 
   // ===== auto-refresh: 5 s poll + immediate on foreground (issue #534) =====
@@ -398,6 +445,8 @@
   talkWingmanBtn.addEventListener("click", function(){ startRecording("wingman"); });
   cancelBtn.addEventListener("click", function(){ finishRecording("cancel"); });
   sendBtn.addEventListener("click", function(){ finishRecording("send"); });
+  holdBtn.addEventListener("click", toggleHold);
+  killBtn.addEventListener("click", killTap);
 
   // Auto-refresh wiring (issue #534): pause polling when the page is hidden, refresh immediately and
   // resume when it returns to the foreground. visibilitychange covers tab switch / phone lock; pageshow

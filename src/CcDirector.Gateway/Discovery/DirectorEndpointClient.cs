@@ -353,13 +353,16 @@ public sealed class DirectorEndpointClient : IDisposable
 
     /// <summary>
     /// Forward a "kill this session" (DELETE) to the owning Director. Returns true
-    /// when the Director reports the session was killed.
+    /// when the Director reports the session was killed. Uses the 30s action client
+    /// (not the 2s fleet-probe client): killing is an on-demand, mutating action whose hop to
+    /// the owning Director can exceed 2s, and a 2s cancel surfaced as a 502 from the phone
+    /// (issue #545) - same reasoning as prompt/interrupt/escape.
     /// </summary>
     public async Task<bool> KillSessionAsync(string endpoint, string sessionId, CancellationToken ct = default)
     {
         try
         {
-            var resp = await _http.DeleteAsync($"{endpoint}/sessions/{sessionId}", ct);
+            var resp = await _actionHttp.DeleteAsync($"{endpoint}/sessions/{sessionId}", ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
