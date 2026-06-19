@@ -56,9 +56,10 @@ internal static class GatewayWingmanVoiceEndpoint
         DirectorEndpointClient client,
         Func<CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
-        WingmanVoiceService voice)
+        WingmanVoiceService voice,
+        Func<string>? instructionsProvider = null)
     {
-        var translator = new WingmanTranslator(brainProvider);
+        var translator = new WingmanTranslator(brainProvider, instructionsProvider: instructionsProvider);
 
         // Which voice sessions have a ready, playable spoken summary right now (the phone's list
         // shows a play button on these and can play without entering).
@@ -215,9 +216,15 @@ internal static class GatewayWingmanVoiceEndpoint
             // fresh summary is stored below once the agent replies.
             voice.OnSessionWorking(sid);
 
-            // Snapshot the transcript length BEFORE sending so the reply we read is only the text
-            // appended for THIS turn, never the previous turn's output (the issue #366 guard).
-            var widgetsBefore = await CountTextWidgetsAsync(client, endpoint, sid, ct);
+            // Snapshot the widget list BEFORE sending: gives both (a) the count for the issue #366
+            // guard (only read widgets that are new after the send) and (b) the prior conversation
+            // for the wingman so it can resolve references in the agent's reply. The current question
+            // is appended below; BuildRecentContext is called on the pre-send snapshot so it
+            // excludes the new turn and includes only what came before.
+            var snapshotWidgets = (await client.GetTurnsAsync(endpoint, sid, ct))?.Widgets
+                ?? new List<TurnWidgetDto>();
+            var widgetsBefore = snapshotWidgets.Count;
+            var priorContext = WingmanTranslator.BuildRecentContext(snapshotWidgets);
 
             var (ok, _, sendErr) = await client.PostPromptAsync(endpoint, sid, new PromptRequest { Text = req.Text, AppendEnter = true }, ct);
             if (!ok)
@@ -233,7 +240,11 @@ internal static class GatewayWingmanVoiceEndpoint
             voice.BeginGenerating(sid);
             try
             {
-                var recentContext = "You: " + req.Text.Trim();
+                // Full context: prior exchanges from the pre-send snapshot + the current question,
+                // so the wingman can resolve references like "that file" or "the bug I mentioned".
+                var recentContext = string.IsNullOrWhiteSpace(priorContext)
+                    ? "You: " + req.Text.Trim()
+                    : priorContext + "\n\nYou: " + req.Text.Trim();
                 var t = await translator.TranslateAsync(recentContext, reply, CancellationToken.None);
                 await voice.StoreSpokenAsync(sid, t.Spoken, reply, CancellationToken.None);   // make it a voice session + cache audio
                 FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: replyLen={reply.Length}, spokenLen={t.Spoken.Length}");

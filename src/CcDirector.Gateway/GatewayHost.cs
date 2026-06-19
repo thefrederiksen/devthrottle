@@ -98,6 +98,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
     private Wingman.WingmanVoiceService? _voiceService;
+    // Editable/versioned wingman instructions (issue #537); the voice translator reads the active set.
+    private readonly Wingman.WingmanInstructionsStore _instructionsStore = new();
+    // Shared training-data store: the voice service WRITES captures, the instructions A/B test READS them.
+    private readonly Wingman.WingmanTrainingStore _trainingStore = new();
     private System.Threading.Timer? _voiceSweepTimer;
     private AdvertisedEndpointMonitor? _endpointMonitor;
     private WebApplication? _app;
@@ -324,7 +328,7 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client,
                 generatorId: $"{GatewayTurnBriefAgent.GeneratorId}/{BrainModel}");
-            _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client);
+            _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
             _turnEndWatcher = new TurnEndWatcher(
                 Registry, _client,
                 _briefAgent.OnTurnEnd,
@@ -529,8 +533,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
         // session and have the persistent wingman brain translate the reply into speakable form,
         // plus the direct-to-wingman path. Backed by the same warm Brain the brief agent uses.
-        _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client);
-        GatewayWingmanVoiceEndpoint.Map(_app, Registry, _client, ct => Brain.GetAsync(ct), _keyVault, _voiceService);
+        _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
+        GatewayWingmanVoiceEndpoint.Map(_app, Registry, _client, ct => Brain.GetAsync(ct), _keyVault, _voiceService, instructionsProvider: () => _instructionsStore.ActiveContent);
+        // Editable/versioned wingman instructions settings surface (issue #537), incl. A/B test
+        // over saved training sessions (reads the shared training store; uses the warm brain).
+        WingmanInstructionsEndpoint.Map(_app, _instructionsStore, _trainingStore, ct => Brain.GetAsync(ct));
         // The gateway OWNS keeping voice sessions' summaries pre-built (issue #531): a gentle
         // background sweep regenerates voice for any idle voice session that is missing it, so the
         // list shows it ready BEFORE you enter - including after a gateway restart (the voice-session

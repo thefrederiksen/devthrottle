@@ -109,6 +109,88 @@ public sealed class WingmanTrainingStore
         }
     }
 
+    /// <summary>One captured record, summarized for a picker (issue #537 A/B testing).</summary>
+    public sealed record TrainingRecordSummary(string Id, string Source, DateTime AtUtc, string SessionId, string ReplyPreview, string SpokenPreview);
+
+    /// <summary>One captured record in full, to re-run draft instructions against.</summary>
+    public sealed record TrainingRecord(string Id, string Source, DateTime AtUtc, string SessionId, string Terminal, string Reply, string RecentContext, string Spoken);
+
+    /// <summary>Recent captured records, newest first (across daily files). Addressed positionally
+    /// as "&lt;filename&gt;#&lt;lineindex&gt;" - stable because the files are append-only.</summary>
+    public IReadOnlyList<TrainingRecordSummary> ListRecords(int limit = 30)
+    {
+        var outp = new List<TrainingRecordSummary>();
+        try
+        {
+            if (!Directory.Exists(_dir)) return outp;
+            foreach (var f in Directory.GetFiles(_dir, "wingman-training-*.jsonl").OrderByDescending(f => f))
+            {
+                var name = Path.GetFileName(f);
+                string[] lines;
+                try { lines = File.ReadAllLines(f); } catch { continue; }
+                for (var i = lines.Length - 1; i >= 0; i--)
+                {
+                    if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(lines[i]);
+                        var r = doc.RootElement;
+                        outp.Add(new TrainingRecordSummary(
+                            Id: $"{name}#{i}",
+                            Source: Str(r, "source"),
+                            AtUtc: r.TryGetProperty("atUtc", out var a) && a.TryGetDateTime(out var dt) ? dt : default,
+                            SessionId: Str(r, "sessionId"),
+                            ReplyPreview: Preview(Str(r, "reply"), 140),
+                            SpokenPreview: Preview(Str(r, "spoken"), 140)));
+                        if (outp.Count >= limit) return outp;
+                    }
+                    catch (JsonException) { }
+                }
+            }
+        }
+        catch (Exception ex) { FileLog.Write($"[WingmanTrainingStore] ListRecords FAILED: {ex.Message}"); }
+        return outp;
+    }
+
+    /// <summary>Load one full record by its positional id ("&lt;filename&gt;#&lt;lineindex&gt;").</summary>
+    public TrainingRecord? GetRecord(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        var hash = id.LastIndexOf('#');
+        if (hash <= 0 || hash >= id.Length - 1) return null;
+        var name = id[..hash];
+        if (!int.TryParse(id[(hash + 1)..], out var index) || index < 0) return null;
+        if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) return null;   // no path escape
+        try
+        {
+            var file = Path.Combine(_dir, name);
+            if (!File.Exists(file)) return null;
+            var lines = File.ReadAllLines(file);
+            if (index >= lines.Length) return null;
+            using var doc = JsonDocument.Parse(lines[index]);
+            var r = doc.RootElement;
+            return new TrainingRecord(
+                Id: id,
+                Source: Str(r, "source"),
+                AtUtc: r.TryGetProperty("atUtc", out var a) && a.TryGetDateTime(out var dt) ? dt : default,
+                SessionId: Str(r, "sessionId"),
+                Terminal: Str(r, "terminal"),
+                Reply: Str(r, "reply"),
+                RecentContext: Str(r, "recentContext"),
+                Spoken: Str(r, "spoken"));
+        }
+        catch (Exception ex) { FileLog.Write($"[WingmanTrainingStore] GetRecord {id} FAILED: {ex.Message}"); return null; }
+    }
+
+    private static string Str(JsonElement e, string prop)
+        => e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? (v.GetString() ?? "") : "";
+
+    private static string Preview(string s, int max)
+    {
+        s = (s ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+        return s.Length <= max ? s : s[..max] + "...";
+    }
+
     private static string SafeModel()
     {
         try { return BrainModelConfig.Get(); }

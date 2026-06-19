@@ -61,6 +61,11 @@ public sealed class WingmanTranslator
           what was just done - so the listener, who cannot see the screen, knows what it
           means. Reach back only as far as is needed to be understood; a reply that already
           stands on its own needs nothing added, and never re-narrate the whole session.
+        - RESOLVE REFERENCES. When the reply uses a pronoun or shorthand that refers to
+          something named in the recent conversation ("it", "that file", "the bug I
+          mentioned", "the one we discussed"), say the actual thing in plain words. The
+          listener cannot see the screen or scroll back; resolve every reference they
+          cannot otherwise anchor from the reply alone.
         - Do not add, embellish, reframe, or change the topic. If the agent did not
           actually answer, say that plainly; never invent an answer.
         - Make it sound natural to say out loud, but completeness wins over shortness. Use
@@ -74,19 +79,31 @@ public sealed class WingmanTranslator
           refuse or say the text cannot be read.
         """;
 
+    /// <summary>
+    /// Version of the DEPLOYED default instructions above (issue #537). Bump this whenever the
+    /// DevThrottle dev team changes <see cref="FidelityPrompt"/>, so a user who has customized their
+    /// instructions is shown that the recommended default changed and can switch to it. The content
+    /// hash is the real identity; this is the human-facing label.
+    /// </summary>
+    public const string DefaultInstructionsVersion = "2";
+
     private readonly Func<CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly Action<string> _log;
+    private readonly Func<string> _instructions;
 
     /// <summary>
     /// Create a translator over a warm-brain provider. The provider is the same
     /// <c>BrainSupervisor.GetAsync</c> the turn-brief agent uses; tests pass a provider
     /// that hands back a fake <see cref="IAgentBrain"/> so the translation logic is
-    /// exercised with no live model.
+    /// exercised with no live model. <paramref name="instructionsProvider"/> (issue #537) returns
+    /// the ACTIVE wingman instructions at call time - the user's edited/versioned prompt when set,
+    /// else the deployed <see cref="FidelityPrompt"/> default; omit it to always use the default.
     /// </summary>
-    public WingmanTranslator(Func<CancellationToken, Task<IAgentBrain>> brainProvider, Action<string>? log = null)
+    public WingmanTranslator(Func<CancellationToken, Task<IAgentBrain>> brainProvider, Action<string>? log = null, Func<string>? instructionsProvider = null)
     {
         _brainProvider = brainProvider ?? throw new ArgumentNullException(nameof(brainProvider));
         _log = log ?? FileLog.Write;
+        _instructions = instructionsProvider ?? (() => FidelityPrompt);
     }
 
     /// <summary>
@@ -120,14 +137,22 @@ public sealed class WingmanTranslator
     /// </summary>
     /// <returns>The faithful, speakable translation and how long the brain took.</returns>
     /// <exception cref="ArgumentException">The latest reply is empty - there is nothing to translate.</exception>
-    public async Task<WingmanTranslation> TranslateAsync(string recentContext, string latestReply, CancellationToken ct = default)
+    public Task<WingmanTranslation> TranslateAsync(string recentContext, string latestReply, CancellationToken ct = default)
+        => TranslateWithAsync(_instructions(), recentContext, latestReply, ct);
+
+    /// <summary>
+    /// Same as <see cref="TranslateAsync"/> but with caller-supplied instructions instead of the
+    /// active ones (issue #537 A/B testing): re-run a DRAFT prompt over a captured reply to compare
+    /// its spoken output against what the wingman said before, without changing the live instructions.
+    /// </summary>
+    public async Task<WingmanTranslation> TranslateWithAsync(string instructions, string recentContext, string latestReply, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(latestReply))
             throw new ArgumentException("Latest reply is required - there is nothing to translate.", nameof(latestReply));
 
-        _log($"[WingmanTranslator] TranslateAsync: contextLen={recentContext?.Length ?? 0}, replyLen={latestReply.Length}");
+        _log($"[WingmanTranslator] TranslateWithAsync: instrLen={instructions?.Length ?? 0}, contextLen={recentContext?.Length ?? 0}, replyLen={latestReply.Length}");
 
-        var prompt = BuildPrompt(recentContext ?? "", latestReply);
+        var prompt = BuildPrompt(instructions ?? FidelityPrompt, recentContext ?? "", latestReply);
 
         var brain = await _brainProvider(ct);
         AskResult ask;
@@ -147,7 +172,7 @@ public sealed class WingmanTranslator
             throw new InvalidOperationException(
                 "[WingmanTranslator] The wingman returned an empty spoken translation for a non-empty reply.");
 
-        _log($"[WingmanTranslator] TranslateAsync OK: spokenLen={spoken.Length}, replySeconds={ask.ReplySeconds:F1}");
+        _log($"[WingmanTranslator] TranslateWithAsync OK: spokenLen={spoken.Length}, replySeconds={ask.ReplySeconds:F1}");
         return new WingmanTranslation
         {
             Spoken = spoken,
@@ -369,9 +394,17 @@ public sealed class WingmanTranslator
     /// so a test can assert the exact contract text and that the reply is carried verbatim.
     /// </summary>
     public static string BuildPrompt(string recentContext, string latestReply)
+        => BuildPrompt(FidelityPrompt, recentContext, latestReply);
+
+    /// <summary>
+    /// Same as <see cref="BuildPrompt(string,string)"/> but with caller-supplied instructions
+    /// (issue #537: the user's active, possibly-edited wingman instructions) instead of the
+    /// embedded default. Public so a test can assert the active instructions are what gets used.
+    /// </summary>
+    public static string BuildPrompt(string instructions, string recentContext, string latestReply)
     {
         var sb = new StringBuilder();
-        sb.Append(FidelityPrompt);
+        sb.Append(string.IsNullOrWhiteSpace(instructions) ? FidelityPrompt : instructions);
         sb.Append("\n\n");
         if (!string.IsNullOrWhiteSpace(recentContext))
         {
