@@ -1,4 +1,4 @@
-// Wingman Voice - standalone mobile screen (issue #531), v16. Plain static JS (not Blazor); recording
+// Wingman Voice - standalone mobile screen (issue #531), v17. Plain static JS (not Blazor); recording
 // works offline; a network-first service worker loads the page offline.
 //
 // Voice-first + proactive:
@@ -52,13 +52,19 @@
 
   // ===== session list (with voice-ready play triangles) =====
   function showList(){ stopListen(); clearMenu(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
-  async function loadSessions(){
-    listStatus.textContent="Loading sessions..."; sessionList.innerHTML="";
+  // quiet (issue #534): the 5 s auto-refresh ticker and the foreground refresh call loadSessions(true)
+  // so it does NOT blank the already-rendered list to "Loading sessions..." while re-fetching, and a
+  // transient failure leaves the last good list visible instead of replacing it with an error. The
+  // manual Refresh button and first load call loadSessions() (quiet=false) for the usual feedback.
+  async function loadSessions(quiet){
+    if(!quiet){ listStatus.textContent="Loading sessions..."; sessionList.innerHTML=""; }
     try{
       var env=await fetchJson("/sessions?envelope=true",{},T.list);
       var ready={}; try{ var rr=await fetchJson("/wingman/voice/ready",{},T.list); (rr.sids||[]).forEach(function(x){ ready[x]=1; }); }catch(e){}
       var sessions=(env&&env.sessions)?env.sessions:[];
       sessions.sort(function(a,b){ return (b.lastActivityAt||"").localeCompare(a.lastActivityAt||""); });
+      // Only touch the DOM once the fetch has SUCCEEDED, so a mid-refresh failure never wipes the list.
+      sessionList.innerHTML="";
       if(!sessions.length){ listStatus.textContent="No sessions running. Start one, then tap Refresh."; return; }
       listStatus.textContent=sessions.length+" session"+(sessions.length===1?"":"s");
       sessions.forEach(function(s){
@@ -79,7 +85,11 @@
         if(pb) pb.addEventListener("click", function(ev){ ev.stopPropagation(); openSession(s, true); });
         sessionList.appendChild(li);
       });
-    }catch(e){ listStatus.textContent=e.message; }
+    }catch(e){
+      // On a quiet auto-refresh keep the last good list on screen (criterion: a transient failure must
+      // not blank an already-rendered list); only the explicit Refresh / first load shows the error.
+      if(!quiet) listStatus.textContent=e.message;
+    }
   }
 
   // ===== one session =====
@@ -95,6 +105,54 @@
     showTalkState();
     openVoice(!!autoPlay);
   }
+  // Auto-refresh the visible session's status dot (#sv-dot) and state line (#sv-state) only
+  // (issue #534). It deliberately updates NOTHING else: it never re-explains, never touches the
+  // spoken summary, the typed text, the menu, or playback, and it skips entirely while the session
+  // is mid-action so a tick can't stomp the local yellow/red dot the wingman flow sets or interrupt
+  // the user. A transient failure is swallowed - the last good dot/state stays on screen.
+  function sessionViewBusy(){
+    // Any in-progress action where the local dot/state is authoritative, not the gateway's: the
+    // wingman is working (busy), a recording is live (rec), a send is uploading (blocked), a menu is
+    // shown, or audio is playing. In all of these the dot is set deliberately and must not be reset.
+    return busy || !!rec || !!(current && blocked[current.sid]) || (current && current.menu)
+      || !audioEl.paused;
+  }
+  async function refreshSessionMeta(){
+    if(!current || sessionView.classList.contains("hidden")) return;
+    if(sessionViewBusy()) return;            // don't disturb an in-progress action (criterion 5)
+    var sid=current.sid;
+    var env;
+    try{ env=await fetchJson("/sessions?envelope=true",{},T.list); }
+    catch(e){ return; }                      // transient failure: keep the last good dot/state
+    if(!current || current.sid!==sid || sessionViewBusy()) return;   // re-check after the await
+    var sessions=(env&&env.sessions)?env.sessions:[];
+    var s=null;
+    for(var i=0;i<sessions.length;i++){ if(sessions[i].sessionId===sid){ s=sessions[i]; break; } }
+    if(!s) return;                           // session gone from the list: leave the view as-is
+    svDot.style.background=dotColor(effColor(s));
+    svState.textContent=humanState(s.assessedState||s.activityState);
+  }
+
+  // ===== auto-refresh: 5 s poll + immediate on foreground (issue #534) =====
+  // One ticker drives whichever screen is visible. It pauses while the page is hidden (no /sessions
+  // requests in the background) and resumes - with an immediate refresh - the instant the app returns
+  // to the foreground (phone wake / unlock / tab re-focus), within ~1 s, not on the next 5 s tick.
+  var POLL_MS=5000, pollTimer=null;
+  function refreshVisible(quiet){
+    if(document.hidden) return;
+    if(!listView.classList.contains("hidden")) loadSessions(quiet!==false);
+    else if(!sessionView.classList.contains("hidden")) refreshSessionMeta();
+  }
+  function pollTick(){ refreshVisible(true); }
+  function startPolling(){ if(pollTimer===null) pollTimer=setInterval(pollTick, POLL_MS); }
+  function stopPolling(){ if(pollTimer!==null){ clearInterval(pollTimer); pollTimer=null; } }
+  function onForeground(){
+    // Foreground (visibilitychange visible / pageshow / focus): refresh now and (re)start the ticker.
+    if(document.hidden) return;
+    startPolling();
+    refreshVisible(true);
+  }
+  function onBackground(){ if(document.hidden) stopPolling(); }
   // Entering a session NEVER auto-explains (and never while it is working). Show the cached voice
   // if one exists; otherwise just sit idle and wait for the person to tap Explain. When autoPlay is
   // set (the triangle entry path, issue #533) the cached voice starts playing once buffered.
@@ -296,6 +354,14 @@
   cancelBtn.addEventListener("click", function(){ finishRecording("cancel"); });
   sendBtn.addEventListener("click", function(){ finishRecording("send"); });
 
+  // Auto-refresh wiring (issue #534): pause polling when the page is hidden, refresh immediately and
+  // resume when it returns to the foreground. visibilitychange covers tab switch / phone lock; pageshow
+  // covers the bfcache wake on some mobile browsers; focus covers desktop tab re-focus.
+  document.addEventListener("visibilitychange", function(){ if(document.hidden) onBackground(); else onForeground(); });
+  window.addEventListener("pageshow", onForeground);
+  window.addEventListener("focus", onForeground);
+
   showList();
   resumeOutbox();
+  startPolling();
 })();
