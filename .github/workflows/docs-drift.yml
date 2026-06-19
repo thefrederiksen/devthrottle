@@ -1,0 +1,28 @@
+name: Docs Drift
+
+# Flags when the feature documentation inventory has drifted from the source tree.
+# This is the no-GUI half of the /document-features pipeline: it cannot screenshot
+# the desktop app on a headless runner, it only verifies the inventory still points
+# at real source files and pages. When this fails, re-run /document-features locally
+# to refresh the inventory, screenshots, and pages.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/features/feature-inventory.yaml"
+      - "docs/public/features/**"
+      - "src/CcDirector.Avalonia/**"
+      - "phone/CcDirectorClient/**"
+      - "scripts/check-inventory-drift.ps1"
+
+jobs:
+  inventory-drift:
+    name: Inventory drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check inventory vs source
+        shell: pwsh
+        run: ./scripts/check-inventory-drift.ps1

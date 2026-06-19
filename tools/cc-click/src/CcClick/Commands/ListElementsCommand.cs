@@ -7,9 +7,9 @@ namespace CcClick.Commands;
 
 public static class ListElementsCommand
 {
-    public static int Execute(AutomationBase automation, string windowTitle, string? type, int depth)
+    public static int Execute(AutomationBase automation, string? windowTitle, int? pid, string? type, int depth)
     {
-        var window = WindowFinder.FindWindow(automation, windowTitle);
+        var window = WindowFinder.Resolve(automation, windowTitle, pid);
 
         ControlType? controlType = null;
         if (!string.IsNullOrEmpty(type))
@@ -25,10 +25,10 @@ public static class ListElementsCommand
 
         var result = elements.Select(e => new
         {
-            name = e.Name ?? "",
-            automationId = e.AutomationId ?? "",
-            controlType = e.ControlType.ToString(),
-            boundingRect = FormatRect(e.BoundingRectangle)
+            name = Safe(() => e.Name) ?? "",
+            automationId = Safe(() => e.AutomationId) ?? "",
+            controlType = Safe(() => e.ControlType.ToString()) ?? "",
+            boundingRect = SafeRect(e)
         }).ToArray();
 
         Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions.Default));
@@ -38,5 +38,16 @@ public static class ListElementsCommand
     private static object FormatRect(System.Drawing.Rectangle r)
     {
         return new { x = r.X, y = r.Y, width = r.Width, height = r.Height };
+    }
+
+    private static string? Safe(Func<string?> read)
+    {
+        try { return read(); } catch { return null; }
+    }
+
+    private static object SafeRect(FlaUI.Core.AutomationElements.AutomationElement e)
+    {
+        try { return FormatRect(e.BoundingRectangle); }
+        catch { return new { x = 0, y = 0, width = 0, height = 0 }; }
     }
 }

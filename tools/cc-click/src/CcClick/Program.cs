@@ -6,6 +6,7 @@ using CcClick;
 using CcClick.Commands;
 
 var windowOption = new Option<string?>("--window", "-w") { Description = "Window title (substring match)" };
+var pidOption = new Option<int?>("--pid") { Description = "Target window by process id (exact; use when several windows share a title)" };
 var nameOption = new Option<string?>("--name") { Description = "Element name / display text" };
 var idOption = new Option<string?>("--id") { Description = "Element AutomationId" };
 
@@ -25,34 +26,36 @@ var listElementsCmd = new Command("list-elements", "List UI elements in a window
 var typeOption = new Option<string?>("--type", "-t") { Description = "Filter by ControlType (e.g. Button, TextBox)" };
 var depthOption = new Option<int>("--depth", "-d") { Description = "Max tree traversal depth", DefaultValueFactory = _ => 25 };
 listElementsCmd.Options.Add(windowOption);
+listElementsCmd.Options.Add(pidOption);
 listElementsCmd.Options.Add(typeOption);
 listElementsCmd.Options.Add(depthOption);
 listElementsCmd.SetAction(parseResult => Run(() =>
 {
     var window = parseResult.GetValue(windowOption);
+    var pid = parseResult.GetValue(pidOption);
     var type = parseResult.GetValue(typeOption);
     var depth = parseResult.GetValue(depthOption);
-    if (string.IsNullOrEmpty(window))
-        throw new InvalidOperationException("--window is required");
     using var automation = new UIA3Automation();
-    return ListElementsCommand.Execute(automation, window, type, depth);
+    return ListElementsCommand.Execute(automation, window, pid, type, depth);
 }));
 
 // ── click ──
 var clickCmd = new Command("click", "Click a UI element");
 var xyOption = new Option<string?>("--xy") { Description = "Absolute screen coordinates (e.g. \"500,300\")" };
 clickCmd.Options.Add(windowOption);
+clickCmd.Options.Add(pidOption);
 clickCmd.Options.Add(nameOption);
 clickCmd.Options.Add(idOption);
 clickCmd.Options.Add(xyOption);
 clickCmd.SetAction(parseResult => Run(() =>
 {
     var window = parseResult.GetValue(windowOption);
+    var pid = parseResult.GetValue(pidOption);
     var name = parseResult.GetValue(nameOption);
     var id = parseResult.GetValue(idOption);
     var xy = parseResult.GetValue(xyOption);
     using var automation = new UIA3Automation();
-    return ClickCommand.Execute(automation, window, name, id, xy);
+    return ClickCommand.Execute(automation, window, pid, name, id, xy);
 }));
 
 // ── type ──
@@ -78,13 +81,15 @@ typeCmd.SetAction(parseResult => Run(() =>
 var screenshotCmd = new Command("screenshot", "Capture a screenshot");
 var outputOption = new Option<string>("--output", "-o") { Description = "Output file path", Required = true };
 screenshotCmd.Options.Add(windowOption);
+screenshotCmd.Options.Add(pidOption);
 screenshotCmd.Options.Add(outputOption);
 screenshotCmd.SetAction(parseResult => Run(() =>
 {
     var window = parseResult.GetValue(windowOption);
+    var pid = parseResult.GetValue(pidOption);
     var output = parseResult.GetValue(outputOption)!;
     using var automation = new UIA3Automation();
-    return ScreenshotCommand.Execute(automation, window, output);
+    return ScreenshotCommand.Execute(automation, window, pid, output);
 }));
 
 // ── read-text ──
