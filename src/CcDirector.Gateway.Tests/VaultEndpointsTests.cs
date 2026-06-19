@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
+using CcDirector.Core;
 using CcDirector.Gateway.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;

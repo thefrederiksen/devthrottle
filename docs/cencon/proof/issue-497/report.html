@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #497 - Capability-based Transcription settings - Developer proof</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;
+       color:#1a1a1a;max-width:980px;margin:0 auto;padding:28px 22px 80px}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  .sub{color:#666;margin:0 0 18px}
+  code{background:#f3f3f3;padding:1px 5px;border-radius:4px;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+  th,td{border:1px solid #ddd;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f7f7f7}
+  .pass{color:#1f7a47;font-weight:600}
+  .blocked{color:#b8860b;font-weight:600}
+  img{max-width:100%;border:1px solid #ccc;border-radius:8px;margin:10px 0}
+  .note{background:#fff8e6;border:1px solid #f0d98a;border-radius:8px;padding:12px 14px;margin:14px 0}
+  ul{margin:6px 0}
+</style>
+</head>
+<body>
+<h1>Issue #497 - feat: capability-based Transcription settings (bring-your-own-key OR DevThrottle key)</h1>
+<p class="sub">Developer Agent proof. Branch <code>issue-497-transcription-settings</code>. Build clean (0 warnings, 0 errors); 50 transcription/resolver tests pass.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Cockpit Settings tab renamed Keys -&gt; Transcription</b> with a two-mode radio-card chooser
+      (<i>Bring your own key</i> / <i>Use DevThrottle</i>), per-mode key field (Save / Clear / Show what I type),
+      <code>dt_</code> &amp; <code>sk-</code> format validation, the two devthrottle.com links, and a status indicator
+      (<code>src/CcDirector.Cockpit/wwwroot/pages/settings.html</code>).</li>
+  <li><b>Standalone "API Keys" nav item removed</b> from both the Blazor rail (<code>NavMenu.razor</code>) and the
+      plain-page rail (<code>tool-nav.js</code>); the old <code>keys.html</code> page deleted and <code>/keys</code>
+      now 302-redirects to <code>/settings</code> (<code>Program.cs</code>).</li>
+  <li><b>Mode persisted server-side</b> as config.json <code>transcription_mode</code> ("byo" | "devthrottle") via
+      <code>TranscriptionModeConfig</code> + a new <code>GET/PUT /gateway/transcription-mode</code> endpoint, mirroring
+      the existing <code>addressing_mode</code> pattern. The two keys persist in the existing Gateway vault
+      (<code>OPENAI_API_KEY</code>, <code>DEVTHROTTLE_API_KEY</code>).</li>
+  <li><b>Transcription routing by mode</b> in <code>OpenAiKeyResolver.ResolveEndpointAsync</code> +
+      <code>TranscriptionEndpointResolver</code>: BYO -&gt; <code>https://api.openai.com/v1</code> with the OpenAI key;
+      DevThrottle -&gt; <code>https://devthrottle.com/api/v1</code> with the <code>dt_</code> key. The batch transcription
+      provider, live-preview transcriber, and cleanup orchestrator are now base-URL aware; <code>DictationEndpoint</code>
+      selects the provider by mode (BYO keeps the OpenAI Realtime path; DevThrottle uses the OpenAI-compatible batch
+      endpoint, the contract's one in-scope endpoint).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr>
+    <td>Settings shows a Transcription tab; no standalone API Keys sidebar item</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot 01/02: tab reads "Transcription"; left rail has Home / Cockpit / Directors / Settings / Dictionary / About - no "API Keys" item. <code>/keys</code> returns HTTP 302 -&gt; <code>/settings</code> (verified via curl).</td>
+  </tr>
+  <tr>
+    <td>User can switch between the two modes; the selection and key persist across restarts</td>
+    <td class="pass">PASS</td>
+    <td>Screenshots 01 -&gt; 02 show the mode switch and panel swap. Persistence: mode in config.json (<code>TranscriptionModeConfigTests.SetThenGet_*_PersistsAcrossReread</code> - a fresh disk read is the restart path), keys in the file-backed Gateway vault.</td>
+  </tr>
+  <tr>
+    <td>Valid <code>dt_</code> key + DevThrottle mode transcribes through devthrottle.com/api/v1</td>
+    <td class="blocked">ROUTING PROVEN; E2E BLOCKED</td>
+    <td>Routing proven by <code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_DevThrottleMode_*</code> (base URL + key name + vault fetch). True end-to-end transcription is blocked: per issue section 7 the proxy is not yet deployed to devthrottle.com.</td>
+  </tr>
+  <tr>
+    <td>BYO mode + valid <code>sk-</code> key transcribes directly via OpenAI</td>
+    <td class="pass">PASS (routing) </td>
+    <td><code>ResolveEndpoint_ByoMode_PullsOpenAiKey_AndTargetsOpenAi</code> and <code>ResolveEndpoint_StandaloneByo_UsesLocalOpenAiKey</code> assert the OpenAI base URL + key. The existing OpenAI dictation path is unchanged for BYO.</td>
+  </tr>
+  <tr>
+    <td>The BYO key is never transmitted to any DevThrottle/devthrottle.com endpoint</td>
+    <td class="pass">PASS</td>
+    <td><code>ResolveEndpoint_ByoMode_NeverPairsByoKeyWithDevThrottleUrl</code> asserts the BYO base URL contains no "devthrottle.com" and no request URL touches it. <code>TranscriptionEndpointResolver.Resolve(Byo)</code> pairs the OpenAI key only with api.openai.com.</td>
+  </tr>
+  <tr>
+    <td>Invalid <code>dt_</code> key surfaces the error message cleanly in the UI</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot 03: an invalid key triggers a clean red message "That does not look like a DevThrottle key...". A runtime 401 from the proxy would surface through the same message channel (the save error envelope) once the proxy is deployed.</td>
+  </tr>
+</table>
+
+<div class="note">
+<b>Honest dependency note (issue section 7):</b> the DevThrottle transcription proxy
+(<code>POST /api/v1/audio/transcriptions</code>) is implemented in the private <code>devthrottle_internal</code>
+repo but is <b>not yet deployed to devthrottle.com</b>. So true DevThrottle-mode end-to-end transcription and a
+real 401 from a bad <code>dt_</code> key cannot be exercised from this build yet. Everything specified and testable
+now - the Transcription UI, the mode chooser, mode/key persistence, mode-based routing (base URL + key), the
+BYO-never-to-DevThrottle guarantee, and key format validation - is implemented and verified. The chat-completions
+(<code>/chat/completions</code>) cleanup path and large-file upload remain out of scope per the issue.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No new container and no new external system (the DevThrottle proxy is an OpenAI-compatible swap of the existing
+"OpenAI API" external system). Adds one config.json key (<code>transcription_mode</code>) and one vault key name
+(<code>DEVTHROTTLE_API_KEY</code>), both consistent with the documented DT-01 Key Vault model (stored on the user's own
+Gateway box, never logged, never committed). Docs updated:
+<code>docs/architecture/gateway/GATEWAY_KEY_VAULT.md</code> and
+<code>docs/cencon/architecture_manifest.yaml</code>. No blocking security rule (DT-01..DT-NN) is violated.</p>
+
+<h2>Screenshots</h2>
+<p><b>01 - Bring your own key (default mode)</b></p>
+<img src="01-byo-mode.png" alt="BYO mode" />
+<p><b>02 - Use DevThrottle mode (after selecting the card)</b></p>
+<img src="02-devthrottle-mode.png" alt="DevThrottle mode" />
+<p><b>03 - Invalid DevThrottle key validation</b></p>
+<img src="03-invalid-key-validation.png" alt="Invalid key validation" />
+
+<h2>Verification environment</h2>
+<p>The Transcription UI is served by the Cockpit (the Gateway's dashboard). For proof the Cockpit project was run
+directly on an isolated loopback port (<code>http://127.0.0.1:7491</code>, away from the user's running stack), the
+solution built clean to slot 11, and the slot torn down afterward (no user Director touched). The pages were driven and
+screenshotted with the browser harness.</p>
+
+<p><b>I believe this is finished</b> for everything the issue specifies and that is testable today. The one
+unverifiable item - live DevThrottle transcription end-to-end - is blocked solely by the undeployed proxy
+(issue section 7), and the routing that will use it once deployed is unit-proven.</p>
+</body>
+</html>

@@ -1,0 +1,5 @@
+2026-06-17 18:10:51.570 [DictationEndpoint] routing: mode=devthrottle transport=batch model=gpt-4o-transcribe baseUrl=https://devthrottle.com/api/v1
+2026-06-17 18:10:51.625 [OpenAiTranscriptionProvider] StartAsync: prompt_len=126, model=gpt-4o-transcribe
+
+# Captured from running slot-11 Director (PID 71148) in DevThrottle mode attached to the live Gateway.
+# DEFECT: model=gpt-4o-transcribe (expected whisper-large-v3) on the batch path.

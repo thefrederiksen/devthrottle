@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #513 (re-verification) - PR #514</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  .verdict { font-size: 1.3rem; font-weight: 700; padding: 1rem; border-radius: 8px; background: #e6ffed; border: 2px solid #2da44e; color: #117a31; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d7de; padding: .55rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f6f8fa; }
+  .pass { color: #117a31; font-weight: 700; }
+  .fail { color: #b30000; font-weight: 700; }
+  pre { background: #0d1117; color: #c9d1d9; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+  code { background: #eff1f3; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  .meta { color: #57606a; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #513 (re-verification)</h1>
+<p class="meta">
+  <strong>PR:</strong> #514 &middot; <strong>Branch:</strong> issue-513-batch-whisper-transport
+  (HEAD <code>a6d0ba0</code>) &middot; <strong>Date:</strong> 2026-06-17 &middot;
+  <strong>QA test build:</strong> slot-11 (<code>cc-director11.exe</code>), svchost-launched per CLAUDE.md rule 0b,
+  Control API on loopback port 7895.
+</p>
+
+<p>This is a <strong>re-verification</strong> after the Developer Agent fixed the prior QA defect
+(commit <code>a6d0ba0</code>): against a stale/deployed-style Gateway, DevThrottle dictation resolved
+<code>transport=batch</code> but <code>model=gpt-4o-transcribe</code> - the exact 404
+<code>model_not_found</code> combination this issue exists to eliminate. The fix self-heals
+<strong>both</strong> transport and the provider-correct model from the authoritative mode when the
+Gateway omits the <code>transport</code> field.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. The previously-failing criterion is now fixed live.</div>
+
+<h2>How this was verified</h2>
+<p>The test slot-11 Director was built from the PR branch and run in <strong>DevThrottle</strong> mode,
+attached to the <strong>live deployed Gateway</strong> (<code>soren-north.taildb08ed.ts.net:7878</code>,
+build 0.9.12 / current main, pre-#513) - the <em>same Gateway that produced the prior defect</em>.
+That Gateway's <code>GET /transcription/routing</code> returns, verbatim:</p>
+<pre>HTTP 200  (X-Transcription-Routing marker present)
+{"mode":"devthrottle","baseUrl":"https://devthrottle.com/api/v1","model":"gpt-4o-transcribe","key":"dt_REDACTED"}</pre>
+<p>i.e. <strong>no <code>transport</code> field</strong> and the <strong>stale model
+<code>gpt-4o-transcribe</code></strong>. A <code>/dictate</code> WebSocket was opened on the running
+Director and a <code>{"type":"start"}</code> frame sent; the actual Director log lines were then read.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>DevThrottle dictation calls batch <code>/audio/transcriptions</code> on devthrottle.com with <code>whisper-large-v3</code> (the previously-FAILING criterion)</td>
+  <td><code>transport=batch, model=whisper-large-v3, baseUrl=https://devthrottle.com/api/v1</code>; batch provider started with <code>whisper-large-v3</code></td>
+  <td>Live log: <code>routing: mode=devthrottle transport=batch model=whisper-large-v3 baseUrl=https://devthrottle.com/api/v1</code> and <code>OpenAiTranscriptionProvider StartAsync: model=whisper-large-v3</code>. The self-heal fired: <code>Gateway omits transport (pre-#513); deriving transport+model from mode=devthrottle, model gpt-4o-transcribe-&gt;whisper-large-v3</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>OpenAI Realtime WebSocket is never opened when transport is batch</td>
+  <td>No Realtime provider constructed; no <code>wss://api.openai.com</code> connect</td>
+  <td>Director log contains zero occurrences of <code>realtime</code>, <code>OpenAiRealtimeProvider</code>, <code>wss://api.openai.com</code>, or <code>intent=transcription</code>. Session connected/started purely via the batch provider.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>BYO/OpenAI mode dictation unchanged (realtime + gpt-4o-transcribe)</td>
+  <td>BYO resolves <code>realtime / gpt-4o-transcribe / api.openai.com</code>; realtime provider + cleanup + preview selected</td>
+  <td>Verified by passing unit suites (resolver BYO tests, <code>DictationPipelineSelectionTests</code>) and the single selection point <code>BuildPipelineComponents</code> (realtime branch builds <code>OpenAiRealtimeProvider</code> + <code>CleanupOrchestrator</code> + <code>LivePreviewTranscriber</code>). The fix only touches the no-transport branch; BYO's stale <code>gpt-4o-transcribe</code> is already provider-correct, so it is unchanged (test <code>...Byo_StaleConsistentModel_Unchanged</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>In DevThrottle mode the BYO OpenAI key is never used and never sent anywhere</td>
+  <td>No <code>sk-</code> key, no <code>api.openai.com</code>, no <code>OPENAI_API_KEY</code> vault fetch</td>
+  <td>Live Director log: zero occurrences of <code>sk-</code>, <code>api.openai.com</code>, or <code>OPENAI_API_KEY</code>. Only base URL resolved this session: <code>https://devthrottle.com</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Unit tests: routing returns the correct (transport, model, url) per mode; pipeline selects batch on batch transport</td>
+  <td>All green</td>
+  <td>Gateway.Tests <code>Issue513TransportRoutingProofTests|TranscriptionRoutingEndpointTests|DictationPipelineSelectionTests</code> = 8/8. Core.Tests <code>TranscriptionModeTests|OpenAiKeyResolverEndpointTests|DictationSessionTests</code> = 73/73. Resolver self-heal regression test <code>ResolveEndpoint_OnGateway_NoTransportField_StaleModel_SelfHealsModelFromMode</code> green (asserts <code>whisper-large-v3</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Live proof - routing log (slot-11 Director against the deployed stale Gateway)</h2>
+<pre>[DictationEndpoint] GET /dictate from 127.0.0.1
+[OpenAiKeyResolver] routing GET http://soren-north.taildb08ed.ts.net:7878/transcription/routing
+   -> Gateway omits transport (pre-#513); deriving transport+model from mode=devthrottle,
+      model gpt-4o-transcribe->whisper-large-v3
+[DictationEndpoint] routing: mode=devthrottle transport=batch model=whisper-large-v3 baseUrl=https://devthrottle.com/api/v1
+[OpenAiTranscriptionProvider] StartAsync: prompt_len=126, model=whisper-large-v3
+[DictationEndpoint] session started: sid=ecfb7ce7... profile=default</pre>
+<p><strong>Before (prior QA defect):</strong> <code>routing: ... transport=batch model=gpt-4o-transcribe</code> +
+<code>OpenAiTranscriptionProvider StartAsync: model=gpt-4o-transcribe</code> (the broken 404 model).<br>
+<strong>After (this PR):</strong> <code>model=whisper-large-v3</code> on the batch path. Defect resolved.</p>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li><strong>Clean build:</strong> <code>dotnet build cc-director.sln</code> -&gt; 0 Warning(s) / 0 Error(s) on the PR branch; slot-11 publish 0/0.</li>
+  <li><strong>Full Core.Tests:</strong> 2029 passed / 1 failed / 3 skipped. The single failure is
+      <code>NoCrossMachineLoopbackGuardTests.No_new_production_file_hardcodes_cross_machine_loopback</code>,
+      flagging <code>src/CcDirector.Gateway/Running/IDirectorLauncher.cs</code> - a file this PR does NOT touch.</li>
+  <li><strong>Pre-existing confirmed:</strong> the same test fails <em>identically</em> on clean
+      <code>main</code> (<code>1ffa669</code>) with the same <code>IDirectorLauncher.cs</code> cause. This PR
+      introduces zero new failures and adds net-new passing tests.</li>
+  <li><strong>CenCon:</strong> no blocking security rule broken; the security-critical invariant
+      ("BYO OpenAI key never sent to devthrottle.com") is verified live (criterion 4) and pinned in the
+      single pure resolver spot.</li>
+</ul>
+
+<p class="meta">Evidence files (same directory): <code>qa-reverify-live-director-routing.txt</code>,
+<code>qa-reverify-gateway-routing-response.txt</code>, <code>qa-reverify-no-realtime.txt</code>.</p>
+</body>
+</html>

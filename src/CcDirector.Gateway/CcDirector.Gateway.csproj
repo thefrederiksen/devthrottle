@@ -23,6 +23,10 @@
     <!-- Server-side QR generation for the phone-pairing QR (issue #385). PngByteQRCode renders
          PNG bytes with no System.Drawing dependency, so it works cross-platform / headless. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <!-- Cron parsing + DST-correct next-occurrence for the cron-jobs feature (epic #479, #482).
+         Cronos is a pure parser/calculator (no scheduler/threading model), UTC-first and used by
+         Hangfire - it slots into the Gateway's own hosted loop without fighting it. -->
+    <PackageReference Include="Cronos" Version="0.8.4" />
   </ItemGroup>
 
   <ItemGroup>

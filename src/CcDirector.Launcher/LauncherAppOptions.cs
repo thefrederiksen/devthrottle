@@ -16,7 +16,16 @@ public static class LauncherAppOptions
     /// <summary>When true, register the HKCU Run-key autostart entry on startup. --no-autostart disables.</summary>
     public static bool RegisterAutostart { get; set; } = true;
 
-    /// <summary>Parse the supported flags: --port N, --no-autostart.</summary>
+    /// <summary>
+    /// Installed mode (--managed): run the periodic self-update check. Off by default so a dev launch
+    /// never self-updates a repo build. The installer launches the shipped launcher with --managed.
+    /// </summary>
+    public static bool Managed { get; set; }
+
+    /// <summary>The arguments equivalent to the current options, for the autostart Run key.</summary>
+    public static string? AutostartArguments() => Managed ? "--managed" : null;
+
+    /// <summary>Parse the supported flags: --port N, --no-autostart, --managed.</summary>
     public static void Parse(string[] args)
     {
         for (int i = 0; i < args.Length; i++)
@@ -29,6 +38,10 @@ public static class LauncherAppOptions
             else if (args[i] == "--no-autostart")
             {
                 RegisterAutostart = false;
+            }
+            else if (args[i] == "--managed")
+            {
+                Managed = true;
             }
         }
     }

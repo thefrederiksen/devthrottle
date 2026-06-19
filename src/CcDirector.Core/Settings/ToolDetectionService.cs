@@ -52,9 +52,11 @@ public sealed class ToolDetectionService
         AgentKind.Codex,
         AgentKind.Gemini,
         AgentKind.OpenCode,
+        AgentKind.Cursor,
+        AgentKind.Grok,
     };
 
-    /// <summary>Detect the effective executable for Claude Code, Pi, Codex, Gemini, or OpenCode.</summary>
+    /// <summary>Detect the effective executable for Claude Code, Pi, Codex, Gemini, OpenCode, or Cursor.</summary>
     public ToolDetectResult DetectTool(AgentKind tool, AgentOptions options, string? overridePath = null)
     {
         FileLog.Write($"[ToolDetectionService] DetectTool: tool={tool}, overridePath={overridePath ?? "(null)"}");
@@ -196,6 +198,8 @@ public sealed class ToolDetectionService
         AgentKind.Codex => options.CodexPath,
         AgentKind.Gemini => options.GeminiPath,
         AgentKind.OpenCode => options.OpenCodePath,
+        AgentKind.Cursor => options.CursorPath,
+        AgentKind.Grok => options.GrokPath,
         _ => throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.")
     };
 
@@ -220,6 +224,12 @@ public sealed class ToolDetectionService
             case AgentKind.OpenCode:
                 options.OpenCodePath = path;
                 break;
+            case AgentKind.Cursor:
+                options.CursorPath = path;
+                break;
+            case AgentKind.Grok:
+                options.GrokPath = path;
+                break;
             default:
                 throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.");
         }
@@ -232,6 +242,8 @@ public sealed class ToolDetectionService
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
         AgentKind.OpenCode => "OpenCode",
+        AgentKind.Cursor => "Cursor",
+        AgentKind.Grok => "Grok",
         _ => tool.ToString()
     };
 
@@ -286,6 +298,17 @@ public sealed class ToolDetectionService
             yield return DefaultNpmCliPath("opencode");
             yield return "opencode";
         }
+        else if (tool == AgentKind.Cursor)
+        {
+            yield return "cursor-agent";
+        }
+        else if (tool == AgentKind.Grok)
+        {
+            yield return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".grok", "bin", "grok.exe");
+            yield return "grok";
+        }
     }
 
     private static string ValidationKey(AgentKind tool) => tool switch
@@ -295,6 +318,7 @@ public sealed class ToolDetectionService
         AgentKind.Codex => "codex",
         AgentKind.Gemini => "gemini",
         AgentKind.OpenCode => "opencode",
+        AgentKind.Cursor => "cursor",
         _ => tool.ToString().ToLowerInvariant(),
     };
 

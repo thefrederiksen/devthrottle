@@ -1113,8 +1113,82 @@ public partial class MainWindow : Window
         AgentKind.Codex => new CodexAgent(_sessionManager.Options),
         AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
         AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
+        AgentKind.Cursor => new CursorAgent(_sessionManager.Options),
+        AgentKind.Grok => new GrokAgent(_sessionManager.Options),
         _ => new ClaudeAgent(_sessionManager.Options)
     };
+
+    /// <summary>
+    /// Build a catalog agent (issue #490) whose executable path is the selected entry's configured
+    /// path, not the legacy per-type machine path. The agents read their path from
+    /// <see cref="AgentOptions"/>, so we hand them a per-launch copy of the running options with
+    /// only this entry's path slotted into the matching property; all other options (buffer sizes,
+    /// keys, default Claude args) are preserved. A blank entry path falls through to the running
+    /// options' default for that type so a not-yet-configured entry still launches its standard
+    /// binary. RawCli is handled by the caller via <see cref="RawCliAgent"/> and never reaches here.
+    /// </summary>
+    private IAgent CreateAgentForEntry(AgentKind agentKind, string entryExecutablePath)
+    {
+        var options = _sessionManager.Options;
+        var path = entryExecutablePath?.Trim();
+        if (string.IsNullOrEmpty(path))
+            return CreateAgent(agentKind);
+
+        var perLaunch = ClonePathOverriddenOptions(options, agentKind, path);
+        return agentKind switch
+        {
+            AgentKind.Pi => new PiAgent(perLaunch),
+            AgentKind.Codex => new CodexAgent(perLaunch),
+            AgentKind.Gemini => new GeminiAgent(perLaunch),
+            AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
+            AgentKind.Cursor => new CursorAgent(perLaunch),
+            AgentKind.Grok => new GrokAgent(perLaunch),
+            _ => new ClaudeAgent(perLaunch)
+        };
+    }
+
+    /// <summary>
+    /// Shallow-copy <paramref name="source"/> and override only the executable-path property for
+    /// <paramref name="agentKind"/> with <paramref name="path"/> (issue #490). Used to launch a
+    /// catalog agent from a specific entry's path without mutating the shared running options.
+    /// </summary>
+    private static AgentOptions ClonePathOverriddenOptions(AgentOptions source, AgentKind agentKind, string path)
+    {
+        var copy = new AgentOptions
+        {
+            ClaudePath = source.ClaudePath,
+            DefaultClaudeArgs = source.DefaultClaudeArgs,
+            DefaultBufferSizeBytes = source.DefaultBufferSizeBytes,
+            GracefulShutdownTimeoutSeconds = source.GracefulShutdownTimeoutSeconds,
+            PiPath = source.PiPath,
+            CodexPath = source.CodexPath,
+            GeminiPath = source.GeminiPath,
+            OpenCodePath = source.OpenCodePath,
+            CursorPath = source.CursorPath,
+            CursorApiKey = source.CursorApiKey,
+            GrokPath = source.GrokPath,
+            ChatSessionRepoPath = source.ChatSessionRepoPath,
+            TtsVoice = source.TtsVoice,
+            TtsModel = source.TtsModel,
+            OpenAiKey = source.OpenAiKey,
+            DictationDictionaryPath = source.DictationDictionaryPath,
+            DictationCleanupModel = source.DictationCleanupModel,
+            DictationPreviewModel = source.DictationPreviewModel,
+        };
+
+        switch (agentKind)
+        {
+            case AgentKind.Pi: copy.PiPath = path; break;
+            case AgentKind.Codex: copy.CodexPath = path; break;
+            case AgentKind.Gemini: copy.GeminiPath = path; break;
+            case AgentKind.OpenCode: copy.OpenCodePath = path; break;
+            case AgentKind.Cursor: copy.CursorPath = path; break;
+            case AgentKind.Grok: copy.GrokPath = path; break;
+            default: copy.ClaudePath = path; break;
+        }
+
+        return copy;
+    }
 
     /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
     /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
@@ -1215,6 +1289,14 @@ public partial class MainWindow : Window
             "Install it from https://opencode.ai (for example: 'npm install -g opencode-ai', "
             + "'brew install sst/tap/opencode', or 'scoop install opencode'), then make sure the "
             + "'opencode' command is on your PATH."),
+        AgentKind.Cursor => ("Cursor",
+            "Install it from https://cursor.com (on Windows: run "
+            + "\"irm 'https://cursor.com/install?win32=true' | iex\"), then make sure the "
+            + "'cursor-agent' command is on your PATH."),
+        AgentKind.Grok => ("Grok",
+            "Install it from https://x.ai (on Windows: run "
+            + "\"irm https://x.ai/cli/install.ps1 | iex\"), then make sure the "
+            + "'grok' command is on your PATH."),
         _ => ("Claude Code",
             "Install Claude Code and make sure the 'claude' command is on your PATH.")
     };
@@ -2575,26 +2657,56 @@ public partial class MainWindow : Window
         var resumeSessionId = dialog.SelectedResumeSessionId;
         var agentKind = dialog.SelectedAgentKind;
 
-        // Build agent arguments. Claude flags don't apply to other agents.
-        // When the dialog specifies no Claude flags, pass null so the machine-level
-        // configured default command line (Tools page preset + default model, issue #391)
-        // applies instead of an empty override.
+        // The selected configured agent entry (issue #490) is the source of truth for the launch:
+        // its type/path/preset/model/args build the command line, replacing the legacy per-type
+        // lookup. No enabled entry means there is nothing to launch.
+        var selectedEntry = dialog.SelectedAgentEntry;
+        if (selectedEntry is null)
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: no agent entry selected (none configured); aborting");
+            await MessageBox.ShowAsync(this,
+                "No agent configured",
+                "There are no enabled agents to launch.\n\nAdd one in Settings > Agents, then try again.");
+            return;
+        }
+
+        // Per-entry preset/model/args resolve to the same effective command line the Tools/Agents
+        // page previews (issue #436's shared resolver). For Claude the dialog's Bypass-permissions
+        // checkbox still applies on top, because it is a per-session choice, not a stored preset.
+        var entryArgs = selectedEntry.ToToolConfig().ResolveEffectiveCommandLineArguments().Trim();
         string? agentArgs;
         if (agentKind == AgentKind.ClaudeCode)
         {
-            var claudeArgs = "";
+            var claudeArgs = entryArgs;
             if (dialog.EnableRemoteControl)
-                claudeArgs = "remote-control ";
+                claudeArgs = $"remote-control {claudeArgs}".Trim();
             if (dialog.BypassPermissions)
-                claudeArgs += "--dangerously-skip-permissions ";
-            agentArgs = claudeArgs.Length > 0 ? claudeArgs.Trim() : null;
+                claudeArgs = $"{claudeArgs} {AgentToolCatalog.ClaudeSkipPermissionsArg}".Trim();
+            agentArgs = claudeArgs.Length > 0 ? claudeArgs : null;
+        }
+        else if (agentKind == AgentKind.Cursor)
+        {
+            // Cursor's permission-bypass equivalent is --force (issue #517, AC9). The bypass
+            // checkbox is a per-session opt-in on top of the entry's preset; if the preset
+            // already carries --force (the "Automatic (yolo)" preset), don't add it twice.
+            var cursorArgs = entryArgs;
+            if (dialog.BypassPermissions
+                && !cursorArgs.Contains(AgentToolCatalog.CursorForceArg, StringComparison.Ordinal))
+            {
+                cursorArgs = $"{cursorArgs} {AgentToolCatalog.CursorForceArg}".Trim();
+            }
+            agentArgs = cursorArgs.Length > 0 ? cursorArgs : null;
         }
         else
         {
-            agentArgs = null;
+            agentArgs = entryArgs.Length > 0 ? entryArgs : null;
         }
 
-        // Build the IAgent. For RawCli, construct it directly from the dialog's custom fields.
+        // Build the IAgent from the entry. RawCli uses the entry's executable + its raw args
+        // (the dialog seeds the Custom CLI boxes from the entry, so the user-edited boxes win).
+        // Catalog agents (Claude/Pi/Codex/Gemini/OpenCode) read their executable path from a
+        // per-launch options copy carrying THIS entry's ExecutablePath (issue #490) so two
+        // entries of the same type with different paths each launch their own binary.
         IAgent agent;
         if (agentKind == AgentKind.RawCli)
         {
@@ -2604,11 +2716,13 @@ public partial class MainWindow : Window
                 FileLog.Write("[MainWindow] ShowNewSessionDialog: RawCli selected but no command; aborting");
                 return;
             }
+            // RawCli carries its own command line on the agent; agentArgs is not reused for it.
+            agentArgs = null;
             agent = new RawCliAgent(customCmd, string.IsNullOrWhiteSpace(dialog.SelectedCustomArgs) ? null : dialog.SelectedCustomArgs);
         }
         else
         {
-            agent = CreateAgent(agentKind);
+            agent = CreateAgentForEntry(agentKind, selectedEntry.ExecutablePath);
         }
 
         FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, exe={agent.ExecutablePath}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
@@ -3944,11 +4058,8 @@ public partial class MainWindow : Window
         }
 
         var repoPath = _activeSession?.Session.RepoPath;
-        var allCommands = _slashCommandProvider.GetCommands(repoPath);
-
-        // Exclude interactive TUI commands from PromptInput autocomplete -- they don't work here.
-        // Users who know these commands can use them in the Terminal tab directly.
-        var available = allCommands.Where(c => !InteractiveTuiCommands.Contains(c.Name)).ToList();
+        var agentKind = _activeSession?.Session.AgentKind ?? AgentKind.ClaudeCode;
+        var available = _slashCommandProvider.GetCommands(agentKind, repoPath);
 
         _filteredSlashCommands = string.IsNullOrEmpty(filter)
             ? available
@@ -3979,7 +4090,13 @@ public partial class MainWindow : Window
         }
 
         SlashCommandDocTitle.Text = "/" + selected.Name;
-        SlashCommandDocSource.Text = selected.Source == "project" ? "Project skill" : "Global skill";
+        SlashCommandDocSource.Text = selected.Source switch
+        {
+            "project" => "Project",
+            "global" => "Global",
+            "builtin" => selected.DriverKind?.ToString() ?? "Built in",
+            _ => selected.Source
+        };
         SlashCommandDocDesc.Text = selected.Description;
 
         if (!string.IsNullOrWhiteSpace(selected.Documentation))
@@ -4018,6 +4135,9 @@ public partial class MainWindow : Window
     private bool TryHandleSlashCommand(string text)
     {
         if (string.IsNullOrEmpty(text) || !text.StartsWith("/"))
+            return false;
+
+        if (_activeSession?.Session.AgentKind != AgentKind.ClaudeCode)
             return false;
 
         var commandName = text.ToLowerInvariant().TrimStart('/');
@@ -4145,7 +4265,9 @@ public partial class MainWindow : Window
         }
 
         // Check if this is an interactive TUI command
-        var isInteractiveCommand = text.StartsWith("/") && InteractiveTuiCommands.Contains(text.TrimStart('/'));
+        var isInteractiveCommand = _activeSession.Session.AgentKind == AgentKind.ClaudeCode
+            && text.StartsWith("/")
+            && InteractiveTuiCommands.Contains(text.TrimStart('/'));
 
         // Backends send Enter (CR/LF) explicitly after the text -- don't append a submit
         // newline here. Appending one used to trip LargeInputHandler's multi-line check

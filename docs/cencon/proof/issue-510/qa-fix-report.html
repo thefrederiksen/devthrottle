@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #510 - QA bounce fix: saved Wingman model round-trips on reload</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:32px 24px;color:#1b2030;line-height:1.55}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #d8dee9;padding-bottom:4px}
+  code{background:#f0f2f6;padding:1px 5px;border-radius:4px;font-size:90%}
+  pre{background:#0b1020;color:#e6eaf2;padding:14px 16px;border-radius:8px;overflow:auto;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:10px 0}
+  th,td{border:1px solid #d8dee9;padding:7px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#f0f2f6}
+  .pass{color:#1a7f37;font-weight:600}
+  .fail{color:#b3261e;font-weight:600}
+  img{max-width:100%;border:1px solid #d8dee9;border-radius:8px;margin:8px 0}
+  .meta{color:#5a6478;font-size:13px}
+</style>
+</head>
+<body>
+
+<h1>Issue #510 - Wingman settings: saved model now round-trips on reload</h1>
+<p class="meta">QA bounce fix (flow:qa-failed -&gt; flow:ready-qa). PR #522, branch <code>issue-510-wingman-agent-picker</code>.</p>
+
+<h2>The defect (from QA)</h2>
+<p>
+After saving an agent plus a model (for example Gemini + <code>gemini-2.5-pro</code>) and reloading the
+Wingman settings tab, the agent dropdown correctly pre-selected the saved agent, but the
+<strong>Model</strong> field showed the running brain's model (<code>opus</code>) instead of the saved
+model. Acceptance criterion 3 requires that reloading shows BOTH the saved agent AND the saved model.
+</p>
+<p>
+<strong>Root cause:</strong> the brain block of <code>GET /gateway/settings</code> sourced the model from
+the running brain (<code>host.BrainModel</code>, fixed at GatewayHost construction) rather than the saved
+<code>brain_model</code> in config.json. So a freshly-saved model was persisted to disk but never reflected
+back to the page on reload, even though the agent id already read from the saved config
+(<code>brain_agent_id</code>).
+</p>
+
+<h2>The fix</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway/Api/SettingsEndpoints.cs</code></td>
+    <td>In <code>BrainBlockAsync</code>, the GET now returns the SAVED model via
+        <code>BrainModelConfig.Get()</code> (reads config.json <code>brain_model</code>, the same value the
+        PUT writes) instead of <code>host.BrainModel</code>. The Model field now round-trips on reload,
+        consistent with how the agent id already does. No-fallback preserved: <code>BrainModelConfig.Get()</code>
+        returns the documented default when the key is absent and throws on a malformed value - it never
+        silently masks a bad config.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway.Tests/BrainConfigEndpointTests.cs</code></td>
+    <td>The round-trip regression test (<code>Put_brain_config_by_agent_id_persists_and_round_trips</code>)
+        now asserts the GET returns the SAVED model (<code>"sonnet"</code>) after a save, not
+        <code>BrainModelConfig.Default</code>. The prior assertion encoded the exact defect.</td>
+  </tr>
+</table>
+<p>
+The Cockpit page needed no change: <code>settings.html</code> already binds the Model field to the GET's
+<code>brain.model</code> (<code>brainmodelsel.value = b.model</code>), so surfacing the saved model at the
+source fixes the reload without touching the client.
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr><td>1</td><td>Label reads "Agent"; word "Tool" no longer on the tab</td><td class="pass">PASS</td>
+      <td>Live page: tab text contains no <code>Tool</code> token; screenshot shows "Agent" + "Brain" rows.</td></tr>
+  <tr><td>2</td><td>Dropdown lists every registered machine agent</td><td class="pass">PASS</td>
+      <td>Live GET returned 5 agents: Claude Code, Pi, Codex, Gemini, OpenCode.</td></tr>
+  <tr><td>3</td><td>Save stores both; reload shows the saved agent AND model</td><td class="pass">PASS</td>
+      <td>After saving Gemini + <code>gemini-2.5-pro</code>, a fresh reload shows the picker = Gemini AND
+          Model = <code>gemini-2.5-pro</code> (was <code>opus</code> before the fix). Screenshot below.</td></tr>
+  <tr><td>4</td><td>Saved choice written to gateway config</td><td class="pass">PASS</td>
+      <td>config.json held <code>brain_agent_id</code>, <code>brain_tool=Gemini</code>,
+          <code>brain_model=gemini-2.5-pro</code>; the GET reflected the saved values.</td></tr>
+</table>
+
+<h2>Live round-trip proof (real GatewayHost)</h2>
+<p>
+A real <code>CcDirector.Gateway.GatewayHost</code> was booted in-process on an isolated config root
+(auth disabled, ephemeral port) and the REAL unmodified Cockpit <code>settings.html</code> was driven
+same-origin against it (a static+reverse-proxy server served the shipped wwwroot and forwarded
+<code>/gateway/*</code> to the live Gateway). The page's own relative fetches exercised the production
+endpoints.
+</p>
+
+<p><strong>Step 1 - initial GET (defaults):</strong></p>
+<pre>tool=ClaudeCode  agentId=null  model=opus  agents=[Claude Code, Pi, Codex, Gemini, OpenCode]</pre>
+
+<p><strong>Step 2 - PUT /gateway/brain/config (Gemini + gemini-2.5-pro):</strong></p>
+<pre>{"agentId":"1378a0d5-...","tool":"Gemini","model":"gemini-2.5-pro"}</pre>
+
+<p><strong>Step 3 - reload GET (the fix):</strong></p>
+<pre>agentId=1378a0d5-...  model=gemini-2.5-pro   &lt;-- saved model now round-trips (was opus before)</pre>
+
+<p><strong>config.json on disk:</strong></p>
+<pre>brain_agent_id = 1378a0d5-...
+brain_tool     = Gemini
+brain_model    = gemini-2.5-pro</pre>
+
+<p><strong>Screenshot - real Wingman tab after a fresh reload:</strong> picker = Gemini, Model = gemini-2.5-pro.</p>
+<img src="fix-reload-model-persisted.png" alt="Wingman tab after reload showing Gemini and gemini-2.5-pro" />
+
+<h2>Build &amp; tests</h2>
+<pre>dotnet build cc-director.sln   -> Build succeeded. 0 Warning(s) 0 Error(s)
+BrainConfigEndpointTests       -> Passed! 6 / 6
+BrainModelConfigTests          -> Passed! 5 / 5</pre>
+
+<h2>CenCon impact</h2>
+<p>
+No architecture or security drift: no container/component added or removed; the same loopback REST
+behind the same token middleware; input still validated; the no-fallback rule is preserved
+(<code>BrainModelConfig.Get</code> throws on a malformed value). No <code>docs/cencon/</code> content change
+warranted.
+</p>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> The saved Wingman model round-trips on reload; all four
+acceptance criteria pass against the real GatewayHost serving the real Cockpit page.</p>
+
+</body>
+</html>

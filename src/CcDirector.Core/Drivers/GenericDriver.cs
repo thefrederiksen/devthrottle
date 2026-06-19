@@ -21,15 +21,26 @@ public sealed class GenericDriver : IAgentDriver
     private static readonly byte[] EscapeByte = [0x1B];
     private static readonly byte[] CtrlC = [0x03];
 
-    public GenericDriver(AgentKind kind)
+    private readonly IReadOnlyList<AgentSlashCommand> _slashCommands;
+
+    public GenericDriver(AgentKind kind, IReadOnlyList<AgentSlashCommand>? slashCommands = null)
     {
         Kind = kind;
+        _slashCommands = slashCommands ?? [];
     }
 
     public AgentKind Kind { get; }
 
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel | DriverCapabilities.Interrupt;
+
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => _slashCommands;
+
+    // Unverified tools declare no model flag: model selection stays hidden until a tool-specific
+    // driver is written and verified (same conservative contract as the other capabilities here).
+    public string ModelFlag => "";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
 
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(

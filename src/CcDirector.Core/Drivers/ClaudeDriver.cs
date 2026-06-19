@@ -2,6 +2,7 @@ using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
+using CcDirector.Core.Skills;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -51,7 +52,64 @@ public sealed class ClaudeDriver : IAgentDriver
         | DriverCapabilities.Interrupt
         | DriverCapabilities.History
         | DriverCapabilities.TranscriptRead
-        | DriverCapabilities.PreassignedSessionId;
+        | DriverCapabilities.PreassignedSessionId
+        | DriverCapabilities.ModelSelection;
+
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => BuiltInSlashCommands.All
+        .Select(command => new AgentSlashCommand(
+            command.Name,
+            command.Description,
+            command.Category,
+            command.Source,
+            AgentKind.ClaudeCode,
+            Documentation: command.Documentation))
+        .ToList();
+
+    public string ModelFlag => "--model";
+
+    /// <summary>
+    /// The Claude Code models the picker offers. Hard-coded here (not read from the API - there is
+    /// no CLI to list models) so the picker always shows sensible choices on a fresh machine. The
+    /// "1M context" variants use the <c>[1m]</c> suffix, which is how Claude Code requests the
+    /// 1-million-token window - there is no separate flag. "Use the tool's own default" is NOT in
+    /// this list: it is the unset-model state, surfaced separately by the picker.
+    /// </summary>
+    public IReadOnlyList<AgentModelOption> KnownModels =>
+    [
+        new("opus[1m]", "Opus 4.8 (1M context)", "Most capable; 1-million-token window.", "1M context"),
+        new("opus", "Opus 4.8", "Most capable; standard context window."),
+        new("sonnet", "Sonnet 4.6", "Balanced speed and intelligence."),
+        new("haiku", "Haiku 4.5", "Fastest and lowest cost."),
+        new("fable", "Fable 5", "Anthropic's most capable model for the hardest work."),
+    ];
+
+    /// <summary>
+    /// The configured Claude Code default model, read from <c>~/.claude/settings.json</c>'s
+    /// <c>model</c> key. Null when the file/key is absent (the account-tier default applies) or
+    /// unreadable. A display hint only - this is never written and never composes the launch line.
+    /// </summary>
+    public string? ReadConfiguredDefaultModel()
+    {
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var path = Path.Combine(home, ".claude", "settings.json");
+            if (!File.Exists(path))
+                return null;
+
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path));
+            if (node?["model"] is System.Text.Json.Nodes.JsonValue value
+                && value.TryGetValue<string>(out var model)
+                && !string.IsNullOrWhiteSpace(model))
+                return model;
+            return null;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeDriver] ReadConfiguredDefaultModel: could not read settings.json: {ex.Message}");
+            return null;
+        }
+    }
 
     public string ResolveExecutable(string? configuredPath)
     {

@@ -72,6 +72,13 @@
                             {
                                 <span class="warn" title="@err.Error">UNREACHABLE</span>
                             }
+                            else if (d.StreamVerifyError is not null)
+                            {
+                                @* Reachable over plain HTTP but the WebSocket UPGRADE path the
+                                   Cockpit terminal stream depends on is dead (the cross-machine
+                                   streaming failure). Distinct from a totally-unreachable Director. *@
+                                <span class="err" title="@d.StreamVerifyError">TERMINAL STREAM DOWN</span>
+                            }
                             else
                             {
                                 <span class="ok">OK</span>

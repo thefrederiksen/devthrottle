@@ -30,5 +30,11 @@ public enum AgentKind
     /// (turn detection, wingman, transcript) is applied. The actual executable
     /// and arguments are carried on the session, not on this enum value.
     /// </summary>
-    RawCli = 5
+    RawCli = 5,
+
+    /// <summary>Cursor CLI agent (the <c>cursor-agent</c> binary from cursor.com, marketed as "Agent").</summary>
+    Cursor = 6,
+
+    /// <summary>xAI Grok CLI (the <c>grok</c> binary installed via <c>irm https://x.ai/cli/install.ps1 | iex</c>).</summary>
+    Grok = 7
 }

@@ -1,4 +1,7 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Net.WebSockets;
+using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -12,6 +15,7 @@ public sealed class DirectorEndpointClient : IDisposable
 {
     private readonly HttpClient _http;
     private readonly HttpClient _verifyHttp;
+    private readonly HttpClient _actionHttp;
     private readonly string? _token;
 
     public DirectorEndpointClient(string? token = null)
@@ -28,11 +32,20 @@ public sealed class DirectorEndpointClient : IDisposable
         // the aggregator's 2s budget. The per-call CTS in VerifyCallbackAsync is the
         // effective timeout; this client-level value is just the hard ceiling behind it.
         _verifyHttp = new HttpClient { Timeout = VerifyCallbackTimeout + TimeSpan.FromSeconds(2) };
+        // On-demand, mutating session-drive calls (prompt/interrupt/escape) must NOT ride the 2s
+        // aggregator budget: they are not fleet-wide polls, they happen one at a time on a person's
+        // action, and the hop to the owning Director can cross a DERP-relayed tailnet leg that
+        // legitimately exceeds 2s (same reasoning as the verify callback above). Sharing _http's 2s
+        // ceiling cancels prompt delivery mid-send and surfaces as "send failed: ... HttpClient.Timeout
+        // of 2 seconds elapsing", which breaks the voice turn. Give these a generous, bounded deadline.
+        _actionHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         if (!string.IsNullOrEmpty(token))
         {
             _http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             _verifyHttp.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _actionHttp.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         }
     }
@@ -78,6 +91,74 @@ public sealed class DirectorEndpointClient : IDisposable
         {
             FileLog.Write($"[DirectorEndpointClient] VerifyCallbackAsync FAILED: url={url}, error={ex.Message}");
             return (false, $"callback failed at {url}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Leg 3 of the handshake (remote terminal streaming fix): prove the Gateway can complete a
+    /// real WebSocket UPGRADE to the Director - the exact path the Cockpit terminal stream uses,
+    /// which the plain-HTTP <see cref="VerifyCallbackAsync"/> never exercises. Dials
+    /// ws(s)://{endpoint}/verify-ws/{nonce} with the SAME HTTP version the session forwarder uses
+    /// (<see cref="DirectorForwarding"/>) and the fleet bearer, then requires a single text frame
+    /// echoing the expected Director id + nonce.
+    ///
+    /// Returns <c>applicable=false</c> (with ok=false) when the Director predates the /verify-ws
+    /// endpoint (HTTP 404 on the upgrade), so an old Director reads as "untested" rather than
+    /// broken. Any other non-101 / wrong-process / timeout is applicable=true, ok=false - a real
+    /// stream failure the install/connect check should surface.
+    /// </summary>
+    public async Task<(bool ok, string? error, bool applicable)> VerifyStreamCallbackAsync(
+        string endpoint, string expectedDirectorId, string nonce, CancellationToken ct = default)
+    {
+        var http = new Uri(endpoint.TrimEnd('/') + "/verify-ws/" + Uri.EscapeDataString(nonce));
+        var wsUri = new UriBuilder(http) { Scheme = http.Scheme == Uri.UriSchemeHttps ? "wss" : "ws" }.Uri;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(VerifyCallbackTimeout);
+        using var ws = new ClientWebSocket();
+        // Same version the forwarder dials with, so an accidental future bump to h2 is caught HERE
+        // (the install/connect check) instead of by a user with a dead terminal.
+        ws.Options.HttpVersion = DirectorForwarding.HttpVersion;
+        ws.Options.HttpVersionPolicy = DirectorForwarding.HttpVersionPolicy;
+        ws.Options.CollectHttpResponseDetails = true; // populates HttpStatusCode on a failed upgrade
+        if (!string.IsNullOrEmpty(_token))
+            ws.Options.SetRequestHeader("Authorization", "Bearer " + _token);
+        try
+        {
+            await ws.ConnectAsync(wsUri, cts.Token);
+            var buf = new byte[4096];
+            var frame = await ws.ReceiveAsync(buf, cts.Token);
+            if (frame.MessageType == WebSocketMessageType.Close)
+                return (false, $"stream verify: Director closed the socket without an echo at {wsUri}", true);
+
+            VerifyCallbackDto? dto = null;
+            try { dto = JsonSerializer.Deserialize<VerifyCallbackDto>(buf.AsSpan(0, frame.Count)); }
+            catch { /* dto stays null -> handled below */ }
+
+            try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "verify-ws done", cts.Token); }
+            catch { /* best effort: we already have the echo */ }
+
+            if (dto is null)
+                return (false, $"stream verify: upgrade ok at {wsUri} but the frame was not a verify echo", true);
+            if (!string.Equals(dto.DirectorId, expectedDirectorId, StringComparison.OrdinalIgnoreCase))
+                return (false, $"stream verify: upgrade answered by a DIFFERENT Director ({dto.DirectorId}) - the advertised URL points at the wrong process", true);
+            if (!string.Equals(dto.Nonce, nonce, StringComparison.Ordinal))
+                return (false, "stream verify: upgrade echoed a different nonce", true);
+            return (true, null, true);
+        }
+        catch (WebSocketException) when (ws.HttpStatusCode == HttpStatusCode.NotFound)
+        {
+            // Director predates /verify-ws: not a stream failure, just untestable.
+            return (false, "stream verify not supported by this Director version", false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (false, $"stream verify: WebSocket upgrade timed out after {VerifyCallbackTimeout.TotalSeconds:F0}s at {wsUri}", true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] VerifyStreamCallbackAsync FAILED: url={wsUri}, error={ex.Message}");
+            return (false, $"stream verify failed at {wsUri}: {ex.Message}", true);
         }
     }
 
@@ -272,13 +353,16 @@ public sealed class DirectorEndpointClient : IDisposable
 
     /// <summary>
     /// Forward a "kill this session" (DELETE) to the owning Director. Returns true
-    /// when the Director reports the session was killed.
+    /// when the Director reports the session was killed. Uses the 30s action client
+    /// (not the 2s fleet-probe client): killing is an on-demand, mutating action whose hop to
+    /// the owning Director can exceed 2s, and a 2s cancel surfaced as a 502 from the phone
+    /// (issue #545) - same reasoning as prompt/interrupt/escape.
     /// </summary>
     public async Task<bool> KillSessionAsync(string endpoint, string sessionId, CancellationToken ct = default)
     {
         try
         {
-            var resp = await _http.DeleteAsync($"{endpoint}/sessions/{sessionId}", ct);
+            var resp = await _actionHttp.DeleteAsync($"{endpoint}/sessions/{sessionId}", ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
@@ -382,7 +466,7 @@ public sealed class DirectorEndpointClient : IDisposable
         try
         {
             // Director side ignores WaitForIdle - that's a Gateway-side concern.
-            var resp = await _http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/prompt", req, ct);
+            var resp = await _actionHttp.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/prompt", req, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
@@ -402,7 +486,7 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         try
         {
-            var resp = await _http.PostAsync($"{endpoint}/sessions/{sessionId}/interrupt", null, ct);
+            var resp = await _actionHttp.PostAsync($"{endpoint}/sessions/{sessionId}/interrupt", null, ct);
             return resp.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -416,7 +500,7 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         try
         {
-            var resp = await _http.PostAsync($"{endpoint}/sessions/{sessionId}/escape", null, ct);
+            var resp = await _actionHttp.PostAsync($"{endpoint}/sessions/{sessionId}/escape", null, ct);
             return resp.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -764,5 +848,6 @@ public sealed class DirectorEndpointClient : IDisposable
     {
         _http.Dispose();
         _verifyHttp.Dispose();
+        _actionHttp.Dispose();
     }
 }

@@ -1,0 +1,237 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.AgentEditorDialog"
+        Title="Add Agent"
+        Width="860" Height="600"
+        MinWidth="760" MinHeight="540"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBox.settingsInput">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="CaretBrush" Value="#CCCCCC" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style Selector="TextBox.previewStrip">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Button.dialogButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="76" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="110" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <!-- Prominent "Detect this tool" action: success-green so it reads as the primary next step. -->
+        <Style Selector="Button.detectButton">
+            <Setter Property="Height" Value="32" />
+            <Setter Property="MinWidth" Value="150" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#22C55E" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+        <!-- Title row -->
+        <TextBlock Grid.Row="0" x:Name="DialogTitle" Text="Add Agent"
+                   Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
+                   Margin="0,0,0,8" />
+
+        <!-- Two columns: left = form, right = live preview. -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,16,360">
+
+            <!-- LEFT: the form, in action order. -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+                <StackPanel Spacing="6">
+
+                    <!-- 1. Agent type (top). -->
+                    <TextBlock Classes="fieldLabel" Text="Agent type" />
+                    <ComboBox x:Name="TypeCombo" HorizontalAlignment="Stretch" MinWidth="180"
+                              Background="#1E1E1E" Foreground="#CCCCCC"
+                              SelectionChanged="TypeCombo_Changed"
+                              ToolTip.Tip="The kind of agent CLI this entry launches" />
+
+                    <!-- 2. Display name (auto-filled from type, editable). -->
+                    <TextBlock Classes="fieldLabel" Text="Display name" />
+                    <TextBox x:Name="DisplayNameBox" Classes="settingsInput"
+                             Watermark="e.g. Codex"
+                             TextChanged="DisplayNameBox_Changed"
+                             ToolTip.Tip="Shown in the agent list and New Session. Auto-filled from the type; edit it to give this entry a custom name." />
+
+                    <!-- 3. Enabled. -->
+                    <CheckBox x:Name="EnabledCheck" Content="Enabled" IsChecked="True"
+                              Foreground="#CCCCCC" FontSize="12" Margin="0,4,0,0"
+                              ToolTip.Tip="Whether this agent is available for launching from this machine" />
+
+                    <!-- 4. Detect this tool (prominent). -->
+                    <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10" Margin="0,6,0,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="hint" Text="Let CC Director scan this machine for the selected tool and fill in the executable path automatically." />
+                            <Button x:Name="DetectButton" Classes="detectButton" Content="Detect this tool"
+                                    HorizontalAlignment="Left" Click="BtnDetect_Click"
+                                    ToolTip.Tip="Scan this machine for the selected agent tool" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 5. Manual executable area: collapsed when Detect succeeds, revealed on failure. -->
+                    <StackPanel x:Name="ManualPathPanel" Spacing="6" Margin="0,6,0,0" IsVisible="False">
+                        <TextBlock Classes="fieldLabel" Text="Executable" />
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBox x:Name="PathBox" Grid.Column="0" Classes="settingsInput"
+                                     Watermark="executable path or bare command"
+                                     TextChanged="PathBox_Changed" />
+                            <Button x:Name="BrowseButton" Grid.Column="1" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowse_Click" />
+                            <Button x:Name="QuickCheckButton" Grid.Column="2" Classes="dialogButton" Content="Quick check" Margin="8,0,0,0"
+                                    ToolTip.Tip="Run a safe version probe of this executable" Click="BtnQuickCheck_Click" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- 6. Advanced (collapsed by default): preset / model / args. -->
+                    <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="0" Margin="0,8,0,0">
+                        <StackPanel>
+                            <Button x:Name="AdvancedToggle" Classes="dialogButton"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" Content="Advanced (preset, model, args)"
+                                    Click="BtnToggleAdvanced_Click"
+                                    ToolTip.Tip="Show the command-line preset, default model, and args override" />
+                            <StackPanel x:Name="AdvancedPanel" Spacing="6" Margin="10,0,10,10" IsVisible="False">
+                                <TextBlock Classes="fieldLabel" Text="How to launch" />
+                                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,2,0,2">
+                                    <RadioButton x:Name="GuidedRadio" GroupName="launchMode" Content="Guided"
+                                                 IsChecked="True" Foreground="#CCCCCC" FontSize="12"
+                                                 IsCheckedChanged="LaunchMode_Changed"
+                                                 ToolTip.Tip="CC Director builds the command line from a preset and a chosen model" />
+                                    <RadioButton x:Name="CustomRadio" GroupName="launchMode" Content="Full custom command line"
+                                                 Foreground="#CCCCCC" FontSize="12"
+                                                 IsCheckedChanged="LaunchMode_Changed"
+                                                 ToolTip.Tip="You type the whole argument string; CC Director appends nothing" />
+                                </StackPanel>
+
+                                <!-- Guided: preset + model. -->
+                                <StackPanel x:Name="GuidedPanel" Spacing="6">
+                                    <TextBlock Classes="fieldLabel" Text="Command-line preset" />
+                                    <ComboBox x:Name="PresetCombo" HorizontalAlignment="Stretch"
+                                              Background="#1E1E1E" Foreground="#CCCCCC"
+                                              SelectionChanged="PresetCombo_Changed"
+                                              ToolTip.Tip="The command-line preset for this agent type" />
+
+                                    <StackPanel x:Name="ModelRow" Spacing="6">
+                                        <TextBlock Classes="fieldLabel" Text="Model" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="ModelValueText" Text="Use default" Foreground="#CCCCCC" FontSize="13" />
+                                                    <TextBlock x:Name="ModelValueSub" Text="" Foreground="#777777" FontSize="11" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Button x:Name="ChooseModelButton" Grid.Column="1" Classes="dialogButton"
+                                                    Content="Choose model..." Margin="8,0,0,0" VerticalAlignment="Top"
+                                                    Click="BtnChooseModel_Click"
+                                                    ToolTip.Tip="Pick a model from the list this tool's driver provides" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Full custom: args used verbatim. -->
+                                <StackPanel x:Name="CustomPanel" Spacing="6" IsVisible="False">
+                                    <TextBlock Classes="fieldLabel" Text="Command-line arguments (used verbatim - CC Director adds nothing)" />
+                                    <TextBox x:Name="ArgsOverrideBox" Classes="settingsInput"
+                                             Watermark="e.g. --dangerously-skip-permissions --model opus[1m]"
+                                             TextChanged="ArgsOverrideBox_Changed"
+                                             ToolTip.Tip="The exact arguments to launch with. No preset and no model flag are added." />
+                                    <TextBlock Classes="hint" Text="The model picker is off in this mode - include any --model flag yourself." />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- RIGHT: live preview panel. -->
+            <Border Grid.Column="2" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="12">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="sectionTitle" Text="Preview" />
+
+                        <TextBlock Classes="fieldLabel" Text="This is what launches:" />
+                        <TextBox x:Name="PreviewStrip" Classes="previewStrip"
+                                 ToolTip.Tip="The fully-resolved command line that will launch - updates live as you change the form" />
+
+                        <TextBlock Classes="fieldLabel" Text="Detect result" />
+                        <TextBlock x:Name="DetectResultText" Text="Not detected yet."
+                                   Foreground="#888888" FontSize="12" TextWrapping="Wrap" />
+
+                        <TextBlock Classes="fieldLabel" Text="Quick-check result" />
+                        <TextBlock x:Name="QuickCheckResultText" Text="Not checked yet."
+                                   Foreground="#888888" FontSize="12" TextWrapping="Wrap" />
+
+                        <Button x:Name="LaunchPreviewButton" Classes="dialogButton" Content="Launch preview..."
+                                HorizontalAlignment="Left" Margin="0,6,0,0" Click="BtnLaunchPreview_Click"
+                                ToolTip.Tip="Open a throwaway terminal that starts the agent with the command line above (nothing is saved)" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Bottom: status line + single Save / Cancel. -->
+        <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" x:Name="StatusText" Text="" Foreground="#888888"
+                       FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" IsVisible="False" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button x:Name="SaveButton" Classes="primaryButton" Content="Save"
+                        IsDefault="True" Click="BtnSave_Click" />
+                <Button x:Name="CancelButton" Classes="dialogButton" Content="Cancel" Width="100"
+                        Click="BtnCancel_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

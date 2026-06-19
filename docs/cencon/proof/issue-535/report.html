@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #535 - Developer Agent proof report</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 1000px;
+         margin: 24px auto; padding: 0 16px; color: #1b1f24; line-height: 1.5; }
+  h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f3f5f7; }
+  .pass { color: #0a7d28; font-weight: 600; }
+  code { background: #f3f5f7; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+  img { max-width: 320px; border: 1px solid #ccc; border-radius: 6px; margin: 6px 8px 6px 0; }
+  .shotrow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fig { font-size: 12px; color: #555; }
+  .note { background: #fff8e1; border: 1px solid #f0d27a; padding: 10px 12px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #535 - [Voice] /m/ session: return to list after sending to the agent; stay after sending to the wingman</h1>
+<p><strong>Surface:</strong> Cockpit mobile assets <code>src/CcDirector.Cockpit/wwwroot/m/</code> (<code>m.js</code>, <code>index.html</code>, <code>sw.js</code>). Client-only; no server-side change.</p>
+<p><strong>Build:</strong> <code>dotnet build cc-director.sln</code> -> <strong>Build succeeded. 0 Warning(s) / 0 Error(s).</strong></p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Post-send destination now depends on the target.</strong>
+    <ul>
+      <li><strong>Send to agent</strong> (text <code>askAgentBtn</code> -&gt; <code>runAgentTurn</code>, and voice mode "agent" -&gt; <code>onRecordingStopped</code> -&gt; <code>sendEntry</code> -&gt; <code>runAgentTurn</code>): returns to the <strong>list</strong> view promptly <em>on send</em> (not after the agent turn completes). The text handler fires <code>runAgentTurn</code> then calls <code>showList()</code>; the voice handler calls <code>showList()</code> right after <code>sendEntry</code> for an agent recording.</li>
+      <li><strong>Ask the wingman</strong> (text <code>askWingmanBtn</code> -&gt; <code>runWingmanDirect</code>, and voice mode "wingman"): <strong>stays</strong> on the session view to hear the spoken answer (unchanged behavior, now explicit).</li>
+    </ul>
+  </li>
+  <li><strong>No-silent-failure for the agent send across navigation.</strong> <code>runAgentTurn</code> was rewritten to be durable: it sets <code>blocked[sid]=true</code> (so the originating list row shows "<code>- sending...</code>") and, on a connection/server delivery failure while the user is off the session view, it retries with backoff until the turn lands. So a text (or voice) agent send that fails after we navigate to the list is never silently lost - the row visibly shows it is still sending and it keeps trying. If the user is still on the session view, the existing on-screen failure + Retry is shown instead.</li>
+  <li><strong>Cache-bust bumped v17 -&gt; v18</strong> in <code>index.html</code> (<code>m.js?v=</code> / <code>m.css?v=</code> + on-screen label) and <code>sw.js</code> (cache name + pre-cached SHELL), plus the <code>m.js</code> header comment.</li>
+  <li><strong>Not changed here (owned by #532, already in main):</strong> clearing the textarea on tap and the wingman "sent" wording. This change builds on top of them.</li>
+</ul>
+
+<h2>Acceptance criteria - verification</h2>
+<p>Proof method: the <em>actual shipped</em> <code>wwwroot/m/</code> assets were served and driven in headless Chromium at a 390x844 mobile viewport, with the gateway endpoints stubbed and the real <code>m.js</code> event handlers exercised (real <code>MediaRecorder</code> via a fake mic for the voice paths). Each row records the live DOM view state and the captured POST bodies. Harness: <code>proof-harness.py</code> (committed beside this report). All 7 checks PASS.</p>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+  <tr>
+    <td>Tap <strong>Send to agent</strong> (text) returns to the list on send</td>
+    <td><code>#list-view</code> visible, <code>#session-view</code> hidden; the turn was sent</td>
+    <td>on_list=True; one <code>/wingman/voice-turn</code> POST with the typed text</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Complete a voice recording to the agent (Talk to the agent -&gt; Send) returns to the list; upload/transcribe/send continues in the background</td>
+    <td>On Send -&gt; list view; the durable outbox still delivers</td>
+    <td>on_list=True after Send; the transcribed recording was delivered via <code>/wingman/voice-turn</code> after navigation</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Tap <strong>Ask the wingman</strong> (text) keeps the user on the session view and shows the answer</td>
+    <td><code>#session-view</code> stays; answer rendered</td>
+    <td>on_session=True; <code>#hero-summary</code> = "Here is the wingman's spoken answer."</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Complete a voice recording to the wingman (Talk to the wingman -&gt; Send) keeps the user on the session view and shows the answer</td>
+    <td><code>#session-view</code> stays; answer rendered</td>
+    <td>on_session=True; one <code>/wingman/ask-direct</code> POST; answer shown</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>After returning to the list from an agent send, the originating row reflects the in-flight / working state</td>
+    <td>Row shows the session is working / sending</td>
+    <td>Originating row shows "<code>waiting for input - sending...</code>" while the agent send is in flight (see <code>ac_fail_row_sending.png</code>)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>A text agent-send that fails is NOT silently lost after navigating to the list (surfaced and/or retried)</td>
+    <td>Failure visible and the message retried, not disappeared</td>
+    <td>With delivery forced to HTTP 500: on_list=True, the row shows "sending...", and the attempt count climbed 1 -&gt; 2 (auto-retry). Once delivery was allowed to succeed, the "sending..." row cleared (recovery).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Asset cache-busting version incremented</td>
+    <td>v18 in index.html + sw.js; no v17 remaining</td>
+    <td>index.html <code>m.js?v=18</code>/<code>m.css?v=18</code> + label v18; sw.js <code>wingman-voice-v18</code> + SHELL <code>?v=18</code>; no <code>v=17</code> left</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshots</h2>
+<div class="shotrow">
+  <div><img src="ac1_text_agent_list.png" alt="AC1"><div class="fig">AC1 - text Send to agent: back on the LIST (v18).</div></div>
+  <div><img src="ac2_voice_agent_list.png" alt="AC2"><div class="fig">AC2 - voice-to-agent Send: back on the LIST.</div></div>
+  <div><img src="ac3_text_wingman_stay.png" alt="AC3"><div class="fig">AC3 - text Ask the wingman: STAYS on the session, answer shown.</div></div>
+  <div><img src="ac4_voice_wingman_stay.png" alt="AC4"><div class="fig">AC4 - voice-to-wingman Send: STAYS on the session, answer shown.</div></div>
+  <div><img src="ac_fail_row_sending.png" alt="AC-fail"><div class="fig">No-silent-failure / in-flight row - forced agent-send failure surfaces as "sending..." on the originating row and keeps retrying.</div></div>
+  <div><img src="ac_fail_recovered.png" alt="AC-fail recovered"><div class="fig">Recovery - once delivery succeeds the "sending..." row clears (no orphan block).</div></div>
+</div>
+
+<h2>CenCon impact</h2>
+<p><strong>No drift.</strong> Client-only change confined to <code>CcDirector.Cockpit/wwwroot/m/</code>. No architecture change (no container added/removed), no security-posture change (no new endpoint, credential, or data flow). No <code>docs/cencon/</code> update triggered.</p>
+
+<p class="note"><strong>Note on the test Director.</strong> The slot exe (<code>cc-director13.exe</code>) built and launched cleanly, but it could not bind a Control API port - the loopback range 7879..7898 is fully consumed by the user's other live Directors on this shared machine (environment saturation, not a defect in this change, and those processes must not be touched). Because this is a pure client-side static-asset change, the rigorous functional proof above drives the exact shipped <code>wwwroot/m/</code> assets directly, asserting every acceptance criterion by live DOM state and recorded POST bodies.</p>
+
+<p><strong>I believe this is finished.</strong></p>
+
+</body>
+</html>

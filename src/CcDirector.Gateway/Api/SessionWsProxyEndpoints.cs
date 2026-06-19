@@ -49,8 +49,7 @@ internal static class SessionWsProxyEndpoints
     /// </summary>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache owners, string? fleetToken = null)
     {
-        var forwarder = app.ServiceProvider.GetRequiredService<IHttpForwarder>();
-        var proxy = new SessionWsForwarder(forwarder, fleetToken);
+        var proxy = new SessionWsForwarder(fleetToken);
 
         // Live terminal stream: forward to the owning Director's /sessions/{sid}/stream .
         app.MapGet("/sessions/{sid}/stream", async (string sid, HttpContext ctx) =>
@@ -323,72 +322,164 @@ internal static class SessionWsProxyEndpoints
 
     /// <summary>
     /// Reverse-proxies a per-session request (WS upgrade or plain HTTP) to a per-request Director
-    /// destination, reusing the shared YARP <see cref="IHttpForwarder"/>. The forwarder rewrites the
-    /// request path to the Director's own endpoint path (e.g. the sid-scoped /dictate becomes the
+    /// destination at the Director's own endpoint path (e.g. the sid-scoped /dictate becomes the
     /// Director's /dictate, the sid-scoped screenshots path becomes /screenshots/file).
+    ///
+    /// Why a HAND-ROLLED proxy instead of YARP's IHttpForwarder (the remote-streaming bug): on
+    /// Windows, YARP's forwarder cannot complete the TLS handshake to a Tailscale Serve (https)
+    /// backend - every forward (WebSocket OR plain HTTP) fails with the Schannel error "The message
+    /// received was unexpected or badly formatted", while a plain HttpClient / ClientWebSocket to
+    /// the IDENTICAL url succeeds. That is exactly why remote Directors showed metadata (read with a
+    /// plain HttpClient by the aggregator) but could not stream or be driven (forwarded by YARP).
+    /// So WS legs are pumped over a <see cref="ClientWebSocket"/> and HTTP legs over an
+    /// <see cref="HttpClient"/> - the two clients proven to work against the TLS backend. The
+    /// <see cref="ForwarderError"/> return value is kept (None = ok, Request = failed) so the
+    /// caller's 404/503/closed-frame logic is unchanged.
     /// </summary>
     private sealed class SessionWsForwarder
     {
-        private readonly IHttpForwarder _forwarder;
-        private readonly HttpMessageInvoker _invoker;
         private readonly string? _fleetToken;
-
-        public SessionWsForwarder(IHttpForwarder forwarder, string? fleetToken)
+        // One pooled client for the HTTP legs. No overall Timeout: the per-call ctx.RequestAborted
+        // governs (a slow verb like recap can legitimately run minutes); a DEAD Director still fails
+        // fast via the handler's ConnectTimeout. Default ResponseContentRead - the path proven to
+        // work over the Schannel TLS backend (ResponseHeadersRead is the YARP-style path that broke).
+        private readonly HttpClient _http = new(new SocketsHttpHandler
         {
-            _forwarder = forwarder;
-            _fleetToken = fleetToken;
-            _invoker = new HttpMessageInvoker(new SocketsHttpHandler
-            {
-                UseProxy = false,
-                AllowAutoRedirect = false,
-                AutomaticDecompression = DecompressionMethods.None,
-                UseCookies = false,
-                ActivityHeadersPropagator = null,
-                ConnectTimeout = TimeSpan.FromSeconds(5),
-            });
-        }
+            UseProxy = false,
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.None,
+            UseCookies = false,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+        })
+        { Timeout = Timeout.InfiniteTimeSpan };
 
-        public async ValueTask<ForwarderError> ForwardAsync(HttpContext ctx, string destinationPrefix, string directorPath)
+        public SessionWsForwarder(string? fleetToken) => _fleetToken = fleetToken;
+
+        public ValueTask<ForwarderError> ForwardAsync(HttpContext ctx, string destinationPrefix, string directorPath)
+            => ctx.WebSockets.IsWebSocketRequest
+                ? ForwardWebSocketAsync(ctx, destinationPrefix, directorPath)
+                : ForwardHttpAsync(ctx, destinationPrefix, directorPath);
+
+        // WS leg: connect to the Director FIRST so a backend failure leaves ctx.Response unstarted
+        // and the caller can surface the real reason as a {"type":"closed"} frame (issue #457/#461).
+        // Only once the backend upgrade succeeds do we accept the browser side and pump raw frames
+        // (size header, PTY bytes, the user's keystrokes, close) verbatim in both directions.
+        private async ValueTask<ForwarderError> ForwardWebSocketAsync(HttpContext ctx, string destinationPrefix, string directorPath)
         {
-            var transformer = new RewritePathTransformer(directorPath, _fleetToken);
-            return await _forwarder.SendAsync(ctx, destinationPrefix, _invoker, ForwarderRequestConfig.Empty, transformer);
-        }
-    }
-
-    /// <summary>
-    /// Rewrites the proxied request path to the Director's own endpoint path. The Gateway path
-    /// (e.g. /sessions/{sid}/dictate) differs from the Director path (/dictate), so the default
-    /// path-copy transform would hit the wrong endpoint - we set the path explicitly.
-    /// </summary>
-    private sealed class RewritePathTransformer : HttpTransformer
-    {
-        private readonly string _directorPath;
-        private readonly string? _fleetToken;
-
-        public RewritePathTransformer(string directorPath, string? fleetToken)
-        {
-            _directorPath = directorPath;
-            _fleetToken = fleetToken;
-        }
-
-        public override async ValueTask TransformRequestAsync(
-            HttpContext ctx, HttpRequestMessage proxyRequest, string destinationPrefix, CancellationToken ct)
-        {
-            await base.TransformRequestAsync(ctx, proxyRequest, destinationPrefix, ct);
-
-            // base set RequestUri to destinationPrefix + the INBOUND path+query. Replace it with
-            // the Director's own path on the same destination, carrying any query string through.
-            var prefix = destinationPrefix.TrimEnd('/');
-            var query = ctx.Request.QueryString.HasValue ? ctx.Request.QueryString.Value : "";
-            proxyRequest.RequestUri = new Uri(prefix + _directorPath + query);
-
-            // Issue #457: authenticate to the owning Director with the shared fleet token. An
-            // auth-enabled Director (LAN mode) requires it; the browser only carried the Gateway
-            // cookie, which the Director does not accept. Replace any inbound Authorization so the
-            // forward presents the fleet bearer, never the browser's gateway credential.
+            var target = ToWsUri(destinationPrefix, directorPath, ctx.Request.QueryString);
+            var upstream = new ClientWebSocket();
+            // HTTP/1.1 upgrade (matches DirectorForwarding + the verify probe). Default for
+            // ClientWebSocket, set explicitly so an env/runtime default can never flip it to h2.
+            upstream.Options.HttpVersion = DirectorForwarding.HttpVersion;
+            upstream.Options.HttpVersionPolicy = DirectorForwarding.HttpVersionPolicy;
             if (!string.IsNullOrEmpty(_fleetToken))
-                proxyRequest.Headers.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _fleetToken);
+                upstream.Options.SetRequestHeader("Authorization", "Bearer " + _fleetToken);
+            try
+            {
+                await upstream.ConnectAsync(target, ctx.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionWsProxy] WS upstream connect failed: {target} -> {ex.Message}");
+                upstream.Dispose();
+                return ForwarderError.Request; // caller renders the closed-reason frame
+            }
+
+            using var downstream = await ctx.WebSockets.AcceptWebSocketAsync();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+            try
+            {
+                var a = PumpAsync(downstream, upstream, cts); // browser -> Director (keystrokes)
+                var b = PumpAsync(upstream, downstream, cts); // Director -> browser (PTY)
+                await Task.WhenAny(a, b);
+                cts.Cancel();
+                try { await Task.WhenAll(a, b); } catch { /* the losing pump unwinds on cancel */ }
+            }
+            finally
+            {
+                upstream.Dispose();
+            }
+            return ForwarderError.None;
+        }
+
+        // Copy frames one-for-one, preserving message type (binary PTY vs text size/closed JSON) and
+        // the fragment boundary, so xterm renders a coherent screen. A close or any socket error
+        // cancels the linked token, which tears down the paired pump.
+        private static async Task PumpAsync(WebSocket from, WebSocket to, CancellationTokenSource cts)
+        {
+            var buf = new byte[64 * 1024];
+            try
+            {
+                while (from.State == WebSocketState.Open && !cts.IsCancellationRequested)
+                {
+                    var r = await from.ReceiveAsync(buf, cts.Token);
+                    if (r.MessageType == WebSocketMessageType.Close)
+                    {
+                        try { await to.CloseAsync(WebSocketCloseStatus.NormalClosure, "peer closed", cts.Token); } catch { }
+                        break;
+                    }
+                    await to.SendAsync(new ArraySegment<byte>(buf, 0, r.Count), r.MessageType, r.EndOfMessage, cts.Token);
+                }
+            }
+            catch
+            {
+                // Socket dropped or cancelled: normal teardown. The WhenAny/WhenAll above observes it.
+            }
+            finally
+            {
+                cts.Cancel();
+            }
+        }
+
+        // HTTP leg: forward method + body + query to the Director's own path, present the fleet
+        // bearer (an auth-enabled LAN Director requires it; the browser only had a Gateway cookie),
+        // and copy status + headers + body back. ResponseContentRead (default) - the responses here
+        // (screenshots, verb JSON) are bounded, and it is the path proven to work over the TLS backend.
+        private async ValueTask<ForwarderError> ForwardHttpAsync(HttpContext ctx, string destinationPrefix, string directorPath)
+        {
+            var query = ctx.Request.QueryString.HasValue ? ctx.Request.QueryString.Value : "";
+            var url = destinationPrefix.TrimEnd('/') + directorPath + query;
+            using var req = new HttpRequestMessage(new HttpMethod(ctx.Request.Method), url);
+
+            if (ctx.Request.ContentLength is > 0 || ctx.Request.Headers.ContainsKey("Transfer-Encoding"))
+            {
+                req.Content = new StreamContent(ctx.Request.Body);
+                if (!string.IsNullOrEmpty(ctx.Request.ContentType))
+                    req.Content.Headers.TryAddWithoutValidation("Content-Type", ctx.Request.ContentType);
+            }
+            if (!string.IsNullOrEmpty(_fleetToken))
+                req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _fleetToken);
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await _http.SendAsync(req, ctx.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionWsProxy] HTTP forward failed: {ctx.Request.Method} {url} -> {ex.Message}");
+                return ForwarderError.Request;
+            }
+            using (resp)
+            {
+                ctx.Response.StatusCode = (int)resp.StatusCode;
+                foreach (var h in resp.Headers) ctx.Response.Headers[h.Key] = h.Value.ToArray();
+                foreach (var h in resp.Content.Headers) ctx.Response.Headers[h.Key] = h.Value.ToArray();
+                // Kestrel sets framing for the outbound response; a copied chunked/length header
+                // would conflict with what it actually writes.
+                ctx.Response.Headers.Remove("transfer-encoding");
+                ctx.Response.Headers.Remove("content-length");
+                await resp.Content.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+            }
+            return ForwarderError.None;
+        }
+
+        // destinationPrefix is http(s)://host:port; the Director's WS endpoints live at ws(s)://.
+        private static Uri ToWsUri(string destinationPrefix, string directorPath, QueryString qs)
+        {
+            var http = new Uri(destinationPrefix.TrimEnd('/') + directorPath + (qs.HasValue ? qs.Value : ""));
+            var scheme = http.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
+            return new UriBuilder(http) { Scheme = scheme }.Uri;
         }
     }
 }

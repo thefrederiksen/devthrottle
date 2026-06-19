@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #535</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1a1a2e; }
+  h1 { border-bottom: 2px solid #5319e7; padding-bottom: 8px; }
+  .verdict { background: #e6ffed; border: 1px solid #34d058; padding: 12px 16px; border-radius: 6px; font-weight: bold; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #d0d0d8; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f0f5; }
+  .pass { color: #176f2c; font-weight: bold; }
+  img { max-width: 320px; border: 1px solid #ccc; border-radius: 6px; margin: 6px; }
+  .shots { display: flex; flex-wrap: wrap; }
+  .shot { text-align: center; font-size: 12px; }
+  code { background: #f3f3f7; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #535</h1>
+<p><strong>Issue:</strong> [Voice] /m/ session: return to list after sending to the agent; stay after sending to the wingman<br/>
+<strong>PR:</strong> #542 (branch <code>issue-535-post-send-nav</code>)<br/>
+<strong>Verifier:</strong> QA Agent (independent, did NOT reuse the developer harness or screenshots)<br/>
+<strong>Method:</strong> The QA Agent authored its own Playwright harness driving the REAL shipped
+<code>wwwroot/m/</code> assets (m.js, m.css, index.html) in headless Chromium at a 390x844 mobile
+viewport, with the gateway endpoints stubbed so both success and a forced 500 delivery failure could be
+exercised deterministically. Whole-solution build run from a clean isolated worktree on the PR branch.</p>
+
+<p class="verdict">VERIFIED - all 7 acceptance criteria met. Whole-solution build: Build succeeded, 0 Warnings, 0 Errors (no NU1903).</p>
+
+<table>
+<tr><th>#</th><th>Acceptance Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Tap Send to agent (text) returns to the list on send</td>
+<td>#list-view visible, #session-view hidden; turn delivered</td>
+<td>on_list=true; one voice-turn POST with the typed text</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>Voice-to-agent (Talk to the agent -> Send) returns to the list; upload/transcribe/send continues in background</td>
+<td>on_list=true after Send; turn lands via durable outbox</td>
+<td>on_list=true; transcribed turn delivered in background</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Ask the wingman (text) stays on the session view and shows the spoken answer</td>
+<td>on_session=true; answer rendered</td>
+<td>on_session=true; "QA wingman spoken answer here." shown</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Voice-to-wingman (Talk to the wingman -> Send) stays on the session view and shows the answer</td>
+<td>on_session=true; answer rendered</td>
+<td>on_session=true; transcribed question routed to wingman, answer shown</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>After returning to the list from an agent send, the originating row reflects the in-flight/working state</td>
+<td>Client surfaces in-flight state on the originating row</td>
+<td>Row shows "waiting for input - sending..." while the turn is in flight (the yellow-dot-while-summarizing is a gateway/server behavior, out of this client-only scope and wired live by #534)</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>A text agent-send that fails to deliver is NOT silently lost after navigating to the list</td>
+<td>Failure surfaced and/or retried; never disappears</td>
+<td>Forced 500: row keeps "sending..." and the client retries (attempts 1 -> 2); on recovery the "sending..." clears with no orphan block</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Cache-busting version incremented so the new behavior loads</td>
+<td>v17 -> v18 in index.html, sw.js, on-screen label; no v17 left</td>
+<td>m.js?v=18 + m.css?v=18 + on-screen "v18"; wingman-voice-v18 in sw.js; zero v17 occurrences</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Screenshots (read and judged)</h2>
+<div class="shots">
+<div class="shot">AC1 text agent -> list<br/><img src="ac1_text_agent_list.png" /></div>
+<div class="shot">AC2 voice agent -> list<br/><img src="ac2_voice_agent_list.png" /></div>
+<div class="shot">AC3 text wingman -> stay<br/><img src="ac3_text_wingman_stay.png" /></div>
+<div class="shot">AC4 voice wingman -> stay<br/><img src="ac4_voice_wingman_stay.png" /></div>
+<div class="shot">AC5/AC6 failure surfaced on row<br/><img src="ac56_fail_row_sending.png" /></div>
+<div class="shot">AC5/AC6 recovery, row cleared<br/><img src="ac56_fail_recovered.png" /></div>
+</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Change is client-only (wwwroot/m/m.js, index.html, sw.js) - no server/Director/Gateway change, matching the issue scope.</li>
+<li>No v17 stragglers anywhere under wwwroot/m/.</li>
+<li>Wingman path unchanged (runWingmanDirect) - regression-checked: still stays on the session view.</li>
+<li>Voice durability (outbox + retry) preserved; agent send durability extended so a navigated-away send is not lost.</li>
+<li>Whole-solution build clean: 0 Warnings, 0 Errors.</li>
+</ul>
+</body>
+</html>

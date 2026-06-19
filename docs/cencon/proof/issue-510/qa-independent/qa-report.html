@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Independent Verification - Issue #510 (re-verify after model-on-reload bounce)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1a1a1a; max-width: 1100px; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: 8px; }
+  h2 { margin-top: 28px; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7a28; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; }
+  img { max-width: 980px; border: 1px solid #ccc; margin: 8px 0; }
+  .verdict { background: #e6f7ea; border: 2px solid #0a7a28; padding: 14px; font-size: 1.1em; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>QA Independent Verification &mdash; Issue #510</h1>
+<p><strong>[Wingman] Settings: rename Tool to Agent and list every agent registered on this machine</strong></p>
+<p>PR #522, branch <code>issue-510-wingman-agent-picker</code>. This is an INDEPENDENT re-verification of the
+WHOLE issue after the issue was bounced once for a "saved model not shown on reload" defect (criterion 3).
+The QA Agent did NOT trust the developer's report or the developer's mock proof server
+(<code>proof_server.py</code>); it booted the REAL <code>GatewayHost</code> from the PR build on an isolated
+<code>CC_DIRECTOR_ROOT</code> seeded with four registered agents, ran the REAL Cockpit web app against it,
+and drove the page in a real browser.</p>
+
+<h2>Test setup (real code, isolated state)</h2>
+<ul>
+  <li>Worktree: <code>D:\ReposFred\dt-qa-510</code> on <code>origin/issue-510-wingman-agent-picker</code> (HEAD <code>d6d6a7f</code>).</li>
+  <li>Slot 11 build of the PR branch (clean build, 0 errors / 0 warnings).</li>
+  <li>Real <code>GatewayHost</code> booted in-process on <code>http://127.0.0.1:7901</code> against an isolated root
+      (<code>%TEMP%\qa510-root</code>) holding four enabled agents: Claude Code, Codex, Gemini, Pi.</li>
+  <li>Real Cockpit web app (<code>CcDirector.Cockpit</code>) served through the Gateway front door so the
+      browser origin matches production (one-URL plan).</li>
+  <li>Browser-driven over loopback; every state read back from the live DOM and the live config.json.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Wingman tab shows label "Agent"; "Tool" no longer appears there.</td>
+  <td>Field label reads "Agent".</td>
+  <td>Live DOM: <code>&lt;label for="brainagent"&gt;Agent&lt;/label&gt;</code>. No <code>&lt;label&gt;Tool&lt;/label&gt;</code>
+      anywhere on the page. Screenshot 01.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Agent dropdown lists every agent registered on this machine (more than one when more than one is registered).</td>
+  <td>Dropdown lists all registered agents (&gt;1).</td>
+  <td>Live dropdown rendered 4 options: Claude Code (ClaudeCode), Codex (Codex), Gemini (Gemini), Pi (Pi).
+      Matches the seeded machine agent list. Real Gateway <code>GET /gateway/settings</code> returned
+      <code>brain.agents</code> with the same 4 entries. Screenshot 01.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><strong>(Previously failing)</strong> Choosing an agent AND a model, saving, reloading shows BOTH the saved
+      agent AND the saved model. Tested with a non-default model.</td>
+  <td>After save + full page reload, the dropdown pre-selects the saved agent and the Model field shows the
+      saved model.</td>
+  <td>Selected <strong>Gemini</strong> + typed <strong>gemini-2.5-pro</strong>, clicked the real Save button
+      ("Saved Gemini (Gemini) + gemini-2.5-pro."). After a FULL page reload, the dropdown pre-selected
+      <strong>Gemini (Gemini)</strong> and the Model field showed <strong>gemini-2.5-pro</strong>.
+      Confirmed via live DOM and via <code>GET /gateway/settings</code> returning
+      <code>agentId=33333333...</code> and <code>model=gemini-2.5-pro</code>. Screenshot 02.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Saved choice written to the gateway config (config.json + settings response).</td>
+  <td>config.json carries the saved agent id, kind, and model.</td>
+  <td>After the UI save, config.json on disk held
+      <code>brain_agent_id=33333333-3333-3333-3333-333333333333</code>,
+      <code>brain_tool=Gemini</code>, <code>brain_model=gemini-2.5-pro</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li><strong>Stale-branch / Cursor regression check.</strong> The PR branch's merge-base with main predates
+      <code>c5c3cb7 [Desktop] Add Cursor CLI agent provider (#517/#521)</code>, so a naive
+      <code>git diff main..HEAD</code> shows Cursor files as "deleted". Verified this is NOT the PR's doing:
+      the branch's own commits (since the merge-base) touch only the wingman picker files and proof images,
+      never <code>AgentKind.cs</code> or any Cursor file. A trial merge of the PR onto current main was
+      automatic/clean and PRESERVED the Cursor agent while applying the wingman picker changes.</li>
+  <li><strong>Merge build gate.</strong> The merged tree built clean: <code>dotnet build cc-director.sln</code>
+      &mdash; Build succeeded, 0 Error(s), 0 Warning(s).</li>
+  <li><strong>Endpoint tests (real GatewayHost, PR build):</strong> <code>BrainConfigEndpointTests</code> &mdash;
+      6/6 passed, including <code>Put_brain_config_by_agent_id_persists_and_round_trips</code> (the criterion-3
+      round-trip) and the no-fallback rejection of an unknown agent id.</li>
+  <li><strong>Agent/catalog regression (merged tree):</strong> Core tests filtered to Agent / BrainToolConfig /
+      ToolDetection &mdash; 114/114 passed.</li>
+</ul>
+
+<div class="verdict">VERIFIED &mdash; all 4 acceptance criteria met, including the previously-failing
+criterion 3 (saved non-default model <code>gemini-2.5-pro</code> round-trips across a full page reload).
+Clean merge onto main with Cursor preserved; clean merged build.</div>
+
+<h2>Evidence</h2>
+<h3>Screenshot 01 &mdash; "Agent" label + four registered agents</h3>
+<img src="01-agent-label-and-4-agents.png" alt="Wingman tab: Agent label and four-agent dropdown">
+<h3>Screenshot 02 &mdash; Gemini + gemini-2.5-pro persisted across a full page reload</h3>
+<img src="02-reload-gemini-2.5-pro-persisted.png" alt="After reload: Gemini and gemini-2.5-pro persisted">
+</body>
+</html>

@@ -971,42 +971,59 @@ public class TerminalControl : Control
                 return;
             }
 
-            // Right-click without selection: show context menu with Paste option
-            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (_session != null && clipboard != null)
+            // Right-click without selection: always show paste affordance for terminal input.
+            if (_session != null)
             {
-                var clipText = await clipboard.GetTextAsync();
-                if (!string.IsNullOrEmpty(clipText))
-                {
-                    var menu = new ContextMenu();
-                    var pasteItem = new MenuItem
-                    {
-                        Header = "Paste to Terminal",
-                        IsEnabled = !_isPasting,
-                    };
-                    pasteItem.Click += (_, _) => _ = PasteToTerminalAsync();
-                    menu.Items.Add(pasteItem);
-
-                    if (_isPasting)
-                    {
-                        var cancelItem = new MenuItem { Header = "Cancel Paste" };
-                        cancelItem.Click += (_, _) =>
-                        {
-                            FileLog.Write("[TerminalControl] Paste cancelled by user");
-                            _isPasting = false;
-                        };
-                        menu.Items.Add(cancelItem);
-                    }
-
-                    this.ContextMenu = menu;
-                    menu.Open(this);
-                    e.Handled = true;
-                }
+                var menu = await BuildPasteContextMenuAsync();
+                this.ContextMenu = menu;
+                menu.Open(this);
+                e.Handled = true;
             }
         }
         catch (Exception ex)
         {
             FileLog.Write($"[TerminalControl] HandleRightClick FAILED: {ex.Message}");
+        }
+    }
+
+    private async Task<ContextMenu> BuildPasteContextMenuAsync()
+    {
+        string? clipText = null;
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+                clipText = await clipboard.GetTextAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalControl] BuildPasteContextMenuAsync: clipboard read failed: {ex.Message}");
+        }
+
+        var menu = new ContextMenu();
+        AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
+        return menu;
+    }
+
+    private void AddPasteItems(ContextMenu menu, bool hasClipboardText = true)
+    {
+        var pasteItem = new MenuItem
+        {
+            Header = "Paste to Terminal",
+            IsEnabled = _session != null && !_isPasting && hasClipboardText,
+        };
+        pasteItem.Click += (_, _) => _ = PasteToTerminalAsync();
+        menu.Items.Add(pasteItem);
+
+        if (_isPasting)
+        {
+            var cancelItem = new MenuItem { Header = "Cancel Paste" };
+            cancelItem.Click += (_, _) =>
+            {
+                FileLog.Write("[TerminalControl] Paste cancelled by user");
+                _isPasting = false;
+            };
+            menu.Items.Add(cancelItem);
         }
     }
 
@@ -1050,10 +1067,10 @@ public class TerminalControl : Control
                 return;
             }
 
-            // Ctrl+Shift+V = paste clipboard as slow keystrokes
-            if (ctrl && shift && e.Key == Key.V)
+            // Ctrl+V / Ctrl+Shift+V = paste clipboard as slow keystrokes
+            if (ctrl && e.Key == Key.V)
             {
-                FileLog.Write("[TerminalControl] Ctrl+Shift+V detected, pasting to terminal");
+                FileLog.Write($"[TerminalControl] {(shift ? "Ctrl+Shift+V" : "Ctrl+V")} detected, pasting to terminal");
                 _ = PasteToTerminalAsync();
                 e.Handled = true;
                 return;
@@ -1484,6 +1501,12 @@ public class TerminalControl : Control
             _linkContextMenu.Items.Add(copyItem);
 
             _linkContextMenu.Items.Add(BuildOpenInBrowserMenuItem(_detectedLink));
+        }
+
+        if (_session != null)
+        {
+            _linkContextMenu.Items.Add(new Separator());
+            AddPasteItems(_linkContextMenu);
         }
 
         this.ContextMenu = _linkContextMenu;

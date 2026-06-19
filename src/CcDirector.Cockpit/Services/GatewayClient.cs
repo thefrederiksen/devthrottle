@@ -40,6 +40,36 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Issue #531: drive ONE turn of a session through the wingman. Sends the person's message
+    /// into the working session, waits for the agent to finish, and returns the agent's reply
+    /// plus the wingman's faithful, speakable translation of it. Never throws on a handled error;
+    /// the result carries <see cref="WingmanVoiceResult.Error"/> instead so the Voice tab can show it.
+    /// </summary>
+    public async Task<WingmanVoiceResult> WingmanVoiceTurnAsync(string sid, string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"sessions/{Uri.EscapeDataString(sid)}/wingman/voice-turn", new { text }, ct);
+        if (resp.IsSuccessStatusCode)
+            return await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct)
+                   ?? new WingmanVoiceResult { Error = "empty response from gateway" };
+        var err = await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct);
+        return new WingmanVoiceResult { Error = err?.Error ?? $"gateway returned {(int)resp.StatusCode}" };
+    }
+
+    /// <summary>
+    /// Issue #531: the direct-to-wingman path - the person talks to the wingman itself, not the
+    /// working session. Returns the wingman's speakable answer.
+    /// </summary>
+    public async Task<WingmanVoiceResult> WingmanAskDirectAsync(string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("wingman/ask-direct", new { text }, ct);
+        if (resp.IsSuccessStatusCode)
+            return await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct)
+                   ?? new WingmanVoiceResult { Error = "empty response from gateway" };
+        var err = await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct);
+        return new WingmanVoiceResult { Error = err?.Error ?? $"gateway returned {(int)resp.StatusCode}" };
+    }
+
+    /// <summary>
     /// The cross-fleet "Interrupted sessions" list (issue #212 W3): sessions whose Director
     /// died abnormally, enriched with last-known rail line + headline. Empty list when there
     /// is nothing to recover. Throws on transport failure (surfaced as a banner).
@@ -418,6 +448,80 @@ public sealed class GatewayClient
         }
     }
 
+    // ===== Cron jobs (epic #479): the Schedule page is a pure client of /cron/jobs (#482-#484) =====
+
+    /// <summary>All cron jobs (<c>GET /cron/jobs</c>). Read path: returns an empty list on a null body.</summary>
+    public async Task<List<CronJobDto>> GetCronJobsAsync(CancellationToken ct = default)
+    {
+        _log.LogDebug("GetCronJobsAsync: GET {Base}cron/jobs", _http.BaseAddress);
+        var env = await _http.GetFromJsonAsync<CronJobsEnvelope>("cron/jobs", ct);
+        return env?.Jobs ?? new List<CronJobDto>();
+    }
+
+    /// <summary>
+    /// Create a cron job (<c>POST /cron/jobs</c>). User action: throws on failure (incl. 400 for an
+    /// invalid schedule) so the create form can show the server's message inline.
+    /// </summary>
+    public async Task<CronJobDto?> CreateCronJobAsync(CronJobDto job, CancellationToken ct = default)
+    {
+        _log.LogInformation("CreateCronJobAsync: name=\"{Name}\" kind={Kind}", job.Name, job.ScheduleKind);
+        var resp = await _http.PostAsJsonAsync("cron/jobs", job, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"create cron job failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<CronJobDto>(cancellationToken: ct);
+    }
+
+    /// <summary>Update a cron job (<c>PUT /cron/jobs/{id}</c>). Throws on failure so the caller can show the message.</summary>
+    public async Task<CronJobDto?> UpdateCronJobAsync(string id, CronJobDto job, CancellationToken ct = default)
+    {
+        _log.LogInformation("UpdateCronJobAsync: id={Id}", id);
+        var resp = await _http.PutAsJsonAsync($"cron/jobs/{Uri.EscapeDataString(id)}", job, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"update cron job failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<CronJobDto>(cancellationToken: ct);
+    }
+
+    /// <summary>Delete a cron job (<c>DELETE /cron/jobs/{id}</c>). Throws on failure.</summary>
+    public async Task DeleteCronJobAsync(string id, CancellationToken ct = default)
+    {
+        _log.LogInformation("DeleteCronJobAsync: id={Id}", id);
+        var resp = await _http.DeleteAsync($"cron/jobs/{Uri.EscapeDataString(id)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"delete cron job failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
+    /// Fire a cron job now (<c>POST /cron/jobs/{id}/run</c>). Throws on failure (incl. 409 when a
+    /// prior run is still in flight) so the caller can show the server's message.
+    /// </summary>
+    public async Task<CronRunRecord?> RunCronJobNowAsync(string id, CancellationToken ct = default)
+    {
+        _log.LogInformation("RunCronJobNowAsync: id={Id}", id);
+        var resp = await _http.PostAsync($"cron/jobs/{Uri.EscapeDataString(id)}/run", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"run cron job failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<CronRunRecord>(cancellationToken: ct);
+    }
+
+    /// <summary>One cron job's run history (<c>GET /cron/jobs/{id}/runs</c>), newest first.</summary>
+    public async Task<List<CronRunRecord>> GetCronRunsAsync(string id, CancellationToken ct = default)
+    {
+        var env = await _http.GetFromJsonAsync<CronRunsEnvelope>($"cron/jobs/{Uri.EscapeDataString(id)}/runs", ct);
+        return env?.Runs ?? new List<CronRunRecord>();
+    }
+
     // ===== Tool pages (issue #183): exes / transcripts / dictionary =====
     // These three pages were static HTML fetching the Gateway same-origin; they are now Blazor
     // components that reach the same endpoints through this server-side client. No endpoint
@@ -602,6 +706,19 @@ public sealed class GatewayClient
         }
         return body;
     }
+}
+
+/// <summary>The <c>GET /cron/jobs</c> envelope: <c>{ "jobs": [ CronJobDto, ... ] }</c> (epic #479).</summary>
+public sealed class CronJobsEnvelope
+{
+    public List<CronJobDto> Jobs { get; set; } = new();
+}
+
+/// <summary>The <c>GET /cron/jobs/{id}/runs</c> envelope: <c>{ "jobId": "...", "runs": [ CronRunRecord, ... ] }</c> (epic #479).</summary>
+public sealed class CronRunsEnvelope
+{
+    public string JobId { get; set; } = "";
+    public List<CronRunRecord> Runs { get; set; } = new();
 }
 
 /// <summary>The <c>GET /lists</c> envelope: <c>{ "lists": [ WorkListDto, ... ] }</c> (issue #273).</summary>

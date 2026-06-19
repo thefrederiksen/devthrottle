@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #532 (independent verification)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1b1f24; }
+  h1 { border-bottom: 2px solid #5319e7; padding-bottom: 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #137333; font-weight: bold; }
+  .verdict { background: #e6f4ea; border: 1px solid #137333; padding: 12px; border-radius: 6px; font-weight: bold; }
+  figure { margin: 18px 0; }
+  img { max-width: 392px; border: 1px solid #999; border-radius: 6px; display: block; }
+  figcaption { font-size: 13px; color: #444; margin-top: 6px; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #532</h1>
+<p><strong>Title:</strong> [Voice] /m/ text send (agent + wingman): clear textbox on tap and show
+sent + working state</p>
+<p><strong>PR:</strong> #538 (branch <code>issue-532-clear-textbox-wingman-feedback</code>, brought
+up to date with <code>main</code> before the build gate)</p>
+<p><strong>Method:</strong> Independent verification. The QA Agent did NOT reuse the Developer
+Agent's binary or screenshots. The actual PR-branch <code>wwwroot/m/</code> assets
+(<code>index.html</code>, <code>m.js</code>, <code>sw.js</code>) were served and driven in headless
+Chromium at a 390x844 mobile viewport, with the gateway endpoints stubbed. Each criterion was
+checked by reading live DOM state (textarea value, <code>&lt;details&gt;</code> open state,
+<code>#busy-bar</code> class, <code>#hero-status</code>/<code>#hero-summary</code> text) AND by the
+recorded <code>/wingman/ask-direct</code> POST bodies, plus screenshots.</p>
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. Independent functional pass.</div>
+
+<table>
+<tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Tap <b>Send to agent</b> (non-empty) clears the textarea within ~100ms (before the turn completes)</td>
+<td><code>#typed-text</code> value == "" synchronously on tap</td>
+<td>value read immediately after the click handler returned == "" (was "agent message here")</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>Tap <b>Ask the wingman</b> (non-empty) clears the textarea within ~100ms</td>
+<td><code>#typed-text</code> value == "" synchronously on tap</td>
+<td>value read immediately after the click handler returned == "" (was "Please summarize the last 3 turns")</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Empty/whitespace tap does NOT clear or send; shows the existing prompt (both buttons)</td>
+<td>value kept; "Type or record something first." (agent) / "Type a question first." (wingman); no send</td>
+<td>agent: value kept "   ", hero="Type or record something first."; wingman: value kept "   ", NO <code>/wingman/ask-direct</code> call fired, hero="Type a question first."</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>(Wingman) sent/working confirmation visible from the bottom panel WITHOUT scrolling</td>
+<td>panel collapses and top status surfaces</td>
+<td>on tap (synchronous read): <code>text-section.open=false</code>, <code>#busy-bar</code> NOT hidden, <code>#hero-status</code>="Asking the wingman..."</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>(Wingman) in-progress indicator persists then is replaced by the answer; no stuck indicator</td>
+<td>after success: busy-bar hidden AND wingman answer rendered</td>
+<td>after the stubbed answer resolved: <code>#busy-bar</code> hidden==true; <code>#hero-summary</code>="Here is the wingman summary of the last three turns." (the latent stuck-bar bug is fixed - the direct-wingman success path now hides <code>#busy-bar</code>)</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>(Wingman) on failure: error + Retry; Retry re-sends the ORIGINAL typed text (not lost by the early clear)</td>
+<td>error box + Retry button; Retry POST body identical to the first send</td>
+<td>error box shown with "stub forced failure" and a "Retry" button; textarea already cleared; both POST bodies were byte-identical: <code>{"text":"Original retry message 42"}</code> on the first send and again on Retry</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Cache-bust version bumped so the new bundle loads</td>
+<td>v14 -&gt; v15 in the asset queries, the on-screen label, and the service worker</td>
+<td>on-screen label reads "v15"; <code>index.html</code> references <code>m.css?v=15</code> and <code>m.js?v=15</code>; <code>sw.js</code> cache name <code>wingman-voice-v15</code> and SHELL <code>?v=15</code>; NO <code>v14</code> remains anywhere</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Client-only change confined to <code>CcDirector.Cockpit/wwwroot/m/</code> (<code>m.js</code>,
+<code>index.html</code>, <code>sw.js</code>). No server-side, architecture, or security change - so
+no CenCon document update is triggered, and no blocking DT security rule is touched.</li>
+<li>No adjacent breakage observed: the agent path's empty-guard, prompts, menu, and playback paths
+remained intact; the agent path's post-send navigation is intentionally unchanged here (owned by
+#535).</li>
+<li>Build gate: the PR branch was brought up to date with <code>main</code> (which carries the
+NU1903 SQLitePCLRaw fix, commit 5b76bfc) and <code>dotnet build cc-director.sln</code> reported
+<b>Build succeeded / 0 Warning(s) / 0 Error(s)</b>.</li>
+</ul>
+
+<h2>Evidence screenshots (QA-captured, 390x844)</h2>
+<figure><img src="qa-01-wingman-typed.png"><figcaption>Wingman: text typed in the bottom box before sending.</figcaption></figure>
+<figure><img src="qa-02-wingman-working.png"><figcaption>Ask the wingman, in flight: bottom panel collapsed to "Show text" and the top working state surfaced (busy-bar/status), textarea cleared.</figcaption></figure>
+<figure><img src="qa-03-wingman-answer.png"><figcaption>On success: the wingman answer rendered in #hero-summary, busy-bar gone (no stuck indicator), textarea empty (placeholder only).</figcaption></figure>
+<figure><img src="qa-04-agent-typed.png"><figcaption>Send to agent: text typed before tapping.</figcaption></figure>
+<figure><img src="qa-05-agent-cleared.png"><figcaption>After tapping Send to agent: textarea cleared on tap.</figcaption></figure>
+<figure><img src="qa-06-empty-prompt.png"><figcaption>Empty/whitespace tap: value kept and the existing prompt shown; nothing sent.</figcaption></figure>
+<figure><img src="qa-07-wingman-error-retry.png"><figcaption>Wingman failure: error box + Retry; Retry re-sent the identical original POST body.</figcaption></figure>
+
+<p style="margin-top:24px;color:#666;font-size:13px;">QA Agent (CenCon Development Method) - independent verification, 2026-06-19.</p>
+</body>
+</html>

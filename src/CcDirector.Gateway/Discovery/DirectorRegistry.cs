@@ -264,6 +264,25 @@ public sealed class DirectorRegistry : IDisposable
             d.TwoWayVerifiedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Stamp the result of the stream-leg verification (the real WebSocket UPGRADE to
+    /// /verify-ws - the path the Cockpit terminal stream uses). <paramref name="ok"/> true ->
+    /// stamp <see cref="DirectorDto.StreamVerifiedAt"/> and clear the error; false -> clear the
+    /// stamp and record <paramref name="error"/>. Like the two-way stamp this lives on the
+    /// in-memory dto, so a re-register naturally resets it. NOT called when the leg was not
+    /// applicable (a Director predating /verify-ws), so such a Director stays "unknown" (both
+    /// fields null) rather than reading as broken.
+    /// </summary>
+    public void MarkStreamVerified(string directorId, bool ok, string? error)
+    {
+        if (string.IsNullOrEmpty(directorId)) return;
+        if (_directors.TryGetValue(directorId, out var d))
+        {
+            d.StreamVerifiedAt = ok ? DateTime.UtcNow : null;
+            d.StreamVerifyError = ok ? null : error;
+        }
+    }
+
     // ===== Advertised-endpoint re-verification state machine (issue #325) =====
 
     /// <summary>Consecutive advertised-endpoint probe failures per Director, for log throttling only

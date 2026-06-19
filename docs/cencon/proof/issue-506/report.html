@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #506: Gateway serves full transcription routing</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .4rem; }
+  h2 { color: #007ACC; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; background: #f5f5f5; padding: .1rem .3rem; }
+  pre { padding: .8rem; overflow-x: auto; border-left: 4px solid #007ACC; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #e0a800; padding: .6rem .9rem; }
+  img { max-width: 100%; border: 1px solid #ccc; margin-top: .5rem; }
+</style>
+</head>
+<body>
+<h1>Proof Report - Issue #506</h1>
+<p><strong>Title:</strong> feat: Gateway serves full transcription routing (Director stops hardcoding the URL/mode)</p>
+<p><strong>Branch:</strong> <code>issue-506-gateway-transcription-routing</code></p>
+<p><strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s) (run inside the session's own git worktree).</p>
+
+<h2>What was implemented</h2>
+<p>
+Before this change, a Director connected to a Gateway asked the Gateway only for the vault
+<em>key</em>; it decided the transcription base URL and mode locally from compile-time constants
+(<code>TranscriptionEndpointResolver.OpenAiBaseUrl</code> / <code>DevThrottleBaseUrl</code>) plus
+its own config. Changing the URL or switching mode required a Director rebuild/redeploy.
+</p>
+<p>This change makes the <strong>Gateway the single source of truth for the whole routing target</strong>:</p>
+<ul>
+  <li><strong>Gateway (new endpoint)</strong> - <code>GET /transcription/routing</code> returns
+      <code>{ mode, baseUrl, model, key }</code> composed server-side from the Gateway's configured
+      mode + its vault, in one call. New file
+      <code>src/CcDirector.Gateway/Api/TranscriptionRoutingEndpoint.cs</code>, mapped in
+      <code>GatewayHost.cs</code>; inherits the host-wide token middleware.</li>
+  <li><strong>Director</strong> - on a Gateway, <code>OpenAiKeyResolver.ResolveEndpointAsync()</code>
+      now fetches the routing from that endpoint and uses the returned <code>baseUrl</code> +
+      <code>key</code> + <code>model</code>. It no longer reads a compile-time URL constant on the
+      on-Gateway path. The standalone (no-Gateway) path is unchanged.</li>
+  <li><strong>Security invariant, now server-side</strong> - the Gateway composes URL+key together
+      from the one pure <code>TranscriptionEndpointResolver.Resolve(mode)</code>, so the
+      bring-your-own OpenAI key is only ever returned with the OpenAI base URL and is never returned
+      with the devthrottle.com URL.</li>
+  <li><strong>No silent fallback for an older Gateway</strong> - the route stamps every response
+      with an <code>X-Transcription-Routing</code> marker header. A Director that gets a 404
+      <em>without</em> the marker (an older Gateway that never mapped the route) surfaces a clear
+      "Transcription routing is unavailable: this Gateway is out of date. Update your Gateway..."
+      message instead of falling back to a baked-in URL.</li>
+  <li>The transcription <code>model</code> now travels with the routing target
+      (<code>TranscriptionEndpoint.Model</code> / <code>ResolvedTranscription.Model</code>) and is
+      passed through to the dictation provider in <code>DictationEndpoint.cs</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Status</th></tr>
+<tr>
+  <td>On-Gateway Director gets base URL + key + model from the Gateway; a Gateway-side mode/URL
+      change reflects on a connected Director with no Director rebuild or restart.</td>
+  <td>One long-lived resolver follows a Gateway mode flip.</td>
+  <td>Live-socket proof test <code>Issue506RoutingProofTests.GatewayModeChange_IsPickedUpByConnectedDirector_NoRestart</code>:
+      same resolver instance, Gateway mode flipped byo-&gt;devthrottle, no reconstruction. Captured output below.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>The base URL is no longer taken from a compile-time constant in the on-Gateway runtime path.</td>
+  <td>Director uses a URL it could not have baked in.</td>
+  <td><code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_UsesGatewayBaseUrl_NotLocalConstant</code>
+      returns <code>https://proxy.example.test/v9</code> (a URL no constant contains).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>The BYO OpenAI key is never sent to devthrottle.com.</td>
+  <td>BYO routing carries the OpenAI URL only; the DevThrottle key never leaks into a BYO response.</td>
+  <td>Server-side: <code>TranscriptionRoutingEndpointTests.Routing_ByoMode_NeverPairsByoKeyWithDevThrottleUrl</code>
+      (both keys seeded; BYO response has the OpenAI URL and no <code>dt_</code> leak). Client-side:
+      <code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_NeverGetsByoKeyWithDevThrottleUrl</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Standalone (no-Gateway) transcription still works unchanged.</td>
+  <td>Standalone resolves URL/model/key locally.</td>
+  <td><code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_StandaloneByo_UsesLocalOpenAiKey</code> and
+      <code>..._StandaloneDevThrottle_NoLocalKey_ReturnsNull</code> pass.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Unit tests cover: Gateway composes the correct pair per mode; Director consumes the Gateway
+      routing; older-Gateway-without-endpoint surfaces the clear message.</td>
+  <td>All three covered.</td>
+  <td>Gateway: <code>TranscriptionRoutingEndpointTests</code> (byo/devthrottle compose, never-cross,
+      key-missing 404 with marker). Director consume: <code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_OnGateway_ConsumesGatewayRouting</code>.
+      Older Gateway: <code>..._OlderGatewayWithoutRoutingEndpoint_ReturnsNull_AndShowsUpdateMessage</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Live end-to-end proof output (criterion 1)</h2>
+<p>A single long-lived <code>OpenAiKeyResolver</code> (stand-in for a connected Director) pointed at
+a live Gateway-hosted <code>/transcription/routing</code> endpoint over a real loopback socket. The
+Gateway's mode was flipped with no resolver reconstruction:</p>
+<pre>
+[1] Gateway mode=byo         -> Director resolved baseUrl=https://api.openai.com/v1,   model=gpt-4o-transcribe, mode=Byo,         keyPrefix=sk-
+[2] Gateway mode=devthrottle -> SAME Director resolved baseUrl=https://devthrottle.com/api/v1, model=gpt-4o-transcribe, mode=DevThrottle, keyPrefix=dt_
+[PROOF] One long-lived Director resolver followed the Gateway's mode/URL change with no restart and no rebuild.
+</pre>
+
+<h2>Test results</h2>
+<ul>
+  <li><strong>CcDirector.Core.Tests</strong>: Passed 2013, Failed 0, Skipped 3
+      (includes the rewritten <code>OpenAiKeyResolverEndpointTests</code>).</li>
+  <li><strong>CcDirector.Gateway.Tests - new/changed tests for #506</strong>: all PASS
+      (<code>TranscriptionRoutingEndpointTests</code> x4, <code>Issue506RoutingProofTests</code> x1).</li>
+</ul>
+<div class="note">
+  <strong>Pre-existing failures, NOT caused by this change (verified on unmodified <code>main</code>):</strong>
+  <ul>
+    <li><code>VaultGatewayIntegrationTests.Standalone_resolver_uses_local_key_no_gateway</code> and
+        <code>...Resolver_re_reads_gateway_config_so_a_late_added_gateway_self_heals</code> assert the
+        standalone message contains "Settings &gt; Voice", but issue #497 already renamed it to
+        "Settings &gt; Transcription". Confirmed failing on <code>main</code> before any #506 edit;
+        these test files were not touched by this change.</li>
+    <li><code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+        and <code>...ClientCloseWithoutStop_recovers_transcript_instead_of_discarding</code> fail with
+        "no api key" - live-OpenAI integration tests that require a real key in the environment.</li>
+  </ul>
+</div>
+
+<h2>CenCon impact</h2>
+<p>
+Adds one REST route on the existing <code>CcDirector.Gateway</code> container - no container added or
+removed, so <code>architecture_manifest.yaml</code> needs no structural change. No security-posture
+drift: the change <em>strengthens</em> the documented invariant "Secrets resolved at point of use
+from the Gateway Key Vault... never baked into source, never an env fallback" by composing URL+key
+server-side and removing the on-Gateway compile-time URL. No blocking DT-rule violated.
+</p>
+
+<h2>Isolated test Director (running app)</h2>
+<p>Built to dev slot 11 from the worktree and launched via the per-slot scheduled task
+(<code>cc-director11-launch</code>); Control API on <code>http://127.0.0.1:7893</code>,
+<code>/healthz</code> = <code>{"status":"ok",...,"version":"0.9.11"}</code>. Slot torn down after proof.</p>
+<img src="test-director-running.png" alt="Isolated test Director running (slot 11)">
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. Every acceptance criterion is met and proven; the build
+is clean (0 warnings, 0 errors); all tests exercising the changed code pass; the only failing tests
+are pre-existing and unrelated, verified against unmodified main.</p>
+</body>
+</html>

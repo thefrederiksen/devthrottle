@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue 525 driver slash command quality assurance report</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #172033; background: #f7f9fc; }
+main { max-width: 1120px; margin: 0 auto; background: white; padding: 32px; border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); }
+h1 { margin-top: 0; color: #0f3b5f; }
+h2 { margin-top: 32px; color: #174a73; border-bottom: 1px solid #d8e2ee; padding-bottom: 8px; }
+.badge { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #dcfce7; color: #166534; font-weight: 700; }
+.warning { background: #fff7ed; border-left: 4px solid #f97316; padding: 12px 16px; border-radius: 8px; }
+.note { background: #eef6ff; border-left: 4px solid #2563eb; padding: 12px 16px; border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; }
+th, td { border: 1px solid #d8e2ee; padding: 10px 12px; text-align: left; vertical-align: top; }
+th { background: #edf4fb; }
+code, pre { background: #0f172a; color: #e2e8f0; border-radius: 8px; }
+code { padding: 2px 5px; }
+pre { padding: 14px; overflow-x: auto; }
+ul { line-height: 1.55; }
+.pass { color: #166534; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue 525 driver slash command quality assurance report</h1>
+<p><span class="badge">Passed</span></p>
+<p>This report covers the driver-aware slash command implementation and the tests that prove it works without starting the Director desktop application.</p>
+
+<h2>What changed</h2>
+<ul>
+<li>Each agent driver now owns slash command metadata through <code>IAgentDriver.SlashCommands</code>.</li>
+<li><code>DriverCapabilities</code> still controls bottom action buttons only.</li>
+<li><code>PiDriver</code> exposes a Pi built-in command catalog from <code>PiSlashCommands</code>.</li>
+<li><code>ClaudeDriver</code> exposes the existing Claude built-in command catalog.</li>
+<li><code>GenericDriver</code> and <code>CursorDriver</code> expose no built-in slash commands until verified.</li>
+<li>The Avalonia composer asks for commands using the active session agent kind, so Pi no longer receives Claude-specific autocomplete.</li>
+<li>Claude native command interception now only runs for Claude sessions, so Pi commands such as <code>/model</code> are not routed into Claude dialogs.</li>
+</ul>
+
+<h2>How dynamic command discovery works</h2>
+<table>
+<tr><th>Command source</th><th>Behavior</th></tr>
+<tr><td>Driver built-in commands</td><td>Versioned in code. For Pi this is <code>PiSlashCommands</code>, checked against the local Pi documentation.</td></tr>
+<tr><td>Pi project prompt templates</td><td>Discovered from <code>.pi/prompts/*.md</code>. A file named <code>review.md</code> becomes <code>/review</code>.</td></tr>
+<tr><td>Pi project skills</td><td>Discovered from <code>.pi/skills/*/SKILL.md</code> and <code>.agents/skills/*/SKILL.md</code>. A skill named <code>browser</code> becomes <code>/skill:browser</code>.</td></tr>
+<tr><td>Pi global prompt templates and skills</td><td>Discovered from the documented global Pi and shared agent locations.</td></tr>
+<tr><td>Pi extension registered commands</td><td>Not dynamically discoverable yet because Pi does not currently expose a stable external list. We should add this later through a Pi machine-readable command list or a small Pi extension that writes registered commands to a file.</td></tr>
+</table>
+<div class="note"><strong>Dynamic update detail:</strong> commands are discovered from disk and cached per agent and repository path. If a prompt or skill is added after the first read, the provider must be invalidated. The test <code>InvalidateCache_PiPromptAddedAfterFirstRead_RefreshesCommands</code> proves that a newly added Pi prompt appears after cache invalidation. The desktop does not yet watch those folders live; that would be a separate user interface refresh improvement.</div>
+
+<h2>Driver harness</h2>
+<p>The harness is the new <code>RecordingSessionBackend</code>. It implements the session backend interface but starts no process. It records raw bytes and submitted text so driver behavior can be checked safely.</p>
+<table>
+<tr><th>Driver action</th><th>Harness proof</th></tr>
+<tr><td>Pi cancel</td><td>Records one byte: <code>0x1B</code>, the Escape key.</td></tr>
+<tr><td>Pi clear context</td><td>Records submitted text: <code>/new</code>.</td></tr>
+<tr><td>Pi interrupt</td><td>Throws a clear unsupported operation because Control plus C is unsafe for Pi.</td></tr>
+<tr><td>Generic cancel</td><td>Records one byte: <code>0x1B</code>.</td></tr>
+<tr><td>Generic interrupt</td><td>Records one byte: <code>0x03</code>, the Control plus C byte.</td></tr>
+</table>
+
+<h2>Test results</h2>
+<table>
+<tr><th>Result file</th><th>Total</th><th>Passed</th><th>Failed</th></tr>
+<tr><td>issue-525-driver-harness.trx</td><td>35</td><td class="pass">35</td><td>0</td></tr>
+<tr><td>issue-525-hosted-agent-driver-contract.trx</td><td>74</td><td class="pass">74</td><td>0</td></tr>
+</table>
+
+<h2>Test matrix</h2>
+<table>
+<tr><th>Test group</th><th>What it proves</th></tr>
+<tr><td>PiDriverTests</td><td>Pi capabilities, Escape cancel, <code>/new</code> clear context, unsupported interrupt and history, Pi command catalog.</td></tr>
+<tr><td>DriverContractTests</td><td>Shared driver contract checks with the recording backend.</td></tr>
+<tr><td>SlashCommandProviderDriverTests</td><td>Claude commands stay Claude, Pi commands stay Pi, generic agents stay empty, Pi prompts and skills are discovered, cache invalidation refreshes new commands.</td></tr>
+<tr><td>HostedAgent tests</td><td>Existing hosted agent fake driver still satisfies the expanded driver contract.</td></tr>
+</table>
+
+<h2>Commands run</h2>
+<pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-restore --filter "FullyQualifiedName~Drivers|FullyQualifiedName~SlashCommandProviderDriverTests" --logger "trx;LogFileName=issue-525-driver-harness.trx" --results-directory docs/cencon/proof/issue-525
+
+dotnet test src/CcDirector.HostedAgent.Tests/CcDirector.HostedAgent.Tests.csproj --no-restore --logger "trx;LogFileName=issue-525-hosted-agent-driver-contract.trx" --results-directory docs/cencon/proof/issue-525
+
+dotnet build src/CcDirector.Avalonia/CcDirector.Avalonia.csproj --no-restore</pre>
+
+<h2>Build result</h2>
+<p class="pass">The targeted desktop application build succeeded with zero warnings and zero errors.</p>
+<div class="warning"><strong>Full solution build note:</strong> I did not use the unrelated Gateway and KeyVault working tree changes as part of this proof. Those files were already modified outside this issue and currently block a clean full solution result. The driver-aware slash command implementation, the driver harness, and the desktop application build all pass in the scoped verification above.</div>
+
+<h2>Conclusion</h2>
+<p>The issue goal is met for the scoped implementation: Pi sessions no longer receive Claude-specific composer autocomplete, Pi has its own command metadata, dynamic Pi prompt and skill discovery works after cache refresh, action buttons remain capability-based, and the terminal raw slash menu remains untouched.</p>
+</main>
+</body>
+</html>

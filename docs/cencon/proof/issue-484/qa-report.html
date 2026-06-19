@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>QA Proof Report - Issue #484</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>QA Proof Report - Issue #484</h1>
+<h2>Cron jobs (3/3): named-work-list use case</h2>
+<p><strong>Verifier:</strong> QA Agent (independent - own fresh build + own test run; did not trust the dev report).
+        <strong>PR:</strong> #487 (branch <code>issue-484-cron-worklist-usecase</code>, HEAD cc32a67).
+        <strong>Mode:</strong> standalone QA -&gt; NOT merged; merge left to the human.</p>
+<h2>How I verified independently</h2>
+<ol>
+<li>Checked out the PR branch fresh and <strong>built the whole solution myself</strong>: <code>dotnet build cc-director.sln</code> -&gt; <strong>0 Warning(s), 0 Error(s)</strong>.</li>
+<li><strong>Ran the cron suite myself</strong>: <code>dotnet test --filter Cron</code> -&gt; <strong>61 Passed, 0 Failed, 0 Skipped</strong> (13 new for #484: 7 trigger + 4 engine-dispatch + 2 validation; plus 48 from #482/#483).</li>
+<li><strong>Adversarially audited</strong> the new code: dispatch-by-action-type, the pre-check ordering (no duplicate claim), the background drain + machine-slot release, and the validation change for regressions.</li>
+</ol>
+<p>No live full Gateway booted (Tailscale provisioner + :7878 bind would collide with the running Gateway). The integration is proven without a Director via the three seams; the launcher test drives a REAL <code>WorkListRunner</code> through the new path with a fake <code>IImplSessionDriver</code>.</p>
+<h2>Acceptance criteria - Expected vs Actual (independently judged)</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Evidence (reproduced)</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>A work-list cron job, when fired, causes the #274 runner to CLAIM the list + start processing</td>
+<td><code>DrainLauncher_ClaimsList_AndDrainsItemsInOrder</code> (claim taken via the real runner; items started) + <code>WorkListJob_Dispatches_ToWorkListRunner_RecordsWorklistStarted_NoSession</code> (engine routes a work-list job to the runner, records <code>worklist-started</code>, null sessionId)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>Items processed in list order</td>
+<td><code>DrainLauncher_ClaimsList_AndDrainsItemsInOrder</code> - start order 101,102,103 through the shipped #274 <code>WorkListRunner</code></td>
+<td>PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Empty / already-claimed / no-director / machine-busy handled cleanly, no crash, no duplicate claim</td>
+<td><code>Trigger_EmptyList...</code>, <code>Trigger_AlreadyClaimedList_ReturnsAlreadyClaimed_NoDuplicateClaim</code> (launcher never invoked; original claim untouched), <code>Trigger_NoSuchList...</code>, <code>Trigger_NoSuchDirector...</code>, <code>Trigger_MachineBusy...</code></td>
+<td>PASS</td>
+</tr>
+</tbody>
+</table>
+<p>Audited supporting behavior: the engine dispatches by action type (<code>SeedJob_Dispatches_ToSessionStarter_NotWorkListRunner</code> proves seed jobs are unaffected); a work-list job advances its schedule (<code>WorkListJob_Recurring_Due_Fires_AndAdvancesSchedule</code>); the Started path launches the drain in the BACKGROUND with a <code>cron:&lt;jobId&gt;:</code> consumer and releases the machine slot in a <code>finally</code> (<code>Trigger_Started_LaunchesDrain...</code>); validation accepts a work-list action without a seed and rejects neither-present (<code>Validate_WorkListAction_NoSeed_Ok</code> / <code>Validate_NeitherSeedNorWorkList_Fails</code>).</p>
+<h2>Method / regression lens</h2>
+<ul>
+<li><strong>Forbidden patterns:</strong> swept the 4 new source files for null-forgiving <code>!</code>, <code>.Result</code>, <code>.Wait()</code> -&gt; <strong>none</strong>.</li>
+<li><strong>Background task:</strong> the detached drain owns its try/catch and releases the machine slot in <code>finally</code> - no unobserved exception, no leaked slot.</li>
+<li><strong>Regression:</strong> the <code>Validate</code> change (seed OR workListName) did not break prior behavior - all 48 #482/#483 tests still pass; seed-only jobs remain valid; neither-present still fails.</li>
+<li><strong>Security (DT rules):</strong> no new auth surface (inherits host-wide token middleware); reuses the shipped #274 drain path (no new Director surface); no secrets logged. No blocking rule violated.</li>
+</ul>
+<h3>Non-blocking observations (not defects)</h3>
+<ol>
+<li><code>architecture_manifest.yaml</code> does not yet list the cron components. The feature is COMPLETE after this slice (#482+#483+#484); recommend the Support Agent record the full set (store, engine, run history, work-list trigger, Cronos dep) now. No security-posture change.</li>
+<li>(Carried from #483) run-now fires even a disabled job - not constrained by any AC; reasonable manual override.</li>
+</ol>
+<h2>Verdict</h2>
+<p><strong>VERIFIED - all 3 acceptance criteria met.</strong> Build clean, 61/61 cron tests pass on an independent build, no forbidden patterns, no regression from the validation change, no security drift; the launch path claims + drains in order through the shipped runner and every edge is handled cleanly with no duplicate claim. Standalone QA does not merge; <strong>PR #487 is ready for the human to merge</strong> - the final slice of epic #479.</p>
+</article>
+</body>
+</html>

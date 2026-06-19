@@ -223,7 +223,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         {
             foreach (var summary in ListRecordings())
             {
-                if (summary.State is not ("Queued" or "Retry" or "Uploading")) continue;
+                if (!RecordingUploadGate.NeedsUpload(summary.State, summary.Completed)) continue;
                 if (Connectivity.Current.NetworkAccess == NetworkAccess.None) break;
                 await UploadOneAsync(summary.RecordingId, server, token);
             }
@@ -238,12 +238,12 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
     /// <summary>
     /// One-way deletion sync, server -> phone. The server is authoritative:
-    /// any recording that this phone already uploaded (State == "Uploaded") but
-    /// that no longer exists on the server is deleted locally. Recordings that
-    /// have NOT been confirmed on the server (Queued/Uploading/Retry/Recording)
-    /// are never touched - we never lose audio that isn't safely uploaded yet.
-    /// If the server list cannot be fetched, nothing is deleted (uncertainty
-    /// must not destroy local data).
+    /// any recording that this phone has fully delivered (uploaded AND completed)
+    /// but that no longer exists on the server is deleted locally. Recordings whose
+    /// audio is not yet confirmed, OR whose notes have not yet been delivered
+    /// (complete not acknowledged), are never touched - we never lose audio or notes
+    /// that are not safely on the server yet. If the server list cannot be fetched,
+    /// nothing is deleted (uncertainty must not destroy local data).
     /// </summary>
     private async Task ReconcileServerDeletionsAsync(string server, string token)
     {
@@ -253,7 +253,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
         foreach (var summary in ListRecordings())
         {
-            if (summary.State != "Uploaded") continue;          // only confirmed-uploaded
+            // Only fully-delivered recordings: audio uploaded AND the notes/complete call
+            // acknowledged. A recording still owing its notes must never be deleted.
+            if (!RecordingUploadGate.IsDeletable(summary.State, summary.Completed)) continue;
             if (serverIds.Contains(summary.RecordingId)) continue; // still on the server
             DeleteLocalRecording(summary.RecordingId);
         }
@@ -271,7 +273,10 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
     {
         var m = LoadManifest(recordingId);
         if (m is null || m.Chunks.Count == 0) return;
-        if (NormalizeState(m.State) == "Uploaded") return;
+        // Fully delivered = audio uploaded AND the complete/notes call acknowledged.
+        // State=="Uploaded" alone is NOT terminal: the notes ride on the complete call,
+        // which must still be confirmed (see the Completed flag).
+        if (RecordingUploadGate.IsFullyDelivered(NormalizeState(m.State), m.Completed)) return;
 
         // One owner of manifest.json for the whole pass: the uploader mutates
         // this same object (per-segment Uploaded flags + progress text) and we
@@ -293,43 +298,55 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
         var uploader = new IngestUploader(server, token);
 
-        // ---- Step 1: UPLOAD. Just move the bytes to the server. ----
-        m.State = "Uploading";
-        m.UploadError = null;
-        m.UploadProgress = "Starting...";
-        m.UploadPhase = "sending";
-        m.UploadCurrent = 0;
-        m.UploadTotal = m.Chunks.Count;
-        Persist();
-        try
+        // ---- Step 1: UPLOAD the audio bytes. Skipped when the audio is already fully on
+        // the server (a prior pass got the bytes up but the complete call below had not yet
+        // landed) - we resume straight to Step 2 instead of re-sending anything. ----
+        if (RecordingUploadGate.ShouldUploadAudio(NormalizeState(m.State)))
         {
-            await uploader.UploadSegmentsAsync(m, RecordingFolder(recordingId), Persist);
-            // Every segment is on the server. The upload is DONE - regardless of
-            // whatever transcription does next.
-            m.State = "Uploaded";
+            m.State = "Uploading";
             m.UploadError = null;
-            ClearProgress();
+            m.UploadProgress = "Starting...";
+            m.UploadPhase = "sending";
+            m.UploadCurrent = 0;
+            m.UploadTotal = m.Chunks.Count;
             Persist();
-        }
-        catch (Exception ex)
-        {
-            // Only a byte-transfer failure lands here. Stays queued; WorkManager
-            // / next open retries, resuming from the first unsent segment.
-            m.State = "Retry";
-            m.UploadError = ex.Message;
-            ClearProgress();
-            Persist();
-            return;
+            try
+            {
+                await uploader.UploadSegmentsAsync(m, RecordingFolder(recordingId), Persist);
+                // Every segment is on the server. The audio is safe - regardless of
+                // whatever the complete call and transcription do next.
+                m.State = "Uploaded";
+                m.UploadError = null;
+                ClearProgress();
+                Persist();
+            }
+            catch (Exception ex)
+            {
+                // Only a byte-transfer failure lands here. Stays queued; WorkManager
+                // / next open retries, resuming from the first unsent segment.
+                m.State = "Retry";
+                m.UploadError = ex.Message;
+                ClearProgress();
+                Persist();
+                return;
+            }
         }
 
-        // ---- Step 2: TRANSCRIPTION. A separate server job. Its failure must
-        // never revert the upload above - the audio is already safe. ----
+        // ---- Step 2: COMPLETE = deliver the manifest (the NOTES) to the server and trigger
+        // server-side transcription. This is NOT best-effort: it is the only call that carries
+        // the notes, so it MUST be retried until the server acknowledges it. Its failure leaves
+        // Completed=false, so the recording stays in the upload queue for the next pass - the
+        // notes are never stranded. The audio is already safe either way. Server-side
+        // transcription then runs (or retries) entirely on the Gateway. ----
         m.TranscriptionState = "Transcribing";
         m.TranscriptError = null;
         Persist();
         try
         {
             var result = await uploader.TranscribeAsync(m, Persist);
+            // The server acknowledged the complete call (HTTP 202): the notes are delivered and
+            // transcription is queued. This is the phone's terminal condition.
+            m.Completed = true;
             m.TranscriptionState = "Transcribed";
             m.VaultDocId = result.VaultDocId;
             m.Transcript = result.Transcript;
@@ -339,8 +356,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         }
         catch (Exception ex)
         {
-            // Transcription only. State stays "Uploaded"; the file is on the
-            // server and can be transcribed again later.
+            // The complete/notes call did not land. Leave Completed=false so the next pass
+            // retries it - the notes are NOT lost, just not delivered yet. The audio stays
+            // safely "Uploaded".
             m.TranscriptionState = "Failed";
             m.TranscriptError = ex.Message;
             ClearProgress();
@@ -454,7 +472,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                     m.RecordingId, m.Title, m.StartedAt, m.Chunks.Count,
                     m.Chunks.Sum(c => c.DurationMs), state, m.VaultDocId, m.Transcript,
                     m.UploadError, m.UploadProgress, m.UploadPhase, m.UploadCurrent, m.UploadTotal,
-                    m.TranscriptionState, m.TranscriptError));
+                    m.TranscriptionState, m.TranscriptError, m.Completed));
             }
             catch { /* skip unreadable manifest */ }
         }

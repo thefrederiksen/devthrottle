@@ -32,6 +32,13 @@ public sealed class PiDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel | DriverCapabilities.ClearContext;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => PiSlashCommands.All;
+
+    // pi selects its model inside the tool, not via a Director-passed flag (v1): no model selection.
+    public string ModelFlag => "";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
+
     public string ResolveExecutable(string? configuredPath) =>
         throw new NotSupportedException(
             "[PiDriver] Executable resolution is owned by the Director's PiAgent path; " +

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof - Issue #532 (Voice /m/ text send: clear textbox on tap, wingman sent + working state)</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; background:#0b1020; color:#cfe0ff; margin:0; padding:24px; line-height:1.55; }
+  h1 { font-size:22px; } h2 { font-size:18px; margin-top:32px; border-bottom:1px solid #2f4a7a; padding-bottom:6px; }
+  code { background:#13233f; padding:2px 6px; border-radius:6px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #2f4a7a; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#13233f; }
+  .pass { color:#22C55E; font-weight:700; }
+  .shot { margin:16px 0; }
+  .shot img { max-width:430px; border:1px solid #2f4a7a; border-radius:10px; display:block; }
+  .cap { font-size:13px; color:#9fb4d8; margin-top:6px; }
+  .note { background:#13233f; border:1px solid #2f4a7a; border-radius:10px; padding:12px 14px; margin:12px 0; }
+</style>
+</head>
+<body>
+<h1>Proof of completion - Issue #532</h1>
+<p><strong>Title:</strong> [Voice] /m/ text send (agent + wingman): clear textbox on tap and show sent + working state</p>
+<p><strong>Container:</strong> <code>cockpit</code> (CcDirector.Cockpit) - static mobile page assets under
+<code>wwwroot/m/</code>. Client-only; no server-side change.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Clear the textarea immediately on tap</strong> for BOTH text buttons. The clear now happens
+      synchronously in each button's click handler (before any network await), so the typed text is gone
+      within the tap itself rather than after the whole turn completes. The original text is captured in a
+      local <code>t</code> and passed through, so a Retry re-sends it.</li>
+  <li><strong>Wingman path "sent + working" feedback visible from the bottom text panel.</strong> On a valid
+      <em>Ask the wingman</em> tap, the bottom <code>&lt;details id="text-section"&gt;</code> panel is
+      collapsed (<code>collapseTextSection()</code>), which brings the top status row
+      (<code>#hero-status</code> + the <code>#busy-bar</code> "Asking the wingman..." indicator) into view
+      without the user scrolling. The in-progress indicator persists until the answer arrives, then is
+      replaced by the rendered wingman answer.</li>
+  <li><strong>Fixed a latent stuck-indicator bug</strong> surfaced by the acceptance criteria: the wingman
+      success path never hid <code>#busy-bar</code> (only <code>heroReady</code>/<code>heroFailed</code> did,
+      and the direct-wingman path calls neither). Added <code>busyBar.classList.add("hidden")</code> on
+      success so there is no stuck "working" indicator after the answer renders.</li>
+  <li><strong>Cache-bust version bump</strong> from v14 to v15 across <code>index.html</code> (the
+      <code>?v=</code> query on both assets and the on-screen <code>v15</code> label), and the service
+      worker <code>sw.js</code> (cache name <code>wingman-voice-v15</code> and its pre-cached SHELL), so the
+      new bundle is fetched and the old cache is purged on activate.</li>
+</ul>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>src/CcDirector.Cockpit/wwwroot/m/m.js</code></li>
+  <li><code>src/CcDirector.Cockpit/wwwroot/m/index.html</code></li>
+  <li><code>src/CcDirector.Cockpit/wwwroot/m/sw.js</code></li>
+</ul>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+  <tr>
+    <td>Send to agent clears textarea on tap (~100 ms, before the turn completes)</td>
+    <td><code>#typed-text</code> is empty immediately after tap</td>
+    <td>Read directly after the tap: <code>typedAfterTap=""</code>. Screenshot 05 shows the empty box
+        (placeholder "Type a message instead").</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Ask the wingman clears textarea on tap</td>
+    <td><code>#typed-text</code> empty within ~100 ms of tap</td>
+    <td>Read directly after the tap: <code>typed=""</code> (screenshots 01 -&gt; 02).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Empty/whitespace tap does NOT clear or send; shows the existing prompt</td>
+    <td>"Type or record something first." (agent) / "Type a question first." (wingman); value preserved</td>
+    <td>Whitespace value <code>"   "</code> preserved; agent showed "Type or record something first.",
+        wingman showed "Type a question first." No POST sent.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>(Wingman) "sent" + "working" visible from the bottom text section without scrolling</td>
+    <td>Indicator visible where the user is, no scroll</td>
+    <td>Panel collapsed on tap (<code>text-section.open=false</code>); <code>#busy-bar</code> visible
+        (<code>busyHidden=false</code>) with "Asking the wingman..." - screenshot 02.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>(Wingman) in-progress indicator persists, then replaced by the answer - no stuck indicator</td>
+    <td>busy-bar while in flight; gone on success; answer rendered</td>
+    <td>In flight: <code>busyHidden=false</code>. After answer: <code>busyHidden=true</code>,
+        <code>hero-summary</code> = "The wingman answer: the build is green and the tests pass." -
+        screenshot 03.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>(Wingman) failure shows error + Retry; Retry re-sends the ORIGINAL typed text</td>
+    <td>Error + Retry; original text not lost by the early clear</td>
+    <td>Stub 500 -&gt; error "Stub failure to exercise the Retry path." + Retry (screenshot 06). The proof
+        server recorded BOTH the first send and the Retry as
+        <code>{"text":"ORIGINAL-WINGMAN-TEXT-12345"}</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Cache-bust version incremented</td>
+    <td>v14 -&gt; v15 in html/css/js query, on-screen label, and service worker</td>
+    <td>Served <code>index.html</code> shows <code>m.css?v=15</code>, <code>m.js?v=15</code>, label
+        <code>v15</code>; <code>sw.js</code> cache <code>wingman-voice-v15</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>How the proof was produced.</strong> This is a client-only static-asset change. The Cockpit
+  serves <code>wwwroot/m/</code> as plain static files (the page calls the Gateway's REST same-origin); the
+  Director Control API does not serve <code>/m/</code>. The EXACT edited <code>m.js</code>/<code>index.html</code>/<code>m.css</code>
+  files were served verbatim by a small static + stub HTTP harness that answers the two endpoints the page
+  calls (<code>/sessions</code> and <code>/wingman/ask-direct</code>), so the wingman send path could be
+  driven end to end in a real browser (cc-playwright, trusted events). The served bundle was confirmed to
+  carry v15 and the busy-bar fix. The slot-13 Director (built from this worktree) confirmed the Control API
+  does not serve <code>/m/</code> (404), establishing where the asset is hosted.
+</div>
+
+<h2>Screenshots</h2>
+<div class="shot"><img src="01-before-send-wingman.png" alt="before send" />
+  <div class="cap">01 - Text typed in the bottom box, before sending (both buttons visible).</div></div>
+<div class="shot"><img src="02-wingman-sent-working.png" alt="wingman working" />
+  <div class="cap">02 - Immediately after Ask the wingman: textarea cleared, bottom panel collapsed back to
+  "Show text", and the "Asking the wingman..." busy-bar + status are visible at the top without scrolling.</div></div>
+<div class="shot"><img src="03-wingman-answer.png" alt="wingman answer" />
+  <div class="cap">03 - On success the working indicator is gone and the wingman answer is rendered; the
+  textbox remains empty.</div></div>
+<div class="shot"><img src="04-before-send-agent.png" alt="before send agent" />
+  <div class="cap">04 - Text typed for the agent, before tapping Send to agent.</div></div>
+<div class="shot"><img src="05-after-send-agent-cleared.png" alt="agent cleared" />
+  <div class="cap">05 - After tapping Send to agent: the textarea is empty (placeholder shown). (Where the
+  user lands is owned by #535; here only the clear-on-tap is in scope. The "not found" Retry is the
+  unstubbed agent endpoint in the harness and is irrelevant to this criterion.)</div></div>
+<div class="shot"><img src="06-wingman-error-retry.png" alt="wingman error retry" />
+  <div class="cap">06 - Wingman failure path: error + Retry. Tapping Retry re-sent the ORIGINAL text
+  (confirmed at the server), proving the early clear does not lose the message.</div></div>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a client-only static mobile-asset behaviour change (timing of the textarea clear, the
+panel collapse, and a stuck-indicator fix). No <code>.cs</code> files, no architecture, no security posture
+change. No <code>docs/cencon/</code> update required.</p>
+
+<h2>Build</h2>
+<p>Full solution: <code>dotnet build cc-director.sln</code> reports <strong>0 code errors</strong> - the only
+build errors are the pre-existing repo-wide <code>NU1903</code> NuGet-audit warnings-as-errors on a
+transitive <code>SQLitePCLRaw.lib.e_sqlite3 2.1.10</code> package, identical on <code>main</code> and
+unrelated to this change. With that pre-existing audit policy set aside the solution builds
+<strong>0 Warning(s), 0 Error(s)</strong>, and the slot-13 Director exe built and launched cleanly.</p>
+
+<p><strong>I believe this is finished.</strong></p>
+</body>
+</html>

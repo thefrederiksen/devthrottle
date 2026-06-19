@@ -80,8 +80,15 @@ public partial class MainWindow : Window
     /// only shows the button in update mode, so the handler is harmless on a fresh install.</summary>
     private WelcomeStep BuildWelcomeStep()
     {
-        var step = new WelcomeStep(_isUpdate, _installedVersion);
+        var step = new WelcomeStep(_isUpdate, _installedVersion, _role);
         step.UninstallRequested += OnUninstallRequested;
+        // Fresh install: Next starts disabled and the user must pick a role. Enable it the moment
+        // they do. (Update mode hides the picker and never fires this.)
+        step.RoleSelected += (_, _) =>
+        {
+            if (_currentStep == 1)
+                NextButton.IsEnabled = true;
+        };
         return step;
     }
 
@@ -228,6 +235,13 @@ public partial class MainWindow : Window
         {
             NextButton.Content = "Next";
             UpdateNextButtonForPrereqs();
+        }
+        else if (_currentStep == 1 && !_isUpdate)
+        {
+            // Fresh install: no role is pre-selected, so Next stays disabled until the user picks one
+            // (RoleSelected re-enables it). On a return visit from step 2 a pick already exists.
+            NextButton.Content = "Next";
+            NextButton.IsEnabled = _welcomeStep?.SelectedRole != null;
         }
         else
         {
@@ -385,8 +399,45 @@ public partial class MainWindow : Window
         if (_role == InstallRole.Gateway)
             await RunGatewayTrayInstallAsync(prep);
 
+        // Start the always-on Launcher tray app (Windows, both roles) AFTER the Gateway phase, so the
+        // order matches the CLI. Hard-fail like the CLI: if it does not come up, the install is not
+        // "done" - surface the error and offer Retry rather than reporting a clean success while the
+        // launcher is dead.
+        if (OperatingSystem.IsWindows() && !await StartLauncherAsync())
+        {
+            NextButton.Content = "Retry";
+            NextButton.IsEnabled = true;
+            return;
+        }
+
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
+    }
+
+    /// <summary>
+    /// Start the installed Launcher tray app in managed mode and verify it is healthy and
+    /// autostart-registered (the runner placed cc-launcher.exe but does not start it). Returns false
+    /// on any failure so the caller can hard-fail the install with a Retry, mirroring the CLI.
+    /// </summary>
+    private async Task<bool> StartLauncherAsync()
+    {
+        SetupLog.Write("[MainWindow] StartLauncherAsync");
+        _installStep?.SetStatus("Starting the Launcher tray app...");
+        try
+        {
+            var result = await new LauncherTrayInstaller(InstallLayout.Default()).InstallAsync();
+            foreach (var s in result.Steps) SetupLog.Write($"[MainWindow]   launcher: {s}");
+            SetupLog.Write($"[MainWindow] launcher start success={result.Success}: {result.Message}");
+            if (result.Success) return true;
+            _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {result.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[MainWindow] StartLauncherAsync FAILED: {ex.Message}");
+            _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {ex.Message}");
+            return false;
+        }
     }
 
     private async Task RunGatewayTrayInstallAsync(EngineInstallRunner.Prep prep)
@@ -460,8 +511,11 @@ public partial class MainWindow : Window
             // so only a fresh install reads the user's pick (the hidden picker reports Workstation).
             if (_currentStep == 1)
             {
+                // Next is gated on a non-null pick (UpdateNavButtons), so SelectedRole is guaranteed
+                // here on a fresh install - no silent default. Fail loudly if that invariant breaks.
                 if (!_isUpdate)
-                    _role = _welcomeStep?.SelectedRole ?? InstallRole.Workstation;
+                    _role = _welcomeStep?.SelectedRole
+                        ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
                 _skillsStep = null;

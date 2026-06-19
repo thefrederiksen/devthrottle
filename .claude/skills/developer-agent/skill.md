@@ -127,10 +127,36 @@ If, while planning, you discover the spec is underspecified after all, go back t
 
 ### Step 4: Implement
 
+**Step 4.0 - Create your OWN isolated worktree FIRST (mandatory; do this before any edit, branch,
+or build).** You work ONLY inside a dedicated git worktree that you create for this issue. You NEVER
+edit files, create the branch, build, or run the test Director in the **shared primary checkout**
+(the directory the loop spawned you in, e.g. `D:\ReposFred\devthrottle`). That shared checkout may
+hold another live session's uncommitted WIP; touching it collides with that session and corrupts the
+isolation model (issue #299). This is the law that prevents the cross-session collision that produced
+an orphaned stash on a prior run.
+
+```bash
+# From the shared checkout root, create a SIBLING worktree on a NEW branch off main, then cd into it.
+# All subsequent work (edits, build, proof, git) happens inside this worktree - never in the parent.
+git worktree add ../devthrottle-wt-<n> -b issue-<n>-short-desc main
+cd ../devthrottle-wt-<n>
+git rev-parse --abbrev-ref HEAD   # confirm you are on issue-<n>-short-desc, in the worktree dir
+```
+
+- The branch is created BY the worktree-add (`-b`), so you do NOT `git checkout -b` separately and
+  you never create the branch in the shared checkout.
+- `git worktree add` fails if the branch already exists - if so, pick a fresh, unambiguous branch
+  name; do not reuse the shared checkout's current branch.
+- A worktree shares the repo's `.git` (refs and the stash stack), so `git stash` from a worktree
+  still pollutes the shared stash list - which is one more reason you NEVER stash (Step 5.5 /
+  no-orphan rule). Isolation is "own working directory", not "own stash".
+
 1. **Invoke `review-code` first** and read `docs/CodingStyle.md` + `docs/VisualStyle.md` (mandatory).
-2. Work on a feature branch off `main` (`git checkout -b issue-<n>-short-desc`). Make the
-   changes with the Edit/Write tools, obeying the UI surface's style guide.
-3. **Full-solution build** (per CLAUDE.md - build the solution, not individual projects):
+2. Inside your worktree (already on `issue-<n>-short-desc` from Step 4.0), make the changes with the
+   Edit/Write tools, obeying the UI surface's style guide. Do NOT `cd` back to the shared checkout
+   for any edit, build, or git operation.
+3. **Full-solution build** (per CLAUDE.md - build the solution, not individual projects), run FROM
+   YOUR WORKTREE ROOT so bin/obj stay inside the worktree:
    ```bash
    dotnet build cc-director.sln
    ```
@@ -143,8 +169,9 @@ If, while planning, you discover the spec is underspecified after all, go back t
    ```powershell
    # 1. Allocate + RESERVE a free slot (>= 6; slot 5 is the legacy/manual default and may be
    #    in use by a human - the allocator never assumes it is free; slots 1-4 and the main
-   #    build are absolutely off-limits, CLAUDE.md rule 0b):
-   powershell -NoProfile -File scripts\agent-session-isolation.ps1 allocate -Worktree <your-worktree>
+   #    build are absolutely off-limits, CLAUDE.md rule 0b). -Worktree is the worktree you
+   #    created in Step 4.0 (the dir you are in now) - NEVER the shared primary checkout:
+   powershell -NoProfile -File scripts\agent-session-isolation.ps1 allocate -Worktree <your-worktree-from-step-4.0>
    #    -> prints SLOT=<N> and MANIFEST=<worktree>\local_builds\agent-session-slot<N>.json
 
    # 2. Build the slot exe FROM YOUR WORKTREE ROOT (bin/obj + local_builds stay inside the
@@ -166,9 +193,14 @@ If, while planning, you discover the spec is underspecified after all, go back t
      session's exe, unregisters YOUR task, and never touches the main build, slots 1-5, or any
      other session's Director (CLAUDE.md rule 0):
      ```powershell
-     powershell -NoProfile -File scripts\agent-session-isolation.ps1 teardown -Manifest <manifest>
-     # add -RemoveWorktree ONLY for a scratch worktree; your primary worktree stays for QA
+     powershell -NoProfile -File scripts\agent-session-isolation.ps1 teardown -Manifest <manifest> -RemoveWorktree
      ```
+   - **Inside the `implementation-loop`, your worktree is SCRATCH - remove it on teardown
+     (`-RemoveWorktree`).** All durable state lives on the pushed PR branch, and the QA role is a
+     fresh, independent session that creates its OWN worktree from that branch (it never reuses
+     yours). Leaving your worktree behind orphans a directory the next run trips over. Only omit
+     `-RemoveWorktree` if a human is interactively reusing this exact worktree for QA in the same
+     session - not the loop's case.
 
 ### Step 5: Hand off to QA with proof (on the PR branch)
 
@@ -272,6 +304,9 @@ match it (standing rule: write code that reads like the surrounding code).
 ## What you do NOT do
 
 - You do not write code without a `flow:ready-dev` issue.
+- You do not edit, branch, build, or run the test Director in the **shared primary checkout** - you
+  do ALL work in the dedicated worktree you create in Step 4.0, and remove it on teardown under the
+  loop. Touching the shared checkout collides with other live sessions (the isolation law, #299).
 - You do not invent missing design intent - you reject and ask.
 - You do not move an issue to `flow:done` or close it (that is the QA Agent's job).
 - You do not merge to main or push to main unless the human explicitly asks.
@@ -280,7 +315,7 @@ match it (standing rule: write code that reads like the surrounding code).
 
 ---
 
-**Skill Version:** 0.6 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.7 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
@@ -289,3 +324,4 @@ match it (standing rule: write code that reads like the surrounding code).
 **Changes in 0.4 (issue #298):** Under the `implementation-loop` the input issue is now `flow:in-progress` (the loop's issue-level claim), not `flow:ready-dev`. The hand-off (Step 5.6), reject (Step 2), and weak-spec escalation now remove BOTH `flow:in-progress` and `flow:ready-dev` so the loop's claim is always released and never left stuck (the loop's Step 4 claim-release gate enforces this).
 **Changes in 0.5 (issue #299):** Replaced the fixed "slot 5 + cc-director-launch" proof instructions with the per-session isolation flow (`scripts/agent-session-isolation.ps1`): each session allocates its own slot (>= 6, reserved atomically via the per-slot scheduled-task registration), builds inside its own worktree, launches via its own `cc-director<N>-launch` task, and discovers the self-allocated Control API port from the Director log - so two implementation sessions can run concurrently on one machine without colliding on slot, build output, or port.
 **Changes in 0.6 (issue #300):** Added the devops mode note: under `/implementation-loop --source devops <workItemId>` the tracker is the Azure DevOps work item (description = spec, reports on the work item discussion via `az boards`, working-state = the work item State per the implementation-loop mapping table / DEVELOPMENT_METHOD.md Section 7b); everything code-side stays GitHub PR-based in the code repo the work item names, with proof under `docs/cencon/proof/devops-<workItemId>/`.
+**Changes in 0.7 (hardened worktree isolation):** Closed the hole that let a DEV run work in the shared primary checkout. Added Step 4.0: you MUST create your own dedicated `git worktree add ../devthrottle-wt-<n> -b issue-<n>-short-desc main` and do ALL work (edits, branch, build, proof, git) inside it - never in the shared checkout, which may hold another live session's WIP. The branch is created by the worktree-add (no in-place `git checkout -b`), `allocate -Worktree` points at that worktree, and teardown removes it (`-RemoveWorktree`) because under the loop the worktree is scratch (QA makes its own from the pushed branch). Added a "What you do NOT do" entry and noted that a worktree shares the repo stash stack (so `git stash` is still banned). Prompted by a run where the DEV agent edited the shared checkout, collided with loose issue-495 WIP, and left an orphaned stash the human had to clear.

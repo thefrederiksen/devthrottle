@@ -1,0 +1,605 @@
+@page "/schedule"
+@inject GatewayClient Gateway
+@inject ILogger<Schedule> Log
+@implements IDisposable
+
+@* The Schedule page (issue #488, follow-up to epic #479): the human's window into cron jobs. A pure
+   CLIENT of the Gateway's /cron/jobs surface (#482-#484) - every create/update/delete/run goes
+   through the Gateway, so the Cockpit never owns a copy. Layout follows the epic's design mockup at
+   docs/cencon/proof/issue-479/cron-cockpit-mockup.html. *@
+
+<PageTitle>DevThrottle - Schedule</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <h1>Schedule</h1>
+        <span class="page-sub">@_jobs.Count cron job@(_jobs.Count == 1 ? "" : "s")</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+        <button class="btn primary" @onclick="OpenCreate">New cron job</button>
+    </header>
+
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+
+    @if (_jobs.Count == 0 && _lastError is null && _lastRefresh is not null)
+    {
+        <div class="tbl-empty">No cron jobs yet. Create one to schedule a session or a work-list drain on a machine.</div>
+    }
+    else if (_jobs.Count > 0)
+    {
+        <table class="tbl sched-tbl">
+            <thead>
+                <tr>
+                    <th>Name</th><th>Target</th><th>Runs</th><th>Schedule</th>
+                    <th>Next run</th><th>Last run</th><th>Status</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var j in _jobs)
+                {
+                    var job = j;
+                    <tr class="rowlink @(IsSelected(job) ? "sel" : "")" @key="job.Id" @onclick="() => SelectJob(job.Id)">
+                        <td><span class="cell-name">@job.Name</span></td>
+                        <td class="mono">@job.Target.Machine</td>
+                        <td>@RunsLabel(job)</td>
+                        <td>@ScheduleLabel(job)</td>
+                        <td class="mono">@FmtUtc(job.NextRunUtc)</td>
+                        <td class="dim">@(job.LastFiredUtc is null ? "never" : FmtUtc(job.LastFiredUtc)) @(job.LastStatus is { Length: > 0 } ? $"({job.LastStatus})" : "")</td>
+                        <td>
+                            <button class="chip @(job.Enabled ? "enabled" : "disabled")" title="Toggle enabled"
+                                    @onclick="() => ToggleEnabledAsync(job)" @onclick:stopPropagation="true">
+                                @(job.Enabled ? "Enabled" : "Disabled")
+                            </button>
+                        </td>
+                        <td class="sched-actions" @onclick:stopPropagation="true">
+                            <button class="linkbtn" @onclick="() => RunNowAsync(job)">Run now</button>
+                            <button class="linkbtn" @onclick="() => OpenEdit(job)">Edit</button>
+                            <button class="linkbtn del" @onclick="() => DeleteAsync(job)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (_actionError is not null)
+        {
+            <div class="page-banner-error">@_actionError</div>
+        }
+    }
+
+    @* ---- run history for the selected job ---- *@
+    @if (_selectedId is not null)
+    {
+        <div class="sec-head">
+            <h2>Run history</h2>
+            <span class="hint">@SelectedName() - newest first. Infra status (did it start) is separate from task status (did it finish).</span>
+        </div>
+
+        @if (_runs.Count == 0)
+        {
+            <div class="tbl-empty">No runs recorded yet for this job.</div>
+        }
+        else
+        {
+            <table class="tbl sched-tbl">
+                <thead>
+                    <tr><th>Scheduled</th><th>Fired</th><th>Target</th><th>Session</th><th>Infra</th><th>Task</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _runs)
+                    {
+                        <tr>
+                            <td class="mono">@FmtUtc(r.ScheduledUtc)</td>
+                            <td class="mono">@FmtUtc(r.FiredUtc)</td>
+                            <td class="mono">@r.TargetDirectorId</td>
+                            <td class="mono dim">@(string.IsNullOrEmpty(r.SessionId) ? "-" : r.SessionId)</td>
+                            <td><span class="st @InfraClass(r.InfraStatus)">@r.InfraStatus</span></td>
+                            <td class="dim">@r.TaskStatus</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+</div>
+
+@* ---- create / edit modal ---- *@
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="CloseForm">
+        <div class="modal sched-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">@(_editingId is null ? "New cron job" : "Edit cron job")</div>
+            <div class="modal-body">
+                <div class="fld">
+                    <label class="fld-label">Name</label>
+                    <input @bind="_fName" @bind:event="oninput" placeholder="e.g. Tonight - drain work list" />
+                </div>
+
+                <div class="fld">
+                    <label class="fld-label">Run on (machine)</label>
+                    @* Compact field: shows the chosen machine; the rich, scrollable picker is a
+                       separate dialog (below) so this form modal never balloons (QA feedback #495).
+                       The cron job targets a MACHINE - it runs on the first available Director there,
+                       launching one on demand if none is running (#503). *@
+                    <div class="dpick-field">
+                        <span class="dpick-chosen @(_fMachine.Length == 0 ? "none" : "")">@ChosenMachineLabel()</span>
+                        <button type="button" class="btn dpick-choose" @onclick="OpenDirectorPicker">
+                            @(_fMachine.Length == 0 ? "Choose…" : "Change")
+                        </button>
+                    </div>
+                </div>
+
+                <div class="fld">
+                    <label class="fld-label">Repository path</label>
+                    <input class="mono" @bind="_fRepoPath" @bind:event="oninput" placeholder="D:\ReposFred\devthrottle" />
+                </div>
+
+                <div class="fld">
+                    <label class="fld-label">What to run</label>
+                    <select @bind="_fActionKind">
+                        <option value="worklist">Run a named work list</option>
+                        <option value="seed">Run a skill / prompt</option>
+                    </select>
+                </div>
+
+                @if (_fActionKind == "worklist")
+                {
+                    <div class="fld">
+                        <label class="fld-label">Work list name</label>
+                        <input @bind="_fWorkListName" @bind:event="oninput" placeholder="e.g. Tonight" />
+                    </div>
+                }
+                else
+                {
+                    <div class="fld">
+                        <label class="fld-label">Skill / prompt</label>
+                        <input class="mono" @bind="_fSeed" @bind:event="oninput" placeholder="/implementation-loop 312" />
+                    </div>
+                }
+
+                <div class="fld">
+                    <label class="fld-label">Schedule</label>
+                    <select @bind="_fScheduleKind">
+                        <option value="oneOff">Run once</option>
+                        <option value="recurring">Recurring (cron)</option>
+                    </select>
+                </div>
+
+                @if (_fScheduleKind == "recurring")
+                {
+                    <div class="fld">
+                        <label class="fld-label">Cron expression (5-field)</label>
+                        <input class="mono" @bind="_fCron" @bind:event="oninput" placeholder="0 0 * * *" />
+                    </div>
+                }
+                else
+                {
+                    <div class="fld">
+                        <label class="fld-label">Run at (local time)</label>
+                        <input class="mono" @bind="_fRunAt" @bind:event="oninput" placeholder="2026-06-18T00:00:00" />
+                    </div>
+                }
+
+                <div class="fld">
+                    <label class="fld-label">Time zone</label>
+                    <input class="mono" @bind="_fTimeZone" @bind:event="oninput" placeholder="America/Chicago" />
+                </div>
+
+                @if (_formError is not null)
+                {
+                    <div class="modal-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn" @onclick="CloseForm">Cancel</button>
+                <button class="btn primary" disabled="@_saving" @onclick="SaveAsync">
+                    @(_saving ? "Saving..." : (_editingId is null ? "Create job" : "Save"))
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Director picker dialog (#495): opened from the compact field; the rich, scrollable, filterable
+   card list lives HERE in its own roomy dialog, never inline in the form modal. ---- *@
+@if (_showDirectorPicker)
+{
+    <div class="modal-backdrop dpicker-over" @onclick="CloseDirectorPicker">
+        <div class="modal dpicker-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">Choose a machine</div>
+            <div class="modal-body">
+                <input class="dpicker-filter" placeholder="filter machine" @bind="_machineFilter" @bind:event="oninput" />
+                @if (Machines().Count == 0)
+                {
+                    <div class="dpick-empty">No machines known to this Gateway yet.</div>
+                }
+                else
+                {
+                    <div class="dpick">
+                        @foreach (var m in FilteredMachines())
+                        {
+                            var machine = m;
+                            var dirs = DirectorsOn(machine);
+                            var reachable = dirs.Count(d => !IsUnreachable(d));
+                            var sessions = SessionsOn(machine);
+                            var needs = sessions.Count(s => s.NeedsYouSince is not null);
+                            <button type="button"
+                                    class="dcard @(_fMachine == machine ? "sel" : "")"
+                                    @onclick="() => ChooseMachine(machine)">
+                                <div class="dcard-top">
+                                    <span class="dot @(reachable > 0 ? "ok" : "dead")"></span>
+                                    <span class="dname">@machine</span>
+                                    <span class="dmeta">@reachable director@(reachable == 1 ? "" : "s") running</span>
+                                    @if (needs > 0)
+                                    {
+                                        <span class="dneeds">@needs NEEDS YOU</span>
+                                    }
+                                </div>
+                                @if (reachable == 0)
+                                {
+                                    <div class="dsub dempty">no Director running - one will be launched on demand</div>
+                                }
+                                else if (sessions.Count == 0)
+                                {
+                                    <div class="dsub dempty">idle · 0 sessions</div>
+                                }
+                                else
+                                {
+                                    @foreach (var s in sessions.OrderBy(x => x.SortOrder).Take(3))
+                                    {
+                                        <div class="dsess">
+                                            <span class="sdot @SessClass(s)"></span>
+                                            <span class="sname">@SessName(s)</span>
+                                            <span class="sstate @SessClass(s)">@SessState(s)</span>
+                                        </div>
+                                    }
+                                    @if (sessions.Count > 3)
+                                    {
+                                        <div class="dsub dempty">+@(sessions.Count - 3) more</div>
+                                    }
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn" @onclick="CloseDirectorPicker">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CronJobDto> _jobs = new();
+    private List<DirectorDto> _directors = new();
+    private List<SessionDto> _sessions = new();           // for the Director picker's live preview (#495)
+    private List<MachineErrorDto> _machineErrors = new();  // unreachable Directors from the roster envelope
+    private string _machineFilter = "";
+    private bool _showDirectorPicker;
+    private List<CronRunRecord> _runs = new();
+    private string? _selectedId;
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private string? _actionError;
+    private readonly CancellationTokenSource _cts = new();
+
+    // create/edit form state
+    private bool _showForm;
+    private bool _saving;
+    private string? _editingId;
+    private string _fName = "";
+    private string _fMachine = "";
+    private string _fRepoPath = "";
+    private string _fActionKind = "worklist";
+    private string _fWorkListName = "";
+    private string _fSeed = "";
+    private string _fScheduleKind = "oneOff";
+    private string _fCron = "";
+    private string _fRunAt = "";
+    private string _fTimeZone = "";
+    // Non-form-control state preserved across an edit (QA #488): a create defaults these on; an edit
+    // must keep the job's current values so renaming/rescheduling a DISABLED job never re-arms it.
+    private bool _fEnabled = true;
+    private bool _fPreventOverlap = true;
+    private string? _formError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _jobs = await Gateway.GetCronJobsAsync(_cts.Token);
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+            if (_selectedId is not null && _jobs.Any(j => j.Id == _selectedId))
+                _runs = await Gateway.GetCronRunsAsync(_selectedId, _cts.Token);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Schedule refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsSelected(CronJobDto j) => string.Equals(j.Id, _selectedId, StringComparison.Ordinal);
+
+    private async Task SelectJob(string id)
+    {
+        _selectedId = id;
+        _actionError = null;
+        try { _runs = await Gateway.GetCronRunsAsync(id, _cts.Token); }
+        catch (Exception ex) { Log.LogWarning("Load runs failed: {Error}", ex.Message); _runs = new(); }
+    }
+
+    private string? SelectedName() => _jobs.FirstOrDefault(j => j.Id == _selectedId)?.Name;
+
+    // ---- create / edit ----
+
+    private async Task OpenCreate()
+    {
+        _editingId = null;
+        _fName = ""; _fMachine = ""; _fRepoPath = "";
+        _fActionKind = "worklist"; _fWorkListName = ""; _fSeed = "";
+        _fScheduleKind = "oneOff"; _fCron = ""; _fRunAt = ""; _fTimeZone = "";
+        _fEnabled = true; _fPreventOverlap = true;
+        _formError = null;
+        _showForm = true;
+        await LoadDirectorsAsync();
+    }
+
+    private async Task OpenEdit(CronJobDto job)
+    {
+        _editingId = job.Id;
+        _fName = job.Name;
+        _fMachine = job.Target.Machine;
+        _fRepoPath = job.Action.RepoPath;
+        _fActionKind = string.IsNullOrWhiteSpace(job.Action.WorkListName) ? "seed" : "worklist";
+        _fWorkListName = job.Action.WorkListName ?? "";
+        _fSeed = job.Action.Seed;
+        _fScheduleKind = string.Equals(job.ScheduleKind, "recurring", StringComparison.OrdinalIgnoreCase) ? "recurring" : "oneOff";
+        _fCron = job.CronExpression ?? "";
+        _fRunAt = job.RunAt ?? "";
+        _fTimeZone = job.TimeZoneId;
+        // Preserve the state the form has no control for, so an edit never silently changes it (QA #488).
+        _fEnabled = job.Enabled;
+        _fPreventOverlap = job.PreventOverlap;
+        _formError = null;
+        _showForm = true;
+        await LoadDirectorsAsync();
+    }
+
+    private async Task LoadDirectorsAsync()
+    {
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            // The picker previews what is running on each Director, from the shared roster envelope.
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _machineErrors = env.MachineErrors;
+        }
+        catch (Exception ex) { Log.LogWarning("Load directors failed: {Error}", ex.Message); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- Director picker (#495) ----
+
+    private void OpenDirectorPicker() { _machineFilter = ""; _showDirectorPicker = true; }
+
+    private void CloseDirectorPicker() => _showDirectorPicker = false;
+
+    private void ChooseMachine(string machine)
+    {
+        _fMachine = machine;
+        _showDirectorPicker = false;
+    }
+
+    /// <summary>The chosen machine for the form field, or a prompt when none is chosen (#503).</summary>
+    private string ChosenMachineLabel() =>
+        string.IsNullOrEmpty(_fMachine) ? "No machine selected" : _fMachine;
+
+    /// <summary>Distinct machine names known to the Gateway (from the Director roster), sorted.</summary>
+    private List<string> Machines() =>
+        _directors.Select(d => d.MachineName)
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IEnumerable<string> FilteredMachines()
+    {
+        var all = Machines();
+        if (string.IsNullOrWhiteSpace(_machineFilter)) return all;
+        var f = _machineFilter.Trim();
+        return all.Where(m => m.Contains(f, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<DirectorDto> DirectorsOn(string machine) =>
+        _directors.Where(d => string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private List<SessionDto> SessionsOn(string machine) =>
+        _sessions.Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private bool IsUnreachable(DirectorDto d) =>
+        d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName ||
+        _machineErrors.Any(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+
+    private static string SessName(SessionDto s) =>
+        !string.IsNullOrWhiteSpace(s.Name) ? s.Name
+        : !string.IsNullOrWhiteSpace(s.Type) ? s.Type
+        : (s.SessionId.Length > 8 ? s.SessionId[..8] : s.SessionId);
+
+    private static string SessState(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs you"
+        : string.IsNullOrWhiteSpace(s.ActivityState) ? "idle" : s.ActivityState.ToLowerInvariant();
+
+    private static string SessClass(SessionDto s) =>
+        s.NeedsYouSince is not null ? "needs"
+        : string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase) ? "run"
+        : "idle";
+
+    private void CloseForm() => _showForm = false;
+
+    private CronJobDto BuildFromForm() => new()
+    {
+        Name = _fName.Trim(),
+        Enabled = _fEnabled,
+        ScheduleKind = _fScheduleKind,
+        CronExpression = _fScheduleKind == "recurring" ? _fCron.Trim() : null,
+        RunAt = _fScheduleKind == "oneOff" ? _fRunAt.Trim() : null,
+        TimeZoneId = _fTimeZone.Trim(),
+        Target = new CronJobTarget { Machine = _fMachine.Trim() },
+        Action = new CronJobAction
+        {
+            RepoPath = _fRepoPath.Trim(),
+            Seed = _fActionKind == "seed" ? _fSeed.Trim() : "",
+            WorkListName = _fActionKind == "worklist" ? _fWorkListName.Trim() : null,
+        },
+        PreventOverlap = _fPreventOverlap,
+    };
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _formError = null;
+        try
+        {
+            var dto = BuildFromForm();
+            if (_editingId is null)
+            {
+                // Preserve the toggle when editing; a fresh create is enabled.
+                await Gateway.CreateCronJobAsync(dto, _cts.Token);
+            }
+            else
+            {
+                await Gateway.UpdateCronJobAsync(_editingId, dto, _cts.Token);
+            }
+            _showForm = false;
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            // Surface the Gateway's message (incl. a 400 for an invalid cron) inline in the form.
+            _formError = ex.Message;
+            Log.LogWarning("Save cron job FAILED: {Error}", ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // ---- row actions ----
+
+    private async Task RunNowAsync(CronJobDto job)
+    {
+        _actionError = null;
+        try
+        {
+            await Gateway.RunCronJobNowAsync(job.Id, _cts.Token);
+            _selectedId = job.Id;
+            await RefreshAsync();
+            _runs = await Gateway.GetCronRunsAsync(job.Id, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Run now failed: {ex.Message}";
+            Log.LogWarning("Run now FAILED: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteAsync(CronJobDto job)
+    {
+        _actionError = null;
+        try
+        {
+            await Gateway.DeleteCronJobAsync(job.Id, _cts.Token);
+            if (_selectedId == job.Id) { _selectedId = null; _runs = new(); }
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Delete failed: {ex.Message}";
+            Log.LogWarning("Delete FAILED: {Error}", ex.Message);
+        }
+    }
+
+    private async Task ToggleEnabledAsync(CronJobDto job)
+    {
+        _actionError = null;
+        try
+        {
+            var dto = new CronJobDto
+            {
+                Name = job.Name,
+                Enabled = !job.Enabled,
+                ScheduleKind = job.ScheduleKind,
+                CronExpression = job.CronExpression,
+                RunAt = job.RunAt,
+                TimeZoneId = job.TimeZoneId,
+                Target = new CronJobTarget { Machine = job.Target.Machine },
+                Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
+                PreventOverlap = job.PreventOverlap,
+            };
+            await Gateway.UpdateCronJobAsync(job.Id, dto, _cts.Token);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Toggle failed: {ex.Message}";
+            Log.LogWarning("Toggle FAILED: {Error}", ex.Message);
+        }
+    }
+
+    // ---- display helpers ----
+
+    private static string ScheduleLabel(CronJobDto j) =>
+        string.Equals(j.ScheduleKind, "recurring", StringComparison.OrdinalIgnoreCase)
+            ? (j.CronExpression ?? "(no cron)")
+            : $"once @ {j.RunAt}";
+
+    private static string RunsLabel(CronJobDto j) =>
+        string.IsNullOrWhiteSpace(j.Action.WorkListName)
+            ? $"skill {j.Action.Seed}"
+            : $"work list {j.Action.WorkListName}";
+
+    private static string FmtUtc(DateTime? utc) => utc is null ? "-" : utc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'");
+
+    private static string InfraClass(string infra) => infra switch
+    {
+        "started" => "ok",
+        "catch-up" => "warn",
+        "not-started" => "err",
+        _ when infra.StartsWith("worklist-", StringComparison.Ordinal) && infra != "worklist-started" => "warn",
+        "worklist-started" => "ok",
+        _ => "dim",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

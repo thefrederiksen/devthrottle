@@ -130,14 +130,14 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Open the Cockpit Settings page in the default browser. The loopback Cockpit child serves
-    /// the page directly (no front-door token needed for a local click), so the URL is always the
-    /// local Cockpit port - reliable whether or not Tailscale is up.
+    /// Open the Cockpit Settings page in the default browser. Must go through the Gateway
+    /// (not the Cockpit directly) so the page's relative-URL API calls resolve to the Gateway,
+    /// which owns the vault and other settings endpoints. The Gateway never requires a token on
+    /// localhost, so the loopback Gateway URL is both reliable and correct.
     /// </summary>
     private void OpenCockpitSettings()
     {
-        var port = CockpitSupervisor.ResolvePort();
-        var url = $"http://127.0.0.1:{port}/settings";
+        var url = $"http://127.0.0.1:{_controller.Port}/settings";
         FileLog.Write($"[SettingsWindow] Open Settings in Cockpit -> {url}");
         _ = Task.Run(() =>
         {

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof - Issue #534: /m/ auto-refresh</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1b2332;line-height:1.55}
+  h1{font-size:24px;border-bottom:2px solid #243154;padding-bottom:8px}
+  h2{font-size:18px;margin-top:28px;color:#243154}
+  code{background:#eef1f7;padding:1px 5px;border-radius:4px;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid #c8d0e0;padding:8px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#f1f4fa}
+  .pass{color:#0a7d34;font-weight:700}
+  img{max-width:360px;border:1px solid #c8d0e0;border-radius:8px;margin:8px 14px 8px 0}
+  .imgrow{display:flex;flex-wrap:wrap;gap:8px}
+  .note{background:#f7f9fc;border-left:4px solid #3B82F6;padding:10px 14px;margin:14px 0;font-size:14px}
+  figcaption{font-size:12px;color:#5a6680;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>Proof Report - Issue #534</h1>
+<p><strong>Title:</strong> [Voice] /m/ auto-refresh: poll list + session every 5s and on app foreground</p>
+<p><strong>Branch:</strong> <code>issue-534-m-auto-refresh</code> &nbsp; <strong>Container:</strong> cockpit (static mobile assets under <code>wwwroot/m/</code>, client-only)</p>
+
+<h2>What was implemented</h2>
+<p>Added a single 5-second polling ticker to the <code>/m/</code> Wingman Voice mobile page (<code>m.js</code>) that refreshes whichever screen is visible, plus immediate-on-foreground refresh and pause-while-hidden:</p>
+<ul>
+  <li><strong>List screen:</strong> the ticker re-runs <code>loadSessions(quiet)</code>. A new <code>quiet</code> flag makes the auto-refresh path not blank the list to "Loading sessions..." and not replace it with an error on a transient failure; the list DOM is now rebuilt only after the fetch succeeds.</li>
+  <li><strong>Single-session screen:</strong> a new <code>refreshSessionMeta()</code> updates only <code>#sv-dot</code> and <code>#sv-state</code> from the gateway's current effective color/state. It is gated by <code>sessionViewBusy()</code> (busy / recording / sending / menu shown / audio playing) so a tick never disturbs an in-progress action, and re-checks the gate after its await.</li>
+  <li><strong>Foreground / background:</strong> <code>visibilitychange</code>, <code>pageshow</code>, and <code>focus</code> listeners refresh the visible screen immediately and (re)start the ticker; the ticker and listeners short-circuit on <code>document.hidden</code> so no requests fire in the background.</li>
+  <li><strong>Cache-bust:</strong> bumped v16 -&gt; v17 in <code>index.html</code> (css link, version label, script src), the <code>m.js</code> header, and <code>sw.js</code> (cache name + shell list, which were still at v15).</li>
+</ul>
+
+<h2>Proof method</h2>
+<p>The exact committed <code>/m/</code> assets (the real v17 <code>m.js</code> / <code>m.css</code> / <code>index.html</code>) were served by a local proof harness (<code>proof-server.ps1</code>) that also stubs the gateway endpoints the page calls (<code>/sessions?envelope=true</code>, <code>/wingman/voice/ready</code>, <code>/wingman/menu</code>, <code>/wingman/voice</code>) with a controllable session state, plus a request log. The page was driven in a real Brave/Chromium browser (cc-playwright) at a mobile viewport. "Changing the gateway state" = a <code>/_control</code> call that flips the stub session's color/state, exactly the input the page reads.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th></tr>
+<tr><td>1</td><td>List auto-refresh ~5s</td><td>Change a session's state; list reflects it within ~5s with no Refresh tap</td><td>Gateway flipped red-&gt;green; list dot changed <code>#F14C4C</code>-&gt;<code>#22C55E</code> and sub-line "waiting for input"-&gt;"waiting for permission" within ~6.5s, no tap</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Session dot/state ~5s</td><td><code>#sv-dot</code>/<code>#sv-state</code> update within ~5s of a state change</td><td>In the session view, dot updated to <code>rgb(34,197,94)</code> and state to "waiting for permission" (caught within 109ms of the poll on the next tick)</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Foreground refresh ~1s</td><td>On returning to foreground, visible screen refreshes within ~1s, not the next tick</td><td>State changed while hidden; on <code>visibilitychange</code> visible the dot updated in <strong>57ms</strong>; an immediate <code>/sessions</code> fetch was logged</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>No poll while hidden</td><td>With the tab hidden, no <code>/sessions</code> requests; resume on visible</td><td>Over a full 8s hidden window the request log showed <strong>zero</strong> <code>/sessions</code> requests (only the test's own <code>/_log</code> read). Requests resumed on foreground.</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Never disrupts an in-progress action</td><td>Across a tick, playback/recording continue; summary, typed text, busy state not cleared</td><td>Real audio played to completion (4s) across a tick; typed draft "draft that must survive" preserved; the dot stayed red and did NOT jump to the gateway's new green while playing. After playback ended (idle), the next tick correctly picked up green - a skip, not a freeze.</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Transient failure does not blank</td><td>A network drop on a tick keeps the last good list; polling continues</td><td>Simulated <code>/sessions</code> fetch rejection on a tick: list row remained, DOM unchanged, status stayed "1 session" (not blanked, no error). Next successful tick updated to green - polling continued.</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Manual Refresh still works</td><td>Tapping Refresh triggers an immediate refresh</td><td>State changed to blue; tapping Refresh updated the dot to <code>#3B82F6</code> in 53ms</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Cache-bust bumped</td><td><code>m.js?v=</code> / <code>m.css?v=</code> and the on-screen label incremented</td><td>Page served and rendered at <strong>v17</strong> (on-screen label "v17"; <code>m.js?v=17</code> served the new bundle containing <code>refreshSessionMeta</code> / <code>startPolling</code>). <code>sw.js</code> cache + shell also bumped to v17.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Screenshots (mobile viewport, 390x844)</h2>
+<div class="imgrow">
+  <figure><img src="01-list-autorefresh.png" alt="List auto-refresh"><figcaption>1. List screen after auto-refresh reflected the green / "waiting for permission" change with no tap.</figcaption></figure>
+  <figure><img src="02-session-autorefresh.png" alt="Session auto-refresh"><figcaption>2. Single-session screen: #sv-dot green, #sv-state "waiting for permission" via auto-refresh.</figcaption></figure>
+  <figure><img src="03-list-final-green.png" alt="List after failure recovery"><figcaption>3. List still rendered and updated (green) after a simulated transient failure on a tick.</figcaption></figure>
+</div>
+
+<div class="note">
+<strong>Assumptions honored (flagged in the issue):</strong> session-view auto-refresh updates only the status dot and state line - it never auto-explains, auto-plays, or replaces a summary / typed text the user is viewing; and a tick is skipped (not forced) while a blocking action is in progress.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a client-only static asset change (mobile JavaScript behavior). No architecture container relationships or security posture change; no <code>docs/cencon/</code> file required updating.</p>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> All eight acceptance criteria are implemented and proven in a real browser against the exact committed v17 assets. The full solution builds clean (<code>dotnet build cc-director.sln</code>: 0 warnings, 0 errors).</p>
+</body>
+</html>

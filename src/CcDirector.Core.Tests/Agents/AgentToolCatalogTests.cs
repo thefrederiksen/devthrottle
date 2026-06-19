@@ -6,16 +6,34 @@ namespace CcDirector.Core.Tests.Agents;
 public class AgentToolCatalogTests
 {
     [Fact]
-    public void Entries_ContainsAllFiveKnownTools()
+    public void Entries_ContainsAllKnownTools()
     {
         var kinds = AgentToolCatalog.Entries.Select(e => e.Tool).ToHashSet();
 
-        Assert.Equal(5, AgentToolCatalog.Entries.Count);
+        Assert.Equal(7, AgentToolCatalog.Entries.Count);
         Assert.Contains(AgentKind.ClaudeCode, kinds);
         Assert.Contains(AgentKind.Pi, kinds);
         Assert.Contains(AgentKind.Codex, kinds);
         Assert.Contains(AgentKind.Gemini, kinds);
         Assert.Contains(AgentKind.OpenCode, kinds);
+        Assert.Contains(AgentKind.Cursor, kinds);
+        Assert.Contains(AgentKind.Grok, kinds);
+    }
+
+    [Fact]
+    public void CursorEntry_DefaultPresetIsStandard_AndOffersYoloWithForce()
+    {
+        // Issue #517: Cursor defaults to Standard (no flags) and offers an opt-in
+        // "Automatic (yolo)" preset that adds --force (assumption A2).
+        var cursor = AgentToolCatalog.GetEntry(AgentKind.Cursor);
+
+        Assert.Equal(AgentToolCatalog.StandardPresetName, cursor.DefaultPreset.Name);
+        Assert.Equal("", cursor.DefaultPreset.Arguments);
+
+        var yolo = cursor.Presets.FirstOrDefault(p => p.Name == AgentToolCatalog.CursorAutomaticPresetName);
+        Assert.NotNull(yolo);
+        Assert.Equal(AgentToolCatalog.CursorForceArg, yolo.Arguments);
+        Assert.Equal("--force", AgentToolCatalog.CursorForceArg);
     }
 
     [Fact]

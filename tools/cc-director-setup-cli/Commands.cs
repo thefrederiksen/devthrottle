@@ -268,6 +268,32 @@ internal static class Commands
             }
         }
 
+        // The Launcher tray app ships to BOTH roles. The generic runner PLACES its exe but never
+        // starts it (so a fresh install leaves it dormant and its autostart Run key unwritten). Start
+        // it whenever the launcher exe is on disk - INDEPENDENT of how other components fared. Gating
+        // on the whole install succeeding (result.Failed == 0) was wrong: on a live machine the running
+        // Director locks its exe, that swap fails (result.Failed > 0), and the launcher - which is
+        // unrelated and installed fine - would never start. The Director auto-updates itself separately,
+        // so its locked swap must not block the launcher. The app self-registers its Run key and runs
+        // the self-update loop on start. Idempotent: an already-running launcher just keeps serving. If
+        // the launcher's OWN install failed its exe is absent and we skip (counted in result.Failed below).
+        var launcherExe = layout.PathFor(ComponentRegistry.Launcher);
+        if (installMode && OperatingSystem.IsWindows() && File.Exists(launcherExe))
+        {
+            var launcherInstaller = new LauncherTrayInstaller(layout);
+            var launcherTray = await launcherInstaller.InstallAsync();
+            if (json)
+                Program.WriteJson(new { launcherTray = new { success = launcherTray.Success, message = launcherTray.Message, steps = launcherTray.Steps } });
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(launcherTray.Success ? "Launcher tray app:" : "Launcher tray app FAILED:");
+                foreach (var s in launcherTray.Steps) Console.WriteLine($"  {s}");
+                Console.WriteLine($"  {launcherTray.Message}");
+            }
+            if (!launcherTray.Success) return Error;
+        }
+
         return result.Failed > 0 ? Error : Ok;
     }
 

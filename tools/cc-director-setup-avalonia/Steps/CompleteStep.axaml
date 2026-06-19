@@ -72,7 +72,7 @@
                     FontWeight="SemiBold"
                     HorizontalContentAlignment="Center"
                     CornerRadius="6"
-                    Content="Launch DevThrottle"
+                    Content="Launch cc-director"
                     Click="LaunchButton_Click" />
 
             <!-- One quiet summary line on success -->

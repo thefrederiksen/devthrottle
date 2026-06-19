@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Storage;
@@ -83,12 +84,25 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly GatewayTurnBriefStore _turnBriefStore;
     private readonly KeyVault _keyVault;
     private readonly WorkListStore _workLists;
+    private readonly CronJobStore _cronJobs;
+    private readonly CronRunHistoryStore _cronRuns;
+    private readonly Running.CronEngine _cronEngine;
+    // The cron firing sweep (epic #479, #483): wakes ~every minute and fires due jobs. Created in
+    // StartAsync, disposed in StopAsync.
+    private System.Threading.Timer? _cronTimer;
+    private static readonly TimeSpan CronSweepInterval = TimeSpan.FromMinutes(1);
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
     // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
     private readonly NeedsYouClock _needsYouClock = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
+    private Wingman.WingmanVoiceService? _voiceService;
+    // Editable/versioned wingman instructions (issue #537); the voice translator reads the active set.
+    private readonly Wingman.WingmanInstructionsStore _instructionsStore = new();
+    // Shared training-data store: the voice service WRITES captures, the instructions A/B test READS them.
+    private readonly Wingman.WingmanTrainingStore _trainingStore = new();
+    private System.Threading.Timer? _voiceSweepTimer;
     private AdvertisedEndpointMonitor? _endpointMonitor;
     private WebApplication? _app;
     private bool _stopped;
@@ -113,7 +127,15 @@ public sealed class GatewayHost : IAsyncDisposable
     /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\worklists.json</c>
     /// (the keyvault.json precedent).
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null)
+    /// <param name="cronJobsPath">
+    /// Override the cron-job store file (epic #479, #482). Tests pass an isolated temp path;
+    /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronjobs.json</c>.
+    /// </param>
+    /// <param name="cronRunsPath">
+    /// Override the cron run-history store file (epic #479, #483). Tests pass an isolated temp path;
+    /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronruns.json</c>.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -141,9 +163,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 AgentArgs = $"{ClaudeDriver.DefaultArgs} --model {BrainModel}",
                 Log = FileLog.Write,
             },
-            // Host the chosen tool through its own driver. Only brain-hostable tools reach here
-            // (BrainToolConfig validates against BrainHostableTools, default ClaudeCode), so the
-            // driver is always one the hosted-agent path can drive.
+            // Host the chosen agent through its own driver. As of issue #510 the wingman agent is
+            // chosen from the machine's registered agents (any AgentKind), since the driver-level
+            // hostability work landed in issue #509; BrainToolConfig.Get validates the configured
+            // name is a recognised AgentKind (default ClaudeCode).
             agentFactory: o => new CcDirector.HostedAgent.HostedAgent(o, brainDriver));
         _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
         // Production omits keyVaultPath for the shared default; tests pass an isolated path so
@@ -153,6 +176,30 @@ public sealed class GatewayHost : IAsyncDisposable
         // Gateway data dir, loaded here (stale claims released) and written through on every
         // mutation. Tests MUST pass an isolated path so they never touch the real store.
         _workLists = new WorkListStore(workListsPath ?? Path.Combine(CcStorage.Root(), "worklists.json"));
+        // Cron-job definitions persist across a Gateway restart (epic #479, #482): one JSON file in
+        // the Gateway data dir, loaded here (next-run times recomputed) and written through on every
+        // mutation - the WorkListStore precedent. Tests MUST pass an isolated path so they never
+        // touch the real store.
+        _cronJobs = new CronJobStore(cronJobsPath ?? Path.Combine(CcStorage.Root(), "cronjobs.json"));
+        // Cron run history + the firing engine (epic #479, #483). The engine resolves each due job's
+        // target Director from the registry and starts a session over the shared client (the same
+        // path the work-list runner uses). The background sweep timer is started in StartAsync.
+        _cronRuns = new CronRunHistoryStore(cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        // A cron job targets a MACHINE (#503): resolve it to a Director at fire time, launching one
+        // via the launcher (the shipped /machines/{m}/director/start relay, #331) if none is running.
+        var cronTargetResolver = new Running.RegistryDirectorTargetResolver(
+            () => Registry.ListDirectors(),
+            new Running.RelayDirectorLauncher(Port, Token));
+        // A work-list cron job (#484) drains a named list via the shipped #274 runner on the resolved
+        // Director, launching the drain in the background on the shared runner manager.
+        var cronWorkListRunner = new Running.DirectorCronWorkListRunner(
+            _workLists,
+            cronTargetResolver,
+            _runnerManager,
+            new Running.DirectorWorkListDrainLauncher(_workLists, _client));
+        _cronEngine = new Running.CronEngine(
+            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_client, cronTargetResolver),
+            cronWorkListRunner, new Running.SystemClock());
     }
 
     /// <summary>
@@ -178,6 +225,45 @@ public sealed class GatewayHost : IAsyncDisposable
         FileLog.Write(seeded
             ? $"[GatewayHost] seeded vault {keyName} from the user environment (one-time bootstrap)"
             : $"[GatewayHost] vault already has {keyName}; left as-is (vault is the source of truth)");
+    }
+
+    /// <summary>
+    /// Pre-build voice for voice sessions that are idle and missing it, so the session list shows
+    /// them "voice ready" BEFORE the person enters - including after a gateway restart (the voice-
+    /// session set is persisted). Gentle: at most a few per cycle, idle sessions only (a working
+    /// session regenerates on its turn-end). Best-effort; never throws into the timer.
+    /// </summary>
+    private async Task SweepVoiceSessionsAsync()
+    {
+        var vs = _voiceService;
+        if (vs is null) return;
+        try
+        {
+            var directors = Registry.ListDirectors();
+            if (directors.Count == 0) return;
+            var generated = 0;
+            foreach (var sid in vs.VoiceSessionIds())
+            {
+                if (generated >= 3) break;          // gentle on the serialized brain
+                if (vs.HasVoice(sid)) continue;     // already cached, nothing to do
+                foreach (var d in directors)
+                {
+                    var ep = (d.ControlEndpoint ?? d.TailnetEndpoint ?? "").TrimEnd('/');
+                    if (string.IsNullOrWhiteSpace(ep)) continue;
+                    var s = await _client.GetSessionAsync(ep, sid);
+                    if (s is null) continue;        // not owned by this Director
+                    var st = s.ActivityState ?? "";
+                    if (st is "Idle" or "WaitingForInput" or "WaitingForPerm")
+                    {
+                        FileLog.Write($"[GatewayHost] voice sweep: pre-building voice for idle session {sid}");
+                        await vs.GenerateAsync(sid, ep, CancellationToken.None);
+                        generated++;
+                    }
+                    break;  // found the owning Director
+                }
+            }
+        }
+        catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep error: {ex.Message}"); }
     }
 
     /// <summary>
@@ -242,20 +328,28 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client,
                 generatorId: $"{GatewayTurnBriefAgent.GeneratorId}/{BrainModel}");
+            _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
             _turnEndWatcher = new TurnEndWatcher(
                 Registry, _client,
                 _briefAgent.OnTurnEnd,
                 sid =>
                 {
-                    // Working again: the brief is moot AND the standing assessment is stale.
+                    // Working again: the brief is moot AND the standing assessment is stale AND the
+                    // cached voice/text summary is now stale - clear it so the list stops showing it
+                    // ready and nothing stale plays (issue #531). It regenerates on the next turn-end.
                     _briefAgent.OnSessionWorking(sid);
                     _assessments.Invalidate(sid);
+                    _voiceService?.OnSessionWorking(sid);
                 });
             _briefAgent.OnBriefStored = (sid, endpoint, brief) =>
             {
                 var assessed = _assessments.RecordBrief(sid, brief);
                 if (assessed is not null)
                     _ = _client.PostAssessmentAsync(endpoint, sid, assessed);
+                // Voice sessions (issue #531): the turn just finished, so re-make the spoken summary
+                // + audio in the background. It is then "ready" in the session list with no wait.
+                if (_voiceService is { } vs && vs.IsVoiceSession(sid))
+                    _ = vs.GenerateAsync(sid, endpoint, CancellationToken.None);
             };
             // First tick = the startup catch-up sweep; then the 15s reconcile poll for
             // Directors that never push (file-discovered locals, old builds).
@@ -364,6 +458,13 @@ public sealed class GatewayHost : IAsyncDisposable
         var cockpitForwarder = new Cockpit.CockpitProxy.CockpitForwarder(_app.Services, _cockpitProxyPort);
         Cockpit.CockpitProxy.UseBrowserPageRoutes(_app, cockpitForwarder);
 
+        // Enable ASP.NET WebSocket support so the per-session proxy can recognize an inbound WS
+        // upgrade (ctx.WebSockets.IsWebSocketRequest) and accept it (AcceptWebSocketAsync) for the
+        // hand-rolled terminal/dictation stream proxy. The old YARP forwarder used the raw upgrade
+        // feature and needed no middleware; the manual proxy (SessionWsForwarder) does. Pass-through
+        // for upgrades it does not accept, so the YARP-forwarded Cockpit/Blazor circuit is unaffected.
+        _app.UseWebSockets();
+
         _app.UseRouting();
 
         // Product version stamped by Directory.Build.props; full form carries the commit SHA.
@@ -380,6 +481,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // the aggregated /sessions view carries the Gateway-owned assessedState.
             onSessionState: (directorId, sessionId, newState) =>
             {
+                // Any observed Working state means a new turn is in progress, so the cached voice/text
+                // summary is stale - clear it (broad net for turns started outside the voice app, e.g.
+                // the desktop cockpit). The voice-turn endpoint also clears deterministically on send.
+                if (string.Equals(newState, "Working", StringComparison.OrdinalIgnoreCase))
+                    _voiceService?.OnSessionWorking(sessionId);
                 if (_turnEndWatcher is null) return;
                 var endpoint = Registry.Get(directorId)?.ControlEndpoint;
                 if (string.IsNullOrEmpty(endpoint)) return;
@@ -390,6 +496,10 @@ public sealed class GatewayHost : IAsyncDisposable
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
                 : null,
+            // Voice mode (issue #531): while the gateway's wingman is producing a session's spoken
+            // summary, paint it yellow ("not ready yet") and back to red - independent of the brief
+            // agent (which is OFF when CC_TURNBRIEFS=0) and never via the Director's --print explain.
+            voiceGeneratingFor: sid => _voiceService?.IsGenerating(sid) == true,
             // Issue #218: stamp the Gateway-owned NeedsYouSince entry clock onto each session.
             needsYouStampFor: (sid, isRed) => _needsYouClock.Stamp(sid, isRed),
             // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always
@@ -420,10 +530,36 @@ public sealed class GatewayHost : IAsyncDisposable
         // so an auth-enabled Director (LAN mode) accepts the call. Harmless for auth-off Directors.
         SessionWsProxyEndpoints.Map(_app, Registry, _client, SessionOwners, Token);
 
+        // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
+        // session and have the persistent wingman brain translate the reply into speakable form,
+        // plus the direct-to-wingman path. Backed by the same warm Brain the brief agent uses.
+        _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
+        GatewayWingmanVoiceEndpoint.Map(_app, Registry, _client, ct => Brain.GetAsync(ct), _keyVault, _voiceService, instructionsProvider: () => _instructionsStore.ActiveContent);
+        // Editable/versioned wingman instructions settings surface (issue #537), incl. A/B test
+        // over saved training sessions (reads the shared training store; uses the warm brain).
+        WingmanInstructionsEndpoint.Map(_app, _instructionsStore, _trainingStore, ct => Brain.GetAsync(ct));
+        // The gateway OWNS keeping voice sessions' summaries pre-built (issue #531): a gentle
+        // background sweep regenerates voice for any idle voice session that is missing it, so the
+        // list shows it ready BEFORE you enter - including after a gateway restart (the voice-session
+        // set is persisted). Turn-end regeneration + the deterministic voice-turn path also feed it.
+        _voiceSweepTimer = new System.Threading.Timer(_ => { _ = SweepVoiceSessionsAsync(); }, null,
+            TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(45));
+
         // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
         // host-wide token middleware above.
         VaultEndpoints.Map(_app, _keyVault);
+
+        // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
+        // (mode + base URL + model + key) for its configured transcription mode, so a connected
+        // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure
+        // resolver, so the bring-your-own OpenAI key is never paired with the devthrottle.com URL.
+        TranscriptionRoutingEndpoint.Map(_app, _keyVault);
+
+        // Transcription smoke test: the Cockpit Settings page records a short clip and posts it here;
+        // the Gateway transcribes it with the SAME configured mode + key the pipeline uses and returns
+        // the text. Proves the stored key actually works (the status dot only proves one is stored).
+        TranscriptionTestEndpoint.Map(_app, _keyVault);
 
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,
@@ -432,6 +568,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // release). Inherits the host-wide token middleware above and is reachable cross-machine
         // like the rest of the Gateway surface.
         WorkListEndpoints.Map(_app, _workLists);
+
+        // Cron jobs (epic #479, part 1 = #482): the REST CRUD surface over the cron-job definition
+        // store. Manages definitions only - the background firing engine is part 2 (#483).
+        // Persisted to cronjobs.json across restarts (write-through + reload-on-start with
+        // next-run recompute). Inherits the host-wide token middleware above.
+        CronJobEndpoints.Map(_app, _cronJobs);
+
+        // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
+        // Scheduled firing runs on the background sweep timer started below in StartAsync.
+        CronRunEndpoints.Map(_app, _cronEngine, _cronRuns);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
@@ -502,6 +648,27 @@ public sealed class GatewayHost : IAsyncDisposable
 
         await _app.StartAsync();
         FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port} (version {version})");
+
+        // Cron firing sweep (epic #479, #483): wake ~every minute and fire due jobs. The first tick
+        // also catches up a fire that came due while the Gateway was down (at most once per job).
+        _cronTimer = new System.Threading.Timer(_ => SweepCron(), null, CronSweepInterval, CronSweepInterval);
+        FileLog.Write($"[GatewayHost] cron sweep started: every {CronSweepInterval.TotalSeconds:0}s");
+    }
+
+    /// <summary>
+    /// The cron sweep timer callback (a boundary - it owns the try/catch so a sweep failure never
+    /// crashes the timer thread). Fires due jobs; per-job failures are isolated inside the engine.
+    /// </summary>
+    private void SweepCron()
+    {
+        try
+        {
+            _ = _cronEngine.EvaluateDueAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] cron sweep FAILED: {ex.Message}");
+        }
     }
 
     public async Task StopAsync()
@@ -510,11 +677,16 @@ public sealed class GatewayHost : IAsyncDisposable
         _stopped = true;
         FileLog.Write($"[GatewayHost] StopAsync");
 
+        try { _cronTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] cron timer dispose error: {ex.Message}"); }
+        _cronTimer = null;
+
         try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
         _endpointMonitor = null;
 
         // Brief pipeline first (it drives the brain), then the brain itself - the
         // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).
+        try { _voiceSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep dispose error: {ex.Message}"); }
+        _voiceSweepTimer = null;
         try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { _briefAgent?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brief agent dispose error: {ex.Message}"); }

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #510 - Developer Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; }
+  h2 { color:#fff; font-size:17px; border-bottom:1px solid #3C3C3C; padding-bottom:6px; margin-top:32px; }
+  h3 { color:#CCCCCC; font-size:14px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background:#252526; padding:2px 5px; border-radius:3px; }
+  pre { padding:12px; overflow:auto; border:1px solid #3C3C3C; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .ok { color:#22C55E; font-weight:600; }
+  .pill { background:#094771; color:#fff; border-radius:8px; padding:2px 8px; font-size:11px; }
+  img { max-width:100%; border:1px solid #3C3C3C; margin:8px 0; }
+  .muted { color:#888; }
+</style>
+</head>
+<body>
+<h1>Issue #510 - Wingman settings: rename "Tool" to "Agent" and list every agent registered on this machine</h1>
+<p class="muted">Developer Agent proof. Branch <code>issue-510-wingman-agent-picker</code>. Built clean (<code>dotnet build cc-director.sln</code> - 0 Warning(s), 0 Error(s)).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Cockpit Wingman tab</b> (<code>src/CcDirector.Cockpit/wwwroot/pages/settings.html</code>): the picker label is now <b>Agent</b> (was "Tool"); the read-only Brain runtime status row is also relabelled "Agent" so the word "Tool" no longer appears on the tab. The dropdown is filled from the machine's registered agents, each shown as "DisplayName (Type)"; the model field is kept; Save sends the chosen <code>agentId</code> + model; on reload the saved agent is pre-selected.</li>
+  <li><b>Gateway settings endpoint</b> (<code>src/CcDirector.Gateway/Api/SettingsEndpoints.cs</code>): the brain block now carries <code>agents</code> (the machine's enabled <code>agent.entries</code>, the same set the New Session dialog offers) and the saved <code>agentId</code> instead of a Claude-only <code>tools</code> list. <code>PUT /gateway/brain/config</code> accepts <code>{ agentId, model }</code> (legacy <code>{ tool, model }</code> still accepted), resolves the registered entry, and persists <code>brain_agent_id</code> + <code>brain_tool</code> + <code>brain_model</code> to <code>config.json</code>.</li>
+  <li><b>Brain tool config</b> (<code>src/CcDirector.Core/Configuration/BrainToolConfig.cs</code>): <code>Get()</code> now accepts any recognised <code>AgentKind</code> name, not only the brain-hostable list - the wingman agent is chosen from the machine's registered agents and the driver-level hostability work landed in issue #509. The no-fallback rule still holds: an unknown/blank/non-string value still THROWS.</li>
+</ul>
+
+<h2>Acceptance criteria - each met with proof</h2>
+<table>
+  <tr><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+  <tr>
+    <td>Wingman tab shows the label "Agent"; the word "Tool" no longer appears there.</td>
+    <td>Label renamed to "Agent"; the Brain status row also renamed "Agent".</td>
+    <td class="ok">PASS - screenshot below; DOM check returned <code>wingmanTabContainsWordTool: false</code>, <code>agentLabel: "Agent"</code>.</td>
+  </tr>
+  <tr>
+    <td>The Agent dropdown lists every agent registered on this machine and matches the machine's agent list (more than one when more than one is registered).</td>
+    <td>Dropdown filled from the enabled <code>agent.entries</code> via <code>AgentEntryStore.LoadEntries</code> - the same set the New Session dialog uses.</td>
+    <td class="ok">PASS - screenshot shows 5 agents (Claude Code, Pi, Codex, Gemini, OpenCode).</td>
+  </tr>
+  <tr>
+    <td>Choosing an agent, entering a model, and clicking Save stores both; reloading shows the saved agent and model.</td>
+    <td>Save sends <code>{ agentId, model }</code>; GET returns the saved <code>agentId</code>; the page pre-selects it on load.</td>
+    <td class="ok">PASS - selected Gemini + "gemini-2.5-pro", saved, reloaded; reload screenshot shows Gemini pre-selected and the saved model. Endpoint test <code>Put_brain_config_by_agent_id_persists_and_round_trips</code> asserts the GET reflects the saved id.</td>
+  </tr>
+  <tr>
+    <td>The saved choice is written to the gateway config (verifiable in config.json and via the gateway settings response).</td>
+    <td><code>PUT</code> writes <code>brain_agent_id</code>, <code>brain_tool</code>, <code>brain_model</code> via MergePatch; GET surfaces <code>agentId</code>.</td>
+    <td class="ok">PASS - endpoint test asserts all three keys on disk and the GET's <code>agentId</code> (see test output below).</td>
+  </tr>
+</table>
+
+<h2>Screenshots (live Cockpit settings.html)</h2>
+<h3>Wingman tab - "Agent" label and the machine's registered agents in the dropdown</h3>
+<img src="after-wingman-agent-dropdown.png" alt="Wingman tab Agent dropdown">
+<h3>After choosing Gemini + a model, saving, and reloading the page - the saved choice survives</h3>
+<img src="after-reload-gemini-persisted.png" alt="Reload shows Gemini persisted">
+<p class="muted">The screenshots were produced by serving the real, unmodified <code>settings.html</code> from the worktree wwwroot against a small loopback REST stub (<code>proof_server.py</code>) that returns the exact JSON shape the updated <code>SettingsEndpoints.BrainBlockAsync</code> produces (brain block with <code>agents</code> + <code>agentId</code>) and implements the same <code>PUT /gateway/brain/config { agentId, model }</code> contract. The end-to-end persistence and round-trip are proven independently by the in-process GatewayHost tests below.</p>
+
+<h2>Automated test proof (real GatewayHost, isolated config root)</h2>
+<pre id="tests"></pre>
+<script>
+fetch('gateway-endpoint-tests.txt').then(r=>r.text()).then(t=>{document.getElementById('tests').textContent=t;}).catch(()=>{document.getElementById('tests').textContent='(see gateway-endpoint-tests.txt)';});
+</script>
+<ul>
+  <li><code>CcDirector.Gateway.Tests/BrainConfigEndpointTests.cs</code> - boots a real GatewayHost on an ephemeral loopback port with an isolated <code>CC_DIRECTOR_ROOT</code>: the GET carries the machine's <code>agents</code>; a PUT by agent id persists <code>brain_agent_id</code> + <code>brain_tool</code> + <code>brain_model</code> on disk and the GET round-trips the saved <code>agentId</code>; an unknown agent id is rejected (no-fallback). 6 passed.</li>
+  <li><code>CcDirector.Core.Tests/BrainToolConfigTests.cs</code> - any recognised AgentKind name is now accepted (Pi included); unknown/blank/non-string still throws. 11 passed.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. No container or component is added or removed - the change is within the existing Gateway Settings endpoint, the Cockpit Settings page, and the brain config in Core. Security posture is unchanged: the surface is the same loopback REST behind the same token middleware, and input is still validated (the saved agent must be a registered, enabled entry on this machine; DT-02 / DT-07 hold). No <code>docs/cencon/</code> edits required.</p>
+
+<h2>Conclusion</h2>
+<p class="ok">I believe this is finished. The Wingman tab shows the "Agent" label, lists every agent registered on this machine, persists the chosen agent + model to the gateway config, and reloads the saved choice. The solution builds clean and the affected tests pass.</p>
+</body>
+</html>

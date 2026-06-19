@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #503 - QA Proof - Cron jobs target a machine, not a Director</title>
+<style>
+  body { font-family:'Segoe UI', system-ui, sans-serif; background:#1E1E1E; color:#D4D4D4; margin:0; padding:32px; line-height:1.55; }
+  h1 { font-size:22px; color:#FFFFFF; margin:0 0 4px; }
+  h2 { font-size:16px; color:#4FC1FF; margin:28px 0 8px; border-bottom:1px solid #333; padding-bottom:4px; }
+  .sub { color:#9A9A9A; margin-bottom:20px; }
+  .verdict { background:#16341f; border:1px solid #2E7D32; color:#A5D6A7; padding:10px 14px; border-radius:5px; font-weight:600; margin:16px 0; }
+  table { border-collapse:collapse; width:100%; margin:8px 0 16px; }
+  th, td { border:1px solid #333; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#CCCCCC; }
+  code { background:#2D2D30; padding:1px 5px; border-radius:3px; font-family:Consolas, monospace; color:#CE9178; }
+  pre { background:#2D2D30; padding:12px; border-radius:5px; overflow:auto; font-size:12px; color:#D4D4D4; }
+  .pass { color:#4EC9B0; font-weight:600; }
+  .note { color:#9A9A9A; font-size:13px; }
+  img { max-width:100%; border:1px solid #333; border-radius:4px; margin:8px 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #503 - Cron jobs target a machine, not a Director</h1>
+<div class="sub">Independent QA verification. PR #505. Verified in a dedicated QA checkout
+(<code>devthrottle-wt-503-qa</code>) - own build, own tests, own live curl, own render. The Developer
+report and screenshots were NOT reused.</div>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. Recommend flow:done (standalone QA; merge left to the human).</div>
+
+<h2>Acceptance criteria - Expected vs Actual (independent)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>POST /cron/jobs</code> accepts <code>target.machine</code>; <code>GET</code> echoes it; a body pinning only a Director id is rejected (or the field is gone).</td>
+    <td>201 + machine echoed on POST/GET; directorId-only body -&gt; 400.</td>
+    <td>Stood up my OWN live loopback Gateway host (invoking the shipped <code>CronJobEndpoints.Map</code>) and curled it: POST with <code>target.machine</code> -&gt; <b>201</b>, <code>target:{"machine":"SOREN_NORTH"}</code> echoed, <code>nextRunUtc</code> computed; GET echoes the machine; a body with only <code>target.directorId</code> -&gt; <b>400 {"error":"target.machine is required"}</b> (the <code>DirectorId</code> field is gone from the contract). Transcript: <code>qa-ac1-curl.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Picker selects a machine (one card per machine, not per Director); created job's <code>target.machine</code> is the chosen machine.</td>
+    <td>One card per machine; two same-machine Directors collapse to one card; POST carries the chosen machine.</td>
+    <td>My own bUnit render of the real compiled <code>Schedule.razor</code> (screenshot below): field "Run on (machine)", "Choose a machine" dialog with <b>one card per machine</b> - SOREN_NORTH's TWO Directors collapse into a single card ("2 directors running") with a session preview + NEEDS YOU flag; SOREN shows "idle &middot; 0 sessions". <code>SchedulePickerTests.Selecting_a_card_persists_that_machine_name_in_the_created_job</code> asserts the POSTed <code>target.machine</code> == the selected machine. Re-ran in my checkout: PASS.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Reachable Director on the machine -&gt; session starts there; run record shows the Director used.</td>
+    <td>Resolves to the running Director without launching; record carries machine + resolved Director.</td>
+    <td><code>RegistryDirectorTargetResolverTests.Resolve_DirectorAlreadyRunning_ReturnsItsEndpoint_DoesNotLaunch</code> (PASS - resolves endpoint + id, launcher StartCount 0). <code>CronRunEndpointsTests.RunNow_FiresAndRecords_WithFullRecordShape</code> (PASS - record carries <code>machine</code>=target and the resolved <code>targetDirectorId</code>). Re-ran in my checkout: PASS.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>No Director -&gt; launcher starts one, waits for register, then runs; launcher fails -&gt; clear not-started reason.</td>
+    <td>Launch+poll resolves; launcher-fails and never-registers produce explicit errors (no crash, no fallback).</td>
+    <td>All PASS in my checkout: <code>Resolve_NoDirector_LauncherStartsOne_RegistersAfterLaunch_Resolves</code>, <code>Resolve_NoDirector_LauncherCannotStart_ReturnsError</code>, <code>Resolve_LaunchedButNeverRegisters_ReturnsTimeoutError</code>, <code>Resolve_OnlyUnreachableDirectorOnMachine_LaunchesAReplacement</code>, <code>Resolve_EmptyMachine_ReturnsError_DoesNotLaunch</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Build clean (0 warnings); cron + cockpit tests pass.</td>
+    <td>0 warnings; cron + cockpit green.</td>
+    <td>My own <code>dotnet build cc-director.sln</code> -&gt; <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>. Cockpit.Tests <b>63/63</b>. Gateway.Tests <b>769/770</b> - see regression note.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>AC1 - live REST transcript (my own host + curl)</h2>
+<pre>== AC1a: POST /cron/jobs with target.machine ==
+{"id":"cj_...","name":"nightly",...,"target":{"machine":"SOREN_NORTH"},...,"nextRunUtc":"2026-06-18T05:00:00Z",...}
+HTTP=201
+
+== AC1c: POST pinning only target.directorId (legacy) ==
+{"error":"target.machine is required"}
+HTTP=400</pre>
+<div class="note">Full transcript committed at <code>qa-ac1-curl.txt</code>.</div>
+
+<h2>AC2 - machine picker (my own render)</h2>
+<img src="qa-machine-picker.png" alt="QA machine picker render">
+
+<h2>Regression sweep / method check</h2>
+<ul>
+  <li>Cockpit.Tests: 63/63 pass. No adjacent Cockpit regression.</li>
+  <li>Gateway.Tests: 769/770. The single failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> ("expected at least 1 partial transcript, got 0") - a Vosk real-time speech-recognition pipeline assertion that depends on the Vosk model/audio in the environment. <b>Out of scope and pre-existing</b>: the #503 diff touches zero dictation/Vosk files, so this is not a regression introduced by this PR.</li>
+  <li>CenCon: no architecture/security drift. The change reuses the #331 launcher relay (does not change it) and adds a resolver/launcher seam inside the existing <code>gateway</code> container. No DT blocking-rule violation.</li>
+  <li>No-fallback rule respected: the resolver returns explicit <code>DirectorTargetResult.Error</code> values (no Director / launcher failed / never registered) rather than silently degrading.</li>
+</ul>
+
+<h2>Verdict</h2>
+<p class="pass">VERIFIED - all 5 acceptance criteria met with independent proof. Standalone QA: labeling flow:done and leaving the squash-merge of PR #505 to the human. Supersedes #495 / PR #498.</p>
+</body>
+</html>

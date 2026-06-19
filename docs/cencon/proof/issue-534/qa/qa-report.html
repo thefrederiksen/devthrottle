@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #534 (/m/ auto-refresh)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #5319e7; padding-bottom: 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0eef9; }
+  .pass { color: #0a7a2a; font-weight: bold; }
+  .verdict { background: #e7f7ec; border: 1px solid #0a7a2a; padding: 12px 16px; margin: 20px 0; font-size: 16px; }
+  img { max-width: 720px; border: 1px solid #ddd; margin: 6px 0; display: block; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+  .meta { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #534</h1>
+<p class="meta"><strong>Title:</strong> [Voice] /m/ auto-refresh: poll list + session every 5s and on app foreground<br/>
+<strong>PR:</strong> #540 (branch <code>issue-534-m-auto-refresh</code>) &middot; <strong>QA verified independently by the QA Agent.</strong></p>
+
+<p>Verification method: the EXACT committed <code>/m/</code> assets (<code>index.html</code>, <code>m.js</code>, <code>m.css</code>, <code>sw.js</code>)
+were served by an independent QA HTTP harness (written fresh by QA, not reused from the developer) that stubs the gateway
+endpoints (<code>/sessions</code>, <code>/wingman/voice/ready</code>) with a controllable session state/color and logs every request.
+The page was driven in a real Microsoft Edge browser. Visibility-gated behavior was exercised both via real tab
+hide/show and via a page-level <code>document.hidden</code> override that fires the real <code>visibilitychange</code> event,
+so the product's own handlers run. Request counts come from the harness request log (ground truth).</p>
+
+<div class="verdict"><strong>VERIFIED - all 8 acceptance criteria met.</strong> Whole-solution build
+(<code>dotnet build cc-director.sln</code>) succeeded with 0 warnings / 0 errors. No adjacent regression observed.
+Change is client-only static JavaScript under <code>wwwroot/m/</code>; no server/architecture/security surface, no CenCon doc impact.</div>
+
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+
+<tr><td>1</td><td>List auto-refreshes ~every 5s while visible; dot/state reflect a gateway change without a tap.</td>
+<td>Change gateway state; list updates within ~5s with no Refresh tap. ~2 <code>/sessions</code> per 11s.</td>
+<td>Flipped gateway red&rarr;green/Working. With no tap, the list dot went red <code>rgb(241,76,76)</code>&rarr;green <code>rgb(34,197,94)</code> and state &rarr;"Working" within 7s. Request log: 2 <code>/sessions</code> over 11s.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>Single-session view dot/state auto-update ~every 5s.</td>
+<td><code>#sv-dot</code>/<code>#sv-state</code> update within ~5s after a gateway state change.</td>
+<td>In session view, flipped gateway green&rarr;red&rarr;green; <code>#sv-dot</code>/<code>#sv-state</code> tracked each change within one 7s window (2 <code>/sessions</code> per 11s while in session view). Screens 04 (red) / 05 (green).</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>On foreground (wake/unlock/re-focus) the visible screen refreshes within ~1s, not on next tick.</td>
+<td>After hidden&rarr;visible, an immediate <code>/sessions</code> within ~1s.</td>
+<td>Hid <code>/m/</code> (background tab), changed gateway while hidden, then foregrounded: 2 <code>/sessions</code> fired within 2s and the dot reflected the state set while hidden. Screen 03.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>No polling while hidden (<code>document.hidden</code>); resumes on foreground.</td>
+<td>Tab hidden &rarr; zero <code>/sessions</code> requests.</td>
+<td>With <code>/m/</code> backgrounded (<code>document.hidden=true</code>), 0 <code>/sessions</code> over 12s despite a gateway state change; resumed on foreground.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Auto-refresh never disrupts an in-progress action (playback / recording / summary / typed text / busy state).</td>
+<td>Start a recording / have typed text; a tick must not interrupt or reset it.</td>
+<td>(a) Typed "QA-NONDISRUPT-12345"; survived a tick that updated the dot. (b) Started a REAL recording ("Recording for the agent 0:09"); flipped gateway to red during it - the tick was SKIPPED (<code>sessionViewBusy()</code> via <code>rec</code>), dot stayed green, recording continued uninterrupted. Screen 06.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>A transient failure does not blank an already-rendered list/view; last good state stays; polling continues.</td>
+<td>Kill the backend; list stays rendered; on recovery polling resumes.</td>
+<td>Stopped the harness entirely; across ~2 failed quiet ticks the list stayed "Proof Session | Working | 1 session" (no blank, no error wipe). Screen 07. On restart, 5 <code>/sessions</code> over 12s and the list re-rendered to the new state.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Manual Refresh button still triggers an immediate refresh.</td>
+<td>Clicking Refresh fires <code>/sessions</code> immediately.</td>
+<td>Clicked Refresh; <code>/sessions</code> fired within 1s; list re-rendered.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>Cache-bust version incremented (m.js?v= / m.css?v= and on-screen label).</td>
+<td>v16&rarr;v17 across index.html, m.js, sw.js; on-screen "v17".</td>
+<td>Diff confirms v16&rarr;v17 in index.html (asset query + label), m.js header, and sw.js (v15&rarr;v17). Page served <code>m.js?v=17</code>/<code>m.css?v=17</code>; on-screen label reads "v17" in every screenshot.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Evidence screenshots</h2>
+<p>List initial (red):</p><img src="01-list-initial-red.png" alt="list red" />
+<p>List auto-refresh to green/Working (no tap):</p><img src="02-list-autorefresh-green.png" alt="list green" />
+<p>Foreground refresh surfaced the state set while hidden (green):</p><img src="03-foreground-refresh-green.png" alt="foreground green" />
+<p>Session view auto-refresh - red:</p><img src="04-session-red.png" alt="session red" />
+<p>Session view auto-refresh - green/Working:</p><img src="05-session-green.png" alt="session green" />
+<p>Non-disruption: dot stayed green ("Working") while a recording continued, despite a gateway change to red:</p><img src="06-recording-nondisrupt.png" alt="recording non-disrupt" />
+<p>Transient failure: list stayed intact with the backend down:</p><img src="07-transient-failure-list-intact.png" alt="transient failure" />
+
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edit Agent - redesign mockup</title>
+<style>
+  :root{
+    --bg:#1e1e1e;
+    --panel:#252526;
+    --panel2:#2d2d30;
+    --input:#1b1b1c;
+    --border:#3c3c3c;
+    --border-strong:#505052;
+    --text:#e6e6e6;
+    --muted:#9a9a9a;
+    --faint:#777;
+    --green:#2ea043;
+    --green-hi:#3fb950;
+    --blue:#1f6feb;
+    --blue-hi:#388bfd;
+    --accent:#4493f8;
+    --code:#d7ba7d;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:#121212;color:var(--text);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;
+    display:flex;flex-direction:column;align-items:center;gap:18px;
+    padding:28px 16px 60px;
+  }
+  .caption{color:var(--muted);max-width:880px;text-align:center;line-height:1.5;}
+  .caption b{color:var(--text);}
+  .toolbar{display:flex;gap:10px;align-items:center;}
+  .toolbar button{
+    background:var(--panel2);color:var(--text);border:1px solid var(--border-strong);
+    padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;
+  }
+  .toolbar button.active{background:var(--blue);border-color:var(--blue);}
+
+  /* ---- dialog window ---- */
+  .window{
+    width:880px;background:var(--bg);border:1px solid #000;border-radius:6px;
+    box-shadow:0 18px 50px rgba(0,0,0,.6);overflow:hidden;position:relative;
+  }
+  .titlebar{
+    height:34px;background:#2b2b2b;display:flex;align-items:center;
+    padding:0 10px;gap:8px;border-bottom:1px solid #000;
+  }
+  .titlebar .ico{width:16px;height:16px;border-radius:3px;background:linear-gradient(135deg,#d97757,#c2410c);
+    font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff;}
+  .titlebar .t{color:#cfcfcf;font-size:12px;}
+  .titlebar .winbtns{margin-left:auto;display:flex;gap:14px;color:#9a9a9a;}
+  .titlebar .winbtns span{cursor:default;font-size:12px;}
+
+  .body{display:flex;}
+  .left{flex:1.35;padding:18px 20px;border-right:1px solid var(--border);}
+  .right{flex:1;padding:18px 20px;background:#202021;}
+
+  h1{font-size:18px;margin:0 0 16px;font-weight:600;}
+  h2{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+     margin:22px 0 10px;border-bottom:1px solid var(--border);padding-bottom:5px;}
+  label.field{display:block;color:var(--muted);font-size:11px;margin:0 0 5px;}
+
+  input[type=text],select{
+    width:100%;background:var(--input);color:var(--text);border:1px solid var(--border);
+    border-radius:5px;padding:8px 9px;font-size:13px;font-family:inherit;outline:none;
+  }
+  input[type=text]:focus,select:focus{border-color:var(--accent);}
+  input[disabled],select[disabled]{opacity:.45;}
+  .row{margin-bottom:14px;}
+  select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%239a9a9a'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center;padding-right:26px;}
+
+  .check{display:flex;align-items:center;gap:9px;margin:4px 0 16px;}
+  .check .box{width:17px;height:17px;border-radius:4px;background:var(--blue);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;}
+  .check span{font-size:13px;}
+
+  .hint{background:#1a2a1a33;border:1px solid #2c3a2c;border-radius:6px;padding:9px 11px;
+    color:var(--muted);font-size:11.5px;line-height:1.45;margin:6px 0 0;}
+  .hint .why{color:#8fbf8f;}
+
+  .btn-green{background:var(--green);color:#fff;border:none;padding:9px 14px;border-radius:5px;
+    font-size:13px;font-weight:600;cursor:pointer;}
+  .btn-green:hover{background:var(--green-hi);}
+  .btn-ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border-strong);
+    padding:8px 13px;border-radius:5px;font-size:12.5px;cursor:pointer;white-space:nowrap;}
+  .btn-ghost:hover{border-color:var(--accent);}
+
+  /* mode segmented control */
+  .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden;margin-bottom:4px;}
+  .seg button{background:var(--input);color:var(--muted);border:none;padding:7px 16px;font-size:12.5px;cursor:pointer;}
+  .seg button.on{background:var(--blue);color:#fff;}
+
+  /* compact model row */
+  .model-row{display:flex;align-items:center;gap:12px;}
+  .model-val{flex:1;background:var(--input);border:1px solid var(--border);border-radius:5px;
+    padding:8px 10px;display:flex;flex-direction:column;gap:2px;}
+  .model-val .big{font-size:13px;color:var(--text);}
+  .model-val .sub{font-size:11px;color:var(--faint);}
+  .model-val .sub code{color:var(--code);}
+
+  /* preview */
+  .pv-label{color:var(--muted);font-size:11px;margin-bottom:6px;}
+  .pv-strip{background:#0f0f10;border:1px solid var(--border);border-radius:6px;padding:11px 12px;
+    font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;color:#e6e6e6;line-height:1.55;
+    word-break:break-all;}
+  .pv-strip .exe{color:#9cdcfe;}
+  .pv-strip .flag{color:var(--code);}
+  .pv-strip .muted{color:#6a6a6a;}
+  .pv-block{margin-top:18px;}
+  .pv-block .h{color:var(--muted);font-size:11px;margin-bottom:4px;}
+  .pv-block .v{color:var(--faint);font-size:12px;}
+
+  .footer{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--border);background:#1b1b1b;}
+  .btn-save{background:var(--blue);color:#fff;border:none;padding:9px 22px;border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;}
+  .btn-save:hover{background:var(--blue-hi);}
+  .btn-cancel{background:var(--panel2);color:var(--text);border:1px solid var(--border-strong);padding:9px 18px;border-radius:5px;font-size:13px;cursor:pointer;}
+
+  .hidden{display:none;}
+
+  /* ---- model picker overlay ---- */
+  .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;}
+  .overlay.open{display:flex;}
+  .picker{width:460px;background:var(--panel);border:1px solid var(--border-strong);border-radius:8px;
+    box-shadow:0 16px 40px rgba(0,0,0,.6);overflow:hidden;}
+  .picker .ph{padding:14px 18px 6px;}
+  .picker .ph h3{margin:0;font-size:15px;}
+  .picker .ph p{margin:6px 0 0;color:var(--muted);font-size:11.5px;}
+  .picker .ph p code{color:var(--code);}
+  .picker .list{max-height:330px;overflow:auto;padding:8px 10px;}
+  .opt{display:flex;align-items:flex-start;gap:10px;padding:9px 11px;border-radius:6px;cursor:pointer;border:1px solid transparent;}
+  .opt:hover{background:var(--panel2);}
+  .opt.sel{background:#15324f;border-color:var(--blue);}
+  .opt .dot{width:15px;height:15px;border-radius:50%;border:2px solid var(--border-strong);margin-top:2px;flex:none;}
+  .opt.sel .dot{border-color:var(--blue-hi);background:radial-gradient(circle,var(--blue-hi) 0 4px,transparent 5px);}
+  .opt .txt .n{font-size:13px;color:var(--text);}
+  .opt .txt .n .badge{font-size:9.5px;background:#2e6b2e;color:#cfeccf;border-radius:3px;padding:1px 5px;margin-left:7px;vertical-align:middle;}
+  .opt .txt .n .badge.rec{background:#1f6feb33;color:#9cc7ff;}
+  .opt .txt .d{font-size:11px;color:var(--faint);margin-top:2px;}
+  .opt .txt .d code{color:var(--code);}
+  .opt.custom input{margin-top:6px;}
+  .picker .pf{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);}
+  .sep{height:1px;background:var(--border);margin:6px 12px;}
+</style>
+</head>
+<body>
+
+  <div class="caption">
+    Interactive mockup of the redesigned <b>Edit Agent</b> dialog. Use the buttons to switch the launch mode and to open the
+    model picker. Everything updates the live preview on the right, exactly as the real dialog would.
+  </div>
+  <div class="toolbar">
+    <button id="tGuided" class="active" onclick="setMode('guided')">Guided mode</button>
+    <button id="tCustom" onclick="setMode('custom')">Full custom mode</button>
+    <button onclick="openPicker()">Open model picker</button>
+  </div>
+
+  <div class="window">
+    <div class="titlebar">
+      <div class="ico">CC</div>
+      <div class="t">Edit Agent</div>
+      <div class="winbtns"><span>&#8211;</span><span>&#9633;</span><span>&#10005;</span></div>
+    </div>
+
+    <div class="body">
+      <!-- LEFT: form -->
+      <div class="left">
+        <h1>Edit Agent</h1>
+
+        <div class="row">
+          <label class="field">Display name</label>
+          <input type="text" value="Claude">
+        </div>
+
+        <div class="check">
+          <div class="box">&#10003;</div><span>Enabled</span>
+        </div>
+
+        <div class="hint" style="margin-bottom:14px;">
+          Let CC Director scan this machine for the selected tool and fill in the executable path automatically.
+        </div>
+        <button class="btn-green" style="margin-bottom:4px;">Detect this tool</button>
+
+        <div class="row" style="margin-top:18px;">
+          <label class="field">Executable</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" value="C:\Users\soren\.local\bin\claude.EXE">
+            <button class="btn-ghost">Browse...</button>
+            <button class="btn-ghost">Quick check</button>
+          </div>
+        </div>
+
+        <h2>Advanced</h2>
+
+        <div class="row">
+          <label class="field">How to launch</label>
+          <div class="seg">
+            <button id="segGuided" class="on" onclick="setMode('guided')">Guided</button>
+            <button id="segCustom" onclick="setMode('custom')">Full custom command line</button>
+          </div>
+        </div>
+
+        <!-- GUIDED -->
+        <div id="guided">
+          <div class="row">
+            <label class="field">Preset</label>
+            <select id="preset" onchange="render()">
+              <option>Automatic (skip permissions)</option>
+              <option>Standard</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label class="field">Model</label>
+            <div class="model-row">
+              <div class="model-val">
+                <div class="big" id="modelBig">Use my Claude Code default</div>
+                <div class="sub" id="modelSub">currently <code>opus[1m]</code> &mdash; detected from settings.json</div>
+              </div>
+              <button class="btn-ghost" onclick="openPicker()">Choose model...</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- FULL CUSTOM -->
+        <div id="custom" class="hidden">
+          <div class="row">
+            <label class="field">Command-line arguments (used verbatim &mdash; CC Director adds nothing)</label>
+            <input type="text" id="customArgs" value="--dangerously-skip-permissions --model opus[1m]" oninput="render()">
+          </div>
+          <div class="hint">
+            Full custom mode: the model picker is off and no <code style="color:var(--code)">--model</code> is appended.
+            What you type here is exactly what launches.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: preview -->
+      <div class="right">
+        <div class="pv-label">This is what launches:</div>
+        <div class="pv-strip" id="preview"></div>
+
+        <div class="pv-block">
+          <div class="h">Detect result</div>
+          <div class="v">Not detected yet.</div>
+        </div>
+        <div class="pv-block">
+          <div class="h">Quick-check result</div>
+          <div class="v">Not checked yet.</div>
+        </div>
+        <div class="pv-block">
+          <button class="btn-ghost">Launch preview...</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="btn-save">Save</button>
+      <button class="btn-cancel">Cancel</button>
+    </div>
+
+    <!-- model picker dialog -->
+    <div class="overlay" id="overlay">
+      <div class="picker">
+        <div class="ph">
+          <h3>Choose model for Claude</h3>
+          <p>Your Claude Code default is currently <code>opus[1m]</code> (read from <code>~/.claude/settings.json</code>).</p>
+        </div>
+        <div class="list" id="optList"></div>
+        <div class="pf">
+          <button class="btn-save" onclick="applyPicker()">Use this model</button>
+          <button class="btn-cancel" onclick="closePicker()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+  // model catalog the driver would supply
+  const MODELS = [
+    {id:"",                  big:"Use my Claude Code default", sub:'currently <code>opus[1m]</code> &mdash; detected from settings.json',
+                             name:"Use default", badge:"recommended", badgeClass:"rec", desc:'Omits <code>--model</code>; Claude Code uses your configured default.'},
+    {id:"opus[1m]",          big:"Opus 4.8 (1M context)", sub:'launches with <code>--model opus[1m]</code>',
+                             name:"Opus 4.8", badge:"1M context", badgeClass:"", desc:'<code>opus[1m]</code> &mdash; most capable, 1M-token window.'},
+    {id:"opus",              big:"Opus 4.8", sub:'launches with <code>--model opus</code>',
+                             name:"Opus 4.8", badge:"", desc:'<code>opus</code> &mdash; most capable, standard context.'},
+    {id:"sonnet",            big:"Sonnet 4.6", sub:'launches with <code>--model sonnet</code>',
+                             name:"Sonnet 4.6", badge:"", desc:'<code>sonnet</code> &mdash; balanced speed and intelligence.'},
+    {id:"haiku",             big:"Haiku 4.5", sub:'launches with <code>--model haiku</code>',
+                             name:"Haiku 4.5", badge:"", desc:'<code>haiku</code> &mdash; fastest, lowest cost.'},
+    {id:"fable",             big:"Fable 5", sub:'launches with <code>--model fable</code>',
+                             name:"Fable 5", badge:"", desc:'<code>fable</code> &mdash; most capable for the hardest work.'},
+    {id:"__custom__",        custom:true, name:"Custom model ID", desc:'Type any alias or full ID (e.g. <code>claude-opus-4-8[1m]</code>).'},
+  ];
+
+  let mode = "guided";
+  let model = MODELS[0];        // committed selection
+  let pickIndex = 0;            // highlighted in picker
+  let customId = "";
+
+  function setMode(m){
+    mode = m;
+    document.getElementById("guided").classList.toggle("hidden", m!=="guided");
+    document.getElementById("custom").classList.toggle("hidden", m==="guided");
+    document.getElementById("segGuided").classList.toggle("on", m==="guided");
+    document.getElementById("segCustom").classList.toggle("on", m==="custom");
+    document.getElementById("tGuided").classList.toggle("active", m==="guided");
+    document.getElementById("tCustom").classList.toggle("active", m==="custom");
+    render();
+  }
+
+  function effectiveModelId(){
+    if(model.custom) return customId.trim();
+    return model.id;
+  }
+
+  function render(){
+    // update compact model display
+    document.getElementById("modelBig").innerHTML = model.custom ? (customId.trim()||"Custom model ID") : model.big;
+    document.getElementById("modelSub").innerHTML = model.custom
+        ? (customId.trim()? 'launches with <code>--model '+customId.trim()+'</code>' : 'no model chosen yet')
+        : model.sub;
+
+    // build preview
+    const exe = '<span class="exe">C:\\Users\\soren\\.local\\bin\\claude.EXE</span>';
+    let argsHtml = "";
+    if(mode==="custom"){
+      const raw = document.getElementById("customArgs").value.trim();
+      argsHtml = raw ? " " + colorFlags(raw) : ' <span class="muted">(no arguments)</span>';
+    } else {
+      const preset = document.getElementById("preset").value;
+      const presetArg = preset.startsWith("Automatic") ? "--dangerously-skip-permissions" : "";
+      const m = effectiveModelId();
+      let parts = [];
+      if(presetArg) parts.push(presetArg);
+      if(m) parts.push("--model " + m);
+      argsHtml = parts.length ? " " + colorFlags(parts.join(" "))
+                              : ' <span class="muted">(default &mdash; uses your configured model)</span>';
+    }
+    document.getElementById("preview").innerHTML = exe + argsHtml;
+  }
+
+  function colorFlags(s){
+    return s.replace(/(--[a-z-]+)/g,'<span class="flag">$1</span>');
+  }
+
+  function openPicker(){
+    pickIndex = MODELS.indexOf(model);
+    if(pickIndex<0) pickIndex=0;
+    drawList();
+    document.getElementById("overlay").classList.add("open");
+  }
+  function closePicker(){ document.getElementById("overlay").classList.remove("open"); }
+
+  function drawList(){
+    const list = document.getElementById("optList");
+    list.innerHTML = "";
+    MODELS.forEach((mo,i)=>{
+      if(mo.id==="opus[1m]"){ // little separator after the default
+      }
+      const div = document.createElement("div");
+      div.className = "opt" + (i===pickIndex?" sel":"") + (mo.custom?" custom":"");
+      let badge = mo.badge ? `<span class="badge ${mo.badgeClass||''}">${mo.badge}</span>` : "";
+      let inner = `<div class="dot"></div><div class="txt"><div class="n">${mo.name}${badge}</div><div class="d">${mo.desc}</div>`;
+      if(mo.custom){
+        inner += `<input type="text" placeholder="claude-opus-4-8[1m]" value="${customId}" onclick="event.stopPropagation()" oninput="customId=this.value">`;
+      }
+      inner += `</div>`;
+      div.innerHTML = inner;
+      div.onclick = ()=>{ pickIndex=i; drawList(); };
+      list.appendChild(div);
+      if(i===0){ const s=document.createElement("div"); s.className="sep"; list.appendChild(s); }
+    });
+  }
+
+  function applyPicker(){
+    model = MODELS[pickIndex];
+    closePicker();
+    render();
+  }
+
+  render();
+</script>
+</body>
+</html>

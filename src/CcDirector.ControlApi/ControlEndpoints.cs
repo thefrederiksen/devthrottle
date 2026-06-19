@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using CcDirector.ControlApi.Chat;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
@@ -72,6 +74,46 @@ internal static class ControlEndpoints
             Nonce = nonce,
             Known = gatewayMonitor?.RecordCallback(nonce) ?? false,
         }));
+
+        // ===== Two-way handshake callback, WEBSOCKET leg =====
+        // The Gateway dials this to prove it can complete a WebSocket UPGRADE to this Director -
+        // the exact operation the Cockpit terminal stream depends on, and the one the plain GET
+        // /verify above does NOT exercise. A Director can pass /verify (plain HTTP/1.1) while the
+        // real stream path is dead (e.g. an h2-only proxy that cannot carry the upgrade, a blocked
+        // upgrade, a missing Tailscale Serve mapping). Mirrors /verify - echoes id + nonce so a
+        // wrong-process or token mismatch fails loudly - but over a real WS so a broken stream is
+        // caught at install/connect time instead of by a user staring at "stream lost,
+        // reconnecting...". Authenticated like /verify and the live stream.
+        app.MapGet("/verify-ws/{nonce}", async (string nonce, HttpContext ctx) =>
+        {
+            if (!ctx.WebSockets.IsWebSocketRequest)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await ctx.Response.WriteAsync("expected websocket upgrade");
+                return;
+            }
+            using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+            var dto = new VerifyCallbackDto
+            {
+                DirectorId = directorId,
+                Nonce = nonce,
+                Known = gatewayMonitor?.RecordCallback(nonce) ?? false,
+            };
+            try
+            {
+                var json = JsonSerializer.SerializeToUtf8Bytes(dto);
+                await ws.SendAsync(json, WebSocketMessageType.Text, endOfMessage: true, ctx.RequestAborted);
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "verify-ws complete", ctx.RequestAborted);
+            }
+            catch (OperationCanceledException)
+            {
+                // Client or server going away mid-probe. Normal; the Gateway treats it as a fail.
+            }
+            catch (WebSocketException ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /verify-ws/{nonce} socket dropped: {ex.Message}");
+            }
+        });
 
         // ===== HTML pages =====
         // The cards-grid Director (manager.html) is the default UI at "/" -- the
@@ -1462,6 +1504,7 @@ internal static class ControlEndpoints
                     AgentKind.Codex => new CodexAgent(sessionManager.Options),
                     AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
                     AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
+                    AgentKind.Grok => new GrokAgent(sessionManager.Options),
                     _ => throw new InvalidOperationException("unreachable"),
                 };
 
@@ -2340,7 +2383,7 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = $"repoPath does not exist: {req.RepoPath}" });
 
             if (!Enum.TryParse<AgentKind>(req.Agent, ignoreCase: true, out var kind))
-                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode, RawCli" });
+                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode, Grok, RawCli" });
 
             // RawCli requires a Command; validate before constructing the agent.
             if (kind == AgentKind.RawCli && string.IsNullOrWhiteSpace(req.Command))
@@ -2353,6 +2396,7 @@ internal static class ControlEndpoints
                 AgentKind.Codex => new CodexAgent(sessionManager.Options),
                 AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
                 AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
+                AgentKind.Grok => new GrokAgent(sessionManager.Options),
                 AgentKind.RawCli => new RawCliAgent(req.Command!, req.CommandArgs),
                 _ => throw new InvalidOperationException("unreachable"),
             };

@@ -84,55 +84,38 @@
                                      ToolTip.Tip="Several tied sessions created together from a preset group" />
                     </StackPanel>
 
-                    <!-- Agent picker (radio buttons). Claude/Pi are shipped; other CLIs become
-                         visible outside alpha once Settings > Agents validates their configured path. -->
+                    <!-- Agent picker (issue #490): one radio per ENABLED agent.entries entry (#489),
+                         in stored order, labeled by the entry's display name, first pre-selected.
+                         No alpha gating - the agent list is purely what the user configured. The
+                         radios are generated at runtime from AgentEntryOptions; an empty list shows
+                         the "no agents configured" hint instead. -->
                     <StackPanel x:Name="AgentPickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
-                        <RadioButton x:Name="AgentRadioClaude" GroupName="Agent"
-                                     Content="Claude Code"
-                                     IsChecked="True"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Margin="0,0,24,0"
-                                     Tag="ClaudeCode"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
-                        <RadioButton x:Name="AgentRadioPi" GroupName="Agent"
-                                     Content="Pi"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Margin="0,0,24,0"
-                                     Tag="Pi"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
-                        <RadioButton x:Name="AgentRadioCodex" GroupName="Agent"
-                                     Content="Codex"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Margin="0,0,24,0"
-                                     Tag="Codex"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
-                        <RadioButton x:Name="AgentRadioGemini" GroupName="Agent"
-                                     Content="Gemini CLI"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Margin="0,0,24,0"
-                                     Tag="Gemini"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
-                        <RadioButton x:Name="AgentRadioOpenCode" GroupName="Agent"
-                                     Content="OpenCode"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Margin="0,0,24,0"
-                                     Tag="OpenCode"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
-                        <RadioButton x:Name="AgentRadioRawCli" GroupName="Agent"
-                                     Content="Custom CLI"
-                                     Foreground="#CCCCCC" FontSize="14"
-                                     VerticalAlignment="Center"
-                                     Tag="RawCli"
-                                     IsCheckedChanged="AgentRadio_CheckedChanged"
-                                     ToolTip.Tip="Run an arbitrary command-line tool (aider, pwsh, etc.) in raw terminal mode" />
+                        <ItemsControl x:Name="AgentEntryList" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <RadioButton GroupName="Agent"
+                                                 Content="{Binding DisplayName}"
+                                                 IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                 Foreground="#CCCCCC" FontSize="14"
+                                                 VerticalAlignment="Center"
+                                                 Margin="0,0,24,0"
+                                                 IsCheckedChanged="AgentRadio_CheckedChanged" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="NoAgentsHint"
+                                   Text="No agents configured. Add one in Settings &gt; Agents."
+                                   Foreground="#888888" FontSize="13" FontStyle="Italic"
+                                   VerticalAlignment="Center"
+                                   IsVisible="False" />
                     </StackPanel>
 
                     <!-- Custom CLI panel (issue #333): shown only when "Custom CLI" agent is selected.

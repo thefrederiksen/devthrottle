@@ -236,6 +236,7 @@
                         <div class="center-tabs">
                             <button class="ctab @(CenterTab == "brief" ? "on" : "")" @onclick="@(() => SetCenterTab("brief"))">Wingman</button>
                             <button class="ctab @(CenterTab == "term" ? "on" : "")" @onclick="@(() => SetCenterTab("term"))">Terminal</button>
+                            <button class="ctab @(CenterTab == "voice" ? "on" : "")" @onclick="@(() => SetCenterTab("voice"))">Voice</button>
                             <span class="center-tabs-spacer"></span>
                             @* Needs-you conveyor: flip through the sessions waiting on the user,
                                in the same order the rail's triage view shows them. *@
@@ -254,6 +255,67 @@
                                so flipping through briefs never pays the replay cost. *@
                             <div class="term-wrap">
                                 <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" RowState="@(Selected.AssessedState ?? Selected.ActivityState)" />
+                            </div>
+                        }
+                        else if (CenterTab == "voice")
+                        {
+                            @* ---- Voice tab (issue #531): talk to the agent; the wingman translates
+                                 the reply into a faithful, speakable summary that sits here SILENTLY.
+                                 Tap Listen to hear it - it is never read automatically. Speech-to-text
+                                 reuses the existing dictation pipeline; the typed box is the same flow
+                                 with no microphone, which is how the translation was tested. ---- *@
+                            <div class="voice-tab">
+                                <div class="voice-cta">
+                                    <button class="btn voice-talk @(_dictating ? "on" : "")" @onclick="StartVoiceTalk"
+                                            disabled="@(_dictating || _voiceBusy)">
+                                        @(_dictating ? "Listening - finish in the dialog" : "Tap to talk")
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(_voiceStatus))
+                                    {
+                                        <span class="voice-status">@_voiceStatus</span>
+                                    }
+                                </div>
+
+                                <div class="voice-typed">
+                                    <textarea @bind="_voiceText" @bind:event="oninput" rows="2"
+                                              placeholder="...or type what you would say, then Ask"></textarea>
+                                    <div class="voice-typed-btns">
+                                        <button class="btn send" @onclick="() => RunWingmanVoiceTurnAsync(_voiceText)"
+                                                disabled="@(_voiceBusy || string.IsNullOrWhiteSpace(_voiceText))">Ask the agent</button>
+                                        <button class="btn" @onclick="() => RunWingmanDirectAsync(_voiceText)"
+                                                disabled="@(_voiceBusy || string.IsNullOrWhiteSpace(_voiceText))"
+                                                title="Talk to the wingman itself, not the working session">Ask the wingman</button>
+                                    </div>
+                                </div>
+
+                                @if (_voiceBusy)
+                                {
+                                    <div class="voice-working">The agent is working - the wingman will summarize when the turn finishes...</div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(_voiceSpoken))
+                                {
+                                    <div class="voice-summary">
+                                        <div class="voice-summary-head">
+                                            <span class="voice-summary-title">WINGMAN</span>
+                                            <button class="btn" @onclick="ListenSpoken" title="Read this summary aloud">Listen</button>
+                                            <button class="btn" @onclick="StopListen" title="Stop reading">Stop</button>
+                                        </div>
+                                        <div class="voice-summary-text">@_voiceSpoken</div>
+                                        @if (!string.IsNullOrEmpty(_voiceReply))
+                                        {
+                                            <details class="voice-full">
+                                                <summary>Show full reply</summary>
+                                                <pre class="voice-full-body">@_voiceReply</pre>
+                                            </details>
+                                        }
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(_voiceError))
+                                {
+                                    <div class="act-error">@_voiceError</div>
+                                }
                             </div>
                         }
                         else if (_wingmanEnabled)
@@ -1703,6 +1765,84 @@
     private DotNetObjectReference<Cockpit>? _dictateRef;
     private IJSObjectReference? _composerDropModule;
 
+    // ---- Voice tab (issue #531) ----
+    // When true, the dictation result routes to the wingman voice-turn flow instead of the
+    // composer, so the same proven dictation dialog feeds the Voice tab.
+    private bool _voiceDictation;
+    private bool _voiceBusy;
+    private string _voiceText = "";
+    private string _voiceStatus = "";
+    private string _voiceSpoken = "";
+    private string _voiceReply = "";
+    private string? _voiceError;
+
+    // Speech-to-text reuses the existing dictation pipeline; on Send/Insert the cleaned text is
+    // routed into the wingman voice-turn (see the dictation callbacks) rather than the composer.
+    private async Task StartVoiceTalk()
+    {
+        if (Selected is null || _dictating || _voiceBusy) return;
+        _voiceDictation = true;
+        await OpenDictate();
+    }
+
+    // Drive one turn: send the message into the working session, wait for the agent to finish,
+    // then show the wingman's faithful, speakable translation - SILENTLY (tap Listen to hear it).
+    private async Task RunWingmanVoiceTurnAsync(string text)
+    {
+        if (Selected is null || _voiceBusy || string.IsNullOrWhiteSpace(text)) return;
+        Log.LogInformation("Cockpit action=wingman-voice-turn sid={Sid}", Selected.SessionId);
+        _voiceBusy = true; _voiceError = null; _voiceSpoken = ""; _voiceReply = "";
+        _voiceStatus = "Sending to the agent...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var r = await Gateway.WingmanVoiceTurnAsync(Selected.SessionId, text.Trim(), _cts.Token);
+            if (!string.IsNullOrEmpty(r.Error)) { _voiceError = r.Error; _voiceStatus = ""; }
+            else
+            {
+                _voiceReply = r.Reply ?? "";
+                _voiceSpoken = r.Spoken ?? "";
+                _voiceStatus = "Tap Listen to hear it.";
+                _voiceText = "";
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _voiceError = ex.Message; _voiceStatus = ""; }
+        finally { _voiceBusy = false; await InvokeAsync(StateHasChanged); }
+    }
+
+    // Direct-to-wingman: talk to the wingman itself, not the working session.
+    private async Task RunWingmanDirectAsync(string text)
+    {
+        if (_voiceBusy || string.IsNullOrWhiteSpace(text)) return;
+        Log.LogInformation("Cockpit action=wingman-ask-direct");
+        _voiceBusy = true; _voiceError = null; _voiceSpoken = ""; _voiceReply = "";
+        _voiceStatus = "Asking the wingman...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var r = await Gateway.WingmanAskDirectAsync(text.Trim(), _cts.Token);
+            if (!string.IsNullOrEmpty(r.Error)) { _voiceError = r.Error; _voiceStatus = ""; }
+            else { _voiceSpoken = r.Spoken ?? ""; _voiceStatus = "Tap Listen to hear it."; _voiceText = ""; }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _voiceError = ex.Message; _voiceStatus = ""; }
+        finally { _voiceBusy = false; await InvokeAsync(StateHasChanged); }
+    }
+
+    private async Task ListenSpoken()
+    {
+        if (string.IsNullOrEmpty(_voiceSpoken)) return;
+        try { await JS.InvokeVoidAsync("cockpitVoice.speak", _voiceSpoken); }
+        catch (Exception ex) { Log.LogDebug(ex, "cockpitVoice.speak failed"); }
+    }
+
+    private async Task StopListen()
+    {
+        try { await JS.InvokeVoidAsync("cockpitVoice.stop"); }
+        catch (Exception ex) { Log.LogDebug(ex, "cockpitVoice.stop failed"); }
+    }
+
     private async Task OpenDictate()
     {
         if (Selected is null || _dictating) return;
@@ -1734,13 +1874,21 @@
     // Insert: the dialog finished and the user chose Insert - append the cleaned text to the
     // composer for review (no auto-submit), mirroring the desktop dialog's Insert button.
     [JSInvokable]
-    public Task OnDictateInsert(string text)
+    public async Task OnDictateInsert(string text)
     {
         _dictating = false;
         ActionInfo("speak-stop", "result=insert");
+        if (_voiceDictation)
+        {
+            // Voice tab: the spoken text drives the wingman turn, not the composer.
+            _voiceDictation = false;
+            await InvokeAsync(StateHasChanged);
+            if (!string.IsNullOrWhiteSpace(text)) await RunWingmanVoiceTurnAsync(text);
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(text))
             _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
-        return InvokeAsync(StateHasChanged);
+        await InvokeAsync(StateHasChanged);
     }
 
     // Send: the dialog finished and the user chose Send - append the cleaned text and submit
@@ -1750,6 +1898,14 @@
     {
         _dictating = false;
         ActionInfo("speak-stop", "result=send");
+        if (_voiceDictation)
+        {
+            // Voice tab: Send means "run this through the agent and have the wingman translate".
+            _voiceDictation = false;
+            await InvokeAsync(StateHasChanged);
+            if (!string.IsNullOrWhiteSpace(text)) await RunWingmanVoiceTurnAsync(text);
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(text))
             _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
         await InvokeAsync(StateHasChanged);
@@ -1761,6 +1917,7 @@
     public Task OnDictateCancel()
     {
         _dictating = false;
+        _voiceDictation = false;
         ActionInfo("speak-stop", "result=cancel");
         return InvokeAsync(StateHasChanged);
     }

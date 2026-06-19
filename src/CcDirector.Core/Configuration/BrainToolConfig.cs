@@ -50,7 +50,16 @@ public static class BrainToolConfig
         return false;
     }
 
-    /// <summary>Resolve the brain tool: config.json "brain_tool" when set, else <see cref="Default"/>.</summary>
+    /// <summary>
+    /// Resolve the brain tool: config.json "brain_tool" when set, else <see cref="Default"/>.
+    ///
+    /// As of issue #510 the wingman agent is chosen from the machine's registered agents (any
+    /// <see cref="AgentKind"/>), not the Claude-only brain-hostable list, because the driver-level
+    /// hostability work landed in issue #509 - so the value must be a valid agent-kind name, but it
+    /// no longer has to be in <see cref="BrainHostableTools"/>. The no-fallback rule still holds: a
+    /// key that is present but not a recognised, non-empty agent-kind name THROWS with the fix, so
+    /// the brain never silently runs as a tool nobody chose.
+    /// </summary>
     public static AgentKind Get()
     {
         var node = CcDirectorConfigService.ReadRaw()["brain_tool"];
@@ -60,18 +69,13 @@ public static class BrainToolConfig
         if (node is JsonValue v && v.GetValueKind() == JsonValueKind.String)
         {
             var raw = v.GetValue<string>().Trim();
-            if (raw.Length > 0
-                && Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var tool)
-                && IsHostable(tool))
-            {
+            if (raw.Length > 0 && Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var tool))
                 return tool;
-            }
         }
 
-        var allowed = string.Join(", ", BrainHostableTools);
         throw new InvalidOperationException(
-            "config.json key 'brain_tool' must be a brain-hostable agent tool name " +
-            $"(one of: {allowed}). Fix the value or remove the key to use the default " +
+            "config.json key 'brain_tool' must be a recognised agent-kind name " +
+            $"(e.g. \"{Default}\"). Fix the value or remove the key to use the default " +
             $"(\"{Default}\").");
     }
 }

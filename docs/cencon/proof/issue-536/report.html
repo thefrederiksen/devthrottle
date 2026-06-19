@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #536: Enlarge the /m/ session Sessions back button</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#1b1b1b;line-height:1.5}
+  h1{font-size:22px;border-bottom:2px solid #007ACC;padding-bottom:6px}
+  h2{font-size:17px;margin-top:28px;color:#0b3d6b}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid #ccc;padding:8px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#eef4fb}
+  .pass{color:#1a7f37;font-weight:700}
+  code{background:#f0f0f0;padding:1px 5px;border-radius:4px;font-size:13px}
+  .shots{display:flex;gap:20px;flex-wrap:wrap}
+  .shots figure{margin:0;max-width:340px}
+  .shots img{width:100%;border:1px solid #ccc;border-radius:6px}
+  figcaption{font-size:13px;color:#444;margin-top:6px}
+  .verdict{background:#e8f5e9;border:1px solid #1a7f37;border-radius:6px;padding:12px 14px;margin-top:24px;font-weight:600}
+</style>
+</head>
+<body>
+<h1>Proof - Issue #536: [Voice] /m/ session: enlarge the Sessions back button (bigger tap target)</h1>
+
+<h2>What was implemented</h2>
+<p>On the Wingman Voice mobile session screen (<code>/m/</code>), the session-view "Sessions" back
+button (<code>#back-btn</code>) used the small <code>.ghost</code> style (font-size 13px, padding
+8px 12px - roughly a 33px tall control). It is now a comfortably large touch target.</p>
+<ul>
+  <li><b>src/CcDirector.Cockpit/wwwroot/m/m.css</b> - added a dedicated <code>.back-btn</code> rule:
+      <code>min-height:44px; min-width:44px; padding:10px 16px; font-size:15px; font-weight:600;
+      border-radius:10px; flex:0 0 auto;</code> with centered inline-flex content and
+      <code>white-space:nowrap</code>. It keeps the existing <code>.ghost</code> color identity
+      (transparent background, <code>--border</code> outline, <code>--text2</code> text) - only larger.
+      <code>flex:0 0 auto</code> stops the bar from squeezing it, so the session name keeps its ellipsis.</li>
+  <li><b>src/CcDirector.Cockpit/wwwroot/m/index.html</b> - added the <code>back-btn</code> class to the
+      button (<code>class="ghost back-btn"</code>) and bumped the asset cache-bust version from
+      <code>v17</code> to <code>v18</code> (the <code>m.css?v=</code> / <code>m.js?v=</code> query strings
+      and the on-screen <code>&lt;span class="ver"&gt;</code> label).</li>
+</ul>
+<p>No server-side change. The list-screen Refresh ghost button and all other controls are untouched.</p>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (measured at 360px CSS width)</th><th>Result</th></tr>
+  <tr>
+    <td>Back button visibly larger than the old <code>.ghost</code> and a touch target of at least 44 x 44 CSS px</td>
+    <td>>= 44 x 44 px; visibly bigger than before</td>
+    <td>Before: <b>95 x 33 px</b>. After: <b>119 x 44 px</b> (getBoundingClientRect). Height meets the
+        44px minimum; width comfortably exceeds it.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Tapping still returns to the session list (<code>#list-view</code> visible, <code>#session-view</code> hidden)</td>
+    <td>list shown, session hidden</td>
+    <td>After a programmatic click: <code>listHidden=false</code>, <code>sessionHidden=true</code>.
+        Behavior unchanged (markup id and handler untouched).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Complies with the page's visual conventions (colors, radius, spacing)</td>
+    <td>Same ghost color identity, consistent radius/spacing</td>
+    <td>Reuses <code>.ghost</code> colors (<code>--border</code> outline, <code>--text2</code> text,
+        transparent background); <code>border-radius:10px</code> matches the page's
+        <code>.explain</code> control; sizing is in line with the page's other large touch targets.
+        VisualStyle.md is WPF-scoped and specifies no mobile touch-target height, so the issue's
+        44px accessible-minimum is used (assumption confirmed in the issue body).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Header bar does not break/overflow at 360px; name still ellipsizes and the bar stays on one row</td>
+    <td>no horizontal overflow; name ellipsized; one row</td>
+    <td>At a 360px viewport with a long session name: document width = <b>360</b> (no overflow),
+        <code>nameEllipsized=true</code>, bar height a single row (73px including sticky padding).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Asset cache-busting version incremented</td>
+    <td>v17 -> v18 on css/js query and on-screen label</td>
+    <td><code>m.css?v=18</code>, <code>m.js?v=18</code>, and the visible <code>v18</code> label.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Before / After (real /m/ assets rendered at 360px mobile width)</h2>
+<div class="shots">
+  <figure>
+    <img src="before.png" alt="Before: small ghost back button" />
+    <figcaption><b>Before</b> - original <code>.ghost</code> back button: 95 x 33 px.</figcaption>
+  </figure>
+  <figure>
+    <img src="after.png" alt="After: enlarged back button" />
+    <figcaption><b>After</b> - enlarged <code>.back-btn</code>: 119 x 44 px. Header still one row,
+        session name still ellipsized.</figcaption>
+  </figure>
+</div>
+<p>Screenshots were taken by serving the actual <code>wwwroot/m/</code> files and rendering
+<code>/m/index.html</code> with the real <code>m.css?v=18</code> at a 360px mobile viewport. The
+"before" capture removed only the new <code>back-btn</code> class so the old <code>.ghost</code>-only
+sizing is shown for comparison.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. Client-only static-asset (CSS + HTML) change in the <code>cockpit</code> container; no
+architecture or security-posture change, no <code>docs/cencon/</code> update required.</p>
+
+<h2>Build</h2>
+<p><code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<div class="verdict">I believe this is finished. Every acceptance criterion is met with measured proof above.</div>
+</body>
+</html>

@@ -2,10 +2,14 @@ using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
+using CcDirector.Setup.Engine;
+using CcDirector.TrayUi;
 
 namespace CcDirector.Launcher;
 
@@ -21,10 +25,11 @@ public sealed class LauncherTrayController : IDisposable
 
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly int _port;
+    private readonly CancellationTokenSource _lifetime = new();
 
     private TrayIcon? _trayIcon;
-    private NativeMenuItem? _statusItem;
-    private NativeMenuItem? _autostartItem;
+    private TrayFlyoutController? _flyout;
+    private Bitmap? _icon;
     private LauncherHost? _host;
     private GatewayRegistrationClient? _gatewayClient;
     private HostState _state = HostState.Starting;
@@ -39,37 +44,27 @@ public sealed class LauncherTrayController : IDisposable
     /// <summary>Build the tray icon, register autostart, and start the REST host.</summary>
     public void Start()
     {
-        FileLog.Write("[LauncherTrayController] Start");
+        FileLog.Write($"[LauncherTrayController] Start (managed={LauncherAppOptions.Managed})");
 
         BuildTrayIcon();
         RegisterAutostartSafe();
 
         SetState(HostState.Starting);
         _ = StartHostAsync();
+
+        if (LauncherAppOptions.Managed)
+            _ = RunUpdateLoopAsync(_lifetime.Token);
     }
 
     private void BuildTrayIcon()
     {
+        // Modern interaction: LEFT-CLICK the icon opens the OneDrive-style flyout (live status +
+        // action buttons + the Start-with-Windows toggle). The right-click menu is reduced to a
+        // single Quit escape hatch - everything else lives in the flyout, not a legacy text menu.
+        _icon = new Bitmap(AssetLoader.Open(new Uri("avares://cc-launcher/Assets/icon.png")));
+        _flyout = new TrayFlyoutController(BuildFlyoutModel);
+
         var menu = new NativeMenu();
-
-        _statusItem = new NativeMenuItem("CC Launcher starting...") { IsEnabled = false };
-        menu.Add(_statusItem);
-        menu.Add(new NativeMenuItemSeparator());
-
-        var restartDirector = new NativeMenuItem("Restart Director");
-        restartDirector.Click += (_, _) => _ = RestartDirectorAsync();
-        menu.Add(restartDirector);
-
-        var openLogs = new NativeMenuItem("Open Logs Folder");
-        openLogs.Click += (_, _) => OpenLogsFolder();
-        menu.Add(openLogs);
-
-        _autostartItem = new NativeMenuItem(GetAutostartMenuText());
-        _autostartItem.Click += (_, _) => ToggleAutostart();
-        menu.Add(_autostartItem);
-
-        menu.Add(new NativeMenuItemSeparator());
-
         var quit = new NativeMenuItem("Quit");
         quit.Click += (_, _) => _ = QuitAsync();
         menu.Add(quit);
@@ -81,10 +76,60 @@ public sealed class LauncherTrayController : IDisposable
             Menu = menu,
             IsVisible = true,
         };
+        _trayIcon.Clicked += (_, _) => _flyout?.Toggle();
 
         var icons = new TrayIcons { _trayIcon };
         TrayIcon.SetIcons(Application.Current!, icons);
         FileLog.Write("[LauncherTrayController] Tray icon created");
+    }
+
+    /// <summary>Build the flyout's content from current state (called fresh on each open).</summary>
+    private TrayFlyoutModel BuildFlyoutModel()
+    {
+        var supervisor = new DirectorSupervisor();
+        var directorState = supervisor.IsRunning ? "running"
+            : supervisor.DirectorExeExists ? "stopped"
+            : "not installed";
+
+        var rows = new List<StatusRow>
+        {
+            new("Version", ReadVersion().Split('+')[0]),
+            new("Port", _port.ToString()),
+            new("Director", directorState),
+        };
+
+        var actions = new List<FlyoutAction>
+        {
+            new() { Text = "Restart Director", Primary = true, OnClick = () => _ = RestartDirectorAsync() },
+            new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
+        };
+
+        ToggleSpec? toggle = OperatingSystem.IsWindows()
+            ? new ToggleSpec { Label = "Start with Windows", IsOn = LauncherAutostart.IsRegistered(), OnChanged = SetAutostart }
+            : null;
+
+        return new TrayFlyoutModel
+        {
+            AppName = "CC Launcher",
+            Icon = _icon,
+            StatusTitle = _state switch
+            {
+                HostState.Running => $"Running on :{_port}",
+                HostState.Starting => "Starting...",
+                _ => "Failed - see logs",
+            },
+            Status = _state switch
+            {
+                HostState.Running => StatusLevel.Ok,
+                HostState.Starting => StatusLevel.Warn,
+                _ => StatusLevel.Error,
+            },
+            Accent = Color.Parse("#F2600C"), // launcher orange
+            Rows = rows,
+            Actions = actions,
+            Toggle = toggle,
+            OnQuit = () => _ = QuitAsync(),
+        };
     }
 
     private async Task StartHostAsync()
@@ -144,6 +189,7 @@ public sealed class LauncherTrayController : IDisposable
     private async Task QuitAsync()
     {
         FileLog.Write("[LauncherTrayController] QuitAsync");
+        _lifetime.Cancel();
 
         // Issue #331: unregister from the Gateway before shutting down the REST host.
         if (_gatewayClient is not null)
@@ -159,6 +205,7 @@ public sealed class LauncherTrayController : IDisposable
         }
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            _flyout?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
         });
@@ -179,28 +226,28 @@ public sealed class LauncherTrayController : IDisposable
         }
     }
 
-    private void ToggleAutostart()
+    /// <summary>Enable/disable the Start-with-Windows autostart from the flyout toggle.</summary>
+    private void SetAutostart(bool enable)
     {
         if (!OperatingSystem.IsWindows()) return;
         try
         {
-            if (LauncherAutostart.IsRegistered())
+            if (enable)
+            {
+                var exePath = Environment.ProcessPath
+                    ?? throw new InvalidOperationException("Could not resolve own exe path");
+                LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
+                FileLog.Write("[LauncherTrayController] Autostart enabled by user");
+            }
+            else
             {
                 LauncherAutostart.Unregister();
                 FileLog.Write("[LauncherTrayController] Autostart disabled by user");
             }
-            else
-            {
-                var exePath = Environment.ProcessPath
-                    ?? throw new InvalidOperationException("Could not resolve own exe path");
-                LauncherAutostart.EnsureRegistered(exePath);
-                FileLog.Write("[LauncherTrayController] Autostart enabled by user");
-            }
-            UpdateAutostartMenuItem();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherTrayController] ToggleAutostart FAILED: {ex.Message}");
+            FileLog.Write($"[LauncherTrayController] SetAutostart FAILED: {ex.Message}");
         }
     }
 
@@ -219,7 +266,7 @@ public sealed class LauncherTrayController : IDisposable
             var exePath = Environment.ProcessPath
                           ?? Process.GetCurrentProcess().MainModule?.FileName
                           ?? throw new InvalidOperationException("Could not resolve own exe path for autostart");
-            LauncherAutostart.EnsureRegistered(exePath);
+            LauncherAutostart.EnsureRegistered(exePath, LauncherAppOptions.AutostartArguments());
         }
         catch (Exception ex)
         {
@@ -227,41 +274,56 @@ public sealed class LauncherTrayController : IDisposable
         }
     }
 
-    private string GetAutostartMenuText()
+    /// <summary>
+    /// Periodic machine-tier auto-update (managed mode only): check for a newer Launcher and, if
+    /// found, launch the detached self-update helper (it POSTs /shutdown -> swap -> relaunch ->
+    /// health -> auto-rollback). Mirrors the Gateway's update loop. Failures only log.
+    /// </summary>
+    private static async Task RunUpdateLoopAsync(CancellationToken ct)
     {
-        if (!OperatingSystem.IsWindows()) return "Start with Windows (unavailable)";
-        return LauncherAutostart.IsRegistered()
-            ? "Disable: Start with Windows"
-            : "Enable: Start with Windows";
-    }
+        var layout = InstallLayout.Default();
+        // Let the launcher settle before the first check; never compete with startup.
+        try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
 
-    private void UpdateAutostartMenuItem()
-    {
-        Dispatcher.UIThread.Post(() =>
+        while (!ct.IsCancellationRequested)
         {
-            if (_autostartItem is not null)
-                _autostartItem.Header = GetAutostartMenuText();
-        });
+            var cfg = AutoUpdateConfig.Load(layout);
+            if (cfg.Enabled && OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    var source = new ReleaseSource();
+                    var release = await source.FetchLatestAsync(ct);
+                    var version = await new LauncherUpdater(layout).CheckStageAndLaunchAsync(release, source, ct);
+                    if (version is not null)
+                    {
+                        FileLog.Write($"[LauncherTrayController] launched Launcher self-update to {version}; this process will be asked to exit");
+                        return; // the detached helper POSTs /shutdown, swaps, and relaunches us
+                    }
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[LauncherTrayController] update check failed: {ex.Message}");
+                }
+            }
+            try { await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1), ct); }
+            catch (OperationCanceledException) { break; }
+        }
     }
 
     private void SetState(HostState state)
     {
         _state = state;
-        var (status, tip) = state switch
+        var tip = state switch
         {
-            HostState.Starting => ("CC Launcher starting...", "CC Launcher - starting"),
-            HostState.Running => ($"CC Launcher running on :{_port}", $"CC Launcher - running on :{_port}"),
-            HostState.Failed => ("CC Launcher FAILED - see logs", "CC Launcher - failed to start"),
-            _ => ("CC Launcher", "CC Launcher"),
+            HostState.Starting => "CC Launcher - starting",
+            HostState.Running => $"CC Launcher - running on :{_port}",
+            HostState.Failed => "CC Launcher - failed to start",
+            _ => "CC Launcher",
         };
-        ApplyStatus(status, tip);
-    }
-
-    private void ApplyStatus(string status, string tip)
-    {
+        // The flyout reads state live on open; here we only keep the tray tooltip current.
         Dispatcher.UIThread.Post(() =>
         {
-            if (_statusItem is not null) _statusItem.Header = status;
             if (_trayIcon is not null) _trayIcon.ToolTipText = tip;
         });
     }
@@ -285,6 +347,7 @@ public sealed class LauncherTrayController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _lifetime.Cancel();
         try { _gatewayClient?.StopAsync().GetAwaiter().GetResult(); }
         catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose gateway client stop error: {ex.Message}"); }
         _gatewayClient = null;
@@ -292,5 +355,6 @@ public sealed class LauncherTrayController : IDisposable
         catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose stop error: {ex.Message}"); }
         _host = null;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;
+        _lifetime.Dispose();
     }
 }

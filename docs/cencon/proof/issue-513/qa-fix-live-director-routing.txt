@@ -1,0 +1,12 @@
+# Issue #513 QA-defect FIX proof - captured from running slot-11 Director (PID 23636)
+# Director in DevThrottle mode, attached to a stub Gateway that returns the EXACT stale
+# response the live deployed Gateway (0.9.12, pre-#513) returns: DevThrottle mode, NO
+# transport field, model=gpt-4o-transcribe, with the X-Transcription-Routing marker.
+# This is the live on-Gateway path the QA defect failed on.
+#
+# BEFORE (QA defect): routing ... transport=batch model=gpt-4o-transcribe  (proxy 404 model_not_found)
+# AFTER  (this fix):  routing ... transport=batch model=whisper-large-v3   (acceptance criterion 1 met)
+
+2026-06-17 18:28:59.387 [OpenAiKeyResolver] routing GET http://127.0.0.1:7901/transcription/routing -> Gateway omits transport (pre-#513); deriving transport+model from mode=devthrottle, model gpt-4o-transcribe->whisper-large-v3
+2026-06-17 18:28:59.621 [DictationEndpoint] routing: mode=devthrottle transport=batch model=whisper-large-v3 baseUrl=https://devthrottle.com/api/v1
+2026-06-17 18:28:59.630 [OpenAiTranscriptionProvider] StartAsync: prompt_len=126, model=whisper-large-v3

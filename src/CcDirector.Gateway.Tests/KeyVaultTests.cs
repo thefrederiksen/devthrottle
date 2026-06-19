@@ -1,3 +1,4 @@
+using CcDirector.Core;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -123,6 +124,6 @@ public sealed class KeyVaultTests : IDisposable
     public void SetIfAbsent_EmptyName_Throws()
     {
         var vault = new KeyVault(_path);
-        Assert.Throws<ArgumentException>(() => vault.SetIfAbsent("  ", "v"));
+        Assert.Throws<ArgumentException>((Action)(() => vault.SetIfAbsent("  ", "v")));
     }
 }

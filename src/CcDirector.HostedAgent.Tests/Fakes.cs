@@ -132,6 +132,12 @@ public sealed class FakeDriver : IAgentDriver
         DriverCapabilities.ClearContext | DriverCapabilities.Cancel
         | DriverCapabilities.TranscriptRead | DriverCapabilities.PreassignedSessionId;
 
+    public IReadOnlyList<AgentSlashCommand> SlashCommands => [];
+
+    public string ModelFlag => "--model";
+    public IReadOnlyList<AgentModelOption> KnownModels => [];
+    public string? ReadConfiguredDefaultModel() => null;
+
     public void AddTextReply(string agentSessionId, string userPrompt, string replyText)
     {
         var list = Widgets.TryGetValue(agentSessionId, out var w) ? w : Widgets[agentSessionId] = new();

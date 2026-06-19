@@ -128,6 +128,74 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
         Assert.NotNull(_gateway.Registry.Get(id)!.TwoWayVerifiedAt);
     }
 
+    // ===== Stream leg (the Cockpit terminal WebSocket path) =====
+
+    [Fact]
+    public async Task Verify_HappyPath_AlsoStampsStreamVerifiedAt()
+    {
+        // The whole point of the fix: the WebSocket UPGRADE leg is verified end to end, not just
+        // plain HTTP. A Director that can complete the upgrade stamps StreamVerifiedAt.
+        var id = Guid.NewGuid().ToString();
+        var monitor = new GatewayConnectionMonitor();
+        await using var callback = new CallbackHost(id, monitor, StreamLeg.Echo);
+        await callback.StartAsync();
+        await RegisterDirectorAsync(callback.BaseUrl, id);
+
+        var resp = await _http.PostAsJsonAsync($"directors/{id}/verify", new DirectorVerifyRequest { Nonce = "n-stream-ok" });
+        var verdict = await resp.Content.ReadFromJsonAsync<DirectorVerifyResultDto>();
+
+        Assert.NotNull(verdict);
+        Assert.True(verdict!.Verified);
+        Assert.True(verdict.StreamOk);
+        Assert.Null(verdict.StreamError);
+        Assert.NotNull(_gateway.Registry.Get(id)!.StreamVerifiedAt);
+        Assert.Null(_gateway.Registry.Get(id)!.StreamVerifyError);
+    }
+
+    [Fact]
+    public async Task Verify_HttpOkButStreamRejected_StampsStreamError_NotGreen()
+    {
+        // The exact remote-streaming failure mode: plain HTTP verifies, but the WebSocket UPGRADE
+        // the terminal needs fails. The HTTP verdict stays true (control still works) but the
+        // stream leg is recorded as a REAL failure so the Cockpit can paint TERMINAL STREAM DOWN.
+        var id = Guid.NewGuid().ToString();
+        var monitor = new GatewayConnectionMonitor();
+        await using var callback = new CallbackHost(id, monitor, StreamLeg.Reject);
+        await callback.StartAsync();
+        await RegisterDirectorAsync(callback.BaseUrl, id);
+
+        var resp = await _http.PostAsJsonAsync($"directors/{id}/verify", new DirectorVerifyRequest { Nonce = "n-stream-bad" });
+        var verdict = await resp.Content.ReadFromJsonAsync<DirectorVerifyResultDto>();
+
+        Assert.NotNull(verdict);
+        Assert.True(verdict!.Verified);        // HTTP control leg is fine
+        Assert.False(verdict.StreamOk);        // but the terminal stream is not
+        Assert.NotNull(verdict.StreamError);
+        Assert.NotNull(_gateway.Registry.Get(id)!.StreamVerifyError);
+        Assert.Null(_gateway.Registry.Get(id)!.StreamVerifiedAt);
+    }
+
+    [Fact]
+    public async Task Verify_OldDirectorWithoutStreamEndpoint_StaysUnknown_NotBroken()
+    {
+        // A Director predating /verify-ws answers 404 on the upgrade. That is "untestable", NOT a
+        // failure - both stream fields stay null so the UI shows unknown, never a false red.
+        var id = Guid.NewGuid().ToString();
+        var monitor = new GatewayConnectionMonitor();
+        await using var callback = new CallbackHost(id, monitor, StreamLeg.Missing);
+        await callback.StartAsync();
+        await RegisterDirectorAsync(callback.BaseUrl, id);
+
+        var resp = await _http.PostAsJsonAsync($"directors/{id}/verify", new DirectorVerifyRequest { Nonce = "n-stream-old" });
+        var verdict = await resp.Content.ReadFromJsonAsync<DirectorVerifyResultDto>();
+
+        Assert.NotNull(verdict);
+        Assert.True(verdict!.Verified);
+        Assert.False(verdict.StreamOk);
+        Assert.Null(_gateway.Registry.Get(id)!.StreamVerifiedAt);
+        Assert.Null(_gateway.Registry.Get(id)!.StreamVerifyError); // untested != failed
+    }
+
     // ===== Full client loop: register -> automatic handshake -> monitor verdict =====
 
     [Fact]
@@ -235,13 +303,15 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
     {
         private readonly string _directorId;
         private readonly GatewayConnectionMonitor _monitor;
+        private readonly StreamLeg _streamLeg;
         private WebApplication? _app;
         public string BaseUrl { get; private set; } = "";
 
-        public CallbackHost(string directorId, GatewayConnectionMonitor monitor)
+        public CallbackHost(string directorId, GatewayConnectionMonitor monitor, StreamLeg streamLeg = StreamLeg.Echo)
         {
             _directorId = directorId;
             _monitor = monitor;
+            _streamLeg = streamLeg;
         }
 
         public async Task StartAsync()
@@ -253,12 +323,37 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
             builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, port));
             builder.Logging.ClearProviders();
             _app = builder.Build();
+            _app.UseWebSockets();
             _app.MapGet("/verify/{nonce}", (string nonce) => Results.Json(new VerifyCallbackDto
             {
                 DirectorId = _directorId,
                 Nonce = nonce,
                 Known = _monitor.RecordCallback(nonce),
             }));
+
+            // Mirror ControlEndpoints' /verify-ws WS echo so the Gateway's stream-leg probe has a
+            // real upgrade to complete. StreamLeg controls the failure shape under test:
+            //   Echo    - accept the WS, echo id+nonce (the fixed, working stream path)
+            //   Missing - no route at all -> 404 (an OLD Director without the endpoint: "untestable")
+            //   Reject  - route exists but refuses the upgrade with 500 (a real, tested stream failure)
+            if (_streamLeg == StreamLeg.Echo)
+            {
+                _app.MapGet("/verify-ws/{nonce}", async (string nonce, HttpContext ctx) =>
+                {
+                    if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
+                    using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+                    var dto = new VerifyCallbackDto { DirectorId = _directorId, Nonce = nonce, Known = _monitor.RecordCallback(nonce) };
+                    var json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(dto);
+                    await ws.SendAsync(json, System.Net.WebSockets.WebSocketMessageType.Text, endOfMessage: true, ctx.RequestAborted);
+                    await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "done", ctx.RequestAborted);
+                });
+            }
+            else if (_streamLeg == StreamLeg.Reject)
+            {
+                _app.MapGet("/verify-ws/{nonce}", () => Results.StatusCode(StatusCodes.Status500InternalServerError));
+            }
+            // StreamLeg.Missing: deliberately map nothing -> the upgrade gets a 404.
+
             await _app.StartAsync();
         }
 
@@ -267,6 +362,9 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
             if (_app is not null) await _app.DisposeAsync();
         }
     }
+
+    /// <summary>How a <see cref="CallbackHost"/> answers the stream-leg (/verify-ws) probe.</summary>
+    private enum StreamLeg { Echo, Missing, Reject }
 
     /// <summary>
     /// A gateway that accepts registration and FABRICATES a passing verify verdict

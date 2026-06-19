@@ -1,0 +1,16 @@
+QA re-verification (issue #513, PR #514) - negative proof: Realtime WebSocket never opened on batch path
+Director log: director-2026-06-17-49448.log (slot-11, svchost-launched per CLAUDE.md rule 0b)
+
+grep -c -i "realtime"            -> 0
+grep -i "wss://api.openai.com"   -> (none)
+grep -i "OpenAiRealtimeProvider" -> (none)
+grep -i "intent=transcription"   -> (none)
+
+The DevThrottle/batch dictation session connected and started via OpenAiTranscriptionProvider
+(batch /audio/transcriptions). No OpenAI Realtime WebSocket was ever constructed or opened.
+
+QA re-verification - negative proof: BYO OpenAI key never used / sent in DevThrottle mode
+grep -i "sk-"            -> (none)
+grep -i "api.openai.com" -> (none)
+grep -i "OPENAI_API_KEY" -> (none)
+Only baseUrl resolved this session: https://devthrottle.com

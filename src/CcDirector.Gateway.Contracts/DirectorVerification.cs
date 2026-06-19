@@ -47,6 +47,24 @@ public sealed class DirectorVerifyResultDto
     /// <summary>Round-trip time of the callback leg in milliseconds.</summary>
     public long CallbackLatencyMs { get; set; }
 
+    /// <summary>
+    /// Leg 3 (stream): did a real WebSocket UPGRADE to {endpoint}/verify-ws/{nonce} succeed and
+    /// echo the right Director id? This is the path the Cockpit terminal stream uses, so it can
+    /// fail even when <see cref="CallbackOk"/> (plain HTTP) passes. False when the leg failed OR
+    /// when it was not applicable (old Director without the endpoint - see <see cref="StreamError"/>).
+    /// </summary>
+    public bool StreamOk { get; set; }
+
+    /// <summary>
+    /// Why leg 3 failed, OR a benign note that it was not tested (a Director predating /verify-ws).
+    /// Null when the stream leg passed. The Gateway only stamps <see cref="DirectorDto.StreamVerifyError"/>
+    /// for a REAL failure, never for "not applicable", so an old Director reads as unknown, not broken.
+    /// </summary>
+    public string? StreamError { get; set; }
+
+    /// <summary>Round-trip time of the stream (WebSocket upgrade) leg in milliseconds.</summary>
+    public long StreamLatencyMs { get; set; }
+
     /// <summary>Gateway UTC time the verdict was produced.</summary>
     public DateTime VerifiedAt { get; set; }
 }

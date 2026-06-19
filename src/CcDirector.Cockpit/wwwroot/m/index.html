@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1020" />
+<title>Wingman Voice</title>
+<link rel="stylesheet" href="/m/m.css?v=20" />
+</head>
+<body>
+  <!-- ============ Session list ============ -->
+  <section id="list-view" class="view">
+    <header class="bar">
+      <h1>Wingman Voice</h1>
+      <span class="ver">v20</span>
+      <button id="refresh-btn" class="ghost" type="button" title="Refresh">Refresh</button>
+    </header>
+    <p id="list-status" class="status-line">Loading sessions...</p>
+    <ul id="session-list" class="sessions"></ul>
+  </section>
+
+  <!-- ============ One session: voice-first ============ -->
+  <section id="session-view" class="view hidden">
+    <header class="bar">
+      <button id="back-btn" class="ghost back-btn" type="button">&larr; Sessions</button>
+      <h1 id="sv-name" class="sv-name">Session</h1>
+    </header>
+
+    <div class="sv-meta">
+      <span id="sv-dot" class="dot"></span>
+      <span id="sv-state" class="muted">&mdash;</span>
+      <span id="sv-machine" class="muted"></span>
+    </div>
+
+    <!-- The big controls. They stay in the same place and are large enough to use while driving. -->
+    <div class="controls">
+      <div id="hero-status" class="hero-status">&nbsp;</div>
+
+      <button id="play-btn" class="big-play" type="button" aria-label="Play the summary" disabled>
+        <span class="tri">&#9654;</span>
+      </button>
+
+      <!-- On-screen menu the agent is showing: tap an option, or just say your pick. -->
+      <div id="menu-box" class="menu-box hidden"></div>
+
+      <!-- Talk: tap to record. It interrupts anything playing and starts recording immediately. -->
+      <button id="talk-btn" class="big-talk" type="button">Tap to talk to the agent</button>
+      <button id="talk-wingman-btn" class="talk-wingman" type="button">Talk to the wingman</button>
+
+      <!-- While recording (replaces Talk): Cancel / Send, like the native app. -->
+      <div id="rec-controls" class="rec-controls hidden">
+        <div class="rec-indicator"><span class="rec-dot"></span> <span id="rec-target">Recording</span> <span id="rec-time">0:00</span></div>
+        <div class="rec-btns">
+          <button id="cancel-btn" class="cancel" type="button">Cancel</button>
+          <button id="send-btn" class="send-rec" type="button">Send</button>
+        </div>
+      </div>
+
+      <!-- While a recording uploads (session blocked, keeps trying on its own). -->
+      <div id="sending-status" class="sending-status hidden">
+        <span class="spin-sm"></span>
+        <span id="sending-text">Sending... it will keep trying until it gets through.</span>
+      </div>
+
+      <!-- Prominent "it's working" status shown from the moment your message goes in until the
+           wingman's summary is ready. -->
+      <div id="busy-bar" class="busy-bar hidden">
+        <span class="spin-sm"></span>
+        <span id="busy-text">Working...</span>
+      </div>
+
+      <button id="explain-btn" class="explain" type="button">Explain</button>
+    </div>
+
+    <div id="error-box" class="error-box hidden"></div>
+
+    <!-- The text lives at the very bottom, collapsed. Scroll down and expand it only if you want it. -->
+    <details id="text-section" class="text-section">
+      <summary>Show text</summary>
+      <div id="hero-summary" class="hero-summary"></div>
+      <details id="full-wrap" class="full hidden">
+        <summary>Show the agent's full reply</summary>
+        <pre id="full-text" class="full-body"></pre>
+      </details>
+      <textarea id="typed-text" rows="2" inputmode="text" placeholder="Type a message instead"></textarea>
+      <div class="ask-btns">
+        <button id="ask-agent-btn" class="primary" type="button">Send to agent</button>
+        <button id="ask-wingman-btn" class="secondary" type="button">Ask the wingman</button>
+      </div>
+    </details>
+
+    <!-- Session lifecycle: park it (on hold -> gray) or finish it (kill). Large bottom tap targets
+         so they're usable on mobile / while driving. Kill arms on first tap, kills on the second. -->
+    <div class="session-actions">
+      <button id="hold-btn" class="act-btn act-hold" type="button">Put on hold</button>
+      <button id="kill-btn" class="act-btn act-kill" type="button">Kill session</button>
+    </div>
+  </section>
+
+  <audio id="tts-audio" preload="auto" hidden></audio>
+  <script src="/m/m.js?v=20"></script>
+</body>
+</html>

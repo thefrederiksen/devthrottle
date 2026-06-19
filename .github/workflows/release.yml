@@ -195,6 +195,41 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
+  # Job 1c2: Build the CC Launcher tray app (Windows)
+  # ---------------------------------------------------------------
+  # The always-on Windows tray launcher (issue #250): clean process parentage + a loopback REST API,
+  # supervises the Director, and self-updates in managed mode (docs/plans/cc-launcher.md). Ships to
+  # BOTH roles. AssemblyName is "cc-launcher", so the published single file is cc-launcher.exe; the
+  # create-release job renames it to the asset name the setup engine expects
+  # (ComponentRegistry.Launcher.WindowsAsset = cc-launcher-win-x64.exe).
+  build-launcher-win:
+    name: Build CC Launcher (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Launcher tray app for Windows x64
+        # Framework-dependent: requires the .NET 10 ASP.NET Core + desktop runtime on the target.
+        run: >
+          dotnet publish src/CcDirector.Launcher/CcDirector.Launcher.csproj
+          -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-win
+          path: src/CcDirector.Launcher/bin/Release/net10.0-windows/win-x64/publish/cc-launcher.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
   # Job 1d: Build the CC Cockpit web app (Windows)
   # ---------------------------------------------------------------
   # Blazor Server web UI (port 7470) supervised by the Gateway service. Unlike the
@@ -330,6 +365,7 @@ jobs:
       - build-director-win
       - build-director-mac
       - build-gateway-win
+      - build-launcher-win
       - build-cockpit-win
       - build-python-bundle-win
       - build-python-bundle-mac
@@ -379,6 +415,9 @@ jobs:
           # Windows Gateway service (publish emits devthrottle-gateway.exe)
           cp release-artifacts/gateway-win/devthrottle-gateway.exe "$RELEASE_DIR/devthrottle-gateway-win-x64.exe"
 
+          # Windows Launcher tray app (publish emits cc-launcher.exe)
+          cp release-artifacts/launcher-win/cc-launcher.exe "$RELEASE_DIR/cc-launcher-win-x64.exe"
+
           # Windows Cockpit web app (already the zip name the engine expects)
           cp release-artifacts/cockpit-win/devthrottle-cockpit-win-x64.zip "$RELEASE_DIR/devthrottle-cockpit-win-x64.zip"
 
@@ -407,6 +446,7 @@ jobs:
             cc-director-win-x64.exe
             cc-director-mac-arm64.zip
             devthrottle-gateway-win-x64.exe
+            cc-launcher-win-x64.exe
             devthrottle-cockpit-win-x64.zip
             devthrottle-setup-win-x64.exe
             devthrottle-setup-cli-win-x64.exe

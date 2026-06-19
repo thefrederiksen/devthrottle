@@ -146,17 +146,22 @@ internal static class DictationEndpoint
 
         var profile = TryReadString(startMsg, "profile", out var p) && !string.IsNullOrWhiteSpace(p) ? p : "default";
 
-        // Resolve the OpenAI key for this Director's mode: the Gateway vault when attached to a
-        // Gateway, the local Settings > Voice key when standalone. No key -> dictation is
-        // unavailable; tell the user where to set one rather than failing with a raw error.
-        var apiKey = await keyResolver.ResolveAsync(ct);
-        if (string.IsNullOrWhiteSpace(apiKey))
+        // Resolve the transcription routing target for this Director's mode (issue #497):
+        //   - BYO   -> the user's own OpenAI key against api.openai.com (the live Realtime path).
+        //   - DevThrottle -> a dt_ key against devthrottle.com's OpenAI-compatible managed proxy.
+        // The key comes from the Gateway vault when attached, the local Settings > Voice key when
+        // standalone (BYO only). No key -> dictation is unavailable; tell the user where to set one
+        // rather than failing with a raw error. The BYO OpenAI key is only ever paired with the
+        // OpenAI base URL - it is never sent to devthrottle.com.
+        var endpoint = await keyResolver.ResolveEndpointAsync(ct);
+        if (endpoint is null)
         {
-            FileLog.Write($"[DictationEndpoint] no OpenAI key available (usesGateway={keyResolver.UsesGateway})");
+            FileLog.Write($"[DictationEndpoint] no transcription key available (usesGateway={keyResolver.UsesGateway})");
             await TrySendErrorAsync(ws, keyResolver.UnavailableMessage, ct);
             await TryCloseAsync(ws, WebSocketCloseStatus.PolicyViolation, "no api key");
             return;
         }
+        var apiKey = endpoint.ApiKey;
 
         // Build the dictation pipeline for this connection. Always streaming
         // (PCM16 from the browser's AudioWorklet to the OpenAI Realtime API).
@@ -169,20 +174,30 @@ internal static class DictationEndpoint
         var dictPath = options.ResolveDictationDictionaryPath();
         using var dictionary = new DictionaryLoader(dictPath, watch: false);
 
-        IDictationProvider provider = new OpenAiRealtimeProvider(apiKey: apiKey);
-
-        using var cleanup = new CleanupOrchestrator(
-            apiKey: apiKey,
-            model: options.DictationCleanupModel);
+        // Route the pipeline by the routing TRANSPORT (issue #513), not the mode name: the routing
+        // target now declares which wire the provider offers, and the pipeline honors exactly that.
+        //   - realtime (BYO/OpenAI): the OpenAI Realtime WebSocket provider (true low-latency
+        //     partials) against api.openai.com, with gpt-4o-transcribe, chat-completions cleanup, and
+        //     the live preview - the existing path.
+        //   - batch (DevThrottle/Groq): the OpenAI-COMPATIBLE batch endpoint
+        //     (POST /audio/transcriptions) at devthrottle.com/api/v1 with whisper-large-v3. Groq has
+        //     NO Realtime API, so the Realtime WebSocket is NEVER opened for a batch transport. Cleanup
+        //     is SKIPPED (DevThrottle has no inference proxy and Whisper output is already clean - we
+        //     do not route the cleanup LLM call to OpenAI in DevThrottle mode), and there is no
+        //     streaming preview. The pipeline delivers one final raw transcript.
+        // The provider-correct model travels with the routing target (issue #506/#513): on a Gateway
+        // the Gateway serves it, standalone it is the per-mode value. The selected provider takes it.
+        FileLog.Write($"[DictationEndpoint] routing: mode={endpoint.Mode.ToConfigString()} "
+                      + $"transport={endpoint.Transport.ToConfigString()} model={endpoint.Model} baseUrl={endpoint.BaseUrl}");
+        var pipeline = BuildPipelineComponents(endpoint, apiKey, options);
+        var provider = pipeline.Provider;
+        // The session owns the provider and the live preview (it disposes them); only the cleanup
+        // orchestrator is disposed here. In batch/DevThrottle mode cleanup and preview are null.
+        using var cleanup = pipeline.Cleanup;
+        var preview = pipeline.Preview;
 
         var bufferSpillDir = ResolveBufferSpillDir();
         using var audioBuffer = new AudioBuffer(spillDirectory: bufferSpillDir);
-        // Live transcript preview (#215): the browser gets "partial" frames
-        // continuously while the user talks, not only at the final commit.
-        // The session owns and disposes it.
-        var preview = new LivePreviewTranscriber(
-            apiKey: apiKey,
-            model: options.DictationPreviewModel);
         await using var session = new DictationSession(dictionary, provider, cleanup, audioBuffer, preview);
 
         session.OnPartial += partial =>
@@ -379,6 +394,58 @@ internal static class DictationEndpoint
             clientError);
 
         await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "done");
+    }
+
+    /// <summary>
+    /// The dictation components selected for a resolved routing target (issue #513). Pure data:
+    /// the provider, an optional cleanup pass, and an optional live preview. The batch/DevThrottle
+    /// shape is (batch provider, no cleanup, no preview); the realtime/BYO shape is (realtime
+    /// provider, cleanup, preview).
+    /// </summary>
+    internal readonly record struct PipelineComponents(
+        IDictationProvider Provider,
+        CleanupOrchestrator? Cleanup,
+        LivePreviewTranscriber? Preview);
+
+    /// <summary>
+    /// Select the dictation components from the routing TRANSPORT (issue #513), not the mode name -
+    /// so the pipeline honors exactly the wire the provider offers and NEVER opens a transport the
+    /// provider does not support. Pure (no I/O, no WebSocket); the connect happens later via the
+    /// returned components, which is what makes this selection unit-testable.
+    ///
+    ///   - <see cref="TranscriptionTransport.Batch"/> (DevThrottle/Groq): the batch
+    ///     <see cref="OpenAiTranscriptionProvider"/> against /audio/transcriptions, NO cleanup
+    ///     (DevThrottle has no inference proxy; Whisper output is already clean), NO preview.
+    ///     The OpenAI Realtime WebSocket is never constructed.
+    ///   - <see cref="TranscriptionTransport.Realtime"/> (BYO/OpenAI): the
+    ///     <see cref="OpenAiRealtimeProvider"/>, plus cleanup and the live preview.
+    /// </summary>
+    internal static PipelineComponents BuildPipelineComponents(
+        ResolvedTranscription endpoint, string apiKey, AgentOptions options)
+    {
+        if (endpoint is null) throw new ArgumentNullException(nameof(endpoint));
+
+        if (endpoint.Transport == TranscriptionTransport.Batch)
+        {
+            var batchProvider = new OpenAiTranscriptionProvider(
+                apiKey: apiKey,
+                model: endpoint.Model,
+                audioContentType: "audio/wav",
+                audioFileName: "audio.wav",
+                baseUrl: endpoint.BaseUrl);
+            return new PipelineComponents(batchProvider, Cleanup: null, Preview: null);
+        }
+
+        var realtimeProvider = new OpenAiRealtimeProvider(apiKey: apiKey, model: endpoint.Model);
+        var cleanup = new CleanupOrchestrator(
+            apiKey: apiKey,
+            model: options.DictationCleanupModel,
+            baseUrl: endpoint.BaseUrl);
+        var preview = new LivePreviewTranscriber(
+            apiKey: apiKey,
+            model: options.DictationPreviewModel,
+            baseUrl: endpoint.BaseUrl);
+        return new PipelineComponents(realtimeProvider, cleanup, preview);
     }
 
     private static string ResolveBufferSpillDir()

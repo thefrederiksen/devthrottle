@@ -47,6 +47,7 @@ internal static class GatewayEndpoints
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
+        Func<string, bool>? voiceGeneratingFor = null,
         Func<string, bool, DateTime?>? needsYouStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
@@ -313,6 +314,24 @@ internal static class GatewayEndpoints
             var (ok, error) = await client.VerifyCallbackAsync(endpoint, id, req.Nonce, ct);
             sw.Stop();
 
+            // Leg 3 (stream): prove the WebSocket UPGRADE path the Cockpit terminal stream uses -
+            // the leg that was silently broken cross-machine while plain HTTP verify stayed green.
+            // Only run it when the HTTP callback already reached the right Director: if leg 2
+            // failed the endpoint is unreachable anyway, so leg 2's reason stands and we skip the
+            // extra round-trip.
+            bool streamOk = false; string? streamError = null; long streamMs = 0; bool streamApplicable = false;
+            if (ok)
+            {
+                var swStream = System.Diagnostics.Stopwatch.StartNew();
+                (streamOk, streamError, streamApplicable) = await client.VerifyStreamCallbackAsync(endpoint, id, req.Nonce, ct);
+                swStream.Stop();
+                streamMs = swStream.ElapsedMilliseconds;
+                // Only stamp a verdict when the leg was applicable; an old Director (no /verify-ws)
+                // stays "unknown" (both stream fields null) rather than reading as broken.
+                if (streamApplicable)
+                    registry.MarkStreamVerified(id, streamOk, streamError);
+            }
+
             if (ok)
             {
                 registry.MarkTwoWayVerified(id);
@@ -321,7 +340,7 @@ internal static class GatewayEndpoints
                 // for the next fleet poll to coincide with a closed breaker.
                 registry.RecordReachable(id);
             }
-            FileLog.Write($"[GatewayEndpoints] verify {id}: callbackOk={ok}, endpoint={endpoint}, {sw.ElapsedMilliseconds}ms{(ok ? "" : $", error={error}")}");
+            FileLog.Write($"[GatewayEndpoints] verify {id}: callbackOk={ok}, streamOk={streamOk} (applicable={streamApplicable}), endpoint={endpoint}, {sw.ElapsedMilliseconds}ms{(ok ? "" : $", error={error}")}{(streamApplicable && !streamOk ? $", streamError={streamError}" : "")}");
 
             return Results.Json(new DirectorVerifyResultDto
             {
@@ -331,6 +350,9 @@ internal static class GatewayEndpoints
                 CallbackError = error,
                 CallbackEndpoint = endpoint,
                 CallbackLatencyMs = sw.ElapsedMilliseconds,
+                StreamOk = streamOk,
+                StreamError = streamApplicable ? streamError : (ok ? "stream verify not supported by this Director version" : null),
+                StreamLatencyMs = streamMs,
                 VerifiedAt = DateTime.UtcNow,
             });
         });
@@ -477,6 +499,18 @@ internal static class GatewayEndpoints
                         var (briefingState, railLine) = briefStampFor(s.SessionId);
                         s.BriefingState = briefingState;
                         s.RailLine = railLine;
+                    }
+                    // Issue #531 voice mode: while the gateway's warm-brain wingman is producing this
+                    // session's spoken summary, present it through the SAME yellow "wingman reading"
+                    // window (red -> yellow -> red). Gated on raw red so a working (blue) session is
+                    // untouched, and on a brief agent NOT already claiming the yellow/orange window.
+                    // Works with the brief agent OFF (CC_TURNBRIEFS=0) and never spawns a --print explain.
+                    if (voiceGeneratingFor is not null
+                        && (s.BriefingState is null or "None" or "Briefed")
+                        && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+                        && voiceGeneratingFor(s.SessionId))
+                    {
+                        s.BriefingState = "Briefing";
                     }
                     // Issue #218: stamp NeedsYouSince AFTER the briefing/rail fields above, so the
                     // EffectiveColor fold sees this refresh's final BriefingState/RailLine/OnHold -

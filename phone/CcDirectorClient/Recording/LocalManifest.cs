@@ -58,6 +58,16 @@ public sealed class LocalManifest
     public string? VaultDocId { get; set; }
     public string? Transcript { get; set; }
 
+    // True once the server has ACKNOWLEDGED the complete call (HTTP 202): the
+    // manifest - including the NOTES - is delivered and server-side transcription
+    // is queued. This is the phone's real terminal condition, NOT State=="Uploaded".
+    // The notes ride ONLY on the complete call, so until this is true the recording
+    // stays in the upload queue and the complete call is retried - a dropped request
+    // (or the app being killed between uploading the audio and completing) can never
+    // strand the notes. Whether server-side transcription itself then succeeds is the
+    // Gateway's concern, not the phone's.
+    public bool Completed { get; set; }
+
     // Human-readable progress for the upload pass currently in flight (e.g.
     // "Sending segment 3/5"). Persisted so the library row reflects it live
     // whether the upload is driven by the app or the background WorkManager
@@ -89,4 +99,5 @@ public sealed record RecordingSummary(
     int UploadCurrent,
     int UploadTotal,
     string? TranscriptionState,
-    string? TranscriptError);
+    string? TranscriptError,
+    bool Completed = false);

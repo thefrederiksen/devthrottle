@@ -43,11 +43,13 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Gateway/Tailscale/TailscaleServeProvisioner.cs"] = "Maps the tailnet front door to local loopback backends.",
         ["src/CcDirector.Gateway/Api/RecordingEndpoints.cs"] = "Local recording paths.",
         ["src/CcDirector.Gateway/Api/MachineEndpoints.cs"] = "Same-machine relay/launcher wiring.",
+        ["src/CcDirector.Gateway/Running/IDirectorLauncher.cs"] = "RelayDirectorLauncher posts to the local Gateway's own loopback port to relay a Director start request (same-machine self-call to the Gateway's own /machines/{machine}/director/start endpoint).",
         ["src/CcDirector.GatewayApp/Program.cs"] = "Local Gateway bootstrap.",
         ["src/CcDirector.GatewayApp/GatewayTrayController.cs"] = "Opens the local Cockpit/Gateway via loopback.",
         ["src/CcDirector.GatewayApp/SettingsWindow.axaml.cs"] = "Local settings UI references.",
         ["src/CcDirector.Launcher/DirectorSupervisor.cs"] = "Supervises a local Director over loopback.",
         ["src/CcDirector.Launcher/LauncherHost.cs"] = "Local launcher loopback bind.",
+        ["src/CcDirector.Launcher/Program.cs"] = "Self-update helper POSTs /shutdown + probes /healthz on the launcher's own loopback (same machine).",
         ["src/CcDirector.Cockpit/Program.cs"] = "Cockpit child binds loopback; fronted by the Gateway.",
 
         // --- Loopback DETECTION / classification / labelling (the no-loopback policy itself) ---

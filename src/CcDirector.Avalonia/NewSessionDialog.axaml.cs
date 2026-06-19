@@ -10,7 +10,6 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
@@ -368,6 +367,31 @@ public sealed class GroupMemberPreview
     public ISolidColorBrush BadgeBrush { get; }
 }
 
+/// <summary>
+/// One selectable agent option in the New Session "Agent:" row (issue #490). Wraps a single
+/// ENABLED <see cref="AgentEntry"/> from the ordered <c>agent.entries</c> list (#489) so the
+/// XAML radio template binds to a plain display name and a two-way selection flag. The whole
+/// row is rendered from these in stored order; the first one is pre-selected when the dialog
+/// opens. There is no separate "default" concept - first-in-order is the selection.
+/// </summary>
+public sealed class AgentEntryOption
+{
+    public AgentEntryOption(AgentEntry entry, bool isSelected)
+    {
+        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
+        IsSelected = isSelected;
+    }
+
+    /// <summary>The underlying configured agent entry this option launches.</summary>
+    public AgentEntry Entry { get; }
+
+    /// <summary>The label shown on the radio - the entry's free-text display name.</summary>
+    public string DisplayName => Entry.DisplayName;
+
+    /// <summary>Two-way bound to the radio's IsChecked; exactly one option is selected at a time.</summary>
+    public bool IsSelected { get; set; }
+}
+
 public partial class NewSessionDialog : Window
 {
     private static readonly ISolidColorBrush ResumeButtonBrush = new SolidColorBrush(Color.Parse("#22C55E"));
@@ -415,19 +439,25 @@ public partial class NewSessionDialog : Window
     public bool WingmanEnabled => WingmanCheckBox?.IsChecked == true;
     public bool IsStudioMode => false;
 
-    /// <summary>The agent the user selected via the radio buttons. Defaults to ClaudeCode.</summary>
-    public AgentKind SelectedAgentKind
-    {
-        get
-        {
-            if (AgentRadioPi?.IsChecked == true) return AgentKind.Pi;
-            if (AgentRadioCodex?.IsChecked == true) return AgentKind.Codex;
-            if (AgentRadioGemini?.IsChecked == true) return AgentKind.Gemini;
-            if (AgentRadioOpenCode?.IsChecked == true) return AgentKind.OpenCode;
-            if (AgentRadioRawCli?.IsChecked == true) return AgentKind.RawCli;
-            return AgentKind.ClaudeCode;
-        }
-    }
+    /// <summary>
+    /// The enabled agent entries shown in the picker (issue #490), in stored order. Built once in
+    /// the constructor from <c>agent.entries</c> (#489); the bound radio list and the launch both
+    /// read from this. Empty when the user has no enabled agents configured.
+    /// </summary>
+    private readonly List<AgentEntryOption> _agentOptions = new();
+
+    /// <summary>
+    /// The configured agent entry the user selected in the "Agent:" row (issue #490), or null when
+    /// no enabled entry exists. The launch reads this entry's type/path/preset/model/args. The
+    /// selected radio is the first option with <see cref="AgentEntryOption.IsSelected"/> set.
+    /// </summary>
+    public AgentEntry? SelectedAgentEntry =>
+        _agentOptions.FirstOrDefault(o => o.IsSelected)?.Entry
+        ?? _agentOptions.FirstOrDefault()?.Entry;
+
+    /// <summary>The agent KIND of the selected entry (issue #490). Defaults to ClaudeCode when
+    /// no entry is selected, preserving the legacy default for callers.</summary>
+    public AgentKind SelectedAgentKind => SelectedAgentEntry?.Type ?? AgentKind.ClaudeCode;
 
     /// <summary>The session type chosen in the Type dropdown (issue #211, redesigned to a
     /// ComboBox in #254). Each ComboBoxItem carries its enum name in Tag. Defaults to
@@ -484,11 +514,6 @@ public partial class NewSessionDialog : Window
         FileLog.Write($"[NewSessionDialog] GroupCombo_SelectionChanged: group={group?.Name}, members={group?.Members.Count ?? 0}");
     }
 
-    /// <summary>An agent shows outside alpha when it has either a verified driver or the
-    /// Settings > Agents safe version check validated the currently configured CLI path.</summary>
-    private static bool IsAgentSelectableOutsideAlpha(AgentKind kind, AgentOptions options) =>
-        AgentDrivers.For(kind) is not GenericDriver || ToolDetectionService.IsToolValidated(kind, options);
-
     private static AgentOptions CurrentOptions()
     {
         FileLog.Write("[NewSessionDialog] CurrentOptions");
@@ -508,20 +533,16 @@ public partial class NewSessionDialog : Window
         // quick-launch cards are alpha features - hidden by default. The dialog is
         // created fresh each time, so reading the flag once here is enough.
         //
-        // Agent picker rule (2026-06-06): a CLI graduates from alpha when Settings >
-        // Agents has a successful Test result for the currently configured executable.
-        // Verified drivers (Claude/Pi) are still shipped by default; GenericDriver CLIs
-        // are selectable as soon as the user proves the CLI itself is installed/working.
+        // The AGENT LIST no longer consults alpha (issue #490): it renders one option per
+        // ENABLED agent.entries entry (#489), in stored order, the first pre-selected. Only
+        // the non-agent surfaces below still gate on alpha.
         var alpha = AlphaMode.IsEnabled;
-        var options = CurrentOptions();
         AgentPickerPanel.IsVisible = true;
-        AgentRadioCodex.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Codex, options);
-        AgentRadioGemini.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Gemini, options);
-        AgentRadioOpenCode.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.OpenCode, options);
+        LoadAgentEntries();
         HandoversTab.IsVisible = true;
         GitHubTab.IsVisible = alpha;
         QuickLaunchPanel.IsVisible = alpha;
-        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, codexVisible={AgentRadioCodex.IsVisible}, geminiVisible={AgentRadioGemini.IsVisible}, openCodeVisible={AgentRadioOpenCode.IsVisible}");
+        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, enabledAgents={_agentOptions.Count}");
 
         // Set dialog size to 80% of primary screen
         var screen = Screens.Primary;
@@ -563,36 +584,94 @@ public partial class NewSessionDialog : Window
     // Parameterless constructor for XAML designer
     public NewSessionDialog() : this(null, null) { }
 
+    /// <summary>
+    /// Build the agent picker (issue #490) from the ENABLED <c>agent.entries</c> (#489), in stored
+    /// order. The first enabled entry is pre-selected. When no enabled entry exists, the picker is
+    /// empty and a hint points the user at Settings; the Start button stays disabled for that case.
+    /// </summary>
+    private void LoadAgentEntries()
+    {
+        FileLog.Write("[NewSessionDialog] LoadAgentEntries");
+
+        _agentOptions.Clear();
+        var entries = AgentEntryStore.LoadEntries(CurrentOptions());
+        var enabled = entries.Where(e => e.Enabled).ToList();
+        for (var i = 0; i < enabled.Count; i++)
+            _agentOptions.Add(new AgentEntryOption(enabled[i], isSelected: i == 0));
+
+        AgentEntryList.ItemsSource = _agentOptions;
+        NoAgentsHint.IsVisible = _agentOptions.Count == 0;
+
+        // Reflect the pre-selected entry into the Claude-flag and Custom-CLI panel state.
+        ApplyAgentSelection();
+
+        FileLog.Write($"[NewSessionDialog] LoadAgentEntries: {entries.Count} entries, {_agentOptions.Count} enabled, first={(_agentOptions.FirstOrDefault()?.DisplayName ?? "(none)")}");
+    }
+
     private void AgentRadio_CheckedChanged(object? sender, RoutedEventArgs e)
     {
         try
         {
-            // Both radios fire when the selection swaps; only act on the one becoming checked
-            // to avoid running this twice per click.
+            // Every radio in the group fires when the selection swaps; only act on the one
+            // becoming checked. Drive the model selection from the sender's bound option rather
+            // than the two-way binding, which may not have propagated IsSelected yet at this point.
             if (sender is not RadioButton rb || rb.IsChecked != true) return;
+            if (rb.DataContext is not AgentEntryOption chosen) return;
 
-            var agentKind = SelectedAgentKind;
+            foreach (var option in _agentOptions)
+                option.IsSelected = ReferenceEquals(option, chosen);
 
-            // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
-            // when the user picks a non-Claude agent so the UI does not mislead.
-            var isClaude = agentKind == AgentKind.ClaudeCode;
-            if (BypassPermissionsCheckBox is not null)
-                BypassPermissionsCheckBox.IsEnabled = isClaude;
-
-            // Show the custom-CLI command/args panel only when "Custom CLI" is selected.
-            if (CustomCliPanel is not null)
-                CustomCliPanel.IsVisible = agentKind == AgentKind.RawCli;
-
-            // Refresh the Start button - it is disabled when Custom CLI is chosen but
-            // the Command box is empty (validated inside UpdateActionButton).
-            UpdateActionButton();
-
-            FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged: agent={agentKind}");
+            ApplyAgentSelection();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged FAILED: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Apply the consequences of the currently selected agent entry (issue #490): the
+    /// BypassPermissions checkbox is Claude-only, and the Custom-CLI command/args panel shows only
+    /// for a RawCli entry (seeded once from the entry's configured executable/args). Safe to call
+    /// before the UI is fully built.
+    /// </summary>
+    private void ApplyAgentSelection()
+    {
+        var entry = SelectedAgentEntry;
+        var agentKind = entry?.Type ?? AgentKind.ClaudeCode;
+
+        // The Bypass-permissions checkbox maps to each agent's permission-bypass flag:
+        // Claude's --dangerously-skip-permissions and Cursor's --force (issue #517). It is
+        // enabled for those two and disabled (with a neutral label) for agents that have no
+        // such per-session flag, so the UI never misleads.
+        var isClaude = agentKind == AgentKind.ClaudeCode;
+        var isCursor = agentKind == AgentKind.Cursor;
+        if (BypassPermissionsCheckBox is not null)
+        {
+            BypassPermissionsCheckBox.IsEnabled = isClaude || isCursor;
+            BypassPermissionsCheckBox.Content = isCursor
+                ? "Bypass permission prompts (--force)"
+                : "Bypass permission prompts";
+        }
+
+        // Show the custom-CLI command/args panel only when a Custom CLI entry is selected, and
+        // seed it from the entry's configured executable/args so the user sees what will run.
+        var isRawCli = agentKind == AgentKind.RawCli;
+        if (CustomCliPanel is not null)
+            CustomCliPanel.IsVisible = isRawCli;
+        if (isRawCli && entry is not null && CustomCommandBox is not null
+            && string.IsNullOrWhiteSpace(CustomCommandBox.Text))
+        {
+            CustomCommandBox.Text = entry.ExecutablePath;
+            if (CustomArgsBox is not null && string.IsNullOrWhiteSpace(CustomArgsBox.Text))
+                CustomArgsBox.Text = entry.ArgsOverride;
+        }
+
+        // Refresh the Start button - it is disabled when Custom CLI is chosen but
+        // the Command box is empty (validated inside UpdateActionButton).
+        UpdateActionButton();
+
+        FileLog.Write($"[NewSessionDialog] ApplyAgentSelection: agent={agentKind}, entry={(entry?.DisplayName ?? "(none)")}");
     }
 
     private void CustomCommandBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -683,7 +762,9 @@ public partial class NewSessionDialog : Window
             var hasPath = !string.IsNullOrWhiteSpace(PathInput.Text);
             var isRawCli = SelectedAgentKind == AgentKind.RawCli;
             var hasCommand = !isRawCli || !string.IsNullOrWhiteSpace(CustomCommandBox?.Text);
-            var isEnabled = hasPath && hasCommand;
+            // An agent must be configured (issue #490): no enabled agent.entries -> nothing to launch.
+            var hasAgent = SelectedAgentEntry is not null;
+            var isEnabled = hasPath && hasCommand && hasAgent;
             BtnAction.IsEnabled = isEnabled;
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
