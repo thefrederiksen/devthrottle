@@ -284,9 +284,10 @@
   <div class="tab-panel" id="tab-wingman">
     <!-- Wingman config: enable + which tool + which model -->
     <div class="section">
-      <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
-      <p class="hint">The Gateway's always-on intelligence: when enabled it reads every session turn and stamps a brief for the Cockpit's Wingman tab. Choose which agent and model run as the wingman, from the agents registered on this machine. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Disabled by default; changes take effect after a Gateway restart.</p>
-      <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
+      <h2>Wingman <span class="pill">voice agent</span></h2>
+      <p class="hint">Choose which agent and model run as the wingman &mdash; the agent that translates a session into a faithful, speakable summary when you use voice mode. Chosen from the agents registered on this machine. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Changes take effect after a Gateway restart.</p>
+      <!-- "Enable the Wingman" (the old always-on turn-brief pipeline) is hidden: the wingman now runs only when a session enters voice mode. The control is kept in the DOM (hidden) so the existing load/save script keeps working unchanged. -->
+      <label class="chk" style="display:none"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
       <div class="field">
         <label for="brainagent">Agent</label>
         <select id="brainagent" disabled></select>
