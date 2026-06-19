@@ -89,8 +89,11 @@
         // Voice-ready rows show the play triangle INSTEAD of the chevron (keeps the row from
         // overflowing on a narrow phone, and the triangle is the obvious affordance).
         var tail=ready[s.sessionId]?'<button class="scard-play" type="button" aria-label="Play voice">&#9654;</button>':'<span class="scard-chev">&rsaquo;</span>';
-        li.innerHTML='<span class="dot" style="background:'+dotColor(effColor(s))+'"></span><span class="scard-main"><div class="scard-name"></div><div class="scard-sub"></div></span>'+tail;
-        li.querySelector(".scard-name").textContent=titleOf(s);
+        // In-voice-mode ear (issue #554): a vector ear (outer fold + inner canal) sits before the
+        // name when a phone is driving this session by voice (DTO field voiceMode). Never a glyph.
+        var ear=s.voiceMode?'<svg class="ear-icon" viewBox="0 0 24 24" fill="none" aria-label="voice mode" role="img"><path d="M7 11 C7 6.6 10.1 4 12.5 4 C15.5 4 18 6.4 18 9.5 C18 12.4 16 13.7 14.7 14.7 C13.7 15.5 13 16.1 13 17.2 C13 18.7 11.9 19.9 10.4 19.9 C9 19.9 7.9 18.8 7.9 17.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.2 10.4 C10.2 9.1 11.2 8.1 12.5 8.1 C13.8 8.1 14.8 9.1 14.8 10.4 C14.8 11.6 13.9 12.1 13.2 12.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>':'';
+        li.innerHTML='<span class="dot" style="background:'+dotColor(effColor(s))+'"></span><span class="scard-main"><div class="scard-name">'+ear+'<span class="scard-name-text"></span></div><div class="scard-sub"></div></span>'+tail;
+        li.querySelector(".scard-name-text").textContent=titleOf(s);
         li.querySelector(".scard-sub").textContent=(ready[s.sessionId]?"voice ready  -  ":"")+humanState(s.assessedState||s.activityState)+extra;
         // Tapping the row BODY opens the session WITHOUT auto-playing (drive-safe; unchanged).
         li.addEventListener("click", function(){ openSession(s, false); });

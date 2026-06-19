@@ -69,6 +69,7 @@ public class SessionViewModel : INotifyPropertyChanged
         session.OnStatusColorChanged += OnStatusColorChanged;
         session.OnCachedExplainChanged += OnCachedExplainChangedVm;
         session.OnHoldChanged += OnHoldChangedVm;
+        session.OnViewModeChanged += OnViewModeChangedVm;
 
         if (session.PromptQueue != null)
         {
@@ -133,6 +134,16 @@ public class SessionViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(StatusReason));
             OnPropertyChanged(nameof(IsOnHold));
         });
+    }
+
+    /// <summary>True when a phone is currently watching this session through the Voice (in-car)
+    /// tab. Drives the rail's in-voice-mode ear indicator (issue #554). A pure passthrough of
+    /// <see cref="Session.VoiceMode"/> so the rail never reads the model directly.</summary>
+    public bool IsVoiceMode => Session.VoiceMode;
+
+    private void OnViewModeChangedVm(MobileViewMode oldMode, MobileViewMode newMode)
+    {
+        Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(IsVoiceMode)));
     }
 
     private void OnCachedExplainChangedVm()
