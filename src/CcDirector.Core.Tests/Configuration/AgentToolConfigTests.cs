@@ -84,6 +84,18 @@ public class AgentToolConfigTests
     }
 
     [Fact]
+    public void ResolveEffectiveCommandLineArguments_CodexFullAccessPreset_HasFullAccessFlags()
+    {
+        var config = new AgentToolConfig
+        {
+            Tool = AgentKind.Codex,
+            PresetName = AgentToolCatalog.CodexFullAccessPresetName,
+        };
+
+        Assert.Equal(AgentToolCatalog.CodexFullAccessArg, config.ResolveEffectiveCommandLineArguments());
+    }
+
+    [Fact]
     public void ResolveEffectiveCommandLineArguments_AutomaticPresetWithModel_AppendsModelFlag()
     {
         var config = new AgentToolConfig
