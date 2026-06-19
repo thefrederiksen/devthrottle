@@ -1,0 +1,42 @@
+{
+  "title": "DevThrottle Documentation",
+  "description": "Public documentation for DevThrottle (the cc-director desktop app). Served as raw markdown from GitHub - no build step.",
+  "categories": [
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "pages": [
+        { "id": "introduction", "title": "Introduction", "file": "getting-started/01-introduction.md" },
+        { "id": "installation", "title": "Installation", "file": "getting-started/02-installation.md" },
+        { "id": "quick-start", "title": "Quick Start", "file": "getting-started/03-quick-start.md" }
+      ]
+    },
+    {
+      "id": "features",
+      "title": "Features",
+      "pages": [
+        { "id": "overview", "title": "Features Overview", "file": "features/01-overview.md" },
+        { "id": "sessions-and-console", "title": "Sessions and Console", "file": "features/02-sessions-and-console.md" },
+        { "id": "source-control-and-repos", "title": "Source Control and Repositories", "file": "features/03-source-control-and-repos.md" },
+        { "id": "panels", "title": "Built-in Panels", "file": "features/04-panels.md" },
+        { "id": "wingman-and-voice", "title": "Wingman and Voice", "file": "features/05-wingman-and-voice.md" },
+        { "id": "mobile", "title": "Mobile and In-Car", "file": "features/06-mobile.md" },
+        { "id": "dialogs", "title": "Key Dialogs", "file": "features/07-dialogs.md" }
+      ]
+    },
+    {
+      "id": "tools",
+      "title": "Tools",
+      "pages": [
+        { "id": "overview", "title": "Tools Overview", "file": "tools/01-overview.md" }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API",
+      "pages": [
+        { "id": "control-api", "title": "Control API", "file": "api/01-control-api.md" }
+      ]
+    }
+  ]
+}

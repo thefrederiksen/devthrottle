@@ -1,0 +1,295 @@
+# DevThrottle Feature Inventory
+#
+# This is the source-of-truth list of user-facing features in the cc-director
+# desktop app (brand name DevThrottle). It is generated and maintained by the
+# /document-features skill and consumed by:
+#   - scripts/capture-feature-screenshots.ps1  (decides what to screenshot)
+#   - docs/public/features/*.md                 (the published feature pages)
+#   - .github/workflows/docs-drift.yml          (drift check vs. source)
+#
+# Each entry proves a feature exists by pointing at the source file(s) that
+# implement it. "status" is decided from the code, NOT from intent:
+#   implemented - the view/dialog exists and its commands are wired up
+#   partial     - the surface exists but is framework-level / incomplete
+#   planned     - referenced in code or docs but not yet built
+#
+# Editing rules:
+#   - ids are lowercase-kebab-case and stable (used as screenshot stems)
+#   - every "source" path is repo-relative and must exist on disk
+#   - "screenshot" is the file under docs/public/features/assets/ ("" = none yet)
+#   - keep this ASCII-only (no Unicode), per repo standards
+#
+# The desktop window title used by cc-click is "CC Director".
+
+window_title: "CC Director"
+
+categories:
+  - id: main-window
+    title: Main Window and Sessions
+    page: docs/public/features/02-sessions-and-console.md
+  - id: source-control
+    title: Source Control and Repositories
+    page: docs/public/features/03-source-control-and-repos.md
+  - id: panels
+    title: Built-in Panels (Home, Tools, Connections, Scheduler)
+    page: docs/public/features/04-panels.md
+  - id: voice-wingman
+    title: Wingman and Voice
+    page: docs/public/features/05-wingman-and-voice.md
+  - id: mobile
+    title: Mobile and In-Car (phone client)
+    page: docs/public/features/06-mobile.md
+  - id: dialogs
+    title: Key Dialogs
+    page: docs/public/features/07-dialogs.md
+
+features:
+  # --- Main window and sessions -------------------------------------------
+  - id: main-window
+    title: Main Window
+    category: main-window
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/MainWindow.axaml
+      - src/CcDirector.Avalonia/MainWindow.axaml.cs
+    screenshot: main-window.png
+    summary: The mission-control desktop shell - sessions sidebar on the left, tabbed content area, toolbar, and prompt bar.
+
+  - id: session-sidebar
+    title: Session List Sidebar
+    category: main-window
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/MainWindow.axaml
+    screenshot: session-sidebar.png
+    summary: Live list of running sessions with status dots (idle/working/needs-you), agent and identity badges, change counts, drag-to-reorder, and a collapse-to-slim toggle.
+
+  - id: terminal-tab
+    title: Embedded Console Tab
+    category: main-window
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Terminal.Avalonia
+    screenshot: terminal-tab.png
+    summary: A native Windows ConPTY terminal embedded per session, with Capture and Refresh controls and Ctrl+Enter to submit prompts.
+
+  - id: prompt-input-bar
+    title: Prompt Input Bar
+    category: main-window
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/MainWindow.axaml
+      - src/CcDirector.Avalonia/Controls/SessionActionBar.axaml
+    screenshot: prompt-input-bar.png
+    summary: Multi-line prompt box with image drag-and-drop, an Expand editor, an Explain (wingman) button, and Send / Speak / Queue actions plus Stop and Clear-context controls.
+
+  - id: main-toolbar
+    title: Main Toolbar
+    category: main-window
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/MainWindow.axaml
+    screenshot: main-toolbar.png
+    summary: Top toolbar with Director info (machine:port), Tools, Cockpit, Settings, New Session, and Start FIFO.
+
+  # --- Source control and repositories ------------------------------------
+  - id: source-control-tab
+    title: Source Control Tab
+    category: source-control
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/GitChangesView.axaml
+      - src/CcDirector.Avalonia/Controls/GitChangesView.axaml.cs
+    screenshot: source-control-tab.png
+    summary: Tree of uncommitted git changes per session with file status indicators and a right-click menu (View File, Copy Path, Add to .gitignore).
+
+  - id: repository-manager
+    title: Repository Manager
+    category: source-control
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/RepositoryManagerDialog.axaml
+    screenshot: repository-manager.png
+    summary: Manage known repositories and quick-launch sessions from them.
+
+  - id: clone-repo
+    title: Clone Repository
+    category: source-control
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/CloneRepoDialog.axaml
+      - src/CcDirector.Avalonia/GitHubRepoPickerDialog.axaml
+    screenshot: clone-repo.png
+    summary: Clone from a URL or browse GitHub repositories to clone and open.
+
+  # --- Built-in panels ----------------------------------------------------
+  - id: home-view
+    title: Home / Status View
+    category: panels
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/HomeView.axaml
+      - src/CcDirector.Avalonia/Controls/HomeView.axaml.cs
+    screenshot: home-view.png
+    summary: Landing panel with the DevThrottle wordmark and an "All systems go" / "Needs attention" status summary plus a New Session action.
+
+  - id: tools-view
+    title: Tools Catalog
+    category: panels
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/ToolsView.axaml
+      - src/CcDirector.Avalonia/Controls/ToolsView.axaml.cs
+    screenshot: tools-view.png
+    summary: Searchable master-detail catalog of the bundled cc-* command-line tools with status badges and a Run-All-Tests action.
+
+  - id: connections-view
+    title: Connections
+    category: panels
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/ConnectionsView.axaml
+      - src/CcDirector.Avalonia/Controls/ConnectionsView.axaml.cs
+    screenshot: connections-view.png
+    summary: Cards for external service connections showing status, with add/connect/disconnect/delete actions.
+
+  - id: scheduler-view
+    title: Scheduler
+    category: panels
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/SchedulerView.axaml
+      - src/CcDirector.Avalonia/Controls/SchedulerView.axaml.cs
+    screenshot: scheduler-view.png
+    summary: Registered cron runners with leader status, pending counts, a Run-now button, and an expandable last-result output box.
+
+  - id: comm-manager
+    title: Communications Manager
+    category: panels
+    status: partial
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/CommManager/CommManagerView.axaml
+    screenshot: comm-manager.png
+    summary: Compose-and-preview surface for LinkedIn, Twitter/X, and Reddit with scheduling. Preview system present; full send pipeline still being completed.
+
+  # --- Wingman and voice --------------------------------------------------
+  - id: wingman-tab
+    title: Wingman Briefing Tab
+    category: voice-wingman
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/CleanView.axaml
+      - src/CcDirector.Avalonia/Controls/CleanView.axaml.cs
+    screenshot: wingman-tab.png
+    summary: Clean structured briefing of what Claude wants you to do next - verbatim validation, synthesized actions, tap-to-answer buttons, a voice preview, and the final reply rendered as markdown.
+
+  - id: voice-tab
+    title: Voice Tab
+    category: voice-wingman
+    status: implemented
+    screen: main-window
+    source:
+      - src/CcDirector.Avalonia/Controls/VoiceView.axaml
+      - src/CcDirector.Avalonia/Controls/VoiceView.axaml.cs
+    screenshot: voice-tab.png
+    summary: Eyes-free panel with Ask Agent / Ask Wingman buttons and transcript-plus-reply display.
+
+  - id: fifo-window
+    title: FIFO Full-Screen Mode
+    category: voice-wingman
+    status: implemented
+    screen: window
+    source:
+      - src/CcDirector.Avalonia/FifoWindow.axaml
+      - src/CcDirector.Avalonia/FifoWindow.axaml.cs
+    screenshot: fifo-window.png
+    summary: Full-screen, voice-first walkthrough that steps through every session needing attention, with a briefing pane and an optional verification terminal.
+
+  # --- Mobile -------------------------------------------------------------
+  - id: mobile-fifo-voice
+    title: Mobile In-Car Voice (FIFO)
+    category: mobile
+    status: implemented
+    screen: phone
+    source:
+      - phone/CcDirectorClient/FifoPage.xaml
+      - phone/CcDirectorClient/Controls/VoiceSessionView.xaml
+    screenshot: mobile-fifo-voice.png
+    summary: Hands-free phone walkthrough of sessions needing attention - spoken briefing, you said, reply, and tap-to-answer, designed for driving.
+
+  - id: mobile-fifo-text
+    title: Mobile Text (FIFO)
+    category: mobile
+    status: implemented
+    screen: phone
+    source:
+      - phone/CcDirectorClient/FifoTextPage.xaml
+    screenshot: mobile-fifo-text.png
+    summary: The same session walkthrough as a text-first, type-to-respond flow.
+
+  - id: mobile-talk
+    title: Mobile Talk (single session)
+    category: mobile
+    status: implemented
+    screen: phone
+    source:
+      - phone/CcDirectorClient/TalkPage.xaml
+    screenshot: mobile-talk.png
+    summary: Voice conversation with a single chosen session's agent.
+
+  - id: mobile-transcripts
+    title: Mobile Transcripts
+    category: mobile
+    status: implemented
+    screen: phone
+    source:
+      - phone/CcDirectorClient/TranscriptsPage.xaml
+    screenshot: mobile-transcripts.png
+    summary: Review and replay past voice interactions.
+
+  # --- Key dialogs --------------------------------------------------------
+  - id: new-session-dialog
+    title: New Session Dialog
+    category: dialogs
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/NewSessionDialog.axaml
+      - src/CcDirector.Avalonia/NewSessionDialog.axaml.cs
+    screenshot: new-session-dialog.png
+    summary: Create a single session (agent, identity, project, model, effort) or launch a preset multi-session group.
+
+  - id: settings-dialog
+    title: Settings Dialog
+    category: dialogs
+    status: implemented
+    screen: dialog
+    source:
+      - src/CcDirector.Avalonia/SettingsDialog.axaml
+      - src/CcDirector.Avalonia/SettingsDialog.axaml.cs
+    screenshot: settings-dialog.png
+    summary: Multi-tab application settings including permission mode, model override, and effort level, with read-only launch-command previews.
+
+  - id: workflow-editor
+    title: Workflow Editor
+    category: dialogs
+    status: partial
+    screen: window
+    source:
+      - src/CcDirector.Avalonia/WorkflowEditorWindow.axaml
+    screenshot: workflow-editor.png
+    summary: Three-column recorder/editor for desktop automation workflows (step list, editor, canvas). Framework present; not all step types are complete.

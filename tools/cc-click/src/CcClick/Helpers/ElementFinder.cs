@@ -57,11 +57,18 @@ public static class ElementFinder
 
         if (currentDepth > 0) // skip the root
         {
-            if (controlType == null || element.ControlType == controlType)
+            // Reading ControlType can throw on some peers (UIA #30011). Treat an
+            // unreadable type as "does not match a type filter" rather than crashing.
+            bool matches;
+            try { matches = controlType == null || element.ControlType == controlType; }
+            catch { matches = false; }
+            if (matches)
                 results.Add(element);
         }
 
-        var children = element.FindAllChildren();
+        AutomationElement[] children;
+        try { children = element.FindAllChildren(); }
+        catch { return; }
         foreach (var child in children)
         {
             CollectElements(child, controlType, maxDepth, currentDepth + 1, results);
