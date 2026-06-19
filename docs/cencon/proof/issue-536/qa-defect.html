@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Defect Report - Issue 536</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { color: #b00020; }
+  table { border-collapse: collapse; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  .pass { color: #0a7d28; font-weight: 600; }
+  .fail { color: #b00020; font-weight: 600; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Defect Report - Issue 536 (PR 543)</h1>
+<p><strong>Verdict: FAIL (flow:qa-failed)</strong></p>
+<p><strong>Title:</strong> [Voice] /m/ session: enlarge the Sessions back button (bigger tap target)</p>
+
+<h2>Blocking Defect - Acceptance Criterion 5 (cache-bust version not incremented)</h2>
+<p>
+Acceptance Criterion 5 requires: "The page asset cache-busting version
+(<code>m.css?v=</code> / <code>m.js?v=</code> query and the on-screen version label) is incremented
+so the change loads and is not masked by a cached bundle."
+</p>
+<p>
+The Developer report claims the bump was <code>v17 -&gt; v18</code>. However issue 535 had ALREADY
+advanced <code>origin/main</code> to <code>v18</code> before this PR. The PR branch sits at
+<code>v18</code> as well, so it is NOT ahead of main.
+</p>
+
+<table>
+  <tr><th>Location</th><th>origin/main (right now)</th><th>PR branch issue-536</th><th>After merging main into PR</th></tr>
+  <tr><td><code>m.css?v=</code></td><td>18</td><td>18</td><td>18</td></tr>
+  <tr><td><code>m.js?v=</code></td><td>18</td><td>18</td><td>18</td></tr>
+  <tr><td>on-screen <code>.ver</code> label</td><td>v18</td><td>v18</td><td>v18</td></tr>
+</table>
+
+<p>
+<strong>Expected:</strong> cache-bust version on the PR branch (after merging current main) is
+STRICTLY GREATER than <code>v18</code> (e.g. <code>v19</code>), so the new <code>.back-btn</code> CSS
+is fetched rather than masked by the cached <code>v18</code> bundle that issue 535 already shipped to
+clients.<br/>
+<strong>Actual:</strong> version is <code>v18</code> on both branches - EQUAL to main, not ahead.
+Browsers that already cached the <code>m.css?v=18</code> from issue 535 will reuse the cached
+stylesheet and will NOT load the new <code>.back-btn</code> rule. The enlarged tap target would be
+invisible to those users.
+</p>
+<p class="fail">RESULT: FAIL. The merge result leaves the cache-bust version equal to main.</p>
+
+<h2>Note on the substantive change (correct, but masked)</h2>
+<p>
+The CSS rule itself is correct and would satisfy the size criterion if it loaded. For the
+Developer's benefit:
+</p>
+<ul>
+  <li><code>m.css</code> adds <code>.back-btn{flex:0 0 auto;min-height:44px;min-width:44px;padding:10px 16px;font-size:15px;font-weight:600;...}</code> - meets the 44x44 CSS px minimum.</li>
+  <li><code>index.html</code> adds the <code>back-btn</code> class to <code>#back-btn</code> (kept the <code>.ghost</code> color identity).</li>
+</ul>
+
+<h2>Required fix</h2>
+<p>
+Bump the cache-bust version on all three spots in
+<code>src/CcDirector.Cockpit/wwwroot/m/index.html</code> to a value strictly greater than the
+current main (<code>v18</code> -&gt; <code>v19</code>): the <code>m.css?v=</code> query, the
+<code>m.js?v=</code> query, and the on-screen <code>.ver</code> label. Do this on top of a merge of
+current <code>origin/main</code> so it lands ahead of main.
+</p>
+
+<h2>Merge / regression status (informational)</h2>
+<ul>
+  <li>Merging current <code>origin/main</code> into the PR branch is CLEAN - no conflicts.</li>
+  <li>Issues 534 (auto-refresh) and 535 (post-send navigation) merge in cleanly; the only file
+      collision is the back-button change, which is independent.</li>
+</ul>
+<p>The single blocking defect is the cache-bust version not being ahead of main.</p>
+</body>
+</html>
