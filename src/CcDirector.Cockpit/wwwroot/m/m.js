@@ -1,4 +1,4 @@
-// Wingman Voice - standalone mobile screen (issue #531), v7. Plain static JS (not Blazor); recording
+// Wingman Voice - standalone mobile screen (issue #531), v8. Plain static JS (not Blazor); recording
 // works offline; a network-first service worker loads the page offline.
 //
 // Voice-first + proactive:
@@ -20,7 +20,7 @@
   var talkBtn=$("talk-btn"), typedText=$("typed-text"), askAgentBtn=$("ask-agent-btn"), askWingmanBtn=$("ask-wingman-btn");
   var talkWingmanBtn=$("talk-wingman-btn"), recControls=$("rec-controls"), recTime=$("rec-time"), recTarget=$("rec-target"), cancelBtn=$("cancel-btn"), sendBtn=$("send-btn");
   var sendingStatus=$("sending-status"), sendingText=$("sending-text"), busyBar=$("busy-bar"), busyText=$("busy-text"), errorBox=$("error-box"), audioEl=$("tts-audio");
-  var menuBox=$("menu-box");
+  var menuBox=$("menu-box"), textSection=$("text-section");
 
   var current=null, spoken="", busy=false, audioUrl=null, audioReady=false, rec=null, blocked={};
   var listPlayBtn=null;   // the list-row triangle currently playing
@@ -178,8 +178,12 @@
   function heroFailed(msg, retryFn){ busy=false; busyBar.classList.add("hidden"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; playBtn.classList.remove("loading","ready"); playBtn.disabled=true; heroStatus.textContent=""; showError(msg, retryFn); }
 
   async function explain(){ if(!current)return; heroLoading("Reading the session..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/explain",{},T.explain); heroReady(r.spoken,r.reply); }catch(e){ heroFailed(e.message, explain); } }
-  async function runAgentTurn(sid,text){ if(!sid||!text||!text.trim())return; if(current&&current.sid===sid) heroLoading("Working on it - the wingman will summarize when the agent finishes..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn); if(current&&current.sid===sid){ if(r.needsChoice && r.menu){ showMenu(r.menu, r.spoken); } else { clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); } } typedText.value=""; }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ runAgentTurn(sid,text); }); } }
-  async function runWingmanDirect(text){ if(busy||!text||!text.trim()){ if(!text||!text.trim()) heroStatus.textContent="Type a question first."; return; } heroLoading("Asking the wingman..."); try{ var r=await postJson("/wingman/ask-direct",{text:text.trim()},T.direct); busy=false; spoken=r.spoken||""; renderText(spoken,null); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; if(spoken) preparePlaybackText(spoken); typedText.value=""; }catch(e){ heroFailed(e.message, function(){ runWingmanDirect(text); }); } }
+  // Collapse the bottom text panel so the top "working"/status row (#hero-status + #busy-bar) is in
+  // view - the user just typed at the bottom inside the collapsed <details>, so the only confirmation
+  // is off-screen otherwise (issue #532).
+  function collapseTextSection(){ if(textSection) textSection.open=false; }
+  async function runAgentTurn(sid,text){ if(!sid||!text||!text.trim())return; if(current&&current.sid===sid) heroLoading("Working on it - the wingman will summarize when the agent finishes..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn); if(current&&current.sid===sid){ if(r.needsChoice && r.menu){ showMenu(r.menu, r.spoken); } else { clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); } } }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ runAgentTurn(sid,text); }); } }
+  async function runWingmanDirect(text){ if(busy||!text||!text.trim()){ if(!text||!text.trim()) heroStatus.textContent="Type a question first."; return; } if(typedText.value===text) typedText.value=""; collapseTextSection(); heroLoading("Asking the wingman..."); try{ var r=await postJson("/wingman/ask-direct",{text:text.trim()},T.direct); busy=false; busyBar.classList.add("hidden"); spoken=r.spoken||""; renderText(spoken,null); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; if(spoken) preparePlaybackText(spoken); }catch(e){ heroFailed(e.message, function(){ runWingmanDirect(text); }); } }
 
   // ===== play (ready only when the audio is fully buffered) =====
   function waitPlayable(url){ return new Promise(function(res,rej){ var done=false; function ok(){ if(done)return; done=true; cleanup(); res(); } function bad(){ if(done)return; done=true; cleanup(); rej(new Error("audio load failed")); } function cleanup(){ audioEl.removeEventListener("canplaythrough",ok); audioEl.removeEventListener("loadeddata",soft); audioEl.removeEventListener("error",bad); clearTimeout(t); } function soft(){ setTimeout(ok,1200); } audioEl.addEventListener("canplaythrough",ok); audioEl.addEventListener("loadeddata",soft); audioEl.addEventListener("error",bad); var t=setTimeout(ok,12000); audioEl.src=url; audioEl.load(); }); }
@@ -277,8 +281,11 @@
   $("back-btn").addEventListener("click", showList);
   playBtn.addEventListener("click", function(){ if(playBtn.classList.contains("speaking")) stopListen(); else play(); });
   explainBtn.addEventListener("click", explain);
-  askAgentBtn.addEventListener("click", function(){ var t=typedText.value; if(!t||!t.trim()){ heroStatus.textContent="Type or record something first."; return; } runAgentTurn(current&&current.sid, t); });
-  askWingmanBtn.addEventListener("click", function(){ runWingmanDirect(typedText.value); });
+  // Both text sends clear the box immediately on tap (the sent text is no longer relevant); the
+  // original text stays captured in `t` so a Retry re-sends it (issue #532). The agent path's
+  // post-send destination is owned by #535; here it only clears on tap.
+  askAgentBtn.addEventListener("click", function(){ var t=typedText.value; if(!t||!t.trim()){ heroStatus.textContent="Type or record something first."; return; } typedText.value=""; runAgentTurn(current&&current.sid, t); });
+  askWingmanBtn.addEventListener("click", function(){ var t=typedText.value; if(busy||!t||!t.trim()){ if(!t||!t.trim()) heroStatus.textContent="Type a question first."; return; } typedText.value=""; runWingmanDirect(t); });
   talkBtn.addEventListener("click", function(){ startRecording("agent"); });
   talkWingmanBtn.addEventListener("click", function(){ startRecording("wingman"); });
   cancelBtn.addEventListener("click", function(){ finishRecording("cancel"); });
