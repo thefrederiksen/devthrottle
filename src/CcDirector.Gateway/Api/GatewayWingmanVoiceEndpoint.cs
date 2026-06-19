@@ -189,6 +189,26 @@ internal static class GatewayWingmanVoiceEndpoint
             if (endpoint is null)
                 return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
 
+            // Menu handling (issue #531): if the agent is RIGHT NOW showing an on-screen menu, the
+            // person's words are a CHOICE, not a new prompt. Detect it, map the words to an option,
+            // and PRESS that option (raw keystrokes) - never type the spoken words as a prompt.
+            var menu = await DetectMenuAtAsync(client, translator, endpoint, sid, ct);
+            if (menu.IsMenu)
+            {
+                var idx = WingmanMenuLogic.MatchOption(menu, req.Text);
+                if (idx < 0) idx = await translator.MapChoiceAsync(menu, req.Text, ct);
+                if (idx >= 0 && idx < menu.Options.Count)
+                {
+                    var opt = menu.Options[idx];
+                    var submit = string.Equals(menu.SelectionMode, "multiple", StringComparison.OrdinalIgnoreCase) ? menu.Submit : "";
+                    FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: menu choice -> option {idx + 1}");
+                    return await PressAndSummarizeAsync(client, translator, voice, endpoint, sid, opt.Send, submit, $"Selecting option {idx + 1}. ", "voice-menu", ct);
+                }
+                // Heard them, but no confident option: re-read the menu and send NOTHING (don't burn the turn).
+                FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: menu present, choice unclear");
+                return Results.Json(new { reply = "", spoken = "I didn't catch which one. " + menu.Spoken, needsChoice = true, menu = MenuJson(menu) });
+            }
+
             // We are about to start a new turn, so the cached spoken summary + audio are now stale.
             // Clear them DETERMINISTICALLY here (do not rely on observing the Working state, which is
             // racy for fast turns) - the list stops showing it ready and nothing stale plays. The
@@ -213,9 +233,12 @@ internal static class GatewayWingmanVoiceEndpoint
             voice.BeginGenerating(sid);
             try
             {
-                var t = await translator.TranslateAsync("You: " + req.Text.Trim(), reply, CancellationToken.None);
+                var recentContext = "You: " + req.Text.Trim();
+                var t = await translator.TranslateAsync(recentContext, reply, CancellationToken.None);
                 await voice.StoreSpokenAsync(sid, t.Spoken, reply, CancellationToken.None);   // make it a voice session + cache audio
                 FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: replyLen={reply.Length}, spokenLen={t.Spoken.Length}");
+                // Training capture (no-op unless the setting is on); fire-and-forget so it adds no latency.
+                _ = voice.CaptureTrainingAsync(endpoint, sid, "voice-turn", reply, recentContext, t.Spoken, t.ReplySeconds, CancellationToken.None);
                 return Results.Json(new { reply, spoken = t.Spoken, replySeconds = t.ReplySeconds });
             }
             catch (Exception ex)
@@ -303,6 +326,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 var t = await translator.TranslateAsync(recentContext, lastReply, CancellationToken.None);
                 await voice.StoreSpokenAsync(sid, t.Spoken, lastReply, CancellationToken.None);   // cache spoken + audio, ready to play
                 FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: replyLen={lastReply.Length}, spokenLen={t.Spoken.Length}");
+                // Training capture (no-op unless the setting is on); fire-and-forget so it adds no latency.
+                _ = voice.CaptureTrainingAsync(endpoint, sid, "explain", lastReply, recentContext, t.Spoken, t.ReplySeconds, CancellationToken.None);
                 return Results.Json(new { reply = lastReply, spoken = t.Spoken, replySeconds = t.ReplySeconds });
             }
             catch (Exception ex)
@@ -330,7 +355,106 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "wingman failed: " + ex.Message }, statusCode: StatusCodes.Status502BadGateway);
             }
         });
+
+        // Menu handling (issue #531): is the agent showing an on-screen menu right now, and what are
+        // the options? The phone reads this on entry to render pressable option buttons and speak the
+        // choices. { isMenu, question, spoken, selectionMode, submit, options:[{key,send,note,recommended}] }.
+        app.MapGet("/sessions/{sid}/wingman/menu", async (string sid, CancellationToken ct) =>
+        {
+            FileLog.Write($"[GatewayWingmanVoice] menu sid={sid}");
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+            var endpoint = await ResolveEndpointAsync(sid, registry, client, ct);
+            if (endpoint is null)
+                return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
+            var menu = await DetectMenuAtAsync(client, translator, endpoint, sid, ct);
+            return Results.Json(MenuJson(menu));
+        });
+
+        // Press a specific menu option (the phone's option-button tap): send the exact keystrokes,
+        // then wait for the agent's result and translate it back. { send, submit? } -> { reply, spoken }.
+        app.MapPost("/sessions/{sid}/wingman/menu-press", async (string sid, WingmanMenuPressRequest? req, CancellationToken ct) =>
+        {
+            FileLog.Write($"[GatewayWingmanVoice] menu-press sid={sid}");
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+            if (req is null || string.IsNullOrEmpty(req.Send))
+                return Results.Json(new { error = "send is required" }, statusCode: StatusCodes.Status400BadRequest);
+            var endpoint = await ResolveEndpointAsync(sid, registry, client, ct);
+            if (endpoint is null)
+                return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
+            return await PressAndSummarizeAsync(client, translator, voice, endpoint, sid, req.Send, req.Submit, null, "menu-press", ct);
+        });
     }
+
+    /// <summary>Fetch the session terminal and, only when it cheaply looks like a menu, ask the warm
+    /// brain to extract it. Returns IsMenu=false on any miss - the caller treats input as a prompt.</summary>
+    private static async Task<WingmanMenu> DetectMenuAtAsync(
+        DirectorEndpointClient client, WingmanTranslator translator, string endpoint, string sid, CancellationToken ct)
+    {
+        Contracts.BufferResponse? buf;
+        try { buf = await client.GetBufferAsync(endpoint, sid, lines: null, raw: false, since: null, ct); }
+        catch { buf = null; }
+        var terminal = buf?.Text ?? "";
+        if (!WingmanMenuLogic.LooksLikeMenu(terminal)) return new WingmanMenu { IsMenu = false };
+        return await translator.DetectMenuAsync(terminal, ct);
+    }
+
+    /// <summary>Press an option's keystrokes (then the multi-select submit, if any), wait for the
+    /// agent's resulting turn, translate it, cache it, and return the spoken summary. Shared by the
+    /// option-button tap (menu-press) and the spoken-choice path (voice-turn).</summary>
+    private static async Task<IResult> PressAndSummarizeAsync(
+        DirectorEndpointClient client, WingmanTranslator translator, WingmanVoiceService voice,
+        string endpoint, string sid, string send, string? submit, string? confirmPrefix, string source, CancellationToken ct)
+    {
+        voice.OnSessionWorking(sid);   // a new turn is coming; drop the stale cached summary
+        var before = await CountTextWidgetsAsync(client, endpoint, sid, ct);
+
+        var (ok, _, err) = await client.PostPromptAsync(endpoint, sid, new PromptRequest { Text = send, AppendEnter = false }, ct);
+        if (!ok)
+            return Results.Json(new { error = "press failed: " + err }, statusCode: StatusCodes.Status502BadGateway);
+        if (!string.IsNullOrEmpty(submit))
+        {
+            try { await Task.Delay(300, ct); } catch (OperationCanceledException) { }
+            await client.PostPromptAsync(endpoint, sid, new PromptRequest { Text = submit, AppendEnter = false }, CancellationToken.None);
+        }
+        FileLog.Write($"[GatewayWingmanVoice] {source} sid={sid}: pressed send=\"{Escape(send)}\" submit=\"{Escape(submit)}\"");
+
+        var prefix = confirmPrefix ?? "";
+        var reply = await WaitForReplyAsync(client, endpoint, sid, before, ct);
+        if (string.IsNullOrWhiteSpace(reply))
+            return Results.Json(new { reply = "", spoken = prefix + "Done. The agent is working - I'll have the result shortly.", pressed = true });
+
+        voice.BeginGenerating(sid);
+        try
+        {
+            var t = await translator.TranslateAsync("(you picked a menu option)", reply, CancellationToken.None);
+            var spoken = prefix + t.Spoken;
+            await voice.StoreSpokenAsync(sid, spoken, reply, CancellationToken.None);
+            _ = voice.CaptureTrainingAsync(endpoint, sid, source, reply, "(menu pick)", spoken, t.ReplySeconds, CancellationToken.None);
+            FileLog.Write($"[GatewayWingmanVoice] {source} sid={sid}: replyLen={reply.Length}, spokenLen={spoken.Length}");
+            return Results.Json(new { reply, spoken, replySeconds = t.ReplySeconds, pressed = true });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayWingmanVoice] {source} sid={sid} translate FAILED: {ex.Message}");
+            return Results.Json(new { error = "wingman translation failed: " + ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
+        finally { voice.EndGenerating(sid); }
+    }
+
+    private static string Escape(string? s) => (s ?? "").Replace("\r", "\\r").Replace("\n", "\\n");
+
+    /// <summary>Shape a <see cref="WingmanMenu"/> for the JSON response (camelCase the phone reads).</summary>
+    private static object MenuJson(WingmanMenu m) => new
+    {
+        isMenu = m.IsMenu,
+        question = m.Question,
+        spoken = m.Spoken,
+        selectionMode = m.SelectionMode,
+        submit = m.Submit,
+        options = m.Options.Select(o => new { key = o.Key, send = o.Send, note = o.Note, recommended = o.Recommended }).ToList(),
+    };
 
     /// <summary>Send audio bytes to OpenAI transcription and return the text. Shared by the
     /// one-shot /wingman/transcribe and the resumable /wingman/utterance/complete paths.</summary>
@@ -461,6 +585,14 @@ internal static class GatewayWingmanVoiceEndpoint
 public sealed class WingmanVoiceTurnRequest
 {
     public string Text { get; set; } = "";
+}
+
+/// <summary>Body of the menu-press route: the exact keystrokes that pick an option, and (for a
+/// multi-select menu) the completing submit keystroke.</summary>
+public sealed class WingmanMenuPressRequest
+{
+    public string Send { get; set; } = "";
+    public string? Submit { get; set; }
 }
 
 /// <summary>Body of the wingman text-to-speech route: the text to speak and an optional voice.</summary>

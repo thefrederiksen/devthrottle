@@ -20,6 +20,7 @@
   var talkBtn=$("talk-btn"), typedText=$("typed-text"), askAgentBtn=$("ask-agent-btn"), askWingmanBtn=$("ask-wingman-btn");
   var talkWingmanBtn=$("talk-wingman-btn"), recControls=$("rec-controls"), recTime=$("rec-time"), recTarget=$("rec-target"), cancelBtn=$("cancel-btn"), sendBtn=$("send-btn");
   var sendingStatus=$("sending-status"), sendingText=$("sending-text"), busyBar=$("busy-bar"), busyText=$("busy-text"), errorBox=$("error-box"), audioEl=$("tts-audio");
+  var menuBox=$("menu-box");
 
   var current=null, spoken="", busy=false, audioUrl=null, audioReady=false, rec=null, blocked={};
   var listPlayBtn=null;   // the list-row triangle currently playing
@@ -50,7 +51,7 @@
   function postJson(url,p,t){ return fetchJson(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p||{})},t); }
 
   // ===== session list (with voice-ready play triangles) =====
-  function showList(){ stopListen(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
+  function showList(){ stopListen(); clearMenu(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
   async function loadSessions(){
     listStatus.textContent="Loading sessions..."; sessionList.innerHTML=""; listPlayBtn=null;
     try{
@@ -101,10 +102,60 @@
   async function openVoice(){
     if(!current) return;
     showIdle();   // neutral: no summary, button says "Explain"
+    clearMenu();
+    // A pending on-screen MENU takes priority - show the options to tap or say. The server gates this
+    // behind a cheap look, so it only costs a brain call when the terminal actually shows a menu.
+    try{
+      var m=await fetchJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/menu",{},T.explain);
+      if(m && m.isMenu && current){ showMenu(m); return; }
+    }catch(e){ /* no menu / unreachable -> fall through to cached voice */ }
     try{
       var v=await fetchJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/voice",{},T.http);
       if(v && v.ready){ heroReady(v.spoken, v.reply); }   // cached -> show it (button becomes "Explain again")
     }catch(e){ /* leave idle; do not auto-explain */ }
+  }
+
+  // ===== on-screen menu: read the options, take a spoken/tapped choice, press it =====
+  function clearMenu(){ if(current) current.menu=null; menuBox.classList.add("hidden"); menuBox.innerHTML=""; }
+  function renderMenu(menu){
+    if(current) current.menu=menu;
+    menuBox.innerHTML="";
+    (menu.options||[]).forEach(function(o,i){
+      var b=document.createElement("button"); b.type="button";
+      b.className="menu-opt"+(o.recommended?" recommended":"");
+      var key=document.createElement("span"); key.className="mo-key"; key.textContent=o.key||("Option "+(i+1)); b.appendChild(key);
+      if(o.recommended){ var rec=document.createElement("span"); rec.className="mo-rec"; rec.textContent="recommended"; b.appendChild(rec); }
+      if(o.note){ var nt=document.createElement("span"); nt.className="mo-note"; nt.textContent=o.note; b.appendChild(nt); }
+      b.addEventListener("click", function(){ pressMenuOption(o, menu); });
+      menuBox.appendChild(b);
+    });
+    menuBox.classList.remove("hidden");
+  }
+  // Show the menu AND make its spoken reading playable (drive-safe: we do not auto-play; tap to hear).
+  function showMenu(menu, spokenOverride){
+    renderMenu(menu);
+    busy=false; busyBar.classList.add("hidden"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false;
+    spoken=spokenOverride||menu.spoken||""; renderText(spoken, null);
+    explainBtn.textContent="Explain";
+    heroStatus.textContent="Say your pick, or tap one. Tap the triangle to hear the choices.";
+    if(spoken) preparePlaybackText(spoken); else { playBtn.classList.remove("loading","ready"); playBtn.disabled=true; }
+  }
+  // After a turn, surface a (possibly new) menu without disturbing the spoken summary already shown.
+  async function refreshMenu(){
+    if(!current) return; var sid=current.sid;
+    try{
+      var m=await fetchJson("/sessions/"+encodeURIComponent(sid)+"/wingman/menu",{},T.explain);
+      if(current&&current.sid===sid){ if(m&&m.isMenu){ renderMenu(m); } else { clearMenu(); } }
+    }catch(e){}
+  }
+  async function pressMenuOption(o, menu){
+    if(!current||busy) return; var sid=current.sid; stopListen();
+    heroLoading("Selecting "+((o.key||"option").replace(/^\W*(?:\d{1,2}|[A-Za-z])[.)]\s*/,""))+"...");
+    var submit=(menu.selectionMode==="multiple")?(menu.submit||""):"";
+    try{
+      var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/menu-press",{send:o.send,submit:submit},T.turn);
+      if(current&&current.sid===sid){ clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); }
+    }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ pressMenuOption(o, menu); }); }
   }
   // Idle state on entry when there is nothing cached: no summary, play disabled, button "Explain".
   function showIdle(){
@@ -127,7 +178,7 @@
   function heroFailed(msg, retryFn){ busy=false; busyBar.classList.add("hidden"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; playBtn.classList.remove("loading","ready"); playBtn.disabled=true; heroStatus.textContent=""; showError(msg, retryFn); }
 
   async function explain(){ if(!current)return; heroLoading("Reading the session..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/explain",{},T.explain); heroReady(r.spoken,r.reply); }catch(e){ heroFailed(e.message, explain); } }
-  async function runAgentTurn(sid,text){ if(!sid||!text||!text.trim())return; if(current&&current.sid===sid) heroLoading("Working on it - the wingman will summarize when the agent finishes..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn); if(current&&current.sid===sid) heroReady(r.spoken,r.reply); typedText.value=""; }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ runAgentTurn(sid,text); }); } }
+  async function runAgentTurn(sid,text){ if(!sid||!text||!text.trim())return; if(current&&current.sid===sid) heroLoading("Working on it - the wingman will summarize when the agent finishes..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(sid)+"/wingman/voice-turn",{text:text.trim()},T.turn); if(current&&current.sid===sid){ if(r.needsChoice && r.menu){ showMenu(r.menu, r.spoken); } else { clearMenu(); heroReady(r.spoken,r.reply); refreshMenu(); } } typedText.value=""; }catch(e){ if(current&&current.sid===sid) heroFailed(e.message, function(){ runAgentTurn(sid,text); }); } }
   async function runWingmanDirect(text){ if(busy||!text||!text.trim()){ if(!text||!text.trim()) heroStatus.textContent="Type a question first."; return; } heroLoading("Asking the wingman..."); try{ var r=await postJson("/wingman/ask-direct",{text:text.trim()},T.direct); busy=false; spoken=r.spoken||""; renderText(spoken,null); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; if(spoken) preparePlaybackText(spoken); typedText.value=""; }catch(e){ heroFailed(e.message, function(){ runWingmanDirect(text); }); } }
 
   // ===== play (ready only when the audio is fully buffered) =====

@@ -2,8 +2,8 @@
 // a stale version when there IS a connection. Strategy = network-first for the /m/ shell: try the
 // network (and refresh the cache), fall back to the cached copy only when offline or the network
 // stalls. API calls (/sessions, /wingman/*) are never touched - they pass straight through.
-var CACHE = "wingman-voice-v13";
-var SHELL = ["/m/index.html", "/m/m.css?v=13", "/m/m.js?v=13"];
+var CACHE = "wingman-voice-v14";
+var SHELL = ["/m/index.html", "/m/m.css?v=14", "/m/m.js?v=14"];
 var NET_TIMEOUT_MS = 4000;
 
 self.addEventListener("install", function (e) {

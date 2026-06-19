@@ -89,6 +89,15 @@ public static class CcStorage
     public static string VoiceTurnUploads() => Ensure(Path.Combine(Base(), "voice-turn-uploads"));
 
     /// <summary>
+    /// Wingman training data (issue #531 follow-up): base/wingman-training/. When the
+    /// "wingman_training_capture" setting is on, every wingman summary appends one JSON-lines record
+    /// here holding up to 20,000 characters of the session terminal, the agent reply + context the
+    /// wingman saw, and the wingman's spoken response - a labeled dataset for testing and improving
+    /// the wingman. Owned by the Gateway.
+    /// </summary>
+    public static string WingmanTrainingData() => Ensure(Path.Combine(Base(), "wingman-training"));
+
+    /// <summary>
     /// "This brief is wrong" reports (TURN_BRIEFING.md D7): base/brief-feedback/. Each report
     /// stores the brief + the user's note as a labeled example that drives wingman prompt
     /// iteration. Written by the GATEWAY's feedback endpoint since issue #187. (The old

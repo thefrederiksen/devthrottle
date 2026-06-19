@@ -64,6 +64,9 @@ internal static class SettingsEndpoints
                     supported = host.SettingsHooks?.AutostartEnabled is not null,
                     enabled = host.SettingsHooks?.AutostartEnabled?.Invoke(),
                 },
+                // Issue #531 follow-up: when on, every wingman summary is saved (terminal + response)
+                // as training data for improving the wingman.
+                wingmanTrainingCapture = Core.Configuration.WingmanTrainingCaptureConfig.Get(),
             });
         });
 
@@ -171,6 +174,35 @@ internal static class SettingsEndpoints
             catch (JsonException ex)
             {
                 FileLog.Write($"[SettingsEndpoints] PUT /gateway/wingman bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
+        // Read wingman training-data capture state (issue #531 follow-up): when on, every wingman
+        // summary saves up to 20,000 chars of the session terminal + the wingman response as a
+        // labeled example for improving the wingman.
+        app.MapGet("/gateway/wingman/training-capture", () =>
+            Results.Json(new { enabled = Core.Configuration.WingmanTrainingCaptureConfig.Get() }));
+
+        // Write the training-data capture toggle. Takes effect immediately (read at capture time) -
+        // no restart, unlike wingman_enabled.
+        app.MapPut("/gateway/wingman/training-capture", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<WingmanBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body is null)
+                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
+
+                Core.Configuration.CcDirectorConfigService.MergePatch(
+                    new System.Text.Json.Nodes.JsonObject { ["wingman_training_capture"] = body.Enabled });
+                FileLog.Write($"[SettingsEndpoints] wingman_training_capture set to {body.Enabled}");
+                return Results.Json(new { enabled = body.Enabled });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/wingman/training-capture bad JSON: {ex.Message}");
                 return Results.BadRequest(new { error = "invalid JSON" });
             }
         });

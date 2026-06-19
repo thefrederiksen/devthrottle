@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b1020" />
 <title>Wingman Voice</title>
-<link rel="stylesheet" href="/m/m.css?v=13" />
+<link rel="stylesheet" href="/m/m.css?v=14" />
 </head>
 <body>
   <!-- ============ Session list ============ -->
   <section id="list-view" class="view">
     <header class="bar">
       <h1>Wingman Voice</h1>
-      <span class="ver">v12</span>
+      <span class="ver">v14</span>
       <button id="refresh-btn" class="ghost" type="button" title="Refresh">Refresh</button>
     </header>
     <p id="list-status" class="status-line">Loading sessions...</p>
@@ -39,6 +39,9 @@
       <button id="play-btn" class="big-play" type="button" aria-label="Play the summary" disabled>
         <span class="tri">&#9654;</span>
       </button>
+
+      <!-- On-screen menu the agent is showing: tap an option, or just say your pick. -->
+      <div id="menu-box" class="menu-box hidden"></div>
 
       <!-- Talk: tap to record. It interrupts anything playing and starts recording immediately. -->
       <button id="talk-btn" class="big-talk" type="button">Tap to talk to the agent</button>
@@ -88,6 +91,6 @@
   </section>
 
   <audio id="tts-audio" preload="auto" hidden></audio>
-  <script src="/m/m.js?v=13"></script>
+  <script src="/m/m.js?v=14"></script>
 </body>
 </html>

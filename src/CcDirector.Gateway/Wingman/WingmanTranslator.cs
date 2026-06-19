@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Drivers;
@@ -43,8 +44,17 @@ public sealed class WingmanTranslator
         - Preserve the actual answer and every concrete fact: names, numbers, yes/no, the
           decision or result. Never drop the facts that ARE the answer.
         - If the agent wrote real content (a paragraph, a result, a list of findings),
-          carry it. If the agent asked the person a question, surface that question
-          clearly so they know what to answer.
+          carry it.
+        - EXPLAIN TECHNICAL ANSWERS - do NOT flatten them. When the answer is technical (a
+          diagnosis, what is broken and why, how something works, a code review, a
+          recommendation, an error and its cause, a trade-off, a design decision), say the
+          actual substance in plain spoken words: what it is, why, and what to do next. The
+          listener is technical and wants the real point - NEVER reduce a technical answer to
+          a vague line like "the agent gave a technical explanation" or "it made some
+          changes". Name the specific thing, the cause, and the fix.
+        - LEAD WITH THE ASK. If the agent is asking the person something (a question, a
+          decision, a choice, a permission, "should I..."), open with that ask in plain words
+          so they know exactly what they are being asked to answer, before any detail.
         - GIVE ENOUGH CONTEXT. A short or terse reply on its own (like "Done", "Yes", a
           single number, or one line) is not enough to understand out loud. Use the recent
           conversation provided below to add just enough - what the reply is answering, or
@@ -55,8 +65,10 @@ public sealed class WingmanTranslator
           actually answer, say that plainly; never invent an answer.
         - Make it sound natural to say out loud, but completeness wins over shortness. Use
           as many sentences as the answer needs; do not pad and do not force a fixed length.
-        - Speak for the ear: do not read code, commands, file paths, function names, or
-          symbols out loud. When code matters, say in plain words what it does.
+        - Speak for the ear: do not spell out raw code, commands, file paths, function names,
+          or symbols character by character - instead say in plain words what they ARE and
+          what they DO, keeping the technical meaning intact. Translating for the ear must
+          never mean dropping the technical content.
         - The reply may be in ANY language or script. Non-Latin characters are valid
           content, never corruption. Translate faithfully in the same language; never
           refuse or say the text cannot be read.
@@ -175,6 +187,161 @@ public sealed class WingmanTranslator
         _log($"[WingmanTranslator] AskDirectAsync OK: spokenLen={spoken.Length}, replySeconds={ask.ReplySeconds:F1}");
         return new WingmanTranslation { Spoken = spoken, ReplySeconds = ask.ReplySeconds };
     }
+
+    /// <summary>
+    /// Menu handling (issue #531): decide whether the agent is RIGHT NOW showing an interactive
+    /// menu/choice on screen and, if so, extract its options as structured, pressable data plus a
+    /// speakable reading. The warm brain reads the bottom of the terminal. Returns
+    /// <see cref="WingmanMenu.IsMenu"/>=false (never throws) when it is not a menu or parsing fails -
+    /// the caller then treats the input as a normal typed prompt, which is the correct default.
+    /// </summary>
+    public async Task<WingmanMenu> DetectMenuAsync(string terminalText, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(terminalText)) return new WingmanMenu { IsMenu = false };
+        _log($"[WingmanTranslator] DetectMenuAsync: terminalLen={terminalText.Length}");
+
+        var brain = await _brainProvider(ct);
+        AskResult ask;
+        try { ask = await brain.AskAsync(BuildMenuDetectPrompt(terminalText), ct); }
+        finally { await brain.ClearAsync(CancellationToken.None); }
+
+        var menu = ParseMenu(ExtractSpoken(ask.Text));
+        if (menu.IsMenu && menu.Options.Count == 0) menu.IsMenu = false;   // a menu with no options is not actionable
+        if (menu.IsMenu) menu.Spoken = BuildMenuSpoken(menu);
+        _log($"[WingmanTranslator] DetectMenuAsync: isMenu={menu.IsMenu}, options={menu.Options.Count}");
+        return menu;
+    }
+
+    /// <summary>
+    /// Brain fallback for mapping a person's spoken/typed answer to a menu option when the cheap
+    /// local match (<see cref="WingmanMenuLogic.MatchOption"/>) was not confident. Returns the
+    /// 0-based option index, or -1 when the brain says it is unclear.
+    /// </summary>
+    public async Task<int> MapChoiceAsync(WingmanMenu menu, string userText, CancellationToken ct = default)
+    {
+        if (menu?.Options is null || menu.Options.Count == 0 || string.IsNullOrWhiteSpace(userText)) return -1;
+
+        var brain = await _brainProvider(ct);
+        AskResult ask;
+        try { ask = await brain.AskAsync(BuildMenuMapPrompt(menu, userText), ct); }
+        finally { await brain.ClearAsync(CancellationToken.None); }
+
+        var raw = ExtractSpoken(ask.Text);
+        var m = Regex.Match(raw, @"\d{1,2}");
+        if (m.Success && int.TryParse(m.Value, out var n) && n >= 1 && n <= menu.Options.Count)
+        {
+            _log($"[WingmanTranslator] MapChoiceAsync: chose option {n}");
+            return n - 1;
+        }
+        _log("[WingmanTranslator] MapChoiceAsync: unclear (0/none)");
+        return -1;
+    }
+
+    /// <summary>The menu-detection prompt. Public so a test can assert its contract.</summary>
+    public static string BuildMenuDetectPrompt(string terminalText)
+    {
+        // Menus render at the BOTTOM of the screen; the tail is enough and keeps the call fast.
+        var tail = terminalText.Length > 4000 ? terminalText[^4000..] : terminalText;
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the wingman. Look at the BOTTOM of this coding-agent terminal and decide if it is");
+        sb.AppendLine("RIGHT NOW showing an interactive menu the person must answer by picking a listed option -");
+        sb.AppendLine("a numbered/lettered list, a permission prompt (\"Do you want to proceed?\"), a picker, or a");
+        sb.AppendLine("plan approval. A free-text \"type your message\" prompt or an idle screen is NOT a menu.");
+        sb.AppendLine();
+        sb.AppendLine("If it IS a menu, extract it (rules from the proven brief contract):");
+        sb.AppendLine("- question: the choice being asked, in plain words to hear out loud. No code or paths.");
+        sb.AppendLine("- options: each listed choice. key = its visible label (e.g. \"1. Yes\"). send = the EXACT");
+        sb.AppendLine("  keystrokes that pick it - a picker confirms with Enter, so send \"1\\r\" (the number then a");
+        sb.AppendLine("  carriage return). note = the consequence/scope/risk (a \"don't ask again\" choice is a");
+        sb.AppendLine("  standing grant - say so). recommended = true for AT MOST ONE option, the safest/default");
+        sb.AppendLine("  pick, and ONLY if you are sure - never guess a recommendation.");
+        sb.AppendLine("- selectionMode: \"single\" to pick one; \"multiple\" for a pick-any checklist (then each send");
+        sb.AppendLine("  is just the toggle number and submit=\"\\r\" completes). For single, submit=\"\".");
+        sb.AppendLine("- Use ONLY what is on the screen. Never invent options. Never read code or symbols aloud.");
+        sb.AppendLine();
+        sb.AppendLine("Terminal (bottom of the screen):");
+        sb.AppendLine("---");
+        sb.AppendLine(tail.Trim());
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine("Output ONLY this JSON (no prose) between the two markers, each marker on its own line:");
+        sb.AppendLine(SessionAskRunner.AnswerBeginMarker);
+        sb.AppendLine("{\"isMenu\":true,\"question\":\"...\",\"selectionMode\":\"single\",\"submit\":\"\",\"options\":[{\"key\":\"1. Yes\",\"send\":\"1\\r\",\"note\":\"...\",\"recommended\":false}]}");
+        sb.Append(SessionAskRunner.AnswerEndMarker);
+        return sb.ToString();
+    }
+
+    /// <summary>The choice-mapping prompt. Public so a test can assert its contract.</summary>
+    public static string BuildMenuMapPrompt(WingmanMenu menu, string userText)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("A coding agent is showing this menu. A person who cannot see the screen said which one");
+        sb.AppendLine("they want, in plain words. Decide which numbered option they mean.");
+        sb.AppendLine();
+        for (var i = 0; i < menu.Options.Count; i++)
+            sb.AppendLine($"{i + 1}. {StripForSpeech(menu.Options[i].Key)}");
+        sb.AppendLine();
+        sb.AppendLine("The person said:");
+        sb.AppendLine(userText.Trim());
+        sb.AppendLine();
+        sb.AppendLine($"Reply with ONLY the single option number (1-{menu.Options.Count}) they chose, or 0 if it is");
+        sb.AppendLine("unclear or they did not pick one. Output the number between the markers:");
+        sb.AppendLine(SessionAskRunner.AnswerBeginMarker);
+        sb.AppendLine("<number>");
+        sb.Append(SessionAskRunner.AnswerEndMarker);
+        return sb.ToString();
+    }
+
+    /// <summary>Parse the brain's menu JSON tolerantly into a <see cref="WingmanMenu"/>. Internal so a
+    /// test can assert both the happy path and that garbage degrades to IsMenu=false.</summary>
+    internal static WingmanMenu ParseMenu(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new WingmanMenu { IsMenu = false };
+        var start = json.IndexOf('{');
+        var end = json.LastIndexOf('}');
+        if (start < 0 || end <= start) return new WingmanMenu { IsMenu = false };
+        try
+        {
+            var menu = JsonSerializer.Deserialize<WingmanMenu>(json[start..(end + 1)],
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (menu is null) return new WingmanMenu { IsMenu = false };
+            // Null-proof the strings the model may have emitted as null.
+            menu.Question ??= "";
+            menu.SelectionMode = string.IsNullOrWhiteSpace(menu.SelectionMode) ? "single" : menu.SelectionMode;
+            menu.Submit ??= "";
+            menu.Options ??= new();
+            foreach (var o in menu.Options) { o.Key ??= ""; o.Send ??= ""; }
+            // An option you cannot actually send is not pressable - drop it.
+            menu.Options = menu.Options.Where(o => o.Send.Length > 0).ToList();
+            return menu;
+        }
+        catch (JsonException) { return new WingmanMenu { IsMenu = false }; }
+    }
+
+    /// <summary>Build the speakable reading of a menu: the question, each option (recommended +
+    /// note), and how to answer. Public so a test can assert the ear-friendly wording.</summary>
+    public static string BuildMenuSpoken(WingmanMenu menu)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(menu.Question)) sb.Append(menu.Question.Trim()).Append(' ');
+        for (var i = 0; i < menu.Options.Count; i++)
+        {
+            var o = menu.Options[i];
+            sb.Append("Option ").Append(i + 1).Append(": ").Append(StripForSpeech(o.Key));
+            if (o.Recommended) sb.Append(" (recommended)");
+            sb.Append('.');
+            if (!string.IsNullOrWhiteSpace(o.Note)) sb.Append(' ').Append(o.Note!.Trim().TrimEnd('.')).Append('.');
+            sb.Append(' ');
+        }
+        sb.Append(menu.SelectionMode == "multiple"
+            ? "Say which ones apply, then say done."
+            : "Say the number, or the option.");
+        return sb.ToString().Trim();
+    }
+
+    /// <summary>Drop a leading "1." / "2)" / "a." marker from a label so it reads cleanly out loud.</summary>
+    private static string StripForSpeech(string key)
+        => Regex.Replace(key ?? "", @"^\W*(?:\d{1,2}|[A-Za-z])[.)]\s*", "").Trim();
 
     /// <summary>The direct-to-wingman prompt. Public so a test can assert its contract.</summary>
     public static string BuildDirectPrompt(string userMessage)

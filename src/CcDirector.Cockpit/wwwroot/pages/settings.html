@@ -260,6 +260,16 @@
       </div>
     </div>
 
+    <!-- Wingman training data capture (issue #531 follow-up) -->
+    <div class="section">
+      <h2>Training data <span class="pill">improve the wingman</span></h2>
+      <p class="hint">When on, every wingman voice summary saves up to 20,000 characters of the session terminal plus the wingman's spoken response to <span class="mono">wingman-training/</span> on the Gateway machine &mdash; a labeled dataset for testing and improving the wingman. Takes effect immediately, no restart.</p>
+      <label class="chk"><input type="checkbox" id="wingman-training" disabled> Capture wingman training data</label>
+      <div class="row" style="margin-top:8px">
+        <span class="hint" id="trainingmsg" style="margin:0"></span>
+      </div>
+    </div>
+
     <!-- Brain runtime: the hosted process that does the work, plus the recovery verb -->
     <div class="section">
       <h2>Brain <span class="pill">hosted agent</span></h2>
@@ -577,6 +587,42 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadWingman(); }
   }
 
+  async function loadTrainingCapture(){
+    try {
+      const r = await fetch('/gateway/wingman/training-capture');
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      const box = document.getElementById('wingman-training');
+      box.checked = !!d.enabled;
+      box.disabled = false;
+    } catch (e) {
+      document.getElementById('trainingmsg').textContent = 'Failed to load training-capture state.';
+      document.getElementById('trainingmsg').className = 'msg err';
+    }
+  }
+
+  async function toggleTrainingCapture(e){
+    const enabled = e.target.checked;
+    const msg = document.getElementById('trainingmsg');
+    msg.className = 'msg ok'; msg.textContent = 'Saving...';
+    try {
+      const r = await fetch('/gateway/wingman/training-capture', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok){
+        e.target.checked = !!d.enabled;
+        msg.textContent = d.enabled
+          ? 'Capturing terminal + response on every wingman summary.'
+          : 'Training-data capture off.';
+      } else {
+        msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
+        e.target.checked = !enabled;
+      }
+    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; e.target.checked = !enabled; }
+  }
+
   // ===== Transcription smoke test: record a clip, prove speech -> text =====
   // One toggle button. First click records via MediaRecorder; second click stops, uploads the
   // clip to the Gateway, and shows the text it heard - using the current mode + key.
@@ -739,6 +785,7 @@
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
   document.getElementById('addrmode').addEventListener('change', changeAddressingMode);
   document.getElementById('wingman').addEventListener('change', toggleWingman);
+  document.getElementById('wingman-training').addEventListener('change', toggleTrainingCapture);
   document.getElementById('brainsavebtn').addEventListener('click', saveBrainConfig);
   document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));
   document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
@@ -748,6 +795,7 @@
   loadKeyStatus();
   loadSnapshot();
   loadWingman();
+  loadTrainingCapture();
   loadPhone();
 </script>
 </body>
