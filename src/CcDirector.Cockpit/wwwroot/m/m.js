@@ -1,11 +1,12 @@
-// Wingman Voice - standalone mobile screen (issue #531), v8. Plain static JS (not Blazor); recording
+// Wingman Voice - standalone mobile screen (issue #531), v16. Plain static JS (not Blazor); recording
 // works offline; a network-first service worker loads the page offline.
 //
 // Voice-first + proactive:
 //   - Using voice on a session makes it a "voice session". The gateway then auto-runs the wingman
 //     after every turn and keeps a ready spoken summary + audio. The session LIST shows a play
-//     triangle on voice-ready sessions; tap it to hear it WITHOUT entering, and entering is instant
-//     (the voice is already made - no re-read).
+//     triangle on voice-ready sessions; tap it to OPEN the session and auto-play the ready voice
+//     (issue #533 - no longer headless from the list); the voice is already made, so entering is
+//     instant (no re-read). Tapping the row body opens the session without auto-playing.
 //   - Big Play + Talk buttons stay put (drive-safe); text is collapsed at the bottom.
 //   - Tap Talk to record (interrupts playback, works offline); it records until Send/Cancel. On Send
 //     the session is blocked and the recording uploads in pieces, retrying forever on its own.
@@ -23,7 +24,6 @@
   var menuBox=$("menu-box"), textSection=$("text-section");
 
   var current=null, spoken="", busy=false, audioUrl=null, audioReady=false, rec=null, blocked={};
-  var listPlayBtn=null;   // the list-row triangle currently playing
   var CHUNK=64*1024;
   var T={ list:15000, explain:90000, direct:90000, turn:180000, http:30000, transcribe:90000 };
   var COLORS={ red:"#F14C4C", yellow:"#F59E0B", orange:"#F97316", green:"#22C55E", blue:"#3B82F6", purple:"#A855F7" };
@@ -53,7 +53,7 @@
   // ===== session list (with voice-ready play triangles) =====
   function showList(){ stopListen(); clearMenu(); current=null; sessionView.classList.add("hidden"); listView.classList.remove("hidden"); loadSessions(); }
   async function loadSessions(){
-    listStatus.textContent="Loading sessions..."; sessionList.innerHTML=""; listPlayBtn=null;
+    listStatus.textContent="Loading sessions..."; sessionList.innerHTML="";
     try{
       var env=await fetchJson("/sessions?envelope=true",{},T.list);
       var ready={}; try{ var rr=await fetchJson("/wingman/voice/ready",{},T.list); (rr.sids||[]).forEach(function(x){ ready[x]=1; }); }catch(e){}
@@ -70,24 +70,22 @@
         li.innerHTML='<span class="dot" style="background:'+dotColor(effColor(s))+'"></span><span class="scard-main"><div class="scard-name"></div><div class="scard-sub"></div></span>'+tail;
         li.querySelector(".scard-name").textContent=titleOf(s);
         li.querySelector(".scard-sub").textContent=(ready[s.sessionId]?"voice ready  -  ":"")+humanState(s.assessedState||s.activityState)+extra;
-        li.addEventListener("click", function(){ openSession(s); });
+        // Tapping the row BODY opens the session WITHOUT auto-playing (drive-safe; unchanged).
+        li.addEventListener("click", function(){ openSession(s, false); });
         var pb=li.querySelector(".scard-play");
-        if(pb) pb.addEventListener("click", function(ev){ ev.stopPropagation(); playListAudio(s.sessionId, pb); });
+        // Tapping the play triangle opens the session AND auto-plays its ready voice once buffered
+        // (issue #533 - no longer headless from the list). stopPropagation keeps the row body's
+        // open-without-autoplay path intact.
+        if(pb) pb.addEventListener("click", function(ev){ ev.stopPropagation(); openSession(s, true); });
         sessionList.appendChild(li);
       });
     }catch(e){ listStatus.textContent=e.message; }
   }
-  // Play a session's ready voice straight from the list, without entering it.
-  function playListAudio(sid, btn){
-    var url=voiceAudioUrl(sid);
-    if(listPlayBtn && listPlayBtn!==btn){ try{audioEl.pause();}catch(e){} listPlayBtn.classList.remove("playing"); }
-    if(!audioEl.paused && audioEl.src.indexOf(url)>=0){ audioEl.pause(); btn.classList.remove("playing"); listPlayBtn=null; return; }
-    audioEl.src=url; listPlayBtn=btn; btn.classList.add("playing");
-    audioEl.play().catch(function(){ btn.classList.remove("playing"); listPlayBtn=null; });
-  }
 
   // ===== one session =====
-  function openSession(s){
+  // autoPlay (issue #533): when the list-row play triangle opened this session, auto-play the ready
+  // voice as soon as it is buffered. A row-body tap passes false and stays idle (manual Play).
+  function openSession(s, autoPlay){
     stopListen();
     current={ sid:s.sessionId, name:titleOf(s) };
     svName.textContent=current.name; svDot.style.background=dotColor(effColor(s));
@@ -95,11 +93,12 @@
     hideError(); spoken=""; renderText("",null); audioUrl=null; audioReady=false;
     listView.classList.add("hidden"); sessionView.classList.remove("hidden");
     showTalkState();
-    openVoice();
+    openVoice(!!autoPlay);
   }
   // Entering a session NEVER auto-explains (and never while it is working). Show the cached voice
-  // if one exists; otherwise just sit idle and wait for the person to tap Explain.
-  async function openVoice(){
+  // if one exists; otherwise just sit idle and wait for the person to tap Explain. When autoPlay is
+  // set (the triangle entry path, issue #533) the cached voice starts playing once buffered.
+  async function openVoice(autoPlay){
     if(!current) return;
     showIdle();   // neutral: no summary, button says "Explain"
     clearMenu();
@@ -111,7 +110,7 @@
     }catch(e){ /* no menu / unreachable -> fall through to cached voice */ }
     try{
       var v=await fetchJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/voice",{},T.http);
-      if(v && v.ready){ heroReady(v.spoken, v.reply); }   // cached -> show it (button becomes "Explain again")
+      if(v && v.ready){ heroReady(v.spoken, v.reply, !!autoPlay); }   // cached -> show it (button becomes "Explain again")
     }catch(e){ /* leave idle; do not auto-explain */ }
   }
 
@@ -174,7 +173,9 @@
   // reconciles to the gateway's authoritative color on the next refresh (issue #531 voice mode).
   function setDot(color){ if(svDot) svDot.style.background=dotColor(color); }
   function heroLoading(msg){ lockUi(true); setDot("yellow"); playBtn.disabled=true; playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); audioReady=false; var m=msg||"Working..."; heroStatus.textContent=m; busyText.textContent=m; busyBar.classList.remove("hidden"); hideError(); }
-  function heroReady(spokenText, reply){ busy=false; busyBar.classList.add("hidden"); setDot("red"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; spoken=spokenText||""; renderText(spoken, reply); explainBtn.textContent = spoken ? "Explain again" : "Explain"; if(spoken) preparePlaybackUrl(voiceAudioUrl(current.sid)); else { playBtn.classList.remove("loading","ready"); playBtn.disabled=true; heroStatus.textContent=""; } }
+  // autoPlay (issue #533): the triangle entry path asks for the ready voice to start playing once it
+  // is buffered. Every other caller (entry-without-triangle, explain, turns) omits it and stays idle.
+  function heroReady(spokenText, reply, autoPlay){ busy=false; busyBar.classList.add("hidden"); setDot("red"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; spoken=spokenText||""; renderText(spoken, reply); explainBtn.textContent = spoken ? "Explain again" : "Explain"; if(spoken) preparePlaybackUrl(voiceAudioUrl(current.sid), !!autoPlay); else { playBtn.classList.remove("loading","ready"); playBtn.disabled=true; heroStatus.textContent=""; } }
   function heroFailed(msg, retryFn){ busy=false; busyBar.classList.add("hidden"); explainBtn.disabled=false; askAgentBtn.disabled=false; askWingmanBtn.disabled=false; playBtn.classList.remove("loading","ready"); playBtn.disabled=true; heroStatus.textContent=""; showError(msg, retryFn); }
 
   async function explain(){ if(!current)return; heroLoading("Reading the session..."); try{ var r=await postJson("/sessions/"+encodeURIComponent(current.sid)+"/wingman/explain",{},T.explain); heroReady(r.spoken,r.reply); }catch(e){ heroFailed(e.message, explain); } }
@@ -187,15 +188,19 @@
 
   // ===== play (ready only when the audio is fully buffered) =====
   function waitPlayable(url){ return new Promise(function(res,rej){ var done=false; function ok(){ if(done)return; done=true; cleanup(); res(); } function bad(){ if(done)return; done=true; cleanup(); rej(new Error("audio load failed")); } function cleanup(){ audioEl.removeEventListener("canplaythrough",ok); audioEl.removeEventListener("loadeddata",soft); audioEl.removeEventListener("error",bad); clearTimeout(t); } function soft(){ setTimeout(ok,1200); } audioEl.addEventListener("canplaythrough",ok); audioEl.addEventListener("loadeddata",soft); audioEl.addEventListener("error",bad); var t=setTimeout(ok,12000); audioEl.src=url; audioEl.load(); }); }
-  async function preparePlaybackUrl(url){
+  // autoPlay (issue #533): once the audio is buffered, start playing without a further tap (the
+  // session must already be the one the user opened from the triangle). On a buffering failure the
+  // existing "Audio not ready - tap the triangle to try again." state is shown, not hidden.
+  async function preparePlaybackUrl(url, autoPlay){
+    var sidAtStart=current?current.sid:null;
     playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); playBtn.disabled=true; heroStatus.textContent="Preparing audio...";
-    try{ await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.classList.add("ready"); playBtn.disabled=false; heroStatus.textContent="Tap to listen."; }
+    try{ await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.classList.add("ready"); playBtn.disabled=false; heroStatus.textContent="Tap to listen."; if(autoPlay && current && current.sid===sidAtStart) play(); }
     catch(e){ playBtn.classList.remove("loading","ready"); playBtn.disabled=false; heroStatus.textContent="Audio not ready - tap the triangle to try again."; }
   }
   // Direct-wingman answers are not stored server-side; synthesize them on the spot via /wingman/tts.
   async function preparePlaybackText(text){ playBtn.classList.add("loading"); playBtn.classList.remove("ready","speaking"); playBtn.disabled=true; heroStatus.textContent="Preparing audio..."; try{ var ctrl=new AbortController(); var timer=setTimeout(function(){ctrl.abort();},T.http); var resp; try{ resp=await fetch("/wingman/tts",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text}),signal:ctrl.signal}); } finally{ clearTimeout(timer); } if(!resp.ok) throw new Error("tts"); var url=URL.createObjectURL(await resp.blob()); await waitPlayable(url); audioUrl=url; audioReady=true; playBtn.classList.remove("loading"); playBtn.classList.add("ready"); playBtn.disabled=false; heroStatus.textContent="Tap to listen."; }catch(e){ playBtn.classList.remove("loading","ready"); playBtn.disabled=false; heroStatus.textContent="Audio not ready - tap to try again."; } }
   function play(){ if(!audioReady||!audioUrl){ if(spoken&&current) preparePlaybackUrl(voiceAudioUrl(current.sid)); return; } if(!audioEl.paused){ stopListen(); return; } if(audioEl.src!==audioUrl){ try{ audioEl.src=audioUrl; }catch(e){} } playBtn.classList.add("speaking"); playBtn.classList.remove("ready"); audioEl.play().catch(function(){ endAudioUi(); }); }
-  function endAudioUi(){ playBtn.classList.remove("speaking"); if(audioReady) playBtn.classList.add("ready"); if(listPlayBtn){ listPlayBtn.classList.remove("playing"); listPlayBtn=null; } }
+  function endAudioUi(){ playBtn.classList.remove("speaking"); if(audioReady) playBtn.classList.add("ready"); }
   function stopListen(){ try{ audioEl.pause(); }catch(e){} endAudioUi(); }
 
   // ===== record (instant, interrupts playback, runs until Send/Cancel) =====

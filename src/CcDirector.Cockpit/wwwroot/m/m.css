@@ -33,7 +33,6 @@ body{background:var(--bg);color:var(--text);
   background:var(--accent);color:#fff;font-size:20px;line-height:1;padding-left:3px;
   display:flex;align-items:center;justify-content:center;box-shadow:0 3px 12px rgba(59,130,246,.4)}
 .scard-play:active{filter:brightness(1.1)}
-.scard-play.playing{background:var(--green)}
 .dot{width:12px;height:12px;border-radius:50%;background:#6B7280;display:inline-block}
 .muted{color:var(--muted);font-size:13px}
 

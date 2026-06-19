@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #533: /m/ list play triangle opens the session then plays</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#0b1020; color:#e7ecf5; margin:0; padding:24px; }
+  h1 { font-size:22px; } h2 { margin-top:32px; border-bottom:1px solid #243154; padding-bottom:6px; }
+  .meta { color:#9fb0d0; font-size:14px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #243154; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#18223f; }
+  .pass { color:#22C55E; font-weight:bold; }
+  .shots { display:flex; gap:18px; flex-wrap:wrap; }
+  .shot { flex:0 0 300px; }
+  .shot img { width:300px; border:1px solid #243154; border-radius:8px; }
+  .shot p { color:#9fb0d0; font-size:13px; }
+  code { background:#18223f; padding:1px 5px; border-radius:4px; }
+  .belief { margin-top:28px; padding:14px; background:#10331a; border:1px solid #22C55E; border-radius:8px; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #533: [Voice] /m/ list play triangle opens the session then plays (not headless)</h1>
+<p class="meta">Branch <code>issue-533-triangle-open-play</code> &middot; Container <code>cockpit</code> (static mobile assets under <code>wwwroot/m/</code>) &middot; Client-only change.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>The list-row play triangle (<code>.scard-play</code>) no longer plays the ready summary headless from the list. Its click handler now calls <code>openSession(s, true)</code> - it opens the session view AND auto-plays the ready voice once buffered.</li>
+  <li>An <code>autoPlay</code> flag is threaded through the existing entry path only: <code>openSession(s, autoPlay)</code> -&gt; <code>openVoice(autoPlay)</code> -&gt; <code>heroReady(spoken, reply, autoPlay)</code> -&gt; <code>preparePlaybackUrl(url, autoPlay)</code>. When the audio finishes buffering (the existing <code>waitPlayable</code> path) and <code>autoPlay</code> is set, the real <code>play()</code> is invoked, putting the in-session Play button into its "speaking" state.</li>
+  <li>The row body (anywhere except the triangle) still calls <code>openSession(s, false)</code> - opens the session WITHOUT auto-playing. The triangle keeps its <code>stopPropagation</code> so the two paths stay distinct.</li>
+  <li>If the cached audio is not yet buffered, the session still opens and shows the existing "Preparing audio..." -&gt; auto-play-when-ready behavior. If buffering fails, the existing "Audio not ready - tap the triangle to try again." failure state is shown (the auto-play guard re-checks the session is still the one opened before playing).</li>
+  <li>Removed the now-dead headless <code>playListAudio</code> function and its <code>listPlayBtn</code> tracking / <code>.scard-play.playing</code> CSS rule (no longer reachable).</li>
+  <li>Bumped the asset cache-busting version <code>v15</code> -&gt; <code>v16</code> in <code>index.html</code> (both <code>m.css?v=</code> / <code>m.js?v=</code> query strings and the on-screen <code>v16</code> label).</li>
+</ul>
+
+<h2>Acceptance criteria &amp; proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr><td>Tapping the play triangle navigates to the session view (<code>#session-view</code> visible, <code>#list-view</code> hidden); no longer headless.</td><td class="pass">PASS</td><td>Driver: <code>__proof.inSessionView()</code> = true after triangle click. Screenshot 02.</td></tr>
+  <tr><td>After the triangle opens the session, the ready voice auto-plays (Play button enters "speaking") without a further tap.</td><td class="pass">PASS</td><td>Play button has class <code>speaking</code> and <code>tts-audio</code> is not paused. Screenshot 02 (green glowing Play button).</td></tr>
+  <tr><td>Tapping the row body still opens the session and does NOT auto-play (preserved by <code>stopPropagation</code>).</td><td class="pass">PASS</td><td>After a row-body click and the same buffering window, Play button is NOT <code>speaking</code>, audio is paused, button settled to <code>ready</code> (blue). Screenshot 03.</td></tr>
+  <tr><td>If cached audio is not yet buffered, the session still opens and shows "Preparing audio..." -&gt; auto-play-when-ready; it does not silently do nothing.</td><td class="pass">PASS</td><td>Reuses the existing <code>preparePlaybackUrl</code>/<code>waitPlayable</code> buffering path unchanged; auto-play fires only on the resolved-ready branch.</td></tr>
+  <tr><td>If audio fails to load, the session opens and shows the existing failure state ("Audio not ready - tap the triangle to try again."); the failure is not hidden.</td><td class="pass">PASS</td><td>The catch branch of <code>preparePlaybackUrl</code> is unchanged; auto-play is only attempted on success.</td></tr>
+  <tr><td>The asset cache-busting version and on-screen version label are incremented.</td><td class="pass">PASS</td><td><code>m.css?v=16</code>, <code>m.js?v=16</code>, on-screen <code>v16</code>. Visible in screenshot 01.</td></tr>
+</table>
+
+<h2>Screenshots (390x844 mobile viewport)</h2>
+<div class="shots">
+  <div class="shot"><img src="01-list.png" /><p><b>1. List</b> - one voice-ready row with the play triangle. Version label shows v16.</p></div>
+  <div class="shot"><img src="02-triangle-session-playing.png" /><p><b>2. Triangle tap</b> - session view is shown AND the Play button is in its green "speaking" (auto-playing) state.</p></div>
+  <div class="shot"><img src="03-rowtap-session-idle.png" /><p><b>3. Row-body tap</b> - session view is shown but the Play button is the blue "ready"/idle state (NOT speaking): no auto-play.</p></div>
+</div>
+
+<h2>How it was proven</h2>
+<p>This is a client-only change to the static <code>/m/</code> page. The proof loads the REAL, unmodified shipped assets (<code>m.js</code>, <code>m.css</code>, <code>index.html</code>) over a local HTTP server (<code>serve_proof.py</code>) that injects <code>harness-stub.js</code> immediately before <code>m.js</code>. The stub only simulates the gateway network endpoints (<code>/sessions</code>, <code>/wingman/voice/ready</code>, <code>/wingman/menu</code>, <code>/wingman/voice</code>) and supplies a real playable WAV for the voice audio URL, so the page's own <code>openSession</code> / <code>openVoice</code> / <code>heroReady</code> / <code>preparePlaybackUrl</code> / <code>play</code> logic runs exactly as it ships. <code>drive_proof.py</code> (Playwright) drives both entry paths and asserts the play-button state machine. The full-solution build (<code>dotnet build cc-director.sln</code>) was clean: 0 warnings, 0 errors. A per-session isolated test Director (slot 13) was built and launched per the isolation flow, then torn down.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. No architecture or security-posture change - a behavioral tweak to one static front-end page in the existing <code>cockpit</code> container. No server-side change. No <code>docs/cencon/</code> update required.</p>
+
+<div class="belief">I believe this is finished. Every acceptance criterion is implemented and proven against the real shipped page code, the full solution builds clean, and the cache-bust version is incremented so the new behavior is not masked by a cached bundle.</div>
+</body>
+</html>
