@@ -48,10 +48,13 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" /></svg>
         <span class="nv-label">Wingman</span>
     </NavLink>
-    @* /voice is the mobile-first Voice Mode page - a plain HTML+JS app served outside the Blazor
-       router (see Program.cs MapGet "/voice"), so it is a plain anchor with a full-document load
-       (data-enhance-nav="false"), not an in-app NavLink. *@
-    <a class="nv-item" href="/voice" data-enhance-nav="false" title="Voice - mobile-first Voice Mode" style="display:none">
+    @* The mobile-first Wingman Voice screen (/m/, issue #531): a plain HTML+JS PWA served from
+       wwwroot/m/, outside the Blazor router - so it is a plain anchor with a full-document load,
+       not an in-app NavLink. Opened in a NEW TAB so testing it from the desktop Cockpit does not
+       replace the Cockpit. The directory itself (/m/) does not resolve, so link /m/index.html.
+       (The older /voice PWA still exists at /voice.) *@
+    <a class="nv-item" href="/m/index.html" target="_blank" rel="noopener" data-enhance-nav="false"
+       title="Voice - the mobile-first wingman voice screen (/m), opens in a new tab">
         <svg class="nv-ico" viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="7" rx="2" /><path d="M3.5 7a4.5 4.5 0 0 0 9 0M8 11.5v3M5.5 14.5h5" /></svg>
         <span class="nv-label">Voice</span>
     </a>
