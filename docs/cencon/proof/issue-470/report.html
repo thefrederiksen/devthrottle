@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #470: Typing into a held session takes it off Hold</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #18181b; color: #e4e4e7; margin: 0; padding: 32px; line-height: 1.55; }
+  h1 { font-size: 22px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 32px; color: #93c5fd; }
+  code { background: #27272a; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3f3f46; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #27272a; }
+  .pass { color: #4ade80; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #3f3f46; border-radius: 4px; margin: 8px 0; }
+  .box { background: #1f1f23; border: 1px solid #3f3f46; border-radius: 6px; padding: 16px 20px; margin: 16px 0; }
+  .finished { background: #052e16; border: 1px solid #16a34a; color: #bbf7d0; padding: 14px 18px; border-radius: 6px; font-weight: bold; }
+  pre { background: #27272a; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #470</h1>
+<p><strong>[Desktop] Typing into a held session should automatically take it off Hold</strong></p>
+<p>Branch: <code>issue-470-clear-hold-on-input</code> &nbsp;|&nbsp; Container: <code>CcDirector.Core</code> (<code>Sessions/Session.cs</code>) + <code>CcDirector.Core.Tests</code></p>
+
+<h2>What was implemented</h2>
+<p>A session parked <strong>On Hold</strong> (<code>Session.OnHold</code>) now clears that flag automatically the
+moment the user submits a real turn into it - mirroring the existing rule that promotes the session to
+<code>Working</code> and clears <code>IsBrandNew</code>. Two code paths, both in <code>Session.cs</code>:</p>
+<ul>
+  <li><code>SendInput(byte[])</code> - inside the existing <code>if (ContainsSubmit(data))</code> branch (CR <code>0x0D</code> / LF <code>0x0A</code>), set <code>OnHold = false</code>. A bare keystroke with no CR/LF is left untouched (composing, not a turn).</li>
+  <li><code>SendTextAsync(string)</code> - always a submitted turn, so set <code>OnHold = false</code> after the send.</li>
+</ul>
+<p>The clear belongs in Core so every input path (desktop terminal, Control API <code>/prompt</code>, Gateway-proxied)
+benefits identically. No UI-project change was needed: the desktop <code>SessionViewModel</code> already subscribes to
+<code>OnHoldChanged</code> and repaints the rail strip off <code>OnHold</code>. The <code>OnHold</code> setter already no-ops
+and skips <code>OnHoldChanged</code> when the value is unchanged, so "exactly once" is satisfied for free and
+setting it <code>false</code> when already <code>false</code> raises no spurious event.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td><code>SendTextAsync("hello")</code> on a held session</td><td><code>OnHold == false</code> after</td><td>Unit test <code>SendTextAsync_OnHeldSession_ClearsOnHold</code> passes</td><td class="pass">PASS</td></tr>
+  <tr><td><code>SendInput</code> with bytes containing CR/LF</td><td><code>OnHold == false</code> after</td><td>Unit test <code>SendInput_WithSubmitByte_ClearsOnHold</code> passes</td><td class="pass">PASS</td></tr>
+  <tr><td><code>SendInput</code> with NO CR/LF (bare keystroke)</td><td><code>OnHold</code> still <code>true</code></td><td>Unit test <code>SendInput_BareKeystroke_LeavesOnHold</code> passes</td><td class="pass">PASS</td></tr>
+  <tr><td>Clearing Hold raises <code>OnHoldChanged</code> once with <code>false</code></td><td>exactly one event, value false</td><td>Unit test <code>SendTextAsync_OnHeldSession_RaisesOnHoldChangedOnceWithFalse</code> passes</td><td class="pass">PASS</td></tr>
+  <tr><td>Live: type+Enter into a held session removes Hold without clicking "Take Off Hold"</td><td>session visibly leaves On Hold</td><td>See live proof below: <code>onHold</code> True-&gt;False, rail strip gray-&gt;active</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof 1 - Unit tests</h2>
+<p>Four new regression tests in <code>SessionInteractiveTests.cs</code>, run with <code>dotnet test --no-build</code>:</p>
+<pre>Passed CcDirector.Core.Tests.SessionInteractiveTests.SendInput_WithSubmitByte_ClearsOnHold
+Passed CcDirector.Core.Tests.SessionInteractiveTests.SendTextAsync_OnHeldSession_RaisesOnHoldChangedOnceWithFalse
+Passed CcDirector.Core.Tests.SessionInteractiveTests.SendTextAsync_OnHeldSession_ClearsOnHold
+Passed CcDirector.Core.Tests.SessionInteractiveTests.SendInput_BareKeystroke_LeavesOnHold</pre>
+<p>Full Core suite (no regressions):</p>
+<pre>Passed!  - Failed: 0, Passed: 1969, Skipped: 2, Total: 1971</pre>
+
+<h2>Proof 2 - Live app (slot 9 test Director, Control API on port 7887)</h2>
+<p>A real Claude Code session (<code>devthrottle</code>, <code>backendType=ConPty</code> - the production submit path) was
+created, parked On Hold, then driven with a submitted prompt via <code>POST /sessions/{id}/prompt</code> with
+<code>appendEnter=true</code> (which calls <code>Session.SendTextAsync</code>). No "Take Off Hold" was clicked.</p>
+<pre>POST /sessions/8cc40037.../hold  {"onHold":true}   -> GET onHold = <strong>true</strong>     (parked)
+POST /sessions/8cc40037.../prompt {"text":"say OK","appendEnter":true}
+GET  /sessions/8cc40037...                          -> GET onHold = <strong>false</strong>    (cleared by the submit)</pre>
+<p>The submitted prompt actually executed in the session (terminal showed
+<code>Bash(echo "hello from issue 470 proof") -&gt; Done</code>), confirming the real <code>SendTextAsync</code> turn fired.</p>
+
+<div class="box">
+  <p><strong>Before / After - desktop session rail (the held session is unselected so its status strip is visible)</strong></p>
+  <img src="rail-before-after.png" alt="before/after rail comparison">
+  <p>BEFORE: <code>devthrottle</code> is On Hold - light-gray status dot, label greyed, receded below the active
+  <code>cc-consult</code>. AFTER: a single submitted prompt cleared Hold - <code>devthrottle</code>'s dot returns to its
+  active color and the label un-greys, with nothing clicked but the prompt submission.</p>
+  <p>Individual crops: <a href="rail-before-onhold.png">rail-before-onhold.png</a> (held) and
+  <a href="rail-after-offhold.png">rail-after-offhold.png</a> (off hold).</p>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. No architecture change (no new container or dependency) and no security-posture change - this is a
+runtime UI-state flag, not a trust boundary, so <code>architecture_manifest.yaml</code> and
+<code>security_profile.yaml</code> are unaffected.</p>
+
+<h2>Conclusion</h2>
+<div class="finished">I believe this is finished. All five acceptance criteria are met and proven (4 unit tests + live before/after), the full solution builds with 0 warnings / 0 errors, and the full Core test suite passes (1969/1969, 0 failures).</div>
+
+</body>
+</html>

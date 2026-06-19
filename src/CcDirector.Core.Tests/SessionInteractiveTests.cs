@@ -46,6 +46,59 @@ public sealed class SessionInteractiveTests
         Assert.Equal(new byte[] { 0x1b, (byte)'[', (byte)'A' }, backend.Writes[0]);
     }
 
+    // ---- #470 typing into a held session takes it off Hold ----
+
+    [Fact]
+    public async Task SendTextAsync_OnHeldSession_ClearsOnHold()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Working);
+        s.OnHold = true;
+
+        await s.SendTextAsync("hello");
+
+        Assert.False(s.OnHold);
+    }
+
+    [Fact]
+    public void SendInput_WithSubmitByte_ClearsOnHold()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Working);
+        s.OnHold = true;
+
+        s.SendInput(new byte[] { (byte)'h', (byte)'i', 0x0D }); // text + CR (Enter)
+
+        Assert.False(s.OnHold);
+    }
+
+    [Fact]
+    public void SendInput_BareKeystroke_LeavesOnHold()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Working);
+        s.OnHold = true;
+
+        s.SendInput(new byte[] { (byte)'h', (byte)'i' }); // composing - no CR/LF
+
+        Assert.True(s.OnHold); // still held - a bare keystroke is not a submitted turn
+    }
+
+    [Fact]
+    public async Task SendTextAsync_OnHeldSession_RaisesOnHoldChangedOnceWithFalse()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Working);
+        s.OnHold = true;
+        var events = new List<bool>();
+        s.OnHoldChanged += value => events.Add(value);
+
+        await s.SendTextAsync("hello");
+
+        Assert.Single(events);          // exactly once
+        Assert.False(events[0]);        // with value false
+    }
+
     // ---- #5 PTY resize guard ----
 
     [Fact]
