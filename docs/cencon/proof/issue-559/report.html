@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue 559: Hide Voice/Wingman entry points behind the alpha flag</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; color: #1e1e1e; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #007acc; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #007acc; }
+  h3 { font-size: 14px; margin-top: 18px; }
+  code, pre { background: #f4f4f4; border: 1px solid #ddd; border-radius: 3px; }
+  pre { padding: 10px; overflow-x: auto; font-size: 12px; }
+  code { padding: 1px 4px; font-size: 12px; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; margin: 8px 0; }
+  .ok { color: #1a7f37; font-weight: bold; }
+  ul { margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue 559: Hide the Voice tab and Wingman entry points behind the alpha flag</h1>
+
+<h2>Summary</h2>
+<p>For the version one default install (issue 357), the desktop Voice tab button, Wingman
+tab button, and the "Open Wingman" button are now hidden behind the existing
+<code>AlphaMode</code> flag (default off). A standard install never shows them. Setting
+<code>alpha_mode: true</code> in configuration brings them back for internal testing. The
+Voice/Wingman back-end code, panels, and per-session Wingman state are untouched - this is
+desktop entry-point visibility only.</p>
+
+<h2>What changed</h2>
+<p>All edits are in <code>src/CcDirector.Avalonia/MainWindow.axaml.cs</code>.</p>
+<ol>
+  <li>Extended <code>ApplyAlphaFeatureVisibility()</code> (the existing alpha-gating method
+      that already hid <code>BtnStartFifo</code> and <code>BtnHandover</code>) to call a new
+      centralized method, <code>ApplyVoiceWingmanTabVisibility()</code>.</li>
+  <li>Added <code>ApplyVoiceWingmanTabVisibility()</code> - the single source of truth for
+      the three buttons. Alpha mode is a hard gate, logically combined (AND) with the
+      pre-existing conditions:
+      <ul>
+        <li><code>TabBarOpenWingmanButton</code> visible when <code>alpha AND a session is active</code>.</li>
+        <li><code>VoiceTabButton</code> visible when <code>alpha AND a session is active</code>.</li>
+        <li><code>WingmanTabButton</code> visible when <code>alpha AND a session is active AND
+            the session's Wingman experience is enabled</code> (restoring the original
+            <code>WingmanTabButton.IsVisible = vm.Session.WingmanEnabled</code> behavior,
+            now AND-ed with the alpha gate).</li>
+      </ul>
+      The method also falls the active tab back to Terminal if the Voice or Wingman tab
+      button disappears while it is the active tab, so the view is never stuck on a hidden
+      tab.</li>
+  <li>Replaced every hard-coded visibility write for these buttons with a call to the
+      centralized method, so no other code path can re-show them when alpha is off: the
+      no-active-session branch and the active-session branch of the session-switch method,
+      and <code>ToggleSessionWingman</code>.</li>
+  <li>Hardened the default-tab restore logic: when alpha is off, a persisted "Voice" or
+      "Wingman" selected tab is normalized to "Terminal", so the app never opens on a hidden
+      tab.</li>
+  <li>Hardened the two click handlers (<code>VoiceTabButton_Click</code>,
+      <code>WingmanTabButton_Click</code>) to ignore activation when their button is hidden.</li>
+  <li>Live re-gating: the existing <code>OnAlphaModeChanged</code> handler already calls
+      <code>ApplyAlphaFeatureVisibility()</code>, which now runs the centralized logic, so
+      toggling <code>alpha_mode</code> re-gates the buttons live without a restart.</li>
+</ol>
+
+<h2>Build</h2>
+<p><span class="ok">PASS.</span> <code>dotnet build src/CcDirector.Avalonia/CcDirector.Avalonia.csproj</code>
+- Build succeeded, 0 Warnings, 0 Errors (no project file changes; no audit-suppression
+override needed for the Avalonia project). Full solution build also succeeded with 0
+Warnings, 0 Errors.</p>
+
+<h2>Tests</h2>
+<p><span class="ok">PASS.</span> <code>dotnet test src/CcDirector.Avalonia.Tests</code> -
+Passed, 66 of 66, 0 failed. No regressions. The visibility logic lives on the
+<code>MainWindow</code> user-interface boundary, consistent with the existing
+<code>ApplyAlphaFeatureVisibility</code> for <code>BtnStartFifo</code>/<code>BtnHandover</code>
+(which also has no unit test), so the proof for this user-interface change is the
+screenshots below.</p>
+
+<h2>Live screenshots (running desktop app, isolated slot 13)</h2>
+<p>Both screenshots were taken with the SAME active session, deliberately created with the
+per-session Wingman experience ENABLED, so the only difference is the alpha flag.</p>
+
+<h3>alpha_mode: false (default install)</h3>
+<p>The session tab bar shows ONLY "Terminal" (active, highlighted) and "Source Control".
+There is NO Voice tab, NO Wingman tab, and NO "Open Wingman" button. Terminal is the active
+tab. This holds even though the active session has Wingman enabled, proving alpha is the
+hard gate. (Acceptance criteria 1 and 2.)</p>
+<img src="01-alpha-off-tabbar.png" alt="Alpha off - tab bar with no Voice/Wingman/Open-Wingman entries, Terminal active" />
+
+<h3>alpha_mode: true (internal testing)</h3>
+<p>With the same session, the tab bar now shows "Terminal" (active), "Source Control",
+"Voice", and "Wingman" tabs, plus the "Open Wingman" button on the right. The other alpha
+features "Start FIFO" and "Handover" also appear, as expected. Terminal remains the active
+tab. (Acceptance criterion 3.)</p>
+<img src="02-alpha-on-tabbar.png" alt="Alpha on - tab bar with Voice and Wingman tabs and Open Wingman button" />
+
+<h3>Live re-gate (acceptance criterion 4)</h3>
+<p>The Director log for the alpha-on run shows the centralized method running at
+construction and again when the session became active:</p>
+<pre>[AlphaMode] Load: alpha_mode=True
+[MainWindow] ApplyAlphaFeatureVisibility: alphaFeatures=True
+[MainWindow] ApplyVoiceWingmanTabVisibility: alpha=True, hasSession=False, voice=False, wingman=False, openWingman=False
+[MainWindow] ApplyVoiceWingmanTabVisibility: alpha=True, hasSession=True, voice=True, wingman=True, openWingman=True</pre>
+<p>The same <code>ApplyAlphaFeatureVisibility()</code> -&gt;
+<code>ApplyVoiceWingmanTabVisibility()</code> path is what the <code>AlphaMode.Changed</code>
+handler (Settings dialog toggle) invokes, so an in-window toggle re-gates the buttons live
+without a restart.</p>
+
+<h2>Notes</h2>
+<ul>
+  <li>The isolation harness shares the machine configuration file, so the alpha-on run was
+      produced by writing <code>alpha_mode: true</code> into the shared configuration,
+      restarting the isolated slot, capturing, and then restoring the configuration to
+      <code>alpha_mode: false</code> (its original value, from a backup taken before the
+      change). The final state is <code>alpha_mode: false</code>.</li>
+  <li>The isolated test Director (slot 13) was torn down cleanly after capture; the worktree
+      was preserved.</li>
+</ul>
+</body>
+</html>
