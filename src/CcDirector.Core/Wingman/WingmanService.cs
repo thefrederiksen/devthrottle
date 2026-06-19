@@ -3,8 +3,10 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -1745,180 +1747,85 @@ public static class WingmanService
     }
 
     // ====================================================================
-    // Internals: side-claude invocation (mirrors RecapGenerator)
+    // Internals: side-call invocation over a REAL session (issue #511)
     // ====================================================================
+    //
+    // Both helpers below open a REAL driver-backed ClaudeCode session through
+    // SessionAskRunner (#509) instead of the metered `claude --print` one-shot path,
+    // so every Wingman side-call bills against the user's subscription (#511). The
+    // SCOPED audit test (PrintBanAuditTests) fails the build if `--print` / `-p`
+    // reappears in this file.
 
     /// <summary>
-    /// Spawn  claude --print --tools ""  on the Wingman's strong <see cref="Model"/> with
-    /// the given prompt as a positional arg.  Returns stdout text.  Throws on non-zero
-    /// exit or timeout.
+    /// Ask the Wingman's strong <see cref="Model"/> the given prompt over a REAL session
+    /// and return its answer. Throws on session failure or timeout.
+    ///
+    /// Issue #511: this replaced the old `claude --print --tools ""` spawn. A neutral temp
+    /// working directory is used - these side-calls answer from the text in the prompt and
+    /// need no repo on disk - which also keeps any session state out of the user's repos.
     /// </summary>
     private static async Task<string> RunSideClaudeAsync(string prompt, string claudeExePath, CancellationToken ct, string model = Model)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = claudeExePath,
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        psi.ArgumentList.Add("--print");
-        psi.ArgumentList.Add("--model");
-        psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? Model : model);
-        // NOTE: --bare is intentionally NOT passed.  --bare disables keychain reads,
-        // which prevents the side-call from picking up the user's OAuth credentials
-        // from ~/.claude/.credentials.json and fails with "Not logged in".
-        // --tools "" below already prevents tool use (the main safety reason for
-        // --bare).  The cost of dropping --bare is some extra auto-context (CLAUDE.md
-        // auto-discovery, auto-memory) - acceptable for a short side-call.
-        psi.ArgumentList.Add("--no-session-persistence");
-        psi.ArgumentList.Add("--tools");
-        psi.ArgumentList.Add("");
-        psi.ArgumentList.Add("--dangerously-skip-permissions");
-        psi.ArgumentList.Add("--output-format");
-        psi.ArgumentList.Add("text");
-        psi.ArgumentList.Add(prompt);
-
-        psi.WorkingDirectory = Path.GetTempPath();
-
-        // Strip nested-Claude-Code env vars so the side call isn't detected as a child session.
-        foreach (var k in new[] { "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CC_SESSION_ID", "GIT_EDITOR" })
-            psi.Environment.Remove(k);
+        var workDir = Path.Combine(Path.GetTempPath(), $"cc-wingman-side-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+        FileLog.Write($"[WingmanService] RunSideClaudeAsync: opening a real session (no --print), workDir={workDir}");
 
         var sw = Stopwatch.StartNew();
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null for claude --print");
-        proc.StandardInput.Close();
-
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(ProcessTimeout);
         try
         {
-            await proc.WaitForExitAsync(cts.Token);
+            var runner = new SessionAskRunner();
+            var result = await runner.AskAsync(
+                AgentKind.ClaudeCode,
+                claudeExePath,
+                agentArgs: null,
+                workingDirectory: workDir,
+                prompt: prompt,
+                timeout: ProcessTimeout,
+                ct: ct);
+            sw.Stop();
+            FileLog.Write($"[WingmanService] side-call done in {sw.ElapsedMilliseconds}ms (real session), output chars={result.Answer.Length}");
+            return result.Answer.Trim();
         }
-        catch (OperationCanceledException)
+        finally
         {
-            try { proc.Kill(entireProcessTree: true); } catch { }
-            throw new TimeoutException($"claude --print did not finish within {ProcessTimeout.TotalSeconds}s");
+            try { Directory.Delete(workDir, recursive: true); } catch { /* temp cleanup best-effort */ }
         }
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-        sw.Stop();
-
-        if (proc.ExitCode != 0)
-        {
-            // claude --print writes some fatal errors (e.g. "Not logged in") to STDOUT
-            // with an empty stderr, so report both or the failure is undiagnosable.
-            var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
-            FileLog.Write($"[WingmanService] claude --print exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, error={Truncate(error, 400)}");
-            throw new InvalidOperationException($"claude --print exited {proc.ExitCode}: {error}");
-        }
-
-        FileLog.Write($"[WingmanService] side-call done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
-        return stdout.Trim();
     }
 
     /// <summary>
-    /// Spawn a FULL-POWER, fresh-per-call Claude Code session for the Wingman:
-    /// "claude --print" with a scoped read-only tool allow-list, MCP disabled (lean,
-    /// fast cold start), bounded turns, fresh context (--no-session-persistence).
-    /// Returns the final stdout text. Throws on non-zero exit or timeout.
+    /// Answer the given prompt over a REAL, fresh-per-call Claude Code session rooted at
+    /// <paramref name="workingDirectory"/>, returning the answer text. Throws on session
+    /// failure or timeout.
     ///
-    /// This is the Phase 2 sibling of <see cref="RunSideClaudeAsync"/>: same fresh,
-    /// stateless lifecycle, but with tools enabled so the session can read what it
-    /// needs on its own instead of being handed a fixed paste. The caller is
-    /// responsible for choosing a read-only <paramref name="allowedTools"/> set; this
-    /// method never enables write/execute tools implicitly.
+    /// This is the Phase 2 sibling of <see cref="RunSideClaudeAsync"/> for the read-and-answer
+    /// path (the voice "Ask the Wingman" channel): same fresh, stateless lifecycle, but the
+    /// session runs in the caller's repo so the model can Read the captured terminal snapshot
+    /// and Read/Grep/Glob the repo on its own. Issue #511: this replaced the old
+    /// `claude --print --allowedTools ...` spawn with a real session over SessionAskRunner.
+    /// The <paramref name="allowedTools"/> and <paramref name="maxTurns"/> parameters are kept
+    /// for signature compatibility; a real session is read-and-answer only here (the prompt
+    /// instructs read-only behavior and no write/send path exists outside the Director).
     /// </summary>
     private static async Task<string> RunWingmanSessionAsync(
         string prompt, string claudeExePath, string workingDirectory, string allowedTools, int maxTurns,
         CancellationToken ct, string model = Model)
     {
-        // Empty MCP config + --strict-mcp-config => the session loads NO MCP servers
-        // (not the user's globals), so cold start stays lean and the tool surface is
-        // exactly what we allow below. Written fresh per call, deleted in finally.
-        var mcpConfigPath = Path.Combine(Path.GetTempPath(), $"cc-wingman-mcp-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(mcpConfigPath, "{\"mcpServers\":{}}", ct);
+        var workDir = Directory.Exists(workingDirectory) ? workingDirectory : Path.GetTempPath();
+        FileLog.Write($"[WingmanService] RunWingmanSessionAsync: opening a real session (no --print), workDir={workDir}, tools={allowedTools}, maxTurns={maxTurns}");
 
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = claudeExePath,
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-            };
-            psi.ArgumentList.Add("--print");
-            psi.ArgumentList.Add("--model");
-            psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? Model : model);
-            psi.ArgumentList.Add("--no-session-persistence");
-            psi.ArgumentList.Add("--allowedTools");
-            psi.ArgumentList.Add(allowedTools);
-            psi.ArgumentList.Add("--mcp-config");
-            psi.ArgumentList.Add(mcpConfigPath);
-            psi.ArgumentList.Add("--strict-mcp-config");
-            psi.ArgumentList.Add("--max-turns");
-            psi.ArgumentList.Add(maxTurns.ToString());
-            psi.ArgumentList.Add("--dangerously-skip-permissions");
-            psi.ArgumentList.Add("--output-format");
-            psi.ArgumentList.Add("text");
-            psi.ArgumentList.Add(prompt);
-
-            psi.WorkingDirectory = Directory.Exists(workingDirectory) ? workingDirectory : Path.GetTempPath();
-
-            foreach (var k in new[] { "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CC_SESSION_ID", "GIT_EDITOR" })
-                psi.Environment.Remove(k);
-
-            var sw = Stopwatch.StartNew();
-            using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null for claude --print (wingman session)");
-            proc.StandardInput.Close();
-
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(ProcessTimeout);
-            try
-            {
-                await proc.WaitForExitAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                throw new TimeoutException($"wingman session did not finish within {ProcessTimeout.TotalSeconds}s");
-            }
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-            sw.Stop();
-
-            if (proc.ExitCode != 0)
-            {
-                // Same stdout-vs-stderr trap as RunSideClaudeAsync: report whichever has the error.
-                var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
-                FileLog.Write($"[WingmanService] wingman session exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, error={Truncate(error, 400)}");
-                throw new InvalidOperationException($"wingman session exited {proc.ExitCode}: {error}");
-            }
-
-            FileLog.Write($"[WingmanService] wingman session done in {sw.ElapsedMilliseconds}ms (tools={allowedTools}, maxTurns={maxTurns}), output chars={stdout.Length}");
-            return stdout.Trim();
-        }
-        finally
-        {
-            try { if (File.Exists(mcpConfigPath)) File.Delete(mcpConfigPath); } catch { /* temp cleanup best-effort */ }
-        }
+        var sw = Stopwatch.StartNew();
+        var runner = new SessionAskRunner();
+        var result = await runner.AskAsync(
+            AgentKind.ClaudeCode,
+            claudeExePath,
+            agentArgs: null,
+            workingDirectory: workDir,
+            prompt: prompt,
+            timeout: ProcessTimeout,
+            ct: ct);
+        sw.Stop();
+        FileLog.Write($"[WingmanService] wingman session done in {sw.ElapsedMilliseconds}ms (real session), output chars={result.Answer.Length}");
+        return result.Answer.Trim();
     }
 
     private static string Truncate(string s, int max)
