@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -47,6 +48,70 @@ public sealed class GitHubRestClient : IGitHubClient, IDisposable
         var root = doc.RootElement;
         return new GhIssue(root.GetProperty("number").GetInt64(), root.GetProperty("html_url").GetString() ?? "");
     }
+
+    public async Task<string> UploadFileAsync(string owner, string repo, string branch, string path, byte[] content, string commitMessage, CancellationToken ct)
+    {
+        await EnsureBranchAsync(owner, repo, branch, ct);
+
+        var payload = new
+        {
+            message = commitMessage,
+            content = Convert.ToBase64String(content),
+            branch,
+        };
+        using var doc = await PutJsonAsync($"/repos/{owner}/{repo}/contents/{EncodePath(path)}", payload, ct);
+        var fileEl = doc.RootElement.GetProperty("content");
+        var downloadUrl = fileEl.GetProperty("download_url").GetString();
+        if (string.IsNullOrEmpty(downloadUrl))
+            throw new InvalidOperationException($"GitHub Contents API did not return a download_url for {path}.");
+        return downloadUrl;
+    }
+
+    /// <summary>
+    /// Ensure <paramref name="branch"/> exists, creating it from the repository's
+    /// default branch when it does not. No-op when the branch is already present.
+    /// </summary>
+    private async Task EnsureBranchAsync(string owner, string repo, string branch, CancellationToken ct)
+    {
+        if (await RefExistsAsync(owner, repo, $"heads/{branch}", ct))
+            return;
+
+        var defaultBranch = await GetDefaultBranchAsync(owner, repo, ct);
+        var sha = await GetRefShaAsync(owner, repo, $"heads/{defaultBranch}", ct);
+
+        using var content = JsonContent.Create(new { @ref = $"refs/heads/{branch}", sha });
+        using var resp = await _http.PostAsync($"/repos/{owner}/{repo}/git/refs", content, ct);
+        await EnsureSuccessAsync(resp, ct);
+        FileLog.Write($"[GitHubRestClient] Created branch {branch} from {defaultBranch} in {owner}/{repo}");
+    }
+
+    private async Task<bool> RefExistsAsync(string owner, string repo, string gitRef, CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync($"/repos/{owner}/{repo}/git/ref/{gitRef}", ct);
+        if (resp.StatusCode == HttpStatusCode.NotFound)
+            return false;
+        await EnsureSuccessAsync(resp, ct);
+        return true;
+    }
+
+    private async Task<string> GetDefaultBranchAsync(string owner, string repo, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync($"/repos/{owner}/{repo}", ct);
+        return doc.RootElement.GetProperty("default_branch").GetString()
+            ?? throw new InvalidOperationException($"GitHub did not report a default_branch for {owner}/{repo}.");
+    }
+
+    private async Task<string> GetRefShaAsync(string owner, string repo, string gitRef, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync($"/repos/{owner}/{repo}/git/ref/{gitRef}", ct);
+        return doc.RootElement.GetProperty("object").GetProperty("sha").GetString()
+            ?? throw new InvalidOperationException($"GitHub ref {gitRef} has no object sha in {owner}/{repo}.");
+    }
+
+    // Encode each path segment but keep the slashes that separate them, so a path
+    // like "feedback/screenshots/x.png" maps to a valid Contents API URL.
+    private static string EncodePath(string path)
+        => string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
 
     public async Task<GhComment> PostCommentAsync(string owner, string repo, long issueNumber, string body, CancellationToken ct)
     {
@@ -131,6 +196,15 @@ public sealed class GitHubRestClient : IGitHubClient, IDisposable
     {
         using var content = JsonContent.Create(payload);
         using var resp = await _http.PostAsync(url, content, ct);
+        await EnsureSuccessAsync(resp, ct);
+        var stream = await resp.Content.ReadAsStreamAsync(ct);
+        return await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+    }
+
+    private async Task<JsonDocument> PutJsonAsync(string url, object payload, CancellationToken ct)
+    {
+        using var content = JsonContent.Create(payload);
+        using var resp = await _http.PutAsync(url, content, ct);
         await EnsureSuccessAsync(resp, ct);
         var stream = await resp.Content.ReadAsStreamAsync(ct);
         return await JsonDocument.ParseAsync(stream, cancellationToken: ct);

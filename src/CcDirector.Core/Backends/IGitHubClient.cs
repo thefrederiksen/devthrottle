@@ -10,6 +10,15 @@ public interface IGitHubClient
     /// <summary>Create a new issue. Returns the created issue (number + html url).</summary>
     Task<GhIssue> CreateIssueAsync(string owner, string repo, string title, string body, CancellationToken ct);
 
+    /// <summary>
+    /// Create a file on a branch via the Contents API and return the raw download
+    /// URL of the committed file (suitable for embedding in issue markdown as an
+    /// image). The branch is created from the repository's default branch when it
+    /// does not yet exist, so screenshot uploads can be isolated on a dedicated
+    /// branch instead of cluttering the default branch.
+    /// </summary>
+    Task<string> UploadFileAsync(string owner, string repo, string branch, string path, byte[] content, string commitMessage, CancellationToken ct);
+
     /// <summary>Post a comment on an issue/PR thread. Returns the created comment.</summary>
     Task<GhComment> PostCommentAsync(string owner, string repo, long issueNumber, string body, CancellationToken ct);
 

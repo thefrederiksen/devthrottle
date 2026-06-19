@@ -38,6 +38,16 @@ internal sealed class StubGitHubClient : IGitHubClient
         return Task.FromResult(new GhIssue(IssueNumber, $"https://github.com/{owner}/{repo}/issues/{IssueNumber}"));
     }
 
+    public List<(string Branch, string Path, int Bytes, string Message)> Uploads { get; } = new();
+    public string UploadDownloadUrl { get; set; } =
+        "https://raw.githubusercontent.com/thefrederiksen/devthrottle/feedback-assets/feedback/screenshots/test.png";
+
+    public Task<string> UploadFileAsync(string owner, string repo, string branch, string path, byte[] content, string commitMessage, CancellationToken ct)
+    {
+        lock (_lock) Uploads.Add((branch, path, content.Length, commitMessage));
+        return Task.FromResult(UploadDownloadUrl);
+    }
+
     public Task<GhComment> PostCommentAsync(string owner, string repo, long issueNumber, string body, CancellationToken ct)
     {
         lock (_lock) PostedComments.Add((issueNumber, body));
