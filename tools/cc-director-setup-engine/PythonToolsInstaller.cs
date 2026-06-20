@@ -383,7 +383,7 @@ public sealed class PythonToolsInstaller
     internal static string BuildWindowsShimBody(string script) =>
         "@echo off\r\n"
         + $"if not exist \"%~dp0..\\pyenv\\Scripts\\{script}.exe\" (\r\n"
-        + $"  echo cc-* tools are not fully installed - run the repair: Home ^> Fix it, or cc-director-setup-cli repair-tools 1^>^&2\r\n"
+        + $"  echo cc-* tools are not fully installed - run the repair: Home ^> Fix it 1^>^&2\r\n"
         + "  exit /b 1\r\n"
         + ")\r\n"
         + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";

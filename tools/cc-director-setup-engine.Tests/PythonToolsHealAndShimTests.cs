@@ -233,6 +233,6 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
 
         Assert.NotEqual(0, p.ExitCode); // non-zero, not cmd.exe's raw "is not recognized" (which is exit 9009 but with no guidance)
         Assert.Contains("not fully installed", output, StringComparison.Ordinal);
-        Assert.Contains("repair-tools", output, StringComparison.Ordinal);
+        Assert.Contains("Fix it", output, StringComparison.Ordinal); // points only at the live repair path (Home > Fix it)
     }
 }
