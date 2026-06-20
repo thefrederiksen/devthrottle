@@ -9,4 +9,9 @@
     <RootNamespace>CcDirector.Setup.Engine</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Expose internals (e.g. ProcessRunner) to the engine test project for direct unit testing. -->
+    <InternalsVisibleTo Include="CcDirector.Setup.Engine.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -67,9 +67,11 @@ public sealed class ToolUpdater
 
     /// <summary>
     /// Refresh the shared-venv Python tools bundle. Installs when the bundle is missing (migrating an
-    /// older machine off its per-tool exes - PythonToolsInstaller removes those stale exes) and when
-    /// the release's bundle version is newer than what is installed. Windows-only; returns null when
-    /// there is nothing to do (no bundle in the release, not Windows, or already current).
+    /// older machine off its per-tool exes - PythonToolsInstaller removes those stale exes), when the
+    /// release's bundle version is newer than what is installed, AND when the recorded version is current
+    /// but the on-disk venv is unhealthy (a console script missing - the half-installed field failure that
+    /// issue #577 self-heals). Returns null when there is genuinely nothing to do (no bundle in the
+    /// release, or already current and healthy).
     /// </summary>
     public async Task<PythonToolsResult?> RefreshPythonToolsAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
     {
@@ -95,16 +97,36 @@ public sealed class ToolUpdater
             return null;
         }
 
-        var needs = installedVer is null  // missing => migrate from per-tool exes
+        var versionBehind = installedVer is null  // missing => migrate from per-tool exes
             || (VersionUtil.TryParse(installedVer) is { } iv
                 && VersionUtil.TryParse(toolsAsset.Version) is { } rv && rv > iv);
-        if (!needs)
+
+        // SELF-HEALING (issue #577): reinstall not only when the release is newer, but also when the
+        // recorded version is current yet the on-disk venv is UNHEALTHY (a console script is missing - the
+        // half-installed state that left tools broken in the field). The version-only gate skipped such a
+        // machine forever; probing the venv with the same VenvHasAllTools health check repairs it on the
+        // next normal update. We can only probe health when we know which scripts to expect: that list is
+        // persisted by a prior healthy install. If we have no recorded version, "needs" is already true
+        // (a migrate), so the unknown-scripts case never suppresses a needed install.
+        var unhealthy = false;
+        if (!versionBehind && installedVer is not null)
         {
-            EngineLog.Write($"[ToolUpdater] Python tools bundle up to date ({installedVer})");
+            var expectedScripts = PythonToolsState.LoadScripts(_layout);
+            if (expectedScripts.Count > 0 && !PythonToolsInstaller.VenvHasAllTools(_layout, expectedScripts))
+            {
+                unhealthy = true;
+                EngineLog.Write($"[ToolUpdater] Python tools bundle {installedVer} is current but the on-disk venv is UNHEALTHY (missing console scripts); reinstalling to self-heal");
+            }
+        }
+
+        if (!versionBehind && !unhealthy)
+        {
+            EngineLog.Write($"[ToolUpdater] Python tools bundle up to date and healthy ({installedVer})");
             return null;
         }
 
-        EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {installedVer ?? "none"} -> {toolsAsset.Version}");
+        var reason = versionBehind ? $"{installedVer ?? "none"} -> {toolsAsset.Version}" : $"self-heal unhealthy venv ({installedVer})";
+        EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {reason}");
         var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, ct: ct);
         EngineLog.Write($"[ToolUpdater] Python tools bundle: success={result.Success}, count={result.ToolCount}");
         return result;
