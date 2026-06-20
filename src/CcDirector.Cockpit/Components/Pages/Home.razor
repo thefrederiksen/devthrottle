@@ -1,7 +1,6 @@
 @page "/"
 @inject GatewayClient Gateway
 @inject NavigationManager Nav
-@inject IJSRuntime JS
 @inject ILogger<Home> Log
 @implements IDisposable
 
@@ -18,22 +17,10 @@
         <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
     </header>
 
-    @* On a phone (narrow viewport / mobile UA) OFFER the mobile-first Voice Mode at /voice
-       (issue #427). It is an offer, not a forced redirect, and dismissal is remembered in
-       localStorage so it does not reappear. The banner never renders on desktop. *@
-    @if (_showVoiceOffer)
-    {
-        <div class="voice-offer">
-            <div class="voice-offer-text">
-                <span class="voice-offer-title">Voice Mode is built for phones</span>
-                <span class="voice-offer-sub">Talk to your fleet hands-free instead of using the full desktop Cockpit.</span>
-            </div>
-            <div class="voice-offer-actions">
-                <a class="voice-offer-go" href="/voice" data-enhance-nav="false">Open Voice Mode</a>
-                <button type="button" class="voice-offer-dismiss" @onclick="DismissVoiceOfferAsync" title="Do not show this again">Dismiss</button>
-            </div>
-        </div>
-    }
+    @* The "Open Voice Mode" offer (issue #427) is removed for the v1 default install (issue #571,
+       the Cockpit counterpart of the desktop hide #559). The /voice screen is NOT deleted - it
+       still loads by direct URL for internal testing - the Home page just no longer advertises it
+       on any viewport. *@
 
     @if (_lastError is not null)
     {
@@ -104,7 +91,6 @@
     private HealthDto? _health;
     private DateTime? _lastRefresh;
     private string? _lastError;
-    private bool _showVoiceOffer;
     private readonly CancellationTokenSource _cts = new();
 
     private List<SessionDto> NeedsYou =>
@@ -117,29 +103,6 @@
         await RefreshAsync();
         _ = PollLoopAsync();
     }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        // Mobile detection needs the browser (UA + viewport + localStorage), so it can only run
-        // after the first render once JS interop is live. Show the Voice Mode offer only on a
-        // phone that has not already dismissed it (issue #427).
-        if (!firstRender) return;
-        var state = await JS.InvokeAsync<MobileState>("cockpitMobile.evaluate");
-        var show = state.IsMobile && !state.Dismissed;
-        if (show != _showVoiceOffer)
-        {
-            _showVoiceOffer = show;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task DismissVoiceOfferAsync()
-    {
-        _showVoiceOffer = false;
-        await JS.InvokeVoidAsync("cockpitMobile.dismiss");
-    }
-
-    private sealed record MobileState(bool IsMobile, bool Dismissed);
 
     private async Task PollLoopAsync()
     {
