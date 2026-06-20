@@ -1,0 +1,183 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.OnboardingWizardDialog"
+        Title="Welcome to CC Director"
+        Width="620" Height="560"
+        MinWidth="540" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBox.settingsInput">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="CaretBrush" Value="#CCCCCC" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style Selector="Button.dialogButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="100" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="120" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto">
+
+        <!-- Step indicator -->
+        <TextBlock Grid.Row="0" x:Name="StepIndicator"
+                   Text="Step 1 of 3"
+                   Foreground="#888888" FontSize="11" Margin="0,0,0,4" />
+
+        <!-- Title for the current step -->
+        <TextBlock Grid.Row="1" x:Name="StepTitle" Classes="sectionTitle"
+                   Text="Connect to a Gateway" Margin="0,0,0,12" />
+
+        <!-- The three step panels live in the same cell; exactly one is visible at a time. -->
+        <Grid Grid.Row="2">
+
+            <!-- STEP 1: Gateway URL -->
+            <StackPanel x:Name="GatewayStep" Spacing="8" IsVisible="True">
+                <TextBlock Classes="hint"
+                           Text="Enter the address of your CC Director Gateway so this Director shows up there. Leave it blank to run local-only - you can set it later in Settings. Click Test to check the address is reachable before continuing." />
+
+                <TextBlock Classes="fieldLabel" Text="Gateway URL" />
+                <TextBox x:Name="GatewayUrlBox" Classes="settingsInput"
+                         Watermark="e.g. http://gateway-host:7878" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <Button x:Name="TestGatewayButton" Classes="dialogButton"
+                            Content="Test" Click="BtnTestGateway_Click"
+                            ToolTip.Tip="Check the gateway URL is reachable" />
+                    <ProgressBar x:Name="GatewayTestSpinner" Width="120" Height="4"
+                                 IsIndeterminate="True" IsVisible="False"
+                                 VerticalAlignment="Center"
+                                 Background="#3C3C3C" Foreground="#007ACC" />
+                </StackPanel>
+
+                <TextBlock x:Name="GatewayTestStatus" Text=""
+                           Foreground="#888888" FontSize="11"
+                           TextWrapping="Wrap" Margin="0,4,0,0" IsVisible="False" />
+            </StackPanel>
+
+            <!-- STEP 2: Agent check -->
+            <StackPanel x:Name="AgentStep" Spacing="8" IsVisible="False">
+                <TextBlock Classes="hint"
+                           Text="CC Director runs command-line coding agents. To create a working session you need at least one agent installed. This step checks for Claude Code on your PATH." />
+
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <ProgressBar x:Name="AgentCheckSpinner" Width="120" Height="4"
+                                 IsIndeterminate="True" IsVisible="False"
+                                 VerticalAlignment="Center"
+                                 Background="#3C3C3C" Foreground="#007ACC" />
+                </StackPanel>
+
+                <Border x:Name="AgentStatusCard"
+                        Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1"
+                        CornerRadius="6" Padding="14" Margin="0,4,0,0">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border x:Name="AgentStatusBadge" CornerRadius="3" Padding="6,1"
+                                    Background="#3A2A1B" VerticalAlignment="Center">
+                                <TextBlock x:Name="AgentStatusBadgeText" Text="CHECKING"
+                                           Foreground="#F59E0B" FontSize="10" FontWeight="SemiBold" />
+                            </Border>
+                            <TextBlock Text="Claude Code" Foreground="#CCCCCC"
+                                       FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="AgentStatusMessage"
+                                   Text="Checking for Claude Code..."
+                                   Foreground="#AAAAAA" FontSize="11" TextWrapping="Wrap" />
+
+                        <!-- Install guidance shown only when no agent is available -->
+                        <StackPanel x:Name="AgentInstallGuidance" Spacing="6" IsVisible="False">
+                            <TextBlock Classes="hint"
+                                       Text="Install Claude Code, then click Re-check. The button below opens the official setup guide in your browser." />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="InstallClaudeButton" Classes="dialogButton"
+                                        Content="Open install guide" Click="BtnInstallClaude_Click" />
+                                <Button x:Name="RecheckAgentButton" Classes="dialogButton"
+                                        Content="Re-check" Click="BtnRecheckAgent_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- STEP 3: Done -->
+            <StackPanel x:Name="DoneStep" Spacing="10" IsVisible="False">
+                <Border Background="#1B3A2A" BorderBrush="#22C55E" BorderThickness="1"
+                        CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Your Director is ready"
+                                   Foreground="#22C55E" FontSize="14" FontWeight="SemiBold" />
+                        <TextBlock x:Name="DoneSummary"
+                                   Text="Setup is complete."
+                                   Foreground="#AAAAAA" FontSize="11" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Classes="hint"
+                           Text="Create your first session to start working with an agent. Click Create first session to open the New Session dialog, or Finish to close this wizard - you can create a session any time from the sidebar." />
+
+                <Button x:Name="CreateSessionButton" Classes="primaryButton"
+                        Content="Create first session" HorizontalAlignment="Left"
+                        Margin="0,4,0,0" Click="BtnCreateSession_Click"
+                        ToolTip.Tip="Finish setup and open the New Session dialog" />
+            </StackPanel>
+        </Grid>
+
+        <!-- A persistent error/info line for the current step -->
+        <TextBlock Grid.Row="3" x:Name="StepStatusText"
+                   Text="" Foreground="#888888" FontSize="11"
+                   TextWrapping="Wrap" Margin="0,10,0,0" IsVisible="False" />
+
+        <!-- Navigation buttons -->
+        <Grid Grid.Row="4" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,16,0,0">
+            <Button x:Name="SkipButton" Grid.Column="0" Classes="dialogButton"
+                    Content="Skip for now" Click="BtnSkip_Click"
+                    ToolTip.Tip="Close the wizard - it will not appear again" />
+
+            <Button x:Name="BackButton" Grid.Column="2" Classes="dialogButton"
+                    Content="Back" Click="BtnBack_Click" IsVisible="False" Margin="0,0,8,0" />
+
+            <Button x:Name="NextButton" Grid.Column="3" Classes="primaryButton"
+                    Content="Next" Click="BtnNext_Click" IsDefault="True" />
+        </Grid>
+    </Grid>
+</Window>

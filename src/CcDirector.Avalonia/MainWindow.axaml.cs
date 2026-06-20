@@ -18,6 +18,7 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Home;
 using CcDirector.Core.Network;
+using CcDirector.Core.Onboarding;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Skills;
@@ -324,42 +325,83 @@ public partial class MainWindow : Window
         WireGatewayIndicator();
         InitDirectorInfo();
 
-        MaybeShowToolDetectionWizard();
+        MaybeShowFirstRunWizards();
+    }
+
+    /// <summary>
+    /// Run the first-run wizards in order on the UI thread after the main window is shown: first the
+    /// onboarding wizard (issue #370) when onboarding has not been completed, then the tool-detection
+    /// wizard (issue #392) when no agent is configured. Both are gated so a returning user sees
+    /// neither. Posted to Background priority so they open after the first render, never blocking it.
+    /// </summary>
+    private void MaybeShowFirstRunWizards()
+    {
+        FileLog.Write("[MainWindow] MaybeShowFirstRunWizards");
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await MaybeShowOnboardingWizardAsync();
+                await MaybeShowToolDetectionWizardAsync();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] MaybeShowFirstRunWizards FAILED: {ex.Message}");
+            }
+        }, global::Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// On first launch (no gateway.url configured and no onboarding-complete marker, issue #370),
+    /// open the onboarding wizard that walks the user from launch to a working agent. Once completed
+    /// or dismissed it never auto-opens again. If the user chooses "Create first session" on the
+    /// final step, route them straight to the New Session dialog.
+    /// </summary>
+    private async Task MaybeShowOnboardingWizardAsync()
+    {
+        FileLog.Write("[MainWindow] MaybeShowOnboardingWizardAsync");
+        if (!OnboardingModel.ShouldShowOnboarding())
+        {
+            FileLog.Write("[MainWindow] MaybeShowOnboardingWizardAsync: onboarding already complete; not auto-opening");
+            return;
+        }
+
+        var wantsNewSession = await OpenOnboardingWizardAsync();
+        if (wantsNewSession)
+        {
+            FileLog.Write("[MainWindow] MaybeShowOnboardingWizardAsync: user chose to create first session");
+            await ShowNewSessionDialog();
+        }
+    }
+
+    /// <summary>Open the onboarding wizard modally; returns true when the user asked to create a session.</summary>
+    internal async Task<bool> OpenOnboardingWizardAsync()
+    {
+        FileLog.Write("[MainWindow] OpenOnboardingWizardAsync");
+        var app = global::Avalonia.Application.Current as App;
+        var options = app?.SessionManager?.Options ?? app?.Options
+            ?? throw new InvalidOperationException("AgentOptions not loaded.");
+        var dialog = new OnboardingWizardDialog(options);
+        await dialog.ShowDialog<bool?>(this);
+        return dialog.WantsNewSession;
     }
 
     /// <summary>
     /// On first run (no agent tools configured yet, issue #392), auto-open the tool-detection
     /// wizard so a new user gets a near-zero-effort setup. Once any tool is configured the
     /// wizard never auto-opens again - it can still be re-run on demand from Settings &gt; Agents.
-    /// Posted to the UI thread so it opens after the main window is shown.
+    /// Runs after the onboarding wizard (issue #370) in the first-run chain.
     /// </summary>
-    private void MaybeShowToolDetectionWizard()
+    private async Task MaybeShowToolDetectionWizardAsync()
     {
-        FileLog.Write("[MainWindow] MaybeShowToolDetectionWizard");
-        try
+        FileLog.Write("[MainWindow] MaybeShowToolDetectionWizardAsync");
+        if (!ToolDetectionWizardModel.IsFirstRun())
         {
-            if (!ToolDetectionWizardModel.IsFirstRun())
-            {
-                FileLog.Write("[MainWindow] MaybeShowToolDetectionWizard: tools already configured; not auto-opening");
-                return;
-            }
+            FileLog.Write("[MainWindow] MaybeShowToolDetectionWizardAsync: tools already configured; not auto-opening");
+            return;
+        }
 
-            Dispatcher.UIThread.Post(async () =>
-            {
-                try
-                {
-                    await OpenToolDetectionWizardAsync();
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Write($"[MainWindow] MaybeShowToolDetectionWizard open FAILED: {ex.Message}");
-                }
-            }, global::Avalonia.Threading.DispatcherPriority.Background);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[MainWindow] MaybeShowToolDetectionWizard FAILED: {ex.Message}");
-        }
+        await OpenToolDetectionWizardAsync();
     }
 
     /// <summary>Open the first-run tool-detection wizard modally over the main window.</summary>

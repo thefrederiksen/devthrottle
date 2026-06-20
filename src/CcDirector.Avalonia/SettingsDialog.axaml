@@ -146,6 +146,14 @@
                         <TextBlock Classes="fieldLabel" Text="Gateway token (optional)" />
                         <TextBox x:Name="GatewayTokenBox" Classes="settingsInput"
                                  Watermark="only if the gateway requires one" />
+
+                        <TextBlock Classes="sectionTitle" Text="First-run setup" Margin="0,16,0,0" />
+                        <TextBlock Classes="hint" Text="Re-run the guided onboarding wizard that walks you through the gateway connection, the agent check, and creating a first session." />
+                        <Button x:Name="RerunOnboardingButton" Classes="dialogButton"
+                                Content="Re-run setup wizard..." Width="200"
+                                HorizontalAlignment="Left" Margin="0,4,0,0"
+                                Click="BtnRerunOnboarding_Click"
+                                ToolTip.Tip="Open the first-run onboarding wizard again" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -1,0 +1,717 @@
+2026-06-19 20:53:12.366 [UpdaterState] Load: D:\cc-dir-onboard-proof\config\director\updater-state.json
+2026-06-19 20:53:12.393 [SingleInstanceGuard] Acquired Local\cc-director-instance-6d91127416734670
+2026-06-19 20:53:13.377 [AgentOptions] DefaultNpmCliPath(pi): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\pi.cmd
+2026-06-19 20:53:13.377 [AgentOptions] DefaultNpmCliPath(codex): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\codex.cmd
+2026-06-19 20:53:13.377 [AgentOptions] DefaultNpmCliPath(gemini): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\gemini.cmd
+2026-06-19 20:53:13.479 [App] ApplyConfiguredToolPaths
+2026-06-19 20:53:13.480 [App] ApplyConfiguredToolPaths: no agent section in config.json
+2026-06-19 20:53:13.481 [App] ApplyConfiguredToolPresets
+2026-06-19 20:53:13.482 [AgentToolConfig] Load: tool=ClaudeCode
+2026-06-19 20:53:13.482 [AgentToolCatalog] GetEntry: tool=ClaudeCode
+2026-06-19 20:53:13.483 [AgentToolConfig] Load: tool=ClaudeCode, no persisted config; using catalog defaults
+2026-06-19 20:53:13.484 [AgentToolCatalog] GetEntry: tool=ClaudeCode
+2026-06-19 20:53:13.484 [App] ApplyConfiguredToolPresets: claude preset=Automatic (skip permissions), model=<none>, defaultArgs='--dangerously-skip-permissions'
+2026-06-19 20:53:13.484 [App] ApplyConfiguredVoiceSettings
+2026-06-19 20:53:13.484 [App] ApplyConfiguredVoiceSettings: no Voice section in config.json
+2026-06-19 20:53:13.694 [RootDirectoryStore] Load: path=D:\cc-dir-onboard-proof\config\director\root-directories.json
+2026-06-19 20:53:13.695 [RootDirectoryStore] Load: created empty file
+2026-06-19 20:53:13.695 [SessionStateStore] Initialized: FilePath=D:\cc-dir-onboard-proof\config\director\sessions.json
+2026-06-19 20:53:13.696 [SessionHistoryStore] LoadAll: scanning D:\cc-dir-onboard-proof\config\director\sessions
+2026-06-19 20:53:13.696 [SessionHistoryStore] LoadAll: folder does not exist, returning empty list
+2026-06-19 20:53:13.698 [CcStorageMigration] EnsureMigrated: checking for legacy data
+2026-06-19 20:53:13.703 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\accounts.json -> D:\cc-dir-onboard-proof\config\director\accounts.json
+2026-06-19 20:53:13.703 [CcStorageMigration] Copied (dest empty, src=341b): C:\Users\soren\AppData\Local\CcDirector\root-directories.json -> D:\cc-dir-onboard-proof\config\director\root-directories.json
+2026-06-19 20:53:13.706 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions.json -> D:\cc-dir-onboard-proof\config\director\sessions.json
+2026-06-19 20:53:13.708 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\recent-sessions.json -> D:\cc-dir-onboard-proof\config\director\recent-sessions.json
+2026-06-19 20:53:13.709 [CcStorageMigration] Copied (dest empty, src=3129b): D:\Personal\OneDrive\Documents\CcDirector\repositories.json -> D:\cc-dir-onboard-proof\config\director\repositories.json
+2026-06-19 20:53:13.713 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\031053af32bc4e5ab71ccf86cfd763fe.json -> D:\cc-dir-onboard-proof\config\director\sessions\031053af32bc4e5ab71ccf86cfd763fe.json
+2026-06-19 20:53:13.714 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\032663275e2f4c8bb2d740f2c99c636c.json -> D:\cc-dir-onboard-proof\config\director\sessions\032663275e2f4c8bb2d740f2c99c636c.json
+2026-06-19 20:53:13.717 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\06da27909db94fdb93b7c8f48c5311cd.json -> D:\cc-dir-onboard-proof\config\director\sessions\06da27909db94fdb93b7c8f48c5311cd.json
+2026-06-19 20:53:13.718 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\079e0d58afac4b36af6de1005d53b2a6.json -> D:\cc-dir-onboard-proof\config\director\sessions\079e0d58afac4b36af6de1005d53b2a6.json
+2026-06-19 20:53:13.719 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\08b4526c838f4c948eb1c2cfad43b482.json -> D:\cc-dir-onboard-proof\config\director\sessions\08b4526c838f4c948eb1c2cfad43b482.json
+2026-06-19 20:53:13.719 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\08b5a9d4877846fd85c944b32ba02a53.json -> D:\cc-dir-onboard-proof\config\director\sessions\08b5a9d4877846fd85c944b32ba02a53.json
+2026-06-19 20:53:13.722 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\09e1f96a5c1b419ab88f633f6788a086.json -> D:\cc-dir-onboard-proof\config\director\sessions\09e1f96a5c1b419ab88f633f6788a086.json
+2026-06-19 20:53:13.722 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0a160010f616443488b532abe6af7917.json -> D:\cc-dir-onboard-proof\config\director\sessions\0a160010f616443488b532abe6af7917.json
+2026-06-19 20:53:13.725 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0bfa1a021c8d49d38af71f0cdf7fd1a9.json -> D:\cc-dir-onboard-proof\config\director\sessions\0bfa1a021c8d49d38af71f0cdf7fd1a9.json
+2026-06-19 20:53:13.726 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0bfc8139d97841c0b21da1e86bd105ab.json -> D:\cc-dir-onboard-proof\config\director\sessions\0bfc8139d97841c0b21da1e86bd105ab.json
+2026-06-19 20:53:13.727 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0dd63deab2f4448eab36567e425af92e.json -> D:\cc-dir-onboard-proof\config\director\sessions\0dd63deab2f4448eab36567e425af92e.json
+2026-06-19 20:53:13.727 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0e45a63eb05f44b981a1bef54da91144.json -> D:\cc-dir-onboard-proof\config\director\sessions\0e45a63eb05f44b981a1bef54da91144.json
+2026-06-19 20:53:13.731 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\0ea2b365d6534849b5db06f995e4910b.json -> D:\cc-dir-onboard-proof\config\director\sessions\0ea2b365d6534849b5db06f995e4910b.json
+2026-06-19 20:53:13.731 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1060129a1dd8493ea91421e382294ac7.json -> D:\cc-dir-onboard-proof\config\director\sessions\1060129a1dd8493ea91421e382294ac7.json
+2026-06-19 20:53:13.732 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\106a0b6c3a6c4b2cb69d03a61e834c48.json -> D:\cc-dir-onboard-proof\config\director\sessions\106a0b6c3a6c4b2cb69d03a61e834c48.json
+2026-06-19 20:53:13.733 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\11c589fc37ea4212810f6443a335df74.json -> D:\cc-dir-onboard-proof\config\director\sessions\11c589fc37ea4212810f6443a335df74.json
+2026-06-19 20:53:13.734 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\12d778eee27d43eaa384e00b033561cb.json -> D:\cc-dir-onboard-proof\config\director\sessions\12d778eee27d43eaa384e00b033561cb.json
+2026-06-19 20:53:13.736 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\146d011f794840508aecca67a0fb6c52.json -> D:\cc-dir-onboard-proof\config\director\sessions\146d011f794840508aecca67a0fb6c52.json
+2026-06-19 20:53:13.737 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1498ce7be82d4a77b8499e4bd872a506.json -> D:\cc-dir-onboard-proof\config\director\sessions\1498ce7be82d4a77b8499e4bd872a506.json
+2026-06-19 20:53:13.737 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1769b684ebc54135a0834d7642577b10.json -> D:\cc-dir-onboard-proof\config\director\sessions\1769b684ebc54135a0834d7642577b10.json
+2026-06-19 20:53:13.740 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\17a1f4137b7a497690c18c06e1f58fdd.json -> D:\cc-dir-onboard-proof\config\director\sessions\17a1f4137b7a497690c18c06e1f58fdd.json
+2026-06-19 20:53:13.741 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1913d3b8b974475e968a42cfdb7f6fb6.json -> D:\cc-dir-onboard-proof\config\director\sessions\1913d3b8b974475e968a42cfdb7f6fb6.json
+2026-06-19 20:53:13.741 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\191afaa10afb4db6af2861913d058cbf.json -> D:\cc-dir-onboard-proof\config\director\sessions\191afaa10afb4db6af2861913d058cbf.json
+2026-06-19 20:53:13.742 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\19beaafa40244148898bba5259a4bb16.json -> D:\cc-dir-onboard-proof\config\director\sessions\19beaafa40244148898bba5259a4bb16.json
+2026-06-19 20:53:13.742 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1be1a8533b94455c8b01835bdc5aff63.json -> D:\cc-dir-onboard-proof\config\director\sessions\1be1a8533b94455c8b01835bdc5aff63.json
+2026-06-19 20:53:13.743 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\1fba759b0a43476d90bbceb49703d0ca.json -> D:\cc-dir-onboard-proof\config\director\sessions\1fba759b0a43476d90bbceb49703d0ca.json
+2026-06-19 20:53:13.746 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\22fc87d5c31a48a1a594326fad330765.json -> D:\cc-dir-onboard-proof\config\director\sessions\22fc87d5c31a48a1a594326fad330765.json
+2026-06-19 20:53:13.747 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2321651e9f4040aeaebb6bd51b203675.json -> D:\cc-dir-onboard-proof\config\director\sessions\2321651e9f4040aeaebb6bd51b203675.json
+2026-06-19 20:53:13.747 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\23290f4b2ef044edb1f0a288d880b6e0.json -> D:\cc-dir-onboard-proof\config\director\sessions\23290f4b2ef044edb1f0a288d880b6e0.json
+2026-06-19 20:53:13.748 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\23fe509333bb4923b7780aeb361b3d5f.json -> D:\cc-dir-onboard-proof\config\director\sessions\23fe509333bb4923b7780aeb361b3d5f.json
+2026-06-19 20:53:13.748 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\24df3418978a46b6b86721fa63c57d26.json -> D:\cc-dir-onboard-proof\config\director\sessions\24df3418978a46b6b86721fa63c57d26.json
+2026-06-19 20:53:13.750 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\25bb64fc15284cc68a8e3eb0ababfc89.json -> D:\cc-dir-onboard-proof\config\director\sessions\25bb64fc15284cc68a8e3eb0ababfc89.json
+2026-06-19 20:53:13.750 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\27847df84b8643878353fa06792b648d.json -> D:\cc-dir-onboard-proof\config\director\sessions\27847df84b8643878353fa06792b648d.json
+2026-06-19 20:53:13.751 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\27dd4e8da6234392bab658a6ef9dae83.json -> D:\cc-dir-onboard-proof\config\director\sessions\27dd4e8da6234392bab658a6ef9dae83.json
+2026-06-19 20:53:13.753 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\28309ccba33d42fd93c3719b38321e71.json -> D:\cc-dir-onboard-proof\config\director\sessions\28309ccba33d42fd93c3719b38321e71.json
+2026-06-19 20:53:13.753 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2919c489dd0340428463c7f4438a5a03.json -> D:\cc-dir-onboard-proof\config\director\sessions\2919c489dd0340428463c7f4438a5a03.json
+2026-06-19 20:53:13.754 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\29e7209a51934427a7d93658205e80da.json -> D:\cc-dir-onboard-proof\config\director\sessions\29e7209a51934427a7d93658205e80da.json
+2026-06-19 20:53:13.755 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2ae433304c6745f5a9ef8a0eb7f3730c.json -> D:\cc-dir-onboard-proof\config\director\sessions\2ae433304c6745f5a9ef8a0eb7f3730c.json
+2026-06-19 20:53:13.756 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2b064f2a8bbe4bd3a99d8ac42e9c6d54.json -> D:\cc-dir-onboard-proof\config\director\sessions\2b064f2a8bbe4bd3a99d8ac42e9c6d54.json
+2026-06-19 20:53:13.756 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2b218e4cd6934824b3646297848155ce.json -> D:\cc-dir-onboard-proof\config\director\sessions\2b218e4cd6934824b3646297848155ce.json
+2026-06-19 20:53:13.757 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2bc6f11c94e74f379035d72bc7f6f819.json -> D:\cc-dir-onboard-proof\config\director\sessions\2bc6f11c94e74f379035d72bc7f6f819.json
+2026-06-19 20:53:13.760 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\2befb774fb994bb88e4579e64ad11ceb.json -> D:\cc-dir-onboard-proof\config\director\sessions\2befb774fb994bb88e4579e64ad11ceb.json
+2026-06-19 20:53:13.761 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\30f0ed4225e54cf580116dcb059ab95e.json -> D:\cc-dir-onboard-proof\config\director\sessions\30f0ed4225e54cf580116dcb059ab95e.json
+2026-06-19 20:53:13.761 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\32ba880f5fd84035abcd2d8be7f3f99b.json -> D:\cc-dir-onboard-proof\config\director\sessions\32ba880f5fd84035abcd2d8be7f3f99b.json
+2026-06-19 20:53:13.762 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\34f305fecb034d80809d08599ed3453f.json -> D:\cc-dir-onboard-proof\config\director\sessions\34f305fecb034d80809d08599ed3453f.json
+2026-06-19 20:53:13.763 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\368c8db8f2e643a587ad201683a02ed0.json -> D:\cc-dir-onboard-proof\config\director\sessions\368c8db8f2e643a587ad201683a02ed0.json
+2026-06-19 20:53:13.766 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\36c781a004da429080a05b30715a6bbf.json -> D:\cc-dir-onboard-proof\config\director\sessions\36c781a004da429080a05b30715a6bbf.json
+2026-06-19 20:53:13.766 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\38fedeee038b46bc90d9704d70c65b86.json -> D:\cc-dir-onboard-proof\config\director\sessions\38fedeee038b46bc90d9704d70c65b86.json
+2026-06-19 20:53:13.767 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\394d0eba4f8548c5a70cb81199f17d8d.json -> D:\cc-dir-onboard-proof\config\director\sessions\394d0eba4f8548c5a70cb81199f17d8d.json
+2026-06-19 20:53:13.768 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3a64785b977c4b6f9b057741cd21c5d0.json -> D:\cc-dir-onboard-proof\config\director\sessions\3a64785b977c4b6f9b057741cd21c5d0.json
+2026-06-19 20:53:13.769 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3a800fb9b43f4871b50f6b2970857c45.json -> D:\cc-dir-onboard-proof\config\director\sessions\3a800fb9b43f4871b50f6b2970857c45.json
+2026-06-19 20:53:13.769 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3a8b1c4b986a468b81ee56d369c6450d.json -> D:\cc-dir-onboard-proof\config\director\sessions\3a8b1c4b986a468b81ee56d369c6450d.json
+2026-06-19 20:53:13.770 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3ab9684528be4c6f8d5ac6a5e8fcc105.json -> D:\cc-dir-onboard-proof\config\director\sessions\3ab9684528be4c6f8d5ac6a5e8fcc105.json
+2026-06-19 20:53:13.771 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3d1dc0d82b584912abda1acaeef96506.json -> D:\cc-dir-onboard-proof\config\director\sessions\3d1dc0d82b584912abda1acaeef96506.json
+2026-06-19 20:53:13.772 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3ea65728d3ea48d1bf36284ac7354979.json -> D:\cc-dir-onboard-proof\config\director\sessions\3ea65728d3ea48d1bf36284ac7354979.json
+2026-06-19 20:53:13.774 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3f0bc1158b02446e8222eede43e30efc.json -> D:\cc-dir-onboard-proof\config\director\sessions\3f0bc1158b02446e8222eede43e30efc.json
+2026-06-19 20:53:13.777 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\3fad953f70684cb28b2a35d5ad1eceb1.json -> D:\cc-dir-onboard-proof\config\director\sessions\3fad953f70684cb28b2a35d5ad1eceb1.json
+2026-06-19 20:53:13.778 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4046bbbfa9484638978f9671b9132889.json -> D:\cc-dir-onboard-proof\config\director\sessions\4046bbbfa9484638978f9671b9132889.json
+2026-06-19 20:53:13.779 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4050a14971e9495a877c325858fafaf1.json -> D:\cc-dir-onboard-proof\config\director\sessions\4050a14971e9495a877c325858fafaf1.json
+2026-06-19 20:53:13.781 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\428d4a7b83504fdaa7b07d5997272dcf.json -> D:\cc-dir-onboard-proof\config\director\sessions\428d4a7b83504fdaa7b07d5997272dcf.json
+2026-06-19 20:53:13.782 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\42b48c3ecfb84d56aa8c48f25b8c9861.json -> D:\cc-dir-onboard-proof\config\director\sessions\42b48c3ecfb84d56aa8c48f25b8c9861.json
+2026-06-19 20:53:13.782 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\439005f91e44452697d307fb6059fcb1.json -> D:\cc-dir-onboard-proof\config\director\sessions\439005f91e44452697d307fb6059fcb1.json
+2026-06-19 20:53:13.783 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\44b7752628e14f90a4a241c765ec3147.json -> D:\cc-dir-onboard-proof\config\director\sessions\44b7752628e14f90a4a241c765ec3147.json
+2026-06-19 20:53:13.783 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4611624b9eb242baae06186952bcd2e9.json -> D:\cc-dir-onboard-proof\config\director\sessions\4611624b9eb242baae06186952bcd2e9.json
+2026-06-19 20:53:13.784 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\464640f4fd5e4b1e9fee94bfa5bfc208.json -> D:\cc-dir-onboard-proof\config\director\sessions\464640f4fd5e4b1e9fee94bfa5bfc208.json
+2026-06-19 20:53:13.785 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\48cfbc72ec274aadb39894a85ef60882.json -> D:\cc-dir-onboard-proof\config\director\sessions\48cfbc72ec274aadb39894a85ef60882.json
+2026-06-19 20:53:13.786 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4958f97cb9dc4559a7c05fb1c0df7fc0.json -> D:\cc-dir-onboard-proof\config\director\sessions\4958f97cb9dc4559a7c05fb1c0df7fc0.json
+2026-06-19 20:53:13.786 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\49da3c4d70ca40ceb6a8849f9fa5f65c.json -> D:\cc-dir-onboard-proof\config\director\sessions\49da3c4d70ca40ceb6a8849f9fa5f65c.json
+2026-06-19 20:53:13.787 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4ef8985454e04707bfb5b0d8a36d7286.json -> D:\cc-dir-onboard-proof\config\director\sessions\4ef8985454e04707bfb5b0d8a36d7286.json
+2026-06-19 20:53:13.787 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4f1ea3d98463499baca96d820aeec5e7.json -> D:\cc-dir-onboard-proof\config\director\sessions\4f1ea3d98463499baca96d820aeec5e7.json
+2026-06-19 20:53:13.788 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\4fc075b98c314d008fc93525aec8007b.json -> D:\cc-dir-onboard-proof\config\director\sessions\4fc075b98c314d008fc93525aec8007b.json
+2026-06-19 20:53:13.788 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\50a1b30f415c4a838520ba7a642749e7.json -> D:\cc-dir-onboard-proof\config\director\sessions\50a1b30f415c4a838520ba7a642749e7.json
+2026-06-19 20:53:13.789 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5102c7e1b263429ca3a3d18b0072bd2e.json -> D:\cc-dir-onboard-proof\config\director\sessions\5102c7e1b263429ca3a3d18b0072bd2e.json
+2026-06-19 20:53:13.789 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\516dcd2294c741e7ab8fe6d60c77186d.json -> D:\cc-dir-onboard-proof\config\director\sessions\516dcd2294c741e7ab8fe6d60c77186d.json
+2026-06-19 20:53:13.794 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\51a1f7490d9f40ce815f4607e2f19f83.json -> D:\cc-dir-onboard-proof\config\director\sessions\51a1f7490d9f40ce815f4607e2f19f83.json
+2026-06-19 20:53:13.797 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\53598570cf8643828005024b4e1c64ab.json -> D:\cc-dir-onboard-proof\config\director\sessions\53598570cf8643828005024b4e1c64ab.json
+2026-06-19 20:53:13.798 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\555ea93bee634ba19918b24a8b7c0713.json -> D:\cc-dir-onboard-proof\config\director\sessions\555ea93bee634ba19918b24a8b7c0713.json
+2026-06-19 20:53:13.801 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\55c4a3d7e6954cb2b8fbe89b16dfd18d.json -> D:\cc-dir-onboard-proof\config\director\sessions\55c4a3d7e6954cb2b8fbe89b16dfd18d.json
+2026-06-19 20:53:13.801 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\567998033fa74e1198b24e5bd6ce16fe.json -> D:\cc-dir-onboard-proof\config\director\sessions\567998033fa74e1198b24e5bd6ce16fe.json
+2026-06-19 20:53:13.804 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\57902180c7e44535891a96f51151f009.json -> D:\cc-dir-onboard-proof\config\director\sessions\57902180c7e44535891a96f51151f009.json
+2026-06-19 20:53:13.805 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5946ca224e2a49e9b2701125c4230f0f.json -> D:\cc-dir-onboard-proof\config\director\sessions\5946ca224e2a49e9b2701125c4230f0f.json
+2026-06-19 20:53:13.807 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5bbcf20920f64fd0bfb1098a8c7ca9be.json -> D:\cc-dir-onboard-proof\config\director\sessions\5bbcf20920f64fd0bfb1098a8c7ca9be.json
+2026-06-19 20:53:13.808 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5de20348088d4cb49b24120218f4449c.json -> D:\cc-dir-onboard-proof\config\director\sessions\5de20348088d4cb49b24120218f4449c.json
+2026-06-19 20:53:13.810 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5e2286270bc6407d8917ba709f33a9a6.json -> D:\cc-dir-onboard-proof\config\director\sessions\5e2286270bc6407d8917ba709f33a9a6.json
+2026-06-19 20:53:13.811 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\5faa50e9a921483ba44d4ebd96fdfd7e.json -> D:\cc-dir-onboard-proof\config\director\sessions\5faa50e9a921483ba44d4ebd96fdfd7e.json
+2026-06-19 20:53:13.813 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6059b8d568d64ce388263787732b777a.json -> D:\cc-dir-onboard-proof\config\director\sessions\6059b8d568d64ce388263787732b777a.json
+2026-06-19 20:53:13.817 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\607454eaf4614b51bbc100f1c885f40d.json -> D:\cc-dir-onboard-proof\config\director\sessions\607454eaf4614b51bbc100f1c885f40d.json
+2026-06-19 20:53:13.818 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\60e155c61a7b4e7a9f19727ecf311616.json -> D:\cc-dir-onboard-proof\config\director\sessions\60e155c61a7b4e7a9f19727ecf311616.json
+2026-06-19 20:53:13.822 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\64327999a8b94c9c881e40df40b5e34f.json -> D:\cc-dir-onboard-proof\config\director\sessions\64327999a8b94c9c881e40df40b5e34f.json
+2026-06-19 20:53:13.823 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\647bde67dd6c4287be983f7e7b9ac441.json -> D:\cc-dir-onboard-proof\config\director\sessions\647bde67dd6c4287be983f7e7b9ac441.json
+2026-06-19 20:53:13.824 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6493ad98ce464f2cb9c7433736eca392.json -> D:\cc-dir-onboard-proof\config\director\sessions\6493ad98ce464f2cb9c7433736eca392.json
+2026-06-19 20:53:13.827 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\65acdd1037594b66b4aa4b1b6ab27809.json -> D:\cc-dir-onboard-proof\config\director\sessions\65acdd1037594b66b4aa4b1b6ab27809.json
+2026-06-19 20:53:13.828 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6646d40b18fb420a8eb01570670a2d92.json -> D:\cc-dir-onboard-proof\config\director\sessions\6646d40b18fb420a8eb01570670a2d92.json
+2026-06-19 20:53:13.829 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\695f2dfa48db48a8bccc76373fd1af94.json -> D:\cc-dir-onboard-proof\config\director\sessions\695f2dfa48db48a8bccc76373fd1af94.json
+2026-06-19 20:53:13.831 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6c01510ed6f34cbbbb6297138756f281.json -> D:\cc-dir-onboard-proof\config\director\sessions\6c01510ed6f34cbbbb6297138756f281.json
+2026-06-19 20:53:13.832 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6cd188433d834b52980ce90f1e3a2514.json -> D:\cc-dir-onboard-proof\config\director\sessions\6cd188433d834b52980ce90f1e3a2514.json
+2026-06-19 20:53:13.834 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6d1a9cf23d734d49b30a700918d6a634.json -> D:\cc-dir-onboard-proof\config\director\sessions\6d1a9cf23d734d49b30a700918d6a634.json
+2026-06-19 20:53:13.835 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6e2004a9bafd4d3396dc590d5de4c8cd.json -> D:\cc-dir-onboard-proof\config\director\sessions\6e2004a9bafd4d3396dc590d5de4c8cd.json
+2026-06-19 20:53:13.835 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\6f31e1509aa94a02b75bcee502bd177e.json -> D:\cc-dir-onboard-proof\config\director\sessions\6f31e1509aa94a02b75bcee502bd177e.json
+2026-06-19 20:53:13.836 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\727216fb2a6e4375aabfc429f14e7158.json -> D:\cc-dir-onboard-proof\config\director\sessions\727216fb2a6e4375aabfc429f14e7158.json
+2026-06-19 20:53:13.836 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\72d7bc00a74540a391461648e4544b3c.json -> D:\cc-dir-onboard-proof\config\director\sessions\72d7bc00a74540a391461648e4544b3c.json
+2026-06-19 20:53:13.838 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\753085560a874aca8a8d73cd7cdfcf5b.json -> D:\cc-dir-onboard-proof\config\director\sessions\753085560a874aca8a8d73cd7cdfcf5b.json
+2026-06-19 20:53:13.838 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\76162dd41a9c4432bcff553bf2950e61.json -> D:\cc-dir-onboard-proof\config\director\sessions\76162dd41a9c4432bcff553bf2950e61.json
+2026-06-19 20:53:13.841 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\77c75453aeb04159a1feef89ca8400d2.json -> D:\cc-dir-onboard-proof\config\director\sessions\77c75453aeb04159a1feef89ca8400d2.json
+2026-06-19 20:53:13.845 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\77ea715087b64f2993d53d37bfb59890.json -> D:\cc-dir-onboard-proof\config\director\sessions\77ea715087b64f2993d53d37bfb59890.json
+2026-06-19 20:53:13.845 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\783ced19524d4558843c9fd8abae1158.json -> D:\cc-dir-onboard-proof\config\director\sessions\783ced19524d4558843c9fd8abae1158.json
+2026-06-19 20:53:13.847 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\7991b9b4a811499093b5d104905f842a.json -> D:\cc-dir-onboard-proof\config\director\sessions\7991b9b4a811499093b5d104905f842a.json
+2026-06-19 20:53:13.847 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\7ab6757b5dba4593bd0e99af319951f9.json -> D:\cc-dir-onboard-proof\config\director\sessions\7ab6757b5dba4593bd0e99af319951f9.json
+2026-06-19 20:53:13.849 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\7ac5f03a16334b5990888d6f17ffa4f8.json -> D:\cc-dir-onboard-proof\config\director\sessions\7ac5f03a16334b5990888d6f17ffa4f8.json
+2026-06-19 20:53:13.850 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\7c75a5ab93a548d2bd4c8fc3d848bfe5.json -> D:\cc-dir-onboard-proof\config\director\sessions\7c75a5ab93a548d2bd4c8fc3d848bfe5.json
+2026-06-19 20:53:13.854 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\7cac9347d4e24541b06c60a2a2b2d4d5.json -> D:\cc-dir-onboard-proof\config\director\sessions\7cac9347d4e24541b06c60a2a2b2d4d5.json
+2026-06-19 20:53:13.872 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8000dc1449904f44aad6f289531fc39e.json -> D:\cc-dir-onboard-proof\config\director\sessions\8000dc1449904f44aad6f289531fc39e.json
+2026-06-19 20:53:13.879 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\804e8bea18604762b223cfc6567580c8.json -> D:\cc-dir-onboard-proof\config\director\sessions\804e8bea18604762b223cfc6567580c8.json
+2026-06-19 20:53:13.881 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8057c2c6aac149d592866b3cd9049797.json -> D:\cc-dir-onboard-proof\config\director\sessions\8057c2c6aac149d592866b3cd9049797.json
+2026-06-19 20:53:13.897 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\818dd3612c7f457496d219c3a29ccb77.json -> D:\cc-dir-onboard-proof\config\director\sessions\818dd3612c7f457496d219c3a29ccb77.json
+2026-06-19 20:53:13.898 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\82713a4c5d3945a286124ec76b04f5fc.json -> D:\cc-dir-onboard-proof\config\director\sessions\82713a4c5d3945a286124ec76b04f5fc.json
+2026-06-19 20:53:13.908 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\858cf88374b141aa925c215e70dbed7e.json -> D:\cc-dir-onboard-proof\config\director\sessions\858cf88374b141aa925c215e70dbed7e.json
+2026-06-19 20:53:13.926 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\85d188818a5e423eb09e45e6ce5a785b.json -> D:\cc-dir-onboard-proof\config\director\sessions\85d188818a5e423eb09e45e6ce5a785b.json
+2026-06-19 20:53:13.928 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\878ca7a720c34e11b4646f55dd538881.json -> D:\cc-dir-onboard-proof\config\director\sessions\878ca7a720c34e11b4646f55dd538881.json
+2026-06-19 20:53:13.950 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8b115977d7db4b16a3f735fadec26562.json -> D:\cc-dir-onboard-proof\config\director\sessions\8b115977d7db4b16a3f735fadec26562.json
+2026-06-19 20:53:13.951 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8e16fc21214c4f62baac1ae2b83d5fcb.json -> D:\cc-dir-onboard-proof\config\director\sessions\8e16fc21214c4f62baac1ae2b83d5fcb.json
+2026-06-19 20:53:13.954 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8f98c44bb5364d3d88b9f9ac913f3557.json -> D:\cc-dir-onboard-proof\config\director\sessions\8f98c44bb5364d3d88b9f9ac913f3557.json
+2026-06-19 20:53:13.954 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\8fc0980c2c9248fbb4e016b6408edd63.json -> D:\cc-dir-onboard-proof\config\director\sessions\8fc0980c2c9248fbb4e016b6408edd63.json
+2026-06-19 20:53:13.981 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9007ad0038274d2ba4f682e6ad1841b5.json -> D:\cc-dir-onboard-proof\config\director\sessions\9007ad0038274d2ba4f682e6ad1841b5.json
+2026-06-19 20:53:13.982 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\92d817780b524753a81f35d90ab6b644.json -> D:\cc-dir-onboard-proof\config\director\sessions\92d817780b524753a81f35d90ab6b644.json
+2026-06-19 20:53:13.983 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\93fd45932bd34f8cab654427a3cbdfa3.json -> D:\cc-dir-onboard-proof\config\director\sessions\93fd45932bd34f8cab654427a3cbdfa3.json
+2026-06-19 20:53:13.984 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9408a40c557040ec9f562878795cba7f.json -> D:\cc-dir-onboard-proof\config\director\sessions\9408a40c557040ec9f562878795cba7f.json
+2026-06-19 20:53:13.987 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\94bbd301dc3d4548b14540a1cae199ff.json -> D:\cc-dir-onboard-proof\config\director\sessions\94bbd301dc3d4548b14540a1cae199ff.json
+2026-06-19 20:53:13.989 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\94d42af5c9094b26915b3aa826c49ada.json -> D:\cc-dir-onboard-proof\config\director\sessions\94d42af5c9094b26915b3aa826c49ada.json
+2026-06-19 20:53:13.990 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\96edf86acd1f4d438217fafae0f985b1.json -> D:\cc-dir-onboard-proof\config\director\sessions\96edf86acd1f4d438217fafae0f985b1.json
+2026-06-19 20:53:13.992 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\979f68dbb62b4b1399a3fcfced4a0579.json -> D:\cc-dir-onboard-proof\config\director\sessions\979f68dbb62b4b1399a3fcfced4a0579.json
+2026-06-19 20:53:13.993 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\99333251a8f749c4b4553ae6722d7ce0.json -> D:\cc-dir-onboard-proof\config\director\sessions\99333251a8f749c4b4553ae6722d7ce0.json
+2026-06-19 20:53:13.993 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\99422a0dccc649e4ae5cc69ac57ae8db.json -> D:\cc-dir-onboard-proof\config\director\sessions\99422a0dccc649e4ae5cc69ac57ae8db.json
+2026-06-19 20:53:13.996 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9ac57722167e4badb1b52cd7391509ce.json -> D:\cc-dir-onboard-proof\config\director\sessions\9ac57722167e4badb1b52cd7391509ce.json
+2026-06-19 20:53:13.997 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9b10b6cc60d0410e97531b772ef78ae2.json -> D:\cc-dir-onboard-proof\config\director\sessions\9b10b6cc60d0410e97531b772ef78ae2.json
+2026-06-19 20:53:13.998 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9b9acbc724e442098754f90109265a89.json -> D:\cc-dir-onboard-proof\config\director\sessions\9b9acbc724e442098754f90109265a89.json
+2026-06-19 20:53:13.999 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9baeef19d1144cbd8c502d01a0b6ae53.json -> D:\cc-dir-onboard-proof\config\director\sessions\9baeef19d1144cbd8c502d01a0b6ae53.json
+2026-06-19 20:53:14.000 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9d520507efab4485a03065559e0ca05d.json -> D:\cc-dir-onboard-proof\config\director\sessions\9d520507efab4485a03065559e0ca05d.json
+2026-06-19 20:53:14.001 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9ea20ab89c9942f490637338ccf03366.json -> D:\cc-dir-onboard-proof\config\director\sessions\9ea20ab89c9942f490637338ccf03366.json
+2026-06-19 20:53:14.004 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9f123261a20c48a8b0d8aa3b4a0a1bb3.json -> D:\cc-dir-onboard-proof\config\director\sessions\9f123261a20c48a8b0d8aa3b4a0a1bb3.json
+2026-06-19 20:53:14.005 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\9f5c3e7815bd47dbb563fbdbba7e4bf4.json -> D:\cc-dir-onboard-proof\config\director\sessions\9f5c3e7815bd47dbb563fbdbba7e4bf4.json
+2026-06-19 20:53:14.007 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a02e48e3a8f2431089ec92a2e830d62c.json -> D:\cc-dir-onboard-proof\config\director\sessions\a02e48e3a8f2431089ec92a2e830d62c.json
+2026-06-19 20:53:14.008 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a24b7e747fde4b17bd0440f72af30fdd.json -> D:\cc-dir-onboard-proof\config\director\sessions\a24b7e747fde4b17bd0440f72af30fdd.json
+2026-06-19 20:53:14.009 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a4c3c907345c438d9e6684f5eee7ee47.json -> D:\cc-dir-onboard-proof\config\director\sessions\a4c3c907345c438d9e6684f5eee7ee47.json
+2026-06-19 20:53:14.012 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a4f52ef1e504409684633adba3e74b34.json -> D:\cc-dir-onboard-proof\config\director\sessions\a4f52ef1e504409684633adba3e74b34.json
+2026-06-19 20:53:14.013 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a50b0b9e46694b7ea8a3baf47b89a98f.json -> D:\cc-dir-onboard-proof\config\director\sessions\a50b0b9e46694b7ea8a3baf47b89a98f.json
+2026-06-19 20:53:14.014 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a5a322a416c74c118986ac6dd3e651b1.json -> D:\cc-dir-onboard-proof\config\director\sessions\a5a322a416c74c118986ac6dd3e651b1.json
+2026-06-19 20:53:14.019 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a5c679870ec04d139120dac75f79b3e5.json -> D:\cc-dir-onboard-proof\config\director\sessions\a5c679870ec04d139120dac75f79b3e5.json
+2026-06-19 20:53:14.020 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a8ebee21020e4eb3959a5b39a4ed7f77.json -> D:\cc-dir-onboard-proof\config\director\sessions\a8ebee21020e4eb3959a5b39a4ed7f77.json
+2026-06-19 20:53:14.020 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a983368692ab46fb9abcd9b7241208c0.json -> D:\cc-dir-onboard-proof\config\director\sessions\a983368692ab46fb9abcd9b7241208c0.json
+2026-06-19 20:53:14.023 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\a9e904aa20e74385ac301b4848257940.json -> D:\cc-dir-onboard-proof\config\director\sessions\a9e904aa20e74385ac301b4848257940.json
+2026-06-19 20:53:14.023 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\ab8d5c48e9744206a3e7e79f423b63f3.json -> D:\cc-dir-onboard-proof\config\director\sessions\ab8d5c48e9744206a3e7e79f423b63f3.json
+2026-06-19 20:53:14.024 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\aba05b99e8f341fd967c18bbbb68d4cc.json -> D:\cc-dir-onboard-proof\config\director\sessions\aba05b99e8f341fd967c18bbbb68d4cc.json
+2026-06-19 20:53:14.028 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\aba6ccec826a402d93d8a62e6c127ed0.json -> D:\cc-dir-onboard-proof\config\director\sessions\aba6ccec826a402d93d8a62e6c127ed0.json
+2026-06-19 20:53:14.030 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\abb764a7f3614f95aa461c98253fe53b.json -> D:\cc-dir-onboard-proof\config\director\sessions\abb764a7f3614f95aa461c98253fe53b.json
+2026-06-19 20:53:14.060 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b03e973d8c2f4d99a90308a8f12b1f84.json -> D:\cc-dir-onboard-proof\config\director\sessions\b03e973d8c2f4d99a90308a8f12b1f84.json
+2026-06-19 20:53:14.063 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b07a166ff0be49b6808fb952329586ef.json -> D:\cc-dir-onboard-proof\config\director\sessions\b07a166ff0be49b6808fb952329586ef.json
+2026-06-19 20:53:14.064 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b08721001f764605b4761fac7134c1f0.json -> D:\cc-dir-onboard-proof\config\director\sessions\b08721001f764605b4761fac7134c1f0.json
+2026-06-19 20:53:14.065 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b381dbf9360540d5b2dfb4ee06cc40e7.json -> D:\cc-dir-onboard-proof\config\director\sessions\b381dbf9360540d5b2dfb4ee06cc40e7.json
+2026-06-19 20:53:14.066 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b53380d52c524fb794c8a60641893e78.json -> D:\cc-dir-onboard-proof\config\director\sessions\b53380d52c524fb794c8a60641893e78.json
+2026-06-19 20:53:14.067 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\b99ba4869df04daf8007dc79f33285ee.json -> D:\cc-dir-onboard-proof\config\director\sessions\b99ba4869df04daf8007dc79f33285ee.json
+2026-06-19 20:53:14.068 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\bba7fa5ff48b46ad86f86b4ebaa7d2ab.json -> D:\cc-dir-onboard-proof\config\director\sessions\bba7fa5ff48b46ad86f86b4ebaa7d2ab.json
+2026-06-19 20:53:14.070 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\be4e4b09d1ba4039a4c560743acc77dc.json -> D:\cc-dir-onboard-proof\config\director\sessions\be4e4b09d1ba4039a4c560743acc77dc.json
+2026-06-19 20:53:14.073 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\be53288c7dc34e7a876635793898de1d.json -> D:\cc-dir-onboard-proof\config\director\sessions\be53288c7dc34e7a876635793898de1d.json
+2026-06-19 20:53:14.074 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\bec36c68f4e84edbaed7a12374933242.json -> D:\cc-dir-onboard-proof\config\director\sessions\bec36c68f4e84edbaed7a12374933242.json
+2026-06-19 20:53:14.075 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c0cac3fe1a004ec1bedc1f2d33e8a331.json -> D:\cc-dir-onboard-proof\config\director\sessions\c0cac3fe1a004ec1bedc1f2d33e8a331.json
+2026-06-19 20:53:14.079 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c0fc9cf41c3c417e9a29dcaecc693dc6.json -> D:\cc-dir-onboard-proof\config\director\sessions\c0fc9cf41c3c417e9a29dcaecc693dc6.json
+2026-06-19 20:53:14.080 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c28bfa9a393444b6a311d54499e31d2e.json -> D:\cc-dir-onboard-proof\config\director\sessions\c28bfa9a393444b6a311d54499e31d2e.json
+2026-06-19 20:53:14.082 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c2f93d9816104cf5aecbed2c09b86667.json -> D:\cc-dir-onboard-proof\config\director\sessions\c2f93d9816104cf5aecbed2c09b86667.json
+2026-06-19 20:53:14.083 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c4f64a1f13d4413597a1b486b282bbc0.json -> D:\cc-dir-onboard-proof\config\director\sessions\c4f64a1f13d4413597a1b486b282bbc0.json
+2026-06-19 20:53:14.083 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c5978eb0e7864dc1aa6261c68805f2b5.json -> D:\cc-dir-onboard-proof\config\director\sessions\c5978eb0e7864dc1aa6261c68805f2b5.json
+2026-06-19 20:53:14.084 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c67b23ed0e134d2b8f0a056ee19acb91.json -> D:\cc-dir-onboard-proof\config\director\sessions\c67b23ed0e134d2b8f0a056ee19acb91.json
+2026-06-19 20:53:14.086 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c760a19e3da84ddaa17fac53560a67b8.json -> D:\cc-dir-onboard-proof\config\director\sessions\c760a19e3da84ddaa17fac53560a67b8.json
+2026-06-19 20:53:14.086 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c834b683a0844401b8aeb5ef7c908d82.json -> D:\cc-dir-onboard-proof\config\director\sessions\c834b683a0844401b8aeb5ef7c908d82.json
+2026-06-19 20:53:14.087 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\c9e35e5be4444ea8b597b0cee364d701.json -> D:\cc-dir-onboard-proof\config\director\sessions\c9e35e5be4444ea8b597b0cee364d701.json
+2026-06-19 20:53:14.090 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\ca3c1d5e3aee40b8944a010ac24f2bc8.json -> D:\cc-dir-onboard-proof\config\director\sessions\ca3c1d5e3aee40b8944a010ac24f2bc8.json
+2026-06-19 20:53:14.091 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cc131784d2d045468142aaac7ab2060f.json -> D:\cc-dir-onboard-proof\config\director\sessions\cc131784d2d045468142aaac7ab2060f.json
+2026-06-19 20:53:14.092 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cc5449d30dec4fad9a996e2c1129bfa7.json -> D:\cc-dir-onboard-proof\config\director\sessions\cc5449d30dec4fad9a996e2c1129bfa7.json
+2026-06-19 20:53:14.092 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\ccdfdabb94c94c8faeb6da863aa30e15.json -> D:\cc-dir-onboard-proof\config\director\sessions\ccdfdabb94c94c8faeb6da863aa30e15.json
+2026-06-19 20:53:14.094 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cd779e66be884d689708b2bdedfc36f6.json -> D:\cc-dir-onboard-proof\config\director\sessions\cd779e66be884d689708b2bdedfc36f6.json
+2026-06-19 20:53:14.096 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cdf707d536694d37925583fc3fb95006.json -> D:\cc-dir-onboard-proof\config\director\sessions\cdf707d536694d37925583fc3fb95006.json
+2026-06-19 20:53:14.097 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cfba900340b04429a86ac422f4f42085.json -> D:\cc-dir-onboard-proof\config\director\sessions\cfba900340b04429a86ac422f4f42085.json
+2026-06-19 20:53:14.097 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\cffd6c199dfb40729ec43499183bed1c.json -> D:\cc-dir-onboard-proof\config\director\sessions\cffd6c199dfb40729ec43499183bed1c.json
+2026-06-19 20:53:14.100 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d1683c79290a4f15a3dcc8dcc32b3884.json -> D:\cc-dir-onboard-proof\config\director\sessions\d1683c79290a4f15a3dcc8dcc32b3884.json
+2026-06-19 20:53:14.100 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d175d61518224a7690270c3bf652c6ff.json -> D:\cc-dir-onboard-proof\config\director\sessions\d175d61518224a7690270c3bf652c6ff.json
+2026-06-19 20:53:14.101 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d18c49065f1b44d39ac6e0e64cd33290.json -> D:\cc-dir-onboard-proof\config\director\sessions\d18c49065f1b44d39ac6e0e64cd33290.json
+2026-06-19 20:53:14.102 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d42308f3f942409f9031757b2fd33ea3.json -> D:\cc-dir-onboard-proof\config\director\sessions\d42308f3f942409f9031757b2fd33ea3.json
+2026-06-19 20:53:14.108 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d48090ef1f2a4573a093619a1b0ca07c.json -> D:\cc-dir-onboard-proof\config\director\sessions\d48090ef1f2a4573a093619a1b0ca07c.json
+2026-06-19 20:53:14.109 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d6e06348a3994bf08fdb686f58d7954d.json -> D:\cc-dir-onboard-proof\config\director\sessions\d6e06348a3994bf08fdb686f58d7954d.json
+2026-06-19 20:53:14.109 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d737a7f1a6f64a48babe6db7ce64457d.json -> D:\cc-dir-onboard-proof\config\director\sessions\d737a7f1a6f64a48babe6db7ce64457d.json
+2026-06-19 20:53:14.112 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\d753016106d1462bb06e10ba08939674.json -> D:\cc-dir-onboard-proof\config\director\sessions\d753016106d1462bb06e10ba08939674.json
+2026-06-19 20:53:14.113 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\da1f9c728d524b24a05e8775417b65f4.json -> D:\cc-dir-onboard-proof\config\director\sessions\da1f9c728d524b24a05e8775417b65f4.json
+2026-06-19 20:53:14.114 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\dcaef1cfb9e649438f55e36bd893bcc2.json -> D:\cc-dir-onboard-proof\config\director\sessions\dcaef1cfb9e649438f55e36bd893bcc2.json
+2026-06-19 20:53:14.114 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\dd1eb332f7bc4349abc2abb236eed422.json -> D:\cc-dir-onboard-proof\config\director\sessions\dd1eb332f7bc4349abc2abb236eed422.json
+2026-06-19 20:53:14.126 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\de36927e4bb9437b9b11f3fc55599ebe.json -> D:\cc-dir-onboard-proof\config\director\sessions\de36927e4bb9437b9b11f3fc55599ebe.json
+2026-06-19 20:53:14.127 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\de4348b7e98343eca1bc4e7591f8b30e.json -> D:\cc-dir-onboard-proof\config\director\sessions\de4348b7e98343eca1bc4e7591f8b30e.json
+2026-06-19 20:53:14.128 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e0927b50c1694673be5eb2bc1cb489d8.json -> D:\cc-dir-onboard-proof\config\director\sessions\e0927b50c1694673be5eb2bc1cb489d8.json
+2026-06-19 20:53:14.146 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e22183757e6d4db4951da7f9dae5c0e8.json -> D:\cc-dir-onboard-proof\config\director\sessions\e22183757e6d4db4951da7f9dae5c0e8.json
+2026-06-19 20:53:14.156 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e2a0ebf950234e508de83215d0d9c008.json -> D:\cc-dir-onboard-proof\config\director\sessions\e2a0ebf950234e508de83215d0d9c008.json
+2026-06-19 20:53:14.158 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e39a731053b046d885b697d28e7cd625.json -> D:\cc-dir-onboard-proof\config\director\sessions\e39a731053b046d885b697d28e7cd625.json
+2026-06-19 20:53:14.161 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e3fddd9759fd4bce8865c3c27a31f093.json -> D:\cc-dir-onboard-proof\config\director\sessions\e3fddd9759fd4bce8865c3c27a31f093.json
+2026-06-19 20:53:14.162 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e4640c1fbd0542eb82b820bc70764fcc.json -> D:\cc-dir-onboard-proof\config\director\sessions\e4640c1fbd0542eb82b820bc70764fcc.json
+2026-06-19 20:53:14.163 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e56e6229878b47ac80c29c9d822e49eb.json -> D:\cc-dir-onboard-proof\config\director\sessions\e56e6229878b47ac80c29c9d822e49eb.json
+2026-06-19 20:53:14.167 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e791c4154dfb4827a53802ab247cd785.json -> D:\cc-dir-onboard-proof\config\director\sessions\e791c4154dfb4827a53802ab247cd785.json
+2026-06-19 20:53:14.168 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e7d4a562f6c2481f8556badf0920f3b0.json -> D:\cc-dir-onboard-proof\config\director\sessions\e7d4a562f6c2481f8556badf0920f3b0.json
+2026-06-19 20:53:14.179 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e89d0b194de94266848748d9e50857e1.json -> D:\cc-dir-onboard-proof\config\director\sessions\e89d0b194de94266848748d9e50857e1.json
+2026-06-19 20:53:14.184 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\e9ed8e5561224af99b40fff683df65f1.json -> D:\cc-dir-onboard-proof\config\director\sessions\e9ed8e5561224af99b40fff683df65f1.json
+2026-06-19 20:53:14.186 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\ed8be44f9de44d30a92dd973d13f9f6f.json -> D:\cc-dir-onboard-proof\config\director\sessions\ed8be44f9de44d30a92dd973d13f9f6f.json
+2026-06-19 20:53:14.191 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\efb4b00979194efcaf6a1eecc4bcf8ff.json -> D:\cc-dir-onboard-proof\config\director\sessions\efb4b00979194efcaf6a1eecc4bcf8ff.json
+2026-06-19 20:53:14.192 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f0775e87515f47a88b767c1c064b4a09.json -> D:\cc-dir-onboard-proof\config\director\sessions\f0775e87515f47a88b767c1c064b4a09.json
+2026-06-19 20:53:14.193 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f08b27b2fe1843b38d581014db44e715.json -> D:\cc-dir-onboard-proof\config\director\sessions\f08b27b2fe1843b38d581014db44e715.json
+2026-06-19 20:53:14.198 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f4ecd6c5cc634d6aa3fdfa40aa0eabfe.json -> D:\cc-dir-onboard-proof\config\director\sessions\f4ecd6c5cc634d6aa3fdfa40aa0eabfe.json
+2026-06-19 20:53:14.199 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f5ac8601645e4c90bd65fce77d9f3ff1.json -> D:\cc-dir-onboard-proof\config\director\sessions\f5ac8601645e4c90bd65fce77d9f3ff1.json
+2026-06-19 20:53:14.200 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f5b4e05be56f4bda82d29f8a89e08aca.json -> D:\cc-dir-onboard-proof\config\director\sessions\f5b4e05be56f4bda82d29f8a89e08aca.json
+2026-06-19 20:53:14.201 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f6ed973b50d84c429801db29e5ac1e84.json -> D:\cc-dir-onboard-proof\config\director\sessions\f6ed973b50d84c429801db29e5ac1e84.json
+2026-06-19 20:53:14.205 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f6f38def8322411a80ee9879df9cf4fb.json -> D:\cc-dir-onboard-proof\config\director\sessions\f6f38def8322411a80ee9879df9cf4fb.json
+2026-06-19 20:53:14.206 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\f70dcc1d85b24b6e9465ae7a1918de13.json -> D:\cc-dir-onboard-proof\config\director\sessions\f70dcc1d85b24b6e9465ae7a1918de13.json
+2026-06-19 20:53:14.207 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\fa0dae6f695c4ca4aacfde6903c6c176.json -> D:\cc-dir-onboard-proof\config\director\sessions\fa0dae6f695c4ca4aacfde6903c6c176.json
+2026-06-19 20:53:14.207 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\fa84ad43364e4f83aa584cb0fcf63331.json -> D:\cc-dir-onboard-proof\config\director\sessions\fa84ad43364e4f83aa584cb0fcf63331.json
+2026-06-19 20:53:14.210 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\fc0aa148bc7748198f3f8c810938667a.json -> D:\cc-dir-onboard-proof\config\director\sessions\fc0aa148bc7748198f3f8c810938667a.json
+2026-06-19 20:53:14.210 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\fd3b47b9cb2547279759a1e869d7f6b9.json -> D:\cc-dir-onboard-proof\config\director\sessions\fd3b47b9cb2547279759a1e869d7f6b9.json
+2026-06-19 20:53:14.211 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\fe871b82ab374df48420f669a65d643e.json -> D:\cc-dir-onboard-proof\config\director\sessions\fe871b82ab374df48420f669a65d643e.json
+2026-06-19 20:53:14.212 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions\ff74e857a0d643859e4d8490aa14535e.json -> D:\cc-dir-onboard-proof\config\director\sessions\ff74e857a0d643859e4d8490aa14535e.json
+2026-06-19 20:53:14.353 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-09.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-09.log
+2026-06-19 20:53:14.476 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-107796.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-107796.log
+2026-06-19 20:53:14.477 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-109020.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-109020.log
+2026-06-19 20:53:14.477 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-110768.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-110768.log
+2026-06-19 20:53:14.480 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-120580.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-120580.log
+2026-06-19 20:53:14.480 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-123868.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-123868.log
+2026-06-19 20:53:14.507 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-138040.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-138040.log
+2026-06-19 20:53:14.510 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-147992.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-147992.log
+2026-06-19 20:53:14.510 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-170680.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-170680.log
+2026-06-19 20:53:14.512 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-171684.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-171684.log
+2026-06-19 20:53:14.516 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-179664.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-179664.log
+2026-06-19 20:53:14.537 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-179864.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-179864.log
+2026-06-19 20:53:14.548 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-180304.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-180304.log
+2026-06-19 20:53:14.558 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-183964.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-183964.log
+2026-06-19 20:53:14.559 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-184484.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-184484.log
+2026-06-19 20:53:14.562 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-185800.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-185800.log
+2026-06-19 20:53:14.567 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-189240.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-189240.log
+2026-06-19 20:53:14.569 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-190332.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-190332.log
+2026-06-19 20:53:14.571 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-190736.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-190736.log
+2026-06-19 20:53:14.573 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-193996.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-193996.log
+2026-06-19 20:53:14.576 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-197520.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-197520.log
+2026-06-19 20:53:14.579 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-201644.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-201644.log
+2026-06-19 20:53:14.580 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-213852.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-213852.log
+2026-06-19 20:53:14.635 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-214912.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-214912.log
+2026-06-19 20:53:14.636 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-215168.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-215168.log
+2026-06-19 20:53:14.663 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-219584.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-219584.log
+2026-06-19 20:53:14.664 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-232824.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-232824.log
+2026-06-19 20:53:14.665 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-23364.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-23364.log
+2026-06-19 20:53:14.666 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-54756.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-54756.log
+2026-06-19 20:53:14.669 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-77912.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-77912.log
+2026-06-19 20:53:14.669 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-78608.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-78608.log
+2026-06-19 20:53:14.671 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-86712.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-86712.log
+2026-06-19 20:53:14.673 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-87720.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-87720.log
+2026-06-19 20:53:14.674 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10-95076.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10-95076.log
+2026-06-19 20:53:14.676 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-10.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-10.log
+2026-06-19 20:53:14.694 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-100748.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-100748.log
+2026-06-19 20:53:14.695 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-120020.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-120020.log
+2026-06-19 20:53:14.697 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-136336.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-136336.log
+2026-06-19 20:53:14.698 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-15372.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-15372.log
+2026-06-19 20:53:14.701 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-201624.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-201624.log
+2026-06-19 20:53:14.703 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-23632.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-23632.log
+2026-06-19 20:53:14.704 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-25912.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-25912.log
+2026-06-19 20:53:14.705 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-3008.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-3008.log
+2026-06-19 20:53:14.708 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-3252.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-3252.log
+2026-06-19 20:53:14.711 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-34356.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-34356.log
+2026-06-19 20:53:14.713 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-39228.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-39228.log
+2026-06-19 20:53:14.716 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-45580.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-45580.log
+2026-06-19 20:53:14.717 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-47868.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-47868.log
+2026-06-19 20:53:14.719 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-71428.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-71428.log
+2026-06-19 20:53:14.720 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-78692.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-78692.log
+2026-06-19 20:53:14.723 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-85268.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-85268.log
+2026-06-19 20:53:14.724 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-87088.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-87088.log
+2026-06-19 20:53:14.726 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-87700.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-87700.log
+2026-06-19 20:53:14.727 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-88996.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-88996.log
+2026-06-19 20:53:14.728 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11-89848.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11-89848.log
+2026-06-19 20:53:14.729 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-11.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-11.log
+2026-06-19 20:53:14.729 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-105732.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-105732.log
+2026-06-19 20:53:14.730 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-241816.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-241816.log
+2026-06-19 20:53:14.731 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-291604.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-291604.log
+2026-06-19 20:53:14.733 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-296456.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-296456.log
+2026-06-19 20:53:14.733 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-299744.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-299744.log
+2026-06-19 20:53:14.734 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-300160.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-300160.log
+2026-06-19 20:53:14.737 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-47624.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-47624.log
+2026-06-19 20:53:14.738 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-12-88996.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-12-88996.log
+2026-06-19 20:53:14.740 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-13-358932.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-13-358932.log
+2026-06-19 20:53:14.744 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-13-47624.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-13-47624.log
+2026-06-19 20:53:14.746 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-14-346840.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-14-346840.log
+2026-06-19 20:53:14.747 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-14-358932.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-14-358932.log
+2026-06-19 20:53:14.750 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-203528.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-203528.log
+2026-06-19 20:53:14.752 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-22268.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-22268.log
+2026-06-19 20:53:14.752 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-27028.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-27028.log
+2026-06-19 20:53:14.755 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-274376.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-274376.log
+2026-06-19 20:53:14.756 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-286364.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-286364.log
+2026-06-19 20:53:14.756 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-31312.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-31312.log
+2026-06-19 20:53:14.758 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-346840.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-346840.log
+2026-06-19 20:53:14.759 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-368976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-368976.log
+2026-06-19 20:53:14.760 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-37436.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-37436.log
+2026-06-19 20:53:14.763 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-45668.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-45668.log
+2026-06-19 20:53:14.765 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-51600.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-51600.log
+2026-06-19 20:53:14.766 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-9260.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-9260.log
+2026-06-19 20:53:14.770 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-15-95504.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-15-95504.log
+2026-06-19 20:53:14.774 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-16-51600.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-16-51600.log
+2026-06-19 20:53:14.802 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-16-96900.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-16-96900.log
+2026-06-19 20:53:15.324 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-17-51600.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-17-51600.log
+2026-06-19 20:53:15.326 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-18016.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-18016.log
+2026-06-19 20:53:15.598 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-18136.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-18136.log
+2026-06-19 20:53:15.602 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-25976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-25976.log
+2026-06-19 20:53:15.628 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-3596.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-3596.log
+2026-06-19 20:53:15.631 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-51600.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-51600.log
+2026-06-19 20:53:15.632 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-68320.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-68320.log
+2026-06-19 20:53:15.769 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-94372.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-94372.log
+2026-06-19 20:53:15.772 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-18-94732.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-18-94732.log
+2026-06-19 20:53:15.779 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-19-25976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-19-25976.log
+2026-06-19 20:53:16.237 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-20-171976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-20-171976.log
+2026-06-19 20:53:16.582 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-20-25976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-20-25976.log
+2026-06-19 20:53:16.693 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-21-171976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-21-171976.log
+2026-06-19 20:53:16.725 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-22-171976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-22-171976.log
+2026-06-19 20:53:16.726 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-23-121556.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-23-121556.log
+2026-06-19 20:53:16.732 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-23-16840.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-23-16840.log
+2026-06-19 20:53:16.744 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-23-171976.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-23-171976.log
+2026-06-19 20:53:16.754 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-23-507516.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-23-507516.log
+2026-06-19 20:53:16.776 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-23-91768.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-23-91768.log
+2026-06-19 20:53:16.779 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-24-135644.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-24-135644.log
+2026-06-19 20:53:16.786 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-24-304452.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-24-304452.log
+2026-06-19 20:53:16.797 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-24-91768.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-24-91768.log
+2026-06-19 20:53:17.313 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-131884.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-131884.log
+2026-06-19 20:53:17.314 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-16028.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-16028.log
+2026-06-19 20:53:17.315 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-1692.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-1692.log
+2026-06-19 20:53:17.316 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-19524.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-19524.log
+2026-06-19 20:53:17.422 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-226176.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-226176.log
+2026-06-19 20:53:17.487 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-304452.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-304452.log
+2026-06-19 20:53:17.488 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-30452.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-30452.log
+2026-06-19 20:53:17.706 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-35416.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-35416.log
+2026-06-19 20:53:17.707 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-36384.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-36384.log
+2026-06-19 20:53:17.905 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-38696.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-38696.log
+2026-06-19 20:53:17.907 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-39492.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-39492.log
+2026-06-19 20:53:18.013 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-47600.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-47600.log
+2026-06-19 20:53:18.014 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-53584.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-53584.log
+2026-06-19 20:53:18.015 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-54160.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-54160.log
+2026-06-19 20:53:18.017 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-56224.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-56224.log
+2026-06-19 20:53:18.017 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-57696.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-57696.log
+2026-06-19 20:53:18.019 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-58264.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-58264.log
+2026-06-19 20:53:18.020 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-59020.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-59020.log
+2026-06-19 20:53:18.023 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-61276.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-61276.log
+2026-06-19 20:53:18.024 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-62592.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-62592.log
+2026-06-19 20:53:18.025 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-74024.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-74024.log
+2026-06-19 20:53:18.027 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-7460.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-7460.log
+2026-06-19 20:53:18.076 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-25-9624.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-25-9624.log
+2026-06-19 20:53:18.078 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-103532.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-103532.log
+2026-06-19 20:53:18.081 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-31404.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-31404.log
+2026-06-19 20:53:18.127 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-3512.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-3512.log
+2026-06-19 20:53:18.131 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-41640.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-41640.log
+2026-06-19 20:53:18.432 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-47712.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-47712.log
+2026-06-19 20:53:18.435 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-56432.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-56432.log
+2026-06-19 20:53:18.475 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-61608.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-61608.log
+2026-06-19 20:53:18.476 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-70020.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-70020.log
+2026-06-19 20:53:18.477 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-72100.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-72100.log
+2026-06-19 20:53:18.480 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-26-7460.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-26-7460.log
+2026-06-19 20:53:18.661 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-125352.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-125352.log
+2026-06-19 20:53:18.663 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-166456.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-166456.log
+2026-06-19 20:53:18.664 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-205812.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-205812.log
+2026-06-19 20:53:18.955 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-210448.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-210448.log
+2026-06-19 20:53:18.962 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-3512.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-3512.log
+2026-06-19 20:53:19.016 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-44368.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-44368.log
+2026-06-19 20:53:19.017 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-72148.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-72148.log
+2026-06-19 20:53:19.018 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-87652.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-87652.log
+2026-06-19 20:53:19.025 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-27-99200.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-27-99200.log
+2026-06-19 20:53:19.026 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-12140.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-12140.log
+2026-06-19 20:53:19.027 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-13220.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-13220.log
+2026-06-19 20:53:19.027 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-13620.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-13620.log
+2026-06-19 20:53:19.029 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-14916.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-14916.log
+2026-06-19 20:53:19.030 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-15076.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-15076.log
+2026-06-19 20:53:19.031 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-16284.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-16284.log
+2026-06-19 20:53:19.125 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-181756.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-181756.log
+2026-06-19 20:53:19.126 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-188888.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-188888.log
+2026-06-19 20:53:19.127 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-190084.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-190084.log
+2026-06-19 20:53:19.131 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-19420.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-19420.log
+2026-06-19 20:53:19.133 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-199660.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-199660.log
+2026-06-19 20:53:19.136 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-26892.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-26892.log
+2026-06-19 20:53:19.137 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-32864.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-32864.log
+2026-06-19 20:53:19.138 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-3608.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-3608.log
+2026-06-19 20:53:19.140 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-38636.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-38636.log
+2026-06-19 20:53:19.141 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-38776.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-38776.log
+2026-06-19 20:53:19.142 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-39180.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-39180.log
+2026-06-19 20:53:19.143 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-39556.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-39556.log
+2026-06-19 20:53:19.147 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-40112.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-40112.log
+2026-06-19 20:53:19.149 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-41100.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-41100.log
+2026-06-19 20:53:19.150 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-4176.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-4176.log
+2026-06-19 20:53:19.151 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-42768.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-42768.log
+2026-06-19 20:53:19.172 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-42872.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-42872.log
+2026-06-19 20:53:19.173 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-44804.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-44804.log
+2026-06-19 20:53:19.174 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-46988.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-46988.log
+2026-06-19 20:53:19.175 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-47348.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-47348.log
+2026-06-19 20:53:19.202 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-47464.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-47464.log
+2026-06-19 20:53:19.208 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-49824.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-49824.log
+2026-06-19 20:53:19.209 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-52828.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-52828.log
+2026-06-19 20:53:19.210 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-56444.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-56444.log
+2026-06-19 20:53:19.250 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-63160.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-63160.log
+2026-06-19 20:53:19.250 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-68116.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-68116.log
+2026-06-19 20:53:19.252 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-72148.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-72148.log
+2026-06-19 20:53:19.253 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-77496.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-77496.log
+2026-06-19 20:53:19.280 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-7808.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-7808.log
+2026-06-19 20:53:19.281 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-78636.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-78636.log
+2026-06-19 20:53:19.283 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-85232.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-85232.log
+2026-06-19 20:53:19.283 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-98260.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-98260.log
+2026-06-19 20:53:19.423 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-02-28-99200.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-02-28-99200.log
+2026-06-19 20:53:19.426 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\CcDirector\logs\director-2026-03-01-4176.log -> D:\cc-dir-onboard-proof\logs\director\director-2026-03-01-4176.log
+2026-06-19 20:53:19.431 [CcStorageMigration] Copied (missing): C:\Users\soren\AppData\Local\cc-tools\data\comm_manager\content\communications.db -> D:\cc-dir-onboard-proof\config\comm-queue\communications.db
+2026-06-19 20:53:19.431 [CcStorageMigration] EnsureMigrated: migration check complete
+2026-06-19 20:53:19.431 [CcDirector] CC Director (Avalonia) starting (SandboxMode=False), log file: D:\cc-dir-onboard-proof\logs\director\director-2026-06-19-52136.log
+2026-06-19 20:53:19.455 [CcDirector] Found 7 orphaned claude.exe process(es). Cannot re-attach ConPTY. Consider killing them manually if they are from a previous run.
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 40824, started 2026-06-19 7:34:22 AM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 55112, started 2026-06-19 9:46:56 AM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 45276, started 2026-06-19 11:58:07 AM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 64944, started 2026-06-19 1:45:07 PM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 52696, started 2026-06-19 1:45:50 PM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 26544, started 2026-06-19 1:57:46 PM
+2026-06-19 20:53:19.456 [CcDirector]   Orphan PID 56136, started 2026-06-19 8:15:04 PM
+2026-06-19 20:53:19.456 [SessionStateStore] Clear: clearing sessions file
+2026-06-19 20:53:19.457 [SessionStateStore] Backup: created backup at D:\cc-dir-onboard-proof\config\director\sessions.json.bak
+2026-06-19 20:53:19.458 [SessionStateStore] Clear: deleted sessions.json
+2026-06-19 20:53:19.460 [CcDirector] Starting NUL file watcher for drives: C:\, D:\
+2026-06-19 20:53:19.462 [CcDirector] Watching drive: C:\
+2026-06-19 20:53:19.463 [CcDirector] Watching drive: D:\
+2026-06-19 20:53:19.464 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+2026-06-19 20:53:19.465 [ClaudeAccountStore] Load: path=D:\cc-dir-onboard-proof\config\director\accounts.json
+2026-06-19 20:53:19.486 [ClaudeAccountStore] Load: loaded 1 accounts
+2026-06-19 20:53:19.487 [CcDirector] Claude accounts loaded: 1
+2026-06-19 20:53:19.490 [ClaudeUsageService] Start: beginning usage polling
+2026-06-19 20:53:19.490 [ClaudeUsageService] CheckAndRefreshExpiredTokens
+2026-06-19 20:53:19.490 [ClaudeUsageService] CheckAndRefreshExpiredTokens: account 'CenterConsulting' token expired, refreshing from credentials
+2026-06-19 20:53:19.491 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-19 20:53:19.492 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-19 20:53:19.492 [ClaudeUsageService] StartCredentialsWatcher
+2026-06-19 20:53:19.492 [ClaudeUsageService] StartCredentialsWatcher: watching C:\Users\soren\.claude\.credentials.json
+2026-06-19 20:53:19.492 [CcDirector] Claude usage service started
+2026-06-19 20:53:19.492 [CcDirector] Workspace store initialized
+2026-06-19 20:53:19.494 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:53:19.495 [EngineHost] Starting engine
+2026-06-19 20:53:19.495 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+2026-06-19 20:53:19.496 [ClaudeUsageService] FetchUsageForAccountAsync: account=CenterConsulting, isRetry=False
+2026-06-19 20:53:19.497 [EngineDatabase] InitializeSchema: creating tables if needed
+2026-06-19 20:53:19.538 [EngineDatabase] InitializeSchema: complete
+2026-06-19 20:53:19.540 [Scheduler] Starting
+2026-06-19 20:53:19.540 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+2026-06-19 20:53:19.540 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+2026-06-19 20:53:19.541 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+2026-06-19 20:53:19.542 [Scheduler] Started
+2026-06-19 20:53:19.542 [EngineHost] Scheduling background communication dispatcher init: db=D:\cc-dir-onboard-proof\config\comm-queue\communications.db
+2026-06-19 20:53:19.543 [Scheduler] Loop started
+2026-06-19 20:53:19.543 [CcDirector] [Engine] EngineStarted: Engine started
+2026-06-19 20:53:19.543 [EngineHost] Engine started
+2026-06-19 20:53:19.543 [CcDirector] Engine started
+2026-06-19 20:53:19.543 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+2026-06-19 20:53:19.545 [EmailToolDiscovery] Starting discovery in C:\Users\soren\AppData\Local\cc-director\bin for tools: [cc-gmail, cc-outlook]
+2026-06-19 20:53:19.545 [EmailToolDiscovery] WARNING: Tool not found: C:\Users\soren\AppData\Local\cc-director\bin\cc-gmail.exe
+2026-06-19 20:53:19.545 [EmailToolDiscovery] WARNING: Tool not found: C:\Users\soren\AppData\Local\cc-director\bin\cc-outlook.exe
+2026-06-19 20:53:19.545 [EmailToolDiscovery] Discovery complete: 0 routes
+2026-06-19 20:53:19.545 [EngineHost] Discovered 0 email routes
+2026-06-19 20:53:19.546 [CommunicationDispatcher] Initialized with 0 email routes
+2026-06-19 20:53:19.546 [CommunicationDispatcher] Starting (auto-dispatch disabled -- use manual Send button)
+2026-06-19 20:53:19.546 [EngineHost] Communication dispatcher started (deferred)
+2026-06-19 20:53:19.547 [DirectorIdStore] LoadOrCreate: minted id=3f26cd9d-0662-4ebc-b338-5d6bc23ca520, slot=D:\ReposFred\devthrottle\.claude\worktrees\agent-a633c6efa5630037b\local_builds\cc-director6.exe, path=D:\cc-dir-onboard-proof\config\director\director-id-6d91127416734670.txt
+2026-06-19 20:53:19.548 [EngineDatabase] CleanupOldRuns: purged 0 runs
+2026-06-19 20:53:19.557 [ControlApiHost] StartAsync: directorId=3f26cd9d-0662-4ebc-b338-5d6bc23ca520, ephemeral=False
+2026-06-19 20:53:19.558 [SessionLogManager] Start
+2026-06-19 20:53:19.560 [SessionStatusWingman] Start
+2026-06-19 20:53:19.560 [CcDirector] [RunnersConfig] Seeded default runners config at D:\cc-dir-onboard-proof\config\director\runners.json
+2026-06-19 20:53:19.561 [TurnSummaryCache] Start
+2026-06-19 20:53:19.561 [ProactiveExplainService] Start
+2026-06-19 20:53:19.562 [TerminalStateDetector] Start (mode=authoritative, rule=byte->working, quiet=10s)
+2026-06-19 20:53:19.562 [ControlApiHost] Session state source: terminal (byte->working)
+2026-06-19 20:53:19.562 [TerminalSessionRecorder] Start (root=C:\Users\soren\AppData\Local\cc-director\session-recordings, capPerSession=8MB)
+2026-06-19 20:53:19.564 [TurnReviewLogger] Start
+2026-06-19 20:53:19.569 [CcDirector] [RunnersConfig] No runners declared in D:\cc-dir-onboard-proof\config\director\runners.json
+2026-06-19 20:53:19.570 [SchedulerService] Start pid=52136 tickInterval=00:05:00 runners=0
+2026-06-19 20:53:19.572 [SchedulerService] Hot-reload watcher armed on D:\cc-dir-onboard-proof\config\director\runners.json
+2026-06-19 20:53:19.572 [CcDirector] Scheduler started (tickInterval=00:05:00, runners=0, configPath=D:\cc-dir-onboard-proof\config\director\runners.json, statePath=D:\cc-dir-onboard-proof\config\director\scheduler-state.json)
+2026-06-19 20:53:19.572 [LeaderElection] Started pid=52136 mutex=Global\cc-director-scheduler
+2026-06-19 20:53:19.572 [LeaderElection] scheduler follower, polling for leadership pid=52136
+2026-06-19 20:53:19.599 [PortAllocator] Allocate: directorId=3f26cd9d-0662-4ebc-b338-5d6bc23ca520
+2026-06-19 20:53:19.722 [ClaudeUsageService] FetchUsageForAccountAsync: 401 for account 'CenterConsulting' - token expired
+2026-06-19 20:53:19.722 [ClaudeUsageService] FetchUsageForAccountAsync: attempting token recovery for 'CenterConsulting'
+2026-06-19 20:53:19.722 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-19 20:53:19.723 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-19 20:53:19.723 [ClaudeUsageService] TrackFailure: account=e2bac67c1807430f83708d62062dbdd9, consecutiveFailures=1
+2026-06-19 20:53:19.724 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:53:19.783 [PortAllocator] Allocated port 7881
+2026-06-19 20:53:19.884 [ControlApiHost] Kestrel listening on http://127.0.0.1:7881 (loopback only; remote access via Tailscale Serve)
+2026-06-19 20:53:19.886 [InstanceRegistration] Register: id=3f26cd9d-0662-4ebc-b338-5d6bc23ca520, port=7881, file=D:\cc-dir-onboard-proof\config\director\instances\3f26cd9d-0662-4ebc-b338-5d6bc23ca520.json
+2026-06-19 20:53:19.894 [TailscaleServeSelfProvisioner] Start: port=7881
+2026-06-19 20:53:19.895 [GatewayClient] Start: disabled (no gateway.url), running in local-only mode
+2026-06-19 20:53:19.895 [GatewayConnectionMonitor] Reset: status=NotConfigured
+2026-06-19 20:53:19.895 [CcDirector] Control API listening on http://127.0.0.1:7881 (directorId=3f26cd9d-0662-4ebc-b338-5d6bc23ca520)
+2026-06-19 20:53:19.942 [MainWindow] Avalonia MainWindow initialized
+2026-06-19 20:53:19.943 [AlphaMode] Load: alpha_mode=False
+2026-06-19 20:53:19.943 [MainWindow] ApplyAlphaFeatureVisibility: alphaFeatures=False
+2026-06-19 20:53:19.944 [MainWindow] ApplyVoiceWingmanTabVisibility: alpha=False, hasSession=False, voice=False, wingman=False, openWingman=False
+2026-06-19 20:53:19.945 [MainWindow] BuildNativeMenu
+2026-06-19 20:53:20.044 [TailscaleServeSelfProvisioner] mapped --https=7881 -> http://localhost:7881
+2026-06-19 20:53:20.206 [App] StartUpdateService: enabled=False, current=0.9.12.0, target=D:\ReposFred\devthrottle\.claude\worktrees\agent-a633c6efa5630037b\local_builds\cc-director6.exe
+2026-06-19 20:53:20.222 [ConnectionsView] Loaded
+2026-06-19 20:53:20.223 [ConnectionsView] LoadConnectionsFromFile
+2026-06-19 20:53:20.223 [ConnectionsView] No connections.json found
+2026-06-19 20:53:20.224 [ToolsView] LoadCatalogAsync
+2026-06-19 20:53:20.225 [ToolCatalogService] GetCatalog: binDir=C:\Users\soren\AppData\Local\cc-director\bin
+2026-06-19 20:53:20.227 [MainWindow] MainWindow_Loaded
+2026-06-19 20:53:20.227 [SidebarConfig] Load: sidebar_collapsed=False
+2026-06-19 20:53:20.231 [MainWindow] InitializeScreenshotsPanelAsync: starting
+2026-06-19 20:53:20.235 [MainWindow] UpdateHomeVisibility: showHome=True, sessions=0, statusRequested=False, overlayOpen=False
+2026-06-19 20:53:20.241 [ToolDetectionService] DetectTool: tool=ClaudeCode, overridePath=(null)
+2026-06-19 20:53:20.242 [MainWindow] Gateway indicator attached to GatewayConnectionMonitor
+2026-06-19 20:53:20.243 [MainWindow] InitDirectorInfo
+2026-06-19 20:53:20.243 [MainWindow] MaybeShowFirstRunWizards
+2026-06-19 20:53:20.252 [ToolDetectionService] DetectTool: tool=ClaudeCode, resolved=C:\Users\soren\.local\bin\claude.EXE, source=PATH
+2026-06-19 20:53:20.252 [ToolDetectionService] ReadValidationStatus: tool=ClaudeCode
+2026-06-19 20:53:20.253 [ToolDetectionService] DetectTool: tool=Pi, overridePath=(null)
+2026-06-19 20:53:20.254 [ToolDetectionService] DetectTool: tool=Pi, resolved=D:\Tools\Pi\pi.exe, source=detected
+2026-06-19 20:53:20.254 [ToolDetectionService] ReadValidationStatus: tool=Pi
+2026-06-19 20:53:20.254 [ToolDetectionService] DetectTool: tool=Codex, overridePath=(null)
+2026-06-19 20:53:20.255 [MainWindow] InitializeScreenshotsPanelAsync: directory=D:\cc-dir-onboard-proof\shots
+2026-06-19 20:53:20.262 [ToolDetectionService] DetectTool: tool=Codex, resolved=C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE, source=detected
+2026-06-19 20:53:20.262 [ToolDetectionService] ReadValidationStatus: tool=Codex
+2026-06-19 20:53:20.262 [ToolDetectionService] DetectTool: tool=Gemini, overridePath=(null)
+2026-06-19 20:53:20.262 [ToolDetectionService] DetectTool: tool=Gemini, resolved=C:\Users\soren\AppData\Roaming\npm\gemini.cmd, source=configured path
+2026-06-19 20:53:20.262 [ToolDetectionService] ReadValidationStatus: tool=Gemini
+2026-06-19 20:53:20.262 [ToolDetectionService] DetectTool: tool=OpenCode, overridePath=(null)
+2026-06-19 20:53:20.269 [ToolDetectionService] DetectTool: tool=OpenCode, resolved=C:\Users\soren\AppData\Roaming\npm\opencode.CMD, source=PATH
+2026-06-19 20:53:20.269 [ToolDetectionService] ReadValidationStatus: tool=OpenCode
+2026-06-19 20:53:20.269 [ToolDetectionService] DetectTool: tool=Cursor, overridePath=(null)
+2026-06-19 20:53:20.287 [ToolDetectionService] DetectTool: tool=Cursor, not found, configured=cursor-agent
+2026-06-19 20:53:20.287 [ToolDetectionService] ReadValidationStatus: tool=Cursor
+2026-06-19 20:53:20.288 [ToolDetectionService] DetectTool: tool=Grok, overridePath=(null)
+2026-06-19 20:53:20.294 [ToolDetectionService] DetectTool: tool=Grok, resolved=C:\Users\soren\.grok\bin\grok.EXE, source=PATH
+2026-06-19 20:53:20.294 [ToolDetectionService] ReadValidationStatus: tool=Grok
+2026-06-19 20:53:20.295 [ToolCatalogService] GetCatalog: binDir=C:\Users\soren\AppData\Local\cc-director\bin
+2026-06-19 20:53:20.320 [MainWindow] InitializeScreenshotsPanelAsync: loaded 0 screenshots
+2026-06-19 20:53:20.322 [MainWindow] MaybeShowOnboardingWizardAsync
+2026-06-19 20:53:20.322 [OnboardingModel] ShouldShowOnboarding
+2026-06-19 20:53:20.322 [OnboardingModel] ShouldShowOnboarding: hasGatewayUrl=False, completed=False, result=True
+2026-06-19 20:53:20.323 [MainWindow] OpenOnboardingWizardAsync
+2026-06-19 20:53:20.327 [OnboardingWizardDialog] Constructor: initializing
+2026-06-19 20:53:20.329 [ToolCatalogService] GetCatalog: 9 tools, 9 built, 9 on PATH, 9 available
+2026-06-19 20:53:20.329 [SkillToolLinker] BuildLinks: roots=2
+2026-06-19 20:53:20.334 [OnboardingWizardDialog] ShowStep: step=0
+2026-06-19 20:53:20.371 [SkillToolLinker] BuildLinks: 19 links
+2026-06-19 20:53:20.420 [ToolCatalogService] GetCatalog: 9 tools, 9 built, 9 on PATH, 9 available
+2026-06-19 20:53:20.429 [ToolTestRunner] RunTest: cc-comm-queue [OnPath]
+2026-06-19 20:53:20.429 [ToolTestRunner] RunTest: cc-comm-queue [Version]
+2026-06-19 20:53:20.442 [ToolTestRunner] RunTest: cc-settings [OnPath]
+2026-06-19 20:53:20.442 [ToolTestRunner] RunTest: cc-settings [Version]
+2026-06-19 20:53:20.447 [ToolTestRunner] RunTest: cc-vault [OnPath]
+2026-06-19 20:53:20.447 [ToolTestRunner] RunTest: cc-vault [Version]
+2026-06-19 20:53:20.454 [ToolTestRunner] RunTest: cc-html [OnPath]
+2026-06-19 20:53:20.454 [ToolTestRunner] RunTest: cc-html [Version]
+2026-06-19 20:53:20.461 [ToolTestRunner] RunTest: cc-pdf [OnPath]
+2026-06-19 20:53:20.461 [ToolTestRunner] RunTest: cc-pdf [Version]
+2026-06-19 20:53:20.466 [ToolTestRunner] RunTest: cc-word [OnPath]
+2026-06-19 20:53:20.466 [ToolTestRunner] RunTest: cc-word [Version]
+2026-06-19 20:53:20.562 [ToolTestRunner] RunTest: cc-gmail [OnPath]
+2026-06-19 20:53:20.562 [ToolTestRunner] RunTest: cc-gmail [Version]
+2026-06-19 20:53:20.566 [ToolTestRunner] RunTest: cc-outlook [OnPath]
+2026-06-19 20:53:20.566 [ToolTestRunner] RunTest: cc-outlook [Version]
+2026-06-19 20:53:20.572 [ToolTestRunner] RunTest: cc-playwright [OnPath]
+2026-06-19 20:53:20.572 [ToolTestRunner] RunTest: cc-playwright [Version]
+2026-06-19 20:53:20.585 [ToolCatalogService] GetCatalog: binDir=C:\Users\soren\AppData\Local\cc-director\bin
+2026-06-19 20:53:20.768 [ToolCatalogService] GetCatalog: 9 tools, 9 built, 9 on PATH, 9 available
+2026-06-19 20:53:20.770 [ToolTestRunner] RunTest: cc-comm-queue [OnPath]
+2026-06-19 20:53:20.770 [ToolTestRunner] RunTest: cc-comm-queue [Version]
+2026-06-19 20:53:20.776 [ToolTestRunner] RunTest: cc-settings [OnPath]
+2026-06-19 20:53:20.777 [ToolTestRunner] RunTest: cc-settings [Version]
+2026-06-19 20:53:20.916 [ToolTestRunner] RunTest: cc-vault [OnPath]
+2026-06-19 20:53:20.916 [ToolTestRunner] RunTest: cc-vault [Version]
+2026-06-19 20:53:20.921 [ToolTestRunner] RunTest: cc-html [OnPath]
+2026-06-19 20:53:20.921 [ToolTestRunner] RunTest: cc-html [Version]
+2026-06-19 20:53:20.927 [ToolTestRunner] RunTest: cc-pdf [OnPath]
+2026-06-19 20:53:20.927 [ToolTestRunner] RunTest: cc-pdf [Version]
+2026-06-19 20:53:20.932 [ToolTestRunner] RunTest: cc-word [OnPath]
+2026-06-19 20:53:20.932 [ToolTestRunner] RunTest: cc-word [Version]
+2026-06-19 20:53:21.041 [ToolTestRunner] RunTest: cc-gmail [OnPath]
+2026-06-19 20:53:21.041 [ToolTestRunner] RunTest: cc-gmail [Version]
+2026-06-19 20:53:21.066 [ToolTestRunner] RunTest: cc-playwright [Smoke]
+2026-06-19 20:53:21.188 [ToolTestRunner] RunTest: cc-outlook [OnPath]
+2026-06-19 20:53:21.189 [ToolTestRunner] RunTest: cc-outlook [Version]
+2026-06-19 20:53:21.466 [ToolTestRunner] RunTest: cc-comm-queue [Smoke]
+2026-06-19 20:53:21.524 [ToolTestRunner] RunTest: cc-settings [Smoke]
+2026-06-19 20:53:21.650 [ToolTestRunner] RunTest: cc-playwright [OnPath]
+2026-06-19 20:53:21.650 [ToolTestRunner] RunTest: cc-playwright [Version]
+2026-06-19 20:53:21.668 [ToolTestRunner] RunTest: cc-vault [Smoke]
+2026-06-19 20:53:21.741 [ToolTestRunner] RunTest: cc-settings [Smoke]
+2026-06-19 20:53:21.754 [ToolTestRunner] RunTest: cc-vault [Smoke]
+2026-06-19 20:53:22.009 [ToolTestRunner] RunTest: cc-comm-queue [Smoke]
+2026-06-19 20:53:22.026 [ToolTestRunner] RunTest: cc-html [Smoke]
+2026-06-19 20:53:22.034 [ToolTestRunner] RunTest: cc-pdf [Smoke]
+2026-06-19 20:53:22.043 [ToolTestRunner] RunTest: cc-word [Smoke]
+2026-06-19 20:53:22.384 [UpdateService] CheckAndStageAsync: current=0.9.12.0, enabled=False
+2026-06-19 20:53:22.384 [UpdateService] Disabled for this build; skipping.
+2026-06-19 20:53:22.392 [ToolTestRunner] RunTest: cc-playwright [Smoke]
+2026-06-19 20:53:22.763 [ToolTestRunner] RunTest: cc-html [Smoke]
+2026-06-19 20:53:22.782 [ToolTestRunner] RunTest: cc-pdf [Smoke]
+2026-06-19 20:53:22.877 [ToolTestRunner] RunTest: cc-word [Smoke]
+2026-06-19 20:53:41.090 [MainWindow] tool health: pass=9, fail=0, notBuilt=0, broken=0
+2026-06-19 20:54:00.432 [OnboardingWizardDialog] BtnTestGateway_Click
+2026-06-19 20:54:00.436 [SettingsDetectionService] TestGateway: http://soren-north.taildb08ed.ts.net:7878/healthz
+2026-06-19 20:54:19.492 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:54:19.492 [ClaudeUsageService] FetchUsageForAccountAsync: account=CenterConsulting, isRetry=False
+2026-06-19 20:54:19.558 [ClaudeUsageService] FetchUsageForAccountAsync: 401 for account 'CenterConsulting' - token expired
+2026-06-19 20:54:19.558 [ClaudeUsageService] FetchUsageForAccountAsync: attempting token recovery for 'CenterConsulting'
+2026-06-19 20:54:19.558 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-19 20:54:19.558 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-19 20:54:19.558 [ClaudeUsageService] TrackFailure: account=e2bac67c1807430f83708d62062dbdd9, consecutiveFailures=2
+2026-06-19 20:54:19.558 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:55:19.506 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:55:19.506 [ClaudeUsageService] FetchUsageForAccountAsync: account=CenterConsulting, isRetry=False
+2026-06-19 20:55:19.572 [ClaudeUsageService] FetchUsageForAccountAsync: 401 for account 'CenterConsulting' - token expired
+2026-06-19 20:55:19.572 [ClaudeUsageService] FetchUsageForAccountAsync: attempting token recovery for 'CenterConsulting'
+2026-06-19 20:55:19.572 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-19 20:55:19.572 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-19 20:55:19.572 [ClaudeUsageService] TrackFailure: account=e2bac67c1807430f83708d62062dbdd9, consecutiveFailures=3
+2026-06-19 20:55:19.572 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:56:19.504 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:56:19.505 [ClaudeUsageService] PollAllAccountsAsync: skipping account 'CenterConsulting' (3 consecutive failures)
+2026-06-19 20:56:19.505 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:57:19.495 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:57:19.495 [ClaudeUsageService] PollAllAccountsAsync: skipping account 'CenterConsulting' (3 consecutive failures)
+2026-06-19 20:57:19.495 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:58:19.508 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:58:19.508 [ClaudeUsageService] PollAllAccountsAsync: skipping account 'CenterConsulting' (3 consecutive failures)
+2026-06-19 20:58:19.508 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 20:58:19.957 [TailscaleServeSelfProvisioner] mapped --https=7881 -> http://localhost:7881
+2026-06-19 20:59:19.504 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 20:59:19.504 [ClaudeUsageService] PollAllAccountsAsync: skipping account 'CenterConsulting' (3 consecutive failures)
+2026-06-19 20:59:19.504 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 21:00:19.507 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-19 21:00:19.507 [ClaudeUsageService] PollAllAccountsAsync: skipping account 'CenterConsulting' (3 consecutive failures)
+2026-06-19 21:00:19.507 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-19 21:00:39.949 [MainWindow] MaybeShowToolDetectionWizardAsync
+2026-06-19 21:00:39.949 [ToolDetectionWizardModel] IsFirstRun
+2026-06-19 21:00:39.949 [ToolDetectionWizardModel] IsFirstRun: result=True
+2026-06-19 21:00:39.950 [MainWindow] OpenToolDetectionWizardAsync
+2026-06-19 21:00:39.952 [ToolDetectionWizardDialog] Constructor: initializing
+2026-06-19 21:00:39.968 [ToolDetectionWizardDialog] ScanAsync
+2026-06-19 21:00:39.968 [ToolDetectionWizardModel] ScanSuggestions
+2026-06-19 21:00:39.969 [ToolDetectionService] DetectTool: tool=ClaudeCode, overridePath=(null)
+2026-06-19 21:00:39.973 [ToolDetectionService] DetectTool: tool=ClaudeCode, resolved=C:\Users\soren\.local\bin\claude.EXE, source=PATH
+2026-06-19 21:00:39.973 [ToolDetectionWizardModel] ScanSuggestions: tool=ClaudeCode, found=True
+2026-06-19 21:00:39.973 [ToolDetectionService] DetectTool: tool=Pi, overridePath=(null)
+2026-06-19 21:00:39.973 [ToolDetectionService] DetectTool: tool=Pi, resolved=D:\Tools\Pi\pi.exe, source=detected
+2026-06-19 21:00:39.973 [ToolDetectionWizardModel] ScanSuggestions: tool=Pi, found=True
+2026-06-19 21:00:39.973 [ToolDetectionService] DetectTool: tool=Codex, overridePath=(null)
+2026-06-19 21:00:39.977 [ToolDetectionService] DetectTool: tool=Codex, resolved=C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE, source=detected
+2026-06-19 21:00:39.977 [ToolDetectionWizardModel] ScanSuggestions: tool=Codex, found=True
+2026-06-19 21:00:39.977 [ToolDetectionService] DetectTool: tool=Gemini, overridePath=(null)
+2026-06-19 21:00:39.977 [ToolDetectionService] DetectTool: tool=Gemini, resolved=C:\Users\soren\AppData\Roaming\npm\gemini.cmd, source=configured path
+2026-06-19 21:00:39.977 [ToolDetectionWizardModel] ScanSuggestions: tool=Gemini, found=True
+2026-06-19 21:00:39.977 [ToolDetectionService] DetectTool: tool=OpenCode, overridePath=(null)
+2026-06-19 21:00:39.982 [ToolDetectionService] DetectTool: tool=OpenCode, resolved=C:\Users\soren\AppData\Roaming\npm\opencode.CMD, source=PATH
+2026-06-19 21:00:39.982 [ToolDetectionWizardModel] ScanSuggestions: tool=OpenCode, found=True
+2026-06-19 21:00:39.982 [ToolDetectionService] DetectTool: tool=Cursor, overridePath=(null)
+2026-06-19 21:00:39.995 [ToolDetectionService] DetectTool: tool=Cursor, not found, configured=cursor-agent
+2026-06-19 21:00:39.995 [ToolDetectionWizardModel] ScanSuggestions: tool=Cursor, found=False
+2026-06-19 21:00:39.995 [ToolDetectionService] DetectTool: tool=Grok, overridePath=(null)
+2026-06-19 21:00:39.999 [ToolDetectionService] DetectTool: tool=Grok, resolved=C:\Users\soren\.grok\bin\grok.EXE, source=PATH
+2026-06-19 21:00:39.999 [ToolDetectionWizardModel] ScanSuggestions: tool=Grok, found=True
+2026-06-19 21:00:39.999 [AgentEntryStore] ReadCurrentEntries
+2026-06-19 21:00:39.999 [AgentEntryStore] ReadCurrentEntries: no agent.entries; returning empty (no seed)
+2026-06-19 21:00:40.009 [ToolDetectionWizardDialog] ScanAsync: found=6, addable=6, alreadyAdded=0, total=7
+2026-06-19 21:00:44.382 [MainWindow] OnClosing: reason=WindowClosing, programmatic=False, sessions=0
+2026-06-19 21:00:44.383 [MainWindow] PersistSessionStateCore
+2026-06-19 21:00:44.383 [SessionStateStore] Save: saving sessions to D:\cc-dir-onboard-proof\config\director\sessions.json
+2026-06-19 21:00:44.399 [SessionStateStore] Save: saved 0 session(s)
+2026-06-19 21:00:44.400 [TerminalControl] Detach: sessionId=, scrollback=0, offset=0
+2026-06-19 21:00:44.401 [GitChangesView] Detach
+2026-06-19 21:00:44.403 [EngineHost] Stopping engine
+2026-06-19 21:00:44.403 [CcDirector] [Engine] EngineStopping: Engine stopping
+2026-06-19 21:00:44.403 [CommunicationDispatcher] Stopping
+2026-06-19 21:00:44.403 [Scheduler] Stopping
+2026-06-19 21:00:44.403 [Scheduler] Loop ended
+2026-06-19 21:00:44.404 [Scheduler] Stopped
+2026-06-19 21:00:44.404 [CcDirector] [Engine] EngineStopped: Engine stopped
+2026-06-19 21:00:44.404 [EngineHost] Engine stopped
+2026-06-19 21:00:44.405 [ControlApiHost] StopAsync
+2026-06-19 21:00:44.408 [InstanceRegistration] Unregister: file=D:\cc-dir-onboard-proof\config\director\instances\3f26cd9d-0662-4ebc-b338-5d6bc23ca520.json
+2026-06-19 21:00:44.408 [InstanceRegistration] Unregister: done
+2026-06-19 21:00:44.522 [TailscaleServeSelfProvisioner] --https=7881 already absent
+2026-06-19 21:00:44.530 [SchedulerService] Stop pid=52136
+2026-06-19 21:00:44.531 [ClaudeUsageService] Stop: stopping usage polling
+2026-06-19 21:00:44.531 [CcDirector] Exiting
