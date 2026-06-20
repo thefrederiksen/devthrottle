@@ -3055,10 +3055,18 @@ public partial class MainWindow : Window
         if (alpha)
         {
             var tools = new NativeMenuItem("Tools") { Menu = new NativeMenu() };
-            tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
-            tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
-            tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
-            tools.Menu.Items.Add(new NativeMenuItemSeparator());
+            // Communications, Connections (Browser Connections), and Scheduler are the three
+            // v1-excluded overlays (issue 570, part of the #357 MVP cutdown). They are gated
+            // behind the alpha flag explicitly here so they stay hidden in a default install
+            // even if the broader Tools menu is later un-gated for v1. They open the
+            // CommsOverlay / ConnectionsOverlay / SchedulerOverlay respectively.
+            if (alpha)
+            {
+                tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
+                tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
+                tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
+                tools.Menu.Items.Add(new NativeMenuItemSeparator());
+            }
             tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
             tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
             tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
