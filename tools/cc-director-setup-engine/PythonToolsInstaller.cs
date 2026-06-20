@@ -32,6 +32,19 @@ public sealed class PythonToolsInstaller
     /// <summary>The component id the bundle's version is tracked under in installed.json.</summary>
     public const string ComponentId = "python-tools";
 
+    /// <summary>
+    /// Bound for the venv-create step. Creating an empty venv is quick (seconds); a multi-minute bound is
+    /// plenty and only exists to keep a wedged "python -m venv" from hanging the install forever.
+    /// </summary>
+    public static readonly TimeSpan VenvCreateTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Bound for the offline pip install of the whole wheelhouse (roughly twenty wheels). This is the long,
+    /// legitimately-slow step, so the bound is generous; but it IS bounded, so a pip that hangs (the field
+    /// failure behind issue #577) fails loudly in finite time instead of stalling the wizard forever.
+    /// </summary>
+    public static readonly TimeSpan PipInstallTimeout = TimeSpan.FromMinutes(15);
+
     private readonly InstallLayout _layout;
 
     public PythonToolsInstaller(InstallLayout layout)
@@ -143,10 +156,21 @@ public sealed class PythonToolsInstaller
                 Step($"installed.json claims bundle {manifest.BundleVersion}, but the venv is missing tool scripts; rebuilding to repair");
 
             // 3. Create the shared venv from the bundled python (on-target, so console-script paths are correct).
+            // Remove the managed bin shims FIRST, so that if anything below fails or is interrupted (a hung
+            // pip killed by the timeout, the wizard closed mid-run, a crash), we never leave a bin\<name>.cmd
+            // whose pyenv\Scripts\<name>.exe target the venv reset just deleted. The shim and its target exe
+            // live and die together: shims are (re)written ONLY after pip succeeds AND the venv is verified
+            // healthy. This is the atomic-shim guarantee for issue #577.
             Step("creating the shared Python venv");
+            RemoveManagedShims(manifest.Scripts);
             ResetDir(_layout.PyenvDir);
-            var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"");
+            var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", onStdoutLine: null, VenvCreateTimeout);
             if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
+            // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
+            // interpreter is missing means the create silently did nothing - fail loud now rather than throw
+            // a Win32 "file not found" when the pip step tries to run the missing interpreter.
+            if (!File.Exists(venvPython))
+                return Fail(steps, $"venv creation reported success but produced no interpreter at {venvPython}.");
 
             // 4. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
             //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
@@ -215,22 +239,41 @@ public sealed class PythonToolsInstaller
                 }
             });
 
-            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs, OnPipLine);
+            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
             pollCts.Cancel();
             try { await pollTask; } catch { /* poller cancellation */ }
 
+            // A timeout reports the sentinel exit code; surface it as the loud, bounded failure it is so the
+            // user (and the log) see "pip hung and was killed" rather than a generic non-zero exit.
+            if (pipExit == ProcessRunner.TimeoutExitCode)
+                return Fail(steps, $"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}");
             if (pipExit != 0) return Fail(steps, $"offline pip install failed ({pipExit}): {Trim(pipOut)}");
             percent?.Report(100);
             progress?.Report($"Installed {wheelCount} packages");
 
-            // 5. Write bin\<script>.cmd shims that forward to the venv's console scripts.
+            // 5. Verify the venv is healthy BEFORE writing any shim or recording the version. Every tool's
+            // console script must be on disk. If pip exited 0 but a script is missing (a partial/corrupt
+            // wheelhouse), we must NOT write shims to missing targets nor stamp a version that would suppress
+            // a future repair - we fail loud and leave no stale shim behind.
+            if (!VenvHasAllTools(manifest.Scripts))
+            {
+                var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptPath(s))).ToList();
+                return Fail(steps, $"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
+            }
+
+            // 6. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
             Step($"writing {manifest.Scripts.Count} tool shims to bin");
             WriteShims(manifest.Scripts);
 
-            // 6. Record the bundle version + clean up the temp bundle.
+            // 7. Record the bundle version ONLY now that the venv is healthy and the shims point at real
+            // targets. Gating im.Set on VenvHasAllTools means a half-built venv never records a version that
+            // would make the version-gated auto-update skip the machine forever (issue #577).
             var im = InstalledManifest.Load(_layout);
             im.Set(ComponentId, manifest.BundleVersion);
             im.Save(_layout);
+            // Persist the script list so the auto-updater can probe venv health offline (without re-downloading
+            // the bundle just to learn which scripts to expect).
+            PythonToolsState.SaveScripts(_layout, manifest.Scripts);
 
             Step($"Python tools bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
             return new PythonToolsResult(true,
@@ -246,10 +289,16 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>The venv console-script path for a tool script (used as an on-disk presence probe).</summary>
-    private string ConsoleScriptPath(string script) =>
-        OperatingSystem.IsWindows()
-            ? Path.Combine(_layout.PyenvScriptsDir, $"{script}.exe")
-            : Path.Combine(_layout.PyenvBinDir, script);
+    private string ConsoleScriptPath(string script) => ConsoleScriptPath(_layout, script);
+
+    /// <summary>The venv console-script path for a tool script under a given layout.</summary>
+    public static string ConsoleScriptPath(InstallLayout layout, string script)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        return OperatingSystem.IsWindows()
+            ? Path.Combine(layout.PyenvScriptsDir, $"{script}.exe")
+            : Path.Combine(layout.PyenvBinDir, script);
+    }
 
     /// <summary>
     /// True only when every tool console script the bundle promises is actually on disk in the venv.
@@ -257,12 +306,42 @@ public sealed class PythonToolsInstaller
     /// stripped site-packages). An empty script list returns false so a manifest with nothing to verify
     /// forces a rebuild rather than a false "already installed".
     /// </summary>
-    private bool VenvHasAllTools(IReadOnlyList<string> scripts)
+    private bool VenvHasAllTools(IReadOnlyList<string> scripts) => VenvHasAllTools(_layout, scripts);
+
+    /// <summary>
+    /// True only when every tool console script in <paramref name="scripts"/> is on disk in the venv for
+    /// <paramref name="layout"/>. Exposed so the auto-updater (<see cref="ToolUpdater"/>) can reuse the exact
+    /// same health probe to decide whether an on-disk venv needs repairing, without re-downloading the
+    /// bundle. An empty list returns false (nothing to verify is treated as not-healthy, forcing a rebuild).
+    /// </summary>
+    public static bool VenvHasAllTools(InstallLayout layout, IReadOnlyList<string> scripts)
     {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(scripts);
         if (scripts.Count == 0) return false;
         foreach (var script in scripts)
-            if (!File.Exists(ConsoleScriptPath(script))) return false;
+            if (!File.Exists(ConsoleScriptPath(layout, script))) return false;
         return true;
+    }
+
+    /// <summary>
+    /// Remove the managed bin shims for the given scripts up front, before a venv rebuild deletes their
+    /// targets. This is what makes the install atomic: a failed/interrupted run leaves NO shim pointing at a
+    /// now-missing console script. The shims are rewritten only after the venv is verified healthy.
+    /// </summary>
+    private void RemoveManagedShims(IReadOnlyList<string> scripts)
+    {
+        foreach (var script in scripts)
+        {
+            var paths = OperatingSystem.IsWindows()
+                ? new[] { Path.Combine(_layout.BinDir, $"{script}.cmd"), Path.Combine(_layout.BinDir, $"{script}.exe") }
+                : new[] { Path.Combine(_layout.MacUserBinDir, script) };
+            foreach (var path in paths)
+            {
+                try { if (File.Exists(path)) File.Delete(path); }
+                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove managed shim {path}: {ex.Message}"); }
+            }
+        }
     }
 
     /// <summary>Create the tool shims: bin\&lt;script&gt;.cmd on Windows, ~/.local/bin symlinks on macOS.</summary>
@@ -291,11 +370,23 @@ public sealed class PythonToolsInstaller
             }
 
             var cmd = Path.Combine(_layout.BinDir, $"{script}.cmd");
-            var body = "@echo off\r\n"
-                     + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";
-            File.WriteAllText(cmd, body);
+            File.WriteAllText(cmd, BuildWindowsShimBody(script));
         }
     }
+
+    /// <summary>
+    /// The body of a Windows tool shim. It forwards to the venv console script, but FIRST checks the target
+    /// exe exists. If a half-install ever slips through (so the target is missing), the shim prints a clear,
+    /// actionable repair message and exits non-zero - instead of cmd.exe's raw "is not recognized". This is
+    /// the defense-in-depth user-facing fix for issues #445 / #452.
+    /// </summary>
+    internal static string BuildWindowsShimBody(string script) =>
+        "@echo off\r\n"
+        + $"if not exist \"%~dp0..\\pyenv\\Scripts\\{script}.exe\" (\r\n"
+        + $"  echo cc-* tools are not fully installed - run the repair: Home ^> Fix it, or cc-director-setup-cli repair-tools 1^>^&2\r\n"
+        + "  exit /b 1\r\n"
+        + ")\r\n"
+        + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";
 
     /// <summary>
     /// On macOS each shim is a symlink in ~/.local/bin pointing at the venv's console script. The
