@@ -13,15 +13,17 @@ namespace CcDirector.Avalonia;
 
 /// <summary>
 /// First-run onboarding wizard (issue #370, lean v1). Takes a fresh user from launch to a working
-/// agent in three steps: 1) enter and test the Gateway URL, 2) confirm a Claude Code agent is
-/// available on PATH (with install guidance when it is not), 3) confirm the Director is ready and
+/// agent in three steps: 1) detect, enter and test the Gateway URL, 2) confirm a Claude Code agent
+/// is available on PATH (with install guidance when it is not), 3) confirm the Director is ready and
 /// route to the New Session dialog.
 ///
 /// The logic lives UI-free in <see cref="OnboardingModel"/>; this dialog is the thin Avalonia shell.
-/// The three steps are panels in one cell toggled by IsVisible, navigated with Back/Next. The
-/// gateway connectivity test reuses the existing <see cref="SettingsDetectionService.TestGatewayAsync"/>
-/// and runs async with a spinner so the UI never blocks. On finish (or skip) the onboarding-complete
-/// marker is written so the wizard never auto-opens again.
+/// The three steps are panels in one cell toggled by IsVisible, navigated with Back/Next. The gateway
+/// step auto-scans for a gateway when it first appears and offers a Detect button to re-scan, reusing
+/// the same <see cref="SettingsDetectionService"/> the Settings gateway tab uses (DetectGatewayAsync
+/// for the scan, TestGatewayAsync for a typed URL). All gateway work runs async with a spinner so the
+/// UI never blocks. On finish (or skip) the onboarding-complete marker is written so the wizard never
+/// auto-opens again.
 /// </summary>
 public partial class OnboardingWizardDialog : Window
 {
@@ -38,6 +40,7 @@ public partial class OnboardingWizardDialog : Window
     private bool _gatewayTestPassed;
     private string _persistedGatewayUrl = "";
     private bool _agentAvailable;
+    private bool _gatewayAutoScanStarted;
 
     /// <summary>
     /// True when the user chose "Create first session" on the final step, so the caller should open
@@ -54,6 +57,11 @@ public partial class OnboardingWizardDialog : Window
         InitializeComponent();
 
         ShowStep(StepGateway);
+
+        // Show the wizard instantly, then auto-scan for a gateway off the UI thread once it is
+        // visible (responsive-UI rule). This brings the wizard's gateway step to parity with the
+        // Settings gateway tab, which the user reached via the Detect button there.
+        Loaded += (_, _) => StartGatewayAutoScan();
     }
 
     /// <summary>Switch the visible step panel and update the title, indicator, and navigation buttons.</summary>
@@ -93,6 +101,71 @@ public partial class OnboardingWizardDialog : Window
                 NextButton.IsVisible = true;
                 BuildDoneSummary();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Auto-scan for a gateway exactly once, the first time the gateway step becomes visible. The
+    /// scan runs async (off the UI thread) so the wizard renders instantly. Mirrors the Settings
+    /// gateway tab's Detect behavior.
+    /// </summary>
+    private void StartGatewayAutoScan()
+    {
+        if (_gatewayAutoScanStarted)
+            return;
+        _gatewayAutoScanStarted = true;
+        FileLog.Write("[OnboardingWizardDialog] StartGatewayAutoScan");
+        _ = DetectGatewayAsync();
+    }
+
+    private async void BtnDetectGateway_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[OnboardingWizardDialog] BtnDetectGateway_Click");
+        await DetectGatewayAsync();
+    }
+
+    /// <summary>
+    /// Scan the tailnet and this machine for a gateway via the shared detector (the same
+    /// <see cref="SettingsDetectionService.DetectGatewayAsync"/> the Settings gateway tab uses).
+    /// On success, pre-fills the URL box and marks the test passed so the user can just click Next.
+    /// On no result, leaves the field for manual entry. Runs async with the spinner so the UI never
+    /// blocks; never throws (this is a UI helper called from event handlers and lifecycle).
+    /// </summary>
+    private async Task DetectGatewayAsync()
+    {
+        FileLog.Write("[OnboardingWizardDialog] DetectGatewayAsync");
+        DetectGatewayButton.IsEnabled = false;
+        TestGatewayButton.IsEnabled = false;
+        GatewayTestSpinner.IsVisible = true;
+        ShowGatewayStatus("Scanning the tailnet and this machine for a gateway ...", error: false);
+        try
+        {
+            var result = await _gatewayDetector.DetectGatewayAsync();
+            if (result.Url is not null)
+            {
+                GatewayUrlBox.Text = result.Url;
+                _gatewayTestPassed = true;
+                ShowGatewayStatus($"Found gateway at {result.Url}. Click Next to connect, or edit the address above.", error: false);
+                FileLog.Write($"[OnboardingWizardDialog] DetectGatewayAsync: found {result.Url}");
+            }
+            else
+            {
+                _gatewayTestPassed = false;
+                ShowGatewayStatus($"No gateway found on this network ({result.Scanned.Count} address(es) scanned). Enter the gateway URL above and click Test.", error: true);
+                FileLog.Write($"[OnboardingWizardDialog] DetectGatewayAsync: none found, scanned={result.Scanned.Count}");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[OnboardingWizardDialog] DetectGatewayAsync FAILED: {ex.Message}");
+            ShowGatewayStatus($"Detection failed: {ex.Message}", error: true);
+            _gatewayTestPassed = false;
+        }
+        finally
+        {
+            GatewayTestSpinner.IsVisible = false;
+            DetectGatewayButton.IsEnabled = true;
+            TestGatewayButton.IsEnabled = true;
         }
     }
 
@@ -157,18 +230,18 @@ public partial class OnboardingWizardDialog : Window
     }
 
     /// <summary>
-    /// Gateway step Next: a blank URL means local-only (allowed, nothing persisted). A non-blank URL
-    /// must be valid; if it has not been tested green yet we test it now and only advance on success,
-    /// then persist it to gateway.url.
+    /// Gateway step Next: version 1 expects a gateway, so a blank URL is not a normal mode - we nudge
+    /// the user to detect or enter one (they can still leave via "Skip for now" without bricking
+    /// first-run). A non-blank URL must be valid; if it has not been tested green yet we test it now
+    /// and only advance on success, then persist it to gateway.url.
     /// </summary>
     private async Task AdvanceFromGatewayAsync()
     {
         var raw = GatewayUrlBox.Text?.Trim() ?? "";
         if (raw.Length == 0)
         {
-            FileLog.Write("[OnboardingWizardDialog] AdvanceFromGateway: blank URL, local-only");
-            _persistedGatewayUrl = "";
-            ShowStep(StepAgent);
+            FileLog.Write("[OnboardingWizardDialog] AdvanceFromGateway: blank URL, nudging for a gateway");
+            ShowGatewayStatus("Enter or detect a gateway URL to continue, or use \"Skip for now\" to set it later in Settings.", error: true);
             return;
         }
 
@@ -307,7 +380,7 @@ public partial class OnboardingWizardDialog : Window
     private void BuildDoneSummary()
     {
         var gatewayPart = string.IsNullOrEmpty(_persistedGatewayUrl)
-            ? "Running local-only (no gateway configured)."
+            ? "No gateway is configured yet - add one from Settings so this Director shows up there."
             : $"Connected to gateway {_persistedGatewayUrl}.";
         var agentPart = _agentAvailable
             ? "Claude Code is available."

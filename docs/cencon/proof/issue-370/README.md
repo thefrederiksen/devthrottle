@@ -18,6 +18,55 @@ The user's workstation locked partway through the capture session, so the live s
 could be taken before the lock are included here, and the remaining steps are evidenced by the
 Director log (`director-log-excerpt.log`) plus the unit tests. No screenshots were fabricated.
 
+## Gateway-step parity patch (auto-detect, brings the wizard to parity with Settings)
+
+The first cut of Step 1 was a bare manual URL text box plus a Test button - it did NOT scan or detect,
+even though the Settings gateway tab does. This patch brings the wizard's gateway step to parity with
+the Settings gateway tab:
+
+- It now AUTO-SCANS for a gateway when the step first appears (via the window `Loaded` event, off the
+  UI thread, with the spinner and the status line "Scanning the tailnet and this machine for a gateway
+  ..." - exactly the Settings copy).
+- It adds a "Detect" button next to Test that re-runs the same scan on demand.
+- Both the auto-scan and the Detect button reuse the SAME shared detector the Settings tab uses
+  (`SettingsDetectionService.DetectGatewayAsync`, the Tailscale-first scan then loopback). No new
+  scanner was written.
+- On a hit it pre-fills the URL field and shows the green success line "Found gateway at <url>. Click
+  Next to connect, or edit the address above.", and marks the test passed so the user can just click
+  Next. On a miss it shows "No gateway found on this network (<n> address(es) scanned)..." and leaves
+  the field for manual entry; the Test button still validates a typed URL.
+- The misleading "Leave it blank to run local-only - you can set it later in Settings" copy was removed.
+  Version 1 expects a gateway (aligns with #442): the step copy now reads "Enter or detect the address
+  of your CC Director Gateway so this Director shows up there...", a blank Next nudges the user to
+  detect or enter one (the "Skip for now" button still exits without bricking first-run), and the Done
+  summary no longer presents local-only as a normal mode.
+
+The detect call stays purely in the dialog code-behind, exactly like the Settings `BtnDetectGateway_Click`,
+so there is no new `OnboardingModel` logic to unit-test - the existing 20 `OnboardingModelTests` stay
+green and the full `CcDirector.Core.Tests` suite passes (2143 passed, 4 skipped, 0 failed).
+
+### Auto-detect proof (live, on a tailnet with a real gateway)
+
+Produced the same way as below (slot 6 test Director, isolated `CC_DIRECTOR_ROOT` with an empty
+`config.json`, launched via a per-slot scheduled task), on a machine whose tailnet has a live gateway
+answering at `http://soren-north.taildb08ed.ts.net:7878`.
+
+- `04-step1-scanning.png` - the gateway step on entry, mid auto-scan: empty URL field, Detect and Test
+  buttons disabled, the indeterminate spinner running, and the green status "Scanning the tailnet and
+  this machine for a gateway ...".
+- `03-step1-autodetect-found.png` - the same step after the auto-scan finished: the URL field is
+  PRE-FILLED with `http://soren-north.taildb08ed.ts.net:7878` and the green success line "Found gateway
+  at http://soren-north.taildb08ed.ts.net:7878. Click Next to connect, or edit the address above." -
+  the user can just click Next.
+- `autodetect-log-excerpt.log` - the matching Director log, showing the wizard firing on first launch
+  and the auto-scan running on entry:
+  `[OnboardingWizardDialog] StartGatewayAutoScan` ->
+  `[OnboardingWizardDialog] DetectGatewayAsync` ->
+  `[SettingsDetectionService] DetectGateway: scanned=3, found=http://soren-north.taildb08ed.ts.net:7878` ->
+  `[OnboardingWizardDialog] DetectGatewayAsync: found http://soren-north.taildb08ed.ts.net:7878`.
+
+These screenshots were captured live from the running app via Windows UI Automation; none were fabricated.
+
 ## Screenshots
 
 - `01-step1-gateway-empty.png` - Step 1 of 3 ("Connect to a Gateway") on first launch. The wizard

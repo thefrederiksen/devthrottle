@@ -1,0 +1,11 @@
+
+2026-06-19 21:15:12.244 [OnboardingModel] ShouldShowOnboarding
+2026-06-19 21:15:12.244 [OnboardingModel] ShouldShowOnboarding: hasGatewayUrl=False, completed=False, result=True
+2026-06-19 21:15:12.247 [OnboardingWizardDialog] Constructor: initializing
+2026-06-19 21:15:12.251 [OnboardingWizardDialog] ShowStep: step=0
+2026-06-19 21:15:12.287 [OnboardingWizardDialog] StartGatewayAutoScan
+2026-06-19 21:15:12.287 [OnboardingWizardDialog] DetectGatewayAsync
+2026-06-19 21:15:18.487 [SettingsDetectionService] DetectGateway: scanned=3, found=http://soren-north.taildb08ed.ts.net:7878
+2026-06-19 21:15:18.490 [OnboardingWizardDialog] DetectGatewayAsync: found http://soren-north.taildb08ed.ts.net:7878
+
+

@@ -73,13 +73,16 @@
             <!-- STEP 1: Gateway URL -->
             <StackPanel x:Name="GatewayStep" Spacing="8" IsVisible="True">
                 <TextBlock Classes="hint"
-                           Text="Enter the address of your CC Director Gateway so this Director shows up there. Leave it blank to run local-only - you can set it later in Settings. Click Test to check the address is reachable before continuing." />
+                           Text="Enter or detect the address of your CC Director Gateway so this Director shows up there. This wizard scans your tailnet and this machine for a gateway automatically when this step opens; you can also click Detect to scan again, or type the address and click Test to check it is reachable." />
 
                 <TextBlock Classes="fieldLabel" Text="Gateway URL" />
                 <TextBox x:Name="GatewayUrlBox" Classes="settingsInput"
                          Watermark="e.g. http://gateway-host:7878" />
 
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <Button x:Name="DetectGatewayButton" Classes="dialogButton"
+                            Content="Detect" Click="BtnDetectGateway_Click"
+                            ToolTip.Tip="Scan the tailnet and this machine for a gateway" />
                     <Button x:Name="TestGatewayButton" Classes="dialogButton"
                             Content="Test" Click="BtnTestGateway_Click"
                             ToolTip.Tip="Check the gateway URL is reachable" />
