@@ -13,6 +13,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Onboarding;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -656,6 +657,35 @@ public partial class SettingsDialog : Window
         finally
         {
             RunWizardButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Re-run the first-run onboarding wizard on demand (issue #370). The wizard may persist a new
+    /// gateway.url and the onboarding-complete marker, so afterwards we reload the dialog from disk so
+    /// the Gateway fields reflect any change the wizard made.
+    /// </summary>
+    private async void BtnRerunOnboarding_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnRerunOnboarding_Click");
+        RerunOnboardingButton.IsEnabled = false;
+        try
+        {
+            var options = CurrentOptions();
+            var dialog = new OnboardingWizardDialog(options);
+            await dialog.ShowDialog<bool?>(this);
+            await LoadAsync();
+            LoadAgentEntries();
+            FileLog.Write("[SettingsDialog] BtnRerunOnboarding_Click: wizard closed; reloaded settings");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnRerunOnboarding_Click FAILED: {ex.Message}");
+            ShowGatewayStatus($"Setup wizard failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            RerunOnboardingButton.IsEnabled = true;
         }
     }
 
