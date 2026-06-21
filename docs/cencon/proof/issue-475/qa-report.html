@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #475 (Director Learn button)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #222; max-width: 1100px; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .6rem; vertical-align: top; text-align: left; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d22; font-weight: bold; }
+  .verdict { background: #e6ffe9; border: 1px solid #0a7d22; padding: 1rem; font-size: 1.1rem; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+  img { max-width: 900px; border: 1px solid #999; margin: .5rem 0; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #475</h1>
+<p class="meta">
+  [Desktop] Director Learn button opens the Cockpit Learning page.<br>
+  PR #604, branch <code>issue-475-director-learn-button</code>.<br>
+  Independently verified by the QA Agent in its own isolated checkout (worktree
+  <code>devthrottle-qa-475</code>), own build (slot 13, hash e627bdc), own running test Director,
+  own screenshots. The Developer Agent's report and screenshots were treated as context only.
+</p>
+
+<h2>How verification was performed</h2>
+<ul>
+  <li>Built the PR branch in an isolated worktree to slot 13 (<code>cc-director13.exe</code>),
+      launched via the per-slot scheduled task; Control API came up on port 7879.</li>
+  <li>The fresh install hit the new startup account gate (#580). Used the documented test seam
+      <code>DEVTHROTTLE_TEST_SEED_TOKEN</code> (the app's own mechanism) to seed a gate-passing
+      credential so the main window - and the Learn button - became reachable. The seam was removed
+      after testing; the shared install was returned to its prior logged-out state.</li>
+  <li>Drove the Learn button through Windows UI Automation (InvokePattern) and captured the
+      actual results with the PrintWindow API.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>Director main window exposes a visible Help/Learn control.</td>
+  <td>A Learn button/menu item is visible in the Director main window.</td>
+  <td>A <b>Learn</b> button (graduation-cap icon + "Learn" label) is in the top-right toolbar
+      between Cockpit and Settings. See <code>qa-director-main.png</code> (build hash e627bdc =
+      my checkout HEAD).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>Activating it opens the default browser to <code>{cockpitBase}/learn</code> (resolved via
+      CockpitUrlResolver), with a FileLog line recording the resolved URL.</td>
+  <td>Browser opens to <code>{cockpitBase}/learn</code>; resolved URL is logged.</td>
+  <td>Clicking Learn resolved the Cockpit front door from the configured gateway and opened the
+      default browser (Chrome) to exactly
+      <code>https://soren-north.taildb08ed.ts.net/learn</code> - see
+      <code>qa-browser-learn-url.png</code>. FileLog:
+      <code>[MainWindow] BtnLearn_Click: opening https://soren-north.taildb08ed.ts.net/learn (up=True, baseUrl=http://soren-north.taildb08ed.ts.net:7878)</code>.
+      The page returns HTTP 404 only because dependency #472 (which ships the <code>/learn</code>
+      route) has not merged yet; the button's contract - resolve the front door and open
+      <code>{frontDoor}/learn</code> - is proven correct.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>When no Gateway/Cockpit is reachable, activating it shows an explicit message (reusing the
+      Gateway-tray hint) and does not silently do nothing or crash. FileLog line captured.</td>
+  <td>An explicit "could not reach the gateway" message; no silent no-op, no crash.</td>
+  <td>With the gateway pointed at an unreachable URL, clicking Learn showed a modal dialog
+      <b>"Cannot Open Learning Page"</b>:
+      <code>Could not reach the gateway at http://127.0.0.1:59999: No connection could be made because the target machine actively refused it. (127.0.0.1:59999) Is the Gateway running on that machine and reachable over your tailnet?</code>
+      See <code>qa-not-reachable-dialog.png</code>. No crash (the Director stayed alive). FileLog:
+      <code>[MainWindow] BtnLearn_Click FAILED (baseUrl=http://127.0.0.1:59999): No connection could be made ...</code></td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>Control complies with docs/VisualStyle.md and matches existing toolbar/menu styling.</td>
+  <td>Consistent toolbar styling.</td>
+  <td>The Learn button uses the shared <code>toolbarBtn</code> style, sits in the same toolbar
+      group as Tools / Cockpit / Settings with matching icon+label layout and spacing
+      (<code>qa-director-main.png</code>); the failure dialog uses the standard dark-theme
+      MessageDialog (<code>qa-not-reachable-dialog.png</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+  <li>Full <code>CcDirector.Avalonia.Tests</code> suite: <b>70 passed, 0 failed</b> (including the 4
+      new <code>LearnButtonUrlTests</code>).</li>
+  <li>Negative sweep across every screenshot: toolbar, sidebar, and home panel render normally
+      ("9 of 9 tools passing"); nothing adjacent broke.</li>
+  <li>CenCon: change is small and additive (one button, two extracted pure helpers reused by the
+      Cockpit button, four unit tests). No blocking security rule touched; no localhost URL ever
+      opened; no new external input, PII, or secrets; no architecture/security change requiring
+      <code>docs/cencon/</code> updates.</li>
+</ul>
+
+<h2>Proof artifacts</h2>
+<p>QA-produced (this report):</p>
+<img src="qa-director-main.png" alt="Director main window with Learn button">
+<img src="qa-browser-learn-url.png" alt="Browser opened to the resolved /learn URL">
+<img src="qa-not-reachable-dialog.png" alt="Explicit not-reachable dialog">
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Issue #475 PASSES QA.</div>
+</body>
+</html>

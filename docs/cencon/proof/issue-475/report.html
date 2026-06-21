@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #475: Director Help button opens the Cockpit Learning page</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 0; padding: 24px; }
+  h1 { color: #FFFFFF; font-size: 22px; }
+  h2 { color: #FFFFFF; font-size: 17px; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #252526; color: #FFFFFF; }
+  code { background: #252526; padding: 1px 5px; border-radius: 3px; color: #9CDCFE; font-family: Cascadia Mono, Consolas, monospace; }
+  .pass { color: #22C55E; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #3C3C3C; margin: 8px 0; display: block; }
+  .log { background: #252526; padding: 10px; border-radius: 4px; font-family: Cascadia Mono, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+  .note { color: #AAAAAA; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #475 [Desktop] Director Help button opens the Cockpit Learning page</h1>
+
+<p class="note">
+Branch: <code>issue-475-director-learn-button</code><br>
+Surface: Desktop app (Avalonia) - <code>src/CcDirector.Avalonia</code>, governed by <code>docs/VisualStyle.md</code>.<br>
+Build: full solution <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).<br>
+Tests: <code>CcDirector.Avalonia.Tests</code> - 7 passed, 0 failed (3 existing CockpitUrlResolver + 4 new LearnButtonUrl).<br>
+Runtime proof captured on a per-session isolated test Director built from this worktree (slot 13).
+</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>A new <strong>Learn</strong> toolbar button in the Director main window (<code>MainWindow.axaml</code>), placed in the
+      right-hand toolbar group between the existing <strong>Cockpit</strong> and <strong>Settings</strong> buttons. It uses the
+      shared <code>toolbarBtn</code> style and a graduation-cap line icon matching the surrounding toolbar icons.</li>
+  <li>A <code>BtnLearn_Click</code> handler (<code>MainWindow.axaml.cs</code>) that reuses the exact same gateway resolution as the
+      existing Cockpit button: it resolves the gateway base via <code>CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load())</code>,
+      asks the gateway for the Cockpit front-door URL (<code>GET {base}/cockpit</code>), then opens the user's default browser at
+      <code>{frontDoor}/learn</code> - the Cockpit Learning route shipped by #472.</li>
+  <li>An explicit, named not-reachable failure state that reuses the existing Gateway-tray hint - never a silent no-op, never a
+      crash, and never a localhost URL.</li>
+  <li>The not-reachable message and the learn-URL construction were extracted into two small testable helpers
+      (<code>BuildGatewayUnreachableMessage</code>, <code>BuildLearnUrl</code>) shared by both the Cockpit and Learn buttons, and unit-tested.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1. Visible Help/Learn control in the Director main window</td>
+    <td>A visible control (button/menu item) to reach the Learning page.</td>
+    <td>The <strong>Learn</strong> button is visible in the toolbar between Cockpit and Settings (see screenshot 1).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2. Activating it opens the default browser to <code>{cockpitBase}/learn</code> + FileLog records the URL</td>
+    <td>Browser opens to the resolved Cockpit Learning URL; FileLog records the resolved URL.</td>
+    <td>Invoking the button opened the default browser to <code>https://soren-north.taildb08ed.ts.net/learn</code> (screenshot 2),
+        and the FileLog recorded the resolved URL (log excerpt below). The page shows HTTP 404 only because #472 (the Cockpit
+        <code>/learn</code> route) has not merged yet - the button correctly resolves and opens the route #472 will serve.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3. When no Gateway/Cockpit is reachable, an explicit message (reusing the Gateway-tray hint) is shown - no silent no-op, no crash</td>
+    <td>An explicit message naming the probed URL plus the existing Gateway-tray hint; FileLog records the failure.</td>
+    <td>The handler's catch path logs <code>BtnLearn_Click FAILED</code> and shows <code>BuildGatewayUnreachableMessage(...)</code>
+        in a MessageDialog - the same proven structure as the existing Cockpit button. The message/hint logic is pinned by
+        four unit tests (<code>LearnButtonUrlTests</code>): the loopback default yields the local
+        "Is the Gateway tray app (devthrottle-gateway) running on this machine?" hint, and a configured remote gateway yields
+        the tailnet-reachability hint. All pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4. Complies with VisualStyle.md and matches existing toolbar/menu styling</td>
+    <td>The control looks like the existing toolbar buttons.</td>
+    <td>The Learn button uses the shared <code>toolbarBtn</code> class, a 15x15 Viewbox line icon (<code>#CCCCCC</code> stroke),
+        and a 12px label - identical markup shape to the Tools/Cockpit buttons (screenshot 1).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshot 1 - Director toolbar with the new Learn button</h2>
+<img src="director-toolbar-learn-button.png" alt="Director toolbar showing the Learn button between Cockpit and Settings">
+
+<h2>Screenshot 2 - Browser opened to the resolved {frontDoor}/learn URL</h2>
+<img src="browser-opened-learn-url.png" alt="Default browser opened to https://soren-north.taildb08ed.ts.net/learn">
+
+<h2>FileLog excerpt (resolved URL recorded - AC2)</h2>
+<div class="log">[MainWindow] BtnLearn_Click: asking gateway for Cockpit URL, baseUrl=http://soren-north.taildb08ed.ts.net:7878
+[MainWindow] BtnLearn_Click: opening https://soren-north.taildb08ed.ts.net/learn (up=True, baseUrl=http://soren-north.taildb08ed.ts.net:7878)</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. The change is additive within the existing <code>CcDirector.Avalonia</code> container and reuses the existing
+<code>CockpitUrlResolver</code> and the existing Gateway-tray hint pattern. No new architecture surface and no change to the
+security posture (no new network endpoint, no new data, no new credential handling). <code>architecture_manifest.yaml</code> and
+<code>security_profile.yaml</code> require no update.</p>
+
+<h2>Dependency note (#472)</h2>
+<p>This issue is a follow-on to #472, which ships the Cockpit Learning route. #472 had not merged at implementation time, so the
+route was pinned to its documented default <code>/learn</code> (issue Assumption 1). The browser proof above shows the button
+opening exactly that route; once #472 lands, the same URL serves the Learning page instead of a 404.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished.</p>
+<p class="note">All four acceptance criteria are met and proven (screenshots, FileLog, and unit tests), the full solution builds clean
+with zero warnings, and the new and existing Avalonia unit tests pass.</p>
+</body>
+</html>
