@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #590 (Desktop Voice Mode -> Shared Batch Pipeline)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1c1c1c; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2a6; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #234; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef3f0; }
+  .pass { color: #136f2c; font-weight: bold; }
+  .fail { color: #b00; font-weight: bold; }
+  code { background: #f3f3f3; padding: .1rem .3rem; border-radius: 3px; font-size: .92em; }
+  .verdict { background: #e7f6ea; border: 2px solid #2a6; padding: 1rem; margin-top: 2rem; font-size: 1.1rem; }
+  .note { background: #fbf7e8; border-left: 4px solid #d8a800; padding: .6rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #590</h1>
+<p><strong>Title:</strong> [Voice] Migrate desktop voice mode to the shared batch pipeline (remove hardcoded whisper-1 + free-text cleanup)</p>
+<p><strong>Pull Request:</strong> #608 &nbsp;|&nbsp; <strong>Branch:</strong> issue-590-desktop-voice-batch &nbsp;|&nbsp; <strong>Commit under test:</strong> 2b8425b</p>
+<p><strong>QA identity:</strong> independent verifier, own worktree (D:\ReposFred\dt-590-qa), own build slot 13. The Developer Agent's report was treated as context only; every criterion was reproduced independently.</p>
+
+<h2>Method</h2>
+<p>Desktop voice mode is the eyes-free Voice tab (<code>VoiceView</code>) and the full-screen FIFO takeover (<code>FifoWindow</code>). The four acceptance criteria are about the transcription behavior of these two surfaces. They were verified by:</p>
+<ul>
+  <li><strong>Source verification</strong> of the actual rewired code path (VoiceView -&gt; BatchDictationRecorder -&gt; BatchTranscriptionPipeline), confirming the streaming SpeakService / realtime model / free-text cleanup were removed from both views.</li>
+  <li><strong>Deterministic proof tests</strong> (<code>DesktopVoiceModeBatchProofTests</code>) that drive the <em>real</em> shared <code>BatchTranscriptionPipeline</code> through a request-counting HTTP transport, so the wire behavior (which base URL, how many calls, whether text is altered) is proven without a live microphone.</li>
+  <li><strong>Regression suite</strong>: full Avalonia test suite, the Core transcription/dictation/voice suite (the shared pipeline the desktop path now depends on), and the loopback guard.</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td>No hardcoded whisper-1; transcription uses the selected method via the shared pipeline (changing the method changes behavior).</td>
+    <td>Neither view references a fixed whisper-1/realtime endpoint; the base URL hit follows the user-selected method.</td>
+    <td>Grep for <code>whisper-1|gpt-4o-transcribe|/realtime|OpenAiRealtimeProvider|SpeakService</code> in VoiceView.axaml.cs and FifoWindow.axaml.cs returns NO matches. Both use <code>BatchDictationRecorder</code>, which resolves the method via <code>OpenAiKeyResolver.ResolveEndpointAsync</code> and transcribes through <code>BatchTranscriptionPipeline</code>. Proof test <code>SelectedMethod_GovernsTheBaseUrlHit</code> shows the BYO method hits the OpenAI base URL and the DevThrottle method hits the DevThrottle base URL, with no cross-contamination.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Free-text cleanup is not in the voice path; a no-dictionary-term transcript returns byte-identical.</td>
+    <td>The only post-transcription transform is the dictionary corrector; with no dictionary term, corrected == raw.</td>
+    <td>BatchDictationRecorder.TranscribeAsync applies only the dictionary corrector (returns <code>CorrectedTranscript</code>). Proof test <code>WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText</code> asserts <code>RawTranscript == CorrectedTranscript</code>, <code>DictionaryApplied == false</code>, and <code>ChangedWords</code> empty for a 16-word utterance. Proof test <code>WholeClip_DictionaryTerm_ChangesOnlyThatTerm</code> confirms a dictionary hit changes only that one term.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>The whole clip is transcribed once after stop, with no partial transcription.</td>
+    <td>Exactly one batch transcription call per utterance; no realtime socket / live partials.</td>
+    <td>Capture buffers locally (<code>MemoryStream</code>); transcription happens once on <code>TranscribeAsync</code> at Stop &amp; Send. Neither view subscribes to any partial/streaming event. Proof test <code>WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket</code> asserts exactly 1 transcription POST and that no URL contains <code>ws://</code>, <code>wss://</code>, or <code>/realtime</code>. The completeness gate throws <code>NoAudioCapturedException</code> on empty capture (handled as "nothing heard").</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Any agent-vs-wingman routing does not modify the transcript that is used.</td>
+    <td>The used transcript equals raw plus dictionary edits only, regardless of the routing branch.</td>
+    <td>In both views the SAME <code>transcript</code> variable is passed to either branch (VoiceView: <code>AskWingmanRequested?.Invoke(transcript)</code> vs <code>AskAgentRequested?.Invoke(transcript)</code>; FifoWindow: <code>AskWingmanAsync(transcript)</code> vs <code>SendToAgentAsync(transcript)</code>). Routing is purely which method to call. Proof test <code>Routing_DoesNotModifyTheUsedTranscript</code> confirms the used transcript equals the raw transcription verbatim.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<table>
+  <tr><th>Check</th><th>Result</th></tr>
+  <tr><td>Solution build (<code>dotnet build cc-director.sln</code>)</td><td class="pass">Build succeeded - 0 Warning(s), 0 Error(s)</td></tr>
+  <tr><td>Proof tests (DesktopVoiceModeBatchProofTests)</td><td class="pass">5 / 5 passed</td></tr>
+  <tr><td>Full Avalonia test suite</td><td class="pass">82 / 82 passed</td></tr>
+  <tr><td>Core transcription / dictation / voice suite (shared pipeline dependency)</td><td class="pass">331 / 331 passed</td></tr>
+  <tr><td>Loopback guard tests</td><td class="pass">30 / 30 passed</td></tr>
+  <tr><td>CenCon architecture_manifest.yaml <code>voice_flow</code></td><td class="pass">Updated to the whole-audio batch path; accurately describes the new flow. No security posture change.</td></tr>
+</table>
+
+<div class="note">
+<strong>Scope note (verified, not a defect):</strong> Live hardcoded <code>whisper-1</code> references still exist in
+<code>OpenAiSttService.cs</code> and <code>ControlApi/VoiceTurnEndpoint.cs</code>. These are <em>out of scope</em> for issue #590,
+which is scoped to <em>desktop voice mode</em> (VoiceView + FifoWindow). <code>OpenAiSttService</code> is orphaned dead code
+(referenced by no caller - it was the old desktop STT, now replaced). <code>VoiceTurnEndpoint</code> is the server-side
+walkie-talkie / mobile voice-turn endpoint (issue #351), a different surface. The issue body explicitly lists cleanup of
+those other surfaces as OUT of scope ("their own issues"). The desktop voice path that #590 owns no longer touches either.
+</div>
+
+<div class="verdict">
+<strong>VERDICT: VERIFIED - all 4 acceptance criteria met.</strong> Desktop voice mode transcribes the whole clip once
+via the user-selected method through the shared batch pipeline, applies dictionary-only correction (byte-identical with no
+dictionary term), uses no realtime socket / live partials, and the agent-vs-wingman routing never alters the transcript.
+Build clean, all regression suites green.
+</div>
+
+</body>
+</html>
