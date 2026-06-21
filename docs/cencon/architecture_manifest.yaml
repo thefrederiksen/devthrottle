@@ -164,6 +164,13 @@ containers:
       - name: CleanView
         description: Card-based conversation view with rewind support
         file: Controls/CleanView.axaml / Controls/CleanView.axaml.cs
+      - name: TranscriptionComponent
+        description: Shared transcription UI component (issue #588) with two size variants (Full desktop dialog, Small inline strip) rendering one set of states - idle, recording, transcribing, review, used, error - and one set of Finish/Hold/Cancel controls. Presentation and state only - captures no audio and runs no transcription. During recording it shows a live waveform and timer but no transcript text (no live partial preview); the transcript appears only after transcribing, with a dictionary-correction count. Microphone selection is on the Full variant only. Host drives it via the public Show* / UpdateTimer / UpdateLevels methods and reacts to the output contract events Finished / Held / Cancelled / Errored. Intended to replace the bespoke Speak dialog and voice view presentation as surfaces are wired to it (the per-place issues; this issue builds the component only). A throwaway developer preview dialog (TranscriptionComponentPreviewDialog, behind the alpha-gated Tools menu) renders every state in the running app.
+        files:
+          - Controls/TranscriptionComponent.axaml
+          - Controls/TranscriptionComponent.axaml.cs
+          - Controls/TranscriptionComponentPreviewDialog.axaml
+          - Controls/TranscriptionComponentPreviewDialog.axaml.cs
       - name: GitChangesView
         description: Source control panel showing git changes
         file: Controls/GitChangesView.axaml / Controls/GitChangesView.axaml.cs

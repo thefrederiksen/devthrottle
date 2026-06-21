@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof - Issue #588 - Shared transcription UI component</title>
+<style>
+  body{margin:0;background:#0f1320;color:#e8ecf5;font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 28px 80px;}
+  h1{font-size:28px;margin:0 0 6px}
+  h2{font-size:20px;margin:40px 0 10px;padding-top:16px;border-top:1px solid #2a3350}
+  p{color:#d3dbef}
+  .sub{color:#9aa6c2;font-size:14px}
+  code{background:#0c1020;border:1px solid #2a3350;border-radius:5px;padding:1px 6px;font:13px/1.4 Consolas,monospace;color:#c7d6ff}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid #2a3350;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#1d2540;color:#cdd8f7}
+  tr:nth-child(even) td{background:#121829}
+  .ok{color:#2ecc8f;font-weight:600}
+  figure{margin:18px 0;background:#070a14;border:1px solid #2a3350;border-radius:10px;padding:16px}
+  figcaption{color:#9aa6c2;font-size:13px;margin-bottom:10px}
+  img{max-width:100%;border:1px solid #2a3350;border-radius:6px;display:block}
+  .lead{background:#161c2d;border:1px solid #2a3350;border-left:4px solid #5b8cff;border-radius:10px;padding:16px 18px;margin:18px 0}
+  .finished{background:#0f1b16;border:1px solid #1c5b3a;border-left:4px solid #2ecc8f;border-radius:10px;padding:14px 16px;margin:24px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="sub">DevThrottle / cc-director - CenCon Developer Agent proof</p>
+  <h1>Issue #588 - Shared transcription UI component (full + small), no partial preview</h1>
+  <p class="sub">Branch <code>issue-588-shared-transcription-component</code> &nbsp;|&nbsp; built on main after foundations #586 and #587</p>
+
+  <div class="lead">
+    <strong>What was implemented.</strong> One shared Avalonia control,
+    <code>CcDirector.Avalonia.Controls.TranscriptionComponent</code>, with two size variants
+    (<code>Full</code> and <code>Small</code>) that render the same lifecycle states
+    (<code>idle -&gt; recording -&gt; transcribing -&gt; review | used | error</code>) and the same
+    Finish / Hold / Cancel controls. It is presentation and state only - it captures no audio and
+    runs no transcription. The host drives it through the public
+    <code>ShowIdle / ShowRecording / ShowTranscribing / ShowReview / ShowUsed / ShowError</code>,
+    <code>UpdateTimer</code>, <code>UpdateLevels</code>, and <code>SetMicrophones</code> methods and
+    reacts to the output-contract events <code>Finished(text)</code>, <code>Held(text)</code>,
+    <code>Cancelled()</code>, and <code>Errored(reason)</code> (the spec's
+    OnFinished / OnHeld / OnCancelled / OnError). There is deliberately no method to push partial
+    transcript text in - the no-live-preview rule is enforced by the absence of that path.
+  </div>
+
+  <h2>Changes</h2>
+  <ul>
+    <li><code>src/CcDirector.Avalonia/Controls/TranscriptionComponent.axaml(.cs)</code> - the new shared control: two variants, six states, the four output events, microphone selection on the full variant only, a live waveform + timer in the recording state with no transcript text, and a dictionary-correction count in the review state.</li>
+    <li><code>src/CcDirector.Avalonia/Controls/TranscriptionComponentPreviewDialog.axaml(.cs)</code> - a developer preview harness that hosts both variants and lets a developer or QA flip through every state in the running app. Reached from the alpha-gated <em>Tools -&gt; Transcription Component Preview...</em> menu entry.</li>
+    <li><code>src/CcDirector.Avalonia/MainWindow.axaml.cs</code> - one menu item (alpha Tools) opening the preview dialog. No existing surface is rewired (that is the per-place issues).</li>
+    <li><code>docs/cencon/architecture_manifest.yaml</code> - added the <code>TranscriptionComponent</code> entry to the <code>desktop_ui</code> container (CenCon architecture update).</li>
+    <li><code>playground/transcription-component-harness/</code> - a manual headless+Skia render harness (not in the solution) that instantiates the REAL control in each variant/state and captures the proof PNGs below.</li>
+  </ul>
+
+  <h2>How this was proven</h2>
+  <p>
+    The screenshots below are rendered from the REAL shipping control
+    (<code>CcDirector.Avalonia.Controls.TranscriptionComponent</code>) by the headless+Skia render
+    harness, the same proven pattern used by <code>playground/wingman-render-harness</code>. The
+    harness references the production project and renders the actual control off-screen, so the images
+    are of the genuine component, not a replica. The component was also exercised live in a running
+    Director (slot 14, launched via its own scheduled task) through the alpha-gated
+    <em>Tools -&gt; Transcription Component Preview...</em> menu entry; the shared <code>config.json</code>
+    was restored to its original <code>alpha_mode</code> value afterwards.
+  </p>
+  <p>The full solution builds clean: <code>dotnet build cc-director.sln</code> -&gt; <span class="ok">Build succeeded. 0 Warning(s) 0 Error(s)</span>.</p>
+
+  <h2>Acceptance criteria - expected vs actual</h2>
+  <table>
+    <thead><tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Shared component, full + small, same states + Finish/Hold/Cancel</td>
+        <td>Both variants render the same states and the same controls.</td>
+        <td>One control with a <code>Variant</code> property; both variants render across all six states (see all figures).</td>
+        <td class="ok">PASS</td>
+      </tr>
+      <tr>
+        <td>Recording shows waveform + timer, no transcript text</td>
+        <td>Waveform and timer visible; transcript area shows only a placeholder, never typed text.</td>
+        <td>full-recording.png and small-recording.png show the timer + waveform; the full transcript area shows only the placeholder watermark.</td>
+        <td class="ok">PASS</td>
+      </tr>
+      <tr>
+        <td>Transcript only after transcribing; no live partial path</td>
+        <td>No public method accepts partial text; text appears only after transcribing.</td>
+        <td>The control has no partial-text input method; text is set only by <code>ShowReview</code>/<code>ShowUsed</code>. Transcribing shows no text (full-transcribing.png), review shows the final text (full-review.png).</td>
+        <td class="ok">PASS</td>
+      </tr>
+      <tr>
+        <td>Review (Hold) shows final text + correction count, Send/Edit/Discard; Finish raises OnFinished without review</td>
+        <td>Review state shows the text + count and three actions; Finish uses the text without review.</td>
+        <td>full-review.png shows the text, "2 dictionary words corrected. Raw wording preserved.", and Send/Edit/Discard. In code, the Finish button raises <code>Finished(text)</code> directly with no review step.</td>
+        <td class="ok">PASS</td>
+      </tr>
+      <tr>
+        <td>Error state shows a named reason and offers retry</td>
+        <td>Named reason + Retry.</td>
+        <td>full-error.png shows "Microphone not available" with Retry + Cancel.</td>
+        <td class="ok">PASS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Proof target - the named screenshots</h2>
+
+  <figure>
+    <figcaption>Full variant - recording: title, RECORDING pill, microphone selector, large timer, live waveform, placeholder only (NO transcript text), capture hint, Finish/Hold/Cancel, dictionary note.</figcaption>
+    <img src="full-recording.png" alt="Full variant, recording state">
+  </figure>
+
+  <figure>
+    <figcaption>Full variant - transcribing: TRANSCRIBING pill, no transcript text, Finish/Hold disabled, Cancel available.</figcaption>
+    <img src="full-transcribing.png" alt="Full variant, transcribing state">
+  </figure>
+
+  <figure>
+    <figcaption>Full variant - review (Hold): HELD - REVIEW pill, the final transcript, the dictionary-correction count, and Send / Edit / Discard.</figcaption>
+    <img src="full-review.png" alt="Full variant, review state">
+  </figure>
+
+  <figure>
+    <figcaption>Full variant - error: ERROR pill, the named reason, and Retry + Cancel.</figcaption>
+    <img src="full-error.png" alt="Full variant, error state">
+  </figure>
+
+  <figure>
+    <figcaption>Small variant - recording: pulse dot, timer, condensed live waveform, Finish / Hold / X.</figcaption>
+    <img src="small-recording.png" alt="Small variant, recording state">
+  </figure>
+
+  <figure>
+    <figcaption>Small variant - transcribing: amber pulse, "Transcribing", dimmed waveform, single Cancel.</figcaption>
+    <img src="small-transcribing.png" alt="Small variant, transcribing state">
+  </figure>
+
+  <h2>CenCon impact</h2>
+  <p>
+    Architecture changed: a new shared Avalonia control was added. The
+    <code>TranscriptionComponent</code> entry was added to the <code>desktop_ui</code> container in
+    <code>docs/cencon/architecture_manifest.yaml</code> in this same change. No security posture
+    change - the control performs no I/O, network, secret handling, or audio capture (presentation and
+    state only), so <code>security_profile.yaml</code> is untouched.
+  </p>
+
+  <div class="finished">
+    <strong>I believe this is finished.</strong> Every acceptance criterion is met and proven with a
+    screenshot of the real shipping control, the full solution builds with zero warnings and zero
+    errors, and the CenCon architecture manifest is updated. This issue builds the component and its
+    states only; wiring each surface to it is the separate per-place issues.
+  </div>
+
+</div>
+</body>
+</html>

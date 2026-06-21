@@ -1,0 +1,242 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.TranscriptionComponent">
+
+    <!-- Shared transcription UI component (issue #588). One control, two size
+         variants (Full / Small) that render the same states - idle, recording,
+         transcribing, review, used, error - and the same Finish / Hold / Cancel
+         controls. Presentation and state only: this control captures no audio
+         and runs no transcription. The host drives state via the public Show*
+         methods and listens to the Finished / Held / Cancelled / Errored events.
+
+         Colors follow docs/VisualStyle.md (dark VS Code theme). Two top-level
+         layouts live side by side; the active Variant shows exactly one. -->
+
+    <Grid>
+
+        <!-- ============================ FULL VARIANT ============================ -->
+        <Border x:Name="FullRoot"
+                Background="#252526"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="10"
+                Padding="20"
+                MinWidth="460">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto">
+
+                <!-- Header: title + state pill -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                    <TextBlock x:Name="FullTitle" Grid.Column="0"
+                               Text="Dictation"
+                               Foreground="#CCCCCC"
+                               FontSize="15" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Border x:Name="FullStatePill" Grid.Column="1"
+                            CornerRadius="10" Padding="10,3"
+                            Background="#3A1414"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="FullStateText"
+                                   Text="RECORDING"
+                                   Foreground="#FF7A7A"
+                                   FontSize="11" FontWeight="SemiBold" />
+                    </Border>
+                </Grid>
+
+                <!-- Microphone selector (FULL ONLY). Hidden in non-recording/idle
+                     states where device choice is not relevant. -->
+                <Grid x:Name="FullMicRow" Grid.Row="1"
+                      ColumnDefinitions="Auto,*" Margin="0,0,0,12"
+                      VerticalAlignment="Center">
+                    <TextBlock Grid.Column="0" Text="Microphone"
+                               Foreground="#888888"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <ComboBox x:Name="FullMicSelector" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              FontSize="12"
+                              SelectionChanged="FullMicSelector_SelectionChanged">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+
+                <!-- Timer. Large while recording, small + dimmed in the review
+                     ("captured") summary. -->
+                <TextBlock x:Name="FullTimer" Grid.Row="2"
+                           Text="00:00.0"
+                           HorizontalAlignment="Center"
+                           Foreground="#EAF0FF"
+                           FontFamily="Cascadia Mono,Consolas,monospace"
+                           FontSize="40" FontWeight="Bold"
+                           Margin="0,6,0,14" />
+
+                <!-- Live waveform (recording only). A fixed row of bars whose
+                     heights are set by UpdateLevels. NO transcript text is shown
+                     here - the no-partial-preview rule. -->
+                <StackPanel x:Name="FullWave" Grid.Row="3"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Spacing="4"
+                            Height="64"
+                            Margin="0,0,0,16" />
+
+                <!-- Transcript / placeholder area. During recording it shows ONLY a
+                     placeholder (no live text). After transcribing, ShowReview /
+                     ShowUsed populate the final text. ShowError fills it with the
+                     reason. -->
+                <Border Grid.Row="4"
+                        Background="#1E1E1E"
+                        BorderBrush="#3C3C3C" BorderThickness="1"
+                        CornerRadius="8"
+                        MinHeight="74"
+                        Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBox x:Name="FullTranscript"
+                                 Text=""
+                                 Watermark="Listening... the transcript appears here after you press Finish or Hold. No live preview."
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 Background="Transparent"
+                                 Foreground="#DDE6FF"
+                                 BorderThickness="0"
+                                 Padding="0"
+                                 FontSize="14"
+                                 VerticalContentAlignment="Top"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+                        <!-- Dictionary-correction indicator. Reports how many known
+                             words were corrected and makes clear the wording was
+                             not rewritten. -->
+                        <TextBlock x:Name="FullCorrectionNote"
+                                   Text=""
+                                   Foreground="#7FD3A8"
+                                   FontSize="11.5"
+                                   IsVisible="False" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Capture hint (recording) -->
+                <TextBlock x:Name="FullHint" Grid.Row="5"
+                           Text="Step 1-2: capturing all audio locally. Nothing is sent or transcribed until you stop."
+                           Foreground="#6C79A0"
+                           FontSize="11.5"
+                           TextWrapping="Wrap"
+                           Margin="2,8,0,0" />
+
+                <!-- Action bar. Re-labelled per state:
+                       recording  -> Finish / Hold / Cancel
+                       review      -> Send  / Edit / Discard
+                       error       -> Retry / Cancel -->
+                <Grid x:Name="FullButtons" Grid.Row="6"
+                      ColumnDefinitions="*,*,*" Margin="0,16,0,0">
+                    <Button x:Name="FullPrimaryButton" Grid.Column="0"
+                            Content="Finish"
+                            Height="38"
+                            Margin="0,0,5,0"
+                            Background="#007ACC" Foreground="White"
+                            FontWeight="SemiBold"
+                            HorizontalContentAlignment="Center"
+                            HorizontalAlignment="Stretch"
+                            Click="FullPrimaryButton_Click" />
+                    <Button x:Name="FullSecondaryButton" Grid.Column="1"
+                            Content="Hold"
+                            Height="38"
+                            Margin="5,0,5,0"
+                            Background="#2A3A22" Foreground="#BFE6A0"
+                            FontWeight="SemiBold"
+                            HorizontalContentAlignment="Center"
+                            HorizontalAlignment="Stretch"
+                            Click="FullSecondaryButton_Click" />
+                    <Button x:Name="FullCancelButton" Grid.Column="2"
+                            Content="Cancel"
+                            Height="38"
+                            Margin="5,0,0,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            HorizontalContentAlignment="Center"
+                            HorizontalAlignment="Stretch"
+                            Click="FullCancelButton_Click" />
+                </Grid>
+
+                <!-- Always-on reassurance line -->
+                <TextBlock x:Name="FullDictNote" Grid.Row="7"
+                           Text="Dictionary correction on - known terms fixed, your words never re-written."
+                           Foreground="#7FD3A8"
+                           FontSize="11.5"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,0" />
+            </Grid>
+        </Border>
+
+        <!-- ============================ SMALL VARIANT ============================ -->
+        <Border x:Name="SmallRoot"
+                Background="#11192C"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="20"
+                Padding="14,8,10,8"
+                IsVisible="False"
+                VerticalAlignment="Center"
+                MinWidth="420">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+
+                <!-- Pulse dot. Red while recording, amber while transcribing. -->
+                <Border x:Name="SmallDot" Grid.Column="0"
+                        Width="10" Height="10"
+                        CornerRadius="5"
+                        Background="#FF5D5D"
+                        VerticalAlignment="Center"
+                        Margin="0,0,12,0" />
+
+                <!-- Timer / status word -->
+                <TextBlock x:Name="SmallTimer" Grid.Column="1"
+                           Text="00:00"
+                           Foreground="#EAF0FF"
+                           FontFamily="Cascadia Mono,Consolas,monospace"
+                           FontSize="14" FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           Margin="0,0,12,0" />
+
+                <!-- Live waveform (recording only) -->
+                <StackPanel x:Name="SmallWave" Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Spacing="3"
+                            Height="22"
+                            Margin="0,0,12,0" />
+
+                <!-- Action buttons. Re-labelled per state (Finish/Hold/X while
+                     recording, single Cancel while transcribing/error). -->
+                <Button x:Name="SmallPrimaryButton" Grid.Column="3"
+                        Content="Finish"
+                        Height="30" Padding="13,0"
+                        Margin="0,0,6,0"
+                        Background="#007ACC" Foreground="White"
+                        FontWeight="SemiBold" FontSize="12.5"
+                        CornerRadius="15"
+                        HorizontalContentAlignment="Center"
+                        Click="SmallPrimaryButton_Click" />
+                <Button x:Name="SmallSecondaryButton" Grid.Column="4"
+                        Content="Hold"
+                        Height="30" Padding="13,0"
+                        Margin="0,0,6,0"
+                        Background="#2A3A22" Foreground="#BFE6A0"
+                        FontWeight="SemiBold" FontSize="12.5"
+                        CornerRadius="15"
+                        HorizontalContentAlignment="Center"
+                        Click="SmallSecondaryButton_Click" />
+                <Button x:Name="SmallCancelButton" Grid.Column="5"
+                        Content="X"
+                        Height="30" Padding="13,0"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        FontWeight="SemiBold" FontSize="12.5"
+                        CornerRadius="15"
+                        HorizontalContentAlignment="Center"
+                        Click="SmallCancelButton_Click" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
