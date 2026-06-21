@@ -39,4 +39,28 @@
     <EmbeddedResource Include="Tools\skill-tool-overrides.json" />
   </ItemGroup>
 
+  <!--
+    Whisper.net.Runtime ships native speech libraries for EVERY OS/arch (win, linux, macOS,
+    android, ios, ...) and marks them all CopyToOutputDirectory. Its macOS and Linux item
+    groups are gated on "$(TargetFramework.Contains('-')) == false", which is TRUE for our
+    platform-neutral net10.0 TFM - so a normal build drags in the Windows AND macOS AND Linux
+    native sets (~90 files). Copying that whole batch makes MSBuild's Copy task blow the stack
+    (a hard, uncatchable StackOverflow); under a multi-node build the crashed worker also wedges
+    the parent, so it instead presents as an infinite build hang. See project memory
+    "local-build-msbuild-hang-and-copy-stackoverflow".
+
+    CC Director is a win-x64-only product, so the non-win-x64 natives are dead weight. Trim the
+    copy list to the win-x64 files before target paths are assigned (which is also what feeds the
+    transitive copy into the ControlApi/Avalonia outputs). This fixes the build on every machine
+    and keeps parallel (multi-node) builds working - no -m:1 workaround needed.
+  -->
+  <Target Name="TrimWhisperNativesToWinX64" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <_NonWinX64WhisperNative Include="@(None)"
+        Condition="$([System.String]::new('%(None.Identity)').Replace('\','/').ToLowerInvariant().Contains('/whisper.net.runtime/'))
+                   and !$([System.String]::new('%(None.TargetPath)').Contains('win-x64'))" />
+      <None Remove="@(_NonWinX64WhisperNative)" />
+    </ItemGroup>
+  </Target>
+
 </Project>
