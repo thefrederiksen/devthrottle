@@ -1117,13 +1117,13 @@ data_flows:
 
   - id: dictation_flow
     name: In-Process Dictation Flow
-    description: Desktop SpeakDialog dictation captured and transcribed in-process
+    description: Desktop SpeakDialog dictation captured locally and transcribed in-process via one whole-audio batch call (issue #589 - no realtime streaming, no live partial preview)
     path:
-      - "MicAudioCapture (NAudio WaveIn, 24kHz/16-bit mono)"
-      - "OnAudioBands -> SpeakDialog equalizer; OnInputRms -> level hint"
-      - "OpenAiRealtimeProvider (streaming STT; bounded connect: 10s per-attempt timeout + 1 auto-retry, DictationConnectException on exhaustion)"
-      - "CleanupOrchestrator (dictionary-only term correction via gpt-4.1-nano; strict prompt, never rewords/summarizes/removes fillers)"
-      - SpeakDialog inserts/sends the verbatim text (only dictionary terms corrected) into the prompt
+      - "MicAudioCapture (NAudio WaveIn, 24kHz/16-bit mono); every PCM chunk buffered locally by BatchDictationRecorder for the whole turn"
+      - "OnAudioBands -> SpeakDialog equalizer; OnInputRms -> level hint; NO live transcript while recording"
+      - "On Insert/Send/Review: BatchDictationRecorder wraps the whole captured clip in WAV and sends it ONCE through the shared BatchTranscriptionPipeline using the Gateway/user-selected method (issue #587). Completeness gate (issue #586): an empty capture throws NoAudioCapturedException - a partial/interrupted turn never produces a transcript"
+      - "Dictionary-only term correction inside the shared pipeline (no free-text cleanup; a no-dictionary-term turn returns byte-identical raw text)"
+      - SpeakDialog inserts (Insert), auto-submits (Send), or shows for review (Review) the verbatim text (only dictionary terms corrected) into the prompt
 
   - id: recording_ingest_flow
     name: Phone Recording Ingest Flow

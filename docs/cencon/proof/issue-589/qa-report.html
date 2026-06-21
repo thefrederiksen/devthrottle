@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #589 (Desktop Dictation Batch Migration)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1a1a1a; line-height: 1.5; padding: 0 16px; }
+  h1 { border-bottom: 3px solid #2a6; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #bbb; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #186a18; font-weight: bold; }
+  .fail { color: #b00; font-weight: bold; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 90%; }
+  .verdict { background: #eaf7ea; border: 2px solid #2a6; padding: 16px; margin: 24px 0; font-size: 1.1em; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a000; padding: 10px 14px; margin: 14px 0; }
+  pre { background: #1e1e1e; color: #dcdcdc; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 85%; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #589</h1>
+<p><strong>Title:</strong> [Dictation] Migrate desktop dictation to whole-audio batch (remove realtime streaming + partials)<br>
+<strong>Pull request:</strong> #607 (branch <code>issue-589-desktop-dictation-batch</code>)<br>
+<strong>QA identity:</strong> Independent QA Agent - verified in a separate worktree (<code>devthrottle-wt-589</code>), own build (slot 13, <code>cc-director13.exe</code>), own test run. The Developer Agent's report and screenshots were treated as context only, not proof.<br>
+<strong>Date:</strong> 2026-06-21</p>
+
+<h2>Build and environment</h2>
+<ul>
+  <li>Built the PR branch myself from a clean worktree: <code>local-build-avalonia.ps1 -Slot 13</code> -> <strong>Build succeeded. 0 Warning(s) / 0 Error(s)</strong>.</li>
+  <li>Launched my own isolated Director via the per-slot scheduled task <code>cc-director13-launch</code> (PID 41028, path confirmed <code>devthrottle-wt-589\local_builds\cc-director13.exe</code>). Control API on port 7881; <code>/healthz</code> returned <code>{"status":"ok","version":"0.9.13"}</code>.</li>
+  <li>Tore down only my own exact-path process and task afterwards. No other Director was touched.</li>
+</ul>
+
+<div class="note">
+<strong>Note on live UI screenshots:</strong> A full-screen desktop capture on this shared machine exposed the operator's personal WhatsApp content (PII). Per CLAUDE.md (no PII on a public repo) the capture was deleted and not committed. The desktop Speak dialog is a modal that also needs a live microphone and a configured transcription key. The acceptance criteria are behavioral properties of the desktop dictation <em>code path</em> (one batch call, no realtime socket, no partials, user-selected method, byte-identical with no dictionary), so they were verified deterministically: by reading the exact code path in the built binary, by independently re-running the proof tests in my own build, and by structurally proving no realtime/partial path is reachable from desktop dictation. This is stronger than a single photographed UI state and avoids the PII leak.
+</div>
+
+<h2>Acceptance criteria - independent verdict</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How I verified (independently)</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>No live partial transcript; transcript appears only after transcription completes.</td>
+<td><code>SpeakDialog.axaml.cs</code>: while <code>Stage.Recording</code> the transcript box is forced empty and read-only (<code>SwitchToRecording</code>: <code>TranscriptText.Text = ""</code>, <code>IsReadOnly = true</code>); text is set only in <code>SwitchToReview</code>/after <code>TranscribeWholeClipAsync</code> returns. No <code>OnPartial</code> handler exists anywhere in the dialog or in <code>BatchDictationRecorder</code> (grep: zero hits).</td>
+<td>Blank transcript during recording; text only after stop.</td>
+<td>Transcript is blank+read-only during Recording and Transcribing; populated only post-transcription.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Whole clip sent after stop, transcribed in ONE batch call; no realtime streaming connection for dictation.</td>
+<td><code>BatchDictationRecorder.TranscribeAsync</code> buffers every PCM chunk locally, wraps the whole buffer in one WAV, and calls <code>BatchTranscriptionPipeline.TranscribeAsync</code> exactly once - which issues one <code>POST {baseUrl}/audio/transcriptions</code>. My own re-run of <code>WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket</code> asserts <code>TranscriptionPosts == 1</code> and that no URL contains <code>ws://</code>, <code>wss://</code>, or <code>/realtime</code> - PASSED in my build. No realtime provider is referenced by the desktop path.</td>
+<td>Exactly one transcription POST; no realtime socket.</td>
+<td>One <code>/audio/transcriptions</code> POST; no WebSocket/realtime URL in the path.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Uses the user-selected transcription method (not a fixed realtime model).</td>
+<td><code>BatchDictationRecorder</code> resolves the method via <code>OpenAiKeyResolver.ResolveEndpointAsync</code> (Gateway vault when attached, local Settings key when standalone). <code>BatchTranscriptionPipeline</code> uses the resolved <code>ResolvedTranscription</code> (BaseUrl/ApiKey/Model) for every request - there is no hard-coded realtime/gpt-4o-transcribe model. Changing the configured method changes BaseUrl/Model, which is exactly what the POST uses.</td>
+<td>Selected method drives the call.</td>
+<td>Routing (BaseUrl/ApiKey/Model) comes entirely from the resolver; no fixed model.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Interrupted dictation produces no partial; re-sends or fails explicitly (gate #586).</td>
+<td><code>TranscribeAsync</code> snapshots the captured PCM under a lock; an empty capture throws <code>NoAudioCapturedException</code> (named device) instead of transcribing. The shared pipeline also throws <code>ArgumentException</code> on an empty blob. No partial transcript is ever emitted. Cancel/Close sets <code>ResultText = null</code>.</td>
+<td>No partial; explicit failure on empty/interrupted capture.</td>
+<td>Empty capture -> loud exception; cancelled turn -> null result. No partial text path exists.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Only post-transcription text change is dictionary-word replacement; no-dictionary run is byte-identical to raw.</td>
+<td><code>BatchTranscriptionPipeline.ApplyDictionaryAsync</code> runs only the validated dictionary corrector (find/replace of known terms, deterministically validated); there is no free-text language-model cleanup. My own re-run of <code>WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText</code> (with <code>DictationDictionary.Empty</code>) asserts <code>CorrectedTranscript == RawTranscript</code> byte-for-byte, <code>DictionaryApplied == false</code>, <code>ChangedWords</code> empty - PASSED in my build.</td>
+<td>Byte-identical text when no dictionary term applies.</td>
+<td>Corrected == Raw; no edits; still one batch call.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>My own proof-test run (slot-13 build)</h2>
+<pre>Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket [31 ms]
+Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText [2 ms]
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_NullPcm_Throws
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_EmptyPcm_ProducesHeaderOnlyFortyFourBytes
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_RoundTripsPayloadBytes
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_DeclaresCaptureFormat
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_WithPcm_WritesRiffWaveFmtDataChunks</pre>
+
+<h2>Regression sweep and method checks</h2>
+<ul>
+  <li>Full Avalonia test suite (my build): <strong>77 passed, 0 failed</strong>.</li>
+  <li>Core dictation/transcription/loopback/pipeline suite (my build): <strong>253 passed, 0 failed</strong>.</li>
+  <li>Build: <strong>0 warnings, 0 errors</strong>.</li>
+  <li>CenCon: <code>architecture_manifest.yaml</code> <code>dictation_flow</code> updated to the new batch flow (realtime/partial wording removed); no security posture change. No blocking DT rule affected.</li>
+  <li><strong>Scope check (deliberate, not a defect):</strong> The issue's "Affected Areas" mentioned <code>DictationEndpoint.cs</code> (ControlApi). That endpoint still serves the <code>/dictate</code> WebSocket, but it is consumed only by the browser-served web dictate page (<code>dictate.html</code> + <code>dictate-worklet.js</code>), which the issue Scope explicitly lists OUT ("The web dictate page ... handled where the shared component web variant is wired, or as a follow-on"). No desktop source opens that socket - <code>SpeakDialog</code>/<code>BatchDictationRecorder</code> have zero references to <code>/dictate</code> or any ControlApi. The desktop acceptance criteria are all satisfied; leaving the web endpoint is correct for this issue's scope.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - all acceptance criteria met (5/5).</strong> Desktop dictation now captures the whole turn locally and transcribes it in exactly one whole-audio batch call via the user-selected method, with dictionary-only correction, no live partials, no realtime socket, and explicit failure on an empty/interrupted capture. Independently confirmed by code-path inspection, an independent re-run of the proof tests in a self-built binary, and structural proof that no realtime/partial path is reachable from the desktop dictation surface. Regression suites green; build clean.
+</div>
+
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #589 - Desktop dictation migrated to whole-audio batch - Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 960px; margin: 24px auto; color: #1b1b1b; line-height: 1.5; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #007ACC; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #16324f; }
+  code, pre { font-family: Consolas, monospace; background: #f3f4f6; }
+  pre { padding: 10px; border-radius: 6px; overflow-x: auto; border: 1px solid #e2e4e8; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #d0d4da; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #eef3f8; }
+  .pass { color: #136f2b; font-weight: bold; }
+  .state { border: 1px solid #3c3c3c; border-radius: 6px; background: #1e1e1e; color: #ddd; padding: 14px; margin: 10px 0; font-family: Consolas, monospace; font-size: 13px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 4px; font-weight: bold; }
+  .note { background: #fff8e1; border: 1px solid #f0d68a; padding: 10px 12px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #589 - Migrate desktop dictation to whole-audio batch (remove realtime streaming + partials)</h1>
+<p>
+Branch <code>issue-589-desktop-dictation-batch</code>. Builds on the merged shared
+pipeline (#587, PR&nbsp;#596), the completeness gate (#586, PR&nbsp;#594), and the shared
+UI component (#588, PR&nbsp;#598).
+</p>
+
+<h2>What was implemented</h2>
+<p>
+Desktop dictation (the Speak dialog) no longer streams audio live to a realtime model and no
+longer shows a live partial transcript while the user speaks. It now captures the whole turn's
+audio locally, and on Insert / Send / Review it sends the whole clip <b>once</b> through the
+ONE shared <code>BatchTranscriptionPipeline</code> (issue #587) using the user-selected
+transcription method, applies the validated dictionary corrector only, and then inserts (Insert),
+auto-submits (Send), or shows for review (Review).
+</p>
+<ul>
+  <li><b>New <code>src/CcDirector.Avalonia/Voice/BatchDictationRecorder.cs</code></b> - whole-audio
+      capture + single batch transcription for desktop dictation. Buffers every PCM16 chunk from
+      <code>MicAudioCapture</code> locally for the whole turn; on stop it wraps the whole clip in
+      one WAV blob (<code>WavWriter</code>) and calls <code>BatchTranscriptionPipeline.TranscribeAsync</code>
+      exactly once. There is no <code>OpenAiRealtimeProvider</code>, no <code>DictationPipeline</code>,
+      no <code>LivePreviewTranscriber</code>, and no <code>OnPartial</code> on this path.</li>
+  <li><b><code>src/CcDirector.Avalonia/Voice/SpeakDialog.axaml(.cs)</code></b> - the dialog now uses
+      <code>BatchDictationRecorder</code>. Removed the live-partial rendering (<code>OnPartial</code>,
+      <code>RenderTranscript</code> during recording, the <code>_currentPartial</code> accumulator) and
+      the realtime connect/pause-resume segmenting. The transcript box stays blank while recording and
+      transcribing; text appears only after the single batch transcription completes. The former
+      Pause/Resume button is replaced by a <code>Review</code> button (single capture has no resume).</li>
+  <li>The streaming <code>SpeakService</code> is left intact for the OTHER (alpha-hidden) surfaces that
+      genuinely need continuous listening (the wake-word tester and the Voice tab). Dictation no longer
+      shares the streaming orchestrator - that is exactly the divergence this issue removes.</li>
+  <li>Tests: <code>WavWriterTests</code> (RIFF/WAV header + payload round-trip) and
+      <code>DesktopDictationBatchProofTests</code> (one batch call, no realtime socket, byte-identical
+      with no dictionary term) in <code>CcDirector.Avalonia.Tests</code>; the loopback guard allowlist
+      was extended for the new file.</li>
+</ul>
+
+<h2>Acceptance criteria -> proof</h2>
+<table>
+  <tr><th>Criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+  <tr>
+    <td>No live partial transcript; transcript appears only after transcription completes.</td>
+    <td>The dictation path has no <code>OnPartial</code> and no realtime provider. The transcript
+        <code>TextBox</code> is set empty in both <code>SwitchToRecording</code> and
+        <code>SwitchToTranscribing</code>; <code>_finalText</code> is only ever set in
+        <code>TranscribeForReviewAsync</code> / returned by <code>TranscribeAndCloseAsync</code> after
+        the batch call returns.</td>
+    <td class="pass">Code: no <code>OnPartial</code> wiring in
+        <code>BatchDictationRecorder</code>/<code>SpeakDialog</code>. State layouts below.</td>
+  </tr>
+  <tr>
+    <td>Whole clip sent after stop; transcribed in one batch call; no realtime streaming connection.</td>
+    <td><code>BatchDictationRecorder</code> appends every chunk to one buffer and calls
+        <code>BatchTranscriptionPipeline.TranscribeAsync</code> once. The pipeline makes one POST to
+        <code>/audio/transcriptions</code>; there is no WebSocket/realtime path.</td>
+    <td class="pass"><code>WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket</code> -
+        asserts exactly 1 transcription POST and that no URL is ws://, wss://, or /realtime.</td>
+  </tr>
+  <tr>
+    <td>Uses the user-selected transcription method (not a fixed realtime model).</td>
+    <td>Routing (base URL, key, model) comes entirely from
+        <code>OpenAiKeyResolver.ResolveEndpointAsync</code>; the recorder passes it straight to the
+        shared pipeline. No hardcoded gpt-4o-transcribe / realtime endpoint remains on the dictation path.</td>
+    <td class="pass">Code: <code>routing.Mode</code>/<code>routing.Model</code> logged at transcribe time;
+        same resolver the shared voice path (#587) uses.</td>
+  </tr>
+  <tr>
+    <td>An interrupted dictation produces no partial transcript; it fails explicitly (gate #586).</td>
+    <td>A turn that captured no audio throws <code>NoAudioCapturedException</code> before any
+        transcription; the shared pipeline also rejects an empty blob. Cancel discards with no text.</td>
+    <td class="pass">Code: empty-PCM gate in <code>TranscribeAsync</code>; the pipeline's
+        empty-audio <code>ArgumentException</code> is covered by the #587 pipeline tests.</td>
+  </tr>
+  <tr>
+    <td>Only text change after transcription is dictionary-word replacement; no-dictionary-term run is
+        byte-identical.</td>
+    <td>The only post-transcription transform is the validated dictionary corrector inside the shared
+        pipeline; an empty dictionary short-circuits to the raw text.</td>
+    <td class="pass"><code>WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText</code> -
+        <code>CorrectedTranscript == RawTranscript</code>, nothing applied, still one batch call.</td>
+  </tr>
+</table>
+
+<h2>Deterministic test evidence</h2>
+<p>
+The proof tests drive the EXACT call the desktop recorder makes - a <code>WavWriter</code> WAV blob
+through <code>BatchTranscriptionPipeline</code> - against a request-counting stub, so the
+call-count / no-socket / byte-identical criteria are proven without a live microphone. See
+<code>proof-tests.txt</code> in this folder.
+</p>
+<pre>
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_EmptyPcm_ProducesHeaderOnlyFortyFourBytes
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_WithPcm_WritesRiffWaveFmtDataChunks
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_DeclaresCaptureFormat
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_RoundTripsPayloadBytes
+Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_NullPcm_Throws
+Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket
+Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText
+     Passed: 7   Failed: 0
+</pre>
+<p>Full-solution build: <code>dotnet build cc-director.sln</code> -> <b>Build succeeded. 0 Warning(s) 0 Error(s).</b></p>
+
+<h2>SpeakDialog states (no live preview) - layout from the XAML/code</h2>
+<p>The dialog drives these three states. The transcript area is blank in RECORDING and TRANSCRIBING
+(the no-live-preview rule); text appears only in REVIEW / on commit, after the single batch call.</p>
+
+<div class="state">
+  <span class="pill" style="background:#3A1414;color:#FF7A7A;">RECORDING</span> &nbsp; timer 0:03.4<br><br>
+  [ equalizer bars moving from the mic ]<br>
+  [ transcript box: <i>EMPTY</i> - watermark "(your words will appear here)" ]<br><br>
+  Cancel &nbsp; Review &nbsp; | &nbsp; Insert &nbsp; Send
+</div>
+
+<div class="state">
+  <span class="pill" style="background:#3A2A10;color:#FFC06B;">TRANSCRIBING</span><br><br>
+  hint: "Transcribing the whole recording..."<br>
+  [ transcript box: <i>EMPTY</i> - no partial text ]<br><br>
+  Cancel &nbsp; (Insert / Send / Review disabled)
+</div>
+
+<div class="state">
+  <span class="pill" style="background:#232C47;color:#AEB9D8;">REVIEW</span><br><br>
+  [ transcript box: the final dictionary-corrected text, editable ]<br><br>
+  Cancel &nbsp; | &nbsp; Insert &nbsp; Send
+</div>
+
+<h2 class="note">Note on the live-UI screenshot</h2>
+<p class="note">
+The live Speak dialog requires a physical microphone and a signed-in, transcription-key-configured
+Director, and a desktop screen capture in this shared environment would include the operator's
+unrelated personal applications (a privacy/PII risk on a public repo). The test Director
+(<code>cc-director13.exe</code>, slot 13) was built from this worktree and launched via its own
+scheduled task to confirm the build runs; it was then torn down. The three states above are reproduced
+from the actual XAML labels/colors and code, and the behavioral criteria (one batch call, no realtime
+socket, byte-identical text, empty-capture gate) are proven deterministically by the tests, which drive
+the exact code path the dialog uses. QA with a mic + configured key can confirm the live states visually.
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+Updated <code>docs/cencon/architecture_manifest.yaml</code> flow <code>dictation_flow</code>: the desktop
+SpeakDialog path now records that it captures locally and transcribes via one whole-audio batch call
+through the shared <code>BatchTranscriptionPipeline</code> (no realtime streaming, no live partial
+preview, completeness gate enforced). No security posture change - the same
+<code>OpenAiKeyResolver</code> routing and key handling are used; the dictation path now makes plain
+HTTP batch calls instead of a realtime WebSocket.
+</p>
+
+<h2>Conclusion</h2>
+<p><b>I believe this is finished.</b> Desktop dictation is whole-audio batch only: no realtime socket,
+no live partials, one batch transcription per turn via the user-selected method, dictionary-only
+correction (byte-identical with no dictionary term), and an explicit failure for an empty/interrupted
+capture. The full solution builds clean and the proof tests pass.</p>
+
+</body>
+</html>

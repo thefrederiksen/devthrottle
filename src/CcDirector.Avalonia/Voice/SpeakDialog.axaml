@@ -109,10 +109,11 @@
                        MinHeight="18"
                        Margin="0,0,0,8" />
 
-            <!-- Transcript area (used both for live partials during recording AND
-                 final cleaned text after stop). An editable TextBox: read-only
-                 while recording (RenderTranscript drives it), editable in the
-                 PAUSED/review stage so the user can fix mis-heard words before
+            <!-- Transcript area. Whole-audio batch (issue #589): NO live preview,
+                 so the box stays blank while recording (its watermark shows
+                 through) and only fills in after transcription completes. It is
+                 read-only while recording and transcribing, and editable in the
+                 REVIEW stage so the user can fix mis-heard words before
                  committing. AllowAutoHide="False" keeps the scrollbar pinned on
                  overflow instead of Avalonia's collapsing overlay bar. -->
             <TextBox x:Name="TranscriptText"
@@ -135,11 +136,11 @@
         </Grid>
 
         <!-- Action bar. Split into two groups: recording controls / back-out
-             on the LEFT (Cancel, Pause/Resume) and commit actions on the RIGHT
-             (Insert, Send). The distance keeps Pause away from Send to avoid
+             on the LEFT (Cancel, Review) and commit actions on the RIGHT
+             (Insert, Send). The distance keeps Review away from Send to avoid
              mis-clicks. State signalling comes from the StatusLabel + equalizer
-             dots up top (color shift Recording->Transcribing->Paused), so we
-             don't carry a separate hint TextBlock down here. -->
+             color (Recording->Transcribing->Review), so we don't carry a
+             separate hint TextBlock down here. -->
         <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,16,0,0">
             <!-- Left group: control the recording / back out -->
             <StackPanel Grid.Column="0"
@@ -153,23 +154,17 @@
                         Foreground="#CCCCCC"
                         HorizontalContentAlignment="Center"
                         Click="CancelButton_Click" />
-                <!-- Pause: neutral chrome, two-bar pause glyph built from Rectangles
-                     so we avoid Unicode. PauseButton.Content is rebuilt in code
-                     (BuildPauseIcon / "Resume" text) when state changes. -->
-                <Button x:Name="PauseButton"
+                <!-- Review: stop, transcribe the whole clip once, then show the
+                     final text in-dialog (editable) for review before committing.
+                     There is no Pause/Resume - whole-audio batch is a single
+                     capture. -->
+                <Button x:Name="ReviewButton"
+                        Content="Review"
                         Width="100" Height="32"
                         Background="#2D2D30"
                         Foreground="#CCCCCC"
                         HorizontalContentAlignment="Center"
-                        Click="PauseButton_Click">
-                    <StackPanel Orientation="Horizontal"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                Spacing="5">
-                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
-                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
-                    </StackPanel>
-                </Button>
+                        Click="ReviewButton_Click" />
             </StackPanel>
 
             <!-- Right group: commit -->
