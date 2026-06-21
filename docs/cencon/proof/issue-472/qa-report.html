@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #472 - Cockpit Learning page with Ask Wingman</title>
+<style>
+  body{font-family:"Segoe UI",system-ui,sans-serif;background:#0f1419;color:#d8dee4;margin:0;padding:28px 36px;line-height:1.55}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#8a96a3;font-size:13px;margin-bottom:20px}
+  .verdict{display:inline-block;background:#15351c;color:#7fe39a;border:1px solid #2c6b3c;border-radius:6px;padding:8px 14px;font-weight:600;margin:6px 0 22px}
+  table{border-collapse:collapse;width:100%;margin-bottom:26px}
+  th,td{border:1px solid #2a323b;padding:8px 10px;font-size:13px;vertical-align:top;text-align:left}
+  th{background:#1a2027;color:#9fb0c0}
+  .pass{color:#7fe39a;font-weight:600}
+  code{background:#1a2027;padding:1px 5px;border-radius:4px;font-size:12px}
+  img{max-width:100%;border:1px solid #2a323b;border-radius:6px;margin:8px 0 4px}
+  .cap{color:#8a96a3;font-size:12px;margin-bottom:18px}
+  h2{font-size:15px;margin:26px 0 8px;color:#bcc8d4}
+  ul{margin:0 0 14px;padding-left:20px;font-size:13px}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #472</h1>
+<div class="sub">Cockpit Learning page with "Ask Wingman" &middot; PR #618 &middot; branch issue-472-cockpit-learning &middot; verified independently by the QA Agent</div>
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. PASS.</div>
+
+<p>Verification method: the QA Agent built the PR branch in its own worktree
+(<code>D:\ReposFred\dt-472-qa</code>), published the REAL Cockpit
+(<code>devthrottle-cockpit.dll</code> - the actual <code>Learning.razor</code> + <code>NavMenu.razor</code>),
+and drove it in headless Chromium against a QA-owned Gateway stub on QA-only ports
+(Gateway 7889 / Cockpit 7481). The stub echoes the typed question and a unique QA nonce
+(<code>QA472-NONCE-7f3a</code>) back inside the answer, so the rendered answer proves a real
+Cockpit -&gt; Gateway -&gt; rendered-answer round trip rather than a page-baked constant. The real
+Gateway endpoint and warm-brain translator are additionally covered by the passing .NET suites.</p>
+
+<table>
+<tr><th style="width:30px">#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual</th><th style="width:60px">Result</th></tr>
+<tr><td>1</td><td>"Learning" nav item in the rail navigates to the page without a full page reload (in-app NavLink)</td>
+<td>Item visible in <code>.nv</code> rail; clicking changes URL to <code>/learn</code> with no document reload</td>
+<td>"Learning" item present and highlighted in the rail; NavLink click reached <code>/learn</code>, the <code>window</code> flag set before the click survived (no full reload)</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Static overview + getting-started + outbound GitHub link</td>
+<td>"What is DevThrottle", a getting-started section, a link to the GitHub repo</td>
+<td>Overview, "Getting started" ordered list, and the link <code>github.com/thefrederiksen/devthrottle</code> all rendered</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Ask Wingman input box + submit control</td>
+<td>One text input and one submit button</td>
+<td>Exactly one <code>input.lrn-input</code> and one <code>button.lrn-submit</code> ("Ask")</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>When Wingman available: question returns a non-empty answer with an in-progress indicator</td>
+<td>"Asking..." indicator during the wait, then a rendered non-empty answer</td>
+<td>Button flipped to "Asking..." + "Asking Wingman..." line shown; answer rendered containing the QA nonce and the echoed question, proving a live round trip</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>When Wingman NOT available: explicit set-up message, no empty box / hang / error</td>
+<td>A named "set up Wingman" message; no ask input</td>
+<td>"Wingman is not set up on this Gateway. ... Turn Wingman on in Settings to enable this." rendered; no input present</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Ask path is Cockpit -&gt; Gateway (never a Director directly)</td>
+<td>The ask hits the Gateway <code>POST /wingman/ask-devthrottle</code> carrying the question</td>
+<td>Gateway log line <code>[GatewayWingmanVoice] ask-devthrottle textLen=40</code> served the exact typed question; code review confirms <code>Learning.razor</code> injects only <code>GatewayClient</code> (no Director call)</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Complies with VisualStyle.md (shared <code>.nv</code> rail + Cockpit page styling)</td>
+<td>Shared rail and dark theme consistent with existing Cockpit pages</td>
+<td>Shared <code>.nv</code> rail beside Cockpit/Settings/Dictionary/About; component CSS reuses theme tokens (<code>--sidebar</code>, <code>--border</code>, <code>--accent</code>, <code>--amber</code>)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>Full solution build: <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Gateway tests: 867 passed, 1 skipped, 0 failed (includes the new <code>AskAboutDevThrottleAsync</code>, <code>BuildDevThrottlePrompt</code>, <code>AskDevThrottle_EmptyText_Returns400</code> tests).</li>
+<li>Cockpit tests: 63 passed, 0 failed.</li>
+<li>Core tests: 2224 passed, 6 skipped, 0 failed.</li>
+<li>Method lens: no new LLM transport invented (reuses the warm-brain <code>WingmanTranslator</code> path); no architecture/security boundary change (Cockpit -&gt; Gateway is the established pattern); explicit not-configured state honors the no-fallback rule; no secrets in the diff.</li>
+</ul>
+
+<h2>1. Learning nav item + page loaded (overview + Ask box)</h2>
+<img src="qa1-learning-page.png" alt="Learning page">
+<div class="cap">Rail "Learning" item highlighted; overview, getting-started, GitHub link, and Ask Wingman box all present.</div>
+
+<h2>2a. In-progress indicator during the ask</h2>
+<img src="qa2a-asking.png" alt="Asking in progress">
+<div class="cap">Button shows "Asking...", input disabled, "Asking Wingman..." loading line - responsive-UI feedback during the wait.</div>
+
+<h2>2b. Answer rendered (gateway round-trip)</h2>
+<img src="qa2-answer.png" alt="Answer rendered">
+<div class="cap">Answer block echoes the typed question and begins with the QA nonce QA472-NONCE-7f3a produced by the Gateway response.</div>
+
+<h2>3. Not-configured state</h2>
+<img src="qa3-not-configured.png" alt="Not configured">
+<div class="cap">Explicit "Wingman is not set up on this Gateway" message; no ask input, no hang, no empty box.</div>
+
+<h2>Gateway wire log (qa-gateway-log.txt)</h2>
+<pre><code>GET /gateway/wingman -> enabled=True
+[GatewayWingmanVoice] ask-devthrottle textLen=40
+[GatewayWingmanVoice] ask-devthrottle OK: answerLen=175, replySeconds=1.2
+GET /gateway/wingman -> enabled=False</code></pre>
+
+</body>
+</html>
