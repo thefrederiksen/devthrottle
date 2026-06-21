@@ -200,6 +200,23 @@ public static class CcStorage
     /// <summary>Communication queue database: config/comm-queue/communications.db</summary>
     public static string CommQueueDb() => Path.Combine(ToolConfig("comm-queue"), "communications.db");
 
+    /// <summary>
+    /// Encrypted DevThrottle account credential blob: config/director/devthrottle-credential.bin.
+    /// The access-plus-refresh token pair is written here encrypted at rest by the operating system
+    /// credential store (Windows Data Protection on Windows), never as plain text. Distinct from the
+    /// Claude sign-in account store (accounts.json) - this is the DevThrottle account.
+    /// </summary>
+    public static string DevThrottleCredentialBlob() =>
+        Path.Combine(ToolConfig("director"), "devthrottle-credential.bin");
+
+    /// <summary>
+    /// DevThrottle authentication-floor event log: config/director/devthrottle-auth-events.jsonl.
+    /// Append-only JSON-lines record of "logged-in" / "logout" events. Records only the event kind
+    /// and timestamp - never the token - so it can never leak a credential.
+    /// </summary>
+    public static string DevThrottleAuthEventsLog() =>
+        Path.Combine(ToolConfig("director"), "devthrottle-auth-events.jsonl");
+
     // -- Life Operating System coaching directories --
 
     /// <summary>Life OS coaching root: vault/life/</summary>

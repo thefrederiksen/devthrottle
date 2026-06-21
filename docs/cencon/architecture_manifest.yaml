@@ -473,6 +473,15 @@ containers:
       - name: AboutInfo
         description: Assembles the About/diagnostics payload (version, build, URLs, installed components) shared by the Director About dialog and the Cockpit /about page
         file: Diagnostics/AboutInfo.cs
+      - name: DevThrottleAccountService
+        description: The DevThrottle account credential and authentication service (issue #583) - the foundation for log-in-once-online-then-run-offline. Receives the access-plus-refresh token pair from the login-completion flow, stores it in the operating system credential store (encrypted at rest via the IProtectedTokenStore binding), answers "is this install logged in?" locally with NO network call (JwtAccessTokenValidator signature + expiry only), renews the access token in the background using the refresh token when online (ITokenRefresher), keeps running on the cached credential when offline, and clears the credential on logout. Records a logged-in event on first store and a logout event on clear via AuthEventLog (the always-on authentication floor; richer telemetry is #582). Distinct from ClaudeAccountStore (the Claude sign-in account at accounts.json, a different concern). The single foundation the startup gate (#580), first-run login (#581), and account area (#582) build on.
+        files:
+          - Account/DevThrottleAccountService.cs
+          - Account/DevThrottleTokens.cs
+          - Account/IProtectedTokenStore.cs
+          - Account/JwtAccessTokenValidator.cs
+          - Account/AuthEventLog.cs
+          - Account/ITokenRefresher.cs
 
   - id: native_apis
     name: Platform-Specific APIs
@@ -505,6 +514,9 @@ containers:
         files:
           - ConPty/ProcessHost.cs
           - UnixPty/UnixProcessHost.cs
+      - name: Windows Data Protection credential store (Windows only)
+        description: The operating system credential store binding for the DevThrottle account (issue #583). WindowsProtectedTokenStore encrypts the account token pair at rest with Windows Data Protection (the DPAPI, via System.Security.Cryptography.ProtectedData, CurrentUser scope) so the raw token is never written to disk in plain text; only the same Windows user on the same machine can decrypt it. Implements IProtectedTokenStore (CcDirector.Core) so the macOS Keychain can be a later drop-in.
+        file: Account/WindowsProtectedTokenStore.cs
 
   - id: communication_manager
     name: Communication Manager

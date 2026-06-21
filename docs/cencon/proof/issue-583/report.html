@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #583 Director credential store and offline logged-in check</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; max-width: 1000px; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 1.8rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8rem 0; }
+  th, td { border: 1px solid #bbb; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; font-size: 0.9rem; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; font-size: 0.85rem; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: 0.8rem; overflow-x: auto; white-space: pre-wrap; }
+  .note { background: #fffbe6; border: 1px solid #e6d27a; padding: 0.6rem 0.9rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Proof Report - Issue #583</h1>
+<p><strong>[Account] Director credential store and offline logged-in check</strong> - store account
+tokens in the operating system credential store, verify offline, refresh online.</p>
+
+<h2>What was implemented</h2>
+<p>A greenfield DevThrottle credential and authentication service in the Core layer
+(<code>CcDirector.Core</code>, the <code>core_services</code> container) plus the Windows operating
+system credential store binding (the <code>native_apis</code> container). This is the single
+foundation the startup gate (#580), first-run login (#581), and account area (#582) build on. It is
+distinct from <code>ClaudeAccountStore</code> (the Claude sign-in account, a different concern).</p>
+
+<ul>
+  <li><code>Account/DevThrottleTokens.cs</code> - the access-plus-refresh token pair record.</li>
+  <li><code>Account/IProtectedTokenStore.cs</code> - the operating system credential store binding
+      (interface, so the macOS Keychain can be a later drop-in).</li>
+  <li><code>Account/WindowsProtectedTokenStore.cs</code> - the Windows Data Protection (DPAPI)
+      implementation: serializes the pair to JSON, encrypts it with the current user's data-protection
+      key via <code>System.Security.Cryptography.ProtectedData</code> (CurrentUser scope), and writes
+      an opaque binary blob. The raw token never touches disk in plain text.</li>
+  <li><code>Account/JwtAccessTokenValidator.cs</code> - local-only validation (no network): verifies
+      the access token's HMAC-SHA256 signature against the configured signing secret and checks
+      <code>exp</code>. Distinguishes a genuinely-ours expired token (renewable) from a
+      tampered/wrong-signature token (never logged in).</li>
+  <li><code>Account/ITokenRefresher.cs</code> - the one network-touching seam: exchanges a refresh
+      token for a fresh pair. The offline logged-in check never calls it.</li>
+  <li><code>Account/AuthEventLog.cs</code> - append-only JSON-lines authentication-floor event log
+      (logged-in on first store, logout on clear). Records only kind + timestamp, never the token.</li>
+  <li><code>Account/DevThrottleAccountService.cs</code> - the orchestrator: <code>StoreTokens</code>,
+      <code>IsLoggedIn()</code> (local, no network), <code>RefreshIfNeededAsync</code> (background
+      renew, keeps the cached credential when offline), <code>Logout</code>.</li>
+  <li>Path helpers added to <code>Storage/CcStorage.cs</code>; the
+      <code>System.Security.Cryptography.ProtectedData</code> package added to
+      <code>CcDirector.Core.csproj</code>; the new components recorded in
+      <code>docs/cencon/architecture_manifest.yaml</code>.</li>
+</ul>
+
+<h2>How it was proven</h2>
+<p>Two independent gates:</p>
+<ol>
+  <li><strong>Unit tests</strong> - 22 tests in <code>CcDirector.Core.Tests/Account/</code> (the full
+      <code>Account</code> namespace ran green: 45 passed, 0 failed - the count includes the
+      pre-existing <code>ClaudeAccountStore</code> tests).</li>
+  <li><strong>Live end-to-end proof harness</strong> - a standalone program that exercises the REAL
+      <code>DevThrottleAccountService</code> with the REAL <code>WindowsProtectedTokenStore</code>
+      (real Windows DPAPI) against a real temporary config directory - no storage test doubles. Output
+      captured in <code>proof-output.txt</code>; the service's own enterprise log lines captured in
+      <code>director-log-excerpt.log</code> (paths redacted of the local username). The on-disk DPAPI
+      blob begins with the canonical Windows DPAPI magic header
+      <code>01000000D08C9DDF0115D1118C7A00C0</code>, confirming real operating-system encryption.</li>
+</ol>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Acceptance criterion</th><th>Expected</th><th>Actual (live proof)</th><th>Result</th></tr>
+  <tr>
+    <td>Stored tokens written to the Windows Data Protection store; a search of everything under the
+        config dir does not find the raw token in plain text.</td>
+    <td>Store entry exists; no plaintext match.</td>
+    <td>422-byte DPAPI blob written (magic header present); grep of the whole config dir for the raw
+        access and refresh token strings (UTF-8 and raw bytes) found no match.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>With networking disabled, the logged-in check returns true from the cache and makes no
+        outbound network call.</td>
+    <td>true; no network call.</td>
+    <td><code>IsLoggedIn()</code> returned true; the only network seam
+        (<code>ITokenRefresher</code>) was provably never invoked; log line
+        <code>IsLoggedIn: ... result=True (no network call)</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>With no stored credential the check returns false (clean profile).</td>
+    <td>false.</td>
+    <td>On the clean temp profile <code>IsLoggedIn()</code> returned false; log line
+        <code>IsLoggedIn: no stored credential -&gt; false</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Expired access token + valid refresh + networking enabled: the service renews the access token
+        in the background with no user action; the store entry changes.</td>
+    <td>Store entry changes; refresh log line.</td>
+    <td><code>RefreshIfNeededAsync</code> returned true and stored the renewed access token; the DPAPI
+        blob bytes differed before vs after; log lines <code>access token expired, attempting
+        background refresh</code> then <code>refreshed access token stored</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>A tampered or wrong-signature cached access token is treated as not logged in.</td>
+    <td>false.</td>
+    <td>After flipping the signature byte, <code>IsLoggedIn()</code> returned false; log line
+        <code>signature does not verify (tampered or wrong key)</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Logout clears the store, the next check returns false, and a logout event is recorded.</td>
+    <td>Empty store; false; logout event logged.</td>
+    <td>The DPAPI blob was removed; next <code>IsLoggedIn()</code> returned false; the auth-event log
+        contained both a <code>logged-in</code> (first store) and a <code>logout</code> event.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Live proof output</h2>
+<p>See <code>proof-output.txt</code> in this directory. Summary line:
+<code>===== RESULT: 11 checks passed, 0 failed =====</code></p>
+
+<h2>Service log excerpt (AC2 / AC4 highlights)</h2>
+<pre>[DevThrottleAccountService] IsLoggedIn: no stored credential -&gt; false
+[WindowsProtectedTokenStore] Save: wrote 422 encrypted bytes
+[AuthEventLog] RecordLoggedIn
+[JwtAccessTokenValidator] Validate: signature OK, expired=False
+[DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+[JwtAccessTokenValidator] Validate: signature does not verify (tampered or wrong key)
+[DevThrottleAccountService] IsLoggedIn: valid=False, expiredButWellFormed=False, result=False (no network call)
+[JwtAccessTokenValidator] Validate: signature OK, expired=True
+[DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+[DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored
+[AuthEventLog] RecordLoggedOut
+[DevThrottleAccountService] IsLoggedIn: no stored credential -&gt; false</pre>
+<p>Full excerpt in <code>director-log-excerpt.log</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>Added the <code>DevThrottleAccountService</code> family to the <code>core_services</code> container
+and the Windows Data Protection credential store to the <code>native_apis</code> container in
+<code>docs/cencon/architecture_manifest.yaml</code> (both were named in the issue's Affected
+Containers). No blocking security rule (CCD-01..CCD-07 in <code>security_profile.yaml</code>) is
+violated: no hardcoded credentials, no null-forgiving operator, no <code>.Result</code>/<code>.Wait()</code>,
+no PII paths in source; the token is never written to a log. The signing secret is supplied to the
+validator at construction (from configuration / the Key Vault at the wiring point), never hardcoded.</p>
+
+<div class="note">
+<strong>Scope note (assumptions confirmed by the issue):</strong> the browser sign-in page, the token
+hand-back protocol, and account resolution are owned by the internal-repository backend and are OUT of
+this issue. This Director-desktop side is implemented and proven against a test-issued HS256 token pair,
+exactly as the issue authorizes. The live backend exchange is supplied later as an implementation of
+<code>ITokenRefresher</code> (wired with #581). The tokens are treated as Supabase tokens (a signed
+access JWT plus a long-lived refresh token).</div>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> Every acceptance criterion is met, proven twice (unit
+tests + a live run against the real operating-system credential store), the full solution builds clean
+(<code>dotnet build cc-director.sln</code> - 0 warnings, 0 errors, under
+<code>TreatWarningsAsErrors</code>), and the CenCon manifest is updated in the same change.</p>
+</body>
+</html>

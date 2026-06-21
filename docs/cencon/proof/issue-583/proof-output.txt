@@ -1,0 +1,49 @@
+﻿===== Issue #583 LIVE PROOF: Director credential store + offline logged-in check =====
+Config dir (clean profile): %TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896
+
+[PASS] AC3 clean profile: IsLoggedIn() with no stored credential returns false
+        Expected: false
+        Actual:   False
+
+[PASS] AC1 store entry exists after storing the token pair
+        Expected: file exists at %TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin
+        Actual:   exists
+[PASS] AC1 raw token string does NOT appear in plain text anywhere under the config dir
+        Expected: no file under config dir contains the raw token string
+        Actual:   no match found (encrypted at rest)
+        DPAPI blob: 422 bytes, first 16 hex: 01000000D08C9DDF0115D1118C7A00C0
+
+[PASS] AC2 offline IsLoggedIn() returns true from the cached credential alone
+        Expected: true
+        Actual:   True
+[PASS] AC2 IsLoggedIn() made NO outbound network call
+        Expected: refresher (the only network seam) never invoked
+        Actual:   never invoked
+
+[PASS] AC5 tampered/wrong-signature cached access token is treated as NOT logged in
+        Expected: false
+        Actual:   False
+
+[PASS] AC4 background refresh renewed the access token with no user action
+        Expected: RefreshIfNeededAsync returns true and the stored access token is the renewed one
+        Actual:   returned True, stored access token matches renewed = True
+[PASS] AC4 the store entry changed (DPAPI blob bytes differ before vs after refresh)
+        Expected: blob bytes differ
+        Actual:   blob changed
+
+[PASS] AC6 logout clears the store (DPAPI blob removed)
+        Expected: blob file removed
+        Actual:   removed
+[PASS] AC6 the next IsLoggedIn() returns false after logout
+        Expected: false
+        Actual:   False
+[PASS] AC6 a logout event was recorded (and a logged-in event on first store)
+        Expected: auth-event log contains logged-in and logout
+        Actual:   logged-in=True, logout=True
+        auth-events.jsonl contents:
+          logged-in @ 2026-06-21T05:30:58.1156516Z
+          logout @ 2026-06-21T05:30:58.1537681Z
+
+===== RESULT: 11 checks passed, 0 failed =====
+FileLog written to: %LOCALAPPDATA%\cc-director\logs\director\director-2026-06-21-42088.log
+Log excerpt (41 lines) written to: D:\ReposFred\devthrottle-wt-583\docs\cencon\proof\issue-583\director-log-excerpt.log

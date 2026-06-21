@@ -1,0 +1,22 @@
+QA ROOT (isolated CC_DIRECTOR_ROOT) = C:\Users\soren\AppData\Local\Temp\qa-583-root-1191cccad50f4e178382db26322027fe
+Credential blob path = C:\Users\soren\AppData\Local\Temp\qa-583-root-1191cccad50f4e178382db26322027fe\config\director\devthrottle-credential.bin
+Auth events log path = C:\Users\soren\AppData\Local\Temp\qa-583-root-1191cccad50f4e178382db26322027fe\config\director\devthrottle-auth-events.jsonl
+
+[PASS] AC3 clean-profile check returns false: IsLoggedIn()=False, refresherCalled=False
+[PASS] AC1 tokens written to DPAPI store: blob exists=True
+[PASS] AC1 raw token NOT in plaintext under config dir: no plaintext match anywhere under root
+[PASS] AC1 blob carries DPAPI CurrentUser magic header: first4=[01 00 00 00], len=454
+[PASS] AC2 offline check returns true from cache: IsLoggedIn()=True
+[PASS] AC2 offline check made NO network call: refresher invoked=False
+[PASS] AC(event) logged-in event recorded on first store: events=[logged-in]
+[PASS] AC5 tampered token treated as NOT logged in: IsLoggedIn()=False
+[PASS] AC5 wrong-signature token treated as NOT logged in: IsLoggedIn()=False
+[PASS] AC4 background refresh ran for expired+valid-refresh: refreshed=True, refresherCalled=True
+[PASS] AC4 store entry changed after refresh: blob changed=True
+[PASS] AC4 renewed token is now valid (logged in): IsLoggedIn()=True
+[PASS] AC4 offline refresh declines gracefully, keeps cached credential: refreshed=False, stillLoggedIn=True
+[PASS] AC6 logout clears the store: blob exists=False
+[PASS] AC6 next check after logout returns false: IsLoggedIn()=False
+[PASS] AC6 logout event recorded: events=[logged-in,logout]
+
+RESULT: 16 passed, 0 failed

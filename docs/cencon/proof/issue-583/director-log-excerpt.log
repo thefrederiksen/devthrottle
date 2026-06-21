@@ -1,0 +1,41 @@
+﻿2026-06-21 01:30:58.067 [WindowsProtectedTokenStore] ctor: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin
+2026-06-21 01:30:58.069 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:30:58.070 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=False
+2026-06-21 01:30:58.070 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-21 01:30:58.107 [DevThrottleAccountService] StoreTokens: storing token pair in credential store
+2026-06-21 01:30:58.107 [WindowsProtectedTokenStore] Save: encrypting token pair to credential store
+2026-06-21 01:30:58.115 [WindowsProtectedTokenStore] Save: wrote 422 encrypted bytes
+2026-06-21 01:30:58.115 [AuthEventLog] RecordLoggedIn
+2026-06-21 01:30:58.119 [DevThrottleAccountService] StoreTokens: stored
+2026-06-21 01:30:58.126 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:30:58.126 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=True
+2026-06-21 01:30:58.129 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-21 01:30:58.131 [JwtAccessTokenValidator] Validate: signature OK, expiresAtUtc=2026-06-21T06:30:58.0000000Z, expired=False
+2026-06-21 01:30:58.131 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-21 01:30:58.131 [WindowsProtectedTokenStore] Save: encrypting token pair to credential store
+2026-06-21 01:30:58.132 [WindowsProtectedTokenStore] Save: wrote 422 encrypted bytes
+2026-06-21 01:30:58.132 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:30:58.132 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=True
+2026-06-21 01:30:58.138 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-21 01:30:58.138 [JwtAccessTokenValidator] Validate: signature does not verify (tampered or wrong key)
+2026-06-21 01:30:58.138 [DevThrottleAccountService] IsLoggedIn: valid=False, expiredButWellFormed=False, result=False (no network call)
+2026-06-21 01:30:58.138 [WindowsProtectedTokenStore] Save: encrypting token pair to credential store
+2026-06-21 01:30:58.138 [WindowsProtectedTokenStore] Save: wrote 422 encrypted bytes
+2026-06-21 01:30:58.144 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-21 01:30:58.144 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=True
+2026-06-21 01:30:58.144 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-21 01:30:58.144 [JwtAccessTokenValidator] Validate: signature OK, expiresAtUtc=2026-06-21T04:30:58.0000000Z, expired=True
+2026-06-21 01:30:58.144 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-21 01:30:58.144 [WindowsProtectedTokenStore] Save: encrypting token pair to credential store
+2026-06-21 01:30:58.145 [WindowsProtectedTokenStore] Save: wrote 422 encrypted bytes
+2026-06-21 01:30:58.145 [DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored
+2026-06-21 01:30:58.152 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=True
+2026-06-21 01:30:58.152 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-21 01:30:58.153 [DevThrottleAccountService] Logout: clearing credential store
+2026-06-21 01:30:58.153 [WindowsProtectedTokenStore] Clear: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=True
+2026-06-21 01:30:58.153 [AuthEventLog] RecordLoggedOut
+2026-06-21 01:30:58.154 [DevThrottleAccountService] Logout: cleared
+2026-06-21 01:30:58.154 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:30:58.154 [WindowsProtectedTokenStore] Load: blobPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-credential.bin, exists=False
+2026-06-21 01:30:58.154 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-21 01:30:58.154 [AuthEventLog] ReadAll: logPath=%TEMP%\dt583-proof-8d8a276b6ada4285a4e449ae10f52896\devthrottle-auth-events.jsonl, exists=True
