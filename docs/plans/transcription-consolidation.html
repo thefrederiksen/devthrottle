@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transcription Consolidation - Architecture and UI Design (Issue #585)</title>
+<style>
+  :root{
+    --bg:#0f1320; --panel:#161c2d; --panel2:#1d2540; --ink:#e8ecf5; --muted:#9aa6c2;
+    --line:#2a3350; --accent:#5b8cff; --accent2:#7c5cff;
+    --ok:#2ecc8f; --okbg:#10331f; --warn:#ffb454; --warnbg:#3a2a10;
+    --bad:#ff6b6b; --badbg:#3a1414; --chip:#232c47;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 28px 80px;}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.3px}
+  h2{font-size:22px;margin:48px 0 10px;padding-top:18px;border-top:1px solid var(--line)}
+  h3{font-size:17px;margin:26px 0 8px;color:#c9d4f2}
+  p{color:#d3dbef}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 4px}
+  a{color:var(--accent)}
+  code{background:#0c1020;border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+    font:13px/1.4 "SF Mono",Consolas,monospace;color:#c7d6ff}
+  .lead{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:10px;padding:16px 18px;margin:18px 0}
+  .grid{display:grid;gap:14px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd8f7;font-weight:600}
+  tr:nth-child(even) td{background:#121829}
+  .badge{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+  .b-ok{background:var(--okbg);color:var(--ok);border:1px solid #1c5b3a}
+  .b-warn{background:var(--warnbg);color:var(--warn);border:1px solid #6a4c19}
+  .b-bad{background:var(--badbg);color:var(--bad);border:1px solid #6a2222}
+  .b-neutral{background:var(--chip);color:#aeb9d8;border:1px solid var(--line)}
+  /* flow */
+  .flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin:18px 0}
+  .step{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:14px}
+  .step .n{display:inline-flex;width:26px;height:26px;border-radius:50%;background:var(--accent);
+    color:#fff;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-bottom:8px}
+  .step h4{margin:0 0 4px;font-size:15px}
+  .step p{margin:0;font-size:13px;color:var(--muted)}
+  .arrow{align-self:center;color:var(--accent);font-weight:700;font-size:20px}
+  /* callouts */
+  .callout{border-radius:10px;padding:14px 16px;margin:14px 0;border:1px solid var(--line)}
+  .c-bad{background:#1b1117;border-left:4px solid var(--bad)}
+  .c-ok{background:#0f1b16;border-left:4px solid var(--ok)}
+  .c-warn{background:#1c170e;border-left:4px solid var(--warn)}
+  .fileref{color:#8fb0ff;font-family:"SF Mono",Consolas,monospace;font-size:12.5px}
+  ul{margin:8px 0 8px 0;padding-left:22px}
+  li{margin:4px 0;color:#d3dbef}
+  .tag{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  /* mockups */
+  .mockwrap{background:#070a14;border:1px solid var(--line);border-radius:14px;padding:26px;margin:16px 0}
+  .device{max-width:520px;margin:0 auto;}
+  .panel-ui{background:linear-gradient(180deg,#1a2238,#141a2c);border:1px solid #2c375a;
+    border-radius:16px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .pu-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .pu-title{font-weight:700;font-size:15px;letter-spacing:.2px}
+  .pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.06em}
+  .pill-rec{background:#3a1414;color:#ff7a7a;border:1px solid #6a2222}
+  .pill-trans{background:#3a2a10;color:#ffc06b;border:1px solid #6a4c19}
+  .pill-idle{background:#232c47;color:#aeb9d8;border:1px solid #2c375a}
+  .selrow{display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:12.5px;color:var(--muted)}
+  .sel{flex:1;background:#0c1020;border:1px solid #2c375a;border-radius:8px;padding:7px 10px;color:#cdd8f7;font-size:12.5px}
+  .timer{font:700 40px/1 "SF Mono",Consolas,monospace;text-align:center;color:#eaf0ff;margin:6px 0 14px;letter-spacing:1px}
+  .wave{display:flex;align-items:flex-end;justify-content:center;gap:4px;height:64px;margin-bottom:16px}
+  .wave i{width:7px;background:linear-gradient(180deg,#6f9bff,#3a5bd0);border-radius:3px;opacity:.9}
+  .transcript{background:#0c1020;border:1px dashed #324063;border-radius:10px;padding:14px;
+    min-height:74px;color:#dde6ff;font-size:14px}
+  .transcript .ph{color:#6c79a0}
+  .hint{font-size:11.5px;color:#6c79a0;margin:8px 2px 0}
+  .btns{display:flex;gap:10px;margin-top:16px}
+  .btn{flex:1;border:none;border-radius:10px;padding:12px;font-weight:700;font-size:14px;cursor:default;text-align:center}
+  .btn-primary{background:linear-gradient(180deg,#5b8cff,#3a63d8);color:#fff}
+  .btn-hold{background:#2a3a22;color:#bfe6a0;border:1px solid #3f5a30}
+  .btn-cancel{background:#241620;color:#e6a0b8;border:1px solid #4a2236}
+  .dictnote{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#7fd3a8;margin-top:10px}
+  /* small variant */
+  .small-ui{max-width:560px;margin:0 auto;background:#11192c;border:1px solid #2c375a;
+    border-radius:30px;padding:8px 10px 8px 14px;display:flex;align-items:center;gap:12px}
+  .small-dot{width:10px;height:10px;border-radius:50%;background:#ff5d5d;flex:none;box-shadow:0 0 0 4px #3a141433}
+  .small-time{font:700 14px/1 "SF Mono",Consolas,monospace;color:#eaf0ff;flex:none}
+  .small-wave{display:flex;align-items:center;gap:3px;height:22px;flex:1}
+  .small-wave i{width:4px;background:#6f9bff;border-radius:2px}
+  .small-btn{border:none;border-radius:20px;padding:7px 13px;font-weight:700;font-size:12.5px;flex:none}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sq{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="sub">DevThrottle / cc-director - Architecture and Design Document</p>
+  <h1>Transcription Consolidation</h1>
+  <p class="sub">Issue <a href="https://github.com/thefrederiksen/devthrottle/issues/585">#585</a>
+     &nbsp;|&nbsp; Source: mobile voice note 2026-06-20 (recording 238e948d...) &nbsp;|&nbsp; Status: DRAFT for review</p>
+
+  <div class="lead">
+    <strong>Why this document exists.</strong> Transcription has grown into several independent code paths
+    that behave differently. This document (1) states the ONE target workflow, (2) inventories every place
+    we transcribe today with concrete <code>file:line</code> evidence, (3) gives a verdict on whether the
+    desktop path changes the user's text, (4) lists the exact changes needed to make every path identical,
+    and (5) proposes one shared visual component in a full desktop size and a small embeddable size.
+    Read the flow and the gap list first, confirm them, then we implement.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>1. The target workflow (the one flow, everywhere)</h2>
+  <p>Every transcription surface - desktop dictation, desktop voice, phone recorder, phone push-to-talk -
+     must follow exactly these four steps. No variations.</p>
+
+  <div class="flow">
+    <div class="step"><span class="n">1</span><h4>Start</h4>
+      <p>User starts transcription. Capture audio locally. Show a live waveform and a timer. Show NO text yet.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">2</span><h4>Finish or Hold</h4>
+      <p>When the user hits Finish or Hold, flush and capture ALL audio buffers, including the final buffer. Nothing is dropped.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">3</span><h4>Send whole to Gateway</h4>
+      <p>Send the COMPLETE audio to the Gateway. The Gateway transcribes it once, using the selected transcription method. No partials, no streaming.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">4</span><h4>Dictionary words only</h4>
+      <p>Replace known dictionary words. Never re-write the text. Never change the meaning. Finish auto-uses the text; Hold shows it for review.</p></div>
+  </div>
+
+  <div class="callout c-ok">
+    <strong>The two rules that matter most.</strong>
+    (a) Send the WHOLE utterance to the Gateway after the user stops - never transcribe live in pieces.
+    (b) After transcription, the ONLY transformation allowed is swapping known dictionary words
+    (for example a mis-heard product name). The wording, order, grammar, and meaning of the user's
+    speech must survive untouched.
+  </div>
+
+  <h3 id="gate">1a. The Audio Completeness Gate (non-negotiable)</h3>
+  <div class="callout c-bad" style="border-left-color:var(--accent2);background:#15122a">
+    <strong>We ALWAYS capture and upload ALL sound. This is a GATE, not best-effort.</strong>
+    <p style="margin:8px 0 0">Transcription must be <em>impossible</em> on partial audio. Every byte the
+    microphone produced between Start and Finish/Hold must reach the Gateway and be verified before a single
+    word is transcribed. There is no "transcribe what we got" path. If the audio is incomplete, the system
+    blocks and retries - it never silently transcribes a truncated clip.</p>
+    <p style="margin:10px 0 0"><strong>The gate has three checkpoints, all required:</strong></p>
+    <ol style="margin:6px 0 0">
+      <li><strong>Capture seal (client).</strong> On Finish/Hold, the recorder's final buffer is flushed and
+        the finalized file(s) read in full. The client computes total bytes, duration, and a per-segment
+        SHA256, and writes a sealed capture manifest. An empty capture fails loud - never an empty transcript.</li>
+      <li><strong>Durable upload (transport).</strong> Every segment is uploaded with its SHA256; the
+        <code>complete</code> call carries the manifest (expected segment count + total bytes + hashes). The
+        client retries upload and <code>complete</code> until the Gateway acknowledges. App-kill between
+        capture and acknowledgement cannot lose audio - the recording stays queued on disk and resumes.</li>
+      <li><strong>Acceptance gate (Gateway) - THE gate.</strong> Before transcribing, the Gateway verifies
+        every index 0..N-1 is present and contiguous, each stored segment's SHA256 matches the manifest, and
+        the total byte count matches. Only an all-pass result advances to transcription. Any miss returns
+        an "incomplete" response listing the missing/bad segments; the client re-sends them. No partial audio
+        is ever transcribed.</li>
+    </ol>
+    <p style="margin:10px 0 0">Consistent with the no-fallback rule: a missing buffer is fixed (re-sent), not
+    worked around. "Transcribe whatever arrived" is exactly the fallback we are removing.</p>
+  </div>
+
+  <div class="callout c-bad">
+    <strong>Where today's code violates the gate.</strong> Desktop dictation streams audio live and, if the
+    connection ends before a clean stop, it <em>recovers whatever bytes arrived</em> and transcribes them when
+    they exceed a byte threshold (<span class="fileref">DictationEndpoint.cs:255-265, 317+</span>,
+    <code>TryRecoverOrDiscard</code> / <code>MinRecoverableAudioBytes</code>). That is best-effort truncation,
+    the direct opposite of the gate. The phone paths are close to compliant (per-chunk SHA256, complete-call
+    retried until acknowledged), but the gate is not yet a uniform, enforced invariant across all surfaces.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>2. What we do today - full inventory</h2>
+  <p>Five distinct transcription paths exist. They disagree on almost every dimension.</p>
+
+  <table>
+    <thead><tr>
+      <th>Path</th><th>Capture</th><th>Send / transcribe</th><th>Partials?</th>
+      <th>Method (selected?)</th><th>Post-processing</th><th>vs target</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Desktop dictation</strong><br><span class="tag">Speak dialog</span></td>
+        <td>Streams PCM16 continuously while speaking</td>
+        <td>Streams to OpenAI Realtime as you talk (BYO mode); batch only in DevThrottle mode</td>
+        <td><span class="badge b-bad">Yes (live)</span></td>
+        <td><code>gpt-4o-transcribe</code> (realtime) / <code>whisper-large-v3</code> (batch). Honors selected method.</td>
+        <td>Validated dictionary corrector (safe). Skipped in batch mode.</td>
+        <td><span class="badge b-bad">Diverges</span></td>
+      </tr>
+      <tr>
+        <td><strong>Desktop voice mode</strong><br><span class="tag">VoiceService</span></td>
+        <td>NAudio capture to a finalized file</td>
+        <td>Whole file POST after stop</td>
+        <td><span class="badge b-ok">No</span></td>
+        <td><code>whisper-1</code> hardcoded at api.openai.com. <strong>Ignores</strong> selected method.</td>
+        <td>LLM free-text "cleanup" THEN validated dictionary corrector</td>
+        <td><span class="badge b-bad">Diverges</span></td>
+      </tr>
+      <tr>
+        <td><strong>Phone recorder</strong><br><span class="tag">CcRecorder</span></td>
+        <td>1-minute rolling .m4a segments to disk</td>
+        <td>Upload all segments, then <code>complete</code> -&gt; Gateway transcribes</td>
+        <td><span class="badge b-ok">No</span></td>
+        <td>Gateway batch per segment, then assemble. OpenAI-specific.</td>
+        <td>Validated dictionary corrector on the assembled text (safe)</td>
+        <td><span class="badge b-warn">Close</span></td>
+      </tr>
+      <tr>
+        <td><strong>Phone push-to-talk</strong><br><span class="tag">CcDirectorClient</span></td>
+        <td>Single .m4a clip, read whole on stop</td>
+        <td>Upload whole clip, then <code>complete</code> -&gt; server transcribes</td>
+        <td><span class="badge b-ok">No</span></td>
+        <td>Routed through <code>whisper-1</code> via VoiceService. Ignores selected method.</td>
+        <td>LLM free-text "cleanup" THEN validated dictionary corrector</td>
+        <td><span class="badge b-bad">Diverges</span></td>
+      </tr>
+      <tr>
+        <td><strong>Vosk offline</strong><br><span class="tag">VoskStt</span></td>
+        <td>Streaming chunks</td>
+        <td>Local, offline</td>
+        <td><span class="badge b-neutral">n/a</span></td>
+        <td>Vosk small model</td>
+        <td>Pure deterministic dictionary (Soundex) - never wired</td>
+        <td><span class="badge b-neutral">Dormant</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="sub">Key file references (verified):</p>
+  <ul>
+    <li><span class="fileref">src/CcDirector.ControlApi/DictationEndpoint.cs:177-211</span> - desktop dictation realtime vs batch routing; <code>OnPartial</code> sends live <code>{type:partial}</code> frames.</li>
+    <li><span class="fileref">src/CcDirector.Core/Voice/VoiceService.cs:91, 110, 169, 183</span> - voice paths run Wingman LLM cleanup, then the dictionary corrector.</li>
+    <li><span class="fileref">src/CcDirector.Core/Voice/VoiceService.cs:251-253</span> - hardcoded <code>WhisperModel</code> / <code>WhisperEndpoint</code> (whisper-1, api.openai.com).</li>
+    <li><span class="fileref">src/CcDirector.Core/Wingman/WingmanService.cs:159-243</span> - <code>CleanVoiceTranscriptAsync</code>; returns the model's free-text output as the transcript.</li>
+    <li><span class="fileref">src/CcDirector.Core/Dictation/CleanupOrchestrator.cs:77-159</span> + <span class="fileref">TranscriptEditEngine.cs:122-201</span> - the validated dictionary corrector (model proposes find/replace edits; engine validates and applies deterministically).</li>
+    <li><span class="fileref">src/CcDirector.Core/Recording/OpenAiRecordingTranscriber.cs:52-72</span> - phone recorder per-segment batch transcription + shared cleanup.</li>
+    <li><span class="fileref">src/CcDirector.Gateway/Api/RecordingEndpoints.cs</span>, <span class="fileref">Api/TranscriptionRoutingEndpoint.cs</span>, <span class="fileref">Configuration/TranscriptionEndpoint.cs:94-169</span> - Gateway ingest + the routing resolver (the "selected method").</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>3. Verdict: is the desktop path changing the text?</h2>
+
+  <div class="callout c-bad">
+    <strong>Yes - in two ways, and one of them is the serious one.</strong>
+    <ol>
+      <li><strong>The transcription model itself is not verbatim (desktop dictation, BYO mode).</strong>
+        Desktop dictation streams to OpenAI Realtime with <code>gpt-4o-transcribe</code>
+        (<span class="fileref">DictationEndpoint.cs:179-181</span>). That is a language model, not a literal
+        speech-to-text engine like Whisper - it tends to tidy disfluencies and lightly normalize phrasing
+        as it transcribes. The text can change at the transcription layer, before any post-processing runs.
+        Moving to "send the whole clip, batch-transcribe with Whisper" produces a more literal transcript.</li>
+      <li><strong>The voice paths run a free-text LLM "cleanup" whose output replaces your words.</strong>
+        Desktop voice mode and phone push-to-talk call
+        <code>WingmanService.CleanVoiceTranscriptAsync</code>
+        (<span class="fileref">VoiceService.cs:91 and :169</span>). Its prompt says "return verbatim", but it
+        returns the model's own free text - the engine does not check the output against the source. An LLM
+        told to "clean up" can and sometimes will re-word, fix grammar, or shift meaning. This is the path
+        that violates rule 4, and it is the one to remove.</li>
+    </ol>
+  </div>
+
+  <div class="callout c-ok">
+    <strong>What is already correct and must be kept.</strong>
+    The <em>dictionary corrector</em> (<code>CleanupOrchestrator</code> + <code>TranscriptEditEngine</code>,
+    used by desktop dictation, phone recorder, and as the final step of the voice paths) is safe by
+    construction: the language model only proposes <code>find/replace</code> pairs, and a deterministic
+    engine rejects any edit whose "find" text is not literally present in the raw transcript and whose
+    "replace" is not a known dictionary term. The user's transcript never round-trips through the model, so
+    it cannot be reworded. This is the model for "step 4" everywhere.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>4. The gap list - what we change to reach one flow</h2>
+  <p>Each item below is a concrete, independently shippable change. Numbered so we can turn them into work items.</p>
+
+  <table>
+    <thead><tr><th>#</th><th>Change</th><th>Where</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr style="background:#15122a">
+        <td><strong>G0</strong><br><span class="badge b-bad">GATE</span></td>
+        <td><strong>Enforce the Audio Completeness Gate (section 1a) as a hard, tested invariant in all paths.</strong>
+          Sealed capture manifest, durable retried upload, and a Gateway acceptance check that refuses to
+          transcribe unless every segment is present and hash-verified. Remove "recover whatever arrived".</td>
+        <td><span class="fileref">DictationEndpoint.cs:255-317</span> (remove truncation recovery);
+          shared capture + Gateway ingest; <span class="fileref">RecordingEndpoints.cs</span> complete-call verification</td>
+        <td>NON-NEGOTIABLE. We always capture and upload ALL sound; partial audio can never be transcribed. Blocks every other change - build this first.</td></tr>
+      <tr><td>G1</td>
+        <td><strong>Remove the free-text LLM cleanup from all transcription paths.</strong>
+          The only post-transcription step is the validated dictionary corrector.</td>
+        <td><span class="fileref">VoiceService.cs:91,169</span>; <span class="fileref">WingmanService.cs:159-243</span></td>
+        <td>Eliminates the meaning-change risk (rule 4). Wake-phrase / routing, if still needed, becomes a separate non-text-altering concern.</td></tr>
+      <tr><td>G2</td>
+        <td><strong>Make desktop dictation batch-after-stop, not realtime streaming.</strong>
+          Capture all audio locally, send the whole clip on Finish, transcribe once.</td>
+        <td><span class="fileref">DictationEndpoint.cs:166-211</span>; Speak dialog client</td>
+        <td>Removes live partials and the non-verbatim realtime model; aligns desktop with the phone model (rules 1-3).</td></tr>
+      <tr><td>G3</td>
+        <td><strong>Remove live partial transcription display everywhere.</strong>
+          The transcript appears only after the Gateway returns the final text.</td>
+        <td>Speak dialog, <span class="fileref">dictate.html / dictate-client.js</span></td>
+        <td>Rule: no partial transcriptions. Simpler UI, one render point.</td></tr>
+      <tr><td>G4</td>
+        <td><strong>Route ALL transcription through the Gateway's selected method.</strong>
+          Replace the hardcoded <code>whisper-1</code> voice path with the routing resolver.</td>
+        <td><span class="fileref">VoiceService.cs:237-262</span> -&gt; <span class="fileref">TranscriptionEndpoint.cs</span> resolver</td>
+        <td>One transcription method choice governs every path (rule 3). Today voice silently ignores the user's selection.</td></tr>
+      <tr><td>G5</td>
+        <td><strong>One shared transcription service and one shared dictionary corrector</strong>
+          behind a single interface that all four surfaces call.</td>
+        <td>Core: new shared entry point; phone, desktop, voice all consume it</td>
+        <td>Removes per-path drift. The phone recorder ingest is the closest template.</td></tr>
+      <tr><td>G6</td>
+        <td><strong>One shared visual component</strong> (full + small variants, section 6)
+          used by desktop dictation, desktop voice, and the web/phone surfaces.</td>
+        <td>New Avalonia control + matching web component</td>
+        <td>Identical experience and one place to change behavior. Today there are 3+ separate UIs.</td></tr>
+      <tr><td>G7</td>
+        <td><strong>Guarantee final-buffer capture on Finish</strong> is explicit and tested in the shared
+          capture layer (phone already does this; desktop must match).</td>
+        <td>Shared capture layer</td>
+        <td>Rule 2: never drop the last buffer. Make it a property of the one component, not per-path luck.</td></tr>
+      <tr><td>G8</td>
+        <td><strong>Retire or formally park Vosk</strong> so there is exactly one transcription stack.</td>
+        <td><span class="fileref">src/CcDirector.VoskStt</span></td>
+        <td>Dormant offline path is dead weight and a second, divergent dictionary implementation.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout c-warn">
+    <strong>One decision needed before G1/G4.</strong> The current dictionary corrector uses a language model
+    to <em>propose</em> the find/replace pairs (then validates them deterministically). A fully offline,
+    pure find-and-replace dictionary already exists in the Vosk path. Do we keep the model-proposes /
+    engine-validates design (smarter at catching mis-hearings, still cannot change meaning), or switch to
+    pure deterministic replacement (no model at all in step 4)? Both satisfy "never change meaning". This
+    choice affects G4 and G8.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>5. Target architecture</h2>
+  <div class="flow">
+    <div class="step"><span class="n">A</span><h4>Shared capture</h4>
+      <p>One capture layer. Records locally, shows waveform + timer, flushes the final buffer on Finish/Hold. No text produced here.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">B</span><h4>Gateway transcribe</h4>
+      <p>Whole audio uploaded and verified by the completeness gate (section 1a). Only when every segment is present and hash-checked does the Gateway resolve the selected method and transcribe once. Returns raw text.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">C</span><h4>Dictionary corrector</h4>
+      <p>Validated find/replace against the shared glossary. Deterministic apply. No re-wording. Returns final text + which words changed.</p></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><span class="n">D</span><h4>Terminal action</h4>
+      <p>Finish: insert / use the text automatically. Hold: show it for review and editing first.</p></div>
+  </div>
+  <p>Every surface differs ONLY in step A's host (Avalonia, web, Android) and step D's destination
+     (a session prompt, a voice turn, a recording transcript). Steps B and C are identical code for all.</p>
+
+  <!-- ============================================================ -->
+  <h2>6. UI mockups - one component, two sizes</h2>
+  <p>The same component, same states, same buttons. The full size is for the desktop dictation/voice dialog;
+     the small size is for embedding inline (for example in a session prompt bar or a compact phone strip).</p>
+
+  <div class="legend">
+    <span><span class="sq" style="background:#ff5d5d"></span> Recording</span>
+    <span><span class="sq" style="background:#ffc06b"></span> Transcribing</span>
+    <span><span class="sq" style="background:#5b8cff"></span> Finish (use)</span>
+    <span><span class="sq" style="background:#bfe6a0"></span> Hold (review)</span>
+  </div>
+
+  <h3>6a. Full desktop version</h3>
+  <div class="mockwrap">
+    <div class="device" style="max-width:520px;margin:0 auto">
+      <div class="panel-ui">
+        <div class="pu-head">
+          <div class="pu-title">Dictation</div>
+          <div class="pill pill-rec">Recording</div>
+        </div>
+        <div class="selrow">
+          <span>Microphone</span>
+          <div class="sel">Default - Microphone Array (Realtek)</div>
+        </div>
+        <div class="timer">00:12.4</div>
+        <div class="wave">
+          <i style="height:18px"></i><i style="height:34px"></i><i style="height:52px"></i>
+          <i style="height:40px"></i><i style="height:60px"></i><i style="height:30px"></i>
+          <i style="height:48px"></i><i style="height:22px"></i><i style="height:38px"></i>
+          <i style="height:56px"></i><i style="height:26px"></i><i style="height:44px"></i>
+          <i style="height:20px"></i><i style="height:50px"></i><i style="height:32px"></i>
+        </div>
+        <div class="transcript">
+          <span style="color:#6c79a0">Listening... the transcript appears here after you press Finish or Hold. No live preview - we wait for all the audio, transcribe it once, then show it.</span>
+        </div>
+        <div class="hint">Step 1-2: capturing all audio locally. Nothing is sent or transcribed until you stop.</div>
+        <div class="btns">
+          <button class="btn btn-primary">Finish</button>
+          <button class="btn btn-hold">Hold</button>
+          <button class="btn btn-cancel">Cancel</button>
+        </div>
+        <div class="dictnote">Dictionary correction on - known terms fixed, your words never re-written.</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub">Same component, after Finish/Hold (transcribing, then result shown for the Hold case):</p>
+  <div class="mockwrap">
+    <div class="device" style="max-width:520px;margin:0 auto">
+      <div class="panel-ui">
+        <div class="pu-head">
+          <div class="pu-title">Dictation</div>
+          <div class="pill pill-idle">Held - review</div>
+        </div>
+        <div class="timer" style="font-size:22px;color:#9aa6c2">00:18.9 captured</div>
+        <div class="transcript" style="border-style:solid;border-color:#324063">
+          Set up a research agent to check every place we run transcription, and make sure
+          <strong style="color:#7fd3a8">cc-director</strong> uses the same flow everywhere. Do not change my
+          wording, only fix the dictionary terms.
+          <div class="hint">2 dictionary words corrected. Raw wording preserved.</div>
+        </div>
+        <div class="btns">
+          <button class="btn btn-primary">Send</button>
+          <button class="btn btn-hold">Edit</button>
+          <button class="btn btn-cancel">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>6b. Small version</h3>
+  <p>For inline use where a full dialog is too heavy - a single strip. Same four-step behavior, condensed.
+     During capture it shows only the pulse, timer, live waveform, and the three actions. The result
+     replaces the strip contents (or flows into the host field) after transcription.</p>
+  <div class="mockwrap">
+    <div class="small-ui">
+      <span class="small-dot"></span>
+      <span class="small-time">00:12</span>
+      <span class="small-wave">
+        <i style="height:8px"></i><i style="height:16px"></i><i style="height:22px"></i>
+        <i style="height:12px"></i><i style="height:20px"></i><i style="height:9px"></i>
+        <i style="height:18px"></i><i style="height:14px"></i><i style="height:21px"></i>
+        <i style="height:11px"></i><i style="height:17px"></i><i style="height:7px"></i>
+        <i style="height:19px"></i><i style="height:13px"></i>
+      </span>
+      <button class="small-btn btn-primary" style="color:#fff">Finish</button>
+      <button class="small-btn btn-hold">Hold</button>
+      <button class="small-btn btn-cancel">X</button>
+    </div>
+  </div>
+  <p class="sub">Small version, transcribing state:</p>
+  <div class="mockwrap">
+    <div class="small-ui">
+      <span class="small-dot" style="background:#ffc06b;box-shadow:0 0 0 4px #3a2a1033"></span>
+      <span class="small-time" style="color:#ffc06b">Transcribing</span>
+      <span class="small-wave" style="opacity:.4">
+        <i style="height:10px"></i><i style="height:10px"></i><i style="height:10px"></i>
+        <i style="height:10px"></i><i style="height:10px"></i><i style="height:10px"></i>
+        <i style="height:10px"></i><i style="height:10px"></i><i style="height:10px"></i>
+      </span>
+      <button class="small-btn btn-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div class="lead" style="border-left-color:var(--accent2)">
+    <strong>Shared-component contract (both sizes).</strong>
+    States: <code>idle -&gt; recording -&gt; transcribing -&gt; (review | used | error)</code>.
+    Inputs: microphone selection (full only), Finish, Hold, Cancel.
+    Guarantees: final buffer always captured on Finish/Hold; no text shown before the final transcript;
+    dictionary correction is the only text change and it reports which words it changed.
+    Outputs: <code>OnFinished(text)</code> (auto-use), <code>OnHeld(text)</code> (review), <code>OnCancelled()</code>, <code>OnError(reason)</code>.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>7. Open questions for sign-off</h2>
+  <ul>
+    <li><strong>Dictionary engine (from G4/G8):</strong> keep model-proposes / engine-validates, or go pure deterministic find-and-replace?</li>
+    <li><strong>Wingman routing:</strong> when we remove the free-text cleanup (G1), do we still need agent-vs-wingman routing and wake-phrase stripping, and if so should it be a non-text step that runs on a copy, never on the transcript that gets used?</li>
+    <li><strong>Realtime feel:</strong> moving desktop to batch-after-stop (G2) removes the live word-by-word preview. Confirm that the "wait, then show" behavior is the desired trade for verbatim text.</li>
+    <li><strong>Selected method scope:</strong> should the phone recorder ingest also honor the user-selected method (currently OpenAI-specific), so the single setting truly governs all five paths?</li>
+  </ul>
+
+  <div class="footer">
+    Generated for issue #585. All <code>file:line</code> references verified against the working tree on
+    2026-06-20. This is a design document for review - no code has been changed. Next step: confirm the flow
+    and the gap list, then file G1-G8 as work items via the Product Agent.
+  </div>
+
+</div>
+</body>
+</html>

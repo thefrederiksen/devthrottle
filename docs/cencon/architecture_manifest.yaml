@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-18"
+last_updated: "2026-06-21"
 
 # C4 Level 1: System Context
 context:
@@ -196,6 +196,9 @@ containers:
           - Controls/InputDialog.axaml
           - SettingsDialog.axaml
           - LaunchPreviewDialog.axaml
+          - FeedbackDialog.axaml
+          - AgentEditorDialog.axaml
+          - ModelPickerDialog.axaml
 
   - id: terminal_core
     name: Terminal Core
@@ -269,6 +272,20 @@ containers:
       - name: OpenCodeAgent
         description: IAgent implementation for the opencode CLI (the opencode binary from opencode.ai). V1 spawns opencode with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode; bare launch opens opencode's interactive TUI in the working directory.
         file: Agents/OpenCodeAgent.cs
+      - name: CursorAgent
+        description: IAgent implementation for the Cursor CLI (cursor-agent). V1 spawns cursor-agent with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
+        file: Agents/CursorAgent.cs
+      - name: GrokAgent
+        description: IAgent implementation for the xAI Grok CLI. V1 spawns grok with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
+        file: Agents/GrokAgent.cs
+      - name: AgentToolCatalog / ToolDetectionWizardModel
+        description: AgentToolCatalog is the canonical catalog of known agent CLI tools (executable names, defaults) the machine-level Agents library and the tool-detection wizard draw from; ToolDetectionWizardModel backs the wizard that scans the machine for installed tools and writes them into the agent entries so they persist.
+        files:
+          - Agents/AgentToolCatalog.cs
+          - Agents/ToolDetectionWizardModel.cs
+      - name: LaunchMode
+        description: Enum + persistence for an agent session's launch mode (e.g. the Automatic skip-permissions preset), persisted on the agent entry so the chosen launch mode survives restarts.
+        file: Configuration/LaunchMode.cs
       - name: ActivityState
         description: Claude cognitive state enum (Idle, Working, WaitingForInput, etc.)
         file: Sessions/ActivityState.cs
@@ -312,6 +329,26 @@ containers:
         files:
           - Drivers/GenericDriver.cs
           - Drivers/AgentDrivers.cs
+      - name: CursorDriver
+        description: The Cursor CLI (cursor-agent) driver - launch args and the interaction protocol for driving Cursor inside a terminal, registered in AgentDrivers like the other per-kind drivers.
+        file: Drivers/CursorDriver.cs
+      - name: AgentSlashCommand / driver slash-command catalogs
+        description: Driver-aware slash commands - AgentSlashCommand is the per-command metadata, and each CLI carries its own catalog (Codex/Cursor/Gemini/Grok/OpenCode/Pi) so the composer offers the slash commands that the active session's tool actually supports instead of a single shared list. AgentModelOption carries the per-driver selectable model list.
+        files:
+          - Drivers/AgentSlashCommand.cs
+          - Drivers/AgentModelOption.cs
+          - Drivers/CodexSlashCommands.cs
+          - Drivers/CursorSlashCommands.cs
+          - Drivers/GeminiSlashCommands.cs
+          - Drivers/GrokSlashCommands.cs
+          - Drivers/OpenCodeSlashCommands.cs
+          - Drivers/PiSlashCommands.cs
+      - name: SessionAskRunner
+        description: Drives a one-shot question through a REAL agent session (not print mode) and reads back a formatted answer - launch (spec without -p), submit, read the reply, close - with a timeout (SessionAskTimeoutException) and a structured SessionAskResult. Backs the Wingman "ask via a real session" path (issue #509).
+        files:
+          - Drivers/SessionAskRunner.cs
+          - Drivers/SessionAskResult.cs
+          - Drivers/SessionAskTimeoutException.cs
       - name: Session driver verbs
         description: Session.Driver + CancelTurnAsync / InterruptAsync / ShowHistoryAsync / ClearContextAsync (driver clear + post-clear transcript re-discovery; the caller relinks via SessionManager) + SendTextAsync routed through driver.SubmitAsync for ConPty backends only (non-PTY transports keep their own submit semantics)
         file: Sessions/Session.cs
@@ -405,6 +442,14 @@ containers:
       - name: StateVoteService
         description: Persists human corrections of the terminal-state detector to a local JSONL log and posts them best-effort to a GitHub tracking issue via gh
         file: Feedback/StateVoteService.cs
+      - name: FeedbackService
+        description: Backs Help > Send Feedback - files a GitHub issue on the DevThrottle repository (optionally with a screenshot) via the GitHub REST client, so users can report feedback from inside the app (issue #568).
+        file: Feedback/FeedbackService.cs
+      - name: GitHubRestClient / IGitHubClient
+        description: Minimal GitHub REST client (and its interface for testing) used to create issues and upload feedback assets without shelling out to the gh CLI.
+        files:
+          - Backends/GitHubRestClient.cs
+          - Backends/IGitHubClient.cs
       - name: VoiceService
         description: End-to-end voice command pipeline - Whisper transcription, Wingman cleanup, intent parse, and execution against SessionManager
         file: Voice/VoiceService.cs
@@ -682,6 +727,16 @@ containers:
         files:
           - Api/SettingsEndpoints.cs
           - Api/GatewaySettingsHooks.cs
+      - name: Wingman Gateway services
+        description: The Gateway-hosted Wingman pieces - WingmanInstructionsStore (editable, versioned wingman instructions with a managed default and A/B testing, #537), WingmanMenu (menu handling), WingmanTranslator, WingmanTrainingStore (training-data capture, #531), and WingmanVoiceService (the gateway-owned voice mode: red->yellow->red state, gateway-owned explain), surfaced via GatewayWingmanVoiceEndpoint and WingmanInstructionsEndpoint.
+        files:
+          - Wingman/WingmanInstructionsStore.cs
+          - Wingman/WingmanMenu.cs
+          - Wingman/WingmanTranslator.cs
+          - Wingman/WingmanTrainingStore.cs
+          - Wingman/WingmanVoiceService.cs
+          - Api/GatewayWingmanVoiceEndpoint.cs
+          - Api/WingmanInstructionsEndpoint.cs
       - name: GatewayTurnBriefAgent
         description: The fleet's single warm-brain stamper - a coalescing work queue that, on each turn end, generates the TurnBrief (and on-demand ExplainReport, which outranks background stamping) via the TurnBriefContract prompt, validates mechanically, stores append-only, and degrades to an honest stub on failure; poisoned-brain detection restarts the brain after repeated validation rejections (issues #185/#187/#208/#217)
         file: Briefing/GatewayTurnBriefAgent.cs
