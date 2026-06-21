@@ -53,6 +53,12 @@ public sealed class RecordingIngestService : IDisposable
     private const string StateCleaning = "cleaning";
     private const string StateTranscribed = "transcribed";
     private const string StateError = "error";
+    // The completeness gate (issue #586) refused this upload: a segment is
+    // missing, a stored segment's SHA256 does not match the manifest, or the
+    // stored bytes do not total the manifest count. The client must re-send the
+    // indices in StatusModel.MissingOrBadIndices, then call complete again.
+    // NOT eligible for the worker - nothing is ever transcribed in this state.
+    private const string StateIncomplete = "incomplete";
 
     private readonly string _root;
     // The transcription engine is built LAZILY, never at construction: the factory is
@@ -205,7 +211,9 @@ public sealed class RecordingIngestService : IDisposable
 
             // Already queued or actively being worked: leave the in-flight job
             // alone, just report current state. (A duplicate complete from the
-            // phone must not reset progress or attempt counters.)
+            // phone must not reset progress or attempt counters.) An upload that
+            // already passed the gate has its whole audio - it does not need to
+            // be re-verified.
             if (status.State is StateQueued or StateTranscribing or StateCleaning)
             {
                 FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} already {status.State}, not re-queued");
@@ -213,14 +221,50 @@ public sealed class RecordingIngestService : IDisposable
                 return ToDto(status);
             }
 
-            // Fresh enqueue (first complete, or a manual retry of a failed one):
-            // reset the attempt budget and clear any pending retry schedule.
+            // === Audio completeness gate (issue #586) ===========================
+            // Whole-audio capture is an ENFORCED invariant, not best effort: a
+            // recording only advances to transcription when every segment the
+            // manifest declares is present and contiguous, each stored segment's
+            // SHA256 matches the manifest, and the stored bytes total the manifest
+            // count. An empty capture fails loud (it can never produce an empty
+            // transcript). Anything short of all-pass is refused as "incomplete",
+            // naming the exact indices to re-send, and is NEVER queued - so a
+            // dropped buffer or a half-finished upload can never reach the
+            // transcriber.
+            if (manifest.Chunks.Count == 0)
+            {
+                status.State = StateIncomplete;
+                status.MissingOrBadIndices = new List<int>();
+                status.Error = "empty capture: the manifest declares zero audio segments";
+                SaveStatus(status);
+                FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} REFUSED - empty capture (zero segments)");
+                throw new InvalidOperationException(
+                    $"Recording '{recordingId}' has an empty capture (zero audio segments); refusing to transcribe.");
+            }
+
+            var badIndices = VerifyAudioCompleteness(recordingId, manifest);
+            if (badIndices.Count > 0)
+            {
+                status.State = StateIncomplete;
+                status.MissingOrBadIndices = badIndices.ToList();
+                status.Error = $"incomplete audio: missing or bad segment indices [{string.Join(',', badIndices)}]";
+                SaveStatus(status);
+                FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} REFUSED - incomplete audio, "
+                    + $"missing/bad indices=[{string.Join(',', badIndices)}] (no transcription performed)");
+                return ToDto(status);
+            }
+
+            // Fresh enqueue (first complete, a re-send that now passes the gate,
+            // or a manual retry of a failed one): the whole audio is verified
+            // present and intact. Reset the attempt budget and clear any pending
+            // retry schedule and any prior incomplete marker.
             status.State = StateQueued;
             status.Error = null;
             status.Attempts = 0;
             status.NextAttemptAtUtc = null;
+            status.MissingOrBadIndices = null;
             SaveStatus(status);
-            FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} queued for background transcription");
+            FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} gate PASSED ({manifest.Chunks.Count} segments verified), queued for background transcription");
 
             SignalWorker();
             return ToDto(status);
@@ -229,6 +273,65 @@ public sealed class RecordingIngestService : IDisposable
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// The audio completeness gate (issue #586). Verifies that the stored audio
+    /// segments match the manifest exactly before transcription is allowed:
+    /// <list type="number">
+    ///   <item>every index 0..count-1 the manifest declares is present on disk
+    ///         (contiguous - no gap),</item>
+    ///   <item>each stored segment's SHA256 matches the manifest hash,</item>
+    ///   <item>each stored segment's byte length matches the manifest byte count
+    ///         (so the total of all segments matches too).</item>
+    /// </list>
+    /// Returns the sorted, de-duplicated list of segment indices that are missing
+    /// or bad - empty means an all-pass (the recording may advance to
+    /// transcription). The returned list is exactly what the client must re-send.
+    /// This is a read-only check: it never mutates state and never transcribes.
+    /// </summary>
+    private IReadOnlyList<int> VerifyAudioCompleteness(string recordingId, RecordingManifest manifest)
+    {
+        var ext = CodecToExt(manifest.Codec);
+        var bad = new SortedSet<int>();
+
+        foreach (var chunk in manifest.Chunks)
+        {
+            var path = Path.Combine(RecordingDir(recordingId), $"{chunk.Index:D4}.{ext}");
+            if (!File.Exists(path))
+            {
+                // Missing segment: the upload is not contiguous / not all there.
+                FileLog.Write($"[RecordingIngestService] gate: id={recordingId} index={chunk.Index} MISSING ({path})");
+                bad.Add(chunk.Index);
+                continue;
+            }
+
+            var bytes = File.ReadAllBytes(path);
+
+            // Byte-count check (per segment, which also enforces the manifest
+            // total once every segment passes).
+            if (bytes.LongLength != chunk.Bytes)
+            {
+                FileLog.Write($"[RecordingIngestService] gate: id={recordingId} index={chunk.Index} BYTE MISMATCH "
+                    + $"(stored={bytes.LongLength}, manifest={chunk.Bytes})");
+                bad.Add(chunk.Index);
+                continue;
+            }
+
+            // SHA256 integrity check against the manifest hash. A blank manifest
+            // hash cannot be verified, so it is treated as bad rather than
+            // silently trusted (no best-effort acceptance).
+            var actual = Sha256Hex(bytes);
+            if (string.IsNullOrWhiteSpace(chunk.Sha256)
+                || !actual.Equals(chunk.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[RecordingIngestService] gate: id={recordingId} index={chunk.Index} SHA MISMATCH "
+                    + $"(stored={actual[..Math.Min(12, actual.Length)]}, manifest={(string.IsNullOrWhiteSpace(chunk.Sha256) ? "(blank)" : chunk.Sha256[..Math.Min(12, chunk.Sha256.Length)])})");
+                bad.Add(chunk.Index);
+            }
+        }
+
+        return bad.ToList();
     }
 
     /// <summary>
@@ -254,6 +357,17 @@ public sealed class RecordingIngestService : IDisposable
             // Idempotent: nothing to do if it already finished.
             if (status.State == StateTranscribed)
                 return;
+
+            // Defense in depth for the completeness gate (issue #586): an
+            // "incomplete" recording must NEVER be transcribed. The worker's
+            // eligibility scan already excludes this state, but a direct call
+            // here is a no-op too - the client must re-send the missing/bad
+            // segments and call complete again to re-pass the gate.
+            if (status.State == StateIncomplete)
+            {
+                FileLog.Write($"[RecordingIngestService] Process: id={recordingId} is incomplete; skipping (no transcription)");
+                return;
+            }
 
             var manifest = LoadManifest(recordingId)
                 ?? throw new InvalidOperationException($"Manifest missing for recording '{recordingId}'.");
@@ -824,7 +938,8 @@ public sealed class RecordingIngestService : IDisposable
         }
         return new RecordingStatusDto(
             s.RecordingId, s.Title, s.State, received, s.ChunksTotal, transcribed, s.VaultDocId, s.Error, s.Transcript,
-            s.Attempts, s.NextAttemptAtUtc);
+            s.Attempts, s.NextAttemptAtUtc,
+            s.MissingOrBadIndices is { Count: > 0 } ? s.MissingOrBadIndices.ToList() : null);
     }
 
     private static bool IsAudio(string path)
@@ -904,6 +1019,12 @@ public sealed class RecordingIngestService : IDisposable
         // Queue/retry bookkeeping for the background transcription worker.
         public int Attempts { get; set; }
         public string? NextAttemptAtUtc { get; set; }
+
+        // The segment indices the completeness gate (issue #586) found missing or
+        // bad on the last complete call. Set with State="incomplete"; cleared the
+        // moment a complete call passes the gate. The client re-sends exactly
+        // these indices, then calls complete again.
+        public List<int>? MissingOrBadIndices { get; set; }
     }
 
     public void Dispose()

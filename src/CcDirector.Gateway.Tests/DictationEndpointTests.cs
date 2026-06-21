@@ -218,24 +218,20 @@ public sealed class DictationEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ClientCloseWithoutStop_recovers_transcript_instead_of_discarding()
+    public async Task ClientCloseWithoutStop_discards_partial_audio_and_never_transcribes()
     {
-        // Regression for the dominant "half my transcriptions don't come
-        // through" failure: the browser kills the socket mid-recording (mobile
-        // backgrounding, tab blur, network blip) without sending a 'stop'
-        // frame. The server used to log "client closed before stop" and throw
-        // the captured audio away. It must now finalize and record the
-        // recovered transcript instead.
-        var audioPath = FindClip2Mp3();
-        if (audioPath is null) return;
-        if (!HasOpenAiKey()) return;
-        var ffmpeg = FindFfmpeg();
-        if (ffmpeg is null) return;
-
-        var pcm = DecodeMp3ToPcm16At24k(audioPath, ffmpeg);
-        if (pcm is null || pcm.Length == 0) return;
-
+        // Acceptance criterion 4 (issue #586): the desktop dictation "recover
+        // whatever arrived and transcribe it" truncation path is REMOVED. The
+        // browser kills the socket mid-recording (mobile backgrounding, tab blur,
+        // network blip) without sending a 'stop' frame. The server must NOT
+        // transcribe that partial audio - it discards it and records an explicit
+        // "discarded (not transcribed)" outcome. There must be NO "recovered"
+        // transcript and NO /dictate/recovered pickup endpoint anymore.
+        //
+        // This test does not need OpenAI: the whole point is that nothing is
+        // transcribed. Raw PCM-shaped bytes are enough to drive the drop path.
         var startedUtc = DateTime.UtcNow;
+        var pcm = new byte[200_000]; // well above the old recovery threshold
 
         using (var ws = new ClientWebSocket())
         {
@@ -246,13 +242,18 @@ public sealed class DictationEndpointTests : IAsyncLifetime
 
             await SendJsonAsync(ws, new { type = "start", profile = "default" });
 
+            // A 'started' frame means the provider connected; without an OpenAI
+            // key StartAsync fails first with a typed error, which is itself an
+            // acceptable "no partial transcript" outcome - so we tolerate either.
             bool started = false;
             for (int i = 0; i < 5 && !started; i++)
             {
                 var frame = await ReceiveJsonAsync(ws);
-                if (frame.GetProperty("type").GetString() == "started") started = true;
+                var type = frame.GetProperty("type").GetString();
+                if (type == "started") started = true;
+                if (type == "error") return; // no key/provider: nothing transcribed, criterion holds
             }
-            Assert.True(started, "did not receive 'started' frame");
+            if (!started) return;
 
             const int chunkSize = 4096;
             for (int offset = 0; offset < pcm.Length; offset += chunkSize)
@@ -261,17 +262,11 @@ public sealed class DictationEndpointTests : IAsyncLifetime
                 await ws.SendAsync(pcm.AsMemory(offset, len), WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
             }
 
-            // Simulate the browser dropping the socket: a one-way close with NO
-            // 'stop' frame, exactly what a backgrounded mobile tab does. The
-            // streamed audio frames are queued ahead of this close frame on the
-            // same connection, so the server reads all of them, then the close.
+            // Drop the socket: a one-way close with NO 'stop' frame, exactly what
+            // a backgrounded mobile tab does.
             await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "dropped", CancellationToken.None);
 
-            // Keep the connection alive until the server finishes recovering and
-            // closes from its side. Without this the `using` dispose would ABORT
-            // the TCP connection and discard the still-buffered audio frames -
-            // which a real browser does not do.
-            using var drainDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            using var drainDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             try
             {
                 var buf = new byte[4096];
@@ -281,53 +276,39 @@ public sealed class DictationEndpointTests : IAsyncLifetime
                     if (r.MessageType == WebSocketMessageType.Close) break;
                 }
             }
-            catch { /* server-side close races are fine; recovery is what we assert */ }
+            catch { /* server-side close races are fine */ }
         }
 
-        // The server recovers off the dead connection, so the only observable
-        // is the session log. Poll for a "recovered" record written after we
-        // started (an abnormal drop can interrupt mid-stream, so the recovered
-        // byte count may be less than what we sent - match on the marker, not
-        // an exact byte count).
-        var record = await WaitForRecoveredRecordAsync(
+        // The server must record the drop as discarded, NOT recovered.
+        var discarded = await WaitForClientErrorRecordAsync(
+            marker: "partial audio discarded",
             sinceUtc: startedUtc,
-            timeout: TimeSpan.FromSeconds(90));
+            timeout: TimeSpan.FromSeconds(30));
+        Assert.NotNull(discarded);
 
-        Assert.NotNull(record);
-        var raw = record.Value.GetProperty("RawTranscript").GetString() ?? "";
-        Assert.False(string.IsNullOrWhiteSpace(raw), "recovered transcript was empty - audio was discarded");
+        // No transcript may have been produced from the partial audio.
+        var raw = discarded.Value.TryGetProperty("RawTranscript", out var rawEl) ? rawEl.GetString() ?? "" : "";
+        Assert.True(string.IsNullOrWhiteSpace(raw), "partial audio was transcribed - the truncation path was not removed");
 
-        // Delivery path: the recovered transcript must be fetchable by a
-        // reconnecting browser via GET /dictate/recovered, then dismissable.
+        // And the recover-and-park path must be gone entirely.
+        var recovered = await WaitForClientErrorRecordAsync(
+            marker: "recovered:",
+            sinceUtc: startedUtc,
+            timeout: TimeSpan.FromSeconds(3));
+        Assert.Null(recovered);
+
+        // The /dictate/recovered pickup endpoint is removed: it must 404 now.
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}/") };
-
-        var listJson = await http.GetStringAsync("dictate/recovered");
-        using var listDoc = JsonDocument.Parse(listJson);
-        var items = listDoc.RootElement.GetProperty("recovered");
-        Assert.True(items.GetArrayLength() >= 1, "recovered transcript was not offered for pickup");
-
-        var entry = items[items.GetArrayLength() - 1];
-        var id = entry.GetProperty("id").GetString();
-        Assert.NotNull(id);
-        var text = entry.GetProperty("text").GetString() ?? "";
-        Assert.False(string.IsNullOrWhiteSpace(text), "offered recovered transcript was empty");
-
-        var dismissResp = await http.PostAsync($"dictate/recovered/{id}/dismiss", content: null);
-        Assert.True(dismissResp.IsSuccessStatusCode);
-
-        // After dismissal that id must be gone.
-        var afterJson = await http.GetStringAsync("dictate/recovered");
-        using var afterDoc = JsonDocument.Parse(afterJson);
-        foreach (var e in afterDoc.RootElement.GetProperty("recovered").EnumerateArray())
-            Assert.NotEqual(id, e.GetProperty("id").GetString());
+        var resp = await http.GetAsync("dictate/recovered");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
     }
 
     /// <summary>
-    /// Poll the daily dictation session JSONL for a "recovered:" record written
-    /// after <paramref name="sinceUtc"/>. Returns null if none appears within
-    /// the timeout.
+    /// Poll the daily dictation session JSONL for a record whose ClientError
+    /// contains <paramref name="marker"/>, written after <paramref name="sinceUtc"/>.
+    /// Returns null if none appears within the timeout.
     /// </summary>
-    private static async Task<JsonElement?> WaitForRecoveredRecordAsync(DateTime sinceUtc, TimeSpan timeout)
+    private static async Task<JsonElement?> WaitForClientErrorRecordAsync(string marker, DateTime sinceUtc, TimeSpan timeout)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var dir = Path.Combine(localAppData, "cc-director", "dictation", "sessions");
@@ -354,7 +335,7 @@ public sealed class DictationEndpointTests : IAsyncLifetime
                     catch (JsonException) { continue; }
 
                     var err = el.TryGetProperty("ClientError", out var ce) ? ce.GetString() : null;
-                    if (err is null || !err.Contains("recovered", StringComparison.OrdinalIgnoreCase))
+                    if (err is null || !err.Contains(marker, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (el.TryGetProperty("TimestampUtc", out var ts)
                         && DateTime.TryParse(ts.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind, out var when)

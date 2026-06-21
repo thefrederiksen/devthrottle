@@ -415,7 +415,7 @@ containers:
           - Scheduler/RunnersConfig.cs
           - Scheduler/RunnerRegistration.cs
       - name: RecordingIngestService
-        description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, transcribe, assemble markdown, optionally promote to vault (transient until promoted)
+        description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, then an audio completeness gate (issue #586) verifies every manifest segment is present, hash-matches, and byte-totals before transcription; an incomplete/empty upload is refused (state "incomplete" naming the missing/bad indices, or a loud empty-capture error) and never transcribed. Passing uploads transcribe, assemble markdown, optionally promote to vault (transient until promoted)
         file: Recording/RecordingIngestService.cs
       - name: IRecordingTranscriber / OpenAiRecordingTranscriber
         description: Transcriber abstraction and its OpenAI implementation (reuses the dictation STT + cleanup pipeline)
@@ -454,7 +454,7 @@ containers:
         description: End-to-end voice command pipeline - Whisper transcription, Wingman cleanup, intent parse, and execution against SessionManager
         file: Voice/VoiceService.cs
       - name: VoiceUtteranceService
-        description: Resumable phone voice upload - SHA256-checked chunked parts reassembled on complete, transcribed once, cleaned, logged, then deleted (transient)
+        description: Resumable phone voice upload - SHA256-checked chunked parts, gated on complete (issue #586) so an empty capture fails loud and a missing/zero-byte segment returns "incomplete" naming the indices (no partial transcription); a complete set is reassembled, transcribed once, cleaned, logged, then deleted (transient)
         file: Voice/VoiceUtteranceService.cs
       - name: VoiceTurnLog
         description: Disk-backed 5-day log pairing each voice turn's audio, inbound (raw/cleaned transcript) and outbound (agent vs spoken reply) for fidelity review
@@ -602,7 +602,7 @@ containers:
         description: Client for Director->Gateway register/heartbeat/unregister with exponential backoff (no-op if no gateway configured); also drives the two-way verify handshake (#223/#224) and surfaces the Gateway's verdict (HTTP callback + the stream-leg result) on the GatewayConnectionMonitor
         file: GatewayClient.cs
       - name: DictationEndpoint
-        description: WebSocket handler for /dictate streaming speech-to-text via the OpenAI Realtime API
+        description: WebSocket handler for /dictate streaming speech-to-text via the OpenAI Realtime API. Only an explicit stop frame finalizes/transcribes; an early or dropped connection discards its partial audio and never transcribes it (the recover-truncated-stream path and the /dictate/recovered pickup were removed by the audio completeness gate, issue #586)
         file: DictationEndpoint.cs
       - name: DispatchEndpoint
         description: POST /dispatch verb (issue 329) - mechanical dispatch of ONE already-approved communication-queue item by id through the Engine's CommunicationDispatcher; unapproved items are refused and nothing sends

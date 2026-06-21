@@ -45,18 +45,21 @@ namespace CcDirector.ControlApi;
 /// <c>%LOCALAPPDATA%/cc-director/dictation/buffer/&lt;session&gt;/</c>, so
 /// transient provider failures do not lose spoken audio.
 ///
+/// Audio completeness gate (issue #586): only an explicit <c>stop</c> frame
+/// finalizes and transcribes - that is the client's signal that the WHOLE
+/// utterance has been streamed. An early or dropped connection (a clean close
+/// without <c>stop</c>, or an abnormal mid-stream drop) never transcribes the
+/// partial audio it captured; it sends a typed <c>error</c> frame and discards.
+/// The earlier "recover whatever arrived and transcribe it" truncation path
+/// (the byte-threshold recovery + server-side parked-transcript pickup) has been
+/// removed so a partial recording can never reach the transcriber.
+///
 /// Localhost-only by default. The existing <see cref="ControlApiHost"/>
 /// auth middleware applies if enabled.
 /// </summary>
 internal static class DictationEndpoint
 {
     private const string BufferRootName = "buffer";
-
-    // 24 kHz mono PCM16 = 48000 bytes/sec, so half a second is 24000 bytes.
-    // This is the floor below which a close-without-stop is treated as a
-    // genuine cancel (nothing worth saying was captured) rather than a dropped
-    // recording whose audio we should recover.
-    private const int MinRecoverableAudioBytes = 24_000;
 
     public static void Map(IEndpointRouteBuilder app, AgentOptions options, OpenAiKeyResolver keyResolver, DictionaryResolver dictionaryResolver)
     {
@@ -76,28 +79,6 @@ internal static class DictationEndpoint
         {
             var js = EmbeddedResources.Load("dictate-client.js");
             return Results.Content(js, "application/javascript; charset=utf-8");
-        });
-
-        // Recovered-dictation pickup: the browser polls this on load and on
-        // tab-visible to see if a dropped recording was transcribed server-side
-        // while it was gone, then offers to insert it.
-        app.MapGet("/dictate/recovered", () =>
-        {
-            var items = RecoveredDictationStore.GetFresh()
-                .Select(e => new
-                {
-                    id = e.Id,
-                    text = e.Text,
-                    ageSeconds = (int)(DateTime.UtcNow - e.CreatedUtc).TotalSeconds,
-                })
-                .ToArray();
-            return Results.Json(new { recovered = items });
-        });
-
-        app.MapPost("/dictate/recovered/{id}/dismiss", (string id) =>
-        {
-            var removed = RecoveredDictationStore.Remove(id);
-            return Results.Json(new { dismissed = removed });
         });
 
         app.MapGet("/dictate", async (HttpContext ctx) =>
@@ -246,7 +227,15 @@ internal static class DictationEndpoint
                       + $"dict={dictPath} spillDir={bufferSpillDir}");
 
         var rxBuffer = new byte[16 * 1024];
-        var recoveredFromEarlyClose = false;
+
+        // Audio completeness gate (issue #586): desktop dictation NEVER transcribes
+        // partial audio. The "recover whatever arrived and transcribe it"
+        // truncation path (MinRecoverableAudioBytes / TryRecoverOrDiscard) has been
+        // removed. Only an explicit 'stop' frame - which the client sends after the
+        // whole utterance has been streamed - finalizes and transcribes. An early
+        // or dropped connection (clean close without 'stop', or an abnormal
+        // mid-stream drop) yields an explicit failure and discards the partial
+        // audio; it can never produce a transcript of partial input.
         try
         {
             while (true)
@@ -254,14 +243,17 @@ internal static class DictationEndpoint
                 var result = await ws.ReceiveAsync(rxBuffer, ct);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    // A clean close handshake without a 'stop' frame. If a
-                    // meaningful amount of audio was captured, treat it as an
-                    // implicit stop and recover (see RecoverOrDiscard).
-                    if (TryRecoverOrDiscard("client closed before stop", out clientError))
-                    {
-                        recoveredFromEarlyClose = true;
-                        break;
-                    }
+                    // A clean close handshake WITHOUT a 'stop' frame. The client
+                    // did not signal that the whole utterance was sent, so the
+                    // audio is partial by definition. Fail explicitly - never
+                    // transcribe it.
+                    FileLog.Write($"[DictationEndpoint] sid={sessionId} client closed before stop "
+                                  + $"({audioBytesReceived} bytes captured); discarding partial audio, no transcript");
+                    LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
+                        audioBytesReceived, transcript: null, options, remoteIp,
+                        clientError: "client closed before stop - partial audio discarded (not transcribed)");
+                    await TrySendErrorAsync(ws, "recording ended before stop; partial audio was not transcribed - please re-record", ct);
+                    await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "closed before stop");
                     return;
                 }
                 if (result.MessageType == WebSocketMessageType.Binary)
@@ -294,59 +286,30 @@ internal static class DictationEndpoint
         }
         catch (Exception ex)
         {
-            // The connection ended WITHOUT a clean close handshake - the common
-            // real-world case when a mobile browser is backgrounded or the
-            // network blips. ReceiveAsync throws (cancellation via
-            // RequestAborted, a transport-level WebSocketException, or an
-            // IOException) instead of returning a Close message, and it can
-            // interrupt mid-stream so fewer bytes were received than the client
-            // sent. Whatever the cause, if we captured real audio it is the same
-            // "lost recording" situation as a clean early close: recover it
-            // rather than letting the outer handler discard everything.
-            FileLog.Write($"[DictationEndpoint] sid={sessionId} receive loop ended abnormally: "
-                          + $"{ex.GetType().Name}: {ex.Message}");
-            if (!TryRecoverOrDiscard("connection dropped before stop", out clientError))
-                return;
-            recoveredFromEarlyClose = true;
-        }
-
-        // Local helper: decide whether an early/abnormal end-of-stream carried
-        // enough audio to be worth finalizing. Returns true (with a "recovered:"
-        // clientError) to fall through to the finalize block, or false (after
-        // logging a discard record) to bail out.
-        bool TryRecoverOrDiscard(string what, out string? error)
-        {
-            if (audioBytesReceived >= MinRecoverableAudioBytes)
-            {
-                FileLog.Write($"[DictationEndpoint] sid={sessionId} {what} with "
-                              + $"{audioBytesReceived} bytes captured; recovering transcript");
-                error = "recovered: " + what + " frame";
-                return true;
-            }
-            FileLog.Write($"[DictationEndpoint] sid={sessionId} {what} "
-                          + $"({audioBytesReceived} bytes, below recovery threshold)");
+            // The connection ended WITHOUT a clean close handshake and WITHOUT a
+            // 'stop' frame - a mobile browser backgrounded, the network blipped,
+            // or the request was aborted. ReceiveAsync can interrupt mid-stream,
+            // so fewer bytes arrived than the client sent: the audio is partial.
+            // We do NOT recover-and-transcribe it (that was the removed truncation
+            // path). Fail explicitly and discard.
+            FileLog.Write($"[DictationEndpoint] sid={sessionId} connection dropped before stop "
+                          + $"({ex.GetType().Name}: {ex.Message}); discarding partial audio, no transcript");
             LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
                 audioBytesReceived, transcript: null, options, remoteIp,
-                clientError: "client closed before stop");
-            error = null;
-            return false;
+                clientError: "connection dropped before stop - partial audio discarded (not transcribed)");
+            await TrySendErrorAsync(ws, "connection dropped before stop; partial audio was not transcribed - please re-record", ct);
+            await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "dropped before stop");
+            return;
         }
 
         recordingStart.Stop();
         var stopWatch = System.Diagnostics.Stopwatch.StartNew();
         await SendJsonAsync(ws, new { type = "transcribing" }, ct);
 
-        // On the recovery path the client connection is already gone, so its
-        // cancellation token (RequestAborted) may already be firing. Finalizing
-        // the transcription talks to OpenAI over a SEPARATE socket and must not
-        // be cancelled just because the client vanished - the provider's own
-        // 30s StopTimeout still bounds it. Use an independent token there.
-        var finalizeCt = recoveredFromEarlyClose ? CancellationToken.None : ct;
-
         TranscriptResult? transcript = null;
         try
         {
-            transcript = await session.StopAsync(finalizeCt);
+            transcript = await session.StopAsync(ct);
             transcribedElapsedMs = stopWatch.ElapsedMilliseconds;
         }
         catch (Exception ex)
@@ -373,20 +336,6 @@ internal static class DictationEndpoint
             FileLog.Write($"[DictationEndpoint] sid={sessionId} done in {stopElapsedMs}ms: "
                           + $"raw_len={transcript.RawTranscript.Length} cleaned_len={transcript.CleanedTranscript.Length} "
                           + $"applied={transcript.CleanupApplied}");
-
-            // The 'final' frame above could not reach a client that already
-            // dropped the socket, so park the recovered transcript for the
-            // browser to pick up on reconnect. Only on the recovery path - a
-            // normal stop already delivered the text live.
-            if (recoveredFromEarlyClose)
-            {
-                var recoveredText = string.IsNullOrWhiteSpace(transcript.CleanedTranscript)
-                    ? transcript.RawTranscript
-                    : transcript.CleanedTranscript;
-                RecoveredDictationStore.Add(recoveredText);
-                FileLog.Write($"[DictationEndpoint] sid={sessionId} parked recovered transcript "
-                              + $"({recoveredText?.Length ?? 0} chars) for browser pickup");
-            }
         }
 
         LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart,

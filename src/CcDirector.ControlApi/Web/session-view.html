@@ -1340,16 +1340,9 @@
   <div class="keypad-status" id="keypadStatus">Ready.</div>
 </div>
 
-<!-- Recovered-dictation banner. Hidden until the page finds a transcript that
-     was recovered server-side after a dropped /dictate socket. -->
-<div id="recoveryBanner" style="display:none; margin:8px 12px; padding:10px 12px; background:#2d2a1f; border:1px solid #6b5d2f; border-radius:6px; color:#e8dcae; font-size:13px;">
-  <div style="margin-bottom:6px;"><strong>Recovered dictation</strong> <span id="recoveryAge" style="color:#b8a96a;"></span></div>
-  <div id="recoveryText" style="white-space:pre-wrap; word-break:break-word; color:#ddd; margin-bottom:8px; max-height:96px; overflow:auto;"></div>
-  <div style="display:flex; gap:8px; justify-content:flex-end;">
-    <button type="button" id="recoveryDismissBtn" style="background:#2d2d30; color:#ccc; border:0; border-radius:6px; padding:6px 14px; cursor:pointer;">Dismiss</button>
-    <button type="button" id="recoveryInsertBtn" style="background:#16A34A; color:#fff; border:0; border-radius:6px; padding:6px 14px; cursor:pointer; font-weight:600;">Insert</button>
-  </div>
-</div>
+<!-- The recovered-dictation banner was removed with the desktop "recover
+     whatever arrived and transcribe it" truncation path (issue #586): partial
+     audio is never transcribed, so there is nothing to recover and offer here. -->
 
 <form class="send" onsubmit="return send(event)">
   <textarea id="prompt" rows="1" placeholder="Type or paste... (Enter adds a newline; tap Send to submit)" autocomplete="off"></textarea>
@@ -2550,68 +2543,10 @@
     });
   });
 
-  // ===== RECOVERED DICTATION PICKUP =====
-  // A /dictate socket that drops without a 'stop' (phone backgrounded, tab
-  // blur, network blip) is still transcribed server-side and parked. There was
-  // no live socket to return it on, so we fetch it here and offer to insert it
-  // - turning a lost recording into one the user just confirms. Checked on load
-  // and whenever the tab becomes visible again (the moment a phone unbackgrounds).
-  const recoveryBanner    = document.getElementById('recoveryBanner');
-  const recoveryTextEl    = document.getElementById('recoveryText');
-  const recoveryAgeEl     = document.getElementById('recoveryAge');
-  const recoveryInsertBtn = document.getElementById('recoveryInsertBtn');
-  const recoveryDismissBtn= document.getElementById('recoveryDismissBtn');
-  let _recoveryId = null;
-
-  function hideRecoveryBanner() {
-    _recoveryId = null;
-    if (recoveryBanner) recoveryBanner.style.display = 'none';
-  }
-
-  function showRecovery(item) {
-    if (!recoveryBanner) return;
-    _recoveryId = item.id;
-    recoveryTextEl.textContent = item.text;
-    const mins = Math.floor((item.ageSeconds || 0) / 60);
-    recoveryAgeEl.textContent = mins >= 1 ? '(' + mins + ' min ago)' : '(just now)';
-    recoveryBanner.style.display = 'block';
-  }
-
-  async function dismissRecovery(id) {
-    try { await fetch('/dictate/recovered/' + encodeURIComponent(id) + '/dismiss', { method: 'POST' }); } catch (_) {}
-  }
-
-  async function checkRecoveredDictation() {
-    if (_recoveryId) return;   // don't clobber a banner the user is already looking at
-    let data;
-    try {
-      const resp = await fetch('/dictate/recovered', { cache: 'no-store' });
-      if (!resp.ok) return;
-      data = await resp.json();
-    } catch (_) { return; }
-    const items = (data && data.recovered) || [];
-    if (items.length === 0) return;
-    showRecovery(items[items.length - 1]);   // most recent (list is oldest-first)
-  }
-
-  recoveryInsertBtn?.addEventListener('click', () => {
-    const id = _recoveryId;
-    const text = recoveryTextEl.textContent || '';
-    const inp = document.getElementById('prompt');
-    if (inp && text) insertAtCaret(inp, text);
-    hideRecoveryBanner();
-    if (id) dismissRecovery(id).then(checkRecoveredDictation);
-  });
-  recoveryDismissBtn?.addEventListener('click', () => {
-    const id = _recoveryId;
-    hideRecoveryBanner();
-    if (id) dismissRecovery(id).then(checkRecoveredDictation);
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkRecoveredDictation();
-  });
-  checkRecoveredDictation();
+  // The recovered-dictation pickup was removed with the desktop "recover
+  // whatever arrived and transcribe it" truncation path (issue #586). Partial
+  // audio from a dropped /dictate socket is never transcribed now, so there is
+  // nothing parked server-side to fetch and insert here.
 
   // ===== TERMINAL KEYPAD =====
   // The composer's "Keys" button toggles a small keypad of menu-control keys.
