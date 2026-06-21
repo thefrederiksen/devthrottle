@@ -1,0 +1,8 @@
+  Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_NullPcm_Throws [3 ms]
+  Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_EmptyPcm_ProducesHeaderOnlyFortyFourBytes [2 ms]
+  Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_RoundTripsPayloadBytes [< 1 ms]
+  Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_DeclaresCaptureFormat [< 1 ms]
+  Passed CcDirector.Avalonia.Tests.WavWriterTests.WrapPcm16_WithPcm_WritesRiffWaveFmtDataChunks [< 1 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket [20 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopDictationBatchProofTests.WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText [1 ms]
+     Passed: 7

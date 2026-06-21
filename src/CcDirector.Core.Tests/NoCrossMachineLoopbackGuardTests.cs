@@ -80,6 +80,7 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Avalonia/WorkflowRecorderWindow.axaml.cs"] = "Local browser-automation references.",
         ["src/CcDirector.Avalonia/Voice/SpeakService.cs"] = "Local voice service references.",
         ["src/CcDirector.Avalonia/Voice/SpeakDialog.axaml.cs"] = "Local voice dialog references.",
+        ["src/CcDirector.Avalonia/Voice/BatchDictationRecorder.cs"] = "Doc comment notes the batch path has no localhost WebSocket roundtrip.",
         ["src/CcDirector.Core/Browser/WorkflowRunner.cs"] = "Drives a local browser via loopback CDP.",
         ["src/CcDirector.Core/Sessions/SessionManager.cs"] = "Stamps the same-machine CC_DIRECTOR_API loopback URL for in-session agents.",
     };
