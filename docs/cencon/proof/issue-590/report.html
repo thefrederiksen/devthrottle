@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #590: Migrate desktop voice mode to the shared batch pipeline</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1c1c1c; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #2B6CB0; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #2B6CB0; }
+  code { background: #f3f3f3; padding: .1rem .3rem; border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #eef4fb; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .note { background: #fffbe6; border-left: 4px solid #DCDCAA; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #590</h1>
+<p><strong>[Voice] Migrate desktop voice mode to the shared batch pipeline (remove hardcoded
+whisper-1 + free-text cleanup).</strong> Parent #585. Builds on #586 (completeness gate), #587
+(shared batch pipeline), #588 (shared component), #589 (desktop dictation batch + the
+<code>BatchDictationRecorder</code> pattern reused here).</p>
+
+<h2>What was implemented</h2>
+<p>Desktop voice mode is the eyes-free <strong>Voice tab</strong> (<code>VoiceView</code>) and the
+full-screen FIFO takeover (<code>FifoWindow</code>). Both previously captured audio through
+<code>SpeakService</code>, which on the bring-your-own / OpenAI path forced the streaming
+<code>OpenAiRealtimeProvider</code> (<code>gpt-4o-transcribe</code>, a realtime WebSocket) with live
+partial transcription, ignoring the user-selected transcription method, and attached a
+chat-completions cleanup pass on that path.</p>
+<p>This change routes both desktop voice surfaces through the SAME whole-audio batch path the Speak
+dialog uses since issue #589: <code>BatchDictationRecorder</code>. It captures every byte of the turn
+locally, then on Stop &amp; Send transcribes the whole clip <strong>once</strong> through the shared
+<code>BatchTranscriptionPipeline</code> (#587) using the user-selected method (base URL + key + model
+from the Gateway routing resolver), applies the validated <strong>dictionary corrector only</strong>
+(no free-text cleanup), and enforces the completeness gate (#586): an empty/interrupted capture throws
+<code>NoAudioCapturedException</code>, handled as "nothing heard" rather than transcribing partial
+input. The Ask Agent versus Ask Wingman choice is a UI-only routing decision applied to the
+<em>finished</em> transcript and never alters the transcribed text.</p>
+
+<h3>Files changed</h3>
+<ul>
+  <li><code>src/CcDirector.Avalonia/Controls/VoiceView.axaml.cs</code> - Voice tab: <code>SpeakService</code> -&gt; <code>BatchDictationRecorder</code>; one batch <code>TranscribeAsync</code> on stop; <code>NoAudioCapturedException</code> handled as "nothing heard"; no live partials.</li>
+  <li><code>src/CcDirector.Avalonia/FifoWindow.axaml.cs</code> - FIFO takeover: same swap (Ask Agent / Ask Wingman push-to-talk).</li>
+  <li><code>src/CcDirector.Avalonia.Tests/DesktopVoiceModeBatchProofTests.cs</code> - 5 deterministic proof tests (new).</li>
+  <li><code>docs/cencon/architecture_manifest.yaml</code> - <code>voice_flow</code> updated to the whole-audio batch path (was <code>OpenAiSttService.TranscribeAsync</code> + free-text summarize).</li>
+</ul>
+<p class="note">No new hardcoded endpoint was introduced; the loopback architecture fitness function
+already allowlists <code>BatchDictationRecorder.cs</code>, and <code>VoiceView</code>/<code>FifoWindow</code>
+contain no loopback literal, so no guard change was needed. The streaming <code>SpeakService</code> is
+left intact only for the alpha-hidden wake-word tester surfaces that genuinely need continuous
+listening; desktop voice mode no longer uses it.</p>
+
+<h2>Acceptance criteria - each with its proof</h2>
+<table>
+<tr><th>Criterion (issue #590)</th><th>How the code satisfies it</th><th>Proof</th></tr>
+
+<tr>
+  <td>No hardcoded whisper-1 endpoint; transcription uses the selected method via the shared
+  pipeline (changing the method changes behavior).</td>
+  <td>The recorder resolves the method via <code>OpenAiKeyResolver.ResolveEndpointAsync</code> and
+  passes the resulting <code>ResolvedTranscription</code> to <code>BatchTranscriptionPipeline</code>,
+  which posts to <code>{baseUrl}/audio/transcriptions</code>. No fixed model/endpoint in the voice
+  path.</td>
+  <td class="pass">PASS - <code>SelectedMethod_GovernsTheBaseUrlHit</code>: the BYO method hits
+  <code>api.openai.com/v1</code>, the DevThrottle method hits <code>devthrottle.com/api/v1</code>,
+  and neither crosses onto the other.</td>
+</tr>
+
+<tr>
+  <td>The free-text cleanup is not in the voice path; a voice transcript with no dictionary terms
+  returns byte-identical to the raw transcription.</td>
+  <td>The only post-transcription transform is the validated dictionary corrector
+  (<code>CleanupOrchestrator</code> + <code>TranscriptEditEngine</code>), which edits the RAW text and
+  fails open. With no dictionary term the corrected text equals the raw text.</td>
+  <td class="pass">PASS - <code>WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText</code>:
+  <code>CorrectedTranscript == RawTranscript</code>, <code>DictionaryApplied == false</code>,
+  <code>ChangedWords</code> empty.</td>
+</tr>
+
+<tr>
+  <td>The whole clip is transcribed once after stop, with no partial transcription (one batch call
+  per utterance).</td>
+  <td><code>BatchDictationRecorder</code> buffers the whole turn locally and calls
+  <code>TranscribeAsync</code> exactly once on stop; there is no realtime provider and no
+  <code>OnPartial</code>.</td>
+  <td class="pass">PASS - <code>WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket</code>:
+  exactly 1 <code>/audio/transcriptions</code> POST; every call is plain HTTP; no <code>ws://</code>,
+  <code>wss://</code>, or <code>/realtime</code>.</td>
+</tr>
+
+<tr>
+  <td>Any routing decision (agent versus wingman) does not modify the transcript that is used (used
+  transcript = raw plus dictionary edits only).</td>
+  <td>The view reads <code>result.CleanedTranscript</code> and only THEN branches to
+  <code>AskAgentRequested</code> / <code>AskWingmanRequested</code> (or <code>SendToAgentAsync</code> /
+  <code>AskWingmanAsync</code> in FIFO). The same text is handed to either branch.</td>
+  <td class="pass">PASS - <code>Routing_DoesNotModifyTheUsedTranscript</code> proves the used
+  transcript equals raw-plus-dictionary; <code>WholeClip_DictionaryTerm_ChangesOnlyThatTerm</code>
+  proves a dictionary hit changes ONLY that term ("Mindsy" -&gt; "Mindzie"), nothing else.</td>
+</tr>
+</table>
+
+<h2>Build and test evidence</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded. 0 Warning(s), 0 Error(s).</strong></li>
+  <li>New proof suite <code>DesktopVoiceModeBatchProofTests</code>: <strong>5 passed</strong> (see <code>proof-tests.txt</code>).</li>
+  <li>Full Avalonia test suite: <strong>82 passed</strong> (77 prior + 5 new), 0 failed.</li>
+  <li><code>NoCrossMachineLoopbackGuardTests</code> (architecture fitness function): <strong>2 passed</strong> - no new loopback file.</li>
+  <li>Runtime: the migrated build was published to slot 13 (<code>cc-director13.exe</code>), launched
+  via the per-slot scheduled task under <code>svchost</code> (CLAUDE.md rule 0b), and booted clean
+  (<code>GET /healthz</code> -&gt; <code>{"status":"ok"}</code>, version 0.9.13) with no errors in the
+  Director log - confirming the desktop build with <code>BatchDictationRecorder</code> wired into the
+  voice surfaces runs.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>Architecture: <code>voice_flow</code> in <code>architecture_manifest.yaml</code> updated to the
+whole-audio batch path (it previously described <code>OpenAiSttService.TranscribeAsync</code> +
+<code>ClaudeSummarizer</code>, which the desktop voice surfaces no longer use). No security posture
+change - same in-process capture, same Gateway routing resolver, no new endpoint or loopback literal;
+the security profile (DT-01..DT-NN) is unaffected.</p>
+
+<h2>Conclusion</h2>
+<p>All four acceptance criteria are met and proven deterministically; the build is clean and the
+migrated binary boots. <strong>I believe this is finished.</strong></p>
+</body>
+</html>

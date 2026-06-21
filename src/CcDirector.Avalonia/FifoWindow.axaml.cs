@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Avalonia.Voice;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
@@ -26,10 +27,14 @@ namespace CcDirector.Avalonia;
 ///
 /// Voice is the default interaction. The briefing is spoken on arrival via the in-process
 /// <see cref="DesktopTtsPlayer"/>; Ask Wingman (the hero button, or Space) records a
-/// question and speaks the read-only answer back. Both reuse the same
-/// <see cref="SpeakService"/> capture the Voice tab uses and the read-only
-/// <see cref="Core.Wingman.WingmanService"/> the rest of the app uses. Advancing is manual
-/// (Skip / Hold / Next) - nothing auto-rotates.
+/// question and speaks the read-only answer back. Both reuse the same whole-audio batch
+/// <see cref="BatchDictationRecorder"/> capture the Voice tab uses (issue #590) and the
+/// read-only <see cref="Core.Wingman.WingmanService"/> the rest of the app uses. The question
+/// is transcribed ONCE after the user stops, through the shared batch pipeline using the
+/// user-selected method (no hardcoded realtime model, no live partials), with dictionary-only
+/// correction. Ask Agent versus Ask Wingman is a UI-only routing of the finished transcript and
+/// never alters the transcribed text. Advancing is manual (Skip / Hold / Next) - nothing
+/// auto-rotates.
 /// </summary>
 public partial class FifoWindow : Window
 {
@@ -51,7 +56,7 @@ public partial class FifoWindow : Window
     private readonly HashSet<Guid> _pass = new();
     private Session? _current;
 
-    private SpeakService? _service;
+    private BatchDictationRecorder? _recorder;
     private bool _recording;
     private bool _busy;
     private bool _wingmanTurn;
@@ -288,8 +293,10 @@ public partial class FifoWindow : Window
                 _tts.Stop();
 
                 _wingmanTurn = wingman;
-                _service = new SpeakService(_options);
-                await _service.StartAsync("default");
+                // BatchDictationRecorder buffers the whole turn locally; nothing is transcribed
+                // until TranscribeAsync runs on stop. No realtime socket, no live partials.
+                _recorder = new BatchDictationRecorder(_options);
+                await _recorder.StartAsync("default");
                 _recording = true;
                 SetRecordingUi(true, wingman);
             }
@@ -297,14 +304,14 @@ public partial class FifoWindow : Window
             {
                 FileLog.Write($"[FifoWindow] start capture FAILED: {ex.Message}");
                 SetStatus("Could not start: " + ex.Message, Red);
-                await SafeDisposeServiceAsync();
+                await SafeDisposeRecorderAsync();
                 _recording = false;
                 SetRestingButtons();
             }
             return;
         }
 
-        // ---- STOP capture, transcribe, act ----
+        // ---- STOP capture, transcribe ONCE, act ----
         _recording = false;
         _busy = true;
         AskAgentButton.IsEnabled = false;
@@ -312,12 +319,29 @@ public partial class FifoWindow : Window
         SetStatus("Transcribing...", Yellow);
         try
         {
-            var svc = _service;
-            _service = null;
-            var result = svc is null ? null : await svc.StopAsync();
-            if (svc is not null) await svc.DisposeAsync();
+            var rec = _recorder;
+            _recorder = null;
 
-            var transcript = (result?.CleanedTranscript ?? "").Trim();
+            string transcript;
+            try
+            {
+                // One whole-audio batch transcription via the user-selected method, dictionary-only
+                // correction. CleanedTranscript equals the raw transcript when no dictionary term hit.
+                var result = rec is null ? null : await rec.TranscribeAsync();
+                transcript = (result?.CleanedTranscript ?? "").Trim();
+            }
+            catch (NoAudioCapturedException)
+            {
+                // Completeness gate (issue #586): an interrupted turn captured no audio, so there is
+                // no transcript to use. Treat it as "nothing heard" rather than transcribing partial input.
+                FileLog.Write("[FifoWindow] no audio captured; nothing to transcribe");
+                transcript = "";
+            }
+            finally
+            {
+                if (rec is not null) await rec.DisposeAsync();
+            }
+
             SetText(TranscriptText, string.IsNullOrWhiteSpace(transcript) ? "(nothing heard)" : transcript);
             if (string.IsNullOrWhiteSpace(transcript))
             {
@@ -325,6 +349,8 @@ public partial class FifoWindow : Window
                 return;
             }
 
+            // Routing (agent vs wingman) is a UI-only decision on the FINISHED transcript; it never
+            // alters the transcribed text passed below.
             if (_wingmanTurn) await AskWingmanAsync(transcript);
             else await SendToAgentAsync(transcript);
         }
@@ -384,7 +410,7 @@ public partial class FifoWindow : Window
     {
         _recording = false;
         SetStatus("Cancelled.", Yellow);
-        await SafeDisposeServiceAsync();
+        await SafeDisposeRecorderAsync();
         SetRestingButtons();
         SetStatus("Ask Agent, Ask Wingman, Skip, Hold, or Next", Green);
     }
@@ -446,12 +472,12 @@ public partial class FifoWindow : Window
         return id.Length >= 8 ? id[..8] : id;
     }
 
-    private async Task SafeDisposeServiceAsync()
+    private async Task SafeDisposeRecorderAsync()
     {
-        var svc = _service;
-        _service = null;
-        if (svc is null) return;
-        try { await svc.DisposeAsync(); }
+        var rec = _recorder;
+        _recorder = null;
+        if (rec is null) return;
+        try { await rec.DisposeAsync(); }
         catch (Exception ex) { FileLog.Write($"[FifoWindow] dispose error: {ex.Message}"); }
     }
 
@@ -459,7 +485,7 @@ public partial class FifoWindow : Window
     {
         _recording = false;
         _briefingCts?.Cancel();
-        _ = SafeDisposeServiceAsync();
+        _ = SafeDisposeRecorderAsync();
         try { TerminalHost.Detach(); } catch { }
         // Stop any reply still being spoken and release the TTS audio device.
         try { _tts.Dispose(); } catch (Exception ex) { FileLog.Write($"[FifoWindow] tts dispose error: {ex.Message}"); }

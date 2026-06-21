@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Avalonia.Voice;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia.Controls;
@@ -15,10 +16,20 @@ namespace CcDirector.Avalonia.Controls;
 /// Ask Agent (talk TO the working agent) and Ask Wingman (ask the read-only
 /// observer). Click a button to start capturing; click the same button again
 /// ("Stop &amp; Send") to stop, which transcribes in-process via
-/// <see cref="SpeakService"/> (the same dictation engine the Speak button uses)
-/// and raises the matching event with the cleaned transcript. The host
-/// (MainWindow) decides what to do with it - send to the session or ask the
-/// wingman - and calls back <see cref="ShowReply"/> with the answer.
+/// <see cref="BatchDictationRecorder"/> (the same whole-audio batch path the
+/// Speak dialog uses since issue #589) and raises the matching event with the
+/// transcript. The host (MainWindow) decides what to do with it - send to the
+/// session or ask the wingman - and calls back <see cref="ShowReply"/> with the
+/// answer.
+///
+/// Transcription (issue #590): the whole captured clip is transcribed ONCE after
+/// the user stops, through the shared <see cref="Core.Transcription.BatchTranscriptionPipeline"/>
+/// using the user-selected method (no hardcoded realtime model), and the only
+/// post-transcription transform is the validated dictionary corrector (no free-text
+/// cleanup; a turn with no dictionary term comes back byte-identical). There is no
+/// live partial transcript while recording. Choosing Ask Agent versus Ask Wingman is
+/// a UI-only routing decision applied to the finished transcript AFTER transcription;
+/// it never alters the transcript itself.
 ///
 /// This view owns only audio capture + its own status UI. It holds no session
 /// reference and never writes to the PTY directly; the host does that.
@@ -26,15 +37,15 @@ namespace CcDirector.Avalonia.Controls;
 public partial class VoiceView : UserControl
 {
     private AgentOptions? _options;
-    private SpeakService? _service;
+    private BatchDictationRecorder? _recorder;
     private bool _recording;
     private bool _busy;
     private bool _wingmanTurn;
 
-    /// <summary>Raised with the cleaned transcript when the user finishes an Ask-Agent turn.</summary>
+    /// <summary>Raised with the transcript when the user finishes an Ask-Agent turn.</summary>
     public event Action<string>? AskAgentRequested;
 
-    /// <summary>Raised with the cleaned transcript when the user finishes an Ask-Wingman turn.</summary>
+    /// <summary>Raised with the transcript when the user finishes an Ask-Wingman turn.</summary>
     public event Action<string>? AskWingmanRequested;
 
     public VoiceView()
@@ -98,8 +109,10 @@ public partial class VoiceView : UserControl
             try
             {
                 _wingmanTurn = wingman;
-                _service = new SpeakService(_options);
-                await _service.StartAsync("default");
+                // BatchDictationRecorder buffers the whole turn locally; nothing is transcribed
+                // until TranscribeAsync runs on stop. No realtime socket, no live partials.
+                _recorder = new BatchDictationRecorder(_options);
+                await _recorder.StartAsync("default");
                 _recording = true;
                 SetRecordingUi(true, wingman);
             }
@@ -107,14 +120,14 @@ public partial class VoiceView : UserControl
             {
                 FileLog.Write($"[VoiceView] start FAILED: {ex.Message}");
                 SetStatus("Could not start: " + ex.Message, "#F44747");
-                await SafeDisposeServiceAsync();
+                await SafeDisposeRecorderAsync();
                 _recording = false;
                 SetRecordingUi(false, false);
             }
             return;
         }
 
-        // ---- STOP the active capture, transcribe, raise the event ----
+        // ---- STOP the active capture, transcribe ONCE, raise the event ----
         _recording = false;
         _busy = true;
         AskAgentButton.IsEnabled = false;
@@ -122,12 +135,29 @@ public partial class VoiceView : UserControl
         SetStatus("Transcribing...", "#DCDCAA");
         try
         {
-            var svc = _service;
-            _service = null;
-            var result = svc is null ? null : await svc.StopAsync();
-            if (svc is not null) await svc.DisposeAsync();
+            var rec = _recorder;
+            _recorder = null;
 
-            var transcript = (result?.CleanedTranscript ?? "").Trim();
+            string transcript;
+            try
+            {
+                // One whole-audio batch transcription via the user-selected method, dictionary-only
+                // correction. CleanedTranscript equals the raw transcript when no dictionary term hit.
+                var result = rec is null ? null : await rec.TranscribeAsync();
+                transcript = (result?.CleanedTranscript ?? "").Trim();
+            }
+            catch (NoAudioCapturedException)
+            {
+                // Completeness gate (issue #586): an interrupted turn captured no audio, so there is
+                // no transcript to use. Treat it as "nothing heard" rather than transcribing partial input.
+                FileLog.Write("[VoiceView] no audio captured; nothing to transcribe");
+                transcript = "";
+            }
+            finally
+            {
+                if (rec is not null) await rec.DisposeAsync();
+            }
+
             TranscriptText.Text = string.IsNullOrWhiteSpace(transcript) ? "(nothing heard)" : transcript;
             if (string.IsNullOrWhiteSpace(transcript))
             {
@@ -135,6 +165,8 @@ public partial class VoiceView : UserControl
                 return;
             }
 
+            // Routing (agent vs wingman) is a UI-only decision on the FINISHED transcript; it never
+            // alters the transcribed text. The host receives the exact text shown above.
             SetStatus(_wingmanTurn ? "Asking the wingman..." : "Sending to agent...", "#DCDCAA");
             if (_wingmanTurn) AskWingmanRequested?.Invoke(transcript);
             else AskAgentRequested?.Invoke(transcript);
@@ -172,12 +204,12 @@ public partial class VoiceView : UserControl
         }
     }
 
-    private async Task SafeDisposeServiceAsync()
+    private async Task SafeDisposeRecorderAsync()
     {
-        var svc = _service;
-        _service = null;
-        if (svc is null) return;
-        try { await svc.DisposeAsync(); }
+        var rec = _recorder;
+        _recorder = null;
+        if (rec is null) return;
+        try { await rec.DisposeAsync(); }
         catch (Exception ex) { FileLog.Write($"[VoiceView] dispose error: {ex.Message}"); }
     }
 }
