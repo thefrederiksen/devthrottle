@@ -183,6 +183,42 @@ public sealed class WingmanTranslatorTests
     }
 
     [Fact]
+    public async Task AskAboutDevThrottleAsync_AnswersTheProductQuestion_AndClearsContext()
+    {
+        // Issue #472: the Cockpit Learning page Q&A path. The brain is grounded as DevThrottle's
+        // in-product help and answers the question; the context is cleared after, like the others.
+        var brain = new FakeBrain(_ => "DevThrottle runs and supervises many Claude Code sessions at once.");
+        var translator = BuildTranslator(brain);
+
+        var result = await translator.AskAboutDevThrottleAsync("What is DevThrottle?");
+
+        Assert.Equal("DevThrottle runs and supervises many Claude Code sessions at once.", result.Spoken);
+        Assert.Equal(1, brain.ClearCount);
+        var prompt = Assert.Single(brain.Asks);
+        Assert.Contains("What is DevThrottle?", prompt);                 // the user's question is carried
+        Assert.Contains("DevThrottle's in-product help", prompt);        // the product grounding is present
+    }
+
+    [Fact]
+    public async Task AskAboutDevThrottleAsync_EmptyQuestion_Throws()
+    {
+        var translator = BuildTranslator(new FakeBrain(_ => "x"));
+        await Assert.ThrowsAsync<ArgumentException>(() => translator.AskAboutDevThrottleAsync("   "));
+    }
+
+    [Fact]
+    public void BuildDevThrottlePrompt_GroundsTheBrainAsDevThrottleHelp_AndCarriesTheQuestion()
+    {
+        var prompt = WingmanTranslator.BuildDevThrottlePrompt("How do I start a session?");
+
+        Assert.Contains("DevThrottle's in-product help", prompt);
+        Assert.Contains("Answer ONLY about DevThrottle", prompt);
+        Assert.Contains("How do I start a session?", prompt);
+        Assert.Contains(SessionAskRunner.AnswerBeginMarker, prompt);
+        Assert.Contains(SessionAskRunner.AnswerEndMarker, prompt);
+    }
+
+    [Fact]
     public void CleanupForSpeech_StripsCodeFencesButKeepsInlineIdentifierText()
     {
         var input = "Here is the change:\n```csharp\nvar x = 1;\n```\nIt updates `timeoutMs` to thirty seconds.";

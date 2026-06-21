@@ -367,6 +367,28 @@ internal static class GatewayWingmanVoiceEndpoint
             }
         });
 
+        // The DevThrottle product/docs Q&A path (issue #472): the Cockpit Learning page posts a
+        // free-text question ABOUT THE PRODUCT here and the warm brain answers it, grounded in a
+        // DevThrottle system prompt. The Cockpit talks only to the Gateway, never a Director - this
+        // is that Gateway endpoint. Same warm brain as ask-direct, different grounding.
+        app.MapPost("/wingman/ask-devthrottle", async (WingmanVoiceTurnRequest? req, CancellationToken ct) =>
+        {
+            FileLog.Write($"[GatewayWingmanVoice] ask-devthrottle textLen={req?.Text?.Length ?? 0}");
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.Json(new { error = "text is required" }, statusCode: StatusCodes.Status400BadRequest);
+            try
+            {
+                var t = await translator.AskAboutDevThrottleAsync(req.Text, ct);
+                FileLog.Write($"[GatewayWingmanVoice] ask-devthrottle OK: answerLen={t.Spoken.Length}, replySeconds={t.ReplySeconds:F1}");
+                return Results.Json(new { spoken = t.Spoken, replySeconds = t.ReplySeconds });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayWingmanVoice] ask-devthrottle FAILED: {ex.Message}");
+                return Results.Json(new { error = "wingman failed: " + ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+
         // Menu handling (issue #531): is the agent showing an on-screen menu right now, and what are
         // the options? The phone reads this on entry to render pressable option buttons and speak the
         // choices. { isMenu, question, spoken, selectionMode, submit, options:[{key,send,note,recommended}] }.

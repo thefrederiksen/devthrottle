@@ -214,6 +214,71 @@ public sealed class WingmanTranslator
     }
 
     /// <summary>
+    /// The DevThrottle product/docs Q&amp;A path (issue #472): the person asks a question about the
+    /// product itself - "what is DevThrottle?", "how do I start a session?" - on the Cockpit
+    /// Learning page, and the wingman answers it directly, grounded in a DevThrottle system prompt.
+    /// This is NOT a session translation and NOT a free-form chat: the brain is told it is
+    /// DevThrottle's in-product help and answers only about the product, declining off-topic asks.
+    /// Same warm brain as the other paths, cleared after the answer so context never accumulates.
+    /// </summary>
+    public async Task<WingmanTranslation> AskAboutDevThrottleAsync(string question, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(question))
+            throw new ArgumentException("A question is required to ask about DevThrottle.", nameof(question));
+
+        _log($"[WingmanTranslator] AskAboutDevThrottleAsync: questionLen={question.Length}");
+        var prompt = BuildDevThrottlePrompt(question);
+
+        var brain = await _brainProvider(ct);
+        AskResult ask;
+        try
+        {
+            ask = await brain.AskAsync(prompt, ct);
+        }
+        finally
+        {
+            await brain.ClearAsync(CancellationToken.None);
+        }
+
+        var answer = CleanupForSpeech(ExtractSpoken(ask.Text));
+        if (string.IsNullOrWhiteSpace(answer))
+            throw new InvalidOperationException("[WingmanTranslator] The wingman returned an empty answer about DevThrottle.");
+
+        _log($"[WingmanTranslator] AskAboutDevThrottleAsync OK: answerLen={answer.Length}, replySeconds={ask.ReplySeconds:F1}");
+        return new WingmanTranslation { Spoken = answer, ReplySeconds = ask.ReplySeconds };
+    }
+
+    /// <summary>The DevThrottle product/docs Q&amp;A prompt (issue #472). Public so a test can assert
+    /// it grounds the brain as DevThrottle's in-product help and carries the user's question.</summary>
+    public static string BuildDevThrottlePrompt(string question)
+    {
+        var sb = new StringBuilder();
+        sb.Append("You are DevThrottle's in-product help assistant, answering a question typed on the ");
+        sb.Append("Learning page of the DevThrottle Cockpit (the fleet web dashboard). DevThrottle ");
+        sb.Append("(the app and command-line tools are named cc-director) is an open-source tool that ");
+        sb.Append("runs and supervises many Claude Code coding sessions at once: a desktop Director app ");
+        sb.Append("drives sessions on each machine, a Gateway aggregates every machine's Directors into ");
+        sb.Append("one fleet, and the Cockpit is the web dashboard the Gateway serves to every machine ");
+        sb.Append("and phone. The Wingman is the assistant that summarizes and answers questions about ");
+        sb.Append("sessions. Answer the person's question about DevThrottle helpfully, accurately, and ");
+        sb.Append("concisely, in plain words. Rules:\n");
+        sb.Append("- Answer ONLY about DevThrottle: what it is, what it does, and how to use it. If the ");
+        sb.Append("question is not about DevThrottle, say so plainly and point them back to product help.\n");
+        sb.Append("- If you are not sure of a specific detail, say so rather than inventing it; never ");
+        sb.Append("guess at a feature that may not exist.\n");
+        sb.Append("- Keep it readable on screen: a short paragraph or a few short points, not an essay.\n\n");
+        sb.Append("The person asked:\n");
+        sb.Append(question.Trim());
+        sb.Append("\n\n");
+        sb.Append("Output ONLY your answer, and nothing else, between these two markers, each on its own line:\n");
+        sb.Append(SessionAskRunner.AnswerBeginMarker);
+        sb.Append('\n');
+        sb.Append("<answer>\n");
+        sb.Append(SessionAskRunner.AnswerEndMarker);
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Menu handling (issue #531): decide whether the agent is RIGHT NOW showing an interactive
     /// menu/choice on screen and, if so, extract its options as structured, pressable data plus a
     /// speakable reading. The warm brain reads the bottom of the terminal. Returns

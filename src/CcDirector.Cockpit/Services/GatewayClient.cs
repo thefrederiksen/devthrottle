@@ -70,6 +70,23 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Issue #472: the DevThrottle product/docs Q&amp;A path for the Cockpit Learning page. Posts a
+    /// free-text question ABOUT THE PRODUCT to the Gateway and returns the wingman's answer. The
+    /// Cockpit talks only to the Gateway here - never a Director. Never throws on a handled error;
+    /// the result carries <see cref="WingmanVoiceResult.Error"/> instead so the page can show it.
+    /// </summary>
+    public async Task<WingmanVoiceResult> WingmanAskDevThrottleAsync(string text, CancellationToken ct = default)
+    {
+        _log.LogDebug("WingmanAskDevThrottleAsync: POST {Base}wingman/ask-devthrottle, len={Len}", _http.BaseAddress, text?.Length ?? 0);
+        var resp = await _http.PostAsJsonAsync("wingman/ask-devthrottle", new { text }, ct);
+        if (resp.IsSuccessStatusCode)
+            return await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct)
+                   ?? new WingmanVoiceResult { Error = "empty response from gateway" };
+        var err = await resp.Content.ReadFromJsonAsync<WingmanVoiceResult>(cancellationToken: ct);
+        return new WingmanVoiceResult { Error = err?.Error ?? $"gateway returned {(int)resp.StatusCode}" };
+    }
+
+    /// <summary>
     /// The cross-fleet "Interrupted sessions" list (issue #212 W3): sessions whose Director
     /// died abnormally, enriched with last-known rail line + headline. Empty list when there
     /// is nothing to recover. Throws on transport failure (surfaced as a banner).
