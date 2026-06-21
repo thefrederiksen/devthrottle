@@ -108,10 +108,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private System.Threading.Timer? _cronTimer;
     private static readonly TimeSpan CronSweepInterval = TimeSpan.FromMinutes(1);
     private readonly Running.WorkListRunnerManager _runnerManager = new();
-    private readonly SessionAssessments _assessments = new();
     // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
     private readonly NeedsYouClock _needsYouClock = new();
-    private GatewayTurnBriefAgent? _briefAgent;
+    // Issue #549: the always-on turn-brief stamping pipeline (GatewayTurnBriefAgent) is retired.
+    // TurnEndWatcher stays and runs unconditionally - its only job now is firing voice
+    // auto-refresh on turn-end for voice sessions, and clearing the stale voice/text cache on
+    // the Working transition. The wingman brain (BrainSupervisor) is kept; voice mode uses it.
     private TurnEndWatcher? _turnEndWatcher;
     private Wingman.WingmanVoiceService? _voiceService;
     // Editable/versioned wingman instructions (issue #537); the voice translator reads the active set.
@@ -336,46 +338,37 @@ public sealed class GatewayHost : IAsyncDisposable
         _endpointMonitor = new AdvertisedEndpointMonitor(Registry, _client);
         _endpointMonitor.Start();
 
-        // The turn-brief stamping machine (issues #185/#186): PUSH-fed since #186 - the
-        // tracker is driven by Director doorbell pings and heartbeat snapshots (wired into
-        // the endpoints below); the only pull left is the one-time startup catch-up sweep.
-        // A stored brief derives the Gateway-owned assessedState and pushes it down to the
-        // owning Director as a display annotation. Kill switch: CC_TURNBRIEFS=0.
-        if (!GatewayTurnBriefAgent.Disabled)
-        {
-            _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client,
-                generatorId: $"{GatewayTurnBriefAgent.GeneratorId}/{BrainModel}");
-            _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
-            _turnEndWatcher = new TurnEndWatcher(
-                Registry, _client,
-                _briefAgent.OnTurnEnd,
-                sid =>
-                {
-                    // Working again: the brief is moot AND the standing assessment is stale AND the
-                    // cached voice/text summary is now stale - clear it so the list stops showing it
-                    // ready and nothing stale plays (issue #531). It regenerates on the next turn-end.
-                    _briefAgent.OnSessionWorking(sid);
-                    _assessments.Invalidate(sid);
-                    _voiceService?.OnSessionWorking(sid);
-                });
-            _briefAgent.OnBriefStored = (sid, endpoint, brief) =>
+        // Issue #549: the always-on turn-brief stamping pipeline is retired. TurnEndWatcher stays
+        // and runs unconditionally - a small always-running watcher whose only job is firing voice
+        // auto-refresh for voice sessions on turn-end, and clearing the stale voice/text cache on
+        // the Working transition. It no longer depends on a brief agent existing. PUSH-fed since
+        // #186 by Director doorbell pings and heartbeat snapshots (wired into the endpoints below);
+        // the only pull left is the one-time startup catch-up sweep.
+        FileLog.Write("[GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)");
+        _voiceService ??= new Wingman.WingmanVoiceService(ct => Brain.GetAsync(ct), _keyVault, _client, training: _trainingStore, instructionsProvider: () => _instructionsStore.ActiveContent);
+        _turnEndWatcher = new TurnEndWatcher(
+            Registry, _client,
+            onTurnEnd: signal =>
             {
-                var assessed = _assessments.RecordBrief(sid, brief);
-                if (assessed is not null)
-                    _ = _client.PostAssessmentAsync(endpoint, sid, assessed);
-                // Voice sessions (issue #531): the turn just finished, so re-make the spoken summary
-                // + audio in the background. It is then "ready" in the session list with no wait.
-                if (_voiceService is { } vs && vs.IsVoiceSession(sid))
-                    _ = vs.GenerateAsync(sid, endpoint, CancellationToken.None);
-            };
-            // First tick = the startup catch-up sweep; then the 15s reconcile poll for
-            // Directors that never push (file-discovered locals, old builds).
-            _turnEndWatcher.Start();
-        }
-        else
-        {
-            FileLog.Write("[GatewayHost] turn-brief pipeline disabled (CC_TURNBRIEFS=0)");
-        }
+                // Voice sessions (issue #531): the turn just finished on its own, so re-make the
+                // spoken summary + audio in the background. It is then "voice ready" in the session
+                // list with no wait. Non-voice sessions do nothing here - the watcher is voice-only.
+                if (_voiceService is { } vs && vs.IsVoiceSession(signal.SessionId))
+                {
+                    FileLog.Write($"[GatewayHost] turn-end -> voice auto-refresh: sid={signal.SessionId}");
+                    _ = vs.GenerateAsync(signal.SessionId, signal.DirectorEndpoint, CancellationToken.None);
+                }
+            },
+            onSessionWorking: sid =>
+            {
+                // Working again: the cached voice/text summary is now stale - clear it so the list
+                // stops showing it ready and nothing stale plays (issue #531). It regenerates on the
+                // next turn-end.
+                _voiceService?.OnSessionWorking(sid);
+            });
+        // First tick = the startup catch-up sweep; then the 15s reconcile poll for
+        // Directors that never push (file-discovered locals, old builds).
+        _turnEndWatcher.Start();
 
         // PreventHostingStartup avoids ASP.NET Core trying to load a (nonexistent) hosting startup
         // assembly with our application name, which otherwise emits a noisy crit log line on boot.
@@ -512,14 +505,13 @@ public sealed class GatewayHost : IAsyncDisposable
                 if (string.IsNullOrEmpty(endpoint)) return;
                 _turnEndWatcher.Observe(sessionId, newState, endpoint);
             },
-            assessedStateFor: sid => _briefAgent is null ? null : _assessments.For(sid),
-            // Null when briefing is disabled so old Directors' own values pass through.
-            briefStampFor: _briefAgent is { } stampAgent
-                ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
-                : null,
+            // Issue #549: the assessed-state refutation (issue #186) is dropped with the pipeline
+            // (Option A) - "needs you" reverts to the Director's raw mechanical signal. The
+            // turn-brief stamping (issue #187 briefStampFor) is gone too; the brief agent that
+            // wrote those fields no longer exists.
             // Voice mode (issue #531): while the gateway's wingman is producing a session's spoken
-            // summary, paint it yellow ("not ready yet") and back to red - independent of the brief
-            // agent (which is OFF when CC_TURNBRIEFS=0) and never via the Director's --print explain.
+            // summary, paint it yellow ("not ready yet") and back to red. Independent of any brief
+            // agent and never via the Director's --print explain.
             voiceGeneratingFor: sid => _voiceService?.IsGenerating(sid) == true,
             // Issue #553: whether the gateway has fetchable, playable cached audio for this session -
             // the single truthful "voice you can play right now" signal. Holds a voice-mode waiting
@@ -627,51 +619,19 @@ public sealed class GatewayHost : IAsyncDisposable
         // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
         SettingsEndpoints.Map(_app, this);
 
-        // The fleet-level wingman pipeline view (issue #239): GET /wingman/queue returns a
-        // read-only snapshot of the ONE-brain stamping machine - in-flight session, ordered
-        // queue, recent briefs, and brain health (incl. the poisoned-brain rejection counter
-        // that the 2026-06-07 outage hid). Snapshot supplier is null when the pipeline is
-        // disabled, so the endpoint answers an honest idle snapshot. Read-only - it never
-        // changes any queue state.
-        WingmanQueueEndpoints.Map(_app, _briefAgent is { } queueAgent
-            ? async () =>
-            {
-                var health = await Brain.GetHealthAsync();
-                return queueAgent.QueueSnapshot(new Contracts.WingmanBrainHealth
-                {
-                    Pid = Brain.ProcessId,
-                    Model = BrainModel,
-                    Alive = health.IsAlive,
-                    Status = health.Status,
-                });
-            }
-            : null);
+        // The fleet-level wingman pipeline view (issue #239): GET /wingman/queue. Issue #549
+        // retired the always-on stamping machine that fed it, so there is no live pipeline to
+        // snapshot - pass null and the endpoint answers an honest idle "Disabled" snapshot.
+        WingmanQueueEndpoints.Map(_app, snapshot: null);
 
-        // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
-        // store serves even when the pipeline is disabled (read-only is always safe).
-        // The explain trigger (#217) locates the owning Director across the fleet, then
-        // queues the deep dive on the ONE brief agent (null when the pipeline is disabled).
+        // Gateway-served turn briefs (issue #185): the Cockpit and the interrupted/restore paths
+        // read briefs from the store HERE. Issue #549 removed the only WRITER (GatewayTurnBriefAgent),
+        // so the store is read-only-serving (effectively empty going forward); the read endpoints
+        // stay so existing callers degrade cleanly. The explain trigger (#217) rode the brief agent,
+        // which is gone - pass null and the explain endpoint answers 503.
         TurnBriefGatewayEndpoints.Map(_app, _turnBriefStore,
-            sid => _briefAgent?.BriefingStateFor(sid) ?? (_turnBriefStore.Latest(sid) is not null ? "Briefed" : "None"),
-            requestExplainAsync: _briefAgent is { } explainAgent
-                ? async sid =>
-                {
-                    var lookups = Registry.ListDirectors().Select(async d =>
-                    {
-                        var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
-                        var s = await _client.GetSessionAsync(ep, sid);
-                        return (endpoint: ep, session: s);
-                    }).ToList();
-                    foreach (var (endpoint, session) in await Task.WhenAll(lookups))
-                    {
-                        if (session is null) continue;
-                        return explainAgent.RequestExplain(sid, endpoint)
-                            ? (true, "")
-                            : (false, "brief agent is shutting down");
-                    }
-                    return (false, "session not found across any director");
-                }
-                : null);
+            sid => _turnBriefStore.Latest(sid) is not null ? "Briefed" : "None",
+            requestExplainAsync: null);
 
         // One URL: everything no explicit endpoint above claimed falls through to the
         // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.
@@ -714,14 +674,12 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
         _endpointMonitor = null;
 
-        // Brief pipeline first (it drives the brain), then the brain itself - the
+        // Turn-end watcher + voice sweep first (they drive the brain), then the brain itself - the
         // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).
         try { _voiceSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep dispose error: {ex.Message}"); }
         _voiceSweepTimer = null;
         try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
-        try { _briefAgent?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brief agent dispose error: {ex.Message}"); }
-        _briefAgent = null;
         try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }
 
         // Unsubscribe from registry events. We deliberately do NOT tear down the serve

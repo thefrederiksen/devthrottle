@@ -3,11 +3,13 @@ using System.Runtime.CompilerServices;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// Assembly-wide test environment. The turn-brief pipeline (issue #185) is disabled via
-/// its kill switch for every test-spun GatewayHost: the TurnEndWatcher would otherwise
-/// poll each test's fake Directors on its own 2s cadence and disturb request-count
-/// assertions. The brief pipeline itself is tested directly through the agent's seam
-/// constructor (GatewayTurnBriefTests), never through a live host poll.
+/// Assembly-wide test environment. Issue #549 retired the always-on turn-brief pipeline, but
+/// the TurnEndWatcher stays (now voice-only) and runs in every test-spun GatewayHost. Its
+/// Director-polling sweep is turned OFF here via the TurnEndWatcher.SweepEnabled test seam so a
+/// test host never polls its fake Directors on the 15s cadence and disturbs request-count
+/// assertions - the same isolation the retired CC_TURNBRIEFS=0 flag used to provide. The
+/// push-fed Observe path (the watcher's boundary detection) is unaffected and is tested
+/// directly in GatewayTurnBriefTests / TurnEndWatcherVoiceRefreshTests.
 ///
 /// Tailscale serve provisioning is disabled the same way (issues #179/#197/#200): every
 /// test-spawned GatewayHost runs the REAL TailscaleServeProvisioner, which asserts the
@@ -26,7 +28,7 @@ internal static class TestEnvironment
     [ModuleInitializer]
     internal static void Init()
     {
-        Environment.SetEnvironmentVariable("CC_TURNBRIEFS", "0");
+        CcDirector.Gateway.Briefing.TurnEndWatcher.SweepEnabled = false;
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
     }
 }

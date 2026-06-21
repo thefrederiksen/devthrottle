@@ -1,0 +1,33 @@
+Issue #549 - CRITERION 3: 'needs you' count and red/yellow/green dots behave EXACTLY as before.
+
+The de-risking fact: the dots and the needs-you count are computed by
+SessionOrdering.EffectiveColor, which NEVER reads the assessed state. This is the path the
+issue says must be unaffected. Source (src/CcDirector.Gateway.Contracts/SessionOrdering.cs):
+
+    public static string EffectiveColor(SessionDto s) =>
+        s.OnHold ? "grey"
+        : IsExplaining(s) ? "orange"
+        : IsBriefing(s) ? "yellow"
+        : IsVoicePreparing(s) ? "yellow"
+        : s.StatusColor;
+
+    /// <summary>
+    /// Classify a session for triage. On-hold takes precedence over color: a parked session sinks
+    /// to the bottom even if it would otherwise be "needs you", because the user has explicitly
+    /// deferred it. Uses <see cref="EffectiveColor"/>, NOT the raw Director color: a session the
+    /// wingman is still reading stays in Active until the brief lands, instead of flopping into
+    /// NEEDS YOU mid-brief and possibly back out (issue #196).
+    /// </summary>
+    public static TriageBucket Classify(SessionDto s) =>
+        s.OnHold ? TriageBucket.OnHold
+        : EffectiveColor(s) == "red" ? TriageBucket.NeedsYou
+        : TriageBucket.Active;
+
+EffectiveColor folds OnHold -> IsExplaining -> IsBriefing -> IsVoicePreparing -> StatusColor.
+None of those read AssessedState. Cockpit.NeedsYou counts EffectiveColor==red. After this change,
+the only writer of AssessedState (SessionAssessments via assessedStateFor) is removed, so
+AssessedState is always null and every 'AssessedState ?? ActivityState' display falls through to
+the raw ActivityState - the Director's raw mechanical signal (Option A). The color/needs-you math
+is byte-for-byte the same code, exercised by 31 SessionOrdering tests:
+
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 34 ms - CcDirector.Gateway.Tests.dll (net10.0)

@@ -1,0 +1,15 @@
+Issue #549 - CRITERION 2 captured run: voice auto-refresh fires on a hands-off turn-end
+WITHOUT a GatewayTurnBriefAgent in the loop. (TurnEndWatcherVoiceRefreshTests, the wiring
+GatewayHost installs onto the always-running TurnEndWatcher.)
+
+These three tests drive a hands-off turn boundary (Working -> WaitingForInput) through the
+watcher and assert the voice surface's GenerateAsync is invoked for a voice session, NOT for a
+non-voice session, and that re-entering Working clears the stale voice cache - all with no brief agent.
+
+  Passed CcDirector.Gateway.Tests.TurnEndWatcherVoiceRefreshTests.HandsOffTurnEnd_OnAVoiceSession_FiresVoiceAutoRefresh_WithNoBriefAgent [8 ms]
+  Passed CcDirector.Gateway.Tests.TurnEndWatcherVoiceRefreshTests.TurnEnd_OnANonVoiceSession_DoesNotFireVoiceAutoRefresh [1 ms]
+  Passed CcDirector.Gateway.Tests.TurnEndWatcherVoiceRefreshTests.SessionReEntersWorking_ClearsTheStaleVoiceCache [2 ms]
+Total tests: 3
+     Passed: 3
+
+Plus the full Gateway.Tests suite is green (849 passed, 1 skipped) and Core.Tests green.

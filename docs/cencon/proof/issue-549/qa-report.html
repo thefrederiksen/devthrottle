@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #549</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1c1c1c; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2a5; padding-bottom: 8px; }
+  h2 { margin-top: 28px; color: #14502a; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef6ef; }
+  .pass { color: #0a7d1a; font-weight: bold; }
+  .note { background: #fffbe6; border-left: 4px solid #e0b400; padding: 10px 14px; margin: 12px 0; }
+  code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  .verdict { background: #e8f6ea; border: 2px solid #2a5; padding: 16px; margin-top: 28px; font-size: 1.05em; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #549</h1>
+<p><strong>Issue:</strong> [Wingman] Retire the always-on turn-brief pipeline; re-home voice auto-refresh<br>
+<strong>Pull request:</strong> #623 (branch <code>issue-549-retire-turnbrief-pipeline</code>)<br>
+<strong>Decision verified:</strong> Option A - the issue #186 assessed-state refutation (SessionAssessments) is dropped with the pipeline; the Cockpit "Wingman" briefs tab is retired; TurnEndWatcher stays running and fires voice regeneration directly.<br>
+<strong>Verifier:</strong> QA Agent (independent), own worktree built from the PR branch, own slot 13.</p>
+
+<h2>Build and regression suite (independently run)</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln -c Debug</code></td><td class="pass">Build succeeded. 0 Warning(s), 0 Error(s)</td></tr>
+<tr><td>CcDirector.Gateway.Tests (boots real GatewayHost in-process)</td><td class="pass">849 passed, 0 failed, 1 skipped (unrelated dictation realtime test)</td></tr>
+<tr><td>CcDirector.Core.Tests</td><td class="pass">2261 passed, 0 failed, 6 skipped (environment-gated, unrelated)</td></tr>
+<tr><td>New voice-auto-refresh test (TurnEndWatcherVoiceRefreshTests, 3 tests)</td><td class="pass">3 passed - re-run independently</td></tr>
+</table>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (verified)</th><th>Verdict</th></tr>
+
+<tr><td>1</td><td>Gateway starts WITHOUT the turn-brief pipeline; no <code>wingman_enabled</code> flag; logs no brief stamping.</td>
+<td>No <code>GatewayTurnBriefAgent</code>; startup log clean; no live pipeline.</td>
+<td><code>GatewayTurnBriefAgent.cs</code> deleted. GatewayHost logs <em>"starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)"</em>. <code>WingmanQueueEndpointTests</code> boots a real GatewayHost in-process and proves <code>GET /wingman/queue</code> returns an idle "Disabled" snapshot (no live pipeline). No <code>wingman_enabled</code> in production code.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>Voice session whose turn finishes on its own still gets spoken summary + audio regenerated automatically, WITHOUT the brief pipeline.</td>
+<td>Turn-end fires voice regeneration via TurnEndWatcher directly.</td>
+<td>TurnEndWatcher re-homed: <code>onTurnEnd</code> calls <code>WingmanVoiceService.GenerateAsync</code> directly for voice sessions; <code>onSessionWorking</code> clears the stale cache. <code>TurnEndWatcherVoiceRefreshTests</code> (3 tests, independently re-run, green) prove a hands-off Working-&gt;WaitingForInput boundary fires GenerateAsync for a voice session, NOT for a non-voice session, and re-entering Working clears the cache - with no brief agent in the loop. (Issue permits test-path proof.)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>"N need you" count and red/yellow/green dots behave exactly as before.</td>
+<td><code>SessionOrdering.EffectiveColor -&gt; StatusColor/ActivityState</code> untouched.</td>
+<td><code>SessionOrdering.cs</code> not in the diff (untouched). Only change near this area is a comment edit in <code>NeedsYouClock.cs</code> (removed a stale <code>SessionAssessments</code> cross-reference, no logic). With no writer, the residual <code>AssessedState ?? ActivityState</code> fold always falls through to <code>ActivityState</code> - exactly the Option A behavior. Dots + count provably identical.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>Cockpit no longer shows the "Wingman" briefs center tab; no dead center-tab fetch remains.</td>
+<td>Center tab gone; its <code>GetTurnBriefsAsync</code> load path removed.</td>
+<td>Cockpit.razor center tabs are now Terminal (default) + Voice only; the Wingman button, the brief-split branch, <code>LoadWingmanAsync</code>, <code>_wingmanEnabled</code>, and the center-tab <code>GetTurnBriefsAsync</code> path are all removed (0 references in Cockpit.razor). <code>GetWingmanEnabledAsync</code> removed from GatewayClient.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td><code>wingman_enabled</code>, <code>CC_TURNBRIEFS</code>, <code>GatewayTurnBriefAgent.Disabled</code>, <code>PUT /gateway/wingman</code> gone; hidden settings checkbox removed.</td>
+<td>Zero live references.</td>
+<td><code>WingmanConfig.cs</code> deleted; <code>SessionAssessments.cs</code> deleted; bare <code>GET</code>/<code>PUT /gateway/wingman</code> toggle gone; the hidden <code>wingman</code> checkbox markup plus <code>loadWingman()</code>/<code>toggleWingman()</code> JS removed from settings.html. Remaining <code>CC_TURNBRIEFS</code> hits are explanatory comments plus one stale error-message string (minor, noted below) - no live flag logic.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Configured wingman agent + model settings still load and save; voice mode still translates using that brain (BrainSupervisor kept).</td>
+<td>Brain config round-trips; voice uses the brain.</td>
+<td><code>BrainConfigEndpointTests</code> (real GatewayHost) prove <code>GET /gateway/settings</code> brain block carries tool/agents/model, <code>PUT /gateway/brain/config</code> persists durably and round-trips. <code>BrainSupervisor</code> kept; WingmanVoiceService is wired to <code>Brain.GetAsync</code>. Settings page brain agent/model/Save controls retained and now enabled directly.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Entry/exit/failure logging in <code>[ClassName] Method: context</code> format on changed Gateway paths.</td>
+<td>Logging present and correctly formatted.</td>
+<td>GatewayHost emits <code>[GatewayHost] StartAsync: ...</code>, <code>[GatewayHost] turn-end -&gt; voice auto-refresh: sid=...</code>, voice-sweep and dispose lines - all in the <code>[ClassName] context</code> form.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Observations (non-blocking, candidate follow-ups)</h2>
+<div class="note">
+<strong>1. Residual brief-store read surface.</strong> The Gateway brief store, its read endpoints (<code>GET /sessions/{sid}/turnbriefs[/latest]</code>), and <code>GetTurnBriefsAsync</code> are deliberately kept (documented in GatewayHost as "read-only-serving so existing callers degrade cleanly"). The remaining live caller is <code>SessionDetail.razor</code> (the standalone <code>/sessions/{Sid}</code> page), which is OUT of this issue's named Affected Containers. With the writer gone the store is always empty, so its brief panel renders empty harmlessly - identical to a session with no briefs yet. The center-tab path named by criterion 4 is removed. Recommend a separate cleanup issue to retire the dead read surface if desired.
+</div>
+<div class="note">
+<strong>2. Stale assessed-state plumbing.</strong> Option A is satisfied: <code>SessionAssessments</code> and the Gateway's <code>PostAssessmentAsync</code> pusher are deleted, so nothing derives or pushes assessed state (false "needs you" reverts to the Director's raw signal). The dormant <code>AssessedState</code> DTO fields, the Director <code>POST /sessions/{sid}/assessment</code> receiver, and the <code>AssessedState ?? ActivityState</code> fold remain but are functionally inert (always null) - leaving them keeps the criterion-3-critical SessionOrdering untouched. Candidate dead-code cleanup, not a behavior issue.
+</div>
+<div class="note">
+<strong>3. Stale string.</strong> <code>TurnBriefGatewayEndpoints.cs</code>'s explain 503 still reads "briefing pipeline disabled (CC_TURNBRIEFS=0)", referencing a removed flag. Cosmetic; reachable only on the now-always-disabled explain endpoint.
+</div>
+
+<div class="verdict">
+<strong>VERIFIED - all 7 acceptance criteria met.</strong> Full solution builds clean (0 warnings, 0 errors). Gateway.Tests (849) and Core.Tests (2261) green, including the new voice-auto-refresh-on-turn-end test. The implementation matches the recorded Option A decision (assessed-state refutation dropped, briefs tab retired, TurnEndWatcher kept and firing voice directly). Observations above are non-blocking follow-up candidates.
+</div>
+</body>
+</html>

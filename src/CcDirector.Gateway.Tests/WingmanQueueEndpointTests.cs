@@ -1,34 +1,26 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using CcDirector.Core.Configuration;
 using CcDirector.Gateway;
-using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// End-to-end proof for the fleet-level wingman pipeline endpoint (issue #239). Boots a real
-/// <see cref="GatewayHost"/> in-process on an ephemeral port and drives <c>GET /wingman/queue</c>
-/// over loopback, with CC_DIRECTOR_ROOT redirected to a temp dir so it never touches the user's
-/// real config. In the "DirectorRoot" collection so it never runs alongside other root-touching
-/// tests.
-///
-/// Covers the HTTP-surface acceptance criteria: the endpoint returns 200 with the snapshot shape
-/// (inFlight / queue / recent / brain); an idle Gateway returns inFlight=null and an empty queue;
-/// and repeated GETs are read-only (the same empty state every time). The populated queued +
-/// in-flight snapshot is proven at the agent-accessor level in
-/// <c>GatewayTurnBriefAgentQueueSnapshotTests</c> (a brain in flight needs a fake brain seam that
-/// is not reachable through the full host).
+/// HTTP-surface proof for <c>GET /wingman/queue</c> after issue #549 retired the always-on
+/// turn-brief stamping machine (GatewayTurnBriefAgent) that used to feed it. With no live
+/// pipeline to snapshot, the endpoint answers an honest idle "Disabled" snapshot: 200 with an
+/// empty queue/recent list and a brain status of "Disabled". Boots a real <see cref="GatewayHost"/>
+/// in-process on an ephemeral port and drives the endpoint over loopback, with CC_DIRECTOR_ROOT
+/// redirected to a temp dir so it never touches the user's real config. In the "DirectorRoot"
+/// collection so it never runs alongside other root-touching tests.
 /// </summary>
 [Collection("DirectorRoot")]
 public sealed class WingmanQueueEndpointTests : IAsyncLifetime
 {
     private readonly string _root;
     private readonly string? _prevRoot;
-    private readonly string? _prevKill;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-wq-" + Guid.NewGuid().ToString("N"));
 
@@ -38,17 +30,9 @@ public sealed class WingmanQueueEndpointTests : IAsyncLifetime
     public WingmanQueueEndpointTests()
     {
         _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        _prevKill = Environment.GetEnvironmentVariable("CC_TURNBRIEFS");
         _root = Path.Combine(Path.GetTempPath(), "ccd-wq-test-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-
-        // Enable the wingman pipeline so the host constructs a real GatewayTurnBriefAgent and the
-        // endpoint's snapshot supplier is non-null (the agent-backed path). The brain stays dormant
-        // (spawns on first use, which never happens with no Director), so the snapshot is idle - which
-        // is exactly the idle-state acceptance criterion.
-        Environment.SetEnvironmentVariable("CC_TURNBRIEFS", "1");
         Directory.CreateDirectory(_root);
-        CcDirectorConfigService.MergePatch(new System.Text.Json.Nodes.JsonObject { ["wingman_enabled"] = true });
     }
 
     public async Task InitializeAsync()
@@ -68,13 +52,12 @@ public sealed class WingmanQueueEndpointTests : IAsyncLifetime
         _http.Dispose();
         await _gateway.StopAsync();
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
-        Environment.SetEnvironmentVariable("CC_TURNBRIEFS", _prevKill);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 
     [Fact]
-    public async Task Get_wingman_queue_returns_200_with_the_snapshot_shape()
+    public async Task Get_wingman_queue_returns_200_with_the_disabled_snapshot_shape()
     {
         var resp = await _http.GetAsync("wingman/queue");
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
@@ -84,7 +67,8 @@ public sealed class WingmanQueueEndpointTests : IAsyncLifetime
         Assert.NotNull(snap!.Queue);   // present (possibly empty), never null
         Assert.NotNull(snap.Recent);
         Assert.NotNull(snap.Brain);
-        Assert.Equal(GatewayTurnBriefAgent.PoisonedBrainRejectionThreshold, snap.Brain.RejectionThreshold);
+        // Issue #549: no always-on pipeline, so the snapshot is the honest idle "Disabled" one.
+        Assert.Equal("Disabled", snap.Brain.Status);
     }
 
     [Fact]
@@ -95,14 +79,12 @@ public sealed class WingmanQueueEndpointTests : IAsyncLifetime
         Assert.Null(snap!.InFlight);
         Assert.Empty(snap.Queue);
         Assert.Empty(snap.Recent);
-        Assert.Equal(0, snap.Brain.ConsecutiveRejections);
-        Assert.False(snap.Brain.RecoveryInFlight);
     }
 
     [Fact]
     public async Task Repeated_gets_are_read_only_same_state_each_time()
     {
-        // No turn ends occur, so the pipeline state must not change across repeated GETs.
+        // No always-on pipeline, so the snapshot is the same honest idle state every time.
         var first = await _http.GetFromJsonAsync<WingmanQueueDto>("wingman/queue");
         var second = await _http.GetFromJsonAsync<WingmanQueueDto>("wingman/queue");
         var third = await _http.GetFromJsonAsync<WingmanQueueDto>("wingman/queue");

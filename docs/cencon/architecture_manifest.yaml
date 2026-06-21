@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-21"  # issue #593: Vosk offline path archived (archived/CcDirector.VoskStt), removed from build
+last_updated: "2026-06-21"  # issue #549: retired the always-on turn-brief pipeline (GatewayTurnBriefAgent + SessionAssessments removed); TurnEndWatcher re-homed to voice auto-refresh only; wingman_enabled/CC_TURNBRIEFS flags removed
 
 # C4 Level 1: System Context
 context:
@@ -779,17 +779,12 @@ containers:
           - Wingman/WingmanVoiceService.cs
           - Api/GatewayWingmanVoiceEndpoint.cs
           - Api/WingmanInstructionsEndpoint.cs
-      - name: GatewayTurnBriefAgent
-        description: The fleet's single warm-brain stamper - a coalescing work queue that, on each turn end, generates the TurnBrief (and on-demand ExplainReport, which outranks background stamping) via the TurnBriefContract prompt, validates mechanically, stores append-only, and degrades to an honest stub on failure; poisoned-brain detection restarts the brain after repeated validation rejections (issues #185/#187/#208/#217)
-        file: Briefing/GatewayTurnBriefAgent.cs
       - name: GatewayTurnBriefStore
-        description: Append-only per-session .jsonl store of turn briefs (with an in-memory latest-brief cache for cheap polling), the raw TurnPackages that produced them, explain reports, and #207 feedback votes (replayable labeled examples); readers de-dupe by TurnNumber, latest wins
+        description: Append-only per-session .jsonl store of turn briefs (with an in-memory latest-brief cache for cheap polling), the raw TurnPackages that produced them, explain reports, and #207 feedback votes (replayable labeled examples); readers de-dupe by TurnNumber, latest wins. Issue #549 retired the always-on writer (GatewayTurnBriefAgent), so the store is now read-only-serving (effectively empty going forward); the read endpoints and interrupted/restore paths still consume it and degrade cleanly
         file: Briefing/GatewayTurnBriefStore.cs
-      - name: TurnEndWatcher / SessionAssessments
-        description: TurnEndWatcher fires the turn-end callback from push-fed observations (doorbell pings + heartbeat snapshots, with a 15s reconcile for non-pushing Directors, #186); SessionAssessments is the Gateway-owned activity judgment (WaitingForInput when the latest brief has NeedsYou, else Idle) that refutes a stale red dot
-        files:
-          - Briefing/TurnEndWatcher.cs
-          - Briefing/SessionAssessments.cs
+      - name: TurnEndWatcher
+        description: Fires the turn-end callback from push-fed observations (doorbell pings + heartbeat snapshots, with a 15s reconcile for non-pushing Directors, #186). Issue #549 retired the always-on turn-brief stamping pipeline (GatewayTurnBriefAgent) and the Gateway-owned assessed-state refutation (SessionAssessments, both removed); the watcher now runs unconditionally with one job - firing voice auto-refresh (WingmanVoiceService.GenerateAsync) for voice sessions on turn-end, and clearing the stale voice/text cache on the Working transition
+        file: Briefing/TurnEndWatcher.cs
       - name: RestoreContextBuilder
         description: Builds a continuation first-prompt for a restored (interrupted) session from its durable turn-brief history - state at death, trajectory, and explicit marching orders that re-ask the user before resuming - backing the one-click Restore (issue #212)
         file: Recovery/RestoreContextBuilder.cs
@@ -1180,16 +1175,15 @@ data_flows:
       - "StateVoteService appends to local state-votes.jsonl (authoritative)"
       - "Best-effort gh issue create/comment"
 
-  - id: turn_brief_flow
-    name: Turn Brief Flow (Gateway warm brain)
-    description: A completed turn becomes a structured brief every consumer renders verbatim
+  - id: voice_auto_refresh_flow
+    name: Voice Auto-Refresh Flow (Gateway warm brain, voice mode)
+    description: Issue #549 retired the always-on turn-brief stamping pipeline. The TurnEndWatcher stays and runs unconditionally with one job - keeping a voice session's spoken summary fresh on turn-end - using the same configured wingman brain (BrainSupervisor), which is kept. "Needs you" reverts to the Director's raw mechanical signal (the assessed-state refutation was dropped, Option A).
     path:
       - "Director pushes turn-end (doorbell) / heartbeat snapshot -> Gateway"
       - "TurnEndWatcher detects the Working -> Waiting/Idle boundary"
-      - "GatewayTurnBriefAgent (single warm brain) generates the brief from the TurnBriefContract prompt, validates mechanically, degrades to a stub on failure"
-      - "GatewayTurnBriefStore appends the brief (+ TurnPackage) to the per-session .jsonl, updates the latest-brief cache"
-      - "Consumers (Cockpit BriefPane, rail, phone Wingman tab) GET /sessions/{sid}/turnbriefs[/latest] and render verbatim"
-      - "Brief feedback: POST /sessions/{sid}/turnbriefs/feedback stores a labeled example (#207)"
+      - "For a VOICE session, TurnEndWatcher calls WingmanVoiceService.GenerateAsync directly (no brief agent): the configured wingman brain translates the reply, OpenAI text-to-speech synthesizes audio, and the result is stored as 'voice ready'"
+      - "On the Working transition the watcher clears the stale voice/text cache (WingmanVoiceService.OnSessionWorking)"
+      - "Note: GatewayTurnBriefStore is still served read-only by /sessions/{sid}/turnbriefs[/latest] and the interrupted/restore paths, but nothing writes new briefs since the stamping machine was removed"
 
   - id: key_vault_flow
     name: Key Vault Resolution Flow

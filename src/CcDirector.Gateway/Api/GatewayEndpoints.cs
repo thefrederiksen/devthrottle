@@ -19,19 +19,14 @@ internal static class GatewayEndpoints
 {
     /// <param name="onSessionState">Issue #186: receives every session-state observation
     /// (doorbell ping or heartbeat snapshot entry) as (directorId, sessionId, newState).
-    /// The host feeds these to the turn-brief tracker; null when briefing is disabled.</param>
-    /// <param name="assessedStateFor">Issue #186: the Gateway-owned assessedState for a
-    /// session id, stamped onto the /sessions aggregation; null when briefing is disabled.</param>
-    /// <param name="briefStampFor">Issue #187: the Gateway-owned briefing state + latest
-    /// rail line per session, stamped onto the aggregation now that the Director-side
-    /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
+    /// The host feeds these to the turn-end watcher (voice auto-refresh, issue #549).</param>
     /// <param name="voiceAudioReadyFor">Issue #553: whether the Gateway has fetchable, playable
     /// cached audio for a session id (<c>WingmanVoiceService.HasVoice</c>), stamped onto
     /// <see cref="SessionDto.VoiceAudioReady"/>. Null leaves the field false.</param>
     /// <param name="needsYouStampFor">Issue #218: given (sessionId, isRed) where isRed is the
     /// session's final EffectiveColor=="red" this refresh, returns the Gateway-owned UTC
     /// timestamp the session entered red (held while red, null when not red), stamped onto
-    /// <see cref="SessionDto.NeedsYouSince"/>. Null (old callers / briefing disabled) leaves
+    /// <see cref="SessionDto.NeedsYouSince"/>. Null (old callers) leaves
     /// the field null.</param>
     /// <param name="interruptedBriefFor">Issue #212 W3: the Gateway's last-known rail line +
     /// headline for a session id, used to enrich the Interrupted sessions list so a dead
@@ -48,8 +43,7 @@ internal static class GatewayEndpoints
     /// <see cref="GatewayHost"/>). When present, the submit/poll routes are mapped via
     /// <see cref="GatewayVoiceTurnEndpoint"/>; null (old callers) maps nothing.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
-        Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
-        Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
+        Action<string, string, string>? onSessionState = null,
         Func<string, bool>? voiceGeneratingFor = null,
         Func<string, bool>? voiceAudioReadyFor = null,
         Func<string, bool, DateTime?>? needsYouStampFor = null,
@@ -490,27 +484,16 @@ internal static class GatewayEndpoints
                     // Issue #288: remember who owns this session so the WS proxy answers 503 (owner
                     // offline) instead of 404 once this Director goes dark.
                     owners?.Remember(s.SessionId, d.DirectorId);
-                    // Issue #186: stamp the GATEWAY-owned assessedState. Suppressed while
-                    // the session is mechanically working (raw activity always wins there);
-                    // the Director's own annotation (if any) is overwritten - the Gateway
-                    // is the one writer of this field on the aggregated view.
-                    s.AssessedState = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : assessedStateFor?.Invoke(s.SessionId) ?? s.AssessedState;
-                    // Issue #187: the Director-side pipeline that used to write these is
-                    // deleted; the Gateway's brief agent is the one writer now (the yellow
-                    // "wingman reading..." chip and the rail line both ride these fields).
-                    if (briefStampFor is not null)
-                    {
-                        var (briefingState, railLine) = briefStampFor(s.SessionId);
-                        s.BriefingState = briefingState;
-                        s.RailLine = railLine;
-                    }
+                    // Issue #549: the always-on turn-brief pipeline is retired. The Gateway no
+                    // longer stamps the assessed-state refutation (issue #186, Option A) nor the
+                    // brief stamping (issue #187 BriefingState/RailLine) - the brief agent that
+                    // wrote those is deleted. "Needs you" reverts to the Director's raw mechanical
+                    // signal; AssessedState stays null so every UI's "AssessedState ?? ActivityState"
+                    // falls through to the raw ActivityState.
                     // Issue #531 voice mode: while the gateway's warm-brain wingman is producing this
-                    // session's spoken summary, present it through the SAME yellow "wingman reading"
-                    // window (red -> yellow -> red). Gated on raw red so a working (blue) session is
-                    // untouched, and on a brief agent NOT already claiming the yellow/orange window.
-                    // Works with the brief agent OFF (CC_TURNBRIEFS=0) and never spawns a --print explain.
+                    // session's spoken summary, present it through the yellow "wingman reading" window
+                    // (red -> yellow -> red). Gated on raw red so a working (blue) session is
+                    // untouched. Independent of any brief agent; never spawns a --print explain.
                     if (voiceGeneratingFor is not null
                         && (s.BriefingState is null or "None" or "Briefed")
                         && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)

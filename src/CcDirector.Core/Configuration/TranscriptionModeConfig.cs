@@ -6,7 +6,7 @@ namespace CcDirector.Core.Configuration;
 /// <summary>
 /// The machine's transcription connection mode (issue #497), persisted in config.json as the
 /// top-level string "transcription_mode" ("byo" or "devthrottle"), mirroring the existing
-/// "addressing_mode" / "wingman_enabled" top-level settings.
+/// "addressing_mode" top-level setting.
 ///
 /// Read locally by each process from its own config.json. A change is honored on the next
 /// transcription resolve (the resolver re-reads it), so it does not require a restart.

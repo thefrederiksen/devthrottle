@@ -272,8 +272,6 @@
     <div class="section">
       <h2>Wingman <span class="pill">voice agent</span></h2>
       <p class="hint">Choose which agent and model run as the wingman &mdash; the agent that translates a session into a faithful, speakable summary when you use voice mode. Chosen from the agents registered on this machine. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Changes take effect after a Gateway restart.</p>
-      <!-- "Enable the Wingman" (the old always-on turn-brief pipeline) is hidden: the wingman now runs only when a session enters voice mode. The control is kept in the DOM (hidden) so the existing load/save script keeps working unchanged. -->
-      <label class="chk" style="display:none"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
       <div class="field">
         <label for="brainagent">Agent</label>
         <select id="brainagent" disabled></select>
@@ -501,8 +499,9 @@
 
     // Populate the agent selector from the agents registered on this machine (issue #510) and
     // pre-select the saved agent by its id, so the choice round-trips across a page reload. The
-    // model input is pre-filled with the configured model. Both stay disabled until the wingman
-    // enable state has loaded (toggling controls editability).
+    // model input is pre-filled with the configured model. Issue #549: the always-on "Enable the
+    // Wingman" toggle is gone (the wingman now runs only in voice mode); the agent/model/Save
+    // controls become editable as soon as the Gateway snapshot has answered.
     const sel = document.getElementById('brainagent');
     const agents = Array.isArray(b.agents) ? b.agents : [];
     sel.innerHTML = '';
@@ -514,6 +513,9 @@
       sel.appendChild(opt);
     });
     document.getElementById('brainmodelsel').value = b.model || '';
+    document.getElementById('brainagent').disabled = false;
+    document.getElementById('brainmodelsel').disabled = false;
+    document.getElementById('brainsavebtn').disabled = false;
   }
 
   function renderSnapshot(d){
@@ -605,25 +607,6 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadSnapshot(); }
   }
 
-  async function loadWingman(){
-    try {
-      const r = await fetch('/gateway/wingman');
-      if (!r.ok) throw new Error(r.status);
-      const d = await r.json();
-      const box = document.getElementById('wingman');
-      box.checked = !!d.enabled;
-      box.disabled = false;
-      // The agent/model/Save controls are editable once the Gateway has answered - you may
-      // configure the wingman before or after enabling it.
-      document.getElementById('brainagent').disabled = false;
-      document.getElementById('brainmodelsel').disabled = false;
-      document.getElementById('brainsavebtn').disabled = false;
-    } catch (e) {
-      document.getElementById('wingmanmsg').textContent = 'Failed to load wingman state.';
-      document.getElementById('wingmanmsg').className = 'msg err';
-    }
-  }
-
   async function saveBrainConfig(){
     const btn = document.getElementById('brainsavebtn');
     const msg = document.getElementById('wingmanmsg');
@@ -646,28 +629,6 @@
       }
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; }
     btn.disabled = false;
-  }
-
-  async function toggleWingman(e){
-    const enabled = e.target.checked;
-    const msg = document.getElementById('wingmanmsg');
-    msg.className = 'msg ok'; msg.textContent = 'Saving...';
-    try {
-      const r = await fetch('/gateway/wingman', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
-      });
-      const d = await r.json().catch(()=>({}));
-      if (r.ok){
-        e.target.checked = !!d.enabled;
-        msg.textContent = d.enabled
-          ? 'Wingman enabled. Restart the Gateway to activate the pipeline.'
-          : 'Wingman disabled. Restart the Gateway to stop the pipeline.';
-      } else {
-        msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
-        await loadWingman();
-      }
-    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadWingman(); }
   }
 
   async function loadTrainingCapture(){
@@ -991,7 +952,6 @@
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
   document.getElementById('addrmode').addEventListener('change', changeAddressingMode);
-  document.getElementById('wingman').addEventListener('change', toggleWingman);
   document.getElementById('wingman-training').addEventListener('change', toggleTrainingCapture);
   document.getElementById('brainsavebtn').addEventListener('click', saveBrainConfig);
   // Issue #469: the phone-pairing copy buttons were removed with the secret-embedding QR panel.
@@ -1005,7 +965,6 @@
   loadMode();
   loadKeyStatus();
   loadSnapshot();
-  loadWingman();
   loadTrainingCapture();
   loadInstructions();
   loadInstrRecords();

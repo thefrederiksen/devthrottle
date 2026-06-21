@@ -5,7 +5,6 @@ using CcDirector.AgentBrain;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
-using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Cockpit;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -24,8 +23,6 @@ namespace CcDirector.Gateway.Api;
 ///   POST /gateway/brain/restart   -> { ok, brain:{...} } (restarts the warm brain, issue #184)
 ///   PUT  /gateway/brain/config    body { "agentId": str, "model": str } -> { agentId, tool, model }
 ///                                  (issue #510; legacy { "tool": str, ... } still accepted)
-///   GET  /gateway/wingman         -> { enabled } (issue #185)
-///   PUT  /gateway/wingman         body { "enabled": bool } -> { enabled }
 ///   PUT  /gateway/autostart       body { "enabled": bool } -> { supported, enabled }
 ///   GET  /gateway/transcription-mode -> { mode } ("byo" | "devthrottle") (issue #497)
 ///   PUT  /gateway/transcription-mode body { "mode": "byo"|"devthrottle" } -> { mode }
@@ -88,11 +85,6 @@ internal static class SettingsEndpoints
             }
         });
 
-        // Read wingman state: is the pipeline enabled on this Gateway?
-        // Wingman is opt-in (wingman_enabled: true in config.json); absent key = disabled by default.
-        app.MapGet("/gateway/wingman", () =>
-            Results.Json(new { enabled = !GatewayTurnBriefAgent.Disabled }));
-
         // Persist the brain tool + model choice (issue #393). Both are Gateway-level settings in
         // config.json, the same store the existing brain_model uses, so the choice applies fleet-wide
         // without editing any Director. The running brain is unaffected until the next Gateway restart
@@ -152,28 +144,6 @@ internal static class SettingsEndpoints
             catch (JsonException ex)
             {
                 FileLog.Write($"[SettingsEndpoints] PUT /gateway/brain/config bad JSON: {ex.Message}");
-                return Results.BadRequest(new { error = "invalid JSON" });
-            }
-        });
-
-        // Write wingman state to config.json. The running pipeline is unaffected until restart.
-        app.MapPut("/gateway/wingman", async (HttpContext ctx) =>
-        {
-            try
-            {
-                var body = await JsonSerializer.DeserializeAsync<WingmanBody>(
-                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
-                if (body is null)
-                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
-
-                Core.Configuration.CcDirectorConfigService.MergePatch(
-                    new System.Text.Json.Nodes.JsonObject { ["wingman_enabled"] = body.Enabled });
-                FileLog.Write($"[SettingsEndpoints] wingman_enabled set to {body.Enabled}");
-                return Results.Json(new { enabled = body.Enabled });
-            }
-            catch (JsonException ex)
-            {
-                FileLog.Write($"[SettingsEndpoints] PUT /gateway/wingman bad JSON: {ex.Message}");
                 return Results.BadRequest(new { error = "invalid JSON" });
             }
         });

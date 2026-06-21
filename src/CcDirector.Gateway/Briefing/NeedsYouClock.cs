@@ -7,8 +7,8 @@ namespace CcDirector.Gateway.Briefing;
 /// Issue #218: the Gateway-owned per-session clock recording WHEN a session entered the
 /// red / NEEDS-YOU effective state, so the Cockpit can show how long it has been waiting.
 ///
-/// Mirrors <see cref="SessionAssessments"/>: in-memory by design (derived state, not the
-/// durable record) and re-derived after a Gateway restart on the next red transition.
+/// In-memory by design (derived state, not the durable record) and re-derived after a
+/// Gateway restart on the next red transition.
 ///
 /// The single rule, applied once per session per /sessions aggregation:
 ///   isRed (EffectiveColor == "red") and no timestamp yet -> stamp UtcNow (entry).

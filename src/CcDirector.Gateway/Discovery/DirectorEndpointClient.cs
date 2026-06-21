@@ -425,27 +425,9 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
-    /// <summary>Push the Gateway's assessed state DOWN to the owning Director as a display
-    /// annotation (issue #186). Best-effort: a failure only loses a cosmetic hint on the
-    /// Director's local UI; the Gateway/Cockpit view is unaffected.</summary>
-    public async Task PostAssessmentAsync(string endpoint, string sessionId, string? assessedState, CancellationToken ct = default)
-    {
-        try
-        {
-            var resp = await _http.PostAsJsonAsync(
-                $"{endpoint}/sessions/{sessionId}/assessment",
-                new AssessmentRequest { AssessedState = assessedState }, ct);
-            if (!resp.IsSuccessStatusCode)
-                FileLog.Write($"[DirectorEndpointClient] PostAssessmentAsync {sessionId} -> {(int)resp.StatusCode} (old Director?)");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[DirectorEndpointClient] PostAssessmentAsync FAILED (best-effort): endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
-        }
-    }
-
-    /// <summary>Parsed transcript widgets for one session (the Gateway brief agent's truth
-    /// channel, issue #185). Null on any failure - the caller skips, never guesses.</summary>
+    /// <summary>Parsed transcript widgets for one session (the Gateway voice service's truth
+    /// channel for the spoken summary, issue #531). Null on any failure - the caller skips,
+    /// never guesses.</summary>
     public async Task<TurnsResponse?> GetTurnsAsync(string endpoint, string sessionId, CancellationToken ct = default)
     {
         try

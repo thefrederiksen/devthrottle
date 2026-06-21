@@ -64,78 +64,43 @@
         <h2>Ask Wingman</h2>
         <p class="lrn-ask-sub">Ask a question about DevThrottle - what it is, what it does, or how to use it.</p>
 
-        @if (_wingmanEnabled is null)
-        {
-            @* Availability not yet known: a plain loading line, never an empty box. *@
-            <p class="lrn-muted">Checking whether Wingman is set up...</p>
-        }
-        else if (_wingmanEnabled == false)
-        {
-            @* Explicit not-configured state (issue #472, no-fallback rule): tell the user how to
-               enable it instead of failing silently, hanging, or showing an empty box. *@
-            <div class="lrn-notconfigured">
-                <strong>Wingman is not set up on this Gateway.</strong>
-                <p>
-                    Ask Wingman needs a configured Wingman brain to answer. Turn Wingman on in
-                    <a class="lrn-link" href="/settings">Settings</a> to enable this.
-                </p>
-            </div>
-        }
-        else
-        {
-            <div class="lrn-askrow">
-                <input class="lrn-input" type="text" placeholder="e.g. What is DevThrottle?"
-                       @bind="_question" @bind:event="oninput" @onkeydown="OnKeyDown"
-                       disabled="@_asking" />
-                <button class="lrn-submit" @onclick="Ask" disabled="@(_asking || string.IsNullOrWhiteSpace(_question))">
-                    @(_asking ? "Asking..." : "Ask")
-                </button>
-            </div>
+        @* Issue #549: the wingman brain is always configured (the product's one always-on
+           intelligence point, kept when the always-on turn-brief pipeline was retired), so Ask
+           Wingman is always available - no enable gate. The Ask call rides the brain-backed
+           WingmanAskDevThrottle endpoint, independent of the retired pipeline. *@
+        <div class="lrn-askrow">
+            <input class="lrn-input" type="text" placeholder="e.g. What is DevThrottle?"
+                   @bind="_question" @bind:event="oninput" @onkeydown="OnKeyDown"
+                   disabled="@_asking" />
+            <button class="lrn-submit" @onclick="Ask" disabled="@(_asking || string.IsNullOrWhiteSpace(_question))">
+                @(_asking ? "Asking..." : "Ask")
+            </button>
+        </div>
 
-            @if (_asking)
-            {
-                <p class="lrn-loading">Asking Wingman...</p>
-            }
-            else if (_askError is not null)
-            {
-                <div class="lrn-askerror">@_askError</div>
-            }
-            else if (_answer is not null)
-            {
-                <div class="lrn-answer">
-                    <div class="lrn-answer-q">You asked: @_askedQuestion</div>
-                    <div class="lrn-answer-a">@_answer</div>
-                </div>
-            }
+        @if (_asking)
+        {
+            <p class="lrn-loading">Asking Wingman...</p>
+        }
+        else if (_askError is not null)
+        {
+            <div class="lrn-askerror">@_askError</div>
+        }
+        else if (_answer is not null)
+        {
+            <div class="lrn-answer">
+                <div class="lrn-answer-q">You asked: @_askedQuestion</div>
+                <div class="lrn-answer-a">@_answer</div>
+            </div>
         }
     </section>
 </div>
 
 @code {
-    // null = unknown (still checking), true = available, false = not configured.
-    private bool? _wingmanEnabled;
-
     private string _question = "";
     private string? _askedQuestion;
     private string? _answer;
     private string? _askError;
     private bool _asking;
-
-    protected override async Task OnInitializedAsync()
-    {
-        // Derive availability from the existing Wingman signal the Gateway already exposes
-        // (GET /gateway/wingman). A transport failure means we cannot confirm it is set up, so we
-        // surface the not-configured state rather than pretend it works (no silent failure).
-        try
-        {
-            _wingmanEnabled = await Gateway.GetWingmanEnabledAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.LogWarning(ex, "Learning: could not read Wingman availability from the Gateway");
-            _wingmanEnabled = false;
-        }
-    }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {

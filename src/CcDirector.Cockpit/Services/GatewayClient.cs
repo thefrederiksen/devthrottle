@@ -173,16 +173,6 @@ public sealed class GatewayClient
     }
 
     /// <summary>
-    /// Whether the wingman pipeline is enabled on this Gateway (<c>GET /gateway/wingman</c>).
-    /// Returns false on transport failure or when the key is absent (disabled by default).
-    /// </summary>
-    public async Task<bool> GetWingmanEnabledAsync(CancellationToken ct = default)
-    {
-        var resp = await _http.GetFromJsonAsync<WingmanEnabledResponse>("gateway/wingman", ct);
-        return resp?.Enabled ?? false;
-    }
-
-    /// <summary>
     /// A read-only snapshot of the ONE-brain wingman pipeline (<c>GET /wingman/queue</c>, issue #239):
     /// in-flight session, ordered queue, recent briefs, and brain health. Throws on transport failure
     /// (the Wingman Pipeline page surfaces it as a banner) so a dead Gateway never looks like an idle
@@ -744,8 +734,3 @@ public sealed class WorkListsEnvelope
     public List<WorkListDto> Lists { get; set; } = new();
 }
 
-/// <summary>The <c>GET /gateway/wingman</c> response: <c>{ "enabled": bool }</c>.</summary>
-public sealed class WingmanEnabledResponse
-{
-    public bool Enabled { get; set; }
-}

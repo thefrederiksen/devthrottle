@@ -1,0 +1,11 @@
+# Issue #549 - live REST endpoint proof (new-code Gateway, port 7960)
+# Captured 2026-06-21.
+
+## Criterion 5: the PUT/GET /gateway/wingman flag endpoint is REMOVED
+GET /gateway/wingman  ->  HTTP 404   (endpoint deleted; the dead flag is gone)
+
+## Criterion 6: the configured wingman brain (agent + model) still loads via /gateway/settings
+GET /gateway/settings -> brain.tool=ClaudeCode, brain.model=opus, brain.agents=7 (loaded)
+
+## Pipeline retired: /wingman/queue answers the honest idle 'Disabled' snapshot
+GET /wingman/queue    -> brain.status=Disabled, inFlight=None, queue=[]

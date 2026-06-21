@@ -1,0 +1,20 @@
+Issue #549 - CRITERION 4: the Cockpit 'Wingman' briefs center tab is removed (no dead brief fetch).
+
+## Center-tabs after the change (Cockpit.razor) - the 'Wingman' button is gone; Terminal is the default, Voice stays:
+
+236:                        <div class="center-tabs">
+237-                            @* Issue #549: the always-on "Wingman" briefs center tab is retired with the
+238-                               turn-brief pipeline. Terminal is the default; Voice (issue #531) stays. *@
+239-                            <button class="ctab @(CenterTab == "term" ? "on" : "")" @onclick="@(() => SetCenterTab("term"))">Terminal</button>
+240-                            <button class="ctab @(CenterTab == "voice" ? "on" : "")" @onclick="@(() => SetCenterTab("voice"))">Voice</button>
+
+## The Wingman center-tab branch, LoadWingmanAsync, the story/chapters/feedback helpers, and the
+## GetTurnBriefsAsync load path are deleted. Confirm no remaining references in Cockpit.razor:
+
+GetTurnBriefsAsync in Cockpit.razor: 0
+LoadWingmanAsync in Cockpit.razor:   0
+_wingmanEnabled in Cockpit.razor:    0
+CenterTab == "brief" in Cockpit.razor: 0
+
+## GetWingmanEnabledAsync (called the removed GET /gateway/wingman) is removed from GatewayClient:
+GetWingmanEnabledAsync in Cockpit project: none
