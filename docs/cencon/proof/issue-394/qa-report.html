@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 394 (Voice playback observability + voice-turn test harness)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1b1f23; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d7de; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .pass { color: #1a7f37; font-weight: 700; }
+  .verdict { background: #dafbe1; border: 1px solid #1a7f37; padding: 1rem; border-radius: 6px; font-size: 1.1rem; }
+  code { background: #f6f8fa; padding: .1rem .3rem; border-radius: 4px; font-family: Consolas, monospace; }
+  pre { background: #0d1117; color: #e6edf3; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue 394 (Phase 1)</h1>
+<p><strong>Issue:</strong> [Voice] Playback observability + voice-turn test harness (so cutouts are measurable)<br>
+<strong>Pull request:</strong> 613 (branch <code>issue-394-voice-observability</code>)<br>
+<strong>Verifier:</strong> QA Agent (independent verification, own git worktree off the pull-request branch)<br>
+<strong>Build:</strong> <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s)<br>
+<strong>Scope note:</strong> Only Phase 1 is in scope. Phases 2 and 3 are explicit follow-ons and were NOT held against this issue.</p>
+
+<h2>Acceptance criteria - independently verified</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (verified by QA)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>From the phone client log alone, one can tell for any turn whether playback finished, errored (with code), or was interrupted, plus bytes and played-versus-expected duration.</td>
+<td>Three distinguishable terminal outcomes with byte count and played-vs-estimated duration on one log line.</td>
+<td>AndroidReplySpeaker records the actual terminal path (Completed / Error with what+extra / Interrupted) rather than inferring it from the identical MediaPlayer.Completion event. PlaybackLog.Terminal emits <code>result=...</code>, <code>bytes=...</code>, <code>played=X/Ys</code>, and error codes. VoiceConversation's done line carries the same. The Android MediaPlayer cannot run headless, so the wording (PlaybackLog) and the duration maths (Mp3Duration) are unit-tested off-device: 13/13 pass. The committed sample-playback-log.txt shows all three outcomes distinguishable from the log alone.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>TtsServiceTests cover single-chunk, multi-chunk join (byte-exact), stalled-chunk, and 5xx-chunk paths via an injected fake handler.</td>
+<td>Tests present on main (from issue 389 / pull request 612), covering all four paths with an injected HttpMessageHandler, no live network.</td>
+<td>src/CcDirector.Core.Tests/Voice/TtsServiceTests.cs present. Single-chunk (returns bytes unchanged), multi-chunk (asserts byte-exact concatenation in order), stalled-chunk (per-request timeout fires; persistent stall fails fast), 5xx (transient retry succeeds; permanent failure fast). All via the injected ScriptedHandler fake. 9/9 pass. Confirmed present, not duplicated, per the cross-issue note.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>The no-mic end-to-end harness submits a text voice-turn through the Gateway and asserts a non-empty audio reply, and can run N iterations reporting a pass rate.</td>
+<td>A host test drives the Gateway submit/poll/audio pipeline with the text field, asserts non-empty plausible audio, and reports a pass-rate number over N runs.</td>
+<td>VoiceTurnNoMicE2EHarnessTests stands up the real Gateway plus an in-process stub Director; submits a text voice-turn, polls to stage=reply, fetches audio through the dedicated endpoint, asserts non-empty audio of plausible size (>=1000 bytes, equal to advertised length). Ran independently: 2/2 pass, output line "[no-mic E2E harness] pass rate: 10/10 = 100.0%". The pass-rate number is emitted.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>No behavior change to the shipping voice path beyond added logging and the test seam.</td>
+<td>Diff shows only added logging and the IReplySpeaker return-type seam; play/stop/focus behavior unchanged.</td>
+<td>Diff of the two shipping-path files confirms: IReplySpeaker.PlayAsync return type changed Task -> Task&lt;PlaybackOutcome&gt; (test seam, still awaited identically); VoiceConversation's done line enriched with playback result and durations; the <code>if (mp3.Length &gt; 0)</code> guard and return value unchanged. AndroidReplySpeaker adds logging and an outcome record; audio focus is "Logged, not acted on" - existing duck/abandon behavior unchanged. AndroidReplySpeaker is the only IReplySpeaker implementer; all callers compile (phone project built clean).</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep and method checks</h2>
+<ul>
+<li>Full solution build: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Phone observability tests (Mp3Duration + PlaybackLog): 13/13 pass.</li>
+<li>TtsServiceTests: 9/9 pass.</li>
+<li>No-mic E2E harness: 2/2 pass, pass rate 10/10 = 100.0%.</li>
+<li>Full Gateway VoiceTurn regression suite: 49/49 pass.</li>
+<li>CenCon lens: change is added logging plus host/phone tests; no new external surface, no new secrets, no architecture or security-profile change, so no docs/cencon/ update was required. All log lines are ASCII-only (asserted by PlaybackLogTests).</li>
+</ul>
+
+<h2>Sample observability log (committed proof, criterion 1)</h2>
+<pre>
+Turn A: clean finish
+  PlayAsync: bytes=128000, estimatedDuration=8.0s
+  PlayAsync done: result=Completed, bytes=128000, played=7.9s/8.0s
+
+Turn B: decoder error mid-stream
+  PlayAsync: bytes=64000, estimatedDuration=4.0s
+  PlayAsync done: result=Error, bytes=64000, played=1.2s/4.0s, what=1, extra=-2147483648
+
+Turn C: interrupted / cut off
+  PlayAsync: bytes=128000, estimatedDuration=8.0s
+  audio focus change: loss-transient-can-duck
+  PlayAsync done: result=Interrupted, bytes=128000, played=3.1s/8.0s
+</pre>
+
+<div class="verdict">VERIFIED - all Phase 1 acceptance criteria met. 4 of 4 criteria PASS with independent proof; full solution builds clean; regression suite green.</div>
+
+</body>
+</html>
