@@ -1,0 +1,7 @@
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_ByoMode_RoutesToOpenAiUrlWithOpenAiKey [27 ms]
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical [2 ms]
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_SendsResolvedModel_NotAHardcodedWhisper1 [7 ms]
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_EmptyAudio_Throws [1 ms]
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_DevThrottleMode_RoutesToDevThrottleUrlWithDevThrottleKey [< 1 ms]
+  Passed CcDirector.Core.Tests.Transcription.BatchTranscriptionPipelineTests.TranscribeAsync_WithDictionaryHit_SwapsTermAndReportsChange [13 ms]
+Total tests: 6

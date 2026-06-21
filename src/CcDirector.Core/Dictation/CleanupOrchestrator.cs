@@ -139,7 +139,13 @@ public sealed class CleanupOrchestrator : IDisposable
 
             FileLog.Write($"[CleanupOrchestrator] CleanAsync done: proposed={edits.Count} "
                           + $"accepted={validation.Accepted.Count} applied={appliedCount} rejected={validation.Rejected.Count}");
-            return new CleanupOutcome(cleaned, Applied: appliedCount > 0, Reason: reason);
+            // Report which dictionary terms were swapped (issue #587): the accepted edits ARE the
+            // change list. When nothing was actually applied (appliedCount == 0) the list is empty,
+            // so it never claims a change that did not reach the text.
+            var changedWords = appliedCount > 0
+                ? validation.Accepted
+                : (IReadOnlyList<TranscriptEdit>)Array.Empty<TranscriptEdit>();
+            return new CleanupOutcome(cleaned, Applied: appliedCount > 0, Reason: reason, ChangedWords: changedWords);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -323,5 +329,27 @@ public sealed class CleanupOrchestrator : IDisposable
 /// Outcome of a single cleanup pass. <see cref="Text"/> always carries
 /// something safe to ship: cleaned text on success, raw transcript on
 /// failure or when cleanup is disabled for the profile.
+///
+/// <see cref="ChangedWords"/> (issue #587) lists exactly which dictionary terms
+/// were swapped - each accepted find/replace edit that actually changed the
+/// text. It is empty whenever <see cref="Applied"/> is false (nothing was
+/// changed, cleanup was disabled, or it failed open), so a caller can report
+/// "these words changed" truthfully and prove "no dictionary terms -> nothing
+/// changed" by an empty list.
 /// </summary>
-public sealed record CleanupOutcome(string Text, bool Applied, string? Reason);
+public sealed record CleanupOutcome(
+    string Text,
+    bool Applied,
+    string? Reason,
+    IReadOnlyList<TranscriptEdit> ChangedWords)
+{
+    /// <summary>
+    /// Convenience constructor for the no-change paths (empty, disabled, failed open) where there
+    /// is never a change list. Keeps the existing 3-argument call sites unchanged while the success
+    /// path supplies the real <see cref="ChangedWords"/>.
+    /// </summary>
+    public CleanupOutcome(string Text, bool Applied, string? Reason)
+        : this(Text, Applied, Reason, Array.Empty<TranscriptEdit>())
+    {
+    }
+}
