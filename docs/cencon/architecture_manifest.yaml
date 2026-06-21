@@ -159,8 +159,11 @@ containers:
         description: Primary window with session sidebar, content tabs, and right panel
         file: MainWindow.axaml / MainWindow.axaml.cs
       - name: AccountGateScreen
-        description: The startup account gate screen (issue #580). Shown after the splash, in place of the main window, when no DevThrottle credential has ever been stored on this install (App.axaml.cs OnFrameworkInitializationCompleted applies the AccountGatePolicy decision). States that an account is required and why - the Director runs locally and quietly once the user is signed in - and offers the action that leads to login (the login hand-off itself is issue #581). When a credential is present the gate passes, the main window shows, and the online session validation runs in the background without blocking the window.
+        description: The startup account gate screen (issue #580). Shown after the splash, in place of the main window, when no DevThrottle credential has ever been stored on this install (App.axaml.cs OnFrameworkInitializationCompleted applies the AccountGatePolicy decision). States that an account is required and why - the Director runs locally and quietly once the user is signed in - and offers the action that leads to login. The Sign in action drives the first-run login hand-off (issue #581) - it shows the FirstRunLoginDialog explanation, then runs the FirstRunLoginCoordinator (system-browser sign-in plus loopback capture), and on success calls App.ProceedToMainWindowAfterLogin to clear the gate and show the main window with no restart; on failure it surfaces a user-safe message and stays on the gate. When a credential is present the gate passes, the main window shows, and the online session validation runs in the background without blocking the window.
         file: AccountGateScreen.axaml / AccountGateScreen.axaml.cs
+      - name: FirstRunLoginDialog
+        description: The first-run explanation shown before the system-browser sign-in (issue #581). Tells the user that a DevThrottle account is required to run the Director and that first-time setup must be online, before the browser is opened. Owns no login logic - it is the explanatory gate the AccountGateScreen shows ahead of the hand-off so the user is never sent to the browser uninformed; returns confirmed/cancelled.
+        file: FirstRunLoginDialog.axaml / FirstRunLoginDialog.axaml.cs
       - name: SessionActionBar
         description: Per-session action buttons (Stop / Interrupt / Clear context / History) rendered from the active session's agent-driver capability flags - a verb the session's CLI lacks is simply absent, no per-agent UI special cases. Lives inside the prompt bar
         file: Controls/SessionActionBar.axaml / Controls/SessionActionBar.axaml.cs
@@ -502,6 +505,11 @@ containers:
           - Account/GateDecision.cs
           - Account/BackendUnavailableTokenRefresher.cs
           - Account/DevThrottleAccountFactory.cs
+      - name: FirstRunLoginCoordinator / LoopbackLoginListener
+        description: The first-run login hand-off (issue #581) that the startup gate (#580) invokes when no credential exists. FirstRunLoginCoordinator opens the user's system browser (BrowserLauncher.OpenSystemDefault) at the DevThrottle sign-in address (DEVTHROTTLE_SIGNIN_URL env seam, default https://devthrottle.com/signin), carrying a loopback callback as the redirect_uri, then awaits the credential and stores it through DevThrottleAccountService (#583), returning a user-safe FirstRunLoginResult (no throw on expected failure/cancel). LoopbackLoginListener binds an HttpListener on 127.0.0.1 only (an OS-assigned ephemeral port - the loopback trust boundary in security rule DT-07), serves one callback path, and captures the access-plus-refresh token pair the sign-in completion hands back as query parameters (failing loud on a half-credential; token values never logged, security rule DT-05). The live sign-in page and token hand-back are the internal-repository backend (flagged dependency); until then the same callback is exercised by a local stand-in completion that posts a test-issued token, so the capture is provable in this repository.
+        files:
+          - Account/FirstRunLoginCoordinator.cs
+          - Account/LoopbackLoginListener.cs
 
   - id: native_apis
     name: Platform-Specific APIs

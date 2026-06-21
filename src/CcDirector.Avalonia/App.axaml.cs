@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using CcDirector.ControlApi;
@@ -55,6 +56,14 @@ public partial class App : Application
     /// </summary>
     public AccountGatePolicy? AccountGate { get; private set; }
 
+    /// <summary>
+    /// The DevThrottle credential service (issue #583), the foundation the startup gate (#580) and
+    /// the first-run login hand-off (#581) build on. Built during service initialization; the gate
+    /// screen uses it to store the credential captured by the system-browser sign-in. Null only
+    /// before initialization.
+    /// </summary>
+    public DevThrottleAccountService? AccountService { get; private set; }
+
     public bool SandboxMode { get; private set; }
 
     public override void Initialize()
@@ -102,24 +111,55 @@ public partial class App : Application
                     return;
                 }
 
-                var mainWindow = new MainWindow();
-                desktop.MainWindow = mainWindow;
-                mainWindow.Show();
+                ShowMainWindow(desktop, gate);
                 splash.Close();
-                FileLog.Write("[CcDirector] Main window shown (account gate passed); starting background session validation next");
-
-                // The online session validation/refresh runs in the background AFTER the window is
-                // shown, so it never delays the window appearing (issue #580). When offline it is a
-                // no-op and the Director keeps running on the cached credential.
-                _ = gate.StartBackgroundValidation();
-
-                StartUpdateService(mainWindow);
             }, global::Avalonia.Threading.DispatcherPriority.Background);
 
             desktop.ShutdownRequested += (_, _) => OnShutdown(msg => FileLog.Write($"[CcDirector] {msg}"));
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Creates and shows the main window in place of the current window (the splash at startup, or
+    /// the account gate screen after a first-run login, issue #581), with no restart. The caller is
+    /// responsible for closing the previous window. Starts the background session validation and the
+    /// update service exactly as the normal startup path does. Must be called on the UI thread.
+    /// </summary>
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, AccountGatePolicy gate)
+    {
+        var mainWindow = new MainWindow();
+        desktop.MainWindow = mainWindow;
+        mainWindow.Show();
+        FileLog.Write("[CcDirector] Main window shown (account gate passed); starting background session validation next");
+
+        // The online session validation/refresh runs in the background AFTER the window is shown, so
+        // it never delays the window appearing (issue #580). When offline it is a no-op and the
+        // Director keeps running on the cached credential.
+        _ = gate.StartBackgroundValidation();
+
+        StartUpdateService(mainWindow);
+    }
+
+    /// <summary>
+    /// Clears the startup account gate and shows the main window in its place after a first-run login
+    /// captured and stored a credential (issue #581) - no restart. The gate screen calls this on a
+    /// successful sign-in; it closes the gate screen and brings the Director to a usable main window.
+    /// Throws if called when the gate was never initialized. Must be called on the UI thread.
+    /// </summary>
+    public void ProceedToMainWindowAfterLogin(Window gateScreen)
+    {
+        if (gateScreen is null)
+            throw new ArgumentNullException(nameof(gateScreen));
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            throw new InvalidOperationException("The application lifetime is not a classic desktop lifetime.");
+        var gate = AccountGate
+            ?? throw new InvalidOperationException("AccountGate was not initialized.");
+
+        FileLog.Write("[CcDirector] First-run login complete: clearing the account gate and showing the main window (no restart)");
+        ShowMainWindow(desktop, gate);
+        gateScreen.Close();
     }
 
     private void InitializeServices(SplashScreen splash)
@@ -237,6 +277,7 @@ public partial class App : Application
             throw new PlatformNotSupportedException(
                 "The DevThrottle account credential store is Windows-only today (issue #583); the macOS Keychain store is a later drop-in.");
         var accountService = DevThrottleAccountFactory.CreateForWindows();
+        AccountService = accountService;
         AccountGate = new AccountGatePolicy(accountService);
         log("Account gate initialized");
 

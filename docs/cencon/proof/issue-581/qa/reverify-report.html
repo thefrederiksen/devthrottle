@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA re-verification - issue #581 (first-run login)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:40px; line-height:1.5; }
+  h1 { color:#007ACC; } h2 { color:#4EC9B0; margin-top:32px; }
+  table { border-collapse: collapse; width:100%; margin:16px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:#252526; }
+  .pass { color:#6A9955; font-weight:bold; }
+  code, pre { background:#252526; padding:2px 6px; border-radius:3px; font-family: Cascadia Mono, Consolas, monospace; }
+  pre { padding:12px; overflow-x:auto; white-space:pre-wrap; }
+  .verdict { background:#0e3a0e; border:1px solid #6A9955; padding:16px; border-radius:6px; margin-top:24px; }
+</style>
+</head>
+<body>
+<h1>QA re-verification - issue #581</h1>
+<p><strong>Issue:</strong> [Account] First-run login: open the system browser to sign in, capture the credential back into the Director<br>
+<strong>PR:</strong> #599 &nbsp; <strong>Branch:</strong> <code>issue-581-first-run-login</code> &nbsp; <strong>Tip:</strong> <code>8ff525e</code><br>
+<strong>Context:</strong> Re-verification after a prior QA FAIL (full <code>CcDirector.Core.Tests</code> suite was red on the
+<code>NoCrossMachineLoopbackGuardTests</code> architecture-fitness guard). Verified independently in my own isolated slot
+(slot 13) and my own checkout/worktree, reproducing every result with my own proof - not the Developer Agent's binary or screenshots.</p>
+
+<h2>Prior-failure recheck (the reason for the bounce)</h2>
+<p>The bounce was a deterministic suite failure: the new file <code>src/CcDirector.Core/Account/LoopbackLoginListener.cs</code>
+hardcodes <code>127.0.0.1</code> and was not on the loopback-guard allowlist. The fix (commit <code>8ff525e</code>) adds it to the
+<code>Allowlist</code> with a DT-07 justification. No production code changed.</p>
+<p>Independently re-run on the merged-with-main result (true post-squash-merge state):</p>
+<pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj
+-> Passed!  - Failed: 0, Passed: 2192, Skipped: 6, Total: 2198</pre>
+<p>Both loopback-guard tests (the offender check and the no-stale-entries check) pass. CI "Build &amp; Test (.NET)" is GREEN on the PR.
+Full-solution slot build: <code>0 Warning(s), 0 Error(s)</code>.</p>
+
+<h2>Acceptance criteria - all verified independently</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1 - Log in opens system browser at sign-in address</td>
+  <td>System browser opens at the DevThrottle sign-in address with a loopback callback.</td>
+  <td>Ran the REAL <code>FirstRunLoginCoordinator</code> against the built Core DLL with a stub browser-opener that captured the launch URL:
+      <code>https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A63154%2Fdevthrottle-login-callback%2F</code>.
+      Expected base address, loopback (127.0.0.1) callback embedded. Live gate also confirmed shown via log (fresh install).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2 - Hand-back captured -&gt; stored -&gt; gate clears -&gt; main window, no restart</td>
+  <td>The sign-in completion hands a credential back; the Director captures it on the loopback listener, stores it (#583), clears the gate, shows the main window with no restart.</td>
+  <td>Stand-in completion POSTed the token pair to the REAL <code>LoopbackLoginListener</code> over a real loopback socket -&gt; HTTP 200;
+      coordinator returned <code>Succeeded=True</code>; <code>IsLoggedIn=True</code> after; stored tokens byte-match the minted pair; blob is
+      encrypted at rest (422 bytes, no plaintext token on disk). Code path <code>ProceedToMainWindowAfterLogin</code> swaps gate-&gt;main window
+      in place (no restart).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3 - First-run explanation shown before login</td>
+  <td>Before any browser launch, the user is told an account is required and that first setup must be online.</td>
+  <td><code>AccountGateScreen.BtnSignIn_Click</code> shows <code>FirstRunLoginDialog</code> ("Before you sign in" - account required, first setup must be online,
+      sign-in with email/Google/GitHub) and <em>awaits the user's confirmation</em> before constructing the coordinator and opening the browser.
+      Verified in source; the dialog is gated ahead of the browser launch.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4 - Update does not clear credential / no forced re-login</td>
+  <td>Credential present, run the update, credential still present, Director starts without the gate.</td>
+  <td>Seeded a valid credential at the real per-user blob, rebuilt the slot binary (install-dir replacement = update), relaunched.
+      Log: <code>blobPath=...devthrottle-credential.bin, exists=True</code> -&gt; <code>IsLoggedIn: valid=True ... result=True</code> -&gt;
+      <code>Main window shown (account gate passed)</code>. No gate, no re-login. The credential lives in the user config dir, untouched by the binary swap.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Method / regression checks</h2>
+<ul>
+<li><strong>DT-07 (loopback-only bind):</strong> listener binds <code>127.0.0.1</code> only on an OS-assigned ephemeral port - verified in code and at runtime.</li>
+<li><strong>DT-05 (no secret logged):</strong> runtime logs record only "credential captured" / "stored N encrypted bytes" - never a token value. Verified in code and in the live director log.</li>
+<li><strong>No fallback programming:</strong> a half-credential (missing token) fails loud (HTTP 400 + thrown), never silently stored.</li>
+<li><strong>Architecture docs:</strong> <code>architecture_manifest.yaml</code> updated for the new Account components.</li>
+<li><strong>Full suite green</strong> (2192 passed, 0 failed); 62 Account/guard tests pass; CI green.</li>
+<li><strong>Negative sweep:</strong> no adjacent behavior regressed; the only failing-to-passing change is the allowlist entry.</li>
+</ul>
+
+<h2>Live director log (evidence)</h2>
+<p>See <code>reverify-post-update-log.txt</code> in this folder for the captured log lines (first-launch gate shown on fresh install + post-update no-gate startup).</p>
+
+<div class="verdict">
+<strong class="pass">VERIFIED - all acceptance criteria met.</strong> The prior deterministic suite failure is fixed (allowlist entry), the full
+<code>CcDirector.Core.Tests</code> suite is green on the merged-with-main result, the clean-build gate passes, and the four acceptance
+criteria are reproduced with my own proof (real-code end-to-end harness + live director logs). PASS.
+</div>
+</body>
+</html>

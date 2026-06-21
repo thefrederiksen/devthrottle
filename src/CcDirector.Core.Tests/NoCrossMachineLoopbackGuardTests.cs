@@ -51,6 +51,7 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Launcher/LauncherHost.cs"] = "Local launcher loopback bind.",
         ["src/CcDirector.Launcher/Program.cs"] = "Self-update helper POSTs /shutdown + probes /healthz on the launcher's own loopback (same machine).",
         ["src/CcDirector.Cockpit/Program.cs"] = "Cockpit child binds loopback; fronted by the Gateway.",
+        ["src/CcDirector.Core/Account/LoopbackLoginListener.cs"] = "Binds an HttpListener on 127.0.0.1 only (operating-system-assigned ephemeral port) to receive the first-run browser sign-in hand-back; same-machine loopback trust boundary (security rule DT-07, issue #581).",
 
         // --- Loopback DETECTION / classification / labelling (the no-loopback policy itself) ---
         ["src/CcDirector.Core/Network/TailscaleIdentity.cs"] = "Formats a CLEARLY-LABELLED local-only fallback string; never advertised cross-machine.",
