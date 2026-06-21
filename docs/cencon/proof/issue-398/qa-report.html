@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 398</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: #eef2ff; }
+.pass { color: #15803d; font-weight: bold; }
+.verdict { background: #ecfdf5; border: 2px solid #15803d; padding: 1rem; font-size: 1.1rem; }
+code { background: #f3f4f6; padding: .1rem .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #398</h1>
+<p><strong>Issue:</strong> [Maintenance] Remove unintegrated/dead projects: VoskStt, ContentWriter, DocumentLibrary<br>
+<strong>Pull request:</strong> #614 (branch <code>issue-398-remove-dead-projects</code>)<br>
+<strong>QA verified by:</strong> Independent QA Agent in an isolated worktree from the PR branch.<br>
+<strong>Date:</strong> 2026-06-21</p>
+
+<h2>Scope reconciliation</h2>
+<p>The issue names three projects. <code>CcDirector.VoskStt</code> was already removed from the
+solution and parked under <code>archived/CcDirector.VoskStt</code> by issue #593 / PR #611 (merged).
+It is correctly out of scope for this pull request. This pull request removes
+<code>CcDirector.ContentWriter</code> and <code>CcDirector.DocumentLibrary</code>. VoskStt confirmed
+no longer a project in <code>cc-director.sln</code> on this branch.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+<tr>
+<td>1</td>
+<td>ContentWriter and DocumentLibrary removed from solution and disk; VoskStt not a project in sln</td>
+<td>No project entries for either; <code>src/</code> directories gone; VoskStt absent from sln</td>
+<td>Grep of <code>cc-director.sln</code> for VoskStt/ContentWriter/DocumentLibrary returns none.
+<code>src/CcDirector.ContentWriter</code> and <code>src/CcDirector.DocumentLibrary</code> absent on disk.
+VoskStt parked under <code>archived/</code> only.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>No remaining consumer of either removed project (static or dynamic)</td>
+<td>No incoming ProjectReference, no external <code>using</code>, no reflection/DI-by-name load</td>
+<td>Zero <code>ProjectReference</code> to either in any <code>.csproj</code>. Zero
+<code>using CcDirector.ContentWriter</code> / <code>using CcDirector.DocumentLibrary</code> in any
+<code>.cs</code>. Zero <code>Assembly.Load</code> / <code>Type.GetType</code> /
+<code>Activator.CreateInstance</code> referencing those namespaces. Zero mention of either name
+anywhere under <code>src/</code> or <code>tools/</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Clean build</td>
+<td><code>dotnet build cc-director.sln</code> succeeds, 0 errors</td>
+<td>Build succeeded. 0 Warning(s), 0 Error(s).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Green test suites</td>
+<td>All suites pass</td>
+<td>All 8 suites passed: 3391 passed, 7 skipped, 0 failed (Core 2224, Gateway 863, Avalonia 82,
+HostedAgent 75, Cockpit 63, Engine 62, Launcher 22).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>App runs with no missing-feature regression</td>
+<td>Smoke-launch succeeds; no missing-assembly/feature errors</td>
+<td>Isolated slot 13 build launched (PID 64800, port 7888). <code>GET /healthz</code> returned
+<code>status: ok</code>, version 0.9.13. Startup log shows no exception / TypeLoad / FileNotFound /
+missing-assembly errors; gateway handshake passed. The removed projects were WPF components never
+wired into the Avalonia application, so no runtime feature is lost.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Commit structure</h2>
+<p>The pull request removes the two projects in separate commits as the issue requires (one at a time
+for attributability): <code>9a8a2f6</code> removes ContentWriter, <code>fbc9efe</code> removes
+DocumentLibrary, <code>fd3a98d</code> adds the developer proof.</p>
+
+<h2>Regression sweep</h2>
+<p>No adjacent breakage: full solution builds clean and every test suite is green after the removals.
+No CenCon blocking security rule affected; this is a pure dead-code removal with no architecture or
+security surface change.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. The removal of CcDirector.ContentWriter and
+CcDirector.DocumentLibrary is safe and complete.</div>
+</body>
+</html>

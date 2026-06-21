@@ -1,0 +1,152 @@
+﻿2026-06-21 15:00:27.870 [UpdaterState] Load: C:\Users\soren\AppData\Local\cc-director\config\director\updater-state.json
+2026-06-21 15:00:27.912 [SingleInstanceGuard] Acquired Local\cc-director-instance-eb73f84f59c1cc64
+2026-06-21 15:00:28.383 [AgentOptions] DefaultNpmCliPath(pi): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\pi.cmd
+2026-06-21 15:00:28.384 [AgentOptions] DefaultNpmCliPath(codex): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\codex.cmd
+2026-06-21 15:00:28.384 [AgentOptions] DefaultNpmCliPath(gemini): resolved from %APPDATA% to C:\Users\soren\AppData\Roaming\npm\gemini.cmd
+2026-06-21 15:00:28.399 [App] ApplyConfiguredToolPaths
+2026-06-21 15:00:28.401 [ToolDetectionService] SetConfiguredPath: tool=ClaudeCode, path=C:\Users\soren\.local\bin\claude.EXE
+2026-06-21 15:00:28.401 [ToolDetectionService] SetConfiguredPath: tool=Pi, path=D:\Tools\Pi\pi.exe
+2026-06-21 15:00:28.401 [ToolDetectionService] SetConfiguredPath: tool=Codex, path=C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE
+2026-06-21 15:00:28.401 [ToolDetectionService] SetConfiguredPath: tool=Gemini, path=C:\Users\soren\AppData\Roaming\npm\gemini.cmd
+2026-06-21 15:00:28.401 [ToolDetectionService] SetConfiguredPath: tool=OpenCode, path=C:\Users\soren\AppData\Roaming\npm\opencode.CMD
+2026-06-21 15:00:28.401 [App] ApplyConfiguredToolPaths: claude=C:\Users\soren\.local\bin\claude.EXE, pi=D:\Tools\Pi\pi.exe, codex=C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE, gemini=C:\Users\soren\AppData\Roaming\npm\gemini.cmd, opencode=C:\Users\soren\AppData\Roaming\npm\opencode.CMD
+2026-06-21 15:00:28.401 [App] ApplyConfiguredToolPresets
+2026-06-21 15:00:28.401 [AgentToolConfig] Load: tool=ClaudeCode
+2026-06-21 15:00:28.402 [AgentToolCatalog] GetEntry: tool=ClaudeCode
+2026-06-21 15:00:28.404 [AgentToolConfig] Load: tool=ClaudeCode, preset=Automatic (skip permissions), model=, mode=Guided, enabled=True, hasOverride=False
+2026-06-21 15:00:28.404 [AgentToolCatalog] GetEntry: tool=ClaudeCode
+2026-06-21 15:00:28.404 [App] ApplyConfiguredToolPresets: claude preset=Automatic (skip permissions), model=<none>, defaultArgs='--dangerously-skip-permissions'
+2026-06-21 15:00:28.404 [App] ApplyConfiguredVoiceSettings
+2026-06-21 15:00:28.405 [App] ApplyConfiguredVoiceSettings: no Voice section in config.json
+2026-06-21 15:00:28.973 [RootDirectoryStore] Load: path=C:\Users\soren\AppData\Local\cc-director\config\director\root-directories.json
+2026-06-21 15:00:28.982 [RootDirectoryStore] Load: loaded 2 root directories
+2026-06-21 15:00:28.982 [SessionStateStore] Initialized: FilePath=C:\Users\soren\AppData\Local\cc-director\config\director\sessions.json
+2026-06-21 15:00:28.991 [SessionHistoryStore] LoadAll: scanning C:\Users\soren\AppData\Local\cc-director\config\director\sessions
+2026-06-21 15:00:29.083 [SessionHistoryStore] LoadAll: skipping corrupt file aed86b2132c646ce8605f49e879dc07d.json: '0x00' is an invalid start of a value. Path: $ | LineNumber: 0 | BytePositionInLine: 0.
+2026-06-21 15:00:29.117 [SessionHistoryStore] LoadAll: loaded 2132 entries
+2026-06-21 15:00:29.136 [App] DetectAbnormalTermination: scanned C:\Users\soren\AppData\Local\cc-director\config\director\instances, stale=0
+2026-06-21 15:00:29.140 [CcStorageMigration] EnsureMigrated: checking for legacy data
+2026-06-21 15:00:37.702 [CcStorageMigration] EnsureMigrated: migration check complete
+2026-06-21 15:00:37.702 [CcDirector] CC Director (Avalonia) starting (SandboxMode=False), log file: C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-21-54428.log
+2026-06-21 15:00:37.720 [CcDirector] Found 5 orphaned claude.exe process(es). Cannot re-attach ConPTY. Consider killing them manually if they are from a previous run.
+2026-06-21 15:00:37.720 [CcDirector]   Orphan PID 46724, started 2026-06-20 8:51:56 AM
+2026-06-21 15:00:37.720 [CcDirector]   Orphan PID 77776, started 2026-06-21 1:12:13 AM
+2026-06-21 15:00:37.720 [CcDirector]   Orphan PID 43908, started 2026-06-21 9:00:17 AM
+2026-06-21 15:00:37.720 [CcDirector]   Orphan PID 76328, started 2026-06-21 2:26:45 PM
+2026-06-21 15:00:37.720 [CcDirector]   Orphan PID 20388, started 2026-06-21 2:29:43 PM
+2026-06-21 15:00:37.720 [SessionStateStore] Clear: clearing sessions file
+2026-06-21 15:00:37.721 [SessionStateStore] Backup: created backup at C:\Users\soren\AppData\Local\cc-director\config\director\sessions.json.bak
+2026-06-21 15:00:37.722 [SessionStateStore] Clear: deleted sessions.json
+2026-06-21 15:00:37.723 [CcDirector] Starting NUL file watcher for drives: C:\, D:\
+2026-06-21 15:00:37.725 [CcDirector] Watching drive: C:\
+2026-06-21 15:00:37.725 [CcDirector] Watching drive: D:\
+2026-06-21 15:00:37.725 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+2026-06-21 15:00:37.726 [ClaudeAccountStore] Load: path=C:\Users\soren\AppData\Local\cc-director\config\director\accounts.json
+2026-06-21 15:00:37.729 [ClaudeAccountStore] Load: loaded 1 accounts
+2026-06-21 15:00:37.729 [CcDirector] Claude accounts loaded: 1
+2026-06-21 15:00:37.731 [ClaudeUsageService] Start: beginning usage polling
+2026-06-21 15:00:37.731 [ClaudeUsageService] CheckAndRefreshExpiredTokens
+2026-06-21 15:00:37.731 [ClaudeUsageService] CheckAndRefreshExpiredTokens: account 'cc' token expired, refreshing from credentials
+2026-06-21 15:00:37.731 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-21 15:00:37.732 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-21 15:00:37.732 [ClaudeUsageService] StartCredentialsWatcher
+2026-06-21 15:00:37.732 [ClaudeUsageService] StartCredentialsWatcher: watching C:\Users\soren\.claude\.credentials.json
+2026-06-21 15:00:37.732 [CcDirector] Claude usage service started
+2026-06-21 15:00:37.732 [CcDirector] Workspace store initialized
+2026-06-21 15:00:37.732 [DevThrottleAccountFactory] CreateForWindows: building credential service
+2026-06-21 15:00:37.733 [WindowsProtectedTokenStore] ctor: blobPath=C:\Users\soren\AppData\Local\cc-director\config\director\devthrottle-credential.bin
+2026-06-21 15:00:37.733 [DevThrottleAccountFactory] ResolveSigningSecret: DEVTHROTTLE_JWT_SIGNING_SECRET not set; using placeholder (a backend-signed token would not verify until the secret is configured)
+2026-06-21 15:00:37.733 [DevThrottleAccountFactory] Build: credential service constructed
+2026-06-21 15:00:37.733 [CcDirector] Account gate initialized
+2026-06-21 15:00:37.733 [ClaudeUsageService] PollAllAccountsAsync: polling all accounts
+2026-06-21 15:00:37.735 [ClaudeUsageService] FetchUsageForAccountAsync: account=cc, isRetry=False
+2026-06-21 15:00:37.735 [EngineHost] Starting engine
+2026-06-21 15:00:37.735 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+2026-06-21 15:00:37.736 [EngineDatabase] InitializeSchema: creating tables if needed
+2026-06-21 15:00:37.754 [EngineDatabase] InitializeSchema: complete
+2026-06-21 15:00:37.755 [Scheduler] Starting
+2026-06-21 15:00:37.755 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+2026-06-21 15:00:37.755 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+2026-06-21 15:00:37.756 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+2026-06-21 15:00:37.756 [Scheduler] Started
+2026-06-21 15:00:37.756 [EngineHost] Scheduling background communication dispatcher init: db=C:\Users\soren\AppData\Local\cc-director\config\comm-queue\communications.db
+2026-06-21 15:00:37.757 [Scheduler] Loop started
+2026-06-21 15:00:37.757 [CcDirector] [Engine] EngineStarted: Engine started
+2026-06-21 15:00:37.757 [EngineHost] Engine started
+2026-06-21 15:00:37.757 [CcDirector] Engine started
+2026-06-21 15:00:37.757 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+2026-06-21 15:00:37.758 [EmailToolDiscovery] Starting discovery in C:\Users\soren\AppData\Local\cc-director\bin for tools: [cc-gmail, cc-outlook]
+2026-06-21 15:00:37.758 [EmailToolDiscovery] WARNING: Tool not found: C:\Users\soren\AppData\Local\cc-director\bin\cc-gmail.exe
+2026-06-21 15:00:37.758 [EmailToolDiscovery] WARNING: Tool not found: C:\Users\soren\AppData\Local\cc-director\bin\cc-outlook.exe
+2026-06-21 15:00:37.758 [EmailToolDiscovery] Discovery complete: 0 routes
+2026-06-21 15:00:37.759 [EngineHost] Discovered 0 email routes
+2026-06-21 15:00:37.759 [DirectorIdStore] LoadOrCreate: minted id=107cb1e7-3789-406d-a63c-178e8ca694ee, slot=D:\ReposFred\devthrottle-wt-398\local_builds\cc-director13.exe, path=C:\Users\soren\AppData\Local\cc-director\config\director\director-id-eb73f84f59c1cc64.txt
+2026-06-21 15:00:37.759 [CommunicationDispatcher] Initialized with 0 email routes
+2026-06-21 15:00:37.759 [CommunicationDispatcher] Starting (auto-dispatch disabled -- use manual Send button)
+2026-06-21 15:00:37.759 [EngineHost] Communication dispatcher started (deferred)
+2026-06-21 15:00:37.760 [EngineDatabase] CleanupOldRuns: purged 0 runs
+2026-06-21 15:00:37.769 [ControlApiHost] StartAsync: directorId=107cb1e7-3789-406d-a63c-178e8ca694ee, ephemeral=False
+2026-06-21 15:00:37.769 [SessionLogManager] Start
+2026-06-21 15:00:37.770 [SessionStatusWingman] Start
+2026-06-21 15:00:37.771 [TurnSummaryCache] Start
+2026-06-21 15:00:37.771 [ProactiveExplainService] Start
+2026-06-21 15:00:37.772 [TerminalStateDetector] Start (mode=authoritative, rule=byte->working, quiet=10s)
+2026-06-21 15:00:37.772 [ControlApiHost] Session state source: terminal (byte->working)
+2026-06-21 15:00:37.772 [TerminalSessionRecorder] Start (root=C:\Users\soren\AppData\Local\cc-director\session-recordings, capPerSession=8MB)
+2026-06-21 15:00:37.773 [CommQueueScheduler] Registered runner 'linkedin-connect' cmd='python'
+2026-06-21 15:00:37.773 [TurnReviewLogger] Start
+2026-06-21 15:00:37.773 [SchedulerService] Start pid=54428 tickInterval=00:05:00 runners=1
+2026-06-21 15:00:37.775 [SchedulerService] Hot-reload watcher armed on C:\Users\soren\AppData\Local\cc-director\config\director\runners.json
+2026-06-21 15:00:37.775 [LeaderElection] Started pid=54428 mutex=Global\cc-director-scheduler
+2026-06-21 15:00:37.775 [CcDirector] Scheduler started (tickInterval=00:05:00, runners=1, configPath=C:\Users\soren\AppData\Local\cc-director\config\director\runners.json, statePath=C:\Users\soren\AppData\Local\cc-director\config\director\scheduler-state.json)
+2026-06-21 15:00:37.775 [LeaderElection] scheduler follower, polling for leadership pid=54428
+2026-06-21 15:00:37.775 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 15:00:37.775 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 15:00:37.776 [WindowsProtectedTokenStore] Load: blobPath=C:\Users\soren\AppData\Local\cc-director\config\director\devthrottle-credential.bin, exists=False
+2026-06-21 15:00:37.776 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-21 15:00:37.776 [AccountGatePolicy] Decide: loggedIn=False, decision=Block
+2026-06-21 15:00:37.789 [AccountGateScreen] Shown: no DevThrottle credential on this install; main window blocked
+2026-06-21 15:00:37.864 [CcDirector] Startup blocked by account gate: no DevThrottle credential on this install -> gate screen shown, main window not reached
+2026-06-21 15:00:37.880 [ClaudeUsageService] FetchUsageForAccountAsync: 401 for account 'cc' - token expired
+2026-06-21 15:00:37.880 [ClaudeUsageService] FetchUsageForAccountAsync: attempting token recovery for 'cc'
+2026-06-21 15:00:37.880 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: path=C:\Users\soren\.claude\.credentials.json
+2026-06-21 15:00:37.880 [ClaudeAccountStore] RefreshActiveTokenFromCredentials: no matching account found
+2026-06-21 15:00:37.880 [ClaudeUsageService] TrackFailure: account=cafc9f62e7b84ff5a7598682eb0150f1, consecutiveFailures=1
+2026-06-21 15:00:37.881 [ClaudeUsageService] PollAllAccountsAsync: fetched 1 results
+2026-06-21 15:00:38.887 [PortAllocator] Allocate: directorId=107cb1e7-3789-406d-a63c-178e8ca694ee
+2026-06-21 15:00:38.897 [PortAllocator] Allocated port 7887
+2026-06-21 15:00:38.966 [ControlApiHost] Kestrel listening on http://127.0.0.1:7887 (loopback only; remote access via Tailscale Serve)
+2026-06-21 15:00:38.968 [InstanceRegistration] Register: id=107cb1e7-3789-406d-a63c-178e8ca694ee, port=7887, file=C:\Users\soren\AppData\Local\cc-director\config\director\instances\107cb1e7-3789-406d-a63c-178e8ca694ee.json
+2026-06-21 15:00:38.974 [TailscaleServeSelfProvisioner] Start: port=7887
+2026-06-21 15:00:38.981 [GatewayConnectionMonitor] Reset: status=Connecting
+2026-06-21 15:00:38.981 [GatewayClient] Start: gateway=http://soren-north.taildb08ed.ts.net:7878, directorId=107cb1e7-3789-406d-a63c-178e8ca694ee, port=7887
+2026-06-21 15:00:38.982 [CcDirector] Control API listening on http://127.0.0.1:7887 (directorId=107cb1e7-3789-406d-a63c-178e8ca694ee)
+2026-06-21 15:00:39.005 [TailnetIdentityResolver] ResolveEndpoint: resolved https://soren-north.taildb08ed.ts.net:7887 via local-api
+2026-06-21 15:00:39.464 [GatewayClient] POST /directors/register: endpoint=https://soren-north.taildb08ed.ts.net:7887
+2026-06-21 15:00:39.471 [GatewayClient] Registered: status=201, endpoint=https://soren-north.taildb08ed.ts.net:7887
+2026-06-21 15:00:39.524 [GatewayConnectionMonitor] Handshake PASSED: two-way connection verified
+2026-06-21 15:00:48.356 [ControlApiHost] GET /version -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.215 [ControlApiHost] GET /sessions/e2ea4de4-fa9d-4360-94ab-64e0be2e1cbf -> 404 (1ms) client=127.0.0.1
+2026-06-21 15:01:04.217 [ControlApiHost] GET /sessions/1177805d-48c7-45a6-8211-0a4146e51b6a -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.218 [ControlApiHost] GET /sessions/e032c571-8f58-492f-bae0-36bd26ed551b -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.220 [ControlApiHost] GET /sessions/63bd3b4b-f8ca-41be-ba87-1ac2e837dc59 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.221 [ControlApiHost] GET /sessions/823f64f4-2064-48bb-b594-c93152597885 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.223 [ControlApiHost] GET /sessions/a48fdad2-4072-4e89-abaa-1e45bfde13ed -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.224 [ControlApiHost] GET /sessions/b78b2e95-722a-41ee-9f47-45575b9483d1 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.225 [ControlApiHost] GET /sessions/0b44fd77-8aaf-493b-813b-9d882f50fa37 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.226 [ControlApiHost] GET /sessions/9b73249e-de34-47f8-95e7-08b9bdac39df -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.228 [ControlApiHost] GET /sessions/ff30dc21-3110-4d2f-83bc-6b4a3c8de9b5 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.229 [ControlApiHost] GET /sessions/9eaf6e05-77d9-4d5e-87db-7c088149fd1b -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.230 [ControlApiHost] GET /sessions/be51c876-2b5f-4861-a9b3-d3a919e14795 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.232 [ControlApiHost] GET /sessions/7bfc115b-cd3a-4574-8b02-8d17df27fb60 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.233 [ControlApiHost] GET /sessions/fa3b24aa-68a3-4729-90c5-37a971bbdb23 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.235 [ControlApiHost] GET /sessions/0e4bf8f0-28d8-481c-8c6f-cfe91238d942 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.236 [ControlApiHost] GET /sessions/76d6e028-a8f2-4ccf-9777-ceafbc35b39f -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.238 [ControlApiHost] GET /sessions/a6fd3271-806c-462f-872f-ab177bb4be18 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.239 [ControlApiHost] GET /sessions/934aab3d-4c7d-41c1-b858-36a4eedda8dc -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.241 [ControlApiHost] GET /sessions/2cc5403d-e5c1-41bf-a8dd-cb871e6e421c -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.242 [ControlApiHost] GET /sessions/11469665-f30e-4f43-b8fc-6ed62c98ea5c -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.244 [ControlApiHost] GET /sessions/c36ca308-0f01-4008-97fc-f6c080eb9e28 -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.245 [ControlApiHost] GET /sessions/5d90f9e8-e975-4865-a42e-a75ddd1e178d -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.246 [ControlApiHost] GET /sessions/a4bd71c1-4d4c-4d88-ad84-7b10e745b3cc -> 404 (0ms) client=127.0.0.1
+2026-06-21 15:01:04.247 [ControlApiHost] GET /sessions/029115c8-d658-45d6-ac5b-f5e9c5aef45e -> 404 (0ms) client=127.0.0.1

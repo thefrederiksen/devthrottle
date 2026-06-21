@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue 398: Remove unintegrated/dead projects</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1000px; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #222; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  code, pre { background: #f5f5f5; font-family: Consolas, monospace; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #ddd; }
+  .pass { color: #0a7d29; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #f0ad4e; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Issue 398 - Remove unintegrated/dead projects</h1>
+<p><strong>Branch:</strong> issue-398-remove-dead-projects<br>
+<strong>Risk:</strong> MEDIUM (maintenance - delete dead projects)<br>
+<strong>Date:</strong> 2026-06-21</p>
+
+<h2>Scope clarification (cross-issue overlap)</h2>
+<p>The issue named THREE projects. <code>CcDirector.VoskStt</code> was already handled
+differently by issue 593 / pull request 611 (merged): it was removed from
+<code>cc-director.sln</code> and its source parked under <code>archived/CcDirector.VoskStt</code>
+as a deliberate, reversible park (the full-delete decision is an open human decision and is
+OUT OF SCOPE here). Verified on this branch: the solution no longer contains the VoskStt
+project, and the code lives under <code>archived/</code>. VoskStt was therefore NOT touched.</p>
+<p>The actual work for this issue was the OTHER TWO projects only:
+<code>CcDirector.ContentWriter</code> and <code>CcDirector.DocumentLibrary</code>, each removed
+one at a time in its own commit.</p>
+
+<h2>Evidence: both projects are dead (no consumer)</h2>
+<p>Re-run before each removal, over <code>src/</code> and <code>tools/</code>:</p>
+<table>
+<tr><th>Check</th><th>CcDirector.ContentWriter</th><th>CcDirector.DocumentLibrary</th></tr>
+<tr><td>Incoming <code>ProjectReference</code> from any other csproj</td><td class="pass">NONE</td><td class="pass">NONE</td></tr>
+<tr><td>External <code>using CcDirector.&lt;Project&gt;</code> in .cs (outside its own folder)</td><td class="pass">NONE (only self-references)</td><td class="pass">NONE (only self-references)</td></tr>
+<tr><td>Dynamic / reflection load (<code>Assembly.Load</code>, <code>Type.GetType</code>, <code>Activator.CreateInstance</code>, DI-by-name)</td><td class="pass">NONE</td><td class="pass">NONE</td></tr>
+<tr><td>Any string-literal mention of the namespace/assembly outside its own folder (.cs/.csproj/.props/.targets)</td><td class="pass">NONE</td><td class="pass">NONE</td></tr>
+</table>
+<p>The only references to either project anywhere in the tree were the project's own
+self-references and its single line in <code>cc-director.sln</code>. Both are confirmed
+abandoned/unintegrated.</p>
+
+<h2>What was done (one project per commit)</h2>
+<ol>
+<li><strong>CcDirector.ContentWriter</strong> - removed from <code>cc-director.sln</code>
+(via <code>dotnet sln remove</code>, which also drops its GlobalSection build-config entries),
+project directory deleted. Solution rebuilt clean, all tests green. Committed alone.</li>
+<li><strong>CcDirector.DocumentLibrary</strong> - same procedure, separate commit.</li>
+</ol>
+<p>Removing one at a time keeps any future break trivially attributable, per the issue.</p>
+
+<h2>Build - clean (after each removal)</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>Tests - green (after final removal)</h2>
+<pre>CcDirector.Launcher.Tests      Failed: 0, Passed:   22
+CcDirector.Avalonia.Tests      Failed: 0, Passed:   82
+CcDirector.Engine.Tests        Failed: 0, Passed:   62
+CcDirector.Cockpit.Tests       Failed: 0, Passed:   63
+CcDirector.HostedAgent.Tests   Failed: 0, Passed:   75
+CcDirector.Gateway.Tests       Failed: 0, Passed:  863  (1 env-gated skip)
+CcDirector.Core.Tests          Failed: 0, Passed: 2224  (6 env-gated skips)</pre>
+<p class="pass">All suites pass. Skips are pre-existing environment-gated tests, unrelated to this change.</p>
+
+<h2>Smoke-launch - app runs, no missing-feature regression</h2>
+<p>Built the slot-13 exe from the worktree
+(<code>local_builds\cc-director13.exe</code>, v0.9.13) and launched it via its own
+<code>cc-director13-launch</code> scheduled task (clean svchost parentage; never spawned from
+the agent process tree; never touched the user's main / slot 1-5 Directors).</p>
+<p>The Director booted cleanly, allocated Control API port 7887, and answered
+<code>GET /healthz</code> with status <code>ok</code>:</p>
+<pre>{"status":"ok","directors":1,"sessions":0,"version":"0.9.13",
+ "directorId":"107cb1e7-3789-406d-a63c-178e8ca694ee","machineName":"SOREN_NORTH"}</pre>
+<p>Startup log showed a normal boot: database init, Control API listening, Gateway register +
+two-way handshake PASSED, and NO exceptions or missing-assembly / missing-feature errors. Full
+log slice: <code>startup-log-slot13.txt</code>; full health response:
+<code>healthz-slot13.json</code> (both in this folder).</p>
+<p class="note">Note: a pixel screenshot could not be captured because the Director is launched
+under the Task Scheduler (svchost) session per CLAUDE.md rule 0b, which has no window on the
+interactive desktop. The authoritative runtime proof is the live <code>/healthz</code> response
+and the clean startup log, both of which confirm the application starts and runs normally with
+the two dead projects removed.</p>
+<p>The slot-13 Director and its scheduled task were torn down afterward (stops only the exact
+worktree exe path; no other Director affected).</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. These were unintegrated, unreferenced projects that
+nothing loaded; removing them changes no container relationship and no security posture.</p>
+
+<h2>Rollback</h2>
+<p><code>git revert</code> the specific project's removal commit.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. CcDirector.ContentWriter and CcDirector.DocumentLibrary
+were proven dead and removed (one commit each); the solution builds clean, all test suites pass,
+and the app launches and runs with no regression. VoskStt was correctly left as-is (already
+parked under archived/ by issue 593 / pull request 611; full delete remains an open human
+decision, out of scope).</p>
+</body>
+</html>
