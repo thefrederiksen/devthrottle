@@ -1,0 +1,63 @@
+PROOF: Issue #402 - Archive stale handover/plan/tracker/spec docs
+Generated: Sun Jun 21 15:30:53 EDT 2026
+
+===================================================================
+1. docs/archive/ tree (15 moved files + new README)
+===================================================================
+docs/archive/README.md
+docs/archive/handovers/Engine-Handover.md
+docs/archive/handovers/GITHUB_RELEASES_HANDOVER.md
+docs/archive/handovers/UI_Redesign_Handover.md
+docs/archive/handovers/handover-comm-dispatch.md
+docs/archive/handovers/handover-multi-platform-dispatch.md
+docs/archive/handovers/handover-simple-chat-rich-rendering.md
+docs/archive/plans/plan-avalonia-port.md
+docs/archive/plans/plan-conpty-integration.md
+docs/archive/plans/plan-mac-support.md
+docs/archive/plans/plan-voice-mode.md
+docs/archive/specs/CC_Director_WPF_Design_Spec.md
+docs/archive/specs/avalonia-migration.md
+docs/archive/trackers/avalonia-migration-tracker.md
+docs/archive/trackers/linkedin-enrichment-tracker.md
+docs/archive/trackers/tool-test-tracker.md
+
+===================================================================
+2. docs/ root no longer contains any of the 15 moved files
+===================================================================
+GONE FROM ROOT (OK): docs/Engine-Handover.md
+GONE FROM ROOT (OK): docs/UI_Redesign_Handover.md
+GONE FROM ROOT (OK): docs/GITHUB_RELEASES_HANDOVER.md
+GONE FROM ROOT (OK): docs/handover-comm-dispatch.md
+GONE FROM ROOT (OK): docs/handover-multi-platform-dispatch.md
+GONE FROM ROOT (OK): docs/handover-simple-chat-rich-rendering.md
+GONE FROM ROOT (OK): docs/plan-avalonia-port.md
+GONE FROM ROOT (OK): docs/plan-conpty-integration.md
+GONE FROM ROOT (OK): docs/plan-voice-mode.md
+GONE FROM ROOT (OK): docs/plan-mac-support.md
+GONE FROM ROOT (OK): docs/avalonia-migration-tracker.md
+GONE FROM ROOT (OK): docs/tool-test-tracker.md
+GONE FROM ROOT (OK): docs/linkedin-enrichment-tracker.md
+GONE FROM ROOT (OK): docs/CC_Director_WPF_Design_Spec.md
+GONE FROM ROOT (OK): docs/avalonia-migration.md
+
+===================================================================
+3. LIVE links updated to docs/archive/ paths
+===================================================================
+--- docs/architecture/cockpit/HANDOVER.md line 92 ---
+3. **Mac-mini:** build the **Mac** Director (.NET; uses the `UnixPty` backend, not ConPty - confirm `docs/archive/plans/plan-mac-support.md` maturity). Set `gatewayUrl`, ensure Tailscale Serve, autostart at login, launch.
+--- docs/architecture/cockpit/HANDOVER.html line 406 ---
+<li><strong>Mac-mini:</strong> build the <strong>Mac</strong> Director (.NET; uses the <code>UnixPty</code> backend, not ConPty - confirm <code>docs/archive/plans/plan-mac-support.md</code> maturity). Set <code>gatewayUrl</code>, ensure Tailscale Serve, autostart at login, launch.</li>
+--- docs/architecture/DIRECTOR_DUMB_WRAPPER_TARGET.md line 18 ---
+- [../archive/plans/plan-voice-mode.md](../archive/plans/plan-voice-mode.md) - earlier voice mode plan (per-session phases; this doc adds the fleet-wide mode)
+
+===================================================================
+4. README.md and docs/cencon/INDEX.md - no references to old paths
+===================================================================
+README.md:0
+docs/cencon/INDEX.md:0
+(0 means no stale references)
+
+===================================================================
+5. dotnet build cc-director.sln result
+===================================================================
+Build succeeded. 0 Warning(s). 0 Error(s).

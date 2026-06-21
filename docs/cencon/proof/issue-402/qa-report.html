@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 402</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  code { background: #f4f4f4; padding: .1rem .3rem; }
+  .verdict { background: #e8f6e8; border: 1px solid #0a7a0a; padding: 1rem; margin-top: 1.5rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #402</h1>
+<p><strong>Title:</strong> Archive stale handover/plan/tracker/spec docs into docs/archive/</p>
+<p><strong>Pull request:</strong> #616 (branch <code>issue-402-archive-stale-docs</code>)</p>
+<p><strong>Verifier:</strong> QA Agent (independent worktree from the PR branch at <code>D:\ReposFred\dt-402</code>)</p>
+<p><strong>Date:</strong> 2026-06-21</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>All 15 listed files moved to the correct <code>docs/archive/&lt;category&gt;/</code> subfolder and gone from old <code>docs/</code> root; history preserved (git mv).</td>
+  <td>6 handovers, 4 plans, 3 trackers, 2 specs under the matching subfolders; none remain at old root paths; renames detected as pure moves.</td>
+  <td>All 15 present under correct subfolders. Zero old root paths remain. <code>git show --diff-filter=R --find-renames</code> reports all 15 as <code>R100</code> (100% identical = pure git mv). <code>git log --follow</code> on a sample (Engine-Handover.md) shows full prior history.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>docs/archive/README.md</code> exists and explains these are frozen historical docs.</td>
+  <td>A README marking the tree as frozen, not-maintained historical record.</td>
+  <td>Present (31 lines). States "Frozen historical documents", "NOT live reference and are NOT maintained", "Do not update", "Do not delete", and points readers to live docs. Describes each subfolder.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>No broken links: whole-repo grep for old paths of every moved file finds no live link to an old path.</td>
+  <td>README.md and docs/cencon/INDEX.md have zero matches; any code/HTML/doc link to a moved file points at the new archive path.</td>
+  <td>README.md and INDEX.md: zero matches. The 3 live links were repaired (DIRECTOR_DUMB_WRAPPER_TARGET.md, cockpit HANDOVER.md, cockpit HANDOVER.html) -&gt; all now point at <code>docs/archive/plans/...</code>. The only remaining old-path mentions are 3 backtick code-span entries in <code>docs/plans/linkedin-cleanup.md</code>, a tracker whose status is "COMPLETE" - historical record of past edits (marked done), not navigable links and not in this issue's move scope. Not a defect.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>dotnet build cc-director.sln</code> builds clean.</td>
+  <td>Build succeeded, 0 Error(s).</td>
+  <td>Build succeeded. 0 Warning(s), 0 Error(s). Docs-only change; nothing in the build references the moved docs.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Docs-only change (pure git mv plus 3 link repairs plus a new README). No source, build, or runtime surface touched - confirmed by a clean full-solution build. No adjacent breakage.</p>
+
+<h2>Method / CenCon checks</h2>
+<p>No architecture or security surface changed; no DT blocking rule applies. The change keeps the live <code>docs/</code> tree lean per issue #395. Move-not-delete honored (renames, not deletions). Rollback is a clean <code>git revert</code>.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met (4/4 PASS).</div>
+</body>
+</html>
