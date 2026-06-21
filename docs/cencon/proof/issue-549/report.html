@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #549 - Developer Agent Proof Report</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;max-width:1000px;margin:24px auto;padding:0 18px;color:#1a1a1a}
+  h1{font-size:24px;border-bottom:2px solid #2b6cb0;padding-bottom:6px}
+  h2{font-size:18px;margin-top:28px;color:#2b3a55}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid #cbd5e0;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#edf2f7}
+  .pass{color:#1a7f37;font-weight:600}
+  code,pre{font-family:Consolas,monospace;background:#f5f7fa;border-radius:4px}
+  code{padding:1px 5px}
+  pre{padding:10px;overflow:auto;border:1px solid #e2e8f0}
+  .meta{color:#555;font-size:13px}
+  img{max-width:100%;border:1px solid #cbd5e0;border-radius:6px;margin:8px 0}
+</style>
+</head>
+<body>
+<h1>Issue #549 - Retire the always-on turn-brief pipeline; re-home voice auto-refresh</h1>
+<p class="meta">
+  Developer Agent (CenCon Method) &middot; Branch <code>issue-549-retire-turnbrief-pipeline</code> &middot;
+  Built version <code>0.9.13+e936ded</code> &middot; Captured 2026-06-21.<br>
+  Full solution build: <span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span>.
+  Tests: <span class="pass">Gateway.Tests 849 passed / 1 skipped</span>, <span class="pass">Core.Tests green</span>.
+</p>
+
+<h2>What was done</h2>
+<ul>
+  <li>Deleted <code>GatewayTurnBriefAgent</code> (the always-on warm-brain stamping machine) and its
+      <code>OnBriefStored</code> wiring in <code>GatewayHost.cs</code>.</li>
+  <li>Re-homed voice auto-refresh: the always-running <code>TurnEndWatcher</code> now calls
+      <code>WingmanVoiceService.GenerateAsync</code> directly for VOICE sessions on turn-end, and keeps
+      clearing the stale voice/text cache on the Working transition. It no longer depends on any brief agent.</li>
+  <li>Dropped <code>SessionAssessments</code> and the issue #186 assessed-state refutation (Option A) and
+      the <code>PostAssessmentAsync</code> push-down: "needs you" reverts to the Director's raw mechanical signal.</li>
+  <li>Deleted the dead flag and plumbing: <code>wingman_enabled</code> (<code>WingmanConfig</code>), the
+      <code>CC_TURNBRIEFS</code> kill switch, <code>GatewayTurnBriefAgent.Disabled</code>, the
+      <code>GET/PUT /gateway/wingman</code> endpoints, and the hidden "Enable the Wingman" checkbox in
+      <code>settings.html</code>.</li>
+  <li>Removed the Cockpit "Wingman" briefs center tab and its <code>GetTurnBriefsAsync</code>/<code>LoadWingmanAsync</code>
+      load path (story column, chapters, brief feedback); Terminal is the default tab, Voice stays. Learning's
+      "Ask Wingman" is now always available (the wingman brain is always configured).</li>
+  <li>KEPT the configured wingman brain (agent + model) and <code>BrainSupervisor</code> - voice mode uses that
+      exact brain to translate. Only the always-on CONSUMER was removed.</li>
+  <li>CenCon manifest updated (turn_brief_flow &rarr; voice_auto_refresh_flow; components updated).</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>With no <code>wingman_enabled</code> anywhere, the Gateway starts without the turn-brief pipeline and logs no brief stamping.</td>
+    <td>Startup log shows the watcher starting voice-only; no <code>GatewayTurnBriefAgent</code> / brief stamping lines.</td>
+    <td>Live Gateway (new code) log line: <code>[GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)</code>. Counts: <code>GatewayTurnBriefAgent=0, wingman_enabled=0, CC_TURNBRIEFS=0, brief-stamping=0</code>. See <code>gateway-startup.log</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A voice session whose turn finishes on its own still gets its spoken summary regenerated automatically (voice auto-refresh works without the brief pipeline).</td>
+    <td>A hands-off turn-end (Working&rarr;WaitingForInput) on a voice session triggers <code>WingmanVoiceService.GenerateAsync</code> with no brief agent.</td>
+    <td>Captured run <code>TurnEndWatcherVoiceRefreshTests</code> (the exact wiring <code>GatewayHost</code> installs): 3/3 pass - voice session fires GenerateAsync, non-voice does not, Working re-entry clears the cache. See <code>captured-run-voice-autorefresh.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>The "N need you" count and the red/yellow/green session dots behave exactly as before.</td>
+    <td><code>SessionOrdering.EffectiveColor</code> (the dot/needs-you source) is unchanged and never reads the assessed state.</td>
+    <td>Source shows <code>EffectiveColor</code> folds OnHold &rarr; Explaining &rarr; Briefing &rarr; VoicePreparing &rarr; StatusColor - no AssessedState. The only writer of AssessedState is removed, so it is always null and every "AssessedState ?? ActivityState" falls through to the raw ActivityState. 31 SessionOrdering tests pass. See <code>criterion3-needs-you-dots-unchanged.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>The Cockpit no longer shows the "Wingman" briefs center tab and no dead fetch to the brief store remains.</td>
+    <td>No "Wingman" tab button; no <code>GetTurnBriefsAsync</code>/<code>LoadWingmanAsync</code> in Cockpit.razor.</td>
+    <td>Center tabs are now only Terminal (default) + Voice. In Cockpit.razor: <code>GetTurnBriefsAsync=0, LoadWingmanAsync=0, _wingmanEnabled=0, CenterTab=="brief"=0</code>. <code>GetWingmanEnabledAsync</code> removed from the Cockpit client. See <code>criterion4-cockpit-wingman-tab-removed.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><code>wingman_enabled</code>, <code>CC_TURNBRIEFS</code>, <code>GatewayTurnBriefAgent.Disabled</code>, and <code>PUT /gateway/wingman</code> are gone; the hidden checkbox is removed from <code>settings.html</code>.</td>
+    <td>Flag/endpoint absent in code; the toggle endpoint 404s; the settings checkbox is gone.</td>
+    <td>Live <code>GET /gateway/wingman &rarr; HTTP 404</code>. <code>WingmanConfig.cs</code> deleted; no <code>CC_TURNBRIEFS</code> reference remains. Screenshot <code>settings-wingman-tab-after.png</code> shows the Wingman tab with NO "Enable the Wingman" checkbox (only the kept "Capture training data"). See <code>live-rest-endpoints.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>The configured wingman agent + model settings still load and save, and voice mode still translates using that brain.</td>
+    <td>The brain block still loads agent + model; <code>BrainSupervisor</code> + the voice translator are intact.</td>
+    <td>Live <code>GET /gateway/settings &rarr; brain.tool=ClaudeCode, brain.model=opus, 7 agents</code>; <code>PUT /gateway/brain/config</code> retained. <code>BrainSupervisor</code> + <code>WingmanVoiceService</code>/<code>WingmanTranslator</code> kept and built clean. See <code>live-rest-endpoints.txt</code> + <code>settings-wingman-tab-after.png</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>Entry, exit, and failure logging in the <code>[ClassName] Method: context</code> format on the changed Gateway paths.</td>
+    <td>The re-homed paths log in the project format.</td>
+    <td>Added <code>[GatewayHost] StartAsync: starting the turn-end watcher...</code>, <code>[GatewayHost] turn-end -&gt; voice auto-refresh: sid=...</code>, and <code>[TurnEndWatcher] Start: sweep disabled (test seam)...</code>; existing <code>[WingmanVoiceService]</code> entry/exit/failure logging is preserved. Visible in <code>gateway-startup.log</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Scope OUT - confirmed unaffected</h2>
+<ul>
+  <li><b>Voice endpoints</b> (voice-turn, explain, ask-direct, menu, transcription, text-to-speech) - unchanged; built clean.</li>
+  <li><b>Training-data capture / evaluation harness (#547)</b> - unchanged; <code>WingmanTrainingStore</code> + the capture toggle kept.</li>
+  <li><b>Director-level session state, "needs you" count, colored dots</b> - they come from
+      <code>SessionOrdering.EffectiveColor &rarr; StatusColor / ActivityState</code> and never read the assessed
+      state. Confirmed I did not alter that path (criterion 3).</li>
+</ul>
+
+<h2>Screenshot: Settings &rarr; Wingman tab (after)</h2>
+<p>The Wingman tab keeps the agent + model + Save controls (the kept brain settings) and the Brain section.
+   The always-on "Enable the Wingman" checkbox is gone; the only checkbox is the kept "Capture wingman
+   training data" (#547). Rendered from this branch's <code>settings.html</code>.</p>
+<img src="settings-wingman-tab-after.png" alt="Settings Wingman tab after the change - no Enable-the-Wingman checkbox" />
+
+<h2>CenCon impact</h2>
+<p>This change alters the <code>CcDirector.Gateway</code> container (a documented component removed, one re-homed),
+   so <code>docs/cencon/architecture_manifest.yaml</code> was updated in the same change: the
+   <code>GatewayTurnBriefAgent</code> and <code>TurnEndWatcher / SessionAssessments</code> entries were replaced,
+   and the <code>turn_brief_flow</code> became <code>voice_auto_refresh_flow</code>. No security posture change
+   (no new external surface; an endpoint and a config flag were removed).</p>
+
+<h2>Conclusion</h2>
+<p><b>I believe this is finished.</b> The always-on turn-brief pipeline is retired, voice auto-refresh is re-homed
+   onto the always-running turn-end watcher and proven to fire without a brief agent, the dead flag and endpoints
+   are removed, the Cockpit Wingman tab is gone, and the at-a-glance monitoring (needs-you count + dots) is provably
+   unchanged. The full solution builds clean with zero warnings and the test suites are green.</p>
+</body>
+</html>

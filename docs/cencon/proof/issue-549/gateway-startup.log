@@ -1,0 +1,34 @@
+# Issue #549 - Gateway startup log (live run, new code, isolated port 7960 + isolated CC_DIRECTOR_ROOT)
+# Captured 2026-06-21. Version 0.9.13+e936ded (this PR's commit).
+#
+# Criterion 1+5+7: the Gateway starts WITHOUT the turn-brief pipeline and logs the new
+# voice-only turn-end watcher line; no GatewayTurnBriefAgent / wingman_enabled / CC_TURNBRIEFS.
+
+=== GatewayHost + TurnEndWatcher startup lines ===
+2026-06-21 18:18:09.540 [GatewayHost] brain tool: ClaudeCode, model: opus
+2026-06-21 18:18:09.681 [GatewayHost] StartAsync: port=7960
+2026-06-21 18:18:09.683 [GatewayHost] seeded vault OPENAI_API_KEY from the user environment (one-time bootstrap)
+2026-06-21 18:18:09.685 [GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)
+2026-06-21 18:18:09.686 [TurnEndWatcher] Start: reconcile=15s for non-pushing Directors
+2026-06-21 18:18:09.759 [GatewayHost] listening on http://127.0.0.1:7960 (version 0.9.13+e936dedf048bf6852d5f86e092320cc13c75fab9)
+2026-06-21 18:18:09.759 [GatewayHost] cron sweep started: every 60s
+2026-06-21 18:18:56.652 [GatewayHost] GET /gateway/wingman -> 404 (54ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:18:56.803 [GatewayHost] GET /gateway/settings -> 200 (103ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:18:56.863 [GatewayHost] GET /wingman/queue -> 200 (4ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:02.740 [GatewayHost] GET /pages/settings.html -> 200 (71ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:02.819 [GatewayHost] GET /cockpit -> 200 (48ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:02.858 [GatewayHost] GET /sessions -> 200 (8ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:19.098 [GatewayHost] GET /pages/settings.html -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:19.278 [GatewayHost] GET /pages/settings.html -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:22:19.624 [GatewayHost] GET /pages/settings.html -> 200 (0ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:23:44.800 [GatewayHost] GET /directors -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:24:12.991 [GatewayHost] GET /sessions -> 200 (0ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:24:19.520 [GatewayHost] POST /directors -> 200 (6342ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:24:40.979 [GatewayHost] GET /sessions -> 200 (8ms) client=127.0.0.1 host=127.0.0.1:7960
+2026-06-21 18:24:54.470 [GatewayHost] GET /sessions -> 200 (0ms) client=127.0.0.1 host=127.0.0.1:7960
+
+=== Counts that MUST be zero (retired machinery) ===
+GatewayTurnBriefAgent: 0
+wingman_enabled:       0
+CC_TURNBRIEFS:         0
+brief stamping (briefing sid=/stamped): 0
