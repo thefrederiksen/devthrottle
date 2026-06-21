@@ -1,0 +1,178 @@
+@page "/learn"
+@inject CcDirector.Cockpit.Services.GatewayClient Gateway
+@inject ILogger<Learning> Log
+
+@* The Learning / Help page (issue #472): the first in-product learning surface. Static
+   curated content explaining what DevThrottle is and how to get started, plus an "Ask
+   Wingman" box that answers free-text questions ABOUT THE PRODUCT. The answer is produced
+   by the Gateway (POST /wingman/ask-devthrottle) over the existing warm-brain path - the
+   Cockpit talks only to the Gateway, never a Director. When Wingman is not configured the
+   ask area shows an explicit set-up message instead of failing silently (no-fallback rule).
+   The page reuses the shared .nv rail (from MainLayout) and the Cockpit dark theme. The
+   content is structured in sections so more can be added later without rework. *@
+
+<PageTitle>Learning - DevThrottle</PageTitle>
+
+<div class="page lrn">
+    <div class="page-head">
+        <h1>Learning</h1>
+        <span class="page-sub">What DevThrottle is and how to use it.</span>
+    </div>
+
+    @* ---- Overview ---- *@
+    <section class="lrn-card">
+        <h2>What is DevThrottle?</h2>
+        <p>
+            DevThrottle is mission control for your coding agents. It runs and supervises many
+            Claude Code sessions at once, so you can keep a whole fleet of work moving instead of
+            babysitting one terminal. It is open source - there is nothing hidden here.
+        </p>
+        <p>The product has three parts that work together:</p>
+        <ul>
+            <li><strong>Director</strong> - the desktop app that runs and drives the coding sessions on each machine.</li>
+            <li><strong>Gateway</strong> - the service that gathers every machine's Directors into one fleet and serves this dashboard.</li>
+            <li><strong>Cockpit</strong> - this web dashboard, which the Gateway serves to every machine and to your phone.</li>
+        </ul>
+        <p>
+            The <strong>Wingman</strong> is the built-in assistant that summarizes sessions and answers
+            questions - including the Ask Wingman box on this page.
+        </p>
+    </section>
+
+    @* ---- Getting started ---- *@
+    <section class="lrn-card">
+        <h2>Getting started</h2>
+        <ol>
+            <li>Install the Director on each machine you want to run coding sessions on. The Gateway and Cockpit come with it.</li>
+            <li>Open the <a class="lrn-link" href="/cockpit">Cockpit</a> to see your fleet, then start a new session and point it at a repository.</li>
+            <li>Turn on Wingman in <a class="lrn-link" href="/settings">Settings</a> so it can summarize sessions and answer questions like the one below.</li>
+            <li>Drive sessions from the Cockpit, your desktop, or your phone - the fleet is the same everywhere.</li>
+        </ol>
+    </section>
+
+    @* ---- Learn more ---- *@
+    <section class="lrn-card">
+        <h2>Learn more</h2>
+        <p>
+            The full source, documentation, and issue tracker live on GitHub:
+            <a class="lrn-link" href="https://github.com/thefrederiksen/devthrottle" target="_blank" rel="noopener">github.com/thefrederiksen/devthrottle</a>.
+        </p>
+    </section>
+
+    @* ---- Ask Wingman ---- *@
+    <section class="lrn-card lrn-ask">
+        <h2>Ask Wingman</h2>
+        <p class="lrn-ask-sub">Ask a question about DevThrottle - what it is, what it does, or how to use it.</p>
+
+        @if (_wingmanEnabled is null)
+        {
+            @* Availability not yet known: a plain loading line, never an empty box. *@
+            <p class="lrn-muted">Checking whether Wingman is set up...</p>
+        }
+        else if (_wingmanEnabled == false)
+        {
+            @* Explicit not-configured state (issue #472, no-fallback rule): tell the user how to
+               enable it instead of failing silently, hanging, or showing an empty box. *@
+            <div class="lrn-notconfigured">
+                <strong>Wingman is not set up on this Gateway.</strong>
+                <p>
+                    Ask Wingman needs a configured Wingman brain to answer. Turn Wingman on in
+                    <a class="lrn-link" href="/settings">Settings</a> to enable this.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="lrn-askrow">
+                <input class="lrn-input" type="text" placeholder="e.g. What is DevThrottle?"
+                       @bind="_question" @bind:event="oninput" @onkeydown="OnKeyDown"
+                       disabled="@_asking" />
+                <button class="lrn-submit" @onclick="Ask" disabled="@(_asking || string.IsNullOrWhiteSpace(_question))">
+                    @(_asking ? "Asking..." : "Ask")
+                </button>
+            </div>
+
+            @if (_asking)
+            {
+                <p class="lrn-loading">Asking Wingman...</p>
+            }
+            else if (_askError is not null)
+            {
+                <div class="lrn-askerror">@_askError</div>
+            }
+            else if (_answer is not null)
+            {
+                <div class="lrn-answer">
+                    <div class="lrn-answer-q">You asked: @_askedQuestion</div>
+                    <div class="lrn-answer-a">@_answer</div>
+                </div>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    // null = unknown (still checking), true = available, false = not configured.
+    private bool? _wingmanEnabled;
+
+    private string _question = "";
+    private string? _askedQuestion;
+    private string? _answer;
+    private string? _askError;
+    private bool _asking;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Derive availability from the existing Wingman signal the Gateway already exposes
+        // (GET /gateway/wingman). A transport failure means we cannot confirm it is set up, so we
+        // surface the not-configured state rather than pretend it works (no silent failure).
+        try
+        {
+            _wingmanEnabled = await Gateway.GetWingmanEnabledAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "Learning: could not read Wingman availability from the Gateway");
+            _wingmanEnabled = false;
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_asking && !string.IsNullOrWhiteSpace(_question))
+            await Ask();
+    }
+
+    private async Task Ask()
+    {
+        if (_asking || string.IsNullOrWhiteSpace(_question))
+            return;
+
+        var q = _question.Trim();
+        _askedQuestion = q;
+        _answer = null;
+        _askError = null;
+        _asking = true;   // immediate visual feedback: button + loading line flip before the call
+        StateHasChanged();
+
+        try
+        {
+            var result = await Gateway.WingmanAskDevThrottleAsync(q);
+            if (!string.IsNullOrWhiteSpace(result.Error))
+                _askError = result.Error;
+            else if (string.IsNullOrWhiteSpace(result.Spoken))
+                _askError = "Wingman returned an empty answer.";
+            else
+                _answer = result.Spoken;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "Learning: Ask Wingman failed");
+            _askError = "Ask Wingman failed: " + ex.Message;
+        }
+        finally
+        {
+            _asking = false;
+        }
+    }
+}

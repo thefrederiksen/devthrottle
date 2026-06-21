@@ -1,0 +1,52 @@
+/* Learning / Help page (issue #472). Reuses the Cockpit dark-theme tokens from app.css
+   (--sidebar, --border, --text, --accent, ...) so it matches About/Dictionary and the
+   .nv rail. Scoped to this component. */
+
+.lrn{max-width:820px}
+
+.lrn-card{background:var(--sidebar);border:1px solid var(--border);border-radius:8px;
+  padding:18px 20px;margin-bottom:16px}
+.lrn-card h2{font-size:13px;font-weight:600;color:var(--accent);margin:0 0 10px;
+  letter-spacing:.02em;text-transform:uppercase}
+.lrn-card p{margin:0 0 10px;color:var(--text);font-size:13px;line-height:1.6}
+.lrn-card p:last-child{margin-bottom:0}
+.lrn-card ul,.lrn-card ol{margin:0 0 10px;padding-left:20px;color:var(--text);
+  font-size:13px;line-height:1.7}
+.lrn-card ul:last-child,.lrn-card ol:last-child{margin-bottom:0}
+.lrn-card li{margin-bottom:4px}
+.lrn-card strong{color:#fff;font-weight:600}
+
+.lrn-link{color:var(--accent);text-decoration:none}
+.lrn-link:hover{text-decoration:underline}
+
+.lrn-muted{color:var(--text3);font-size:13px}
+
+/* ---- Ask Wingman ---- */
+.lrn-ask-sub{color:var(--text2);font-size:12.5px;margin:0 0 12px}
+
+.lrn-askrow{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.lrn-input{flex:1;min-width:0;background:var(--panel);color:var(--text);
+  border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;
+  font-family:"Segoe UI",system-ui,sans-serif}
+.lrn-input:focus{outline:none;border-color:var(--accent)}
+.lrn-input:disabled{color:var(--muted)}
+
+.lrn-submit{flex:none;background:var(--accent);color:#fff;border:none;border-radius:6px;
+  padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer}
+.lrn-submit:hover:not(:disabled){background:#0a86db}
+.lrn-submit:disabled{background:#004E82;color:#6699BB;cursor:default}
+
+.lrn-loading{color:var(--text3);font-size:13px;font-style:italic;margin:0}
+
+.lrn-askerror{background:#3A1B1B;color:#F1A0A0;border:1px solid #5A2A2A;border-radius:6px;
+  padding:8px 12px;font-size:12.5px}
+
+.lrn-answer{background:var(--panel);border:1px solid var(--border);border-radius:6px;
+  padding:12px 14px;margin-top:4px}
+.lrn-answer-q{color:var(--text3);font-size:11.5px;margin-bottom:8px}
+.lrn-answer-a{color:var(--text);font-size:13px;line-height:1.6;white-space:pre-wrap}
+
+.lrn-notconfigured{background:#2A2410;border:1px solid #5A4A1B;border-radius:6px;
+  padding:12px 14px;color:var(--text)}
+.lrn-notconfigured strong{color:var(--amber);font-weight:600;font-size:13px}
+.lrn-notconfigured p{margin:8px 0 0;font-size:12.5px;color:var(--text2);line-height:1.6}

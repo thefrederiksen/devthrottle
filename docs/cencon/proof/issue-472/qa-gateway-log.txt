@@ -1,0 +1,4 @@
+GET /gateway/wingman -> enabled=True
+[GatewayWingmanVoice] ask-devthrottle textLen=40
+[GatewayWingmanVoice] ask-devthrottle OK: answerLen=175, replySeconds=1.2
+GET /gateway/wingman -> enabled=False

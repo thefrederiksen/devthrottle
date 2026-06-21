@@ -191,6 +191,20 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
     }
 
+    // ===== Ask Wingman about DevThrottle (issue #472) =====
+
+    [Fact]
+    public async Task AskDevThrottle_EmptyText_Returns400()
+    {
+        // The Cockpit Learning page posts here. Empty text is rejected before any brain call,
+        // which proves the Cockpit -> Gateway wire path without needing a live model in CI.
+        var resp = await _http.PostAsJsonAsync("wingman/ask-devthrottle", new { text = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("text is required", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ===== Submit validation =====
 
     [Fact]

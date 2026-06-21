@@ -1,0 +1,30 @@
+[
+  {
+    "criterion": "AC1 Learning nav item visible in the .nv rail",
+    "pass": true
+  },
+  {
+    "criterion": "AC2 Static overview + getting-started + GitHub link",
+    "pass": true
+  },
+  {
+    "criterion": "AC3 Ask Wingman input + submit control present",
+    "pass": true
+  },
+  {
+    "criterion": "AC7 Shared .nv rail + Cockpit styling (rail beside About etc.)",
+    "pass": true
+  },
+  {
+    "criterion": "AC4 Answer rendered + in-progress indicator shown",
+    "pass": true
+  },
+  {
+    "criterion": "AC6 Ask path Cockpit -> Gateway (gateway log line, question carried)",
+    "pass": true
+  },
+  {
+    "criterion": "AC5 Not-configured: explicit set-up message, no ask box",
+    "pass": true
+  }
+]

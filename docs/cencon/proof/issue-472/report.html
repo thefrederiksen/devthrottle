@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #472 - Cockpit Learning page with Ask Wingman - Proof Report</title>
+<style>
+  body{font-family:"Segoe UI",system-ui,sans-serif;background:#1E1E1E;color:#CCCCCC;
+    margin:0;padding:32px;line-height:1.55;font-size:14px}
+  h1{font-size:22px;color:#fff;margin:0 0 4px}
+  h2{font-size:15px;color:#007ACC;margin:28px 0 10px;text-transform:uppercase;letter-spacing:.03em}
+  .sub{color:#888;font-size:12px;margin-bottom:18px}
+  table{border-collapse:collapse;width:100%;margin:8px 0 18px}
+  th,td{border:1px solid #3C3C3C;padding:8px 10px;text-align:left;vertical-align:top;font-size:13px}
+  th{background:#252526;color:#fff;font-weight:600}
+  td.pass{color:#22C55E;font-weight:600;white-space:nowrap}
+  code{font-family:"Cascadia Mono",Consolas,monospace;background:#252526;padding:1px 5px;border-radius:4px;color:#CCC}
+  .card{background:#252526;border:1px solid #3C3C3C;border-radius:8px;padding:16px 18px;margin:10px 0}
+  img{max-width:100%;border:1px solid #3C3C3C;border-radius:6px;margin:8px 0;display:block}
+  .verdict{background:#1B3A2A;border:1px solid #22C55E;color:#9BE8B6;border-radius:6px;
+    padding:12px 16px;font-size:14px;margin-top:20px}
+  ul{margin:6px 0 0;padding-left:20px}
+  .label{color:#888;font-size:11px;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>Issue #472 - [Cockpit] Learning/Help page with "Ask Wingman"</h1>
+<div class="sub">Developer Agent proof - CenCon Development Method - branch <code>issue-472-cockpit-learning</code></div>
+
+<div class="card">
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>New Cockpit Learning page</strong> at route <code>/learn</code>
+    (<code>src/CcDirector.Cockpit/Components/Pages/Learning.razor</code> + <code>.razor.css</code>): static
+    overview (what DevThrottle is), a getting-started section, an outbound GitHub link, and an
+    <strong>Ask Wingman</strong> box.</li>
+  <li><strong>New nav item "Learning"</strong> in the shared <code>.nv</code> rail
+    (<code>Components/Layout/NavMenu.razor</code>), an in-app <code>NavLink</code> (no full reload).</li>
+  <li><strong>New Gateway endpoint</strong> <code>POST /wingman/ask-devthrottle</code>
+    (<code>src/CcDirector.Gateway/Api/GatewayWingmanVoiceEndpoint.cs</code>) backed by a new
+    <code>WingmanTranslator.AskAboutDevThrottleAsync</code> grounded with a DevThrottle product/docs
+    system prompt - it reuses the EXISTING warm-brain (<code>IAgentBrain</code>) path; no new LLM transport.</li>
+  <li><strong>New Cockpit client method</strong> <code>GatewayClient.WingmanAskDevThrottleAsync</code> -
+    the Cockpit calls the Gateway, never a Director.</li>
+  <li><strong>Explicit not-configured state</strong>: availability is read from the existing
+    <code>GET /gateway/wingman</code> signal; when Wingman is off the page shows a named "set up Wingman"
+    message instead of failing silently (no-fallback rule).</li>
+  <li><strong>Tests</strong>: 3 new <code>WingmanTranslatorTests</code> (answer + clear, empty-throws,
+    prompt grounding) and 1 new Gateway endpoint test (empty-text 400 wire path). All pass.</li>
+</ul>
+</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion (Expected)</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>A "Learning" nav item is visible in the Cockpit <code>.nv</code> rail and navigates to the page
+      with an in-app <code>NavLink</code> (no full reload).</td>
+  <td>"Learning" item present and highlighted in the rail; clicking it routes to <code>/learn</code>
+      via SPA navigation (URL changed, no document reload). See proof1.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>The page renders static overview + getting-started + at least one GitHub link.</td>
+  <td>"What is DevThrottle", "Getting started", and the link
+      <code>github.com/thefrederiksen/devthrottle</code> all render. See proof1.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>An Ask Wingman input box and a submit control are present.</td>
+  <td>One <code>input.lrn-input</code> + one <code>button.lrn-submit</code> ("Ask") present. See proof1.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>When Wingman is available, submitting a question returns a non-empty answer rendered on the page,
+      with a visible in-progress indicator while waiting.</td>
+  <td>Asking "What is DevThrottle?" shows the button flip to "Asking..." / a loading line (proof2a), then
+      renders the answer (proof2). Gateway log line confirms it was served.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>When Wingman is NOT available, the area shows an explicit "set up Wingman" message and does not
+      throw, hang, or render an empty box.</td>
+  <td>With <code>enabled=false</code>, the page shows "Wingman is not set up on this Gateway" with a
+      Settings link and NO input box. See proof3.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>The Ask path is Cockpit -&gt; Gateway (the Cockpit never calls a Director directly).</td>
+  <td>The Cockpit posts to the Gateway endpoint <code>/wingman/ask-devthrottle</code>; the Gateway log line
+      <code>[GatewayWingmanVoice] ask-devthrottle textLen=20</code> proves the question was served through
+      the Gateway. See gateway-log.txt.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td>The page complies with the Cockpit visual style (shared <code>.nv</code> rail + Cockpit page styling).</td>
+  <td>Page uses the shared <code>.nv</code> rail (alongside About/Dictionary/etc.) and the Cockpit dark-theme
+      tokens from <code>app.css</code>; cards/headings match the existing pages. See proof1 vs the rail.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>How this was proven</h2>
+<div class="card">
+The real Cockpit Blazor app (<code>devthrottle-cockpit.dll</code>, the actual <code>Learning.razor</code> and
+<code>NavMenu</code>) was run through a real Blazor Server circuit in headless Chromium, pointed at a small
+stub Gateway that implements exactly the three endpoints the page calls
+(<code>GET /gateway/wingman</code>, <code>POST /wingman/ask-devthrottle</code>, <code>GET /healthz</code>) and
+logs each request. The stub lets the harness toggle Wingman availability for the available and not-configured
+runs and proves the Cockpit -&gt; Gateway wire. The real Gateway endpoint and translator are additionally
+covered by the passing .NET tests (<code>WingmanTranslatorTests</code>, <code>GatewayVoiceTurnAsyncTests</code>).
+Harness: <code>proof-harness.py</code>. Full solution builds clean: <code>0 Warning(s), 0 Error(s)</code>.
+</div>
+
+<h2>Screenshots</h2>
+<div class="card">
+<div class="label">proof1 - Learning nav item + page loaded (overview + Ask Wingman box)</div>
+<img src="proof1-learning-page.png" alt="Learning page loaded">
+<div class="label">proof2a - in-progress indicator while the answer is being fetched</div>
+<img src="proof2a-asking.png" alt="Asking in progress">
+<div class="label">proof2 - Ask Wingman question answered (question + rendered answer)</div>
+<img src="proof2-answer.png" alt="Answer rendered">
+<div class="label">proof3 - not-configured state (explicit set-up message, no ask box)</div>
+<img src="proof3-not-configured.png" alt="Not configured state">
+</div>
+
+<h2>CenCon impact</h2>
+<div class="card">
+No architecture or security drift. The change is additive within existing containers
+(<code>CcDirector.Cockpit</code>, <code>CcDirector.Gateway</code>) and reuses the existing warm-brain
+(<code>CcDirector.Core</code> / <code>IAgentBrain</code>) LLM transport - no new container, no new transport, no
+new external surface beyond one additive loopback Gateway route. <code>architecture_manifest.yaml</code> and
+<code>security_profile.yaml</code> are current and unaffected.
+</div>
+
+<div class="verdict">All 7 acceptance criteria pass with proof. The build is clean (0 warnings, 0 errors) and the new
+unit/integration tests pass. <strong>I believe this is finished.</strong></div>
+
+</body>
+</html>
