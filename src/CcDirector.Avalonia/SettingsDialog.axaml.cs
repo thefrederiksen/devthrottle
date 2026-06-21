@@ -736,6 +736,48 @@ public partial class SettingsDialog : Window
     /// gateway.url and the onboarding-complete marker, so afterwards we reload the dialog from disk so
     /// the Gateway fields reflect any change the wizard made.
     /// </summary>
+    /// <summary>
+    /// Issue #469: open the "Connect to Gateway" dialog to enroll THIS device with a pairing code.
+    /// The dialog enrolls the device (its stable device id) and writes the issued per-device key to
+    /// the local credential file. Prefills the URL from the Gateway URL field if one is entered.
+    /// </summary>
+    private async void BtnConnectToGateway_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnConnectToGateway_Click");
+        ConnectToGatewayButton.IsEnabled = false;
+        try
+        {
+            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+            if (host is null)
+            {
+                ShowGatewayStatus("The Control API is not started yet. Try again in a moment.", error: true);
+                return;
+            }
+
+            var prefillUrl = (GatewayUrlBox.Text ?? "").Trim();
+            var dialog = new ConnectToGatewayDialog(host.DirectorId, prefillUrl);
+            var joined = await dialog.ShowDialog<bool?>(this);
+            if (joined == true)
+            {
+                // The dialog wrote the URL + per-device key to config.json; reload so the tab shows it
+                // and re-apply the gateway so the running client picks up the new key immediately.
+                await LoadAsync();
+                if (_reapplyGateway is not null)
+                    await _reapplyGateway();
+                FileLog.Write("[SettingsDialog] BtnConnectToGateway_Click: device registered; gateway re-applied");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnConnectToGateway_Click FAILED: {ex.Message}");
+            ShowGatewayStatus($"Connect to Gateway failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            ConnectToGatewayButton.IsEnabled = true;
+        }
+    }
+
     private async void BtnRerunOnboarding_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[SettingsDialog] BtnRerunOnboarding_Click");

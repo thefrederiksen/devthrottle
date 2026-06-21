@@ -1,0 +1,11 @@
+﻿[PASS] AC1 minted code length=4, all-digits=True (value hidden)
+[PASS] AC2a HTTP 201, keyIssued=True, keyLen=43
+[PASS] AC4 single-use reuse -> HTTP 401 (4xx, no key)
+[PASS] AC2b two registrations DIFFER: keyA[..4]=CUhR.., keyB[..4]=F7Qf.., equal=False
+[PASS] AC5 wrong code while a code is active -> HTTP 401 (4xx, no key)
+[PASS] AC3 no active code (expiry/none) -> HTTP 401 (4xx, no key). 5-min boundary covered by PairingCodeServiceTests.
+[PASS] AC6 /pair/payload->HTTP 503 (removed, no secret in body), /pair/qr.png->HTTP 503; /devices body has no key field=True
+[PASS] AC9 shared-token-only register (empty pairingCode) -> HTTP 400 (4xx); QR endpoints 404
+[PASS] AC8 per-device-key GET /directors -> 200; bogus-key -> 401
+[PASS] AC10 registry count=2, sample=MACHINE-B/active/2026-06-21T10:10:54.7288449Z
+QA INDEPENDENT PROOF: AC1,AC2a,AC2b,AC3,AC4,AC5,AC6,AC8,AC9,AC10 ALL PASS

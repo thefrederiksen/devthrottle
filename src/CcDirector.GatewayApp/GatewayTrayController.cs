@@ -41,6 +41,7 @@ public sealed class GatewayTrayController : IDisposable
     private GatewayHost? _host;
     private CockpitSupervisor? _cockpit;
     private SettingsWindow? _settingsWindow;
+    private PairingWindow? _pairingWindow;
     private HostState _state = HostState.Stopped;
     private bool _busy;
     private bool _disposed;
@@ -138,6 +139,9 @@ public sealed class GatewayTrayController : IDisposable
         var actions = new List<FlyoutAction>
         {
             new() { Text = "Open Cockpit", Primary = true, OnClick = OpenCockpit },
+            // Issue #469: the local-presence root of trust. The pairing code is shown only here, on
+            // the gateway host's own screen, so only someone at this machine can enroll a device.
+            new() { Text = "Register a new device", OnClick = OpenPairing },
             new() { Text = "Open Settings", OnClick = OpenSettings },
             new() { Text = "Restart Gateway", OnClick = () => _ = RestartAsync() },
             new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
@@ -396,6 +400,7 @@ public sealed class GatewayTrayController : IDisposable
         {
             _flyout?.Close();
             _settingsWindow?.Close();
+            _pairingWindow?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
         });
@@ -413,6 +418,25 @@ public sealed class GatewayTrayController : IDisposable
             _settingsWindow = new SettingsWindow(this);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
+        });
+    }
+
+    /// <summary>
+    /// Open the "Register a new device" window (issue #469). The pairing code it shows lives ONLY
+    /// on this host's screen - the local-presence root of trust.
+    /// </summary>
+    private void OpenPairing()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_pairingWindow is { } open)
+            {
+                open.Activate();
+                return;
+            }
+            _pairingWindow = new PairingWindow(this);
+            _pairingWindow.Closed += (_, _) => _pairingWindow = null;
+            _pairingWindow.Show();
         });
     }
 

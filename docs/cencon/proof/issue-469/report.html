@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #469 - Device registration via local pairing code - Developer Proof</title>
+<style>
+  body{background:#141414;color:#E0E0E0;font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55;margin:0;}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 28px 80px;}
+  h1{font-size:24px;color:#fff;font-weight:600;border-bottom:1px solid #3C3C3C;padding-bottom:14px;}
+  h2{font-size:18px;color:#fff;margin:32px 0 12px;border-bottom:1px solid #3C3C3C;padding-bottom:6px;}
+  h3{font-size:15px;color:#3B82F6;margin:20px 0 8px;}
+  code{background:#000;color:#d6d6d6;padding:1px 6px;border-radius:4px;font-family:Consolas,monospace;font-size:12.5px;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13px;}
+  th,td{border:1px solid #3C3C3C;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#232323;color:#fff;}
+  .pass{color:#4CAF50;font-weight:600;}
+  .imgrow{display:flex;flex-wrap:wrap;gap:18px;margin:14px 0;}
+  .imgrow figure{margin:0;background:#1E1E1E;border:1px solid #3C3C3C;border-radius:6px;padding:10px;}
+  .imgrow img{display:block;border:1px solid #000;border-radius:4px;}
+  .imgrow figcaption{color:#9A9A9A;font-size:12px;margin-top:8px;}
+  pre{background:#0e0e0e;border:1px solid #3C3C3C;border-radius:6px;padding:14px;overflow-x:auto;font-size:12px;color:#cfe3e3;}
+  .belief{background:#14241A;border:1px solid #2E7D32;border-radius:6px;padding:14px 18px;margin:24px 0;color:#cfe9cf;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Issue #469 - [Gateway] Device registration via local pairing code (per-device keys; no other path)</h1>
+<p><strong>Developer Agent proof report.</strong> Replaces the shared "fleet token" enrollment with a deliberate,
+locally-authorized per-device enrollment. The Gateway mints a 4-digit, 5-minute, single-use pairing code shown ONLY
+in the GatewayApp host window (Anchor B - local presence is the root of trust). A new Director submits
+<code>{deviceId, machineName, pairingCode}</code>; the Gateway verifies and consumes the code, issues a unique
+per-device key, records the device, and the Director writes the key to its local credential file. The old
+shared-token-only path and the secret-embedding QR endpoints are closed.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Gateway (CcDirector.Gateway)</strong>: <code>PairingCodeService</code> (4-digit / 5-min / single-use,
+      CSPRNG, thread-safe), <code>DeviceRegistry</code> (unique per-device key per machine, persisted to
+      <code>devices.json</code> under the config root, supports later revocation via status),
+      <code>DeviceEnrollmentEndpoint</code> (<code>POST /devices/register</code>, <code>GET /devices</code>).
+      <code>AuthMiddleware</code> accepts a per-device key as a valid Bearer alongside the shared token.</li>
+  <li><strong>Old path closed</strong>: removed <code>GatewayPairingEndpoint</code> + <code>PairingPayload</code>
+      (the <code>/pair/qr.png</code> and <code>/pair/payload</code> endpoints that embedded the shared token); the
+      Cockpit "Connect a phone" panel is now a retired-notice. Shared-token-only registration is rejected.</li>
+  <li><strong>GatewayApp (CcDirector.GatewayApp)</strong>: <code>PairingWindow</code> - the corner-window pairing UI
+      (Register button -&gt; 4-digit code + live countdown -&gt; joined confirmation), wired into the tray flyout as
+      "Register a new device". The code is shown only here.</li>
+  <li><strong>Director (CcDirector.Avalonia)</strong>: <code>ConnectToGatewayDialog</code> - Gateway URL + 4-digit
+      code entry (Join disabled until exactly 4 digits), POSTs enrollment, writes the per-device key, shows
+      "Registered as &lt;machine&gt;". Reached from Settings &gt; Gateway &gt; "Connect to Gateway...".</li>
+  <li><strong>Contracts</strong>: <code>DeviceRegistrationRequest</code> / <code>DeviceRegistrationResponse</code> /
+      <code>RegisteredDeviceDto</code>.</li>
+  <li><strong>ControlApi / Core</strong>: <code>GatewayEnrollmentClient</code> (the enroll call) and
+      <code>GatewayCredentialStore</code> (writes the key to <code>gateway-token.txt</code> + config.json - the same
+      file the local cc-* tools read). <code>OperationResult&lt;T&gt;</code> added per CodingStyle.</li>
+  <li><strong>Tests</strong>: <code>PairingCodeServiceTests</code> (8), <code>DeviceRegistryTests</code> (6),
+      <code>GatewayCredentialStoreTests</code> (3) - all pass.</li>
+</ul>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr><td>4-digit numeric pairing code</td><td class="pass">PASS</td><td>API AC1 + host screenshot; <code>PairingCodeServiceTests.Mint_ProducesExactlyFourNumericDigits</code></td></tr>
+  <tr><td>Valid code returns a per-device key; two registrations -&gt; two different keys</td><td class="pass">PASS</td><td>API AC2a/AC2b (HTTP 201, distinct keys); <code>DeviceRegistryTests.Register_TwoDevices_ProduceTwoDifferentKeys</code></td></tr>
+  <tr><td>Expired code rejected, no key</td><td class="pass">PASS</td><td>API AC3; <code>PairingCodeServiceTests.TryVerifyAndConsume_AfterExpiry_IsRejected</code> (real 5-min boundary with injected clock)</td></tr>
+  <tr><td>Single-use: reused code rejected</td><td class="pass">PASS</td><td>API AC4 (HTTP 401); <code>PairingCodeServiceTests.TryVerifyAndConsume_SecondTime_IsRejected</code></td></tr>
+  <tr><td>Wrong / never-minted code rejected</td><td class="pass">PASS</td><td>API AC5 (HTTP 401)</td></tr>
+  <tr><td>Code not exposed by any networked endpoint / Cockpit</td><td class="pass">PASS</td><td>API AC6 (QR endpoints 404 when authenticated; <code>/devices</code> has no key field)</td></tr>
+  <tr><td>Key written to local credential file</td><td class="pass">PASS</td><td><code>GatewayCredentialStoreTests.SaveEnrolledKey_WritesKeyToCredentialFile</code></td></tr>
+  <tr><td>Per-device key authenticates Director-&gt;Gateway; local cc-*/curl loopback returns 200</td><td class="pass">PASS</td><td>API AC8 (Gateway: 200 with key, 401 bogus); AC8b loopback proof (Director Control API 200 with on-disk credential)</td></tr>
+  <tr><td>Old path closed (shared-token-only rejected; QR endpoints 404/no secret)</td><td class="pass">PASS</td><td>API AC9</td></tr>
+  <tr><td>Registry lists name / machine / issued-at / status</td><td class="pass">PASS</td><td>API AC10; <code>DeviceRegistryTests.Register_RecordsNameMachineIssuedAtAndStatus</code></td></tr>
+  <tr><td>GatewayApp three states (button / code+countdown / joined)</td><td class="pass">PASS</td><td>Screenshots host-1/2/3</td></tr>
+  <tr><td>Director dialog: Join disabled until 4 digits; "Registered as &lt;machine&gt;"</td><td class="pass">PASS</td><td>Screenshots director-1/2</td></tr>
+</table>
+
+<h2>GatewayApp host window - three states</h2>
+<div class="imgrow">
+  <figure><img src="host-1-idle.png" width="304"><figcaption>1. Idle: "Register a new device"</figcaption></figure>
+  <figure><img src="host-2-code.png" width="304"><figcaption>2. 4-digit code + live countdown, waiting</figcaption></figure>
+  <figure><img src="host-3-joined.png" width="304"><figcaption>3. "MACHINE-B joined, 3 devices registered"</figcaption></figure>
+</div>
+
+<h2>Director "Connect to Gateway" dialog - entry + success</h2>
+<div class="imgrow">
+  <figure><img src="director-1-code-entered.png" width="384"><figcaption>URL + 4-digit code; Join enabled at 4 digits</figcaption></figure>
+  <figure><img src="director-2-registered.png" width="384"><figcaption>"Registered as MACHINE-B"; key saved to local credential file</figcaption></figure>
+</div>
+
+<h2>API proof harness output (real GatewayHost, auth enabled)</h2>
+<p>A harness boots a real <code>GatewayHost</code> on a loopback port with auth enabled and drives the actual wired
+HTTP endpoints. Full output in <code>api-proof-output.txt</code>; loopback Control API evidence in
+<code>ac8b-loopback-proof.txt</code>.</p>
+<pre>
+[PASS] AC1 - minted code is exactly 4 numeric digits
+[PASS] AC2a - valid code returns a per-device key (HTTP 201)
+[PASS] AC2b - two registrations produce two DIFFERENT keys
+[PASS] AC4 - single-use: re-submitting a consumed code is rejected (HTTP 401)
+[PASS] AC5 - wrong / never-minted code rejected (HTTP 401)
+[PASS] AC3 - no active/valid grant rejected (HTTP 401); 5-min expiry boundary in unit test
+[PASS] AC6 - QR endpoints removed (authenticated 404); /devices carries no key
+[PASS] AC9 - old path closed: shared-token-only register rejected; QR endpoints 404
+[PASS] AC8 - per-device key GET /sessions 200; bogus key 401
+[PASS] AC10 - registry lists id/machine/issued-at/status
+PROOF SUMMARY: 10 passed, 0 failed
+</pre>
+
+<h2>CenCon impact</h2>
+<p>This changes the security posture: credential model moves from a single shared fleet token to unique per-device
+keys, and new-device enrollment now requires a local-presence pairing code instead of presenting the shared secret.
+This strengthens the posture (per-device revocability, no secret in a QR/link, attributable identity) and violates no
+blocking security rule. The <code>docs/cencon/architecture_manifest.yaml</code> / <code>security_profile.yaml</code>
+should be refreshed by the Support Agent to describe the per-device-key enrollment; no architecture container was
+added or removed (the new code lives inside the existing <code>gateway</code>, <code>gateway_app</code>,
+<code>avalonia_ui</code>, <code>control_api</code>, <code>core_services</code>, <code>gateway_contracts</code>
+containers).</p>
+
+<div class="belief">
+  <strong>I believe this is finished.</strong> The full solution builds clean (0 warnings, 0 errors), 17 new unit
+  tests pass, all 10 API-level acceptance criteria pass against a real running GatewayHost, the loopback Control API
+  accepts the on-disk credential (200), and all 5 UI states render as specified in the mockup. The secret-embedding
+  QR endpoints are removed and shared-token-only enrollment is rejected.
+</div>
+
+</div>
+</body>
+</html>

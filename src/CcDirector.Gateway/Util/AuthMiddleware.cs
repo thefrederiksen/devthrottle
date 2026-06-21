@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Pairing;
 using Microsoft.AspNetCore.Http;
 
 namespace CcDirector.Gateway.Util;
@@ -5,8 +6,9 @@ namespace CcDirector.Gateway.Util;
 /// <summary>
 /// Bearer-or-cookie auth for the Gateway.
 ///
-/// Public, no auth:    /healthz, /login, /logout
-/// Authenticated:      every other route (Bearer header OR cc-gateway-token cookie).
+/// Public, no auth:    /healthz, /login, /logout, /devices/register
+/// Authenticated:      every other route (Bearer header OR cc-gateway-token cookie OR, per
+///                     issue #469, a per-device key issued at enrollment).
 ///
 /// Browser requests (Accept: text/html) get a 302 redirect to /login.
 /// Non-browser requests get a 401 with JSON body.
@@ -22,6 +24,10 @@ internal static class AuthMiddleware
         "/login",
         "/logout",
         "/favicon.ico",
+        // Issue #469: enrollment carries its own authorization (the pairing code), so a brand-new
+        // device with no credential yet can reach it. The endpoint itself rejects a wrong/expired/
+        // used code, so opening the route does not weaken the trust model.
+        "/devices/register",
     };
 
     public static async Task Run(HttpContext ctx, RequireToken cfg, Func<Task> next)
@@ -30,7 +36,7 @@ internal static class AuthMiddleware
 
         if (PublicPaths.Contains(path)) { await next(); return; }
 
-        if (HasValidToken(ctx, cfg.Token))
+        if (HasValidToken(ctx, cfg.Token, cfg.Devices))
         {
             await next();
             return;
@@ -55,7 +61,14 @@ internal static class AuthMiddleware
     /// above and by endpoints that must stay token-gated even when the global middleware is
     /// off (issue #369: the voice-turn submit/poll surface in production mode).
     /// </summary>
-    public static bool HasValidToken(HttpContext ctx, string token)
+    public static bool HasValidToken(HttpContext ctx, string token) => HasValidToken(ctx, token, null);
+
+    /// <summary>
+    /// As <see cref="HasValidToken(HttpContext, string)"/> but, per issue #469, ALSO accepts a
+    /// Bearer that matches an active per-device key in the <paramref name="devices"/> registry, so
+    /// an enrolled Director authenticates with its own unique key rather than the shared token.
+    /// </summary>
+    public static bool HasValidToken(HttpContext ctx, string token, DeviceRegistry? devices)
     {
         // Bearer
         if (ctx.Request.Headers.TryGetValue("Authorization", out var header))
@@ -66,6 +79,9 @@ internal static class AuthMiddleware
             {
                 var provided = raw.Substring(prefix.Length).Trim();
                 if (string.Equals(provided, token, StringComparison.Ordinal))
+                    return true;
+                // Issue #469: a unique per-device key issued at enrollment is equally valid.
+                if (devices is not null && devices.IsValidDeviceKey(provided))
                     return true;
             }
         }
@@ -78,5 +94,11 @@ internal static class AuthMiddleware
     public sealed class RequireToken
     {
         public string Token { get; init; } = "";
+
+        /// <summary>
+        /// Issue #469: the per-device-key registry, so an enrolled Director's own key is accepted
+        /// as a valid Bearer alongside the shared machine token. Null disables per-device-key auth.
+        /// </summary>
+        public DeviceRegistry? Devices { get; init; }
     }
 }

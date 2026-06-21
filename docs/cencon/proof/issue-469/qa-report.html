@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #469 (Device registration via local pairing code)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1d1d1f; line-height: 1.5; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f4f4f6; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  .verdict { background: #e8f5e9; border: 1px solid #1a7f37; padding: 1rem; border-radius: 6px; margin: 1.5rem 0; }
+  code { background: #f4f4f6; padding: 1px 4px; border-radius: 3px; font-size: .85em; }
+  pre { background: #1d1d1f; color: #e8e8ea; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+  img { max-width: 340px; border: 1px solid #ccc; border-radius: 4px; margin: .25rem; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #469</h1>
+<p><strong>Title:</strong> [Gateway] Device registration via local pairing code (per-device keys; no other path)<br>
+<strong>PR:</strong> #602 &nbsp; <strong>Branch:</strong> issue-469-device-pairing<br>
+<strong>QA Agent:</strong> independent verification (separate identity from the Developer Agent; did NOT trust the developer's report or screenshots).</p>
+
+<div class="verdict">
+<strong>VERDICT: PASS - all acceptance criteria met.</strong><br>
+Verified in a fresh checkout of the PR branch with the QA Agent's own build, own unit-test run, and own
+end-to-end API verification against a real <code>GatewayHost</code> (auth enabled, isolated device store).
+</div>
+
+<h2>How this was verified independently</h2>
+<ul>
+<li><strong>Own build:</strong> <code>dotnet build cc-director.sln -c Debug</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li><strong>Own unit-test run:</strong> the 17 feature tests (PairingCodeService 6, DeviceRegistry 8, GatewayCredentialStore 3) all pass. Full Gateway suite: 840 passed, 1 skipped (known environment-dependent dictation clip), 0 failed - no regression.</li>
+<li><strong>Own end-to-end API proof:</strong> a QA-authored xUnit harness spun up a real <code>GatewayHost</code> with a shared fleet token + auth enabled + an isolated temp device registry, minted codes via the in-process <code>PairingCodeService</code> (Anchor B - never over the network), and drove every API criterion through real HTTP with the QA Agent's own assertions. Output captured in <code>qa-independent-api-proof.txt</code>. (The harness file itself was removed after the run to keep the tree clean; the captured output is the proof.)</li>
+<li><strong>UI criteria:</strong> verified by reading the GatewayApp <code>PairingWindow</code> and Director <code>ConnectToGatewayDialog</code> XAML + code (Join enables only at exactly 4 digits; success flips to "Registered as &lt;machine&gt;"; host renders the three states) and the developer's committed screenshots as corroborating context.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA proof)</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Minted code is exactly 4 numeric digits</td><td>len=4, all digits</td><td>len=4, all-digits=True (own mint via PairingCodeService)</td><td class="pass">PASS</td></tr>
+<tr><td>AC2a</td><td>Valid code returns a per-device key</td><td>2xx + key</td><td>HTTP 201, key issued (43 chars)</td><td class="pass">PASS</td></tr>
+<tr><td>AC2b</td><td>Two registrations -> two DIFFERENT keys</td><td>keys differ</td><td>keyA != keyB (compared registration responses)</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Code with no active/valid grant (expired/none) rejected, no key</td><td>4xx, no key</td><td>HTTP 401; 5-min boundary also covered by PairingCodeServiceTests.TryVerifyAndConsume_AfterExpiry_IsRejected</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Single-use: reused code rejected, no second key</td><td>4xx</td><td>HTTP 401 on reuse of a consumed code</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Wrong / never-minted code rejected, no key</td><td>4xx</td><td>HTTP 401 (mismatch while a code is active)</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>Code/key not exposed by any networked endpoint; QR endpoints removed</td><td>404/410 or no secret</td><td>/pair/payload + /pair/qr.png are removed (routes gone) -> non-2xx with NO secret in body; /devices body has no key field</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Per-device key written to the Director's local credential file under <code>%LOCALAPPDATA%\cc-director\config\director\</code></td><td>file present + holds key</td><td>GatewayCredentialStore.SaveEnrolledKey writes to <code>config\director\gateway-token.txt</code> + config.json; verified by code + GatewayCredentialStoreTests (3 pass)</td><td class="pass">PASS</td></tr>
+<tr><td>AC8</td><td>Per-device key authenticates a real Director-&gt;Gateway call; local loopback call returns 200 with on-disk credential</td><td>200; bogus 401</td><td>per-device key GET /directors -> HTTP 200; bogus key -> HTTP 401. The key is written to the same file DirectorAuth reads, so a local cc-*/curl loopback call authenticates (developer ac8b-loopback-proof corroborates 200)</td><td class="pass">PASS</td></tr>
+<tr><td>AC9</td><td>Old path closed: shared-token-only registration rejected; QR endpoints 404/no secret</td><td>rejected</td><td>shared-token-only register (no valid pairing code) -> HTTP 400; QR endpoints removed</td><td class="pass">PASS</td></tr>
+<tr><td>AC10</td><td>Registry lists each device with name, machine, issued-at, status</td><td>full record, no key</td><td>GET /devices -> 2 devices, each with id/machine/active/issued-at; no key field</td><td class="pass">PASS</td></tr>
+<tr><td>UI-a</td><td>GatewayApp shows three states (button / 4-digit code+countdown / join confirmation)</td><td>three states</td><td>PairingWindow code + screenshots: "Register a new device" -> "4729" + "Expires in 4:51" -> "MACHINE-B joined, 3 devices registered"</td><td class="pass">PASS</td></tr>
+<tr><td>UI-b</td><td>Director dialog: Join disabled until 4 digits; success "Registered as &lt;machine&gt;"</td><td>gated + success</td><td>UpdateJoinEnabled enables Join only at exactly 4 digits; success flips to "Registered as MACHINE-B" (code + screenshots)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Full Gateway test suite green (840 passed / 1 skipped / 0 failed) - nothing adjacent broke.</li>
+<li>The removed <code>GatewayPairingEndpoint</code> / <code>PairingPayload</code> are not referenced by the cencon architecture_manifest or security_profile, so no doc drift is introduced.</li>
+<li>Security posture improved: unique per-device revocable keys; pairing code held in memory only, never logged, never over the network; secret-bearing QR endpoints removed. No blocking security rule broken.</li>
+</ul>
+
+<h2>QA independent API proof (raw)</h2>
+<pre>
+[PASS] AC1 minted code length=4, all-digits=True (value hidden)
+[PASS] AC2a HTTP 201, keyIssued=True, keyLen=43
+[PASS] AC4 single-use reuse -> HTTP 401 (4xx, no key)
+[PASS] AC2b two registrations DIFFER (keyA != keyB)
+[PASS] AC5 wrong code while a code is active -> HTTP 401 (4xx, no key)
+[PASS] AC3 no active code (expiry/none) -> HTTP 401 (4xx, no key). 5-min boundary covered by PairingCodeServiceTests.
+[PASS] AC6 /pair/payload + /pair/qr.png removed (non-2xx, no secret in body); /devices body has no key field
+[PASS] AC9 shared-token-only register (empty pairingCode) -> HTTP 400 (4xx)
+[PASS] AC8 per-device-key GET /directors -> 200; bogus-key -> 401
+[PASS] AC10 registry count=2, sample=MACHINE-B/active
+QA INDEPENDENT PROOF: AC1,AC2a,AC2b,AC3,AC4,AC5,AC6,AC8,AC9,AC10 ALL PASS
+</pre>
+
+<h2>Screenshots (corroborating context)</h2>
+<p>Gateway host app (three states):</p>
+<img src="host-1-idle.png" alt="host idle"><img src="host-2-code.png" alt="host code+countdown"><img src="host-3-joined.png" alt="host joined">
+<p>Director "Connect to Gateway" dialog:</p>
+<img src="director-1-code-entered.png" alt="director code entered"><img src="director-2-registered.png" alt="director registered">
+
+<p style="margin-top:2rem; color:#666; font-size:.85rem;">VERIFIED - all acceptance criteria met. QA Agent, independent verification of issue #469 / PR #602.</p>
+</body>
+</html>

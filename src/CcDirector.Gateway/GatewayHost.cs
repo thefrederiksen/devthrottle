@@ -34,6 +34,22 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool AuthEnabled { get; }
 
     /// <summary>
+    /// Issue #469: mints and verifies the short-lived 4-digit pairing code that authorizes a new
+    /// device to enroll. The GatewayApp host window drives this in-process (it mints the code,
+    /// shows it locally, and polls the device registry for the join); the /devices/register
+    /// endpoint verifies and consumes it. In-memory by design - a Gateway restart cancels any
+    /// pending pairing.
+    /// </summary>
+    public Pairing.PairingCodeService Pairing { get; } = new();
+
+    /// <summary>
+    /// Issue #469: the registry of enrolled devices and their unique per-device keys - the single
+    /// issuer and record of credentials in the per-device-key trust model. Persisted under the
+    /// config root so issued keys survive a Gateway restart.
+    /// </summary>
+    public Pairing.DeviceRegistry Devices { get; }
+
+    /// <summary>
     /// Issue #288: which Director last owned each session, so the per-session WS proxy can answer
     /// 503 (owner offline) instead of 404 (unknown session). Populated by the /sessions aggregator
     /// and the WS proxy; read by the WS proxy.
@@ -135,11 +151,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override the cron run-history store file (epic #479, #483). Tests pass an isolated temp path;
     /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronruns.json</c>.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null)
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
         Registry = new DirectorRegistry(instancesDirectory);
+        Devices = new Pairing.DeviceRegistry(devicesPath);
         AuthEnabled = authEnabled;
         _client = new DirectorEndpointClient(Token);
         _cockpitProxyPort = cockpitProxyPort ?? Cockpit.CockpitSupervisor.ResolvePort();
@@ -448,7 +465,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
         if (AuthEnabled)
         {
-            var requireToken = new AuthMiddleware.RequireToken { Token = Token };
+            // Issue #469: a per-device key issued at enrollment is a valid Bearer credential
+            // alongside the shared machine token, so an enrolled Director authenticates with its
+            // own unique key. The shared token still authenticates the host's own browser/cookie
+            // surface, but it is no longer the path a NEW device uses to get in (that is pairing).
+            var requireToken = new AuthMiddleware.RequireToken { Token = Token, Devices = Devices };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
 
@@ -533,6 +554,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // Pass the fleet token (issue #457): the proxy injects it as the Bearer on every forward
         // so an auth-enabled Director (LAN mode) accepts the call. Harmless for auth-off Directors.
         SessionWsProxyEndpoints.Map(_app, Registry, _client, SessionOwners, Token);
+
+        // Issue #469: device enrollment via local pairing code (the ONLY way a new device gets in).
+        // POST /devices/register verifies+consumes the 4-digit code and issues a unique per-device
+        // key; GET /devices is the host-readable registry listing. Mapped after the WS proxy so its
+        // literal routes win over the catch-all session forwarder, same as the other literal routes.
+        Api.DeviceEnrollmentEndpoint.Map(_app, Pairing, Devices);
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
         // session and have the persistent wingman brain translate the reply into speakable form,

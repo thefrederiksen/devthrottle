@@ -1,0 +1,98 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.ConnectToGatewayDialog"
+        Title="Connect to Gateway"
+        Width="480" Height="380"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.body">
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,8,0,4" />
+        </Style>
+        <Style Selector="TextBox.input">
+            <Setter Property="Background" Value="#161616" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="CornerRadius" Value="2" />
+        </Style>
+        <Style Selector="Button.secondaryButton">
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="CornerRadius" Value="2" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="20" RowDefinitions="*,Auto">
+
+        <!-- Entry form -->
+        <StackPanel x:Name="FormPanel" Grid.Row="0" Spacing="2">
+            <TextBlock Classes="title" Text="Connect this Director to a Gateway" />
+            <TextBlock Classes="body" Margin="0,4,0,8"
+                       Text="Point this machine at your Gateway, then enter the pairing code shown on the gateway host's screen." />
+
+            <TextBlock Classes="fieldLabel" Text="GATEWAY URL" />
+            <TextBox x:Name="UrlBox" Classes="input"
+                     Watermark="e.g. https://soren-north.taildb08ed.ts.net" />
+
+            <TextBlock Classes="fieldLabel" Text="PAIRING CODE (from the gateway host)" />
+            <TextBox x:Name="CodeBox" Classes="input" MaxLength="4" Width="160"
+                     HorizontalAlignment="Left" FontFamily="Consolas,Courier New" FontSize="22"
+                     Watermark="0000" />
+
+            <TextBlock x:Name="StatusText" FontSize="12" Foreground="#AAAAAA" TextWrapping="Wrap"
+                       Margin="0,10,0,0" Text="Waiting for a pairing code..." />
+        </StackPanel>
+
+        <!-- Success state -->
+        <StackPanel x:Name="SuccessPanel" Grid.Row="0" Spacing="10" IsVisible="False"
+                    VerticalAlignment="Center">
+            <TextBlock Classes="title" Text="This Director is connected" />
+            <TextBlock Classes="body" Text="A device key was issued by the Gateway and saved on this machine." />
+            <Border Background="#14241A" BorderBrush="#2E7D32" BorderThickness="1" CornerRadius="3" Padding="16">
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="SuccessTitleText" FontSize="14" FontWeight="SemiBold" Foreground="#CFE9CF"
+                               Text="Registered" />
+                    <TextBlock x:Name="SuccessSubText" FontSize="11" FontFamily="Consolas,Courier New"
+                               Foreground="#8FB98F" TextWrapping="Wrap"
+                               Text="device key saved to local credential file" />
+                </StackPanel>
+            </Border>
+            <TextBlock FontSize="11" Foreground="#888888" TextWrapping="Wrap"
+                       Text="The local cc-* tools on this machine can now use the Control API with this key." />
+        </StackPanel>
+
+        <!-- Button row -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0" Spacing="8">
+            <Button x:Name="CancelButton" Classes="secondaryButton" Content="Cancel" Click="BtnCancel_Click" />
+            <Button x:Name="JoinButton" Classes="primaryButton" Content="Join Gateway" IsEnabled="False"
+                    Click="BtnJoin_Click" />
+            <Button x:Name="DoneButton" Classes="primaryButton" Content="Done" IsVisible="False"
+                    Click="BtnDone_Click" />
+        </StackPanel>
+
+    </Grid>
+</Window>
