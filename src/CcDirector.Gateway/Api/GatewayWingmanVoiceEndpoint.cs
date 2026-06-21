@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Voice.Services;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Voice;
@@ -118,9 +120,17 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "totalChunks (>0) is required" }, statusCode: StatusCodes.Status400BadRequest);
             if (!uploads.Exists(uploadId))
                 return Results.Json(new { error = "unknown upload id (register it first)" }, statusCode: StatusCodes.Status404NotFound);
-            var key = vault.Get("OPENAI_API_KEY");
-            if (string.IsNullOrWhiteSpace(key))
-                return Results.Json(new { error = "no OpenAI key configured in the gateway vault" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+            // Mode-aware (issue #541): in Local mode there is NO key check - transcription runs
+            // in-process. In a remote mode (byo/devthrottle) the configured key must be present.
+            var endpoint = TranscriptionEndpointResolver.Resolve(TranscriptionModeConfig.Get());
+            string? key = null;
+            if (!endpoint.IsLocal)
+            {
+                key = vault.Get(endpoint.RequireKeyName());
+                if (string.IsNullOrWhiteSpace(key))
+                    return Results.Json(new { error = $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
 
             AssembleResult assembled;
             try { assembled = await uploads.AssembleAsync(uploadId, req.TotalChunks, ct); }
@@ -131,10 +141,10 @@ internal static class GatewayWingmanVoiceEndpoint
             if (assembled.Status == "incomplete")
                 return Results.Json(new { status = "incomplete", missing = assembled.Missing }, statusCode: StatusCodes.Status409Conflict);
 
-            var (ok, transcript, error) = await TranscribeBytesAsync(assembled.Audio!, "audio." + (req.Ext ?? "webm"), req.Mime ?? "audio/webm", key, ct);
+            var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, assembled.Audio!, "audio." + (req.Ext ?? "webm"), req.Mime ?? "audio/webm", key, ct);
             uploads.Delete(uploadId);
             if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
-            FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: chars={transcript.Length}");
+            FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: mode={endpoint.Mode.ToConfigString()}, chars={transcript.Length}");
             return Results.Json(new { transcript });
         });
 
@@ -277,17 +287,24 @@ internal static class GatewayWingmanVoiceEndpoint
             if (file is null || file.Length == 0)
                 return Results.Json(new { error = "no audio in the upload" }, statusCode: StatusCodes.Status400BadRequest);
 
-            var key = vault.Get("OPENAI_API_KEY");
-            if (string.IsNullOrWhiteSpace(key))
-                return Results.Json(new { error = "no OpenAI key configured in the gateway vault" },
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            // Mode-aware (issue #541): Local mode transcribes in-process with no key; remote modes
+            // (byo/devthrottle) require the configured key to be present in the vault.
+            var endpoint = TranscriptionEndpointResolver.Resolve(TranscriptionModeConfig.Get());
+            string? key = null;
+            if (!endpoint.IsLocal)
+            {
+                key = vault.Get(endpoint.RequireKeyName());
+                if (string.IsNullOrWhiteSpace(key))
+                    return Results.Json(new { error = $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}" },
+                        statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
 
             byte[] bytes;
             using (var ms = new MemoryStream()) { await file.CopyToAsync(ms, ct); bytes = ms.ToArray(); }
             var fileName = string.IsNullOrWhiteSpace(file.FileName) ? "audio.webm" : file.FileName;
             var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
 
-            var (ok, transcript, error) = await TranscribeBytesAsync(bytes, fileName, contentType, key, ct);
+            var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, bytes, fileName, contentType, key, ct);
             if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
             return Results.Json(new { transcript });
         });
@@ -488,6 +505,37 @@ internal static class GatewayWingmanVoiceEndpoint
         submit = m.Submit,
         options = m.Options.Select(o => new { key = o.Key, send = o.Send, note = o.Note, recommended = o.Recommended }).ToList(),
     };
+
+    /// <summary>
+    /// Transcribe audio bytes using the machine's configured transcription mode (issue #541). In
+    /// Local mode the audio is transcribed IN-PROCESS with Whisper.net (no network, no key); in a
+    /// remote mode (byo/devthrottle) it is uploaded to the OpenAI-compatible endpoint with the key.
+    /// Shared by the one-shot /wingman/transcribe and the resumable /wingman/utterance/complete
+    /// paths so both honor the same mode.
+    /// </summary>
+    private static async Task<(bool ok, string transcript, string? error)> TranscribeBytesByModeAsync(
+        TranscriptionEndpoint endpoint, byte[] bytes, string fileName, string contentType, string? key, CancellationToken ct)
+    {
+        if (endpoint.IsLocal)
+        {
+            try
+            {
+                var transcript = await WhisperLocalStreamingService.TranscribeWavAsync(bytes, ct);
+                FileLog.Write($"[GatewayWingmanVoice] transcribe local ok: bytes={bytes.Length}, chars={transcript.Length}");
+                return (true, transcript, null);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayWingmanVoice] transcribe local FAILED: {ex.Message}");
+                return (false, "", "local transcription failed: " + ex.Message);
+            }
+        }
+
+        // Remote mode: the key is required and validated by the caller before we get here.
+        if (string.IsNullOrWhiteSpace(key))
+            return (false, "", $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}");
+        return await TranscribeBytesAsync(bytes, fileName, contentType, key, ct);
+    }
 
     /// <summary>Send audio bytes to OpenAI transcription and return the text. Shared by the
     /// one-shot /wingman/transcribe and the resumable /wingman/utterance/complete paths.</summary>

@@ -452,6 +452,17 @@ internal static class RecordingEndpoints
     {
         var mode = TranscriptionModeConfig.Get();
         var endpoint = TranscriptionEndpointResolver.Resolve(mode);
+
+        // Local mode (issue #541) is in-process with no remote endpoint and no key, so this
+        // remote-method resolver has nothing to resolve - the recording-ingest path is the
+        // OpenAI-compatible remote path only. Returning null reports it unavailable for local mode
+        // (the same contract this method already uses when a remote key is missing).
+        if (endpoint.IsLocal || endpoint.KeyName is null || endpoint.BaseUrl is null)
+        {
+            FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, no remote endpoint (local/in-process)");
+            return null;
+        }
+
         var key = new KeyVault().Get(endpoint.KeyName);
         if (string.IsNullOrWhiteSpace(key))
         {

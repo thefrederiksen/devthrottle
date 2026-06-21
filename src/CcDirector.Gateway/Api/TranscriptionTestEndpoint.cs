@@ -19,13 +19,19 @@ namespace CcDirector.Gateway.Api;
 ///   POST /transcription/test   (raw audio body; Content-Type is the clip's MIME type)
 ///       -&gt; 200 { text, mode, model }     transcription succeeded
 ///       -&gt; 400 { error }                  no audio in the request body
-///       -&gt; 409 { error, mode }            no key set for the current mode
+///       -&gt; 409 { error, mode }            no key set for the current mode, OR the mode is local
 ///       -&gt; 502 { error }                  the provider rejected the request or the key
 ///
-/// The test always uses the OpenAI-compatible BATCH endpoint (record then upload), which both
-/// providers implement - OpenAI with gpt-4o-transcribe and the DevThrottle/Groq proxy with
-/// whisper-large-v3 - so a test works in either mode regardless of the live pipeline's transport.
-/// Inherits the host-wide token middleware like every other Gateway route.
+/// The remote-mode test uses the OpenAI-compatible BATCH endpoint (record then upload), which both
+/// remote providers implement - OpenAI with gpt-4o-transcribe and the DevThrottle/Groq proxy with
+/// whisper-large-v3 - so a test works in either remote mode regardless of the live pipeline's
+/// transport.
+///
+/// Local mode (issue #541) has no key and no remote endpoint, so this smoke test - whose whole job
+/// is to prove a STORED KEY actually works - does not apply. It returns 409 with a clear
+/// "local mode - no key required; the local model transcribes in-process" message. The live
+/// /wingman/transcribe path is what exercises local transcription end to end. Inherits the
+/// host-wide token middleware like every other Gateway route.
 /// </summary>
 internal static class TranscriptionTestEndpoint
 {
@@ -38,7 +44,18 @@ internal static class TranscriptionTestEndpoint
             var mode = TranscriptionModeConfig.Get();
             var endpoint = TranscriptionEndpointResolver.Resolve(mode);
 
-            var key = vault.Get(endpoint.KeyName);
+            // Local mode (issue #541): in-process, no stored key to validate. This smoke test exists
+            // to prove a stored key works, so it does not apply - return a clear 409 explaining that
+            // the local model transcribes in-process (the live /wingman/transcribe path exercises it).
+            if (endpoint.IsLocal)
+            {
+                FileLog.Write("[TranscriptionTestEndpoint] POST /transcription/test: mode=local, no key required");
+                return Results.Json(
+                    new { error = "local mode - no key required; the local model transcribes in-process", mode = endpoint.Mode.ToConfigString() },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var key = vault.Get(endpoint.RequireKeyName());
             if (string.IsNullOrWhiteSpace(key))
             {
                 FileLog.Write($"[TranscriptionTestEndpoint] POST /transcription/test: mode={endpoint.Mode.ToConfigString()}, no key for {endpoint.KeyName}");

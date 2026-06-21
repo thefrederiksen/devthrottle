@@ -138,6 +138,40 @@ public sealed class TranscriptionRoutingEndpointTests : IAsyncLifetime
         Assert.True(resp.Headers.Contains("X-Transcription-Routing"));
     }
 
+    [Fact]
+    public async Task Routing_LocalMode_Returns200_NoKeyGate()
+    {
+        // Issue #541: local is in-process and always available - it returns 200 { mode: "local" }
+        // with NO key seeded (it must NEVER hit the 404-no-key path), and exposes no baseUrl/key.
+        TranscriptionModeConfig.Set(TranscriptionMode.Local);
+
+        var resp = await _http.GetAsync("/transcription/routing");
+        resp.EnsureSuccessStatusCode();
+        Assert.True(resp.Headers.Contains("X-Transcription-Routing"));
+
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        Assert.Equal("local", root.GetProperty("mode").GetString());
+        // In-process: there is no remote endpoint and no credential in the local-mode response.
+        Assert.False(root.TryGetProperty("baseUrl", out _));
+        Assert.False(root.TryGetProperty("key", out _));
+    }
+
+    [Fact]
+    public async Task Routing_NoModeConfigured_NoKeys_ReturnsLocal200()
+    {
+        // Issue #541 acceptance: a Gateway with NO transcription mode set and NO keys returns
+        // HTTP 200 { mode: "local" } - the zero-configuration default works out of the box.
+        // (The temp CC_DIRECTOR_ROOT this test owns has no transcription_mode written.)
+        var resp = await _http.GetAsync("/transcription/routing");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal("local", doc.RootElement.GetProperty("mode").GetString());
+    }
+
     private static int AllocateFreePort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

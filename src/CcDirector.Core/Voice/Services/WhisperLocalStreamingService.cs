@@ -304,6 +304,65 @@ public class WhisperLocalStreamingService : IStreamingSpeechToText
         return modelPath;
     }
 
+    /// <summary>
+    /// Ensure a usable local Whisper model is on disk, returning its path (issue #541). If a model
+    /// is already present anywhere this service searches, that one is used; otherwise the
+    /// <see cref="GgmlType.Base"/> English model is auto-downloaded once to
+    /// <see cref="DefaultModelDir"/> and reused on every later call. This is the one-time download
+    /// that makes the very first local transcription work out of the box with no API key.
+    /// </summary>
+    /// <param name="progress">Progress callback (MB downloaded) for the one-time download.</param>
+    public static async Task<string> EnsureModelAsync(Action<int>? progress = null)
+    {
+        var existing = FindModelFile();
+        if (existing is not null)
+        {
+            FileLog.Write($"[WhisperLocal] EnsureModelAsync: reusing model {existing}");
+            return existing;
+        }
+
+        FileLog.Write("[WhisperLocal] EnsureModelAsync: no model present, downloading ggml-base.en");
+        return await DownloadModelAsync(GgmlType.Base, progress);
+    }
+
+    /// <summary>
+    /// Transcribe a complete 16 kHz mono PCM WAV recording in-process with Whisper.net (issue #541),
+    /// returning the recognized text. This is the batch (record-then-transcribe) path the wingman
+    /// voice screen uses when transcription mode is Local: no network call, no API key. The model is
+    /// auto-downloaded once via <see cref="EnsureModelAsync"/> if it is not already on disk.
+    /// </summary>
+    /// <param name="wavBytes">The recording as a WAV container (16 kHz mono PCM).</param>
+    /// <param name="cancellationToken">Cancels the transcription.</param>
+    /// <returns>The transcribed text (trimmed); empty when the clip contained no recognizable speech.</returns>
+    public static async Task<string> TranscribeWavAsync(byte[] wavBytes, CancellationToken cancellationToken = default)
+    {
+        if (wavBytes is null || wavBytes.Length == 0)
+            throw new ArgumentException("No audio bytes to transcribe", nameof(wavBytes));
+
+        var modelPath = await EnsureModelAsync();
+        FileLog.Write($"[WhisperLocal] TranscribeWavAsync: bytes={wavBytes.Length}, model={modelPath}");
+
+        using var factory = WhisperFactory.FromPath(modelPath);
+        await using var processor = factory.CreateBuilder()
+            .WithLanguage("en")
+            .WithThreads(Environment.ProcessorCount > 4 ? 4 : Environment.ProcessorCount)
+            .Build();
+
+        using var wavStream = new MemoryStream(wavBytes, writable: false);
+        var sb = new System.Text.StringBuilder();
+        await foreach (var segment in processor.ProcessAsync(wavStream, cancellationToken))
+        {
+            var text = segment.Text.Trim();
+            if (text.Length == 0) continue;
+            if (sb.Length > 0) sb.Append(' ');
+            sb.Append(text);
+        }
+
+        var result = sb.ToString().Trim();
+        FileLog.Write($"[WhisperLocal] TranscribeWavAsync done: chars={result.Length}");
+        return result;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

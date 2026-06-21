@@ -1,0 +1,30 @@
+================================================================
+ Issue #541 - Gateway curl proofs (default transcription mode = local)
+ Real Gateway endpoints, EMPTY vault (no keys), no transcription_mode config
+================================================================
+
+[1] GET /transcription/routing  (no keys configured)  -> expect 200 {mode:local}
+----------------------------------------------------------------
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Sun, 21 Jun 2026 23:24:44 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+X-Transcription-Routing: 1
+
+{"mode":"local","transport":"batch","model":"ggml-base.en"}
+
+[2] POST /wingman/transcribe  (16kHz mono WAV, no keys)  -> expect 200 {transcript}
+----------------------------------------------------------------
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Sun, 21 Jun 2026 23:24:53 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"transcript":"Hello, this is a local transcription test for issue 541."}
+
+[3] POST /wingman/utterance/{id}/complete  (chunked, local, no keys)  -> expect 200 {transcript}
+----------------------------------------------------------------
+upload_id=cc2484225af74888b8375c5f4dfdfe57
+{"transcript":"Hello, this is a local transcription test for issue 541."}

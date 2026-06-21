@@ -29,8 +29,21 @@ public sealed class TranscriptionModeConfigTests : IDisposable
     }
 
     [Fact]
-    public void Get_NoConfig_DefaultsToByo()
-        => Assert.Equal(TranscriptionMode.Byo, TranscriptionModeConfig.Get());
+    public void Get_NoConfig_DefaultsToLocal()   // issue #541: the default changed from Byo to Local
+        => Assert.Equal(TranscriptionMode.Local, TranscriptionModeConfig.Get());
+
+    [Fact]
+    public void Default_IsLocal()                 // issue #541: the constant itself is now Local
+        => Assert.Equal(TranscriptionMode.Local, TranscriptionModeConfig.Default);
+
+    [Fact]
+    public void SetThenGet_Local_PersistsAcrossReread()
+    {
+        TranscriptionModeConfig.Set(TranscriptionMode.Byo);
+        TranscriptionModeConfig.Set(TranscriptionMode.Local);
+
+        Assert.Equal(TranscriptionMode.Local, TranscriptionModeConfig.Get());
+    }
 
     [Fact]
     public void SetThenGet_DevThrottle_PersistsAcrossReread()
