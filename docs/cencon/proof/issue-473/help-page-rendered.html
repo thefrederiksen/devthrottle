@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Help and Learning - DevThrottle</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Help and Learning - DevThrottle</h1>
+<p>Welcome to DevThrottle. This is the public help landing page: it explains what
+        DevThrottle is, what it can do, and where to go for every other piece of
+        documentation. DevThrottle is fully open source - there is nothing hidden here.</p>
+<h2>What is DevThrottle?</h2>
+<p>DevThrottle is mission control for your coding agents. It runs and supervises
+        many Claude Code sessions at once, so you can keep a whole fleet of work moving
+        instead of babysitting one terminal.</p>
+<p>The product has three parts that work together:</p>
+<ul>
+<li><strong>Director</strong> - the desktop application that runs and drives the coding
+        sessions on each machine.</li>
+<li><strong>Gateway</strong> - the service that gathers every machine's Directors into one
+        fleet and serves the web dashboard.</li>
+<li><strong>Cockpit</strong> - the web dashboard, which the Gateway serves to every machine and
+        to your phone.</li>
+</ul>
+<p>The <strong>Wingman</strong> is the built-in assistant that summarizes sessions and answers
+        questions about your work and about the product itself.</p>
+<h2>Core capabilities</h2>
+<ul>
+<li><strong>Run a fleet of coding sessions.</strong> Start, supervise, and switch between many
+        Claude Code sessions across one or more machines from a single place.</li>
+<li><strong>Embedded terminal per session.</strong> Every session has a real terminal so you
+        can watch and steer the agent directly.</li>
+<li><strong>Source control built in.</strong> Track git changes, clone and manage repositories,
+        and review what each session has changed.</li>
+<li><strong>Voice and Wingman.</strong> Drive sessions hands-free, get spoken briefings, and ask
+        the Wingman questions about your sessions.</li>
+<li><strong>Mobile and in-car use.</strong> Reach the same fleet from your phone, including a
+        drive-safe voice mode.</li>
+<li><strong>Command-line tools.</strong> A set of <code>cc-*</code> command-line tools handles document
+        conversion, email, browser automation, media processing, and more, all
+        designed to work with Claude Code.</li>
+<li><strong>Control API.</strong> A loopback REST interface lets you drive a Director
+        programmatically.</li>
+</ul>
+<h2>Where to go next</h2>
+<p>This public documentation is organized into a few sections. Start wherever fits
+        your need:</p>
+<ul>
+<li><strong><a href="../getting-started/01-introduction.md">Getting Started: Introduction</a></strong> -
+        the high-level overview of what DevThrottle is and who it is for.</li>
+<li><strong><a href="../getting-started/02-installation.md">Getting Started: Installation</a></strong> -
+        get DevThrottle running on your machine.</li>
+<li><strong><a href="../getting-started/03-quick-start.md">Getting Started: Quick Start</a></strong> -
+        walk through your first session.</li>
+<li><strong><a href="../getting-started/04-setup-wizard-walkthrough.md">Getting Started: Setup Wizard Walkthrough</a></strong> -
+        step-by-step screenshots of the setup wizard.</li>
+<li><strong><a href="../features/01-overview.md">Features Overview</a></strong> - the user-facing features,
+        with screenshots of the running app.</li>
+<li><strong><a href="../tools/01-overview.md">Tools Overview</a></strong> - every <code>cc-*</code> command-line tool
+        and how to use it.</li>
+<li><strong><a href="../api/01-control-api.md">Control API</a></strong> - the REST interface for driving a
+        Director programmatically.</li>
+</ul>
+<h2>Open source</h2>
+<p>The full source, documentation, and issue tracker live on GitHub at
+        <a href="https://github.com/thefrederiksen/devthrottle">github.com/thefrederiksen/devthrottle</a>.
+        You can browse the code, report issues, and contribute there.</p>
+</article>
+</body>
+</html>
