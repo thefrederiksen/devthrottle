@@ -40,7 +40,6 @@ public sealed class WorkListRunnerEndpointProofTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
-        Environment.SetEnvironmentVariable("CC_TURNBRIEFS", "0");
 
         // Two stub Directors, two machine names (criterion 6 cross-machine concurrency).
         _machine1 = new StubDirector();

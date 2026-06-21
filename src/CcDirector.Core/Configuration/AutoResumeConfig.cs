@@ -27,8 +27,8 @@ namespace CcDirector.Core.Configuration;
 ///                                     bound is hit first wins.
 ///
 /// No-fallback rule: a present-but-wrong-typed key THROWS with the fix named, rather than
-/// silently picking a default (matching <see cref="AddressingModeConfig"/> /
-/// <see cref="WingmanConfig"/>). A read applies on the next time the value is consulted; the
+/// silently picking a default (matching <see cref="AddressingModeConfig"/>). A read applies
+/// on the next time the value is consulted; the
 /// scheduler re-reads the live config each cycle, so changes take effect without a restart.
 /// </summary>
 public sealed record AutoResumeConfig(

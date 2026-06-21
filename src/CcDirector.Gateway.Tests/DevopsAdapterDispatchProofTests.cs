@@ -45,7 +45,6 @@ public sealed class DevopsAdapterDispatchProofTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
-        Environment.SetEnvironmentVariable("CC_TURNBRIEFS", "0");
 
         _stub = new StubDirector();
         await _stub.StartAsync();

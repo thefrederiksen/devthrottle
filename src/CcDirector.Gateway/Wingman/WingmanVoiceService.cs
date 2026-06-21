@@ -17,7 +17,9 @@ namespace CcDirector.Gateway.Wingman;
 /// finishes and the session is waiting for the user, the gateway automatically re-runs the wingman
 /// translation AND the OpenAI text-to-speech and stores the result here - so the phone's session
 /// list can show "voice ready" with a play button, play it without entering, and entering is
-/// instant (the voice is already made). The turn-end trigger is the brief agent's OnBriefStored hook.
+/// instant (the voice is already made). Since issue #549 the turn-end trigger is the always-running
+/// TurnEndWatcher, which calls <see cref="GenerateAsync"/> directly for voice sessions on turn-end
+/// (the retired turn-brief pipeline no longer mediates it).
 /// </summary>
 public sealed class WingmanVoiceService
 {
@@ -145,7 +147,7 @@ public sealed class WingmanVoiceService
     /// True while the wingman is actively producing this session's spoken summary (issue #531
     /// voice mode). This is the window the session must show YELLOW - "kind of not ready yet" -
     /// before flipping back to red when it needs the user again. The gateway surfaces it through
-    /// the same "Briefing" yellow path the brief agent uses (see GatewayHost briefStampFor).
+    /// the "Briefing" yellow path in the /sessions aggregation (see GatewayEndpoints voiceGeneratingFor).
     /// </summary>
     public bool IsGenerating(string sid) => _generating.ContainsKey(sid);
 

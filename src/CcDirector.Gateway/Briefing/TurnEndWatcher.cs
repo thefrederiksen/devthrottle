@@ -29,6 +29,17 @@ public sealed class TurnEndWatcher : IDisposable
     /// <summary>Reconcile cadence for non-pushing Directors (matches the heartbeat).</summary>
     public static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// Test seam (issue #549): when false, <see cref="Start"/> registers the watcher but does
+    /// NOT run the Director-polling sweep (startup catch-up + reconcile timer). The push-fed
+    /// <see cref="Observe"/> path is unaffected. The Gateway.Tests assembly turns this off in its
+    /// module initializer so a test-spun host never polls its fake Directors and disturbs
+    /// request-count assertions - the same isolation the retired CC_TURNBRIEFS=0 flag used to give.
+    /// Production never touches it (default true). Mirrors the TailscaleServeSelfProvisioner.Enabled
+    /// test seam precedent.
+    /// </summary>
+    public static bool SweepEnabled = true;
+
     private readonly DirectorRegistry _registry;
     private readonly DirectorEndpointClient _client;
     private readonly Action<TurnEndSignal> _onTurnEnd;
@@ -60,6 +71,11 @@ public sealed class TurnEndWatcher : IDisposable
     /// </summary>
     public void Start()
     {
+        if (!SweepEnabled)
+        {
+            FileLog.Write("[TurnEndWatcher] Start: sweep disabled (test seam); push-fed Observe path stays active");
+            return;
+        }
         FileLog.Write($"[TurnEndWatcher] Start: reconcile={_interval.TotalSeconds:F0}s for non-pushing Directors");
         _timer = new Timer(_ => PollSafe(sweepAll: false), null, _interval, _interval);
         _ = Task.Run(() => PollSafe(sweepAll: true));

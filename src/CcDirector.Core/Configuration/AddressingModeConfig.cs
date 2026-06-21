@@ -6,7 +6,7 @@ namespace CcDirector.Core.Configuration;
 /// <summary>
 /// The fleet's network addressing mode (issue #457), persisted in config.json as the
 /// top-level string "addressing_mode" ("tailscale" or "lan"), mirroring the existing
-/// "brain_model" / "wingman_enabled" top-level settings.
+/// "brain_model" top-level setting.
 ///
 /// Read locally by each process (Gateway and every Director) from its own config.json.
 /// A change applies on the next process start - the bind interface and advertised endpoint
