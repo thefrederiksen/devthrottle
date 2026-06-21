@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #587 - QA Proof Report - One shared batch transcription pipeline</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 1000px; margin: 30px auto; padding: 0 18px; color: #1c1c1c; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2b6cb0; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 30px; color: #2b3a4a; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #cbd5e0; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13.5px; }
+  th { background: #edf2f7; }
+  code, pre { font-family: Consolas, Menlo, monospace; }
+  pre { background: #1a1f29; color: #e6edf3; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  .ok { color: #2f855a; font-weight: 600; }
+  .met { background: #f0fff4; }
+  .pill { display: inline-block; background: #2f855a; color: #fff; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+  .small { color: #4a5568; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<h1>Issue #587 - One shared batch transcription pipeline <span class="pill">QA VERIFIED</span></h1>
+<p class="small">
+Repository: thefrederiksen/devthrottle &nbsp;|&nbsp; Branch: issue-587-shared-batch-transcription (PR #596) &nbsp;|&nbsp; QA date: 2026-06-21
+</p>
+<p class="small">
+Independent verification by the QA Agent. The Developer Agent's report was treated as context only.
+Verified in an isolated git worktree (D:\ReposFred\devthrottle-qa-587), built from the PR branch,
+tests run from that build, and a live Director launched on isolated slot 14 (Control API port 7888).
+</p>
+
+<h2>How this was verified</h2>
+<ul>
+  <li>Checked out PR branch into a fresh worktree; allocated isolated slot 14 via agent-session-isolation.ps1.</li>
+  <li>Built the full solution: <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Ran the new pipeline tests, the full Core test suite, and the Gateway VoiceEndpoint tests from the freshly built binaries.</li>
+  <li>Launched a live Director from the PR build and exercised the real voice path (POST /voice/command); inspected the Director log.</li>
+  <li>Read the changed source directly to confirm the four load-bearing rules.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (evidence)</th><th>Result</th></tr>
+
+<tr class="met">
+<td>1</td>
+<td>Single shared Core entry point taking a complete audio blob + resolved method, returning raw text; no streaming/partial path.</td>
+<td>One type/method exists; no live-partial transcription call in the non-UI transcription code.</td>
+<td><code>src/CcDirector.Core/Transcription/BatchTranscriptionPipeline.cs</code> exists: <code>TranscribeAsync(byte[] audio, ..., ResolvedTranscription routing, ...)</code> performs ONE whole-audio POST to <code>/audio/transcriptions</code>. No streaming/partial code in the pipeline. Empty audio is rejected (gate runs upstream).</td>
+<td class="ok">PASS</td>
+</tr>
+
+<tr class="met">
+<td>2</td>
+<td>Hardcoded whisper-1 / api.openai.com call gone from the voice path; method comes from the Gateway routing resolver.</td>
+<td>VoiceService references no hardcoded model/endpoint; changing the selected method changes what the voice path uses.</td>
+<td>The <code>WhisperEndpoint</code>/<code>WhisperModel</code> constants and the local <code>TranscribeAsync</code> Whisper method are deleted from <code>VoiceService.cs</code>. VoiceService now calls <code>new OpenAiKeyResolver(_options).ResolveEndpointAsync(...)</code> and the shared pipeline. LIVE PROOF: Director log line <code>[BatchTranscriptionPipeline] TranscribeAsync: bytes=245555, mode=byo, model=gpt-4o-transcribe</code> - the resolver-selected model, NOT whisper-1.</td>
+<td class="ok">PASS</td>
+</tr>
+
+<tr class="met">
+<td>3</td>
+<td>Free-text language-model cleanup removed from every transcription path; only transform is the validated dictionary corrector; no-dictionary transcript is byte-identical.</td>
+<td><code>WingmanService.CleanVoiceTranscriptAsync</code> no longer in any transcription path; no-dictionary transcript == raw byte-for-byte.</td>
+<td>Grep across <code>src</code> (excluding tests): <code>CleanVoiceTranscriptAsync</code> has ZERO production callers (only its own definition + a doc reference remain). Both calls were removed from VoiceService. Test <code>TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical</code> asserts <code>RawTranscript == CorrectedTranscript</code> (ordinal) -> PASS.</td>
+<td class="ok">PASS</td>
+</tr>
+
+<tr class="met">
+<td>4</td>
+<td>Known mis-heard dictionary term -> only that term replaced, change reported; no dictionary terms -> input unchanged. (Two tests.)</td>
+<td>One test with a dictionary hit, one without.</td>
+<td><code>TranscribeAsync_WithDictionaryHit_SwapsTermAndReportsChange</code>: "See Director" -> "cc-director", exactly one entry in <code>ChangedWords</code> (Find/Replace correct). <code>TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical</code>: unchanged, empty change list. Both PASS.</td>
+<td class="ok">PASS</td>
+</tr>
+
+<tr class="met">
+<td>5</td>
+<td>Selecting each method routes a whole-audio batch request to the correct base URL with the correct key, never crossing a key to the wrong URL.</td>
+<td>Routing test per method.</td>
+<td><code>TranscribeAsync_ByoMode_RoutesToOpenAiUrlWithOpenAiKey</code>: OpenAI base URL + sk-byo-key, asserts devthrottle.com never contacted. <code>TranscribeAsync_DevThrottleMode_RoutesToDevThrottleUrlWithDevThrottleKey</code>: DevThrottle URL + dt key, asserts api.openai.com never contacted. <code>TranscribeAsync_SendsResolvedModel_NotAHardcodedWhisper1</code>: body carries resolved model, never "whisper-1". All PASS.</td>
+<td class="ok">PASS</td>
+</tr>
+</table>
+
+<h2>Test results (run by QA from the PR build)</h2>
+<pre>BatchTranscriptionPipelineTests:  Passed 6, Failed 0, Skipped 0
+CcDirector.Core.Tests (full):     Passed 2155, Failed 0, Skipped 6 (pre-existing env-gated skips)
+Gateway VoiceEndpointTests:       Passed 5, Failed 0, Skipped 0
+dotnet build cc-director.sln:     Build succeeded. 0 Warning(s) 0 Error(s)</pre>
+
+<h2>Live-app proof (isolated slot 14, port 7888)</h2>
+<p>POST of a non-audio blob to <code>/voice/command</code> reached the resolved transcription provider
+(returned a 500 "Audio file processing failed" from the real endpoint), proving the new pipeline is
+the live voice path. The Director log shows the whole clip (245555 bytes) sent in ONE batch request
+with the resolver-selected mode/model:</p>
+<pre>2026-06-21 02:03:50.965 [BatchTranscriptionPipeline] TranscribeAsync: bytes=245555, mode=byo, model=gpt-4o-transcribe
+2026-06-21 02:03:51.305 [VoiceService] Transcribe FAILED: Transcription returned 500: { ... }</pre>
+<p class="small">See <code>docs/cencon/proof/issue-587/qa-director-log.txt</code>.</p>
+
+<h2>Regression and CenCon checks</h2>
+<ul>
+  <li>No adjacent breakage: full Core suite (2155) and Gateway voice tests green.</li>
+  <li>CenCon: <code>architecture_manifest.yaml</code> updated to document BatchTranscriptionPipeline and the revised phone-voice data flow (Whisper + Wingman-cleanup references removed).</li>
+  <li>Security: no new key handling; resolver pairs key+URL server-side so a bring-your-own OpenAI key is never crossed onto devthrottle.com (improvement). No blocking DT rule violated.</li>
+  <li>Scope note: other surfaces (OpenAiSttService, ControlApi VoiceTurnEndpoint, GatewayWingmanVoiceEndpoint) still carry their own whisper-1 calls - this is EXPECTED; per-surface migration is explicitly OUT of scope and tracked as separate per-place issues. AC2 scopes the change to VoiceService, which is satisfied.</li>
+</ul>
+
+<h2>Verdict</h2>
+<p class="ok">VERIFIED - all 5 acceptance criteria met. The four load-bearing rules (no streaming/partial path,
+no hardcoded whisper-1, no free-text cleanup, dictionary-only with change reporting and byte-identical
+passthrough) are confirmed in code, in tests, and in the running app.</p>
+</body>
+</html>

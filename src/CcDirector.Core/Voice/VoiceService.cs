@@ -1,12 +1,9 @@
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Wingman;
+using CcDirector.Core.Transcription;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -17,20 +14,21 @@ namespace CcDirector.Core.Voice;
 ///
 /// Pipeline:
 ///   1. Audio blob in (webm/opus, mp3, wav, m4a ...).
-///   2. Whisper API transcribes -> text.
-///   3. Regex/keyword intent parser maps text -> a structured command.
+///   2. The shared <see cref="BatchTranscriptionPipeline"/> transcribes the whole clip ONCE using
+///      the Gateway-selected method, then applies the validated dictionary corrector only.
+///   3. Regex/keyword intent parser maps the transcript -> a structured command.
 ///   4. Executor runs the command against SessionManager and returns a spoken-style reply.
 ///
-/// No LLM call other than Whisper. Intent parsing is deliberately small and
-/// extensible. v1 supports six intents:
+/// Transcription method (base URL + key + model) comes entirely from the Gateway routing resolver
+/// (<see cref="OpenAiKeyResolver.ResolveEndpointAsync"/>): there is NO hardcoded whisper-1 /
+/// api.openai.com endpoint here, and the only post-transcription transform is the dictionary
+/// corrector - the free-text language-model cleanup was removed (issue #587). Intent parsing is
+/// deliberately small and extensible. v1 supports six intents:
 ///   ListSessions, ListWaiting, DescribeSession, OpenSession, SendToSession, InterruptSession.
 /// Anything else returns Status="unknown_command" with a helpful reply.
 /// </summary>
 public sealed class VoiceService
 {
-    private const string WhisperEndpoint = "https://api.openai.com/v1/audio/transcriptions";
-    private const string WhisperModel = "whisper-1";
-
     private readonly SessionManager _sessionManager;
     private readonly AgentOptions _options;
 
@@ -46,27 +44,28 @@ public sealed class VoiceService
     /// <summary>
     /// End-to-end: audio in, response out. Caller passes the upload stream
     /// (will be consumed once) and a hint about the file name (used for the
-    /// Content-Type sniff Whisper does on the form field).
+    /// Content-Type sniff the transcription provider does on the form field).
     /// </summary>
     public async Task<VoiceCommandResponse> HandleAsync(
         Stream audio, string fileName, CancellationToken ct = default)
     {
-        var key = _options.ResolveOpenAiKey();
-        if (string.IsNullOrWhiteSpace(key))
+        var resolver = new OpenAiKeyResolver(_options);
+        var routing = await resolver.ResolveEndpointAsync(ct);
+        if (routing is null)
         {
-            FileLog.Write("[VoiceService] HandleAsync: no OpenAI key configured");
+            FileLog.Write("[VoiceService] HandleAsync: no transcription routing available");
             return new VoiceCommandResponse
             {
                 Status = "no_key",
-                ReplyText = "Voice mode is not configured. Set Voice.OpenAiKey in appsettings.json or the OPENAI_API_KEY environment variable.",
-                Error = "OpenAI API key missing",
+                ReplyText = resolver.UnavailableMessage,
+                Error = "transcription routing unavailable",
             };
         }
 
-        string transcript;
+        BatchTranscriptionResult transcription;
         try
         {
-            transcript = await TranscribeAsync(audio, fileName, key, ct);
+            transcription = await TranscribeAndCorrectAsync(audio, fileName, routing, ct);
         }
         catch (Exception ex)
         {
@@ -79,27 +78,8 @@ public sealed class VoiceService
             };
         }
 
+        var transcript = transcription.RawTranscript;
         FileLog.Write($"[VoiceService] Transcript: \"{Truncate(transcript, 200)}\"");
-
-        // Decide who the utterance is addressed to (agent vs wingman) and strip any
-        // wingman wake phrase, returning the user's words VERBATIM otherwise. Known
-        // mistranscribed terms are fixed by the shared dictionary corrector below,
-        // not here. Fails open: on any error, Cleaned == raw and the user sees why.
-        VoiceCleanupResult cleanup;
-        try
-        {
-            cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
-                transcript,
-                repoPath: "",       // best-effort: VoiceService doesn't currently know the session repo
-                openAiApiKey: _options.ResolveOpenAiKey() ?? "",
-                ct: ct);
-            FileLog.Write($"[VoiceService] Cleaned: \"{Truncate(cleanup.Cleaned, 200)}\" reason=\"{cleanup.Reason}\"");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[VoiceService] Cleanup wrapper failed: {ex.Message}");
-            cleanup = new VoiceCleanupResult(transcript, "cleanup wrapper failed: " + ex.Message);
-        }
 
         var command = IntentParser.Parse(transcript);
         FileLog.Write($"[VoiceService] Intent: {command.Intent}, target=\"{command.Target}\", payload=\"{Truncate(command.Payload ?? "", 80)}\"");
@@ -107,8 +87,8 @@ public sealed class VoiceService
         try
         {
             var response = Execute(transcript, command);
-            response.CleanedTranscript = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
-            response.CleanupReason = cleanup.Reason;
+            response.CleanedTranscript = transcription.CorrectedTranscript;
+            response.CleanupReason = transcription.Reason;
             return response;
         }
         catch (Exception ex)
@@ -117,8 +97,8 @@ public sealed class VoiceService
             return new VoiceCommandResponse
             {
                 Transcript = transcript,
-                CleanedTranscript = cleanup.Cleaned,
-                CleanupReason = cleanup.Reason,
+                CleanedTranscript = transcription.CorrectedTranscript,
+                CleanupReason = transcription.Reason,
                 Intent = command.Intent.ToString(),
                 Status = "execute_failed",
                 ReplyText = $"I heard you but ran into an error: {ex.Message}",
@@ -128,32 +108,32 @@ public sealed class VoiceService
     }
 
     /// <summary>
-    /// Transcribe an already-assembled audio blob, then correct known dictionary terms
-    /// with the shared dictation cleanup engine - returning both the raw transcript and
-    /// the final corrected text. Used by the resumable /voice/utterance path, which
-    /// reassembles the chunked upload into one blob and then needs the
-    /// transcribe+correct half of <see cref="HandleAsync"/> WITHOUT the command intent
-    /// parsing. Routing (agent vs wingman) is the caller's button choice; the cleanup
-    /// step is verbatim text and a reason only. Fails open (cleaned == raw) at each step.
+    /// Transcribe an already-assembled audio blob through the ONE shared batch pipeline, returning
+    /// the raw transcript and the dictionary-corrected text. Used by the resumable /voice/utterance
+    /// path, which reassembles the chunked upload into one blob and then needs the transcribe+correct
+    /// half of <see cref="HandleAsync"/> WITHOUT the command intent parsing. The only text change is
+    /// swapping known dictionary terms; there is no free-text cleanup. Routing (agent vs wingman) is
+    /// the caller's button choice and never alters the transcript. Transcription failures surface as
+    /// "transcribe_failed"; the dictionary step fails open (corrected == raw).
     /// </summary>
     public async Task<VoiceCommandResponse> TranscribeAndCleanAsync(
         Stream audio, string fileName, string repoPath, CancellationToken ct = default)
     {
-        var key = _options.ResolveOpenAiKey();
-        if (string.IsNullOrWhiteSpace(key))
+        var routing = await new OpenAiKeyResolver(_options).ResolveEndpointAsync(ct);
+        if (routing is null)
         {
-            FileLog.Write("[VoiceService] TranscribeAndCleanAsync: no OpenAI key configured");
+            FileLog.Write("[VoiceService] TranscribeAndCleanAsync: no transcription routing available");
             return new VoiceCommandResponse
             {
                 Status = "no_key",
-                Error = "OpenAI API key missing",
+                Error = "transcription routing unavailable",
             };
         }
 
-        string transcript;
+        BatchTranscriptionResult transcription;
         try
         {
-            transcript = await TranscribeAsync(audio, fileName, key, ct);
+            transcription = await TranscribeAndCorrectAsync(audio, fileName, routing, ct);
         }
         catch (Exception ex)
         {
@@ -161,120 +141,34 @@ public sealed class VoiceService
             return new VoiceCommandResponse { Status = "transcribe_failed", Error = ex.Message };
         }
 
-        FileLog.Write($"[VoiceService] Utterance transcript: \"{Truncate(transcript, 200)}\"");
-
-        VoiceCleanupResult cleanup;
-        try
-        {
-            cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
-                transcript, repoPath, _options.ResolveOpenAiKey() ?? "", ct);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[VoiceService] Utterance cleanup wrapper failed: {ex.Message}");
-            cleanup = new VoiceCleanupResult(transcript, "cleanup wrapper failed: " + ex.Message);
-        }
-
-        // Apply the SHARED dictionary corrector (verbatim + the live dictation
-        // dictionary) - the same engine desktop dictation uses - to the verbatim
-        // transcript. cleanup.Cleaned is already verbatim; this pass fixes known
-        // mistranscribed terms and nothing else. Fails open: ships the transcript
-        // unchanged on any problem.
-        var corrected = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
+        FileLog.Write($"[VoiceService] Utterance transcript: \"{Truncate(transcription.RawTranscript, 200)}\"");
 
         return new VoiceCommandResponse
         {
-            Transcript = transcript,
-            CleanedTranscript = corrected,
-            CleanupReason = cleanup.Reason,
+            Transcript = transcription.RawTranscript,
+            CleanedTranscript = transcription.CorrectedTranscript,
+            CleanupReason = transcription.Reason,
             Status = "ok",
         };
     }
 
     /// <summary>
-    /// Correct known dictionary terms in <paramref name="text"/> with the SAME
-    /// shared <see cref="CleanupOrchestrator"/> the desktop dictation path uses:
-    /// verbatim, dictionary-only, resolving the live dictionary on each call via
-    /// <see cref="DictionaryResolver"/> (Gateway-shared when attached, local cache
-    /// otherwise - #253). This service is constructed per request, so an edit to
-    /// the dictionary takes effect on the very next utterance - there is no frozen
-    /// startup snapshot. Fails open: returns the input text unchanged on an empty
-    /// dictionary, a missing key, or any error, so a dictionary problem never costs
-    /// the user their words.
+    /// Run the ONE shared batch pipeline: whole-audio batch transcription via the resolved method,
+    /// then the validated dictionary corrector only. Resolves the live dictionary per call via
+    /// <see cref="DictionaryResolver"/> (#253) so a Cockpit edit takes effect on the next utterance.
     /// </summary>
-    private async Task<string> ApplyDictionaryCorrectionAsync(string text, CancellationToken ct)
+    private async Task<BatchTranscriptionResult> TranscribeAndCorrectAsync(
+        Stream audio, string fileName, ResolvedTranscription routing, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return text;
-        var key = _options.ResolveOpenAiKey();
-        if (string.IsNullOrWhiteSpace(key))
-            return text;
-        try
-        {
-            // Resolve the dictionary by mode (#253): the Gateway's shared glossary when attached,
-            // the local cache when standalone. On the Gateway box the cache IS the source file, so
-            // this is a no-op round-trip; on a Director attached to a remote Gateway it picks up
-            // Cockpit edits without copying a file.
-            var dict = await new DictionaryResolver(_options).ResolveAsync(ct);
-            using var cleanup = new CleanupOrchestrator(apiKey: key, model: _options.DictationCleanupModel);
-            var outcome = await cleanup.CleanAsync(text, dict, "default", ct);
-            FileLog.Write($"[VoiceService] dictionary correction: applied={outcome.Applied} reason=\"{outcome.Reason}\"");
-            return outcome.Text;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[VoiceService] dictionary correction FAILED (shipping verbatim): {ex.Message}");
-            return text;
-        }
-    }
+        using var buffer = new MemoryStream();
+        await audio.CopyToAsync(buffer, ct);
+        var audioBytes = buffer.ToArray();
 
-    // ====== Whisper transcription ======================================================
-
-    private static async Task<string> TranscribeAsync(
-        Stream audio, string fileName, string apiKey, CancellationToken ct)
-    {
-        using var http = new HttpClient
-        {
-            // Whisper is fast for short clips but can take several seconds for longer ones.
-            Timeout = TimeSpan.FromSeconds(60),
-        };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        using var form = new MultipartFormDataContent();
-        var audioContent = new StreamContent(audio);
-        audioContent.Headers.ContentType = new MediaTypeHeaderValue(GuessAudioContentType(fileName));
-        form.Add(audioContent, "file", string.IsNullOrEmpty(fileName) ? "audio.webm" : fileName);
-        form.Add(new StringContent(WhisperModel), "model");
-
-        using var resp = await http.PostAsync(WhisperEndpoint, form, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Whisper returned {(int)resp.StatusCode}: {Truncate(body, 400)}");
-
-        using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("text", out var textProp))
-            throw new InvalidOperationException("Whisper response missing 'text' field");
-        return (textProp.GetString() ?? "").Trim();
-    }
-
-    private static string GuessAudioContentType(string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".webm" => "audio/webm",
-            ".ogg" => "audio/ogg",
-            ".mp3" => "audio/mpeg",
-            ".m4a" => "audio/mp4",
-            ".mp4" => "audio/mp4",
-            ".wav" => "audio/wav",
-            ".flac" => "audio/flac",
-            _ => "application/octet-stream",
-        };
+        var dictionary = await new DictionaryResolver(_options).ResolveAsync(ct);
+        using var pipeline = new BatchTranscriptionPipeline(cleanupModel: _options.DictationCleanupModel);
+        var result = await pipeline.TranscribeAsync(audioBytes, fileName, routing, dictionary, "default", ct);
+        FileLog.Write($"[VoiceService] dictionary correction: applied={result.DictionaryApplied} changed={result.ChangedWords.Count} reason=\"{result.Reason}\"");
+        return result;
     }
 
     // ====== Execute the parsed command =================================================

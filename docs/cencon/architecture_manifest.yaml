@@ -451,8 +451,11 @@ containers:
           - Backends/GitHubRestClient.cs
           - Backends/IGitHubClient.cs
       - name: VoiceService
-        description: End-to-end voice command pipeline - Whisper transcription, Wingman cleanup, intent parse, and execution against SessionManager
+        description: End-to-end voice command pipeline - whole-audio batch transcription via the shared BatchTranscriptionPipeline using the Gateway-selected method (issue #587; no hardcoded whisper-1 endpoint), dictionary-only correction (no free-text Wingman cleanup in the transcription path), intent parse, and execution against SessionManager
         file: Voice/VoiceService.cs
+      - name: BatchTranscriptionPipeline
+        description: The ONE shared batch transcription entry point every surface calls (issue #587, gap G1/G4/G5) - takes a complete (already-gated) audio blob plus the resolved method, runs ONE whole-audio batch /audio/transcriptions request to the resolved base URL with the resolved key/model, then applies ONLY the validated dictionary corrector (model proposes find/replace, deterministic engine validates/applies). No streaming/partial path and no free-text language-model cleanup; reports exactly which dictionary terms changed and returns byte-identical text when none match
+        file: Transcription/BatchTranscriptionPipeline.cs
       - name: VoiceUtteranceService
         description: Resumable phone voice upload - SHA256-checked chunked parts, gated on complete (issue #586) so an empty capture fails loud and a missing/zero-byte segment returns "incomplete" naming the indices (no partial transcription); a complete set is reassembled, transcribed once, cleaned, logged, then deleted (transient)
         file: Voice/VoiceUtteranceService.cs
@@ -1112,8 +1115,8 @@ data_flows:
     description: Phone voice command uploaded resumably, transcribed, and executed
     path:
       - "Phone -> /voice/utterance register + chunk PUTs (idempotent, SHA256)"
-      - "VoiceUtteranceService reassembles + transcribes once"
-      - "WingmanService.CleanVoiceTranscriptAsync (cleanup)"
+      - "VoiceUtteranceService reassembles the complete blob"
+      - "BatchTranscriptionPipeline: whole-audio batch transcription via the Gateway-selected method, then dictionary-only correction (no free-text cleanup, issue #587)"
       - "VoiceService intent parse -> SessionManager action"
       - "VoiceTurnLog records inbound/outbound for review"
 

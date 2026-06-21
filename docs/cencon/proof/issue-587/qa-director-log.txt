@@ -1,0 +1,2 @@
+2026-06-21 02:03:50.965 [BatchTranscriptionPipeline] TranscribeAsync: bytes=245555, mode=byo, model=gpt-4o-transcribe
+2026-06-21 02:03:51.305 [VoiceService] Transcribe FAILED: Transcription returned 500: {

@@ -30,6 +30,8 @@ public sealed class VoiceEndpointTests : IAsyncLifetime
     private SessionManager _sm = null!;
     private HttpClient _client = null!;
     private string? _originalEnv;
+    private string? _originalRoot;
+    private string _tempRoot = "";
 
     public async Task InitializeAsync()
     {
@@ -37,6 +39,15 @@ public sealed class VoiceEndpointTests : IAsyncLifetime
         // developer's machine. Restored in DisposeAsync.
         _originalEnv = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
+
+        // Voice transcription now routes through the Gateway routing resolver (issue #587), which
+        // reads the machine's config.json for any configured Gateway. Point CC_DIRECTOR_ROOT at an
+        // empty temp dir so there is NO gateway block and the standalone no-key path is exercised
+        // deterministically regardless of the developer's machine config.
+        _originalRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        _tempRoot = Path.Combine(Path.GetTempPath(), "voice-endpoint-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempRoot);
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _tempRoot);
 
         _sm = new SessionManager(new AgentOptions { OpenAiKey = null });
         _host = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
@@ -59,6 +70,10 @@ public sealed class VoiceEndpointTests : IAsyncLifetime
             var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{_host.DirectorId}.json");
             if (File.Exists(f)) File.Delete(f);
         }
+        catch { /* test cleanup, ignore */ }
+
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _originalRoot);
+        try { if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true); }
         catch { /* test cleanup, ignore */ }
     }
 

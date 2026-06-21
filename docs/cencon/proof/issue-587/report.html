@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #587 - Proof Report - One shared batch transcription pipeline</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 1000px; margin: 30px auto; padding: 0 18px; color: #1c1c1c; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2b6cb0; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 30px; color: #2b3a4a; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #cbd5e0; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13.5px; }
+  th { background: #edf2f7; }
+  code, pre { font-family: Consolas, Menlo, monospace; }
+  pre { background: #1a1f29; color: #e6edf3; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  .ok { color: #2f855a; font-weight: 600; }
+  .met { background: #f0fff4; }
+  .pill { display: inline-block; background: #2f855a; color: #fff; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+  img { max-width: 100%; border: 1px solid #cbd5e0; border-radius: 4px; }
+  .small { color: #4a5568; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<h1>Issue #587 - One shared batch transcription pipeline <span class="pill">ready for QA</span></h1>
+<p class="small">
+Repository: thefrederiksen/devthrottle &nbsp;|&nbsp; Branch: issue-587-shared-batch-transcription &nbsp;|&nbsp; Date: 2026-06-21
+</p>
+
+<h2>What was implemented</h2>
+<p>
+Built the ONE shared batch transcription pipeline every surface calls (design gap items G1, G4, G5).
+The change:
+</p>
+<ul>
+  <li><b>New shared Core entry point</b> <code>src/CcDirector.Core/Transcription/BatchTranscriptionPipeline.cs</code>:
+      takes a complete (already-gated) audio blob plus the resolved method, runs <b>ONE whole-audio batch</b>
+      <code>POST {baseUrl}/audio/transcriptions</code> with the resolved key and model, then applies <b>only</b>
+      the validated dictionary corrector. No streaming/partial transcription path. Returns the raw transcript,
+      the corrected transcript, and the exact list of dictionary terms that changed.</li>
+  <li><b>VoiceService rewired</b> <code>src/CcDirector.Core/Voice/VoiceService.cs</code>: removed the hardcoded
+      <code>whisper-1</code> / <code>api.openai.com</code> endpoint and the two calls to the free-text language-model
+      cleanup (<code>WingmanService.CleanVoiceTranscriptAsync</code>). The transcription method now comes from the
+      Gateway routing resolver (<code>OpenAiKeyResolver.ResolveEndpointAsync</code>), and the only post-transcription
+      transform is the dictionary corrector via the shared pipeline.</li>
+  <li><b>Change reporting added</b> <code>src/CcDirector.Core/Dictation/CleanupOrchestrator.cs</code>:
+      <code>CleanupOutcome</code> now carries <code>ChangedWords</code> (the accepted find/replace edits that actually
+      changed text), so the pipeline can report which words changed. The legacy 3-argument constructor is kept,
+      so existing call sites are untouched.</li>
+</ul>
+<p>
+The free-text cleanup method (<code>WingmanService.CleanVoiceTranscriptAsync</code>) was REMOVED from the transcription
+path but the method itself is left in place (its own unit tests still pass); per the issue's flagged assumption, any
+routing decision becomes a separate non-text step on a copy and never touches the used transcript.
+</p>
+
+<h2>Acceptance criteria -> proof</h2>
+<table>
+  <tr><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+  <tr class="met">
+    <td>Single shared Core entry point: complete audio + resolved method -&gt; raw text; no streaming/partial path.</td>
+    <td><code>BatchTranscriptionPipeline.TranscribeAsync(byte[], fileName, ResolvedTranscription, dictionary, ...)</code>.
+        Whole-blob batch only; no live-partial call anywhere in the non-UI transcription code.</td>
+    <td><span class="ok">PASS</span> - type/method exist; 6 unit tests; live log line below.</td>
+  </tr>
+  <tr class="met">
+    <td>Hardcoded whisper-1 / api.openai.com gone from the voice path; method from the Gateway routing resolver.</td>
+    <td>VoiceService no longer references a model/endpoint constant; uses <code>OpenAiKeyResolver.ResolveEndpointAsync</code>.</td>
+    <td><span class="ok">PASS</span> - live voice command log shows <code>mode=byo, model=gpt-4o-transcribe</code>
+        (the resolver-chosen pair), NOT whisper-1.</td>
+  </tr>
+  <tr class="met">
+    <td>Free-text cleanup removed from every path; only the validated dictionary corrector remains. No-dictionary
+        transcript comes back byte-identical.</td>
+    <td>Both <code>CleanVoiceTranscriptAsync</code> calls removed from VoiceService; pipeline applies only
+        <code>CleanupOrchestrator</code>.</td>
+    <td><span class="ok">PASS</span> - test <code>TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical</code>.</td>
+  </tr>
+  <tr class="met">
+    <td>Dictionary hit replaced + change list reported; no-hit unchanged.</td>
+    <td>Pipeline returns <code>CorrectedTranscript</code> + <code>ChangedWords</code>.</td>
+    <td><span class="ok">PASS</span> - tests <code>TranscribeAsync_WithDictionaryHit_SwapsTermAndReportsChange</code>
+        and <code>..._NoDictionaryTerms_ReturnsRawByteIdentical</code>.</td>
+  </tr>
+  <tr class="met">
+    <td>Each method routes a whole-audio batch request to the correct base URL with the correct key, never crossing
+        a key to the wrong URL.</td>
+    <td>Pipeline takes <code>ResolvedTranscription</code> and posts to <code>routing.BaseUrl</code> with
+        <code>routing.ApiKey</code>; the cleanup call uses the SAME base URL.</td>
+    <td><span class="ok">PASS</span> - tests <code>..._ByoMode_RoutesToOpenAiUrlWithOpenAiKey</code> and
+        <code>..._DevThrottleMode_RoutesToDevThrottleUrlWithDevThrottleKey</code> assert URL+key and that the BYO
+        key never reaches devthrottle.com and the dt_ key never reaches api.openai.com.</td>
+  </tr>
+</table>
+
+<h2>Live proof - the running Director uses the new shared pipeline</h2>
+<p>
+A real Director (isolated slot 14, built from this worktree, launched via its own scheduled task) was driven through the
+Control API <code>POST /voice/command</code> with a small audio blob. The voice path went through the new pipeline using
+the resolver-selected method (the provider returned 400 only because the dummy bytes are not valid audio - proving the
+request reached the resolved transcription endpoint, not a hardcoded whisper-1 call).
+</p>
+<pre>
+[BatchTranscriptionPipeline] TranscribeAsync: bytes=12, mode=byo, model=gpt-4o-transcribe
+[VoiceService] Transcribe FAILED: Transcription returned 400: { "error": { "message": "Audio file might be corrupted or unsupported" ... } }
+</pre>
+<p class="small">
+The log message prefix is <code>[BatchTranscriptionPipeline]</code> and the error text is "Transcription returned 400"
+(the new pipeline), where the old code logged <code>[VoiceService]</code> Whisper-specific text. The mode/model pair
+(<code>byo</code> / <code>gpt-4o-transcribe</code>) is exactly what the routing resolver chose - the hardcoded
+<code>whisper-1</code> is gone.
+</p>
+<p class="small">Full artifacts in this folder: <code>live-voice-command-response.json</code>, <code>director-log-lines.txt</code>,
+<code>pipeline-tests.txt</code>, <code>running-app.png</code>.</p>
+
+<h2>Unit tests (new)</h2>
+<pre>
+Passed  TranscribeAsync_ByoMode_RoutesToOpenAiUrlWithOpenAiKey
+Passed  TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical
+Passed  TranscribeAsync_SendsResolvedModel_NotAHardcodedWhisper1
+Passed  TranscribeAsync_EmptyAudio_Throws
+Passed  TranscribeAsync_DevThrottleMode_RoutesToDevThrottleUrlWithDevThrottleKey
+Passed  TranscribeAsync_WithDictionaryHit_SwapsTermAndReportsChange
+Total tests: 6   Passed: 6
+</pre>
+<p>
+Full suites green: <b>CcDirector.Core.Tests</b> 2155 passed / 0 failed, <b>CcDirector.Gateway.Tests</b> 839 passed / 0 failed.
+The pre-existing <code>VoiceEndpointTests.VoiceCommand_returns_no_key_when_unconfigured</code> was made hermetic (it now
+isolates the machine Gateway config via <code>CC_DIRECTOR_ROOT</code>) because voice routing is now Gateway-aware.
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+Architecture posture changed and the manifest was updated in the same change:
+<code>docs/cencon/architecture_manifest.yaml</code> - the <code>VoiceService</code> description was rewritten (whole-audio
+batch via the shared pipeline, no hardcoded whisper-1, dictionary-only), a new <code>BatchTranscriptionPipeline</code>
+component was added, and the Resumable Voice Utterance Flow trust path was updated to drop the free-text cleanup step.
+No security rule changed; the existing "bring-your-own OpenAI key is never sent to devthrottle.com" rule is reinforced
+(routing comes from the one pure resolver, and the pipeline presents <code>routing.ApiKey</code> only to
+<code>routing.BaseUrl</code>). <code>security_profile.yaml</code> last_verified (2026-06-09) is within its 30-day threshold.
+</p>
+
+<h2>Conclusion</h2>
+<p class="ok">I believe this is finished. Every acceptance criterion is met, the full solution builds with 0 warnings / 0 errors,
+all unit tests pass, and the change is proven in the running Director.</p>
+</body>
+</html>
