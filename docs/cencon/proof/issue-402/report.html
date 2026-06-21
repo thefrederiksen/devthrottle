@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #402 - Archive stale docs - Developer Agent proof</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2c3e50; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2c3e50; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f2f4f6; }
+  code { background: #f5f5f5; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  .ok { color: #1a7a1a; font-weight: bold; }
+  pre { background: #f7f7f7; border: 1px solid #ddd; padding: .8rem; overflow-x: auto; font-size: .85em; }
+  .finished { background: #eaf7ea; border: 1px solid #1a7a1a; padding: 1rem; margin-top: 2rem; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Issue #402 - Archive stale handover/plan/tracker/spec docs</h1>
+<p><strong>Agent:</strong> Developer Agent (CenCon Development Method) &nbsp;|&nbsp;
+   <strong>Branch:</strong> <code>issue-402-archive-stale-docs</code> &nbsp;|&nbsp;
+   <strong>Risk:</strong> LOW (docs only)</p>
+
+<h2>Release Notes</h2>
+<p>The <code>docs/</code> root mixed live reference documents with completed-work artifacts.
+   Fifteen stale documents (handovers, completed plans, finished trackers, superseded specs)
+   were moved into a new frozen <code>docs/archive/</code> tree so the live docs stay lean.
+   The files were <strong>moved with <code>git mv</code>, not deleted</strong> - they retain
+   their full history and historical value. A new <code>docs/archive/README.md</code> explains
+   the archive is frozen and not maintained.</p>
+
+<h2>Changes</h2>
+<ul>
+  <li>Moved 6 handovers into <code>docs/archive/handovers/</code>.</li>
+  <li>Moved 4 completed plans into <code>docs/archive/plans/</code>.</li>
+  <li>Moved 3 finished trackers into <code>docs/archive/trackers/</code>.</li>
+  <li>Moved 2 superseded specs into <code>docs/archive/specs/</code>.</li>
+  <li>Added <code>docs/archive/README.md</code> describing the archive.</li>
+  <li>Updated 3 live links that pointed at moved files (see "No broken links" below).</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met</h2>
+<table>
+  <tr><th>Criterion (from issue)</th><th>How satisfied</th><th>Proof</th></tr>
+  <tr>
+    <td>Move (not delete) the 15 listed files into <code>docs/archive/&lt;category&gt;/</code> via pure <code>git mv</code>.</td>
+    <td>All 15 files moved with <code>git mv</code> into handovers/plans/trackers/specs subfolders. Git records them as renames (history preserved).</td>
+    <td><code>proof.txt</code> section 1; <code>git status</code> shows <code>R</code> (renamed).</td>
+  </tr>
+  <tr>
+    <td><code>docs/</code> root no longer lists the moved files; they exist under <code>docs/archive/</code>.</td>
+    <td>All 15 confirmed gone from <code>docs/</code> root and present under <code>docs/archive/</code>.</td>
+    <td><code>proof.txt</code> sections 1 and 2 (all "GONE FROM ROOT (OK)").</td>
+  </tr>
+  <tr>
+    <td>Add <code>docs/archive/README.md</code> explaining these are frozen historical docs.</td>
+    <td>Created. Describes each subfolder, states the docs are frozen, must not be deleted, and points to the live docs for current truth.</td>
+    <td><code>docs/archive/README.md</code></td>
+  </tr>
+  <tr>
+    <td>No broken links in README.md / docs/cencon/INDEX.md (grep old paths).</td>
+    <td>Neither file referenced any moved file (0 matches before and after).</td>
+    <td><code>proof.txt</code> section 4 (both report 0).</td>
+  </tr>
+  <tr>
+    <td>No broken links anywhere (live links updated to the new path).</td>
+    <td>Three live links pointed at moved files and were updated to <code>docs/archive/...</code> paths: the cockpit HANDOVER (.md and its generated .html) and DIRECTOR_DUMB_WRAPPER_TARGET.md. The latter was already broken on main (pointed at non-existent <code>docs/plans/plan-voice-mode.md</code>) and is now correct.</td>
+    <td><code>proof.txt</code> section 3.</td>
+  </tr>
+</table>
+
+<h2>No broken links - reference audit</h2>
+<p>Every reference to the 15 old filenames across the repo was inspected. After the move the
+   only remaining matches are acceptable and were intentionally left as-is:</p>
+<ul>
+  <li><span class="ok">Updated (live links):</span> <code>docs/architecture/cockpit/HANDOVER.md</code>,
+      <code>docs/architecture/cockpit/HANDOVER.html</code>,
+      <code>docs/architecture/DIRECTOR_DUMB_WRAPPER_TARGET.md</code> - now point at <code>docs/archive/...</code>.</li>
+  <li><strong>Inside the moved/frozen files</strong> (prose mentions between the archived docs themselves) -
+      per the archive README, frozen docs are not rewritten.</li>
+  <li><code>docs/qa/issue-backup-2026-06-13/closed-issues-backup.json</code> - a frozen issue-backup snapshot, not a live link.</li>
+  <li><code>docs/plans/linkedin-cleanup.md</code> - a completed-work "Documentation (updated)" checklist table (all <code>[x]</code> Done); a historical ledger of past edits, not navigation links. Rewriting it would falsify the record.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p><strong>No drift.</strong> This change moves documentation only. It does not alter any container
+   in <code>architecture_manifest.yaml</code> or any rule in <code>security_profile.yaml</code>, and
+   touches no product code.</p>
+
+<h2>Build verification</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+<p>Confirms nothing references these docs in a build step. No app smoke-launch is needed for a
+   docs-only change.</p>
+
+<div class="finished">I believe this is finished. The 15 files are archived (moved, not deleted),
+   the new README explains the archive, all live links are repaired, README.md and
+   docs/cencon/INDEX.md have no stale references, and the solution builds clean.</div>
+
+</body>
+</html>

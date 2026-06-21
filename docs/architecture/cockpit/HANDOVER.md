@@ -89,7 +89,7 @@ Goal: the **same final Director build** running on **this Windows box, the Mac-m
 
 1. **The main build is done** - `local_builds\cc-director.exe` (committed code `2c12a04`).
 2. **Relaunch locally:** launch the fresh main and move your live sessions onto it deliberately (never kill a Director out from under a session you want to keep).
-3. **Mac-mini:** build the **Mac** Director (.NET; uses the `UnixPty` backend, not ConPty - confirm `docs/plan-mac-support.md` maturity). Set `gatewayUrl`, ensure Tailscale Serve, autostart at login, launch.
+3. **Mac-mini:** build the **Mac** Director (.NET; uses the `UnixPty` backend, not ConPty - confirm `docs/archive/plans/plan-mac-support.md` maturity). Set `gatewayUrl`, ensure Tailscale Serve, autostart at login, launch.
 4. **Windows-2:** same final Windows build as the main box; set `gatewayUrl`, Tailscale Serve, logon autostart, launch.
 5. **Per machine, confirm:** the Director registers `https://{magicdns}:{port}`, appears in the Cockpit rail, and a session's terminal drives end-to-end (output + typing + Send/Queue + screenshot + Interrupt/Esc).
 

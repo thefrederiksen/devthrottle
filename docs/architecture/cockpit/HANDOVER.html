@@ -403,7 +403,7 @@
 <ol>
 <li><strong>The main build is done</strong> - <code>local_builds\cc-director.exe</code> (committed code <code>2c12a04</code>).</li>
 <li><strong>Relaunch locally:</strong> launch the fresh main and move your live sessions onto it deliberately (never kill a Director out from under a session you want to keep).</li>
-<li><strong>Mac-mini:</strong> build the <strong>Mac</strong> Director (.NET; uses the <code>UnixPty</code> backend, not ConPty - confirm <code>docs/plan-mac-support.md</code> maturity). Set <code>gatewayUrl</code>, ensure Tailscale Serve, autostart at login, launch.</li>
+<li><strong>Mac-mini:</strong> build the <strong>Mac</strong> Director (.NET; uses the <code>UnixPty</code> backend, not ConPty - confirm <code>docs/archive/plans/plan-mac-support.md</code> maturity). Set <code>gatewayUrl</code>, ensure Tailscale Serve, autostart at login, launch.</li>
 <li><strong>Windows-2:</strong> same final Windows build as the main box; set <code>gatewayUrl</code>, Tailscale Serve, logon autostart, launch.</li>
 <li><strong>Per machine, confirm:</strong> the Director registers <code>https://{magicdns}:{port}</code>, appears in the Cockpit rail, and a session's terminal drives end-to-end (output + typing + Send/Queue + screenshot + Interrupt/Esc).</li>
 </ol>

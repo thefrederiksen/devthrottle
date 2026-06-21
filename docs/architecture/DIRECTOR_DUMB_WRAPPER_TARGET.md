@@ -15,7 +15,7 @@
 - [cockpit/COCKPIT_DESIGN.md](cockpit/COCKPIT_DESIGN.md) - the Cockpit as the primary UI
 - [../PHILOSOPHY.md](../PHILOSOPHY.md) - "anything deterministic is code; only parts requiring judgment are prompts"
 - [../wingman](../wingman) - Wingman invariants (strong model, read-only side-calls, one write chokepoint)
-- [../plans/plan-voice-mode.md](../plans/plan-voice-mode.md) - earlier voice mode plan (per-session phases; this doc adds the fleet-wide mode)
+- [../archive/plans/plan-voice-mode.md](../archive/plans/plan-voice-mode.md) - earlier voice mode plan (per-session phases; this doc adds the fleet-wide mode)
 
 ---
 
