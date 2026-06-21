@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-21"
+last_updated: "2026-06-21"  # issue #593: Vosk offline path archived (archived/CcDirector.VoskStt), removed from build
 
 # C4 Level 1: System Context
 context:
@@ -608,16 +608,17 @@ containers:
   - id: vosk_stt
     name: Vosk Speech-to-Text
     technology: C# / Vosk
-    description: Offline speech-to-text service using Vosk library
-    project: CcDirector.VoskStt
+    description: Offline speech-to-text service using the Vosk library. ARCHIVED (issue #593) - this offline path was never wired into any live transcription path; desktop, voice, and recordings all use the shared cloud batch pipeline with the validated dictionary corrector. The Vosk path and its separate divergent dictionary (a Soundex find-and-replace, distinct from the live corrector) are retired to avoid two transcription stacks. Source now lives under archived/CcDirector.VoskStt and is dropped from cc-director.sln, so it is not built into the shipping app. If offline transcription is wanted later it will be a fresh issue that plugs into the shared pipeline.
+    status: archived
+    project: archived/CcDirector.VoskStt
     dependencies:
       - CcDirector.Core
     components:
       - name: VoskSttService
-        description: Speech recognition service using Vosk for offline transcription
+        description: Speech recognition service using Vosk for offline transcription (archived, not in the live pipeline)
         file: VoskSttService.cs
       - name: CustomDictionary
-        description: Custom vocabulary configuration for improved recognition
+        description: Separate Vosk dictionary (Soundex find-and-replace) distinct from the live validated corrector (archived, not referenced by live code)
         file: CustomDictionary.cs
 
   - id: control_api

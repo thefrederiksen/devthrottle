@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #593 - Retire the dormant Vosk offline path - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2c5f8a; padding-bottom: .4rem; }
+  h2 { color: #2c5f8a; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef3f8; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f4; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #ddd; }
+  .pass { color: #1a7a1a; font-weight: bold; }
+  .verdict { background: #eef8ee; border: 1px solid #1a7a1a; padding: 1rem; border-radius: 6px; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<h1>Issue #593 - Retire the dormant Vosk offline path</h1>
+<p><strong>Branch:</strong> issue-593-retire-vosk &nbsp; | &nbsp; <strong>Parent:</strong> #585 &nbsp; | &nbsp; <strong>Design gap:</strong> G8</p>
+
+<h2>Release Notes</h2>
+<p>The dormant offline Vosk speech-to-text path (<code>CcDirector.VoskStt</code>) has been retired so the
+codebase carries exactly one transcription stack: the shared cloud batch pipeline plus the validated
+dictionary corrector. The Vosk project was never wired into any live transcription path (desktop, voice,
+and recordings all use the shared pipeline), and it carried a second, divergent dictionary implementation
+(a Soundex find-and-replace) separate from the live corrector. Both are now parked.</p>
+
+<h2>Decision: parked (reversible), not hard-deleted</h2>
+<p>The issue's own Assumptions say "Confirm before deleting versus parking," and no human confirmed a hard
+delete. Following the repository's established convention for retired projects (<code>archived/CcDirector.Wpf</code>,
+<code>archived/CcDirector.CommunicationManager</code>, both with <code>status: archived</code> in the manifest),
+the Vosk source was <strong>moved</strong> (git rename, fully reversible) to <code>archived/CcDirector.VoskStt</code>
+and dropped from <code>cc-director.sln</code>. No source was deleted. This satisfies every acceptance criterion:
+no live code references the Vosk path, the solution builds clean without it, and the manifest is updated.</p>
+
+<h2>Changes</h2>
+<ol>
+  <li><strong>archived/CcDirector.VoskStt/</strong> - the entire project (<code>CcDirector.VoskStt.csproj</code>,
+      <code>VoskSttService.cs</code>, <code>CustomDictionary.cs</code>) moved here from <code>src/</code> via
+      <code>git mv</code> (git records a pure rename - reversible).</li>
+  <li><strong>cc-director.sln</strong> - removed the <code>CcDirector.VoskStt</code> Project/EndProject block,
+      its 12 build-configuration lines, and its NestedProjects entry. The project no longer participates in the build.</li>
+  <li><strong>docs/cencon/architecture_manifest.yaml</strong> - the <code>vosk_stt</code> container entry now has
+      <code>status: archived</code>, <code>project: archived/CcDirector.VoskStt</code>, and a description noting it
+      is not part of the live pipeline. <code>last_updated</code> annotated.</li>
+</ol>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Status</th></tr>
+  <tr>
+    <td>AC1: Vosk path no longer built into or referenced by any live transcription path</td>
+    <td>No live code references <code>VoskSttService</code>; solution builds clean without it</td>
+    <td><code>grep -rn "VoskSttService\|VoskStt\|using.*Vosk" --include="*.cs" src/</code> returns nothing;
+        <code>dotnet sln list | grep -i vosk</code> returns nothing; <code>dotnet build cc-director.sln</code> =
+        Build succeeded, 0 Warnings, 0 Errors</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC2: separate Vosk dictionary no longer referenced by live code; validated corrector is the only one</td>
+    <td>No live reference to the Vosk <code>CustomDictionary</code></td>
+    <td>The Vosk <code>CustomDictionary.cs</code> lives only under <code>archived/</code>; no <code>src/</code>
+        <code>.cs</code> or <code>.csproj</code> references it (grep returns nothing)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC3: architecture manifest reflects that Vosk is retired or parked</td>
+    <td>Manifest entry updated</td>
+    <td><code>vosk_stt</code> now <code>status: archived</code>, <code>project: archived/CcDirector.VoskStt</code>,
+        description marks it not-live (see manifest diff in <code>evidence.txt</code>)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof: clean build (Vosk dropped from build list)</h2>
+<pre>Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+<p>The build output project list no longer contains <code>CcDirector.VoskStt</code>.</p>
+
+<h2>Proof: no live references</h2>
+<pre>$ grep -rn "VoskSttService|VoskStt|using.*Vosk|new CustomDictionary" --include="*.cs" src/
+(no matches)
+
+$ grep -rn "Vosk" --include="*.cs" --include="*.csproj" src/ cc-director.sln  (excluding obj/)
+(no matches)
+
+$ dotnet sln cc-director.sln list | grep -i vosk
+(no matches)</pre>
+
+<h2>Proof: manifest diff and reversible rename</h2>
+<p>Full git diff of the manifest and the rename evidence are in
+<code>docs/cencon/proof/issue-593/evidence.txt</code>. Git records the move as a pure rename
+(<code>R src/CcDirector.VoskStt/... -&gt; archived/CcDirector.VoskStt/...</code>), confirming the park is reversible.</p>
+
+<h2>CenCon impact</h2>
+<p>Architecture manifest updated in the same change (AC3). The retired container is now marked
+<code>status: archived</code> and points at the parked path, matching the existing WPF/CommunicationManager
+archived-entry convention. No security profile (DT-*) rule is touched - this is a build-membership and
+documentation change only, with no live code or runtime behavior altered.</p>
+
+<div class="verdict">
+<p><strong>I believe this is finished.</strong> All three acceptance criteria are met and proven by static
+evidence (the change is build-membership + file relocation + manifest documentation; there is no runtime
+behavior to exercise). The Vosk offline path is parked under <code>archived/CcDirector.VoskStt</code>,
+removed from the solution build, and unreferenced by any live code; the solution builds clean with 0 errors
+and 0 warnings; the architecture manifest records the retirement.</p>
+</div>
+
+</body>
+</html>

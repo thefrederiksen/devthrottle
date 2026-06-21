@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #593 - Retire the dormant Vosk offline path</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d29; font-weight: bold; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  pre { background: #f4f4f4; padding: .7rem; overflow-x: auto; border-radius: 4px; }
+  .verdict { background: #e6f7ec; border: 1px solid #0a7d29; padding: 1rem; border-radius: 6px; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #593</h1>
+<p><strong>Title:</strong> [Transcription] Retire the dormant Vosk offline path<br>
+<strong>Pull Request:</strong> #611 (branch <code>issue-593-retire-vosk</code>)<br>
+<strong>QA verification date:</strong> 2026-06-21<br>
+<strong>Method:</strong> Independent verification in a dedicated QA git worktree checked out from the PR branch. The Developer Agent's report and screenshots were NOT used as proof; every result below was reproduced by the QA Agent.</p>
+
+<h2>Nature of the change</h2>
+<p>This is a structural code-removal / parking change with no user-interface surface. The Vosk offline speech-to-text path was dormant (never wired into any live transcription path). The decisive proof is therefore a clean build of the solution with the project removed, plus a static reference sweep of the live source tree. Running the desktop application would exercise no code path touched by this change, so verification is build-and-grep based, consistent with the issue's own "Proof Target" (a clean build with Vosk removed/parked, and the manifest diff).</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-reproduced)</th><th>Result</th></tr>
+<tr>
+  <td>AC1</td>
+  <td>The Vosk speech-to-text path is no longer built into or referenced by any live transcription path. No live code references VoskSttService; solution builds clean without it.</td>
+  <td>Zero matches for <code>VoskSttService</code> / <code>VoskStt</code> / <code>using *Vosk</code> in <code>src/**/*.cs</code>; project absent from the build; build succeeds.</td>
+  <td>Grep over <code>src/</code> for <code>VoskSttService|VoskStt|using.*Vosk</code> returned no matches. <code>cc-director.sln</code> contains no Vosk entry. <code>dotnet build cc-director.sln</code> reported Build succeeded, 0 Warning(s), 0 Error(s), and <code>CcDirector.VoskStt</code> did not appear in the build list.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2</td>
+  <td>The separate Vosk dictionary implementation is no longer referenced by live code; the validated dictionary corrector is the only one in the live pipeline. No live reference to the Vosk CustomDictionary.</td>
+  <td>The Soundex <code>CustomDictionary</code> class exists only under the archived location; zero live references in <code>src/</code>.</td>
+  <td>Grep for <code>CustomDictionary</code> over <code>src/</code> returned no matches. The only definition of <code>CustomDictionary</code> in the repository is <code>archived/CcDirector.VoskStt/CustomDictionary.cs</code>, which is not in the build.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3</td>
+  <td>The architecture manifest reflects that Vosk is retired or parked.</td>
+  <td>The <code>vosk_stt</code> manifest entry is updated to indicate archived/parked.</td>
+  <td><code>docs/cencon/architecture_manifest.yaml</code> entry <code>vosk_stt</code> now carries <code>status: archived</code>, <code>project: archived/CcDirector.VoskStt</code>, and a description noting it is not part of the live pipeline. <code>last_updated</code> notes issue #593.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Build evidence (QA-reproduced)</h2>
+<pre>Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+<p>CcDirector.VoskStt was not among the projects built (verified in the build output project list).</p>
+
+<h2>Reference-sweep evidence (QA-reproduced)</h2>
+<pre>grep src/ for VoskSttService|VoskStt|using.*Vosk|new CustomDictionary  -> No matches found
+grep src/ for CustomDictionary                                       -> No matches found
+grep cc-director.sln for Vosk                                        -> No matches found
+Only "Vosk" occurrences repo-wide are in docs/, plans/, proof/, the
+archived/ project itself, and a skill markdown file - none in live build paths.</pre>
+
+<h2>Regression / method check</h2>
+<p>Negative sweep: the parked project was already dormant (not wired into desktop, voice, or recordings), so no live transcription path is affected. No adjacent build target referenced it. CenCon: the architecture manifest was updated in the same change (no documentation drift). No blocking security rule is implicated by removing a dormant project from the build.</p>
+
+<h2>Decision: park (reversible), not hard delete</h2>
+<p>The issue's flagged assumption requires confirming before deleting versus parking; no human confirmed a hard delete. The reversible git rename to <code>archived/CcDirector.VoskStt</code>, dropped from the solution, satisfies every acceptance criterion ("removed from the build OR moved to an archived/parked location"). Accepted.</p>
+
+<div class="verdict">
+<strong>VERIFIED - all acceptance criteria met (3 of 3 PASS).</strong>
+</div>
+
+</body>
+</html>

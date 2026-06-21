@@ -1,0 +1,44 @@
+=== git diff: docs/cencon/architecture_manifest.yaml ===
+diff --git a/docs/cencon/architecture_manifest.yaml b/docs/cencon/architecture_manifest.yaml
+index 3a62c77..7c71c27 100644
+--- a/docs/cencon/architecture_manifest.yaml
++++ b/docs/cencon/architecture_manifest.yaml
+@@ -10,7 +10,7 @@ project:
+   framework: ".NET 10"
+   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
+ 
+-last_updated: "2026-06-21"
++last_updated: "2026-06-21"  # issue #593: Vosk offline path archived (archived/CcDirector.VoskStt), removed from build
+ 
+ # C4 Level 1: System Context
+ context:
+@@ -608,16 +608,17 @@ containers:
+   - id: vosk_stt
+     name: Vosk Speech-to-Text
+     technology: C# / Vosk
+-    description: Offline speech-to-text service using Vosk library
+-    project: CcDirector.VoskStt
++    description: Offline speech-to-text service using the Vosk library. ARCHIVED (issue #593) - this offline path was never wired into any live transcription path; desktop, voice, and recordings all use the shared cloud batch pipeline with the validated dictionary corrector. The Vosk path and its separate divergent dictionary (a Soundex find-and-replace, distinct from the live corrector) are retired to avoid two transcription stacks. Source now lives under archived/CcDirector.VoskStt and is dropped from cc-director.sln, so it is not built into the shipping app. If offline transcription is wanted later it will be a fresh issue that plugs into the shared pipeline.
++    status: archived
++    project: archived/CcDirector.VoskStt
+     dependencies:
+       - CcDirector.Core
+     components:
+       - name: VoskSttService
+-        description: Speech recognition service using Vosk for offline transcription
++        description: Speech recognition service using Vosk for offline transcription (archived, not in the live pipeline)
+         file: VoskSttService.cs
+       - name: CustomDictionary
+-        description: Custom vocabulary configuration for improved recognition
++        description: Separate Vosk dictionary (Soundex find-and-replace) distinct from the live validated corrector (archived, not referenced by live code)
+         file: CustomDictionary.cs
+ 
+   - id: control_api
+
+=== git status (rename: src/CcDirector.VoskStt -> archived/CcDirector.VoskStt) ===
+R  src/CcDirector.VoskStt/CcDirector.VoskStt.csproj -> archived/CcDirector.VoskStt/CcDirector.VoskStt.csproj
+R  src/CcDirector.VoskStt/CustomDictionary.cs -> archived/CcDirector.VoskStt/CustomDictionary.cs
+R  src/CcDirector.VoskStt/VoskSttService.cs -> archived/CcDirector.VoskStt/VoskSttService.cs
+ M cc-director.sln
+ M docs/cencon/architecture_manifest.yaml
+?? docs/cencon/proof/issue-593/
