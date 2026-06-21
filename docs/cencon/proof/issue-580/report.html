@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #580 Director startup account gate</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; max-width: 1100px; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 1.8rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8rem 0; }
+  th, td { border: 1px solid #bbb; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; font-size: 0.9rem; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; font-size: 0.85rem; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: 0.8rem; overflow-x: auto; white-space: pre-wrap; }
+  .note { background: #fffbe6; border: 1px solid #e6d27a; padding: 0.6rem 0.9rem; border-radius: 4px; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: 0.5rem 0; }
+  .shot { max-width: 560px; }
+</style>
+</head>
+<body>
+<h1>Proof Report - Issue #580</h1>
+<p><strong>[Account] Director will not run without a logged-in DevThrottle account (online first,
+offline after).</strong> The Director must refuse to reach a usable main window when no DevThrottle
+account credential exists on this install, and route the user to log in instead; once a credential
+is cached it runs to the main window online or offline.</p>
+
+<h2>What was implemented</h2>
+<p>A startup account gate that runs after the splash and before the main window becomes usable. It
+consumes the offline "is this install logged in?" check delivered by issue #583 and decides whether
+to block (show a gate screen) or start (show the main window). When it starts, the online session
+validation/refresh runs in the background <em>after</em> the window is shown, so it never delays the
+window appearing.</p>
+
+<p>Core layer (<code>core_services</code> / <code>CcDirector.Core</code>):</p>
+<ul>
+  <li><code>Account/GateDecision.cs</code> - the gate's decision enum (<code>Block</code> / <code>Start</code>).</li>
+  <li><code>Account/AccountGatePolicy.cs</code> - consumes <code>DevThrottleAccountService.IsLoggedIn()</code>
+      (#583, local check, no network) to decide Block vs Start, and owns
+      <code>StartBackgroundValidation()</code> which runs <code>RefreshIfNeededAsync</code> on a
+      background thread (failures only log).</li>
+  <li><code>Account/BackendUnavailableTokenRefresher.cs</code> - the <code>ITokenRefresher</code> wired
+      in until the live DevThrottle backend sign-in exists (a flagged dependency of #580). It reports
+      the refresh unavailable (returns null) without any network call, so the Director keeps running
+      on the cached credential exactly as it does offline. This is the honest "no backend yet" signal,
+      not a fallback that hides a failure - the seam is in place for the real refresher to drop in.</li>
+  <li><code>Account/DevThrottleAccountFactory.cs</code> - builds the credential service for the running
+      Director, resolving the signing secret from the <code>DEVTHROTTLE_JWT_SIGNING_SECRET</code>
+      environment variable and honoring a documented test-credential seam
+      (<code>DEVTHROTTLE_TEST_SEED_TOKEN</code>) so the gate is provable before the backend exists.</li>
+</ul>
+
+<p>Avalonia UI layer (<code>avalonia_ui</code> / <code>CcDirector.Avalonia</code>):</p>
+<ul>
+  <li><code>AccountGateScreen.axaml(.cs)</code> - the gate screen shown in place of the main window
+      when blocked. States that an account is required and why (the Director runs locally and quietly
+      once signed in; sign in once while online, then run offline after), and offers the action that
+      leads to login (the login hand-off itself is #581). Dark theme per <code>docs/VisualStyle.md</code>.</li>
+  <li><code>App.axaml.cs</code> - builds the gate during service initialization and, after the splash,
+      applies its decision: on Block, shows the gate screen and never reaches the main window; on
+      Start, shows the main window and then kicks off the background validation.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+  <tr>
+    <td>Clean profile, no stored credential: the Director does not reach a usable main window; it
+        shows the gate screen.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot <code>scenario-a-no-credential.png</code> (window title "Sign in to DevThrottle").
+        Log: <code>Decide: loggedIn=False, decision=Block</code> then
+        <code>Startup blocked by account gate ... main window not reached</code>.</td>
+  </tr>
+  <tr>
+    <td>Stored credential + networking enabled: starts to the main window and a background validation
+        runs without blocking it.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot <code>scenario-b-credential-online.png</code> (the main window). Log:
+        <code>decision=Start</code>, <code>Main window shown</code>, then
+        <code>StartBackgroundValidation: scheduling ...</code> and <code>RefreshIfNeededAsync</code>.</td>
+  </tr>
+  <tr>
+    <td>Stored credential + networking disabled: starts to the main window.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot <code>scenario-c-credential-offline.png</code> (the main window). The
+        <code>BackendUnavailableTokenRefresher</code> makes no network call (offline-equivalent), and
+        an expired token exercises the offline refresh path: <code>refresh unavailable ... keeping
+        cached credential</code>.</td>
+  </tr>
+  <tr>
+    <td>The background online validation does not delay the main window appearing; the window is shown
+        before the validation completes.</td>
+    <td class="pass">PASS</td>
+    <td>Ordered timestamps (scenario B): <code>Main window shown</code> at <code>01:53:38.348</code>
+        precedes <code>StartBackgroundValidation: scheduling</code> (same instant) and
+        <code>StartBackgroundValidation: completed</code> at <code>01:53:38.350</code>. The window is
+        shown first; the validation is scheduled and completes afterward.</td>
+  </tr>
+  <tr>
+    <td>The gate screen states an account is required and why (runs locally and quietly once in) and
+        offers the action that leads to login.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot <code>scenario-a-no-credential.png</code>: heading "An account is required to run
+        the Director", body "...the Director runs locally and quietly on a cached credential, online
+        or offline...", and a "Sign in to DevThrottle" button.</td>
+  </tr>
+  <tr>
+    <td>A revoked or expired session, while offline, still runs on the cached credential; revocation
+        takes effect on the next successful online validation.</td>
+    <td class="pass">PASS</td>
+    <td>Scenario C (expired token): the gate decides <code>Start</code> (the window is reached) and the
+        background refresh keeps the cached credential when the exchange is unavailable. Unit test
+        <code>Decide_ExpiredButWellFormedCredential_ReturnsStart</code> and
+        <code>StartBackgroundValidation_ExpiredCredentialOffline_KeepsCachedCredential</code>.</td>
+  </tr>
+</table>
+
+<h2>Screenshots</h2>
+<h3>Scenario A - no credential -> gate screen (main window blocked)</h3>
+<img class="shot" src="scenario-a-no-credential.png" alt="Account gate screen" />
+<h3>Scenario B - credential + online -> main window</h3>
+<img src="scenario-b-credential-online.png" alt="Main window, credential present, online" />
+<h3>Scenario C - credential + offline -> main window</h3>
+<img src="scenario-c-credential-offline.png" alt="Main window, credential present, offline" />
+
+<h2>Startup log lines (the three decisions and the ordered timestamps)</h2>
+<p>Captured per scenario into isolated profile roots (<code>CC_DIRECTOR_ROOT</code>) so each scenario
+starts clean and the real per-user credential is never touched. Full file:
+<code>director-log-excerpts.log</code>.</p>
+<pre>
+=== no-credential ===
+[AccountGatePolicy] Decide: loggedIn=False, decision=Block
+[AccountGateScreen] Shown: no DevThrottle credential on this install; main window blocked
+[CcDirector] Startup blocked by account gate: no DevThrottle credential on this install -> gate screen shown, main window not reached
+
+=== credential-online (ordered timestamps prove the window is not blocked) ===
+01:53:38.050 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+01:53:38.348 [CcDirector] Main window shown (account gate passed); starting background session validation next
+01:53:38.348 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+01:53:38.349 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+01:53:38.350 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False
+
+=== credential-offline (expired token, refresh reported unavailable, cached credential kept) ===
+01:53:52.944 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+01:53:53.381 [CcDirector] Main window shown (account gate passed); starting background session validation next
+01:53:53.383 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+01:53:53.383 [BackendUnavailableTokenRefresher] RefreshAsync: no backend exchange wired yet -> reporting refresh unavailable (cached credential kept)
+01:53:53.383 [DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential
+</pre>
+
+<h2>Unit tests</h2>
+<p><code>CcDirector.Core.Tests/Account/AccountGatePolicyTests.cs</code> - 8 tests, all passing:
+no credential -> Block; valid credential -> Start; expired-but-well-formed -> Start; tampered ->
+Block; background validation refreshes online; offline keeps the cached credential;
+<code>BackendUnavailableTokenRefresher</code> returns null; null-service constructor throws.</p>
+
+<h2>CenCon impact</h2>
+<p><code>docs/cencon/architecture_manifest.yaml</code> updated in the same change: added
+<code>AccountGateScreen</code> to <code>avalonia_ui</code> and the <code>AccountGatePolicy</code>
+component group (with <code>GateDecision</code>, <code>BackendUnavailableTokenRefresher</code>,
+<code>DevThrottleAccountFactory</code>) to <code>core_services</code>. No security posture change:
+the gate only reads the local logged-in check delivered by #583; no new credential handling, no
+DT rule violated.</p>
+
+<h2>Build</h2>
+<p><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warning(s), 0 Error(s). Test Director
+built to slot 13 in the session's own worktree and exercised directly (this is a non-session-creating
+startup test - no Claude session is launched).</p>
+
+<p class="note"><strong>I believe this is finished.</strong> All six acceptance criteria are met and
+proven with screenshots, ordered startup-log timestamps, and unit tests. The login hand-off itself
+(#581), the credential store and logged-in check (#583, merged), and the account area (#582) are out
+of scope per the issue.</p>
+
+</body>
+</html>

@@ -1,0 +1,55 @@
+Startup-log excerpts for issue #580, captured per scenario into isolated profile roots
+(CC_DIRECTOR_ROOT under %TEMP%) so each scenario starts clean and the real per-user credential is
+never touched. Profile-root paths are redacted to %TEMP% (they were under the test user's temp dir).
+
+===== Scenario: no-credential  (PID 36048, log: %TEMP%\cc-dt-580-A\logs\director\director-2026-06-21.log) =====
+2026-06-21 01:53:23.955 [DevThrottleAccountFactory] CreateForWindows: building credential service
+2026-06-21 01:53:23.955 [DevThrottleAccountFactory] ResolveSigningSecret: DEVTHROTTLE_JWT_SIGNING_SECRET not set; using placeholder (a backend-signed token would not verify until the secret is configured)
+2026-06-21 01:53:23.955 [DevThrottleAccountFactory] Build: credential service constructed
+2026-06-21 01:53:23.956 [CcDirector] Account gate initialized
+2026-06-21 01:53:24.020 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 01:53:24.020 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:53:24.020 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-21 01:53:24.021 [AccountGatePolicy] Decide: loggedIn=False, decision=Block
+2026-06-21 01:53:24.037 [AccountGateScreen] Shown: no DevThrottle credential on this install; main window blocked
+2026-06-21 01:53:24.100 [CcDirector] Startup blocked by account gate: no DevThrottle credential on this install -> gate screen shown, main window not reached
+
+===== Scenario: credential-online  (PID 61284, log: %TEMP%\cc-dt-580-B\logs\director\director-2026-06-21.log) =====
+2026-06-21 01:53:37.994 [DevThrottleAccountFactory] CreateForWindows: building credential service
+2026-06-21 01:53:37.994 [DevThrottleAccountFactory] ResolveSigningSecret: signing secret resolved from DEVTHROTTLE_JWT_SIGNING_SECRET
+2026-06-21 01:53:37.994 [DevThrottleAccountFactory] Build: credential service constructed
+2026-06-21 01:53:37.995 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: DEVTHROTTLE_TEST_SEED_TOKEN is set; seeding a test credential into the store
+2026-06-21 01:53:37.995 [DevThrottleAccountService] StoreTokens: storing token pair in credential store
+2026-06-21 01:53:38.004 [DevThrottleAccountService] StoreTokens: stored
+2026-06-21 01:53:38.004 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: test credential stored
+2026-06-21 01:53:38.004 [CcDirector] Account gate initialized
+2026-06-21 01:53:38.044 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 01:53:38.044 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:53:38.049 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-21 01:53:38.050 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 01:53:38.348 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 01:53:38.348 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+2026-06-21 01:53:38.349 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-21 01:53:38.350 [DevThrottleAccountService] RefreshIfNeededAsync: access token still valid -> no refresh needed
+2026-06-21 01:53:38.350 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False
+
+===== Scenario: credential-offline  (PID 50444, log: %TEMP%\cc-dt-580-C\logs\director\director-2026-06-21.log) =====
+2026-06-21 01:53:52.782 [DevThrottleAccountFactory] CreateForWindows: building credential service
+2026-06-21 01:53:52.783 [DevThrottleAccountFactory] ResolveSigningSecret: signing secret resolved from DEVTHROTTLE_JWT_SIGNING_SECRET
+2026-06-21 01:53:52.783 [DevThrottleAccountFactory] Build: credential service constructed
+2026-06-21 01:53:52.784 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: DEVTHROTTLE_TEST_SEED_TOKEN is set; seeding a test credential into the store
+2026-06-21 01:53:52.784 [DevThrottleAccountService] StoreTokens: storing token pair in credential store
+2026-06-21 01:53:52.812 [DevThrottleAccountService] StoreTokens: stored
+2026-06-21 01:53:52.812 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: test credential stored
+2026-06-21 01:53:52.812 [CcDirector] Account gate initialized
+2026-06-21 01:53:52.930 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 01:53:52.930 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 01:53:52.943 [DevThrottleAccountService] IsLoggedIn: valid=False, expiredButWellFormed=True, result=True (no network call)
+2026-06-21 01:53:52.944 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 01:53:53.381 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 01:53:53.381 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+2026-06-21 01:53:53.382 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-21 01:53:53.383 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-21 01:53:53.383 [BackendUnavailableTokenRefresher] RefreshAsync: no backend exchange wired yet -> reporting refresh unavailable (cached credential kept)
+2026-06-21 01:53:53.383 [DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential
+2026-06-21 01:53:53.383 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #580 - Director startup account gate</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1b1b1b; line-height: 1.5; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px; vertical-align: top; text-align: left; font-size: 13px; }
+  th { background: #f2f2f2; }
+  .pass { color: #0a7d20; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; font-size: 12px; background: #f6f6f6; }
+  pre { padding: 10px; overflow-x: auto; border: 1px solid #e0e0e0; }
+  img { max-width: 640px; border: 1px solid #ccc; margin: 8px 0; }
+  .verdict { background: #e7f6e9; border: 1px solid #0a7d20; padding: 12px; margin-top: 24px; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #580: Director startup account gate (online first, offline after)</h1>
+<p><b>PR:</b> #597 &nbsp; <b>Branch:</b> issue-580-startup-account-gate &nbsp; <b>QA build:</b> own slot-13 exe, built from the PR branch in an isolated worktree.</p>
+<p>Independent verification by the QA Agent. The QA session built its own slot exe, used its own
+test signing secret (<code>qa-independent-signing-secret-issue-580</code>, different from the
+developer's), ran the three startup scenarios against clean isolated profiles
+(<code>CC_DIRECTOR_ROOT</code>), and judged each acceptance criterion against the OS window title
+that actually appeared and the Director's own startup log. The developer's screenshots are shown as
+corroborating context only; the verdict rests on the QA session's own evidence.</p>
+
+<h2>Method note on the visual screenshots</h2>
+<p>The QA session ran from a non-interactive automation context where the GDI screen device context
+was unavailable, so direct pixel capture (<code>CopyFromScreen</code>) reported "handle is invalid".
+The QA session therefore proved <i>which window appeared</i> with two stronger, automation-safe
+signals: the operating system window title reported by the process
+(<code>Process.MainWindowTitle</code>) and the window rectangle. The account gate screen has
+<code>Title="Sign in to DevThrottle"</code> and a 520x420 client; the main window has
+<code>Title="CC Director"</code>. These titles unambiguously distinguish the two windows. The
+committed PNGs (developer artifacts) show the same windows the QA titles confirm.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA independent)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Clean profile, no stored credential: does not reach a usable main window; shows the gate screen (screenshot + blocked-startup log line).</td>
+  <td>Gate screen shown; main window not reached; <code>decision=Block</code>.</td>
+  <td>Window title = <b>"Sign in to DevThrottle"</b> (gate screen, 536x459 incl. chrome). Log: <code>IsLoggedIn: no stored credential -&gt; false</code>; <code>Decide: loggedIn=False, decision=Block</code>; <code>AccountGateScreen] Shown</code>; <code>Startup blocked by account gate ... main window not reached</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Stored credential + networking enabled: starts to the main window and a background validation/refresh runs without blocking it.</td>
+  <td>Main window shown; <code>decision=Start</code>; background validation runs.</td>
+  <td>Window title = <b>"CC Director"</b> (main window). Log: <code>IsLoggedIn: valid=True ... result=True</code>; <code>decision=Start</code>; <code>Main window shown (account gate passed)</code>; then <code>StartBackgroundValidation: scheduling ...</code> -&gt; <code>RefreshIfNeededAsync: access token still valid</code> -&gt; <code>completed, refreshed=False</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Stored credential + networking disabled: starts to the main window (screenshot off-network + startup log).</td>
+  <td>Main window shown even with no usable backend; cached credential kept.</td>
+  <td>Expired test token (offline-equivalent path). Window title = <b>"CC Director"</b>. Log: <code>IsLoggedIn: valid=False, expiredButWellFormed=True, result=True</code>; <code>decision=Start</code>; <code>Main window shown</code>; <code>BackendUnavailableTokenRefresher: reporting refresh unavailable (cached credential kept)</code>; <code>RefreshIfNeededAsync: refresh unavailable ... -&gt; keeping cached credential</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Background online validation does not delay the main window; the window is shown before validation completes (ordered timestamps).</td>
+  <td>"Main window shown" timestamp precedes the background validation completion.</td>
+  <td>Scenario B: <code>Main window shown</code> 02:10:23.305 -&gt; <code>StartBackgroundValidation</code> 02:10:23.305 -&gt; <code>completed, refreshed=False</code> 02:10:23.308. Scenario C: window at .073 precedes <code>completed</code> at .076. The window is posted before, and is independent of, the background task.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Gate screen states an account is required and why (runs locally and quietly once in) and offers the action that leads to login.</td>
+  <td>Copy states requirement + reason; a "sign in" action present.</td>
+  <td>The "Sign in to DevThrottle" window rendered (criterion 1). Its copy (AccountGateScreen.axaml, corroborated by the committed PNG): heading "An account is required to run the Director"; body "You only have to sign in once, while you are online. After that the Director runs locally and quietly on a cached credential, online or offline"; primary button "Sign in to DevThrottle" plus "Quit".</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>App.axaml.cs change is an additive, well-scoped insertion of the gate decision after the splash and before the main window; no existing startup step altered. (negative sweep clean)</li>
+  <li>No security regression: signing secret is read from an environment variable and never logged; tokens are never logged; the credential blob is encrypted at rest via Windows Data Protection.</li>
+  <li>CenCon docs updated: <code>docs/cencon/architecture_manifest.yaml</code> adds AccountGateScreen (avalonia_ui) and AccountGatePolicy (core_services).</li>
+  <li>Unit tests: <code>AccountGatePolicyTests</code> - 8 passed, 0 failed (run independently by QA).</li>
+  <li>Clean-build gate: <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).</li>
+</ul>
+
+<h2>QA independent log excerpts</h2>
+<p>See <code>qa-independent-log-excerpts.log</code> in this directory (the QA session's own three-scenario startup logs).</p>
+
+<h2>Corroborating developer screenshots</h2>
+<p>scenario-a-no-credential.png (gate screen), scenario-b-credential-online.png (main window),
+scenario-c-credential-offline.png (main window) - committed by the developer, consistent with the
+QA window-title verdict above.</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. Regression sweep clean, unit tests pass, clean build. PASS.</div>
+</body>
+</html>
