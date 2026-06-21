@@ -1,0 +1,10 @@
+﻿=== LIVE RUNTIME PROOF (issue #586) - running Director slot 13, Control API http://127.0.0.1:7884 ===
+Captured: 2026-06-21T01:16:58.3998512-04:00
+
+--- Criterion 4: desktop 'recover whatever arrived' path removed ---
+GET /dictate.html  (dictation endpoint still present):
+  HTTP 200 OK
+GET /dictate/recovered  (REMOVED recover-and-park pickup endpoint):
+  HTTP 404 NotFound (endpoint gone - partial audio is never parked/transcribed)
+POST /dictate/recovered/x/dismiss  (REMOVED dismiss endpoint):
+  HTTP 404 NotFound

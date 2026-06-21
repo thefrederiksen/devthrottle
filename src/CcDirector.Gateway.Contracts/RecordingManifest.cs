@@ -84,11 +84,21 @@ public sealed record RecordingMetaUpdate(
 
 /// <summary>
 /// Response of <c>GET /ingest/recording/{id}/status</c>. <see cref="State"/>
-/// is one of: receiving, queued, transcribing, cleaning, transcribed, error.
-/// Transcription runs in a background worker, so <c>complete</c> returns
-/// "queued" immediately. <see cref="Attempts"/> is the number of full-job
-/// attempts made; when a job fails with attempts remaining,
-/// <see cref="NextRetryAtUtc"/> is the ISO-8601 UTC time the worker will retry.
+/// is one of: receiving, incomplete, queued, transcribing, cleaning,
+/// transcribed, error. Transcription runs in a background worker, so a
+/// <b>complete</b> upload that passes the completeness gate returns "queued"
+/// immediately. <see cref="Attempts"/> is the number of full-job attempts made;
+/// when a job fails with attempts remaining, <see cref="NextRetryAtUtc"/> is the
+/// ISO-8601 UTC time the worker will retry.
+///
+/// <para>
+/// The <b>completeness gate</b> (issue #586): a <c>complete</c> call whose
+/// stored segments are missing any index, fail a SHA256 check, or do not total
+/// the manifest byte count is refused with <see cref="State"/> = "incomplete".
+/// <see cref="MissingOrBadIndices"/> then names exactly the segment indices the
+/// client must re-send, and NO transcription is performed. An all-pass upload is
+/// the only one that advances to transcription.
+/// </para>
 /// </summary>
 public sealed record RecordingStatusDto(
     string RecordingId,
@@ -101,4 +111,5 @@ public sealed record RecordingStatusDto(
     string? Error,
     string? Transcript = null,
     int Attempts = 0,
-    string? NextRetryAtUtc = null);
+    string? NextRetryAtUtc = null,
+    IReadOnlyList<int>? MissingOrBadIndices = null);

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof - Issue #586 Audio Completeness Gate</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f6fc; }
+  code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  .pass { color: #16A34A; font-weight: 600; }
+  .box { background: #f8fbff; border: 1px solid #cfe3f7; border-radius: 6px; padding: 12px 16px; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #586: Audio Completeness Gate (never transcribe partial audio)</h1>
+
+<div class="box">
+<strong>Outcome:</strong> Implemented. Build clean (<code>dotnet build cc-director.sln</code>: 0 warnings, 0 errors).
+Full <code>CcDirector.Core.Tests</code> (2149 passed) and <code>CcDirector.Gateway.Tests</code> (839 passed) green.
+Proven both by unit/integration tests that boot a real Kestrel ingest host and against the running Director (slot 13, Control API on port 7884).
+<br /><br /><strong>I believe this is finished.</strong>
+</div>
+
+<h2>What was implemented</h2>
+<p>
+Whole-audio capture is now an <em>enforced gate</em>, not best effort. Before any transcription, the
+server verifies that the stored audio matches the manifest exactly: every declared segment index is
+present and contiguous, each stored segment's SHA256 matches the manifest, and each segment's byte
+count matches (so the total matches). Only an all-pass advances to transcription. Anything short of
+that is refused as <code>incomplete</code>, naming the exact indices to re-send, and is never
+transcribed. An empty capture fails loud. The desktop dictation "recover whatever arrived and
+transcribe it" truncation path was removed entirely.
+</p>
+
+<table>
+<tr><th>Area</th><th>Change</th></tr>
+<tr><td><code>CcDirector.Core/Recording/RecordingIngestService.cs</code></td>
+    <td>New <code>VerifyAudioCompleteness</code> gate + new <code>incomplete</code> state. <code>CompleteAsync</code> runs the gate: empty capture throws loud; missing/SHA/byte-total failure sets state <code>incomplete</code> with <code>MissingOrBadIndices</code> and does NOT queue; all-pass queues. <code>ProcessRecordingAsync</code> refuses to transcribe an <code>incomplete</code> recording (defense in depth).</td></tr>
+<tr><td><code>CcDirector.Gateway.Contracts/RecordingManifest.cs</code></td>
+    <td><code>RecordingStatusDto</code> gains <code>MissingOrBadIndices</code> - the incomplete response shape naming the segments to re-send.</td></tr>
+<tr><td><code>CcDirector.Gateway/Api/RecordingEndpoints.cs</code></td>
+    <td><code>POST .../complete</code> returns <code>409 Conflict</code> for an incomplete upload (never 202), <code>400</code> with a named error for an empty capture, and <code>202</code> only for an all-pass.</td></tr>
+<tr><td><code>CcDirector.Core/Voice/VoiceUtteranceService.cs</code></td>
+    <td>Empty capture now fails loud; a missing OR zero-byte segment returns <code>incomplete</code> naming the indices (no partial transcription).</td></tr>
+<tr><td><code>CcDirector.ControlApi/DictationEndpoint.cs</code></td>
+    <td>Removed <code>MinRecoverableAudioBytes</code> / <code>TryRecoverOrDiscard</code> and the recover-and-park path. Only an explicit <code>stop</code> frame finalizes/transcribes; an early or dropped connection sends a typed <code>error</code> and discards its partial audio.</td></tr>
+<tr><td><code>CcDirector.ControlApi/RecoveredDictationStore.cs</code> (deleted), <code>Web/session-view.html</code></td>
+    <td>The server-side parked-transcript store and the <code>/dictate/recovered</code> pickup endpoints + browser banner/JS were removed.</td></tr>
+<tr><td><code>docs/cencon/architecture_manifest.yaml</code></td>
+    <td>Updated the descriptions of RecordingIngestService, VoiceUtteranceService, and DictationEndpoint to document the gate.</td></tr>
+</table>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+<tr><th>Criterion</th><th>How it is met</th><th>Verification</th></tr>
+<tr>
+  <td>1. Incomplete upload (missing index / bad SHA / wrong byte total) refused with an "incomplete" response naming the indices; no transcription.</td>
+  <td>Gate returns <code>incomplete</code> + <code>MissingOrBadIndices</code>; not queued; <code>ProcessRecordingAsync</code> short-circuits.</td>
+  <td class="pass">PASS - <code>RecordingCompletenessGateHttpTests.Complete_MissingSegment_Returns409_Incomplete_NamingMissingIndex</code> (real Kestrel: 409, indices=[1], <code>/transcript</code> 404); Core unit tests for missing / SHA-mismatch / byte-mismatch.</td>
+</tr>
+<tr>
+  <td>2. Complete upload (all present, hashes match, bytes total) advances to transcription.</td>
+  <td>All-pass gate sets state <code>queued</code>; worker transcribes.</td>
+  <td class="pass">PASS - <code>RecordingIngestServiceTests.Complete_AllSegmentsPresentAndIntact_AdvancesToTranscription</code> (queued then transcribed, transcript present).</td>
+</tr>
+<tr>
+  <td>3. Client retries complete until acknowledged; a recording interrupted between capture and ack resumes with zero audio loss.</td>
+  <td>Re-send only the missing index, then complete again passes the gate. Storage is idempotent (SHA256), state survives on disk, complete is idempotent.</td>
+  <td class="pass">PASS - <code>RecordingIngestServiceTests.Complete_ResendMissingSegment_ThenPasses_AndTranscribes</code> (first complete = incomplete[1]; re-send 1; second complete = queued -> transcribed).</td>
+</tr>
+<tr>
+  <td>4. Desktop "recover whatever arrived" truncation path removed; early/dropped connection yields re-send or explicit failure, never a partial transcript.</td>
+  <td><code>MinRecoverableAudioBytes</code>/<code>TryRecoverOrDiscard</code>/recover-and-park all deleted; drop sends a typed error and discards.</td>
+  <td class="pass">PASS - <code>DictationEndpointTests.ClientCloseWithoutStop_discards_partial_audio_and_never_transcribes</code> (drop -> "partial audio discarded (not transcribed)", no transcript, <code>/dictate/recovered</code> 404). Live: see runtime probe below.</td>
+</tr>
+<tr>
+  <td>5. Empty capture fails loud with a named error; never an empty transcript.</td>
+  <td>Zero-segment manifest throws <code>InvalidOperationException("...empty capture...")</code>; endpoint returns 400 with the message; voice path throws too.</td>
+  <td class="pass">PASS - <code>RecordingCompletenessGateHttpTests.Complete_EmptyCapture_Returns400_NamedError</code> (real Kestrel: 400, "empty capture"); <code>VoiceUtteranceServiceGateTests.Complete_EmptyCapture_FailsLoud</code>.</td>
+</tr>
+</table>
+
+<h2>Live runtime proof</h2>
+
+<h3>Criterion 4 - against the running Director (slot 13, Control API http://127.0.0.1:7884)</h3>
+<p>The dictation endpoint is still served, but the removed recover-and-park pickup endpoints now 404,
+proving partial audio is never parked or transcribed:</p>
+<pre>
+GET  /dictate.html                  -> HTTP 200  (dictation endpoint still present)
+GET  /dictate/recovered             -> HTTP 404  (recover-and-park pickup removed)
+POST /dictate/recovered/x/dismiss   -> HTTP 404  (dismiss removed)
+</pre>
+<p>Full capture: <code>live-runtime-proof.txt</code>.</p>
+
+<h3>Criteria 1, 2, 3, 5 - real Kestrel ingest host (booted by the integration tests)</h3>
+<pre>
+Passed RecordingCompletenessGateHttpTests.Complete_EmptyCapture_Returns400_NamedError [171 ms]
+Passed RecordingCompletenessGateHttpTests.Complete_MissingSegment_Returns409_Incomplete_NamingMissingIndex [51 ms]
+Passed DictationEndpointTests.ClientCloseWithoutStop_discards_partial_audio_and_never_transcribes [4 s]
+Test Run Successful. Total tests: 3  Passed: 3
+</pre>
+<p>Full capture: <code>live-gate-tests-proof.txt</code>.</p>
+
+<h3>The running Director</h3>
+<img src="director-running.png" alt="Running CC Director slot 13, All systems go, Control API on port 7884" />
+
+<h2>CenCon impact</h2>
+<p>
+Security posture: unchanged - no new external surface, no new secrets, no auth change. The gate is a
+read-only integrity check (SHA256 + byte count + contiguity) before transcription. Architecture: the
+component descriptions for <code>RecordingIngestService</code>, <code>VoiceUtteranceService</code>, and
+<code>DictationEndpoint</code> in <code>architecture_manifest.yaml</code> were updated to document the
+gate and the removal of the recover-truncated-stream path. No blocking security rule (DT-*) is affected.
+</p>
+
+</body>
+</html>

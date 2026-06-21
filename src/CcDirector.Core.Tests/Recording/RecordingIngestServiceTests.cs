@@ -611,6 +611,185 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.NotNull(svc.LocalTranscriptPath("rec1"));
     }
 
+    // ===== audio completeness gate (issue #586) =============================
+
+    [Fact]
+    public async Task Complete_MissingSegment_RefusedAsIncomplete_NoTranscript()
+    {
+        // Acceptance criterion 1: a complete call whose stored segments are
+        // missing an index is refused with "incomplete" naming the missing
+        // index, and NO transcription is performed.
+        var transcriber = new FakeTranscriber();
+        var svc = NewService(transcriber, new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        var c1 = Encoding.UTF8.GetBytes("audio-1");
+        // Store ONLY segment 0; segment 1 never arrives (dropped buffer).
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new()
+            {
+                new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)),
+                new RecordingChunkInfo(1, "0001.mp3", 60000, 60000, c1.Length, Sha(c1)),
+            },
+            new());
+
+        var status = await svc.CompleteAsync("rec1", manifest);
+
+        Assert.Equal("incomplete", status.State);
+        Assert.NotNull(status.MissingOrBadIndices);
+        Assert.Equal(new[] { 1 }, status.MissingOrBadIndices);
+
+        // No transcription, ever: not queued, no transcript, processing is a no-op.
+        await svc.ProcessRecordingAsync("rec1");
+        Assert.Equal("incomplete", svc.GetStatus("rec1").State);
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+    }
+
+    [Fact]
+    public async Task Complete_SegmentShaMismatch_RefusedAsIncomplete_NamesIndex()
+    {
+        // Acceptance criterion 1: a stored segment whose SHA256 does not match
+        // the manifest is treated as bad - refused, naming the index, no transcript.
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+
+        // Manifest declares a DIFFERENT hash for segment 0 than the stored bytes.
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(Encoding.UTF8.GetBytes("different"))) },
+            new());
+
+        var status = await svc.CompleteAsync("rec1", manifest);
+
+        Assert.Equal("incomplete", status.State);
+        Assert.Equal(new[] { 0 }, status.MissingOrBadIndices);
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+    }
+
+    [Fact]
+    public async Task Complete_ByteTotalMismatch_RefusedAsIncomplete()
+    {
+        // Acceptance criterion 1: a stored segment whose byte count does not
+        // match the manifest is bad (so the total bytes do not match), refused.
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+
+        // Manifest declares MORE bytes than were actually stored. The stored
+        // bytes hash correctly to themselves, but the byte count disagrees.
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length + 100, Sha(c0)) },
+            new());
+
+        var status = await svc.CompleteAsync("rec1", manifest);
+
+        Assert.Equal("incomplete", status.State);
+        Assert.Equal(new[] { 0 }, status.MissingOrBadIndices);
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+    }
+
+    [Fact]
+    public async Task Complete_AllSegmentsPresentAndIntact_AdvancesToTranscription()
+    {
+        // Acceptance criterion 2: a complete upload (all segments present, all
+        // hashes match, byte total matches) is accepted and a transcript is
+        // produced.
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        var c1 = Encoding.UTF8.GetBytes("audio-1");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+        await svc.StoreChunkAsync("rec1", 1, c1, Sha(c1));
+
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new()
+            {
+                new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)),
+                new RecordingChunkInfo(1, "0001.mp3", 60000, 60000, c1.Length, Sha(c1)),
+            },
+            new());
+
+        var queued = await svc.CompleteAsync("rec1", manifest);
+        Assert.Equal("queued", queued.State);
+        Assert.Null(queued.MissingOrBadIndices);
+
+        await svc.ProcessRecordingAsync("rec1");
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        Assert.Equal(2, status.ChunksTranscribed);
+        Assert.NotNull(svc.LocalTranscriptPath("rec1"));
+    }
+
+    [Fact]
+    public async Task Complete_ResendMissingSegment_ThenPasses_AndTranscribes()
+    {
+        // Acceptance criterion 3: after an incomplete result the client re-sends
+        // exactly the missing index; a follow-up complete then passes the gate
+        // and advances to transcription, with the same byte total + hash set
+        // (nothing re-uploaded except the missing piece, no audio lost).
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        var c1 = Encoding.UTF8.GetBytes("audio-1");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new()
+            {
+                new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)),
+                new RecordingChunkInfo(1, "0001.mp3", 60000, 60000, c1.Length, Sha(c1)),
+            },
+            new());
+
+        // First complete: incomplete, names index 1.
+        var first = await svc.CompleteAsync("rec1", manifest);
+        Assert.Equal("incomplete", first.State);
+        Assert.Equal(new[] { 1 }, first.MissingOrBadIndices);
+
+        // Re-send only the missing segment, then complete again.
+        await svc.StoreChunkAsync("rec1", 1, c1, Sha(c1));
+        var second = await svc.CompleteAsync("rec1", manifest);
+        Assert.Equal("queued", second.State);
+        Assert.Null(second.MissingOrBadIndices);
+
+        await svc.ProcessRecordingAsync("rec1");
+        Assert.Equal("transcribed", svc.GetStatus("rec1").State);
+    }
+
+    [Fact]
+    public async Task Complete_EmptyCapture_FailsLoud_NoTranscript()
+    {
+        // Acceptance criterion 5: an empty capture (zero segments) fails with a
+        // named error and never produces an empty transcript.
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new(), new());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.CompleteAsync("rec1", manifest));
+        Assert.Contains("empty capture", ex.Message);
+
+        Assert.Equal("incomplete", svc.GetStatus("rec1").State);
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+    }
+
     // ===== test helpers =====================================================
 
     /// <summary>Register, store one chunk, and enqueue (complete) WITHOUT

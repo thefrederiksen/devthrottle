@@ -99,18 +99,38 @@ internal static class RecordingEndpoints
                     ctx.Request.Body, JsonOpts, ctx.RequestAborted);
                 if (manifest is null)
                     return Results.BadRequest(new { error = "manifest body required" });
-                // Enqueue and return immediately (202). Transcription runs in the
-                // background worker, so the phone never holds the request open for
-                // the length of a transcription - a long recording can no longer
-                // be killed by a request/proxy timeout. The phone polls
-                // GET .../status to watch progress.
+                // The audio completeness gate (issue #586) runs inside CompleteAsync.
+                // Three outcomes:
+                //   - "incomplete": a segment is missing or its SHA256/byte count
+                //     does not match the manifest. NOTHING is transcribed; the
+                //     response names MissingOrBadIndices so the phone re-sends
+                //     exactly those, then calls complete again. Returned as 409
+                //     Conflict (the upload conflicts with the declared manifest)
+                //     so the phone treats it as "resend", never "done".
+                //   - all-pass: enqueue and return 202. Transcription runs in the
+                //     background worker, so the phone never holds the request open
+                //     for the length of a transcription - a long recording can no
+                //     longer be killed by a request/proxy timeout. The phone polls
+                //     GET .../status to watch progress.
+                //   - empty capture (zero segments): CompleteAsync throws; surfaced
+                //     below as an explicit error, never a silent empty transcript.
                 var status = await lazyService.Value.CompleteAsync(id, manifest, ctx.RequestAborted);
+                if (status.State == "incomplete")
+                    return Results.Json(status, statusCode: StatusCodes.Status409Conflict);
                 return Results.Json(status, statusCode: StatusCodes.Status202Accepted);
             }
             catch (JsonException ex)
             {
                 FileLog.Write($"[RecordingEndpoints] complete bad JSON: {ex.Message}");
                 return Results.BadRequest(new { error = "invalid JSON" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // An empty capture (zero segments) fails loud here rather than
+                // ever producing an empty transcript (issue #586). Surface a clean,
+                // named error to the phone.
+                FileLog.Write($"[RecordingEndpoints] complete refused: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
             }
             catch (Exception ex)
             {

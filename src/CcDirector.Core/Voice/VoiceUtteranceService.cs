@@ -105,12 +105,29 @@ public sealed class VoiceUtteranceService
         if (!Directory.Exists(dir))
             return new VoiceCommandResponse { Status = "unknown_utterance", Error = $"no utterance {uid}" };
 
+        // Empty capture fails loud and never reaches transcription (issue #586):
+        // a complete call that declares zero chunks could only ever produce an
+        // empty transcript, so it is refused with a named error rather than
+        // silently transcribing nothing.
+        if (totalChunks <= 0)
+        {
+            FileLog.Write($"[VoiceUtterance] Complete: id={uid} REFUSED - empty capture (totalChunks={totalChunks})");
+            throw new InvalidOperationException(
+                $"utterance {uid} has an empty capture (totalChunks={totalChunks}); refusing to transcribe.");
+        }
+
+        // Completeness gate: every index 0..totalChunks-1 must be present and
+        // non-empty. A missing OR zero-byte chunk is "incomplete" - the response
+        // names the exact indices to re-send and NO transcription is performed.
         var missing = new List<int>();
         for (var i = 0; i < totalChunks; i++)
-            if (!File.Exists(ChunkPath(dir, i))) missing.Add(i);
+        {
+            var path = ChunkPath(dir, i);
+            if (!File.Exists(path) || new FileInfo(path).Length == 0) missing.Add(i);
+        }
         if (missing.Count > 0)
         {
-            FileLog.Write($"[VoiceUtterance] Complete: id={uid} INCOMPLETE missing={string.Join(',', missing)}");
+            FileLog.Write($"[VoiceUtterance] Complete: id={uid} INCOMPLETE missing={string.Join(',', missing)} (no transcription performed)");
             return new VoiceCommandResponse
             {
                 Status = "incomplete",
