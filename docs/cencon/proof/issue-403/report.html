@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue 403 - Delete disposable docs - Developer Agent proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1f2933; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #3b4252; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2e3440; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #c9ced6; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eceff4; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f4f6f8; border: 1px solid #d8dee9; padding: .8rem; overflow-x: auto; }
+  .pass { color: #2b7a2b; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #d4a017; padding: .6rem .8rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue 403 - Delete disposable docs (external-doc copies, transcript, pitch)</h1>
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method).
+   <strong>Branch:</strong> <code>issue-403-delete-disposable-docs</code>.
+   <strong>Risk:</strong> LOW (docs only). <strong>Part of:</strong> issue #395.</p>
+
+<h2>What was implemented</h2>
+<p>Removed four non-project documents from the live <code>docs/</code> tree:</p>
+<table>
+  <tr><th>File</th><th>What it was</th><th>Action</th></tr>
+  <tr><td><code>docs/claude-agent-sdk.md</code></td><td>External Claude Agent SDK reference pasted in</td><td>DELETED</td></tr>
+  <tr><td><code>docs/claude-code-command-line.md</code></td><td>External Claude Code command-line reference pasted in</td><td>DELETED</td></tr>
+  <tr><td><code>docs/transcript-playwright-cli.md</code></td><td>A video transcript, not documentation</td><td>DELETED</td></tr>
+  <tr><td><code>docs/CC_DIRECTOR_PITCH.md</code></td><td>Marketing / go-to-market brainstorm with reusable product-positioning value</td><td>ARCHIVED -&gt; <code>docs/archive/marketing/CC_DIRECTOR_PITCH.md</code></td></tr>
+</table>
+
+<div class="note">
+<strong>Decision on the pitch:</strong> ARCHIVED rather than deleted. The document is a structured
+product-positioning brainstorm (one-liner "Mission Control", problem/solution framing, target-audience
+profiles, key messages, a differentiator table, and a feature roadmap). That positioning content is
+reusable for marketing and README work, so it was moved to <code>docs/archive/</code> consistently with
+the structure issue #402 established. A new <code>marketing/</code> subfolder was added (the existing
+handovers / plans / trackers / specs subfolders did not fit a go-to-market brainstorm), and
+<code>docs/archive/README.md</code> was updated to describe it. The document is dated (uses the
+pre-DevThrottle "CC Director" name and lists unshipped features), and the archive README flags it as
+frozen and not maintained.
+</div>
+
+<div class="note">
+<strong>On link replacement:</strong> The issue asked to replace any live link to the two external
+references with the official documentation URL before deleting. A repository-wide grep found
+<strong>no live links</strong> to any of the four files anywhere in the repo (no markdown links, no
+references in <code>README.md</code> or <code>docs/cencon/INDEX.md</code>). Therefore no link
+replacement was required. The only remaining occurrences of the string <code>claude-agent-sdk</code> are
+references to the Python <em>package name</em> in <code>docs/spec-headless-session-mode.md</code>, which
+are legitimate and unrelated to the deleted <code>claude-agent-sdk.md</code> doc file.
+</div>
+
+<h2>Acceptance criteria -&gt; proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>grep for the filenames across the repo returns no live references (or updated to official links)</td>
+    <td>No live references / links to the four doc files</td>
+    <td>No markdown links found; no references in README.md or docs/cencon/INDEX.md. Only the unrelated package-name string remains.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><code>docs/</code> no longer contains these files</td>
+    <td>All four absent from <code>docs/</code> top level</td>
+    <td><code>ls</code> reports "No such file" for all four; pitch now lives at <code>docs/archive/marketing/</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Docs-only change; build confirms nothing references these files</td>
+    <td><code>dotnet build cc-director.sln</code> succeeds</td>
+    <td>Build succeeded. 0 Warning(s), 0 Error(s).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Verification capture</h2>
+<p>Full raw capture is committed alongside this report at
+<code>docs/cencon/proof/issue-403/proof.txt</code>. Key extracts:</p>
+
+<h3>1. Files gone from docs/ (deletion + move confirmed)</h3>
+<pre>
+ls: cannot access 'docs/claude-agent-sdk.md': No such file or directory
+ls: cannot access 'docs/claude-code-command-line.md': No such file or directory
+ls: cannot access 'docs/transcript-playwright-cli.md': No such file or directory
+ls: cannot access 'docs/CC_DIRECTOR_PITCH.md': No such file or directory
+</pre>
+
+<h3>2. Pitch archived</h3>
+<pre>
+docs/archive/marketing/CC_DIRECTOR_PITCH.md
+</pre>
+
+<h3>3. git status</h3>
+<pre>
+ M docs/archive/README.md
+R  docs/CC_DIRECTOR_PITCH.md -> docs/archive/marketing/CC_DIRECTOR_PITCH.md
+D  docs/claude-agent-sdk.md
+D  docs/claude-code-command-line.md
+D  docs/transcript-playwright-cli.md
+</pre>
+
+<h3>4. No markdown links to the removed/moved files</h3>
+<pre>
+(no markdown links found - confirmed)
+</pre>
+
+<h3>5. Build</h3>
+<pre>
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. This change touches only the <code>docs/</code> documentation tree (deletes/moves four
+non-project files and updates the archive index README). It does not change any container in
+<code>architecture_manifest.yaml</code> and does not affect any blocking security rule in
+<code>security_profile.yaml</code>.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All three acceptance criteria pass, the solution builds
+clean (0 errors, 0 warnings), and no broken links remain.</p>
+
+</body>
+</html>
