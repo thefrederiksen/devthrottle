@@ -1081,16 +1081,13 @@ data_flows:
       - Session verified/linked
 
   - id: voice_flow
-    name: Voice Mode Flow
-    description: Voice input to Claude and spoken response
+    name: Desktop Voice Mode Flow
+    description: Desktop voice mode (the eyes-free Voice tab and the full-screen FIFO takeover) push-to-talk input to the agent or the read-only wingman, transcribed once via the shared batch pipeline (issue #590 - no hardcoded realtime model, no live partials, no free-text cleanup)
     path:
-      - AudioRecorder.StartAsync()
-      - OpenAiSttService.TranscribeAsync()
-      - Session.SendInputAsync()
-      - ClaudeResponseExtractor.GetLatestResponse()
-      - ClaudeSummarizer.SummarizeAsync()
-      - OpenAiTtsService.SynthesizeAsync()
-      - AudioPlayer.PlayAsync()
+      - "Push-to-talk: BatchDictationRecorder.StartAsync() captures the whole turn locally (MicAudioCapture); NO live transcript while recording"
+      - "On Stop & Send: BatchDictationRecorder.TranscribeAsync() wraps the whole clip in WAV and sends it ONCE through the shared BatchTranscriptionPipeline using the Gateway/user-selected method (issue #587). Completeness gate (issue #586): an empty capture throws NoAudioCapturedException, handled as 'nothing heard' - a partial/interrupted turn never produces a transcript"
+      - "Dictionary-only term correction inside the shared pipeline (no free-text cleanup; a no-dictionary-term turn returns byte-identical raw text)"
+      - "Routing on the finished transcript (UI-only, does not alter the text): Ask Agent -> Session.SendTextAsync(); Ask Wingman -> WingmanService read-only answer, spoken back via DesktopTtsPlayer"
 
   - id: communication_dispatch_flow
     name: Communication Dispatch Flow

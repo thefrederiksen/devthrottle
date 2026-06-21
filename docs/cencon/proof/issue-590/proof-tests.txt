@@ -1,0 +1,6 @@
+  Passed CcDirector.Avalonia.Tests.DesktopVoiceModeBatchProofTests.WholeClip_DictionaryTerm_ChangesOnlyThatTerm [45 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopVoiceModeBatchProofTests.Routing_DoesNotModifyTheUsedTranscript [< 1 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopVoiceModeBatchProofTests.WholeClip_NoDictionaryTerms_ReturnsByteIdenticalText [1 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopVoiceModeBatchProofTests.SelectedMethod_GovernsTheBaseUrlHit [1 ms]
+  Passed CcDirector.Avalonia.Tests.DesktopVoiceModeBatchProofTests.WholeClip_TranscribesInExactlyOneBatchCall_NoRealtimeSocket [1 ms]
+Total tests: 5
