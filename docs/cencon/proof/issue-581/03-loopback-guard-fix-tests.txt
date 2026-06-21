@@ -1,0 +1,8 @@
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wt-581\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wt-581\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wt-581\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Core.Tests -> D:\ReposFred\devthrottle-wt-581\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll
+Test run for D:\ReposFred\devthrottle-wt-581\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 103 ms - CcDirector.Core.Tests.dll (net10.0)

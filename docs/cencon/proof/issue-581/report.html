@@ -136,6 +136,23 @@ blocking security rule is introduced.</p>
 <p><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warnings, 0 Errors. New tests:
 <span class="pass">7 passed, 0 failed</span> (FirstRunLoginCoordinatorTests, LoopbackLoginListenerTests).</p>
 
+<h2>QA bounce fix (flow:qa-failed -&gt; ready-qa)</h2>
+<p>QA passed all four acceptance criteria functionally but the full <code>CcDirector.Core.Tests</code>
+suite was red: <code>NoCrossMachineLoopbackGuardTests.No_new_production_file_hardcodes_cross_machine_loopback</code>
+failed because the new file <code>src/CcDirector.Core/Account/LoopbackLoginListener.cs</code> hardcodes
+<code>127.0.0.1</code> and was not on the guard's allowlist.</p>
+<p><strong>Fix.</strong> Added <code>LoopbackLoginListener.cs</code> to the <code>Allowlist</code> in
+<code>src/CcDirector.Core.Tests/NoCrossMachineLoopbackGuardTests.cs</code> with the justification that it
+binds an <code>HttpListener</code> on <code>127.0.0.1</code> only (operating-system-assigned ephemeral
+port) to receive the first-run browser sign-in hand-back - a same-machine loopback trust boundary
+(security rule DT-07, issue #581). This is the same legitimate same-machine use already recorded for the
+other loopback-bind entries in that list. No production code changed.</p>
+<p>After the fix, the full suite is green:
+<span class="pass">0 failed, 2192 passed, 6 skipped (2198 total)</span>. Both loopback-guard tests pass
+(the offender check and the no-stale-entries check) - see
+<code>docs/cencon/proof/issue-581/03-loopback-guard-fix-tests.txt</code>. Full-solution build:
+<span class="pass">Build succeeded, 0 Warnings, 0 Errors</span>.</p>
+
 <p><strong>I believe this is finished.</strong></p>
 
 </body>
