@@ -237,10 +237,18 @@ public sealed class VoiceConversation
             mp3 = await runner.FetchAudioToCompletionAsync(_gatewayBaseUrl, sessionId, turnId, ct);
         }
 
+        // Play the reply and capture the measurable outcome (issue #394) so the done line
+        // records audio bytes AND the duration actually played versus the estimate - a
+        // played time far short of the estimate is the cutout this issue makes visible.
+        PlaybackOutcome playback = PlaybackOutcome.None;
         if (mp3.Length > 0)
-            await _tts.PlayAsync(mp3, ct);
+            playback = await _tts.PlayAsync(mp3, ct);
 
-        ClientLog.Write($"[VoiceConversation] PollAndSpeak done: turnId={turnId}, summaryChars={summary.Length}, audioBytes={mp3.Length}");
+        ClientLog.Write(
+            $"[VoiceConversation] PollAndSpeak done: turnId={turnId}, summaryChars={summary.Length}, "
+            + $"audioBytes={mp3.Length}, playback={playback.Result}, "
+            + $"playedSeconds={playback.PlayedDuration.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}, "
+            + $"estimatedSeconds={playback.EstimatedDuration.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}");
         return summary;
     }
 

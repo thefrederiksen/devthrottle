@@ -1,0 +1,29 @@
+Sample phone client log (issue #394) - the exact lines AndroidReplySpeaker now writes,
+produced by PlaybackLog (the formatter under unit test). Three turns shown: a clean
+finish, a decoder error, and a mid-playback cutout. From these lines ALONE one can tell,
+for any turn, whether playback finished, errored (with code), or was interrupted, plus the
+bytes and the played-versus-estimated duration.
+
+--- Turn A: clean finish (played to the end) ---
+2026-06-21 12:00:01.100Z [AndroidReplySpeaker] PlayAsync: bytes=128000, estimatedDuration=8.0s
+2026-06-21 12:00:09.050Z [AndroidReplySpeaker] PlayAsync done: result=Completed, bytes=128000, played=7.9s/8.0s
+2026-06-21 12:00:09.060Z [VoiceConversation] PollAndSpeak done: turnId=abc-1, summaryChars=42, audioBytes=128000, playback=Completed, playedSeconds=7.9, estimatedSeconds=8.0
+
+--- Turn B: decoder error mid-stream (MediaPlayer.Error) ---
+2026-06-21 12:01:02.200Z [AndroidReplySpeaker] PlayAsync: bytes=64000, estimatedDuration=4.0s
+2026-06-21 12:01:03.400Z [AndroidReplySpeaker] PlayAsync done: result=Error, bytes=64000, played=1.2s/4.0s, what=1, extra=-2147483648
+2026-06-21 12:01:03.410Z [VoiceConversation] PollAndSpeak done: turnId=abc-2, summaryChars=30, audioBytes=64000, playback=Error, playedSeconds=1.2, estimatedSeconds=4.0
+
+--- Turn C: interrupted/cut off (Stop() or cancellation; also note a focus loss) ---
+2026-06-21 12:02:05.300Z [AndroidReplySpeaker] PlayAsync: bytes=128000, estimatedDuration=8.0s
+2026-06-21 12:02:07.350Z [AndroidReplySpeaker] audio focus change: loss-transient-can-duck
+2026-06-21 12:02:08.400Z [AndroidReplySpeaker] PlayAsync done: result=Interrupted, bytes=128000, played=3.1s/8.0s
+2026-06-21 12:02:08.410Z [VoiceConversation] PollAndSpeak done: turnId=abc-3, summaryChars=42, audioBytes=128000, playback=Interrupted, playedSeconds=3.1, estimatedSeconds=8.0
+
+Key: Turn C's played=3.1s against estimatedDuration=8.0s is the cutout this issue makes
+measurable. Before this change the only log line was "PlayAsync: bytes=N" at the START, and
+MediaPlayer.Completion fired identically for A and C, so C was invisible.
+
+The exact wording above is pinned by PlaybackLogTests; the estimated durations are computed
+by Mp3Duration (pinned by Mp3DurationTests). Both run off-device because the real Android
+MediaPlayer cannot run headless.
