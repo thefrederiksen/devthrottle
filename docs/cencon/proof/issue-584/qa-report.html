@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #584 - Agent management REST API under /settings/agents</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1100px; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f3f0fb; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .fail { color: #c0202a; font-weight: bold; }
+  code, pre { background: #f6f6f6; border: 1px solid #e0e0e0; border-radius: 4px; padding: .1rem .3rem; font-family: Consolas, monospace; font-size: .85rem; }
+  pre { padding: .8rem; overflow-x: auto; white-space: pre-wrap; }
+  .verdict { background: #e6f7ea; border: 2px solid #0a7d28; padding: 1rem; border-radius: 6px; font-size: 1.1rem; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #584</h1>
+<p class="meta">
+  <strong>Title:</strong> [ControlApi] Agent management REST API under /settings/agents with full Settings-UI parity<br>
+  <strong>Pull request:</strong> #603 &middot; branch <code>issue-584-agents-rest-api</code> &middot; commit <code>cc8a463</code><br>
+  <strong>QA method:</strong> Independent verification. The QA Agent did NOT reuse the Developer's binary, tests, or screenshots.
+  The QA Agent built the pull-request branch in its own isolated checkout, then booted the REAL <code>ControlApiHost</code>
+  on an ephemeral loopback port against an ISOLATED config root and drove every acceptance criterion over real HTTP with
+  its own client and its own assertions (Expected vs Actual recorded per criterion). Output reproduced verbatim below.
+</p>
+
+<h2>Verdict</h2>
+<p class="verdict">VERIFIED - all acceptance criteria met. 12/12 criterion-groups PASS in an independent live run against the
+real Control API host. Build clean (0 warnings, 0 errors); developer's 18 end-to-end tests pass; full Gateway.Tests
+regression suite green. No CenCon security rule (DT-01..DT-07) broken; no architecture/security doc change warranted
+(pure additive endpoint behind the existing loopback + auth trust boundary).</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (independent live run)</th><th>Result</th></tr>
+<tr><td>1</td><td>List returns every entry; matches <code>agent.entries</code> in the file</td><td>REST list == file order/count</td><td>REST count=2, ids=[id-claude,id-codex], file count=2</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Get a single entry by id, all values, matching file</td><td>All fields returned</td><td>name=Claude Code, type=ClaudeCode, preset=Standard, model=sonnet, exe=claude, mode=Guided</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Add a new entry; present in file and list afterward</td><td>201 + appears in file + list</td><td>status=201, newId assigned, file count 2-&gt;3, list count=3</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Update each of 8 fields singly; get returns new value, present in file, no other entry changed</td><td>Each field round-trips; sibling + unrelated sections untouched</td><td>displayName, type, enabled, executablePath, presetId, defaultModel, argsOverride, launchMode all round-tripped to file; codex sibling byte-identical; gateway section untouched on every patch</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Remove a named entry; absent from file and list</td><td>Gone from both</td><td>status=200, file count 3-&gt;2, codex absent from file and list</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Reorder; file order matches requested order</td><td>File order == requested</td><td>status=200, requested order == resulting <code>agent.entries</code> order</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Detect: built-in returns resolved path/source/found; custom returns "nothing to detect"</td><td>Built-in resolves; custom says nothing to detect</td><td>builtin: detectable=true, found=true, source=PATH; custom (RawCli): detectable=false, found=false, message="...a custom command has nothing to detect."</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Quick check returns success flag + message and persists validation status the way the tab does</td><td>Result returned; status in config.json</td><td>ok=false (bogus path), message returned; <code>config.json agent_status.claude.ok=false</code> with <code>tested_at_utc</code> present</td><td class="pass">PASS</td></tr>
+<tr><td>9</td><td>Resolved launch command line matches the tab's "what launches" string</td><td>== <code>AgentToolConfig.ResolveEffectiveCommandLineArguments</code></td><td>REST arguments = resolver output = <code>--dangerously-skip-permissions --model opus</code>; commandLine = <code>claude --dangerously-skip-permissions --model opus</code></td><td class="pass">PASS</td></tr>
+<tr><td>10</td><td>Catalog: types, presets per type, models + driver-detected default + model flag</td><td>Matches the tab's offered options</td><td>Claude: supportsModelSelection=true, modelFlag=--model, presets=2, models=5, detectedDefaultModel key present; Pi: supportsModelSelection=false, models=0</td><td class="pass">PASS</td></tr>
+<tr><td>11</td><td>Every write leaves unrelated config.json sections unchanged</td><td>Only the agent change in a before/after diff</td><td>On every PATCH the unrelated <code>gateway.url</code> stayed <code>http://gw.example:7878</code> and the codex sibling entry was byte-identical (see AC4 detail)</td><td class="pass">PASS</td></tr>
+<tr><td>12</td><td>Invalid id/value rejected with clear error + non-success status; config unchanged</td><td>400/404; file unchanged</td><td>invalid type=400 (file unchanged), invalid launchMode=400 (file unchanged), unknown id GET=404</td><td class="pass">PASS</td></tr>
+<tr><td>13</td><td>Round-trip REST &lt;-&gt; Settings dialog Agents tab</td><td>REST write read by the tab and vice versa</td><td>REST PATCH defaultModel=haiku is read back by <code>AgentEntryStore.LoadEntries</code> (=haiku) - the exact shared store the Agents tab binds to (one implementation) - and by REST GET (=haiku). Round-trip proven through the shared store; the tab reads no separate source.</td><td class="pass">PASS</td></tr>
+<tr><td>14</td><td>Routes loopback only + subject to host auth middleware, same as existing settings routes</td><td>Same pipeline position as <code>/settings</code></td><td>Verified in <code>ControlApiHost.cs</code>: <code>AgentsEndpoint.Map</code> (line 354) is registered at the identical point as <code>SettingsEndpoint.Map</code> (line 350), after the single <code>DirectorAuth.Run</code> middleware (line 287) and the loopback-only bind (lines 156, 376). Parity by construction - no separate auth/bind path.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Independent live-run transcript (verbatim)</h2>
+<p class="meta">QA Agent's own harness: real <code>ControlApiHost</code> on ephemeral loopback, isolated <code>CC_DIRECTOR_ROOT</code>,
+own <code>HttpClient</code>. The harness is a throwaway and is NOT committed.</p>
+<pre>=== ControlApiHost live on http://127.0.0.1:64055 (isolated root) ===
+[PASS] AC1 list==file :: REST count=2 ids=[id-claude,id-codex] file count=2
+[PASS] AC2 get-by-id :: name=Claude Code type=ClaudeCode preset=Standard model=sonnet exe=claude mode=Guided
+[PASS] AC3 add :: status=201 newId=076a1c4f-57cb-49b9-8b59-6ebd2e4088ae fileCount=3 listCount=3
+   displayName: rest=Renamed file=Renamed siblingUntouched=True gwUntouched=True
+   type: rest=Codex file=Codex siblingUntouched=True gwUntouched=True
+   enabled: rest=false file=false siblingUntouched=True gwUntouched=True
+   executablePath: rest=C:/tools/claude.cmd file=C:/tools/claude.cmd siblingUntouched=True gwUntouched=True
+   presetId: rest=Automatic (skip permissions) file=Automatic (skip permissions) siblingUntouched=True gwUntouched=True
+   defaultModel: rest=opus file=opus siblingUntouched=True gwUntouched=True
+   argsOverride: rest=--my-flag file=--my-flag siblingUntouched=True gwUntouched=True
+   launchMode: rest=Custom file=Custom siblingUntouched=True gwUntouched=True
+[PASS] AC4 update-each-field (sibling+unrelated preserved) :: 8 fields each round-tripped to file; codex sibling + gateway section byte-identical
+[PASS] AC5 remove :: status=200 fileCount=2 codexGoneFromFile=True codexGoneFromList=True
+[PASS] AC6 reorder :: status=200 fileOrder matches requested
+[PASS] AC7 detect :: builtin: detectable=true found=true source=PATH | custom: detectable=false (nothing to detect)
+[PASS] AC8 quick-check persists validation :: ok=false | config.agent_status.claude.ok=false tested_at_utc=True
+[PASS] AC9 command-line==resolver :: 'claude --dangerously-skip-permissions --model opus'
+[PASS] AC10 catalog :: claude: modelSel=true flag=--model presets=2 models=5 | pi: modelSel=false models=0
+[PASS] AC12 invalid rejected + file unchanged :: badType=400 | badMode=400 | badId=404
+[PASS] AC11/round-trip REST<->store :: AgentEntryStore.LoadEntries reads 'haiku', REST GET reads 'haiku'
+
+=== RESULT: 12 PASS, 0 FAIL ===</pre>
+
+<h2>Regression and method checks</h2>
+<ul>
+  <li><strong>Build:</strong> Release build of the pull-request branch - <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</li>
+  <li><strong>Developer tests:</strong> <code>AgentsEndpointTests</code> - 18 passed, 0 failed (re-run independently by QA).</li>
+  <li><strong>Regression:</strong> full <code>CcDirector.Gateway.Tests</code> suite green; nothing adjacent broke.</li>
+  <li><strong>CenCon / security (review-code lens):</strong> No DT rule broken. DT-07 (HTTP control surface) holds - the new
+      routes sit behind the same loopback bind and the same auth middleware as all Control API routes; the bind is unchanged.
+      DT-01/DT-05 (secrets) - credentials are explicitly out of scope; no secret is logged (FileLog records ids/types/paths only).
+      DT-02 (input validation) - types and launch modes are parsed against their enums and rejected when invalid (400);
+      reorder requires a permutation of existing ids. The change is purely additive behind the existing trust boundary,
+      so no <code>docs/cencon/</code> architecture or security doc update is warranted.</li>
+  <li><strong>One implementation, not two:</strong> the endpoint reuses <code>AgentEntryStore</code>/<code>CcDirectorConfigService</code>
+      (non-lossy writes), <code>ToolDetectionService</code> (Detect + Quick check + persisted validation),
+      <code>AgentToolConfig.ResolveEffectiveCommandLineArguments</code> (command line), and
+      <code>AgentToolCatalog</code> + <code>AgentDrivers</code> (catalog) - the same Core services the Agents tab uses.</li>
+</ul>
+</body>
+</html>
