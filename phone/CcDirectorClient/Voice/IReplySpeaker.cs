@@ -14,8 +14,12 @@ public interface IReplySpeaker
     /// Play <paramref name="audio"/> (MP3 bytes from the Director's /tts endpoint)
     /// and complete when playback finishes (or is stopped/cancelled). No-op for
     /// empty audio. While playing, music is ducked under the voice on Android.
+    /// Returns the measurable <see cref="PlaybackOutcome"/> (issue #394): how it
+    /// ended, the byte count, and the estimated-versus-played duration, so the
+    /// caller can record on its turn-done line whether playback finished cleanly
+    /// or was cut short. Empty audio returns <see cref="PlaybackOutcome.None"/>.
     /// </summary>
-    Task PlayAsync(byte[] audio, CancellationToken ct = default);
+    Task<PlaybackOutcome> PlayAsync(byte[] audio, CancellationToken ct = default);
 
     /// <summary>Stop any in-progress playback immediately.</summary>
     void Stop();

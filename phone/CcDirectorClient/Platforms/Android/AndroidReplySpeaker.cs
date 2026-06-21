@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Android.Media;
+using Android.OS;
 using CcDirectorClient.Voice;
 using AndroidApp = Android.App.Application;
 
@@ -12,8 +14,17 @@ namespace CcDirectorClient.Platforms.Android;
 /// transient audio focus with "may duck" so any music dips under the voice
 /// instead of stopping, then the focus is abandoned so the music returns to full
 /// volume (Phase 3 ducking, preserved from the old native speaker).
+///
+/// OBSERVABILITY (issue #394): every playback logs its START (bytes + estimated
+/// duration), every audio-focus change while it plays, and its TERMINAL outcome
+/// with elapsed wall time and the played-versus-estimated duration - so a truncated
+/// playback (Interrupted, stopped well short of the estimate) is distinguishable in
+/// the log from a clean finish (Completed) and from a decoder failure (Error, with
+/// MediaPlayer what/extra codes). The Android <c>MediaPlayer.Completion</c> event
+/// fires identically whether playback finished or was cut off, so this class records
+/// which terminal path it actually took rather than inferring it from the event.
 /// </summary>
-public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
+public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker, AudioManager.IOnAudioFocusChangeListener
 {
     private readonly object _gate = new();
     private MediaPlayer? _player;
@@ -32,9 +43,9 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
         remove => _signal.Changed -= value;
     }
 
-    public async Task PlayAsync(byte[] audio, CancellationToken ct = default)
+    public async Task<PlaybackOutcome> PlayAsync(byte[] audio, CancellationToken ct = default)
     {
-        if (audio is null || audio.Length == 0) return;
+        if (audio is null || audio.Length == 0) return PlaybackOutcome.None;
 
         // Stop anything currently playing before starting the next clip.
         StopInternal();
@@ -46,6 +57,16 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
             $"ccd-tts-{Guid.NewGuid():N}.mp3");
         await System.IO.File.WriteAllBytesAsync(path, audio, ct);
 
+        // Estimate how long this clip should run (issue #394). The terminal line compares
+        // this with the wall-clock time actually played, which is what makes a cutout visible.
+        var estimated = Mp3Duration.Estimate(audio);
+
+        // The terminal result starts Completed and is overwritten by the FIRST terminal
+        // signal: Error (decoder failure) or Interrupted (Stop/cancel). MediaPlayer.Completion
+        // resolves the await without changing the result, so a natural finish stays Completed.
+        var result = PlaybackResult.Completed;
+        int? errorWhat = null, errorExtra = null;
+
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new MediaPlayer();
         lock (_gate) { _player = player; }
@@ -53,7 +74,10 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
         player.Completion += (_, _) => tcs.TrySetResult(true);
         player.Error += (_, e) =>
         {
-            ClientLog.Write($"[AndroidReplySpeaker] MediaPlayer error: what={e.What}, extra={e.Extra}");
+            // Record the decoder's codes so the terminal line carries them, then end the await.
+            errorWhat = (int)e.What;
+            errorExtra = e.Extra;
+            result = PlaybackResult.Error;
             e.Handled = true; // we handle it; suppress the follow-up Completion event
             tcs.TrySetResult(false);
         };
@@ -70,13 +94,22 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
         }
 
         RequestAudioFocus();
-        ClientLog.Write($"[AndroidReplySpeaker] PlayAsync: bytes={audio.Length}");
+        ClientLog.Write(PlaybackLog.Start(audio.Length, estimated));
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             player.SetDataSource(path);
             player.Prepare();
-            using (ct.Register(() => { try { player.Stop(); } catch { } tcs.TrySetResult(false); }))
+            // The cancellation token firing is an interruption (cut off mid-playback), distinct
+            // from a clean Completion. Record it before resolving the await so the terminal line
+            // reads Interrupted, not Completed.
+            using (ct.Register(() =>
+            {
+                result = PlaybackResult.Interrupted;
+                try { player.Stop(); } catch { }
+                tcs.TrySetResult(false);
+            }))
             {
                 player.Start();
                 _signal.Begin();   // playing now: any visible screen shows its Stop-talking control
@@ -85,6 +118,7 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
         }
         finally
         {
+            stopwatch.Stop();
             lock (_gate) { if (_player == player) _player = null; }
             try { player.Release(); } catch { }
             try { player.Dispose(); } catch { }
@@ -92,6 +126,13 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
             _signal.End();         // playback ended (finished, stopped, or cancelled)
             try { System.IO.File.Delete(path); } catch { }
         }
+
+        // result is Completed only if MediaPlayer.Completion resolved the await; the Error handler
+        // and the cancellation registration each overwrite it to Error / Interrupted before
+        // resolving, so the terminal line reflects the path actually taken (issue #394).
+        var outcome = new PlaybackOutcome(result, audio.Length, estimated, stopwatch.Elapsed);
+        ClientLog.Write(PlaybackLog.Terminal(outcome, errorWhat, errorExtra));
+        return outcome;
     }
 
     public void Stop()
@@ -113,6 +154,25 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
 
     // ===== audio focus (Phase 3: duck music under the voice) ================
 
+    /// <summary>
+    /// Audio-focus changes observed while a reply plays (issue #394): a transient
+    /// loss/duck means the system pulled focus (e.g. a call, an alarm) and the voice
+    /// may have been ducked or paused under it - one more reason a turn can sound cut
+    /// off. Logged, not acted on: the existing duck/abandon behaviour is unchanged.
+    /// </summary>
+    public void OnAudioFocusChange(AudioFocus focusChange)
+    {
+        var change = focusChange switch
+        {
+            AudioFocus.Gain => "gain",
+            AudioFocus.Loss => "loss",
+            AudioFocus.LossTransient => "loss-transient",
+            AudioFocus.LossTransientCanDuck => "loss-transient-can-duck",
+            _ => focusChange.ToString(),
+        };
+        ClientLog.Write(PlaybackLog.FocusChange(change));
+    }
+
     private void RequestAudioFocus()
     {
         try
@@ -128,13 +188,16 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
                     .Build();
                 _focusRequest = new AudioFocusRequestClass.Builder(AudioFocus.GainTransientMayDuck)!
                     .SetAudioAttributes(attrs!)!
+                    // Register for focus-change callbacks so gain/loss/duck is observable in the
+                    // log during playback (issue #394). A Handler on the main looper delivers them.
+                    .SetOnAudioFocusChangeListener(this, new Handler(Looper.MainLooper!))!
                     .Build();
                 _audioManager.RequestAudioFocus(_focusRequest!);
             }
             else
             {
 #pragma warning disable CA1422 // legacy overload only on pre-26 devices
-                _audioManager.RequestAudioFocus(null, global::Android.Media.Stream.Music, AudioFocus.GainTransientMayDuck);
+                _audioManager.RequestAudioFocus(this, global::Android.Media.Stream.Music, AudioFocus.GainTransientMayDuck);
 #pragma warning restore CA1422
             }
         }
@@ -156,7 +219,7 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
             else
             {
 #pragma warning disable CA1422
-                _audioManager.AbandonAudioFocus(null);
+                _audioManager.AbandonAudioFocus(this);
 #pragma warning restore CA1422
             }
         }

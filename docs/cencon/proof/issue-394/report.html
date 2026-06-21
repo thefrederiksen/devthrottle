@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #394 - Voice playback observability + no-mic test harness (Phase 1)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; line-height: 1.55; }
+  h1 { font-size: 1.6rem; border-bottom: 2px solid #007acc; padding-bottom: .4rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d0d0; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: .8rem; overflow-x: auto; font-size: .85rem; }
+  .ok { color: #1a7f37; font-weight: 600; }
+  .file { font-family: Consolas, monospace; font-size: .88rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #394 - Voice playback observability + no-mic voice-turn test harness (Phase 1)</h1>
+
+<p><strong>Branch:</strong> <code>issue-394-voice-observability</code> &nbsp;|&nbsp;
+   <strong>Scope:</strong> Phase 1 only (Phases 2 and 3 are explicit follow-ons, out of scope).</p>
+
+<p>The voice path "cuts out" intermittently and was hard to diagnose because the two places it
+breaks - server-side TTS reliability and on-device playback - had almost no observability or
+automated coverage. This change adds the observability and the automated no-microphone harness so
+the failure modes are measurable and regression-protected. <strong>No behaviour change to the
+shipping voice path beyond added logging and a test seam.</strong></p>
+
+<h2>Reconciliation with #389 (merged minutes earlier, PR #612)</h2>
+<p>Issue #389 already made <code>TtsService</code>'s <code>HttpMessageHandler</code> injectable and
+added <span class="file">src/CcDirector.Core.Tests/Voice/TtsServiceTests.cs</span> covering the
+single-chunk, multi-chunk byte-exact join, stalled-chunk, and 5xx-chunk paths via an injected fake
+handler. The #394 "Host-side TtsService tests" acceptance criterion is therefore <strong>already
+satisfied by #389</strong>; this change does NOT duplicate that seam or those tests. I re-ran them
+as evidence: <span class="ok">9/9 passed</span>. (Per the issue note, the obsolete "assert the old
+180s stall" regression target was intentionally NOT reintroduced - #389 changed that behaviour and
+the new timeout/retry behaviour is what is tested.)</p>
+
+<h2>What was implemented (the genuinely novel Phase 1 work)</h2>
+
+<h3>1. Android playback observability</h3>
+<ul>
+  <li><span class="file">phone/CcDirectorClient/Platforms/Android/AndroidReplySpeaker.cs</span> - on
+      <code>PlayAsync</code> logs byte count AND an estimated duration; logs the TERMINAL outcome
+      with elapsed wall time and played-vs-estimated duration, distinguishing
+      <code>Completed</code> (played to end) / <code>Error</code> (with MediaPlayer
+      <code>what</code>/<code>extra</code>) / <code>Interrupted</code> (Stop or cancel); registers an
+      audio-focus-change listener and logs gain/loss/duck during playback.</li>
+  <li><span class="file">phone/CcDirectorClient/Voice/IReplySpeaker.cs</span> - <code>PlayAsync</code>
+      now returns <code>Task&lt;PlaybackOutcome&gt;</code> so the caller can record the result.</li>
+  <li><span class="file">phone/CcDirectorClient/Voice/VoiceConversation.cs</span> - the existing
+      <code>PollAndSpeak done</code> line now carries <code>audioBytes</code>, the playback result,
+      and played-vs-estimated seconds.</li>
+  <li>New pure, dependency-free helpers so the wording and the duration maths are testable
+      off-device (the real Android MediaPlayer cannot run headless):
+      <span class="file">PlaybackOutcome.cs</span>, <span class="file">Mp3Duration.cs</span>
+      (estimates a CBR MP3's length from its frame headers),
+      <span class="file">PlaybackLog.cs</span> (the ASCII-only log-line formatter).</li>
+</ul>
+
+<h3>2. No-microphone end-to-end harness</h3>
+<ul>
+  <li><span class="file">src/CcDirector.Gateway.Tests/VoiceTurnNoMicE2EHarnessTests.cs</span> - drives
+      the Gateway's real <code>voice-turn/submit</code> + poll + audio-fetch pipeline using the TEXT
+      field (no microphone, no transcription, no live key). A small in-process STUB Director the
+      Gateway discovers and dials answers the SSE turn with a reply event carrying non-empty MP3
+      bytes, so everything from the Gateway's submit route through <code>RunTurnAsync</code>, the
+      slim poll, and the dedicated audio endpoint is the real shipping code. Asserts the poll reaches
+      <code>stage=reply</code> with non-empty audio of a plausible size, and runs N=10 iterations
+      reporting a pass rate so multi-chunk flakiness would show up as a number.</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+<tr><th>Criterion (Phase 1)</th><th>How met</th><th>Verification</th></tr>
+<tr>
+  <td>From the phone log alone, tell for any turn whether playback finished, errored (with code), or
+      was interrupted, plus bytes and played-vs-expected duration.</td>
+  <td>New START line (bytes + estimatedDuration), TERMINAL line (result + bytes +
+      played/estimated + error codes), focus-change lines, and the enriched VoiceConversation done
+      line.</td>
+  <td><span class="ok">PASS</span> - <span class="file">PlaybackLogTests</span> (6) pin the exact
+      wording for Completed/Error/Interrupted; sample log in
+      <span class="file">sample-playback-log.txt</span>.</td>
+</tr>
+<tr>
+  <td>TtsServiceTests cover single-chunk, multi-chunk join (byte-exact), stalled-chunk, and
+      5xx-chunk paths via an injected fake handler.</td>
+  <td>Already delivered by #389 (PR #612); not duplicated.</td>
+  <td><span class="ok">PASS</span> - re-ran the existing 9 TtsService tests: 9/9 passed.</td>
+</tr>
+<tr>
+  <td>No-mic harness submits a text voice-turn through the Gateway, asserts a non-empty audio reply,
+      and can run N iterations reporting a pass rate.</td>
+  <td><span class="file">VoiceTurnNoMicE2EHarnessTests</span> - text submit -> poll to reply ->
+      audio fetch, asserted non-empty + plausible size, 10x with pass-rate output.</td>
+  <td><span class="ok">PASS</span> - 2/2 tests pass; reported pass rate 10/10 = 100.0% (see
+      <span class="file">harness-passrate-run.txt</span>).</td>
+</tr>
+<tr>
+  <td>No behaviour change to the shipping voice path beyond added logging and the test seam.</td>
+  <td>Only logging was added; the duck/abandon focus behaviour is unchanged (the listener logs, does
+      not act); the interface returns extra data callers may ignore.</td>
+  <td><span class="ok">PASS</span> - all 49 Gateway VoiceTurn tests still pass; phone app + solution
+      build clean.</td>
+</tr>
+</table>
+
+<h2>Build and test results</h2>
+<ul>
+  <li><span class="ok">Solution build clean</span>: <code>dotnet build cc-director.sln</code> -
+      0 Warning(s), 0 Error(s).</li>
+  <li><span class="ok">Phone Android app builds</span>:
+      <code>dotnet build phone/CcDirectorClient/CcDirectorClient.csproj</code> - 0 Error(s)
+      (pre-existing MAUI/XAML warnings only; none in the changed files).</li>
+  <li><span class="ok">Phone observability tests</span>: Mp3DurationTests + PlaybackLogTests =
+      13/13 passed.</li>
+  <li><span class="ok">No-mic harness</span>: VoiceTurnNoMicE2EHarnessTests = 2/2 passed, pass rate
+      10/10 = 100.0%.</li>
+  <li><span class="ok">Regression</span>: all 49 Gateway VoiceTurn tests pass; TtsServiceTests (#389)
+      9/9 pass.</li>
+  <li>Note: 5 pre-existing <code>ConductorStateTests</code> failures exist on clean
+      <code>main</code> too (a missing linked source file unrelated to this issue) - this change does
+      not add any new failure.</li>
+</ul>
+
+<h2>Sample playback log (the three terminal outcomes)</h2>
+<pre>
+[AndroidReplySpeaker] PlayAsync: bytes=128000, estimatedDuration=8.0s
+[AndroidReplySpeaker] PlayAsync done: result=Completed, bytes=128000, played=7.9s/8.0s
+
+[AndroidReplySpeaker] PlayAsync: bytes=64000, estimatedDuration=4.0s
+[AndroidReplySpeaker] PlayAsync done: result=Error, bytes=64000, played=1.2s/4.0s, what=1, extra=-2147483648
+
+[AndroidReplySpeaker] PlayAsync: bytes=128000, estimatedDuration=8.0s
+[AndroidReplySpeaker] audio focus change: loss-transient-can-duck
+[AndroidReplySpeaker] PlayAsync done: result=Interrupted, bytes=128000, played=3.1s/8.0s
+</pre>
+<p>The <code>played=3.1s/8.0s</code> on the last turn is the cutout this issue makes measurable;
+before this change only the START "bytes=N" line existed and a cutout was invisible.</p>
+
+<h2>CenCon impact</h2>
+<p><strong>No architecture or security drift.</strong> No container boundaries change, no new external
+calls, no new data flows, no security-profile rule touched. The change is additive logging on the
+phone client plus an integration test in an existing test project.</p>
+
+<h2>Conclusion</h2>
+<p>All Phase 1 acceptance criteria are met (the TtsService-tests criterion verified as
+satisfied-by-#389). The build is clean, the new tests pass, and there is no behaviour change to the
+shipping voice path beyond added logging and the test seam. <strong>I believe this is finished.</strong></p>
+
+</body>
+</html>

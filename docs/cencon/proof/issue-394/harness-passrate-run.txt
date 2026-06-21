@@ -1,0 +1,4 @@
+  Passed CcDirector.Gateway.Tests.VoiceTurnNoMicE2EHarnessTests.NoMicTextTurn_SingleIteration_ReachesReplyWithPlausibleAudio [239 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnNoMicE2EHarnessTests.NoMicTextTurn_TenIterations_ReportsPassRate [2 s]
+ [no-mic E2E harness] pass rate: 10/10 = 100.0%
+Total tests: 2

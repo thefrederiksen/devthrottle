@@ -41,6 +41,13 @@
     <Compile Include="..\CcDirectorClient\Voice\TurnBrief.cs" Link="Voice\TurnBrief.cs" />
     <Compile Include="..\CcDirectorClient\Voice\OfflineGuard.cs" Link="Voice\OfflineGuard.cs" />
     <Compile Include="..\CcDirectorClient\Voice\PlaybackSignal.cs" Link="Voice\PlaybackSignal.cs" />
+    <!-- Playback observability (issue #394): the outcome record, the off-device MP3
+         duration estimator, and the ASCII-only log-line formatter. All dependency-free
+         (no MAUI/Android) so the wording and the duration maths are testable headless,
+         where the real Android MediaPlayer cannot run. -->
+    <Compile Include="..\CcDirectorClient\Voice\PlaybackOutcome.cs" Link="Voice\PlaybackOutcome.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\Mp3Duration.cs" Link="Voice\Mp3Duration.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\PlaybackLog.cs" Link="Voice\PlaybackLog.cs" />
     <Compile Include="..\CcDirectorClient\Voice\LastClipCache.cs" Link="Voice\LastClipCache.cs" />
     <Compile Include="..\CcDirectorClient\Voice\IAudioCue.cs" Link="Voice\IAudioCue.cs" />
     <Compile Include="..\CcDirectorClient\Voice\NullAudioCue.cs" Link="Voice\NullAudioCue.cs" />
