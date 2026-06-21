@@ -107,9 +107,16 @@ public sealed class VoiceUploadStore
         if (totalChunks <= 0)
             throw new InvalidOperationException("totalChunks must be > 0");
 
+        // Completeness gate (issue #586 contract, applied here for the phone push-to-talk upload,
+        // issue #592): every index 0..totalChunks-1 must be present AND non-empty. A missing OR
+        // zero-byte chunk is "incomplete" - the result names the exact indices to re-send and NO
+        // assembled clip is produced, so a truncated upload is refused, never transcribed.
         var missing = new List<int>();
         for (var i = 0; i < totalChunks; i++)
-            if (!File.Exists(ChunkPath(dir, i))) missing.Add(i);
+        {
+            var path = ChunkPath(dir, i);
+            if (!File.Exists(path) || new FileInfo(path).Length == 0) missing.Add(i);
+        }
         if (missing.Count > 0)
         {
             FileLog.Write($"[VoiceUploadStore] Assemble: uploadId={uid} INCOMPLETE missing={string.Join(',', missing)}");

@@ -1143,6 +1143,16 @@ data_flows:
       - "VoiceService intent parse -> SessionManager action"
       - "VoiceTurnLog records inbound/outbound for review"
 
+  - id: phone_push_to_talk_turn_flow
+    name: Phone Push-to-Talk Audio-Reply Turn Flow
+    description: Phone push-to-talk records one clip, uploads it resumably, and the server transcribes the whole clip once via the shared batch pipeline using the user-selected method (issue #592 - no hardcoded whisper-1 path, dictionary-only correction, completeness gate), then summarizes and speaks the reply back
+    path:
+      - "Phone -> Gateway /sessions/{id}/voice-turn/upload chunk PUTs (idempotent, SHA256), then /complete"
+      - "VoiceUploadStore reassembles the whole clip; completeness gate (issue #586): a missing OR zero-byte chunk is refused as 'incomplete' (409) with the indices to re-send - a truncated upload is never forwarded for transcription"
+      - "Gateway GatewayVoiceTurnEndpoint forwards the assembled whole clip to the owning Director's POST /sessions/{id}/voice-turn (VoiceTurnEndpoint, SSE)"
+      - "VoiceTurnEndpoint transcribes the whole clip ONCE through the shared BatchTranscriptionPipeline via VoiceService using the Gateway/user-selected method (issue #587 - no hardcoded whisper-1 endpoint), then dictionary-only correction (no free-text cleanup; a no-dictionary-term utterance returns byte-identical raw text)"
+      - "Send the dictionary-corrected transcript to the session -> ClaudeSummarizer -> TtsService -> reply audio streamed back as the SSE reply event"
+
   - id: wingman_state_flow
     name: Wingman Terminal-State Flow
     description: Read-only derivation of session status from the terminal (timer only, no LLM)

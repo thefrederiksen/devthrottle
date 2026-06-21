@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +16,12 @@ namespace CcDirector.ControlApi;
 /// Maps POST /sessions/{id}/voice-turn - the server-side walkie-talkie turn (issue #351).
 ///
 /// One call = one complete turn:
-///   1. (optional) Transcribe raw audio via Whisper.
+///   1. (optional) Transcribe the whole audio clip ONCE through the shared batch pipeline
+///      (issue #587) using the user-selected transcription method (issue #592) - the base URL,
+///      key, and model come from the Gateway routing resolver, NOT a hardcoded whisper-1 path -
+///      then apply the validated dictionary corrector only (no free-text cleanup). The
+///      completeness gate ran upstream (the Gateway reassembles the whole clip before
+///      forwarding), so a partial upload never reaches transcription.
 ///   2. Wait until the session is ready (not mid-turn).
 ///   3. POST the text to the session via /prompt.
 ///   4. Poll until the turn is done.
@@ -41,9 +45,6 @@ internal static class VoiceTurnEndpoint
     // Max time to wait for a turn to complete after posting text.
     private static readonly TimeSpan TurnCompleteTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-
-    private const string WhisperEndpoint = "https://api.openai.com/v1/audio/transcriptions";
-    private const string WhisperModel = "whisper-1";
 
     public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager)
     {
@@ -119,24 +120,36 @@ internal static class VoiceTurnEndpoint
 
                         await EmitAsync(new { stage = "transcribing" });
 
-                        var key = options.ResolveOpenAiKey();
-                        if (string.IsNullOrWhiteSpace(key))
+                        // The whole clip is transcribed ONCE through the ONE shared batch pipeline
+                        // (issue #587) using the user-selected method (issue #592): the base URL,
+                        // key, and model come from the Gateway routing resolver, NOT a hardcoded
+                        // whisper-1 / api.openai.com endpoint, so changing the selected method
+                        // changes the base URL the upload is transcribed against. The only
+                        // post-transcription transform is the validated dictionary corrector -
+                        // there is NO free-text language-model cleanup - so an utterance with no
+                        // dictionary term comes back byte-identical to the raw transcription. The
+                        // completeness gate ran upstream (the Gateway reassembles the whole clip
+                        // before forwarding it here), so the bytes are already complete.
+                        await using var stream = file.OpenReadStream();
+                        var voice = new VoiceService(sessionManager, options);
+                        var transcription = await voice.TranscribeAndCleanAsync(stream, file.FileName, session.RepoPath, ct);
+
+                        if (string.Equals(transcription.Status, "no_key", StringComparison.Ordinal))
                         {
-                            await EmitAsync(new { stage = "error", message = "no_key: OpenAI API key not configured; transcription unavailable" });
+                            FileLog.Write($"[VoiceTurnEndpoint] sid={guid}: transcription routing unavailable (no key for selected method)");
+                            await EmitAsync(new { stage = "error", message = "no_key: " + (transcription.Error ?? "transcription routing unavailable") });
+                            return;
+                        }
+                        if (!string.Equals(transcription.Status, "ok", StringComparison.Ordinal))
+                        {
+                            FileLog.Write($"[VoiceTurnEndpoint] sid={guid}: transcription FAILED: {transcription.Error}");
+                            await EmitAsync(new { stage = "error", message = "transcription_failed: " + (transcription.Error ?? "unknown") });
                             return;
                         }
 
-                        try
-                        {
-                            await using var stream = file.OpenReadStream();
-                            inputText = await TranscribeAsync(stream, file.FileName, key, ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            FileLog.Write($"[VoiceTurnEndpoint] Transcription FAILED: {ex.Message}");
-                            await EmitAsync(new { stage = "error", message = "transcription_failed: " + ex.Message });
-                            return;
-                        }
+                        // Use the dictionary-corrected transcript (raw text plus known dictionary
+                        // term swaps only) as the turn's input.
+                        inputText = transcription.CleanedTranscript ?? transcription.Transcript;
 
                         await EmitAsync(new { stage = "transcript", text = inputText });
                     }
@@ -320,51 +333,6 @@ internal static class VoiceTurnEndpoint
     // ===== Helpers =============================================================
 
     /// <summary>
-    /// Transcribe a raw audio file via Whisper (OpenAI audio/transcriptions).
-    /// Throws on any API error so the caller can emit a structured SSE error event.
-    /// </summary>
-    private static async Task<string> TranscribeAsync(
-        Stream audio, string fileName, string apiKey, CancellationToken ct)
-    {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        using var form = new MultipartFormDataContent();
-        var audioContent = new StreamContent(audio);
-        audioContent.Headers.ContentType = new MediaTypeHeaderValue(GuessAudioContentType(fileName));
-        form.Add(audioContent, "file", string.IsNullOrEmpty(fileName) ? "audio.webm" : fileName);
-        form.Add(new StringContent(WhisperModel), "model");
-
-        using var resp = await http.PostAsync(WhisperEndpoint, form, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Whisper returned {(int)resp.StatusCode}: {TruncateLog(body, 400)}");
-
-        using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("text", out var textProp))
-            throw new InvalidOperationException("Whisper response missing 'text' field");
-
-        return (textProp.GetString() ?? "").Trim();
-    }
-
-    private static string GuessAudioContentType(string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".webm" => "audio/webm",
-            ".ogg"  => "audio/ogg",
-            ".mp3"  => "audio/mpeg",
-            ".m4a"  => "audio/mp4",
-            ".mp4"  => "audio/mp4",
-            ".aac"  => "audio/aac",
-            ".wav"  => "audio/wav",
-            ".flac" => "audio/flac",
-            _       => "application/octet-stream",
-        };
-    }
-
-    /// <summary>
     /// Snapshot the byte length of the session's linked JSONL transcript.
     /// Taken immediately before SendTextAsync so <see cref="ReadNewAssistantText"/>
     /// can restrict the reply read to content appended during THIS turn (issue #366).
@@ -448,9 +416,6 @@ internal static class VoiceTurnEndpoint
 
         return text;
     }
-
-    private static string TruncateLog(string s, int max)
-        => s.Length <= max ? s : s[..max] + "...";
 }
 
 /// <summary>Request body for the JSON path of POST /sessions/{id}/voice-turn.</summary>
