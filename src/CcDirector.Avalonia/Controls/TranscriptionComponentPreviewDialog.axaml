@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
+        x:Class="CcDirector.Avalonia.Controls.TranscriptionComponentPreviewDialog"
+        Title="Transcription Component Preview"
+        Width="720" Height="760"
+        MinWidth="640" MinHeight="640"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#1E1E1E">
+
+    <!-- Developer harness for the shared transcription component (issue #588).
+         It is not a product surface - it exists so QA and developers can render
+         every state of both variants in the running app and screenshot them. The
+         state buttons drive the component through its public Show* methods; a
+         simulated timer + waveform animate the recording state for the proof. -->
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="20">
+
+        <TextBlock Grid.Row="0"
+                   Text="Shared transcription component - state preview"
+                   Foreground="#CCCCCC"
+                   FontSize="15" FontWeight="SemiBold"
+                   Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1"
+                   Text="Use the buttons to drive each variant through every state. Outputs (Finished / Held / Cancelled / Errored) are reported below."
+                   Foreground="#888888"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,16" />
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="20">
+
+                <!-- FULL variant -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="FULL VARIANT"
+                               Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold" />
+                    <controls:TranscriptionComponent x:Name="FullComponent" />
+                </StackPanel>
+
+                <!-- SMALL variant -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="SMALL VARIANT"
+                               Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold" />
+                    <controls:TranscriptionComponent x:Name="SmallComponent" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- State drivers -->
+        <WrapPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0">
+            <Button Content="Idle" Margin="0,0,8,8" Click="StateIdle_Click" />
+            <Button Content="Recording" Margin="0,0,8,8" Click="StateRecording_Click" />
+            <Button Content="Transcribing" Margin="0,0,8,8" Click="StateTranscribing_Click" />
+            <Button Content="Review (Hold)" Margin="0,0,8,8" Click="StateReview_Click" />
+            <Button Content="Used" Margin="0,0,8,8" Click="StateUsed_Click" />
+            <Button Content="Error" Margin="0,0,8,8" Click="StateError_Click" />
+        </WrapPanel>
+
+        <!-- Output / event log -->
+        <Border Grid.Row="4" Background="#252526" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+            <TextBlock x:Name="OutputLog"
+                       Text="Outputs will appear here."
+                       Foreground="#7FD3A8"
+                       FontFamily="Cascadia Mono,Consolas,monospace"
+                       FontSize="12"
+                       TextWrapping="Wrap" />
+        </Border>
+    </Grid>
+</Window>

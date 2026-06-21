@@ -3071,6 +3071,8 @@ public partial class MainWindow : Window
             tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
             tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
             tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(new NativeMenuItemSeparator());
+            tools.Menu.Items.Add(Item("Transcription Component Preview...", () => BtnTranscriptionPreview_Click(this, new RoutedEventArgs())));
             menu.Items.Add(tools);
         }
 
@@ -3099,6 +3101,20 @@ public partial class MainWindow : Window
         var result = await dialog.ShowDialog<bool?>(this);
         if (result == true)
             ShowNotification("Thank you. Your feedback has been submitted.");
+    }
+
+    private async void BtnTranscriptionPreview_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnTranscriptionPreview_Click: opening transcription component preview");
+        try
+        {
+            var dialog = new global::CcDirector.Avalonia.Controls.TranscriptionComponentPreviewDialog();
+            await dialog.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnTranscriptionPreview_Click FAILED: {ex}");
+        }
     }
 
     private async void BtnClaudeConfig_Click(object? sender, RoutedEventArgs e)

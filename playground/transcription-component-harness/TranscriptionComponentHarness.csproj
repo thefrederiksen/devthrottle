@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TranscriptionComponentHarness</RootNamespace>
+    <AssemblyName>cc-transcription-component-harness</AssemblyName>
+    <!-- This harness renders the REAL CcDirector.Avalonia control. It is a manual
+         proof tool, not shipped, and is intentionally not part of cc-director.sln. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.*" />
+    <PackageReference Include="Avalonia.Skia" Version="11.*" />
+    <PackageReference Include="Avalonia.Headless" Version="11.*" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CcDirector.Avalonia\CcDirector.Avalonia.csproj" />
+  </ItemGroup>
+
+</Project>

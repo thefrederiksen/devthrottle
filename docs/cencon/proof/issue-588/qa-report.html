@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #588 - Shared transcription UI component</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #ffffff; font-size: 22px; border-bottom: 2px solid #007acc; padding-bottom: 8px; }
+  h2 { color: #ffffff; font-size: 17px; margin-top: 32px; }
+  .verdict { background: #10331f; color: #2ecc8f; padding: 14px 18px; border-radius: 8px; font-weight: 600; font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #3c3c3c; padding: 9px 12px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252526; color: #ffffff; }
+  .pass { color: #2ecc8f; font-weight: 600; }
+  img { max-width: 580px; border: 1px solid #3c3c3c; border-radius: 8px; margin: 10px 0; display: block; }
+  .meta { color: #888888; font-size: 13px; }
+  code { background: #252526; padding: 2px 6px; border-radius: 4px; font-family: Cascadia Mono, Consolas, monospace; font-size: 13px; }
+  figure { margin: 0 0 24px 0; }
+  figcaption { color: #aaaaaa; font-size: 13px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #588</h1>
+<p class="meta">
+  [Transcription] Shared transcription UI component (full + small), no partial preview<br />
+  Pull request #598, branch <code>issue-588-shared-transcription-component</code><br />
+  Verified independently by the QA Agent in an isolated worktree (slot 13). The screenshots below
+  are the QA Agent's OWN renders, produced by rebuilding and re-running the headless Skia harness
+  against the real shipping control <code>CcDirector.Avalonia.Controls.TranscriptionComponent</code> -
+  not the Developer Agent's committed images.
+</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Recommended: PASS / merge.</div>
+
+<h2>How the QA Agent verified</h2>
+<ul>
+  <li>Checked out the PR branch into an isolated worktree at <code>D:\ReposFred\devthrottle-qa-588</code>.</li>
+  <li>Allocated isolated dev slot 13 and built the slot exe: <code>local-build-avalonia.ps1 -Slot 13</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Launched the test Director via its own scheduled task <code>cc-director13-launch</code> (Control API on port 7890, healthz OK), then tore it down with the same script.</li>
+  <li>Re-ran the headless Skia harness (<code>playground/transcription-component-harness</code>) to render every required state of both variants from the real control, and read each PNG.</li>
+  <li>Built the full solution clean-gate: <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Read the control source to confirm the no-partial-text-path claim at the API level.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>One shared component with a full and a small variant rendering the same states and the same Finish/Hold/Cancel controls.</td>
+    <td>Both variants render; one control class with two size variants and one set of commit controls.</td>
+    <td>Single control <code>TranscriptionComponent</code> with a <code>TranscriptionVariant</code> {Full, Small}; both render; both expose Finish/Hold/Cancel (re-labelled per state). See full and small renders below.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Recording state shows a waveform and a timer and NO transcript text.</td>
+    <td>Recording screenshot with waveform + timer and an empty/placeholder transcript area.</td>
+    <td>Full recording: timer 00:12.4, waveform bars, placeholder only ("Listening... the transcript appears here after you press Finish or Hold. No live preview."). Small recording: pulse dot + 00:12 + waveform, no text.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Transcript appears only after transcribing; no live partial-text path.</td>
+    <td>No API to push partial text; review state shows final text.</td>
+    <td>Public surface has only <code>ShowReview/ShowUsed/ShowError</code> for text; <code>Recording</code> and <code>Transcribing</code> clear the transcript to empty. Transcribing render shows no text. No <code>AppendText</code>/partial method exists.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Hold/review shows final text with the dictionary-correction count and offers send/edit/discard; Finish raises finished output without review.</td>
+    <td>Review screenshot with final text + corrected-words count + Send/Edit/Discard; Finish path raises OnFinished without a review step.</td>
+    <td>Review render: final text + "2 dictionary words corrected. Raw wording preserved." + Send/Edit/Discard. In code, Finish (primary in Recording/Idle) raises <code>Finished(text)</code> directly; Hold raises <code>Held(text)</code> to the review state.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Error state shows a named reason and offers retry.</td>
+    <td>Error screenshot with a named reason and a retry control.</td>
+    <td>Error render: ERROR pill, named reason "Microphone not available", Retry + Cancel buttons. <code>ShowError</code> throws if the reason is empty - a named reason is required.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshots (QA Agent's own renders)</h2>
+
+<figure><figcaption>Full variant - recording (waveform + timer, no transcript text)</figcaption>
+<img src="qa/full-recording.png" alt="full recording" /></figure>
+
+<figure><figcaption>Full variant - transcribing (no text, commit actions disabled, Cancel available)</figcaption>
+<img src="qa/full-transcribing.png" alt="full transcribing" /></figure>
+
+<figure><figcaption>Full variant - held / review (final text + dictionary-correction count + Send/Edit/Discard)</figcaption>
+<img src="qa/full-review.png" alt="full review" /></figure>
+
+<figure><figcaption>Full variant - error (named reason + Retry)</figcaption>
+<img src="qa/full-error.png" alt="full error" /></figure>
+
+<figure><figcaption>Small variant - recording (pulse dot, timer, condensed waveform, Finish/Hold/X)</figcaption>
+<img src="qa/small-recording.png" alt="small recording" /></figure>
+
+<figure><figcaption>Small variant - transcribing (no text, single Cancel)</figcaption>
+<img src="qa/small-transcribing.png" alt="small transcribing" /></figure>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>Full solution builds clean (0 warnings, 0 errors).</li>
+  <li>VisualStyle.md compliance: dark theme palette honored - <code>#252526</code> dialog background, <code>#1E1E1E</code> transcript area, <code>#3C3C3C</code> borders/cancel, <code>#007ACC</code> accent primary, <code>#CCCCCC</code> text. State pills use semantic accent colors (status-indicator role).</li>
+  <li>The preview dialog and the Tools menu entry are gated behind alpha mode (matching the v1 hide-experimental policy); the harness is excluded from the solution.</li>
+  <li>No adjacent surface changed: this issue builds the component only; per-place wiring is out of scope.</li>
+</ul>
+
+<p class="meta">VERIFIED - all five acceptance criteria met with QA-produced proof.</p>
+</body>
+</html>
