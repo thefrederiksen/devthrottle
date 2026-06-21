@@ -1,0 +1,22 @@
+﻿=== AC9(catalog) GET /settings/agents/catalog ===
+type=ClaudeCode display='Claude Code' detectable=True supportsModel=True modelFlag='--model' presets=[Automatic (skip permissions)|Standard] models=5
+type=Codex display='Codex' detectable=True supportsModel=False modelFlag='' presets=[Standard|Full access] models=0
+type=Gemini display='Gemini' detectable=True supportsModel=False modelFlag='' presets=[Standard] models=0
+type=Pi display='Pi' detectable=True supportsModel=False modelFlag='' presets=[Standard] models=0
+type=OpenCode display='OpenCode' detectable=True supportsModel=False modelFlag='' presets=[Standard] models=0
+type=Cursor display='Cursor' detectable=True supportsModel=False modelFlag='' presets=[Standard|Automatic (yolo)] models=0
+type=Grok display='Grok' detectable=True supportsModel=False modelFlag='' presets=[Standard] models=0
+type=RawCli display='Custom' detectable=False supportsModel=False modelFlag='' presets=[Custom (use args below)] models=0
+
+--- ClaudeCode catalog detail (models) ---
+  opus[1m] = Opus 4.8 (1M context)
+  opus = Opus 4.8
+  sonnet = Sonnet 4.6
+  haiku = Haiku 4.5
+  fable = Fable 5
+ClaudeCode detectedDefaultModel = 
+
+=== enabled toggle POST /settings/agents/qa-pi/enabled {false} ===
+response enabled=False
+FILE qa-pi enabled = False
+

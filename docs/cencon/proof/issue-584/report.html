@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #584 - Agent management REST API under /settings/agents - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #bbb; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 0.92rem; }
+  th { background: #f0f4f8; }
+  .pass { color: #156b2e; font-weight: bold; }
+  pre { background: #f6f8fa; border: 1px solid #ddd; padding: 10px; overflow-x: auto; font-size: 0.82rem; white-space: pre-wrap; }
+  code { background: #eef; padding: 1px 4px; border-radius: 3px; }
+  .note { background: #fff8e6; border: 1px solid #e6d28a; padding: 10px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Developer Proof - Issue #584</h1>
+<p><strong>[ControlApi] Agent management REST API under <code>/settings/agents</code> with full Settings-UI parity</strong></p>
+<p>Branch: <code>issue-584-agents-rest-api</code>. All work done in an isolated git worktree. Proof captured against a
+live test Director (own slot 13, own worktree build, self-allocated Control API port 7898), driven over the loopback
+Control API. The live user <code>config.json</code> was backed up before and fully restored after; real Windows user
+paths in the captured transcripts have been redacted to <code>C:\Users\&lt;user&gt;</code> (this is a public repository).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>New endpoint file <code>src/CcDirector.ControlApi/AgentsEndpoint.cs</code> mapping the dedicated
+      <code>/settings/agents</code> REST surface, wired into the Control API host alongside the existing
+      <code>/settings</code> routes (<code>ControlApiHost.cs</code>).</li>
+  <li><strong>Library (the <code>agent.entries</code> array):</strong>
+      <code>GET /settings/agents</code> (list),
+      <code>GET /settings/agents/{id}</code> (get one),
+      <code>POST /settings/agents</code> (add),
+      <code>PATCH /settings/agents/{id}</code> (update one or more values of one entry),
+      <code>DELETE /settings/agents/{id}</code> (remove),
+      <code>POST /settings/agents/{id}/enabled</code> (toggle enabled),
+      <code>POST /settings/agents/reorder</code> (reorder by id list).</li>
+  <li><strong>Parity sub-routes</strong> reusing the SAME Core services the Agents tab uses (no second
+      implementation): <code>POST /settings/agents/detect</code> (<code>ToolDetectionService.DetectTool</code>),
+      <code>POST /settings/agents/quick-check</code> (<code>ToolDetectionService.TestToolAsync</code> + persists the
+      validation status via <code>BuildValidationPatch</code>),
+      <code>POST /settings/agents/command-line</code>
+      (<code>AgentToolConfig.ResolveEffectiveCommandLineArguments</code>),
+      <code>GET /settings/agents/catalog</code> (<code>AgentToolCatalog</code> + <code>AgentDrivers</code>).</li>
+  <li>All writes persist through <code>AgentEntryStore.SaveEntries</code> &rarr; the non-lossy
+      <code>CcDirectorConfigService.MergePatch</code> write authority - the identical store the Settings dialog
+      Agents tab uses, so REST and the dialog stay behaviorally identical and unrelated config sections are never
+      clobbered.</li>
+  <li>18 new end-to-end tests in <code>src/CcDirector.Gateway.Tests/AgentsEndpointTests.cs</code> (all pass).</li>
+</ul>
+
+<h2>Build &amp; test</h2>
+<pre>dotnet build cc-director.sln   ->  Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (AgentsEndpointTests) ->  Passed! Failed: 0, Passed: 18, Skipped: 0, Total: 18</pre>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+<tr><th>Acceptance criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>List every agent entry; matches <code>agent.entries</code>.</td><td class="pass">PASS</td>
+    <td>GET returned all 6 file entries in file order. transcript-part1.txt.</td></tr>
+<tr><td>Get a single entry by id with all values, matching the file.</td><td class="pass">PASS</td>
+    <td>GET <code>/settings/agents/qa-c2</code> returned every value. transcript-part1.txt.</td></tr>
+<tr><td>Add a new entry; present in <code>agent.entries</code> and the list.</td><td class="pass">PASS</td>
+    <td>POST created id <code>3245bec9...</code>; file went 6&rarr;7 entries. transcript-part3.txt.</td></tr>
+<tr><td>Update a single value for each of: display name, type, enabled, executable path, preset, default
+    model, args override, launch mode; get returns it, file shows it, no other entry changes.</td><td class="pass">PASS</td>
+    <td>Each field patched on <code>qa-cx</code> and confirmed in both response and file; the single-field
+    <code>argsOverride</code> patch on <code>qa-c2</code> proved "OTHER ENTRIES UNCHANGED: True". transcript-part6.txt,
+    transcript-part2.txt; test <code>Patch_each_editable_field_round_trips</code>.</td></tr>
+<tr><td>Remove a named entry; absent from <code>agent.entries</code> and the list.</td><td class="pass">PASS</td>
+    <td>DELETE removed the added entry; "ABSENT FROM FILE: True". transcript-part3.txt.</td></tr>
+<tr><td>Reorder; file order matches the requested order.</td><td class="pass">PASS</td>
+    <td>POST reorder moved the new entry to front; file order matched the requested id list. transcript-part3.txt.</td></tr>
+<tr><td>Detect for a built-in type returns resolved path + source + found; custom says "nothing to detect".</td>
+    <td class="pass">PASS</td>
+    <td>ClaudeCode &rarr; found=true, resolvedPath, source="configured path"; RawCli &rarr; detectable=false,
+    "...a custom command has nothing to detect." transcript-part4.txt.</td></tr>
+<tr><td>Quick check returns success flag + message and records the validation status the way the tab does.</td>
+    <td class="pass">PASS</td>
+    <td>Codex &rarr; ok=true, version reported; <code>agent_status.codex.ok=true</code> with
+    <code>tested_at_utc</code> persisted in config.json. transcript-part4.txt.</td></tr>
+<tr><td>Resolved launch command line matches the tab's "what launches" string for the same config.</td>
+    <td class="pass">PASS</td>
+    <td>ClaudeCode + "Automatic (skip permissions)" + opus &rarr;
+    <code>claude --dangerously-skip-permissions --model opus</code>, computed by the same
+    <code>AgentToolConfig.ResolveEffectiveCommandLineArguments</code> the tab's preview uses. transcript-part4.txt;
+    test <code>CommandLine_matches_the_resolver_for_a_guided_claude_config</code>.</td></tr>
+<tr><td>Catalog returns selectable types, presets per type, models per type + driver-detected default +
+    supports-model flag; matches the tab.</td><td class="pass">PASS</td>
+    <td>All 8 types (incl. Custom) with their catalog presets; ClaudeCode supportsModelSelection=true,
+    modelFlag <code>--model</code>, 5 known models; non-model tools report no models. transcript-part5.txt.</td></tr>
+<tr><td>Every write leaves unrelated config sections unchanged (diff shows only the agent change).</td>
+    <td class="pass">PASS</td>
+    <td>The single-field update left all other entries byte-identical and all 12 top-level config keys identical
+    before and after. transcript-part2.txt.</td></tr>
+<tr><td>Invalid identifier or value rejected with a clear error + non-success status; config unchanged.</td>
+    <td class="pass">PASS</td>
+    <td>Unknown id &rarr; 404; bad <code>launchMode</code> &rarr; 400 "unrecognized launchMode: Sideways...";
+    bad <code>type</code> on add &rarr; 400 with the allowed list; "CONFIG UNCHANGED AFTER INVALID: True".
+    transcript-part6.txt; tests for 404/400 + unchanged file.</td></tr>
+<tr><td>Round-trip: a value changed over REST appears in the Agents tab; a value changed in the dialog is
+    returned by REST.</td><td class="pass">PASS</td>
+    <td>The REST list/get and the dialog both read/write through the identical
+    <code>AgentEntryStore.LoadEntries</code>/<code>SaveEntries</code> authority. A REST PATCH set
+    <code>qa-c2</code> display name to <code>Claude [set via REST #584]</code> and that exact value landed in the
+    very <code>config.json</code> the dialog reads on open (transcript shows the file value). The read-after-write
+    round-trip is also covered programmatically by test
+    <code>Patch_each_editable_field_round_trips</code>. See note below on the dialog screenshot.</td></tr>
+<tr><td>New routes are loopback only and subject to the host's auth middleware, same as existing settings
+    routes.</td><td class="pass">PASS</td>
+    <td>The routes are mapped into the SAME host app, after the same <code>DirectorAuth.Run</code> middleware
+    registration, on the same loopback-only (<code>127.0.0.1</code>) socket as <code>/settings</code>. Probed side
+    by side, <code>/settings</code> and <code>/settings/agents</code> behave identically to auth on this Director.
+    transcript-part7.txt.</td></tr>
+</table>
+
+<div class="note">
+<strong>Note on the round-trip dialog screenshot.</strong> The test Director's graphical window is on the user's
+desktop behind a sign-in screen, and the implementation session runs in a non-interactive context (desktop
+<code>CopyFromScreen</code> fails with "handle is invalid"), so a live screenshot of the Agents tab could not be
+captured from here. The round-trip is instead proven by (a) the REST write landing in the exact
+<code>config.json</code> the Agents tab reads via the shared <code>AgentEntryStore</code>, captured verbatim in the
+transcript, and (b) the read-after-write round-trip test. QA can re-confirm visually by opening Settings &rarr;
+Agents on a signed-in Director after a REST PATCH.
+</div>
+
+<h2>CenCon impact</h2>
+<p>This change adds REST routes to the existing <code>control_api</code> container and reuses the existing
+<code>core_services</code> (<code>AgentEntryStore</code>, <code>AgentToolConfig</code>, <code>ToolDetectionService</code>,
+<code>AgentToolCatalog</code>, <code>AgentDrivers</code>, <code>CcDirectorConfigService</code>). It introduces no new
+container, no new architectural shape, and no new security posture: the surface is loopback-only and subject to the
+existing auth middleware exactly like <code>/settings</code>, it handles no credentials or secrets, and it introduces
+no new agent value. No <code>docs/cencon/</code> drift.</p>
+
+<h2>Captured transcripts</h2>
+<p>The full verbatim request/response transcripts are committed alongside this report:
+transcript-part1.txt through transcript-part7.txt.</p>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> Every acceptance criterion is met and proven against a live
+Director over the loopback Control API; the solution builds clean with zero warnings; 18 new tests pass; the live
+user config was restored; and the proof transcripts are PII-redacted for this public repository.</p>
+</body>
+</html>

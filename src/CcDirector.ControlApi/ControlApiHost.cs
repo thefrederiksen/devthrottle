@@ -348,6 +348,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         SessionUsageEndpoint.Map(_app, _sessionManager);
         ClaudeTranscriptsEndpoint.Map(_app);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
+        // /settings/agents (issue #584): full Settings-dialog Agents-tab parity over REST -
+        // library CRUD/reorder/enable plus Detect, Quick check, resolved command line, and the
+        // catalog, reusing the same Core services the Agents tab uses (one implementation).
+        AgentsEndpoint.Map(_app, _sessionManager.Options);
         ToolsEndpoint.Map(_app);
         WorkspacesEndpoint.Map(_app);
         SchedulerEndpoint.Map(_app, _schedulerAccessor);
