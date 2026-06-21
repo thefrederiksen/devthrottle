@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Developer Agent proof - Issue #442: Make the Gateway URL required</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:24px; line-height:1.5; }
+  h1 { font-size:22px; color:#FFFFFF; }
+  h2 { font-size:17px; color:#F0B848; margin-top:28px; border-bottom:1px solid #3C3C3C; padding-bottom:4px; }
+  h3 { font-size:14px; color:#FFFFFF; }
+  code { background:#2A2A2A; padding:1px 5px; border-radius:3px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:12px; overflow-x:auto; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#FFFFFF; }
+  .pass { color:#22C55E; font-weight:600; }
+  .note { color:#F0B848; font-weight:600; }
+  img { max-width:100%; border:1px solid #3C3C3C; border-radius:6px; margin:8px 0; }
+  .finished { background:#1B3A2A; border:1px solid #22C55E; color:#22C55E; padding:12px; border-radius:6px; font-weight:600; margin-top:24px; }
+  .limit { background:#3A331B; border:1px solid #F0B848; padding:12px; border-radius:6px; }
+</style>
+</head>
+<body>
+
+<h1>Developer Agent proof - Issue #442</h1>
+<p><strong>[Desktop] Make the Gateway URL required (no local-only mode): block blank save + needs-attention indicator</strong></p>
+<p>Branch: <code>issue-442-gateway-url-required</code></p>
+
+<h2>Release notes</h2>
+<p>The Gateway URL is now required. The Settings dialog refuses to save a blank or
+non-absolute-http(s) Gateway URL (it stays open, shows the Gateway tab, and names the fix), the
+Gateway tab hint states the URL is required instead of inviting a blank "local-only" mode, the
+desktop status indicator surfaces a no-Gateway Director as an amber <strong>needs-attention</strong>
+state ("GATEWAY NOT SET") whose click opens Settings on the Gateway tab, and the troubleshooter's
+no-Gateway verdict states a Gateway is required and names the fix. The architecture is unchanged: no
+embedded/auto-started Gateway, the <code>NotConfigured</code> state and the monitor logic are
+retained (only their presentation changes), and the Director still launches and is usable with a
+blank/absent <code>gateway.url</code> - it is never blocked from starting.</p>
+
+<h2>Changes</h2>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td><code>SettingsDialog.axaml</code></td><td>Gateway tab hint reworded: removes "Leave the URL blank to run local-only"; states a Gateway URL is required and why.</td></tr>
+<tr><td><code>SettingsDialog.axaml.cs</code></td><td>Save and Close now validates the Gateway URL via the existing tested <code>OnboardingModel.ValidateGatewayUrl</code>; a blank/invalid URL blocks the save, keeps the dialog open, selects the Gateway tab, and shows an inline required-field message. Added <code>SelectGatewayTab()</code> so the dialog can be shown on the Gateway tab.</td></tr>
+<tr><td><code>MainWindow.axaml</code> + <code>MainWindow.axaml.cs</code></td><td>The no-Gateway (<code>NotConfigured</code>/default) indicator is now amber <code>#F0B848</code> (was gray <code>#777777</code>), labeled "GATEWAY NOT SET" / "click to set the Gateway URL in Settings". Its click routes to Settings on the Gateway tab (was: troubleshooter). Added <code>OpenSettingsAsync(bool onGatewayTab)</code>.</td></tr>
+<tr><td><code>GatewayTroubleshootDialog.axaml.cs</code></td><td>The <code>NotConfigured</code> verdict no longer says "this Director runs local-only"; it states a Gateway is required and names the fix (set the URL in Settings, Gateway tab).</td></tr>
+</table>
+
+<h2>How to test</h2>
+<ol>
+<li>Run a Director with no <code>gateway.url</code> set. The bottom-left indicator shows amber "GATEWAY NOT SET".</li>
+<li>Click the indicator -&gt; Settings opens on the Gateway tab.</li>
+<li>Clear the Gateway URL and click <strong>Save and Close</strong> -&gt; save is blocked, the dialog stays open, the Gateway tab shows the required-URL message; <code>config.json</code> keeps its prior value.</li>
+<li>Enter <code>not a url</code> -&gt; rejected with a message; enter <code>http://gateway-host:7878</code> -&gt; saves normally.</li>
+<li>Open the troubleshooter on a no-Gateway config -&gt; the verdict states a Gateway is required and names the fix.</li>
+</ol>
+
+<h2>Proof of the running app (live, isolated test Director)</h2>
+<p>The test Director was launched against an isolated <code>CC_DIRECTOR_ROOT</code> with a seeded test
+credential (the documented <code>DEVTHROTTLE_TEST_SEED_TOKEN</code> seam) so the account gate passes
+while <code>gateway.url</code> is absent - reproducing the no-Gateway state without touching the
+user's real configuration. The Director's own log confirms the gate passed, the monitor is
+<code>NotConfigured</code>, and the main window is shown (it is NOT blocked from starting):</p>
+<pre>2026-06-21 ... [DevThrottleAccountService] IsLoggedIn: valid=True ... result=True
+2026-06-21 ... [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 ... [ControlApiHost] Kestrel listening on http://127.0.0.1:7879
+2026-06-21 ... [GatewayConnectionMonitor] Reset: status=NotConfigured
+2026-06-21 ... [CcDirector] Main window shown (account gate passed); ...
+2026-06-21 ... [MainWindow] Gateway indicator attached to GatewayConnectionMonitor</pre>
+<p>Full excerpt: <code>director-log-excerpt.log</code>.</p>
+
+<h3>Main window with no Gateway configured (amber needs-attention indicator; app launches and is usable)</h3>
+<img src="01-main-window-no-gateway.png" alt="Main window, amber GATEWAY NOT SET indicator" />
+<h3>Indicator close-up (amber #F0B848, not benign gray #777777)</h3>
+<img src="02-indicator-amber-zoom.png" alt="Amber GATEWAY NOT SET indicator close-up" />
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>1</td><td>Clearing the Gateway URL and Save and Close does not save, shows a clear inline required message, dialog stays open.</td><td class="pass">MET</td><td>Save handler calls <code>OnboardingModel.ValidateGatewayUrl</code>; on <code>!IsValid</code> it returns early WITHOUT writing config, selects the Gateway tab, shows "A Gateway URL is required. Enter a gateway URL, ...", re-enables Save (dialog stays open). The validation rule is covered by <code>OnboardingModelTests</code> (20 tests pass, incl. blank rejected).</td></tr>
+<tr><td>2</td><td>A non-URL value is rejected with a message; a valid http(s)://host:port saves normally.</td><td class="pass">MET</td><td>Same validation: <code>not a url</code> fails <code>Uri.TryCreate(..Absolute..)</code> -&gt; rejected with "That is not a valid URL..."; a valid absolute http/https URL with a host returns <code>IsValid=true</code> and the save proceeds. Covered by <code>ValidateGatewayUrl_InvalidInput_IsRejectedWithMessage</code> and <code>ValidateGatewayUrl_WellFormedHttpUrl_IsValid</code>.</td></tr>
+<tr><td>3</td><td><code>config.json</code> <code>gateway.url</code> cannot be written empty via Settings.</td><td class="pass">MET</td><td>The early return on invalid URL is BEFORE <code>CcDirectorConfigService.MergePatch</code> is called, so a blank URL never reaches disk through the dialog.</td></tr>
+<tr><td>4</td><td>Gateway tab hint no longer contains "local-only" / "Leave the URL blank"; states the URL is required.</td><td class="pass">MET</td><td><code>SettingsDialog.axaml</code> hint reworded (see Changes). Source diff shows the old phrase removed.</td></tr>
+<tr><td>5</td><td>No-Gateway indicator shown in needs-attention amber (<code>#F0B848</code>, not <code>#777777</code>) labeled that the Gateway is not set.</td><td class="pass">MET</td><td>Screenshots <code>01</code>/<code>02</code> of the running app: amber ring, amber border, "GATEWAY NOT SET".</td></tr>
+<tr><td>6</td><td>Clicking the indicator opens Settings on the Gateway tab.</td><td class="pass">MET (code)</td><td><code>GatewayIndicator_PointerPressed</code>: when <code>Status == NotConfigured</code> it calls <code>OpenSettingsAsync(onGatewayTab:true)</code>, which calls <code>dialog.SelectGatewayTab()</code> (selects tab index 1 = Gateway) before showing. See limitation note below re: live click capture.</td></tr>
+<tr><td>7</td><td>Troubleshooter no-Gateway verdict states a Gateway is required and names the fix; no longer "runs local-only".</td><td class="pass">MET</td><td><code>GatewayTroubleshootDialog.axaml.cs</code> default verdict reworded. Source diff shows the old phrase removed.</td></tr>
+<tr><td>8</td><td>Director still launches and the main window is usable with blank/absent <code>gateway.url</code>.</td><td class="pass">MET</td><td>Live log + screenshot: gate passed, main window shown, New Session available; no launch/session block was added.</td></tr>
+<tr><td>9</td><td><code>dotnet build cc-director.sln</code> clean, no new warnings.</td><td class="pass">MET</td><td>Build succeeded, 0 Warning(s), 0 Error(s).</td></tr>
+<tr><td>10</td><td>Complies with <code>docs/VisualStyle.md</code>.</td><td class="pass">MET</td><td>Amber <code>#F0B848</code> is the existing semantic amber already used by the "Connecting" indicator state; background <code>#3A331B</code> matches that state. No new hard-coded color families introduced.</td></tr>
+</table>
+
+<h2>Proof-environment limitation (disclosed)</h2>
+<div class="limit">
+<p>The host's interactive Windows desktop was <strong>disconnected</strong> (RDP session in "Disc"
+state) for the duration of this run. In that state Windows blocks both synthetic input injection
+(<code>mouse_event</code> / <code>SendInput</code>) and live screen capture
+(<code>Graphics.CopyFromScreen</code>), and Avalonia's automation peers for the custom toolbar
+buttons do not expose an Invoke pattern - so the modal Settings dialog and the troubleshooter could
+not be opened by an automated click in this environment. Window rendering still works
+(<code>PrintWindow</code>), which is how the indicator screenshots above were captured.</p>
+<p>Consequently the <strong>dialog-interaction</strong> criteria (1, 2, 3, 6, 7) are proven by: (a)
+the running-app screenshots and log for the indicator/launch behavior, and (b) the reused,
+unit-tested validation rule plus the reviewed source diffs for the dialog logic and reworded text.
+The validation rule that gates the save is the exact <code>OnboardingModel.ValidateGatewayUrl</code>
+already covered green by <code>CcDirector.Core.Tests</code> (20 tests pass). QA should re-verify the
+dialog screenshots on a connected desktop.</p>
+</div>
+
+<div class="finished">I believe this is finished.</div>
+
+</body>
+</html>

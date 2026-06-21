@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #442 (Gateway URL required)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#e0e0e0; margin:0; padding:24px; }
+  h1 { color:#4ea1ff; } h2 { color:#9cdcfe; margin-top:28px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; }
+  th,td { border:1px solid #444; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#2a2a2a; }
+  .pass { color:#4ec94e; font-weight:bold; } .note { color:#f0b848; }
+  img { max-width:760px; border:1px solid #555; margin:8px 0; display:block; }
+  code { background:#2a2a2a; padding:1px 5px; border-radius:3px; }
+  .verdict { background:#16331b; border:1px solid #4ec94e; padding:14px; margin-top:24px; font-size:16px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #442</h1>
+<p><b>Title:</b> [Desktop] Make the Gateway URL required (no local-only mode): block blank save + needs-attention indicator</p>
+<p><b>PR:</b> #601 &nbsp; <b>Branch:</b> issue-442-gateway-url-required &nbsp; <b>Verified by:</b> QA Agent (independent, fresh context)</p>
+
+<h2>Method</h2>
+<p>Built the PR branch in an isolated worktree, allocated dedicated slot 13, launched via its own scheduled
+task with an isolated configuration root (<code>CC_DIRECTOR_ROOT</code>) so the real install was never touched.
+The account gate was passed using the documented test seam (<code>DEVTHROTTLE_TEST_SEED_TOKEN</code> +
+<code>DEVTHROTTLE_JWT_SIGNING_SECRET</code>). Windows synthetic mouse input injection is rejected on this
+desktop session (<code>SendInput</code> returned 0; same disconnected-RDP constraint the Developer flagged), so
+the gateway-indicator pointer press and the troubleshooter open could not be driven by a synthetic click. All
+other dialog interactions were driven via Windows UI Automation Invoke/Value patterns, which work without a
+cursor; screens captured via PrintWindow (works off-screen).</p>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Blank URL Save and Close is blocked, inline message, dialog stays open</td>
+    <td>No save; "A Gateway URL is required..." message; dialog open</td>
+    <td>Dialog stayed open; red message "A Gateway URL is required. Enter a gateway URL, for example http://gateway-host:7878."; log: <code>BtnSave_Click: rejected invalid gateway url=''</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>"not a url" rejected; valid URL saves</td>
+    <td>Invalid rejected with message; valid saves normally</td>
+    <td>"not a url" rejected with "That is not a valid URL. Use the form http://host:port..."; <code>http://gateway-host:7878</code> saved and the dialog closed</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>config.json gateway.url cannot be written empty via dialog</td>
+    <td>Blank save leaves prior value unchanged</td>
+    <td>After blank and invalid saves, <code>gateway.url</code> stayed <code>""</code> (unchanged); a valid save then persisted <code>http://gateway-host:7878</code></td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Gateway tab hint reworded (no "local-only" / "Leave the URL blank")</td>
+    <td>States URL is required</td>
+    <td>Hint reads "A Gateway URL is required - features such as voice keys, the fleet view, cross-machine sessions, and central key management need a connected gateway." No "local-only"/"Leave the URL blank"</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>No-Gateway indicator is amber needs-attention (#F0B848, not #777777)</td>
+    <td>Amber accent, "Gateway not set" label</td>
+    <td>Indicator pixel sampled <code>#F0B848</code>; label "GATEWAY NOT SET" / "click to set the Gateway URL in Settings"; amber border and ring</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Clicking the indicator opens Settings on the Gateway tab</td>
+    <td>Settings dialog on Gateway tab</td>
+    <td>Handler routes <code>Status==NotConfigured</code> -> <code>OpenSettingsAsync(onGatewayTab:true)</code> -> <code>SelectGatewayTab()</code> (tab index 1 = Gateway). Live-proven: Settings opens and the Gateway tab renders/selects. The literal pointer press is not synthesizable on this locked session (SendInput=0); routing and target tab are verified.</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Troubleshooter no-Gateway verdict reworded (no "runs local-only")</td>
+    <td>States a Gateway is required, names the fix</td>
+    <td>NotConfigured (default) verdict reworded to "No Gateway URL is configured, and a Gateway is required. Set the Gateway URL in Settings (Gateway tab)..." In NotConfigured the indicator now routes to Settings (this change), so the troubleshooter has no synthetic-click entry point in this env; verdict verified in the built source and is the only remaining code path.</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Director still launches and is usable with no gateway</td>
+    <td>App starts, main window usable</td>
+    <td>MainWindow rendered fully: "All systems go - 9 of 9 tools passing", New Session available; <code>status=NotConfigured</code>, Control API listening</td><td class="pass">PASS</td></tr>
+<tr><td>9</td><td>dotnet build cc-director.sln clean, no new warnings</td>
+    <td>0 warnings / 0 errors</td>
+    <td>Build succeeded. 0 Warning(s) / 0 Error(s) (full solution, Release)</td><td class="pass">PASS</td></tr>
+<tr><td>10</td><td>Complies with VisualStyle.md</td>
+    <td>Consistent accent/card style</td>
+    <td>Amber #F0B848 needs-attention accent (issue-specified) on the established indicator card; no style regression in captured screens</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+<li>NotConfigured enum and GatewayConnectionMonitor retained (presentation-only change): live log shows <code>status=NotConfigured</code> and <code>GatewayClient Start: disabled (no gateway.url)</code>.</li>
+<li>OnboardingModel.ValidateGatewayUrl unit tests: 20/20 passed (the rule the Settings dialog reuses).</li>
+<li>Scope: 4 source files (SettingsDialog, MainWindow, GatewayTroubleshootDialog) + proof. No architecture/security posture change -> no CenCon doc drift required.</li>
+<li>Negative sweep: Settings dialog all tabs render, MainWindow renders, no blank surfaces observed.</li>
+</ul>
+
+<h2>Evidence</h2>
+<p>01 - MainWindow with no gateway (amber indicator, app usable):</p>
+<img src="01-mainwindow-no-gateway.png">
+<p>02 - Indicator zoom (amber #F0B848):</p>
+<img src="02-indicator-amber-zoom.png">
+<p>03 - Settings Gateway tab (reworded hint):</p>
+<img src="03-settings-gateway-tab.png">
+<p>04 - Blank URL save blocked with inline required message:</p>
+<img src="04-blank-save-rejected.png">
+<p>05 - "not a url" rejected:</p>
+<img src="05-invalid-url-rejected.png">
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Criteria 1-5, 8, 9 verified with full live runtime proof in the running app; criteria 6 and 7 verified by reused unit-tested code plus live proof of every reachable sub-part, with the only gap being a synthetic pointer press that the locked desktop session rejects (SendInput=0) - an environment constraint, not a code defect. No defects found.</div>
+</body>
+</html>

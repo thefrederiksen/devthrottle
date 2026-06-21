@@ -623,9 +623,13 @@ public partial class MainWindow : Window
                 sub = (m.FailureSummary ?? "start Tailscale on this machine or set gateway.tailnetEndpoint") + " - click to troubleshoot";
                 break;
             default:
-                (icon, accent, bg, border) = (GatewayIconRing, "#777777", "#2A2A2A", "#3C3C3C");
-                label = "NO GATEWAY";
-                sub = "local-only Director";
+                // NotConfigured (issue #442): no gateway.url is set. This is a NEEDS-ATTENTION
+                // state (amber), not a benign local-only mode - features such as voice keys, the
+                // fleet view, and cross-machine sessions need a connected gateway. The click target
+                // opens Settings on the Gateway tab (see GatewayIndicator_PointerPressed).
+                (icon, accent, bg, border) = (GatewayIconRing, "#F0B848", "#3A331B", "#F0B848");
+                label = "GATEWAY NOT SET";
+                sub = "click to set the Gateway URL in Settings";
                 break;
         }
 
@@ -641,7 +645,11 @@ public partial class MainWindow : Window
         if (m.LastVerifiedAt is { } at) tip += $"\nLast verified: {at.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         if (m.LastResult is { } r && r.CallbackOk) tip += $"\nCallback: {r.CallbackLatencyMs} ms at {r.CallbackEndpoint}";
         if (m.FailureSummary is { } f) tip += $"\n{f}";
-        tip += "\nClick to open the troubleshooter.";
+        // NotConfigured routes to Settings (set the URL); every other state routes to the
+        // troubleshooter (issue #442). The tooltip names whichever the click does.
+        tip += m.Status == GatewayConnectionStatus.NotConfigured
+            ? "\nClick to set the Gateway URL in Settings."
+            : "\nClick to open the troubleshooter.";
         ToolTip.SetTip(GatewayIndicator, tip);
 
         // The gateway light lives only in the rail now (GatewayIndicator, above). A missing
@@ -653,9 +661,24 @@ public partial class MainWindow : Window
 
     }
 
-    private void GatewayIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private async void GatewayIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        OpenGatewayTroubleshooter();
+        // No gateway configured (issue #442): route to Settings/Gateway so the user sets the
+        // required URL, rather than the troubleshooter (which has nothing to diagnose yet). Every
+        // other state still opens the troubleshooter.
+        try
+        {
+            if (_gatewayMonitor?.Status == GatewayConnectionStatus.NotConfigured)
+            {
+                await OpenSettingsAsync(onGatewayTab: true);
+                return;
+            }
+            OpenGatewayTroubleshooter();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] GatewayIndicator_PointerPressed FAILED: {ex.Message}");
+        }
     }
 
     private void OpenGatewayTroubleshooter()
@@ -3176,11 +3199,24 @@ public partial class MainWindow : Window
     private async void BtnSettings_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] BtnSettings_Click: opening CC Director settings");
+        await OpenSettingsAsync(onGatewayTab: false);
+    }
+
+    /// <summary>
+    /// Open the CC Director Settings dialog. When <paramref name="onGatewayTab"/> is true the
+    /// dialog is shown on the Gateway tab (issue #442: the no-Gateway needs-attention indicator
+    /// routes here so the user lands on the field they must set).
+    /// </summary>
+    private async Task OpenSettingsAsync(bool onGatewayTab)
+    {
+        FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}");
         var controlApi = (global::Avalonia.Application.Current as App)?.ControlApiHost;
         var dialog = new SettingsDialog(
             controlApi is not null ? controlApi.ReapplyGatewayAsync : null,
             controlApi?.Port ?? 0,
             ReloadScreenshotsPanelAsync);
+        if (onGatewayTab)
+            dialog.SelectGatewayTab();
         await dialog.ShowDialog<bool?>(this);
     }
 

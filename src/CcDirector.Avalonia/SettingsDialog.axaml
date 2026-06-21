@@ -169,7 +169,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                     <StackPanel Spacing="8" Margin="0,4,0,0">
                         <TextBlock Classes="sectionTitle" Text="Gateway" />
-                        <TextBlock Classes="hint" Text="Connect this Director to a central gateway so it shows up there. Leave the URL blank to run local-only. Works on any network, not just a tailnet." />
+                        <TextBlock Classes="hint" Text="Connect this Director to a central gateway so it shows up there. A Gateway URL is required - features such as voice keys, the fleet view, cross-machine sessions, and central key management need a connected gateway. Works on any network, not just a tailnet." />
 
                         <TextBlock Classes="fieldLabel" Text="Gateway URL" />
                         <Grid ColumnDefinitions="*,Auto,Auto">
