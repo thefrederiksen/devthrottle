@@ -142,9 +142,13 @@ public sealed class VoiceTurnEndpointTests : IAsyncLifetime
     // ===== Test 3: no OpenAI key + audio -> SSE no_key error =====
 
     /// <summary>
-    /// Verifies that VoiceTurn_AudioInput_Transcribes (the live test) falls back
-    /// correctly with a structured SSE error when no OpenAI key is present.
-    /// This covers the "no_key" guard on the audio path.
+    /// Verifies the audio path bails with a structured "no_key" SSE error when no transcription
+    /// method is resolvable. After the shared-pipeline migration (issue #592) the endpoint resolves
+    /// the user-selected method via the Gateway routing resolver, which reads the machine's
+    /// config.json; to make the "no method available" state deterministic regardless of the host
+    /// machine's real configuration, this test points CC_DIRECTOR_ROOT at an empty temp dir so
+    /// GatewayConfig.Load() finds no gateway and no key resolves -> the path emits "no_key" before
+    /// any transcription is attempted.
     /// </summary>
     [Fact]
     public async Task VoiceTurn_AudioInput_NoKey_EmitsNoKeyError()
@@ -153,26 +157,41 @@ public sealed class VoiceTurnEndpointTests : IAsyncLifetime
         _sm.AdoptSession(session);
         var sid = session.Id.ToString();
 
-        // Upload a tiny dummy audio blob - the endpoint should bail before reaching Whisper.
-        using var form = new MultipartFormDataContent();
-        var bytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }; // EBML magic; arbitrary audio-shaped bytes
-        var content = new ByteArrayContent(bytes);
-        content.Headers.ContentType = new MediaTypeHeaderValue("audio/webm");
-        form.Add(content, "audio", "recording.webm");
+        // Isolate the routing resolver from the host machine's real config.json: an empty root has
+        // no gateway block and no local key, so no transcription method resolves (the deterministic
+        // "no method available" state this test asserts).
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), "cc-voiceturn-nokey-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(isolatedRoot);
+        var originalRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", isolatedRoot);
+        try
+        {
+            // Upload a tiny dummy audio blob - the endpoint should bail before transcription.
+            using var form = new MultipartFormDataContent();
+            var bytes = new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }; // EBML magic; arbitrary audio-shaped bytes
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("audio/webm");
+            form.Add(content, "audio", "recording.webm");
 
-        var resp = await _client.PostAsync($"sessions/{sid}/voice-turn", form);
+            var resp = await _client.PostAsync($"sessions/{sid}/voice-turn", form);
 
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
 
-        var events = await ReadSseEventsAsync(resp);
+            var events = await ReadSseEventsAsync(resp);
 
-        // Should emit "transcribing" then "error" (no_key).
-        var stageNames = events.Select(e => ReadStage(e)).Where(s => s is not null).ToList();
-        Assert.Contains("transcribing", stageNames);
-        var errorEvent = events.FirstOrDefault(e => ReadStage(e) == "error");
-        Assert.NotNull(errorEvent);
-        Assert.Contains("no_key", ReadField(errorEvent!, "message"), StringComparison.OrdinalIgnoreCase);
+            // Should emit "transcribing" then "error" (no_key).
+            var stageNames = events.Select(e => ReadStage(e)).Where(s => s is not null).ToList();
+            Assert.Contains("transcribing", stageNames);
+            var errorEvent = events.FirstOrDefault(e => ReadStage(e) == "error");
+            Assert.NotNull(errorEvent);
+            Assert.Contains("no_key", ReadField(errorEvent!, "message"), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", originalRoot);
+            try { Directory.Delete(isolatedRoot, recursive: true); } catch { /* test cleanup */ }
+        }
     }
 
     // ===== Test 4: session exits before/during the turn -> structured SSE error =====

@@ -71,6 +71,26 @@ public sealed class VoiceUploadStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Assemble_ZeroByteChunk_RefusedAsIncomplete()
+    {
+        // Issue #592: a TRUNCATED upload (a chunk landed but is empty/zero-byte) must be refused
+        // by the completeness gate, never transcribed. The gate treats a zero-byte chunk the same
+        // as a missing one (the #586 contract) and names the index to re-send.
+        var id = _store.Register(null);
+        await _store.StoreChunkAsync(id, 0, Bytes("AAA"), null);
+        await _store.StoreChunkAsync(id, 2, Bytes("CCC"), null);
+        // Simulate a truncated landing of chunk 1: the file exists but is empty.
+        var chunkPath = Path.Combine(_root, Guid.Parse(id).ToString("N"), "00001.part");
+        await File.WriteAllBytesAsync(chunkPath, Array.Empty<byte>());
+
+        var result = await _store.AssembleAsync(id, 3);
+
+        Assert.Equal("incomplete", result.Status);
+        Assert.Equal(new[] { 1 }, result.Missing);
+        Assert.Null(result.Audio);
+    }
+
+    [Fact]
     public async Task Assemble_ResumeAfterMissing_Succeeds()
     {
         // The whole point: a partial upload is preserved, the client re-sends only what is

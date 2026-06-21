@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue 592 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1.25rem; color: #1a1a1a; line-height: 1.55; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  code, pre { font-family: Consolas, Menlo, monospace; }
+  pre { background: #f5f7fa; border: 1px solid #dde3ea; border-radius: 6px; padding: .9rem; overflow-x: auto; font-size: .86rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #22863a; font-weight: 600; }
+  .pill { display: inline-block; background: #2b6cb0; color: #fff; border-radius: 12px; padding: .12rem .6rem; font-size: .78rem; }
+  .belief { background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 6px; padding: 1rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue 592 - Migrate phone push-to-talk to the shared batch pipeline</h1>
+<p>
+  <span class="pill">Developer Agent</span>
+  <span class="pill">CenCon Development Method</span>
+  <span class="pill">Branch: issue-592-phone-pushtotalk-shared-pipeline</span>
+</p>
+
+<h2>Release Notes</h2>
+<p>
+  Phone push-to-talk (the audio-reply walkie-talkie turn) now transcribes the whole recorded clip
+  ONCE through the one shared batch transcription pipeline using your selected transcription method
+  (bring-your-own OpenAI or DevThrottle), instead of a hardcoded whisper-1 / api.openai.com path.
+  Switching the selected method changes where the recording is transcribed, with no restart. The
+  only post-transcription change is the validated dictionary corrector - the free-text language-model
+  cleanup is not in this path, so an utterance with no dictionary term comes back byte-identical to
+  the raw transcription. The whole clip is verified complete by the completeness gate before
+  transcription: a truncated upload (a missing or zero-byte chunk) is refused, never transcribed.
+</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>
+    <strong>CcDirector.ControlApi/VoiceTurnEndpoint.cs</strong> - the Director-side server walkie-talkie
+    turn the phone push-to-talk audio reaches (via the Gateway resumable-upload front door). Removed the
+    hardcoded <code>whisper-1</code> / <code>https://api.openai.com/v1/audio/transcriptions</code>
+    constants and the bespoke <code>TranscribeAsync</code> / <code>GuessAudioContentType</code> /
+    <code>TruncateLog</code> helpers. The audio path now transcribes the whole clip ONCE through the
+    shared <code>BatchTranscriptionPipeline</code> via <code>VoiceService.TranscribeAndCleanAsync</code>,
+    which resolves the user-selected method through the Gateway routing resolver
+    (<code>OpenAiKeyResolver.ResolveEndpointAsync</code>) and applies the dictionary corrector only -
+    no free-text cleanup. The dictionary-corrected transcript is the turn's input text.
+  </li>
+  <li>
+    <strong>CcDirector.Gateway/Voice/VoiceUploadStore.cs</strong> - the completeness gate that
+    reassembles the phone's resumable chunk upload now treats a zero-byte chunk the same as a missing
+    one (the issue #586 contract), so a truncated upload is reported "incomplete" with the indices to
+    re-send and never produces an assembled clip to transcribe.
+  </li>
+  <li>
+    <strong>docs/cencon/architecture_manifest.yaml</strong> - added the
+    <code>phone_push_to_talk_turn_flow</code> data flow describing the migrated path
+    (upload + gate -> Gateway forward -> Director shared-pipeline transcription via the selected
+    method -> dictionary-only correction -> summarize + TTS reply).
+  </li>
+  <li>
+    <strong>Tests</strong> - new <code>VoiceTurnSharedPipelineRegressionTests</code> (the endpoint no
+    longer carries the hardcoded whisper constants or the bespoke transcription helper);
+    <code>VoiceUploadStoreTests.Assemble_ZeroByteChunk_RefusedAsIncomplete</code> (truncated upload
+    refused by the gate); and <code>VoiceTurnEndpointTests.VoiceTurn_AudioInput_NoKey_EmitsNoKeyError</code>
+    hardened to isolate the routing resolver from the host machine's real config.json via
+    <code>CC_DIRECTOR_ROOT</code>.
+  </li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+  <tr><th>Criterion</th><th>How the code satisfies it</th><th>Verification</th></tr>
+  <tr>
+    <td>Phone push-to-talk transcription uses the selected method via the shared pipeline, not the hardcoded whisper-1 path. (Changing the selected method changes the base URL.)</td>
+    <td>The hardcoded whisper-1 / api.openai.com constants and bespoke transcription helper are removed; the audio path calls <code>VoiceService.TranscribeAndCleanAsync</code> -&gt; <code>BatchTranscriptionPipeline</code>, whose base URL, key, and model come entirely from the resolved selected method.</td>
+    <td class="pass">BatchTranscriptionPipelineTests.TranscribeAsync_ByoMode_/_DevThrottleMode_RoutesTo...Url (different base URL per method) PASS; VoiceTurnSharedPipelineRegressionTests (no hardcoded constants/helper) PASS.</td>
+  </tr>
+  <tr>
+    <td>The free-text cleanup is not in this path; a no-dictionary-term utterance returns byte-identical to the raw transcription.</td>
+    <td>The shared pipeline applies only the validated dictionary corrector; with no dictionary hit, corrected == raw byte-for-byte. The endpoint uses the dictionary-corrected transcript.</td>
+    <td class="pass">BatchTranscriptionPipelineTests.TranscribeAsync_NoDictionaryTerms_ReturnsRawByteIdentical PASS.</td>
+  </tr>
+  <tr>
+    <td>The whole clip is sent and verified by the gate before transcription; an incomplete (truncated) upload is refused, not transcribed.</td>
+    <td>The Gateway's <code>VoiceUploadStore.AssembleAsync</code> refuses a missing OR zero-byte chunk as "incomplete" (409) with the indices to re-send; no assembled clip is forwarded for transcription.</td>
+    <td class="pass">VoiceUploadStoreTests.Assemble_MissingChunk_ReportsIncompleteWithIndices and Assemble_ZeroByteChunk_RefusedAsIncomplete PASS.</td>
+  </tr>
+  <tr>
+    <td>The whole clip is transcribed once; there is no partial transcription.</td>
+    <td>The shared pipeline issues exactly ONE batch POST to <code>{baseUrl}/audio/transcriptions</code> for the whole clip; there is no streaming/partial path. The endpoint calls it once per turn.</td>
+    <td class="pass">BatchTranscriptionPipelineTests (single /audio/transcriptions request asserted via <code>.Single(...)</code>) PASS.</td>
+  </tr>
+</table>
+
+<h2>Build and test evidence</h2>
+<pre>
+dotnet build cc-director.sln
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+dotnet test CcDirector.Gateway.Tests (full)
+  Passed!  Failed: 0, Passed: 861, Skipped: 1 (pre-existing realtime-provider integration skip)
+
+dotnet test CcDirector.Core.Tests --filter Transcription|Voice
+  Passed!  Failed: 0, Passed: 170, Skipped: 0
+
+dotnet test CcDirector.Gateway.Tests --filter VoiceUploadStore|VoiceTurn
+  Passed!  Failed: 0, Passed: 57, Skipped: 0
+</pre>
+
+<h2>Runtime evidence (slot 13 test Director)</h2>
+<p>Built <code>cc-director13.exe</code> from this worktree and launched it via the per-slot scheduled task
+(clean svchost parentage). The Director booted clean and served the migrated voice-turn route:</p>
+<pre>
+[ControlApiHost] Kestrel listening on http://127.0.0.1:7885 (loopback only ...)
+[VoiceTurnEndpoint] POST /sessions/5ba8dfaf-.../voice-turn from 127.0.0.1
+[ControlApiHost] POST /sessions/5ba8dfaf-.../voice-turn -> 404 (unknown session, as expected)
+healthz: {"status":"ok","version":"0.9.13", ...}
+Running image: D:\ReposFred\devthrottle-wt-592\local_builds\cc-director13.exe
+</pre>
+<p>The selected-method routing, byte-identical-without-a-dictionary-hit, and single-batch-call behaviors
+are proven deterministically by the unit tests above (a stub HTTP handler records the exact URL/key/model
+and request count), since observing them end-to-end requires a live transcription provider.</p>
+
+<h2>CenCon impact</h2>
+<p>
+  Architecture: added the <code>phone_push_to_talk_turn_flow</code> data flow and the change is consistent
+  with the shared-pipeline direction already recorded for issues #587/#590/#591. No security posture change:
+  no new credential handling, no new external surface; the bring-your-own key is still only ever paired with
+  the provider's own URL by the routing resolver (the same guarantee the shared pipeline already enforces).
+  <code>architecture_manifest.yaml</code> last_updated is current (2026-06-21); security_profile last_verified
+  2026-06-09 is within the 30-day threshold.
+</p>
+
+<div class="belief">
+  <strong>I believe this is finished.</strong> The hardcoded whisper-1 / api.openai.com path is gone from the
+  phone push-to-talk turn; transcription routes through the one shared batch pipeline via the user-selected
+  method with dictionary-only correction; the whole clip is gated complete (missing or zero-byte chunk refused)
+  before a single whole-clip transcription. Build is clean (0/0), all relevant tests pass, and a slot-13 binary
+  built from this branch booted clean and served the route.
+</div>
+
+</body>
+</html>
