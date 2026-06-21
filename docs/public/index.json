@@ -3,6 +3,13 @@
   "description": "Public documentation for DevThrottle (the cc-director desktop app). Served as raw markdown from GitHub - no build step.",
   "categories": [
     {
+      "id": "help",
+      "title": "Help",
+      "pages": [
+        { "id": "help", "title": "Help and Learning", "file": "help/01-help.md" }
+      ]
+    },
+    {
       "id": "getting-started",
       "title": "Getting Started",
       "pages": [
