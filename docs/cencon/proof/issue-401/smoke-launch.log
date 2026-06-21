@@ -1,0 +1,22 @@
+ISSUE 401 SMOKE-LAUNCH PROOF
+Slot 13 test Director (cc-director13.exe), built from worktree devthrottle-wt-401 with both migration scripts deleted.
+Captured: 2026-06-21
+
+=== Control API /healthz (HTTP 200) ===
+{"status":"ok","directors":1,"sessions":0,"version":"0.9.13","serverTime":"2026-06-21T19:18:53.4270783Z","directorId":"34dd872a-16d5-4776-92a0-9b350a5a1234","machineName":"SOREN_NORTH"}
+
+=== Control API GET /sessions ===
+HTTP 200, body length 2 (storage-backed endpoint served successfully)
+
+=== Unified storage proof from Director startup log ===
+2026-06-21 15:17:06.151 [CcStorageMigration] EnsureMigrated: checking for legacy data
+2026-06-21 15:17:06.168 [CcStorageMigration] Copied (missing): D:\Personal\OneDrive\Documents\CcDirector\sessions.json -> C:\Users\soren\AppData\Local\cc-director\config\director\sessions.json
+2026-06-21 15:17:08.498 [CcStorageMigration] EnsureMigrated: migration check complete
+2026-06-21 15:17:09.029 [ControlApiHost] Kestrel listening on http://127.0.0.1:7889 (loopback only; remote access via Tailscale Serve)
+
+CONCLUSION:
+- App started cleanly on the slot-13 build (version 0.9.13) with step1-backup.bat and step2-migrate.bat removed.
+- Unified storage via cc_storage is the active path: CcStorageMigration.EnsureMigrated ran and completed.
+- Control API healthz returned ok and the storage-backed /sessions endpoint served HTTP 200.
+- App startup and storage access are unaffected by deleting the two completed migration scripts.
+
