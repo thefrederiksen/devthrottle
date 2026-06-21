@@ -1,0 +1,24 @@
+﻿=== AC3 POST /settings/agents (add) ===
+{
+    "id":  "3245bec9-c3d9-4180-a18f-8efad8cbd7fe",
+    "displayName":  "Proof 584 Agent",
+    "type":  "Gemini",
+    "enabled":  true,
+    "executablePath":  "",
+    "presetId":  "Standard",
+    "defaultModel":  "",
+    "argsOverride":  "",
+    "launchMode":  "Guided"
+}
+NEW ID = 3245bec9-c3d9-4180-a18f-8efad8cbd7fe
+FILE entries after add: qa-c2, qa-cx, qa-pi, 3f0f6b94-a208-4fca-8a77-4a07725cdbfe, 0db4d439-d2f3-4e02-85d5-d9e02b593d1d, 0fdd7024-3fe8-469b-add5-000d4ebe910c, 3245bec9-c3d9-4180-a18f-8efad8cbd7fe
+
+=== AC6 POST /settings/agents/reorder ===
+REQUESTED ORDER: 3245bec9-c3d9-4180-a18f-8efad8cbd7fe, qa-c2, qa-cx, qa-pi, 3f0f6b94-a208-4fca-8a77-4a07725cdbfe, 0db4d439-d2f3-4e02-85d5-d9e02b593d1d, 0fdd7024-3fe8-469b-add5-000d4ebe910c
+FILE ORDER AFTER: 3245bec9-c3d9-4180-a18f-8efad8cbd7fe, qa-c2, qa-cx, qa-pi, 3f0f6b94-a208-4fca-8a77-4a07725cdbfe, 0db4d439-d2f3-4e02-85d5-d9e02b593d1d, 0fdd7024-3fe8-469b-add5-000d4ebe910c
+
+=== AC5 DELETE /settings/agents/3245bec9-c3d9-4180-a18f-8efad8cbd7fe (remove) ===
+removed=3245bec9-c3d9-4180-a18f-8efad8cbd7fe
+FILE entries after remove: qa-c2, qa-cx, qa-pi, 3f0f6b94-a208-4fca-8a77-4a07725cdbfe, 0db4d439-d2f3-4e02-85d5-d9e02b593d1d, 0fdd7024-3fe8-469b-add5-000d4ebe910c
+ABSENT FROM FILE: True
+

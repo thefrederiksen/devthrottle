@@ -1,0 +1,16 @@
+﻿=== AC4 update each editable field on qa-cx, verify file + get ===
+  field=displayName -> response.displayName=Codex Renamed  file.display_name=Codex Renamed
+  field=enabled -> response.enabled=False  file.enabled=False
+  field=executablePath -> response.executablePath=C:/proof/codex.cmd  file.executable_path=C:/proof/codex.cmd
+  field=presetId -> response.presetId=Full access  file.preset_id=Full access
+  field=argsOverride -> response.argsOverride=--proof-arg  file.args_override=--proof-arg
+  field=launchMode -> response.launchMode=Custom  file.launch_mode=Custom
+  field=type -> response.type=Gemini  file.type=Gemini
+
+=== AC11 invalid value rejected with non-2xx + config unchanged ===
+STATUS = 400
+ERROR BODY = {"error":"unrecognized launchMode: Sideways (expected Guided or Custom)"}
+CONFIG UNCHANGED AFTER INVALID = True
+ADD invalid type STATUS = 400
+ADD invalid type BODY = {"error":"unrecognized type: Bogus (expected one of: ClaudeCode, Codex, Gemini, Pi, OpenCode, Cursor, Grok, RawCli)"}
+

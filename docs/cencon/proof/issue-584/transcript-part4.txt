@@ -1,0 +1,37 @@
+﻿=== AC7 POST /settings/agents/detect (built-in ClaudeCode) ===
+{
+    "type":  "ClaudeCode",
+    "detectable":  true,
+    "found":  true,
+    "configuredPath":  "C:\\Users\\<user>\\.local\\bin\\claude.EXE",
+    "resolvedPath":  "C:\\Users\\<user>\\.local\\bin\\claude.EXE",
+    "source":  "configured path",
+    "message":  "Found Claude Code at C:\\Users\\<user>\\.local\\bin\\claude.EXE."
+}
+
+=== AC7 POST /settings/agents/detect (custom RawCli => nothing to detect) ===
+{
+    "type":  "RawCli",
+    "detectable":  false,
+    "found":  false,
+    "message":  "Detect is only available for the built-in agent types; a custom command has nothing to detect."
+}
+
+=== AC8 POST /settings/agents/quick-check (Codex at its real path) ===
+{
+    "type":  "Codex",
+    "ok":  true,
+    "path":  "C:\\Users\\<user>\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.EXE",
+    "version":  "codex-cli 0.141.0",
+    "message":  "OK: Codex reported codex-cli 0.141.0."
+}
+PERSISTED agent_status.codex.ok = True, tested_at_utc present = True
+
+=== AC9 POST /settings/agents/command-line (ClaudeCode, Automatic preset + opus model) ===
+{
+    "type":  "ClaudeCode",
+    "executable":  "claude",
+    "arguments":  "--dangerously-skip-permissions --model opus",
+    "commandLine":  "claude --dangerously-skip-permissions --model opus"
+}
+

@@ -1,0 +1,22 @@
+﻿=== AC4/AC10 PATCH /settings/agents/qa-c2 argsOverride (single-field update, non-lossy) ===
+--- config.json BEFORE (agent + gateway sections summarized) ---
+entries count BEFORE: 6
+qa-c2 args_override BEFORE: ''
+PATCH response:
+{
+    "id":  "qa-c2",
+    "displayName":  "Claude",
+    "type":  "ClaudeCode",
+    "enabled":  true,
+    "executablePath":  "C:\\Users\\<user>\\.local\\bin\\claude.EXE",
+    "presetId":  "Standard",
+    "defaultModel":  "",
+    "argsOverride":  "--verbose --proof-584",
+    "launchMode":  "Guided"
+}
+qa-c2 args_override AFTER: '--verbose --proof-584'
+entries count AFTER: 6
+OTHER ENTRIES UNCHANGED: True
+TOP-LEVEL KEYS BEFORE: agent,agent_status,alpha_mode,browser,comm_manager,gateway,screenshots,sidebar_collapsed,telemetry,transcription_mode,wingman_enabled,wingman_training_capture
+TOP-LEVEL KEYS AFTER : agent,agent_status,alpha_mode,browser,comm_manager,gateway,screenshots,sidebar_collapsed,telemetry,transcription_mode,wingman_enabled,wingman_training_capture
+

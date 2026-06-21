@@ -1,0 +1,13 @@
+﻿=== AC(auth/loopback) /settings/agents behaves identically to the existing /settings route ===
+This standalone Director has no gateway token, so host auth is OFF (DirectorAuth not registered);
+both routes therefore answer 200 without a token. The point is PARITY: the new routes are mapped
+into the SAME host app, AFTER the same DirectorAuth.Run middleware registration, on the SAME
+loopback-only (127.0.0.1) socket as /settings. So whatever auth applies to /settings applies
+identically to /settings/agents.
+
+  /settings           no-token = 200   good-token = 200
+  /settings/agents    no-token = 200   good-token = 200
+  /settings/agents/catalog        good-token = 200
+
+LISTENER (from Director log): Kestrel listening on http://127.0.0.1:7898 (loopback only; remote access via Tailscale Serve)
+

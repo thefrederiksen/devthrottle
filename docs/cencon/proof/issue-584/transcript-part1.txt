@@ -1,0 +1,86 @@
+﻿=== AC1 GET /settings/agents (list) ===
+{
+    "agents":  [
+                   {
+                       "id":  "qa-c2",
+                       "displayName":  "Claude",
+                       "type":  "ClaudeCode",
+                       "enabled":  true,
+                       "executablePath":  "C:\\Users\\<user>\\.local\\bin\\claude.EXE",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   },
+                   {
+                       "id":  "qa-cx",
+                       "displayName":  "Codex",
+                       "type":  "Codex",
+                       "enabled":  true,
+                       "executablePath":  "C:\\Users\\<user>\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.EXE",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   },
+                   {
+                       "id":  "qa-pi",
+                       "displayName":  "Pi",
+                       "type":  "Pi",
+                       "enabled":  true,
+                       "executablePath":  "D:\\Tools\\Pi\\pi.exe",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   },
+                   {
+                       "id":  "3f0f6b94-a208-4fca-8a77-4a07725cdbfe",
+                       "displayName":  "Gemini",
+                       "type":  "Gemini",
+                       "enabled":  true,
+                       "executablePath":  "C:\\Users\\<user>\\AppData\\Roaming\\npm\\gemini.cmd",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   },
+                   {
+                       "id":  "0db4d439-d2f3-4e02-85d5-d9e02b593d1d",
+                       "displayName":  "OpenCode",
+                       "type":  "OpenCode",
+                       "enabled":  true,
+                       "executablePath":  "C:\\Users\\<user>\\AppData\\Roaming\\npm\\opencode.CMD",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   },
+                   {
+                       "id":  "0fdd7024-3fe8-469b-add5-000d4ebe910c",
+                       "displayName":  "Grok",
+                       "type":  "Grok",
+                       "enabled":  true,
+                       "executablePath":  "C:\\Users\\<user>\\.grok\\bin\\grok.EXE",
+                       "presetId":  "Standard",
+                       "defaultModel":  "",
+                       "argsOverride":  "",
+                       "launchMode":  "Guided"
+                   }
+               ]
+}
+PICKED claudeId=qa-c2
+
+=== AC2 GET /settings/agents/qa-c2 (get one) ===
+{
+    "id":  "qa-c2",
+    "displayName":  "Claude",
+    "type":  "ClaudeCode",
+    "enabled":  true,
+    "executablePath":  "C:\\Users\\<user>\\.local\\bin\\claude.EXE",
+    "presetId":  "Standard",
+    "defaultModel":  "",
+    "argsOverride":  "",
+    "launchMode":  "Guided"
+}
+
