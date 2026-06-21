@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.AccountGateScreen"
+        Title="Sign in to DevThrottle"
+        Width="520" Height="420"
+        MinWidth="480" MinHeight="380"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False"
+        Background="#1E1E1E">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.body">
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="MinWidth" Value="160" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.secondaryButton">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="MinWidth" Value="100" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="32" RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Brand -->
+        <StackPanel Grid.Row="0" HorizontalAlignment="Left">
+            <TextBlock Text="DEVTHROTTLE"
+                       FontFamily="Cascadia Mono, Consolas, Courier New"
+                       FontSize="15"
+                       FontWeight="Bold"
+                       Foreground="#007ACC" />
+            <Border Height="2" Background="#007ACC"
+                    HorizontalAlignment="Left" Width="60" Margin="0,10,0,0" />
+        </StackPanel>
+
+        <!-- Heading -->
+        <TextBlock Grid.Row="1" Classes="title"
+                   Text="An account is required to run the Director"
+                   Margin="0,28,0,0" />
+
+        <!-- Explanation: why an account is required -->
+        <StackPanel Grid.Row="2" Spacing="14" Margin="0,16,0,0">
+            <TextBlock Classes="body"
+                       Text="DevThrottle is open source, and the Director runs on your machine - but it needs a DevThrottle account before it will start. This is the front door to the product." />
+            <TextBlock Classes="body"
+                       Text="You only have to sign in once, while you are online. After that the Director runs locally and quietly on a cached credential, online or offline - so being off the network later never blocks you." />
+        </StackPanel>
+
+        <!-- Actions: the action that leads to login (the login hand-off itself is issue #581) -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="10" Margin="0,24,0,0">
+            <Button x:Name="QuitButton" Classes="secondaryButton"
+                    Content="Quit" Click="BtnQuit_Click"
+                    ToolTip.Tip="Close the Director" />
+            <Button x:Name="SignInButton" Classes="primaryButton"
+                    Content="Sign in to DevThrottle" Click="BtnSignIn_Click"
+                    IsDefault="True"
+                    ToolTip.Tip="Sign in to your DevThrottle account to start the Director" />
+        </StackPanel>
+    </Grid>
+</Window>

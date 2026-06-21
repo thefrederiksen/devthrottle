@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using CcDirector.ControlApi;
+using CcDirector.Core.Account;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
@@ -47,6 +48,13 @@ public partial class App : Application
     public SchedulerService? Scheduler { get; private set; }
     public UpdateService? Updater { get; private set; }
 
+    /// <summary>
+    /// The startup account gate policy (issue #580). Built during service initialization from the
+    /// DevThrottle credential service (issue #583); decides whether the Director may reach a usable
+    /// main window or must block and route the user to log in. Null only before initialization.
+    /// </summary>
+    public AccountGatePolicy? AccountGate { get; private set; }
+
     public bool SandboxMode { get; private set; }
 
     public override void Initialize()
@@ -72,15 +80,38 @@ public partial class App : Application
             SandboxMode = desktop.Args?.Contains("--sandbox", StringComparer.OrdinalIgnoreCase) == true;
             LoadConfiguration();
 
-            // Run all heavy initialization on background thread, then swap to main window
+            // Run all heavy initialization on background thread, then apply the account startup gate
+            // (issue #580) and swap to the gate screen or the main window.
             global::Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
             {
                 await Task.Run(() => InitializeServices(splash));
+
+                // Account startup gate (issue #580): after the splash and before the main window
+                // becomes usable, decide whether this install may run. The decision is a fast local
+                // check (no network call). When no credential has ever been stored, block and show
+                // the gate screen instead of the main window.
+                var gate = AccountGate
+                    ?? throw new InvalidOperationException("AccountGate was not initialized during InitializeServices.");
+                if (gate.Decide() == GateDecision.Block)
+                {
+                    var gateScreen = new AccountGateScreen();
+                    desktop.MainWindow = gateScreen;
+                    gateScreen.Show();
+                    splash.Close();
+                    FileLog.Write("[CcDirector] Startup blocked by account gate: no DevThrottle credential on this install -> gate screen shown, main window not reached");
+                    return;
+                }
 
                 var mainWindow = new MainWindow();
                 desktop.MainWindow = mainWindow;
                 mainWindow.Show();
                 splash.Close();
+                FileLog.Write("[CcDirector] Main window shown (account gate passed); starting background session validation next");
+
+                // The online session validation/refresh runs in the background AFTER the window is
+                // shown, so it never delays the window appearing (issue #580). When offline it is a
+                // no-op and the Director keeps running on the cached credential.
+                _ = gate.StartBackgroundValidation();
 
                 StartUpdateService(mainWindow);
             }, global::Avalonia.Threading.DispatcherPriority.Background);
@@ -197,6 +228,17 @@ public partial class App : Application
 
         WorkspaceStore = new WorkspaceStore();
         log("Workspace store initialized");
+
+        // DevThrottle account startup gate (issue #580), built over the credential service (issue
+        // #583). The credential store is Windows Data Protection today; the macOS Keychain store is
+        // a later drop-in (issue #583), so on non-Windows we fail loud rather than run ungated.
+        UpdateSplashStatus(splash, "Checking account...");
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(
+                "The DevThrottle account credential store is Windows-only today (issue #583); the macOS Keychain store is a later drop-in.");
+        var accountService = DevThrottleAccountFactory.CreateForWindows();
+        AccountGate = new AccountGatePolicy(accountService);
+        log("Account gate initialized");
 
         UpdateSplashStatus(splash, "Starting engine...");
         StartEngine(log);
