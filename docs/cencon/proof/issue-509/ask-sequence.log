@@ -2,9 +2,9 @@ SessionAskRunner ask sequence (issue #509 proof target item 2)
 Captured from AskAsync_LogsLaunchSubmitReadCloseSequence (fixture transcript, no live network).
 Sequence: launch (spec without -p) -> submit -> reply read -> session closed.
 ------------------------------------------------------------------------------
-[SessionAskRunner] AskAsync: kind=ClaudeCode, workdir=<TEMP>\session-ask-tests\c43c2d41c647487987618d95c0daf174, promptLen=26, timeout=2s
-[SessionAskRunner] AskAsync: launched pid=4242, agentSessionId=97f8b7c7-0b34-4b6f-9905-7537ac4e3dd6
+[SessionAskRunner] AskAsync: kind=ClaudeCode, workdir=<TEMP>\session-ask-tests\30cd1d9c429b4a838a351727c59e32f3, promptLen=26, timeout=2s
+[SessionAskRunner] AskAsync: launched pid=4242, agentSessionId=052a65d3-bb2d-4c72-9d98-9a9c72aac22c
 [SessionAskRunner] AskAsync OK: replySeconds=0.0, answerLen=17
-[SessionAskRunner] session closed: agentSessionId=97f8b7c7-0b34-4b6f-9905-7537ac4e3dd6
+[SessionAskRunner] session closed: agentSessionId=052a65d3-bb2d-4c72-9d98-9a9c72aac22c
 ------------------------------------------------------------------------------
 Parsed answer: THE-PROVEN-ANSWER
