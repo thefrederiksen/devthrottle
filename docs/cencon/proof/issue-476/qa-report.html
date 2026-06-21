@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #476 (Auto-resume transient Anthropic API errors)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .verdict { background: #e8f6ec; border: 1px solid #0a7d28; padding: 1rem; margin-top: 1.5rem; font-size: 1.1rem; }
+  code { background: #f4f4f4; padding: 1px 4px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #476</h1>
+<p><strong>Title:</strong> [Wingman] Auto-detect transient Anthropic API errors and auto-resume the stalled session</p>
+<p><strong>PR:</strong> #620 &nbsp; <strong>Branch:</strong> issue-476-auto-resume-transient</p>
+<p><strong>QA Agent:</strong> independent verification in a dedicated worktree (D:\ReposFred\dt-476-qa) from the PR branch.</p>
+
+<h2>How verification was performed</h2>
+<p>The QA Agent re-ran every test itself in its own worktree built from the PR branch (it did NOT
+reuse the Developer's binary, logs, or screenshots). Detection was driven deterministically by
+injecting the verbatim transient string into a live <code>Session</code> terminal buffer
+(<code>TransientErrorAutoResumeIntegrationTests</code>) and into the pure decision core with an
+injected clock (<code>AutoResumeLoopTests</code>) - the same seams the Developer used, re-run
+independently. This feature ships config-file + Core logic only in v1 (Avalonia UI deferred per
+assumption A-8, which the issue explicitly permits); it is inert by default (OFF), so the observable
+behavior is the log lines and the executor actuation, both fully exercised end-to-end by the
+integration tests against a real Session and the single <code>WingmanActionExecutor</code> chokepoint.</p>
+
+<h2>Build and regression</h2>
+<ul>
+  <li><strong>Full solution build:</strong> <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><strong>Feature tests:</strong> 42 passed / 0 failed (AutoResume, TransientError, WingmanCharterAudit).</li>
+  <li><strong>Full Core regression:</strong> <code>dotnet test CcDirector.Core.Tests</code> -> 2261 passed, 0 failed, 6 skipped.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently re-run)</th><th>Result</th></tr>
+<tr><td>1</td><td>Verbatim 500 string classified transient/retryable; log names session id + transient state</td>
+<td>Detection true; armed log line</td>
+<td><code>IsRetryableTransient_Verbatim500Message_True</code> passes; integration test detects the verbatim 500 on a live Session and arms; log prefix <code>[TransientErrorAutoResume] ... state=TRANSIENT-ERROR detected</code> with session id</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>After detection, with setting ON and no user action, Director auto-sends continue after interval</td>
+<td>One auto-continue via executor</td>
+<td><code>TransientError_WithSettingOn_AutoContinuesViaExecutor</code> passes: actuation recorded in <code>Session.RecentWingmanActions</code> with action=submit, reason contains "auto-resume"; routed through <code>WingmanActionExecutor</code></td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>While error persists, retries repeat ~one interval apart (timestamped)</td>
+<td>Multiple attempts spaced by interval</td>
+<td><code>OnRetryDue_RepeatsOnIntervalWhileErrorPersists</code> passes; proof trace driven by the real decision core with injected clock shows 60s first retry then 300s steps (13:31:11 -> 13:36:11 -> ...)</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>When session resumes normal output, retry loop stops</td>
+<td>No further auto-retry after recovery</td>
+<td><code>OnScreenScan_ErrorCleared_RecoversAndStops</code> and <code>OnRetryDue_ErrorClearedAtFireTime_Recovers</code> pass; loop resets, logs RECOVERED, stops the retry timer</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Give-up bound (max attempts and/or elapsed); after it, stop and flag needs-user</td>
+<td>Give-up at bound; red state + log</td>
+<td><code>OnRetryDue_MaxAttemptsReached_GivesUp</code> and <code>MaxElapsedReached_GivesUpBeforeMaxAttempts</code> pass; code flags <code>SetStatusColor(StatusColor.Red, ...)</code> and logs GAVE-UP with attempt count + elapsed</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Behavior can be turned OFF; OFF + error present = zero retries (also the default)</td>
+<td>Zero retries when OFF; default OFF</td>
+<td><code>Get_NoConfig_DefaultsDisabled</code> + <code>AutoResumeConfig.Default</code> Enabled=false confirm default OFF; <code>OnScreenScan_TransientWhileOff_DoesNothing</code> and integration <code>WithSettingOff_ZeroAutoContinues</code> show zero actuations</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Non-transient error (invalid key/auth) does NOT trigger auto-retry</td>
+<td>Zero attempts for terminal error</td>
+<td><code>IsRetryableTransient_TerminalSignatureVetoesTransient_False</code> + integration <code>NonTransientError_WithSettingOn_ZeroAutoContinues</code> show zero actuations even with setting ON</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Method / charter checks</h2>
+<ul>
+  <li><strong>Default OFF (human decision on A-3):</strong> confirmed - <code>AutoResumeConfig.Default</code> has Enabled=false; with OFF + the transient error present, zero auto-retries.</li>
+  <li><strong>Single write chokepoint (invariant 7) preserved:</strong> the only callers of <code>WingmanActionExecutor.Execute</code> under Wingman core are the existing <code>WingmanService.cs</code> and the new allow-listed <code>TransientErrorAutoResume.cs</code> - no new ad-hoc write path.</li>
+  <li><strong>Charter amendment (invariant 8) coherent:</strong> WINGMAN.md amendment, the new section 5c, and the <code>WingmanCharterAuditTests</code> allow-list of exactly <code>TransientErrorAutoResume.cs</code> agree; the audit gate still catches every OTHER self-actuator. Docs and code do not disagree.</li>
+  <li><strong>No-fallback rule:</strong> <code>AutoResumeConfig</code> throws with the fix named on a wrong-typed key rather than silently defaulting.</li>
+  <li><strong>Regression sweep:</strong> full Core suite green; nothing adjacent broke.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. Build clean, full regression green, charter amendment coherent, default OFF confirmed.</div>
+</body>
+</html>

@@ -135,6 +135,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
     private TerminalStateDetector? _terminalStateDetector;
+    private TransientErrorAutoResume? _transientErrorAutoResume;
     private TerminalSessionRecorder? _sessionRecorder;
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Storage.SessionLogManager? _sessionLogManager;
@@ -460,6 +461,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         _terminalStateDetector.Start();
         FileLog.Write("[ControlApiHost] Session state source: terminal (byte->working)");
 
+        // Transient-error auto-resume (issue #476): content-aware detection of a TRANSIENT
+        // Anthropic API server error in a Claude Code session, with an opt-in auto-continue loop.
+        // Gated behind config.json "auto_resume.enabled" which DEFAULTS OFF, so this is inert
+        // unless the user has explicitly turned it on (human decision on assumption A-3). Always
+        // wired so the toggle takes effect without a Director restart; the scheduler re-reads the
+        // live config each cycle.
+        _transientErrorAutoResume = new TransientErrorAutoResume(_sessionManager);
+        _transientErrorAutoResume.Start();
+
         // Always-on terminal recorder: logs every session's resolved grid (on change, with the
         // activity state) to build the ground-truth corpus for offline analysis/learning.
         // Turn detection itself is the trigger + LLM judge in TerminalStateDetector above - no
@@ -628,6 +638,8 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         _terminalStateDetector?.Dispose();
         _terminalStateDetector = null;
+        _transientErrorAutoResume?.Dispose();
+        _transientErrorAutoResume = null;
         _turnReviewLogger?.Dispose();
         _turnReviewLogger = null;
         _sessionRecorder?.Dispose();

@@ -141,13 +141,22 @@ public sealed class WingmanCharterAuditTests
             $"All Wingman actuation must funnel through {WriteFunnelFile} ({CharterRef}):\n  " + string.Join("\n  ", offenders));
     }
 
-    // Invariant 8: actuation is request-driven. The ONLY caller of the executor is the
-    // ControlApi request endpoint (which lives outside this directory). If anything under
-    // src/CcDirector.Core/Wingman/ calls WingmanActionExecutor.Execute, something has wired
-    // the Wingman to act on its own (a turn hook, timer, or background loop) - which the
-    // charter forbids.
+    // Invariant 8: actuation is request-driven, with ONE explicitly approved exception. The
+    // normal caller of the executor is the ControlApi request endpoint (outside this directory).
+    // If anything ELSE under src/CcDirector.Core/Wingman/ calls WingmanActionExecutor.Execute,
+    // something has silently wired the Wingman to act on its own (a turn hook, timer, or
+    // background loop) - which the charter forbids.
+    //
+    // The single sanctioned self-actuator is TransientErrorAutoResume.cs (issue #476): the
+    // human-approved transient-error auto-resume loop. It is gated behind a setting that DEFAULTS
+    // OFF (opt-in) and still writes through the same WingmanActionExecutor chokepoint (invariant 7
+    // intact). It is allow-listed here so the gate keeps catching every OTHER self-actuator while
+    // permitting this one. See WINGMAN.md invariant 8.
     private static readonly Regex ExecutorCall =
         new(@"WingmanActionExecutor\s*\.\s*Execute\s*\(", RegexOptions.None);
+
+    private static readonly HashSet<string> ApprovedSelfActuators =
+        new(StringComparer.Ordinal) { "TransientErrorAutoResume.cs" };
 
     [Fact]
     public void Wingman_core_never_triggers_its_own_actuation()
@@ -157,13 +166,15 @@ public sealed class WingmanCharterAuditTests
         Assert.NotEmpty(files);
 
         var offenders = files
+            .Where(f => !ApprovedSelfActuators.Contains(Path.GetFileName(f)))
             .Where(f => ExecutorCall.IsMatch(File.ReadAllText(f)))
             .Select(Path.GetFileName)
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            $"Wingman actuation must be request-driven; nothing in the Wingman core may invoke " +
-            $"WingmanActionExecutor.Execute ({CharterRef}):\n  " + string.Join("\n  ", offenders));
+            $"Wingman actuation must be request-driven (except the approved auto-resume loop); " +
+            $"nothing else in the Wingman core may invoke WingmanActionExecutor.Execute ({CharterRef}):\n  "
+            + string.Join("\n  ", offenders));
     }
 
     private static string ResolveWingmanSourceDir()
