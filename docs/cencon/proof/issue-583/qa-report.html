@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #583 (Director credential store and offline logged-in check)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; font-size: 0.92rem; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  .verdict { background: #e6ffe6; border: 2px solid #0a7a0a; padding: 1rem; margin-top: 2rem; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; font-size: 0.85rem; }
+  pre { background: #f6f6f6; padding: 0.8rem; overflow-x: auto; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #583</h1>
+<p><strong>Title:</strong> [Account] Director credential store and offline logged-in check<br>
+<strong>Pull request:</strong> #595 (branch <code>issue-583-credential-store</code>)<br>
+<strong>QA method:</strong> Independent verification per the CenCon QA Agent role. The QA session built
+the pull-request branch in its own checkout, ran the full Core test suite, and exercised every
+acceptance criterion end-to-end through its OWN harness against the REAL Windows Data Protection
+(DPAPI) credential store - the developer's binary and screenshots were not reused.</p>
+
+<h2>Build and regression</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code></td><td class="pass">Build succeeded. 0 Warning(s), 0 Error(s) (TreatWarningsAsErrors)</td></tr>
+<tr><td><code>dotnet test src/CcDirector.Core.Tests</code> (full regression sweep)</td><td class="pass">2163 passed, 0 failed, 6 skipped (skips are unrelated nul-file watcher tests)</td></tr>
+<tr><td>Account-area unit tests (developer's 22 plus adjacent)</td><td class="pass">45 passed, 0 failed</td></tr>
+<tr><td>CenCon doc-drift: <code>docs/cencon/architecture_manifest.yaml</code></td><td class="pass">Updated - DevThrottleAccountService recorded under core_services; WindowsProtectedTokenStore recorded under native_apis</td></tr>
+<tr><td>Security lens (token never logged / never plaintext at rest)</td><td class="pass">FileLog calls log status/counts only; AuthEventLog stores kind+timestamp only; blob DPAPI-encrypted (verified)</td></tr>
+</table>
+
+<h2>Acceptance criteria - independent end-to-end verification</h2>
+<p>Run against the real DPAPI store inside an isolated <code>CC_DIRECTOR_ROOT</code> so the entire
+config directory could be grepped (text and raw bytes) for the plaintext token marker. A recording
+refresher captured whether the network seam was ever invoked. Full output in
+<code>qa-independent-harness-output.txt</code>.</p>
+<table>
+<tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (QA)</th><th>Verdict</th></tr>
+<tr><td>1</td><td>Test token pair stored in DPAPI store; raw token not found in plaintext under the config directory</td><td>Blob written; no plaintext match; encrypted at rest</td><td>Blob exists; DPAPI CurrentUser magic header <code>01 00 00 00</code> present (454 bytes); grep of every file under the root found no plaintext or raw-byte match for the access or refresh markers</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>With networking disabled, "is this install logged in?" returns true from cache with no outbound network call</td><td>true; no network call</td><td><code>IsLoggedIn()=True</code>; recording refresher provably never invoked (<code>Called=False</code>)</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>With no stored credential, the check returns false (clean profile)</td><td>false</td><td><code>IsLoggedIn()=False</code> on the clean isolated profile; refresher not called</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Expired access + valid refresh + online: background refresh renews with no user action; store entry changes</td><td>renews; store changes</td><td><code>RefreshIfNeededAsync()=True</code>; refresher invoked; blob bytes changed before vs after; renewed token then validates as logged in. Offline (refresher returns null) declines gracefully and keeps the cached credential.</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Tampered / wrong-signature cached token treated as not logged in</td><td>false</td><td>Final-byte-flipped token -> <code>IsLoggedIn()=False</code>; valid-structure-but-wrong-key token -> <code>IsLoggedIn()=False</code></td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Logout clears the store, the next check returns false, and a logout event is recorded</td><td>store empty; false; logout event</td><td>Blob deleted; <code>IsLoggedIn()=False</code>; event log = <code>[logged-in, logout]</code> (logged-in recorded on first store, logout on clear)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Harness output (QA-produced, against the real DPAPI store)</h2>
+<pre>QA ROOT (isolated CC_DIRECTOR_ROOT) = ...Temp\qa-583-root-...
+[PASS] AC3 clean-profile check returns false: IsLoggedIn()=False, refresherCalled=False
+[PASS] AC1 tokens written to DPAPI store: blob exists=True
+[PASS] AC1 raw token NOT in plaintext under config dir: no plaintext match anywhere under root
+[PASS] AC1 blob carries DPAPI CurrentUser magic header: first4=[01 00 00 00], len=454
+[PASS] AC2 offline check returns true from cache: IsLoggedIn()=True
+[PASS] AC2 offline check made NO network call: refresher invoked=False
+[PASS] AC(event) logged-in event recorded on first store: events=[logged-in]
+[PASS] AC5 tampered token treated as NOT logged in: IsLoggedIn()=False
+[PASS] AC5 wrong-signature token treated as NOT logged in: IsLoggedIn()=False
+[PASS] AC4 background refresh ran for expired+valid-refresh: refreshed=True, refresherCalled=True
+[PASS] AC4 store entry changed after refresh: blob changed=True
+[PASS] AC4 renewed token is now valid (logged in): IsLoggedIn()=True
+[PASS] AC4 offline refresh declines gracefully, keeps cached credential: refreshed=False, stillLoggedIn=True
+[PASS] AC6 logout clears the store: blob exists=False
+[PASS] AC6 next check after logout returns false: IsLoggedIn()=False
+[PASS] AC6 logout event recorded: events=[logged-in,logout]
+
+RESULT: 16 passed, 0 failed</pre>
+
+<div class="verdict">VERIFIED - all 6 acceptance criteria met. Build clean (0 warnings, 0 errors), full
+Core regression suite green (2163 passed), architecture manifest updated, no security-rule violation.
+Issue #583 PASSES QA.</div>
+
+</body>
+</html>
