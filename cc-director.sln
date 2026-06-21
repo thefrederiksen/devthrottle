@@ -59,6 +59,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcDirector.Launcher.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcDirector.TrayUi", "src\CcDirector.TrayUi\CcDirector.TrayUi.csproj", "{55C82C67-26A4-4631-8676-ABE5ECEE2579}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcDirector.Avalonia.Tests", "src\CcDirector.Avalonia.Tests\CcDirector.Avalonia.Tests.csproj", "{38F30919-77F6-4163-BC66-CC9B908C35BF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -393,6 +395,18 @@ Global
 		{55C82C67-26A4-4631-8676-ABE5ECEE2579}.Release|x64.Build.0 = Release|Any CPU
 		{55C82C67-26A4-4631-8676-ABE5ECEE2579}.Release|x86.ActiveCfg = Release|Any CPU
 		{55C82C67-26A4-4631-8676-ABE5ECEE2579}.Release|x86.Build.0 = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|x64.Build.0 = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Debug|x86.Build.0 = Debug|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|x64.ActiveCfg = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|x64.Build.0 = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|x86.ActiveCfg = Release|Any CPU
+		{38F30919-77F6-4163-BC66-CC9B908C35BF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -423,5 +437,6 @@ Global
 		{A3B4C5D6-E7F8-9012-ABCD-EF3456789012} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B4C5D6E7-F8A9-0123-BCDE-FA4567890123} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{55C82C67-26A4-4631-8676-ABE5ECEE2579} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{38F30919-77F6-4163-BC66-CC9B908C35BF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

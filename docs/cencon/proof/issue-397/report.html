@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #397</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1c1c1c; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .3rem; }
+  h2 { margin-top: 1.8rem; color: #2a4d69; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef2f6; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f4; }
+  pre { padding: .8rem; border: 1px solid #ddd; overflow-x: auto; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .verdict { background: #e8f5e9; border: 1px solid #1a7f37; padding: 1rem; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+
+<h1>Proof Report - Issue #397</h1>
+<p><strong>Title:</strong> [Maintenance] Add CcDirector.Avalonia.Tests to the solution</p>
+<p><strong>Branch:</strong> issue-397-add-avalonia-tests-to-sln &nbsp;|&nbsp; <strong>Pull Request:</strong> #606</p>
+
+<h2>What was implemented</h2>
+<p>
+  The <code>src/CcDirector.Avalonia.Tests</code> project had an active <code>.csproj</code> and current
+  test files, but was not referenced by <code>cc-director.sln</code>. Its tests therefore never ran in a
+  normal solution build or test. The project was added to the solution using
+  <code>dotnet sln cc-director.sln add ... --solution-folder src</code>, which inserted the project entry,
+  all six build configurations (Debug/Release x Any CPU/x64/x86), and the <code>src</code> solution-folder
+  nesting that matches every other project in the solution. The single changed file is
+  <code>cc-director.sln</code> (15 lines added, no other files touched).
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>Project is referenced by the solution</td>
+    <td><code>grep -c "CcDirector.Avalonia.Tests" cc-director.sln</code> &gt; 0 (was 0)</td>
+    <td>Returns <code>1</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><code>dotnet build cc-director.sln</code> includes the project</td>
+    <td>Solution build compiles the project</td>
+    <td>Build log line: <code>CcDirector.Avalonia.Tests -&gt; ...\CcDirector.Avalonia.Tests.dll</code>; "Build succeeded. 0 Warning(s) 0 Error(s)"</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><code>dotnet test</code> discovers and runs the Avalonia.Tests cases</td>
+    <td>The project's test cases are discovered and run</td>
+    <td>"A total of 1 test files matched"; "Passed! - Failed: 0, Passed: 70, Skipped: 0, Total: 70"</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence</h2>
+
+<h3>1. Solution membership (grep)</h3>
+<pre>$ grep -c "CcDirector.Avalonia.Tests" cc-director.sln
+1</pre>
+
+<h3>2. Full solution build (tail)</h3>
+<pre>  CcDirector.Avalonia -&gt; ...\src\CcDirector.Avalonia\bin\Debug\net10.0\cc-director.dll
+  CcDirector.Avalonia.Tests -&gt; ...\src\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h3>3. dotnet test (Avalonia.Tests project)</h3>
+<pre>Test run for ...\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 770 ms - CcDirector.Avalonia.Tests.dll (net10.0)</pre>
+
+<h3>Diff of cc-director.sln</h3>
+<pre>+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CcDirector.Avalonia.Tests", "src\CcDirector.Avalonia.Tests\CcDirector.Avalonia.Tests.csproj", "{38F30919-77F6-4163-BC66-CC9B908C35BF}"
++EndProject
+   ... (six build-configuration lines for the new project GUID) ...
++  {38F30919-77F6-4163-BC66-CC9B908C35BF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}   (nested under the "src" solution folder)</pre>
+
+<h2>CenCon impact</h2>
+<p>
+  No drift. This is a solution-membership change only - it adds an existing test project to the build.
+  No architecture container changes, no security posture change, no <code>docs/cencon/</code> manifest
+  update required.
+</p>
+
+<h2>Note on proof method</h2>
+<p>
+  This is a build-tooling change to <code>cc-director.sln</code> with no runtime or UI behavior. The
+  authoritative proof is the solution build compiling the project and <code>dotnet test</code>
+  discovering its cases (above); a running-Director screenshot would not demonstrate solution
+  membership and so was not used.
+</p>
+
+<div class="verdict">
+  <strong>I believe this is finished.</strong> All three acceptance criteria are met and proven: the
+  project is referenced by the solution, the full-solution build compiles it cleanly, and
+  <code>dotnet test</code> discovers and runs its 70 test cases.
+</div>
+
+</body>
+</html>
