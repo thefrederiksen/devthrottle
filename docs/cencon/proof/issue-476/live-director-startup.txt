@@ -1,0 +1,13 @@
+=== Live Director boot proof (slot 13, this PR's build cc-director13.exe) ===
+The TransientErrorAutoResume service is wired into the Director's session-state services
+(ControlApiHost.StartSessionStateServices) and reads config.json's auto_resume section at boot.
+
+--- Boot 1: default config (no auto_resume section) => feature OFF (the opt-in default, A-3) ---
+2026-06-21 17:26:23.694 [ControlApiHost] Session state source: terminal (byte->working)
+2026-06-21 17:26:23.695 [TransientErrorAutoResume] Start (enabled=False, firstRetry=60s, interval=300s, maxAttempts=12, maxElapsed=120min)
+
+--- Boot 2: config.json auto_resume.enabled=true => feature ON ---
+2026-06-21 17:27:34.221 [TransientErrorAutoResume] Start (enabled=True, firstRetry=60s, interval=300s, maxAttempts=12, maxElapsed=120min)
+
+Note: the running-Director config was modified to enabled=true ONLY to capture Boot 2, then
+restored byte-identical immediately after (verified by diff). The user's config is unchanged.

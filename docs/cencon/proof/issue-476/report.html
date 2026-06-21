@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #476 - Auto-resume transient Anthropic API errors - Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1e1e1e; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #007ACC; padding-bottom: 6px; }
+  h2 { font-size: 18px; margin-top: 28px; color: #007ACC; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; overflow-x: auto; font-size: 12px; border-radius: 4px; }
+  .pass { color: #157f3b; font-weight: bold; }
+  .pill { display: inline-block; background: #157f3b; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: 8px 0; }
+  .note { background: #fff8e1; border-left: 4px solid #ffb300; padding: 8px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #476 - Wingman auto-resume on transient Anthropic API errors</h1>
+<p><span class="pill">Developer Agent proof</span> Branch <code>issue-476-auto-resume-transient</code>.
+I believe this is finished.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Content-aware transient-error detection</b> (<code>TransientErrorSignatures</code>): a pure,
+      case-insensitive scan of a Claude Code session's resolved terminal grid for the transient
+      Anthropic signatures (HTTP 500 "Internal server error ... usually temporary", 529 "Overloaded",
+      "try again in a moment"), with a hard veto on terminal signatures (invalid key, auth,
+      quota/billing, malformed). A terminal error is never classified retryable - fail closed.</li>
+  <li><b>Auto-resume scheduler</b> (<code>TransientErrorAutoResume</code> + the pure decision core
+      <code>AutoResumeLoop</code>): on detecting a transient error it submits a "Please continue."
+      nudge after the first-retry delay, then on the steady interval, until the error clears
+      (recovery) or a give-up bound is hit. Per-session, on the live terminal buffer.</li>
+  <li><b>Opt-in setting, default OFF</b> (<code>AutoResumeConfig</code>, config.json
+      <code>auto_resume</code> section in the style of <code>autoUpdate</code>): keys
+      <code>enabled</code> (default false), <code>first_retry_seconds</code> (60),
+      <code>interval_seconds</code> (300), <code>max_attempts</code> (12),
+      <code>max_elapsed_minutes</code> (120). Honors the human decision on assumption A-3.</li>
+  <li><b>Single write chokepoint preserved</b>: every auto-continue funnels through
+      <code>WingmanActionExecutor.Execute</code> (Wingman charter invariant 7). The charter
+      (WINGMAN.md) and the charter-audit test were updated to permit this ONE approved, gated,
+      default-OFF self-actuator (invariant 8 amendment).</li>
+  <li><b>Timestamped logging</b> of every detection, auto-continue attempt, recovery, and give-up
+      (<code>[TransientErrorAutoResume]</code>).</li>
+  <li>Wired into <code>ControlApiHost.StartSessionStateServices</code> (start) and disposed on stop.</li>
+</ul>
+
+<h2>Design decisions on the open assumptions</h2>
+<table>
+  <tr><th>Assumption</th><th>Decision</th></tr>
+  <tr><td>A-1 interval</td><td>First retry 60s (sooner, errors are usually temporary), then every 300s. Configurable.</td></tr>
+  <tr><td>A-2 what "continue" sends</td><td>A single submitted line <code>"Please continue."</code> (type + Enter via the executor). Minimal nudge; resumes the interrupted turn without re-running a partially-done action.</td></tr>
+  <tr><td>A-3 write action / default</td><td>Approved (human). Default OFF (opt-in). Live Director logs <code>enabled=False</code> by default.</td></tr>
+  <tr><td>A-4 signatures</td><td>Transient: 500 "usually temporary", 529, "overloaded", "try again in a moment". Terminal veto: invalid key, auth, quota/billing, malformed, 400/401/403.</td></tr>
+  <tr><td>A-6 give-up bound</td><td>12 attempts OR 120 minutes elapsed, whichever first. On give-up the session is flagged red "needs you".</td></tr>
+  <tr><td>A-8 UI surface</td><td>Shipped config.json setting (default OFF) + detection/scheduler. Avalonia Settings toggle noted as a small follow-up; the setting is reachable via config.json regardless.</td></tr>
+</table>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How proven</th><th>Result</th></tr>
+  <tr><td>1</td><td>Verbatim 500 string => classified transient (log names session id + state)</td>
+      <td>Unit: <code>TransientErrorSignaturesTests.IsRetryableTransient_Verbatim500Message_True</code>; trace line "state=TRANSIENT-ERROR detected" with session id (<code>auto-resume-log-trace.txt</code>)</td><td class="pass">PASS</td></tr>
+  <tr><td>2</td><td>After detection, no user action, auto-continue once the interval elapses</td>
+      <td>Integration: <code>TransientError_WithSettingOn_AutoContinuesViaExecutor</code> records a real <code>submit</code> actuation; trace shows AUTO-CONTINUE attempt=1 at +60s</td><td class="pass">PASS</td></tr>
+  <tr><td>3</td><td>Retries repeat on the configured interval (timestamps ~1 interval apart)</td>
+      <td>Trace <code>auto-resume-log-trace.txt</code>: attempts 1..12 spaced exactly 300s apart; unit <code>OnRetryDue_RepeatsOnIntervalWhileErrorPersists</code></td><td class="pass">PASS</td></tr>
+  <tr><td>4</td><td>On recovery (output resumes) the retry loop stops</td>
+      <td>Unit <code>OnScreenScan_ErrorCleared_RecoversAndStops</code> / <code>OnRetryDue_ErrorClearedAtFireTime_Recovers</code>; trace Scenario A "state=RECOVERED ... stopping retry loop"</td><td class="pass">PASS</td></tr>
+  <tr><td>5</td><td>Give-up bound; then stop and flag session needs-you</td>
+      <td>Unit <code>OnRetryDue_MaxAttemptsReached_GivesUp</code> / <code>OnRetryDue_MaxElapsedReached_GivesUpBeforeMaxAttempts</code>; trace Scenario B "GAVE-UP after 12 attempt(s) ... flagging session needs-you (red)"; code sets red via <code>SetStatusColor(Red, PositiveEvidence)</code></td><td class="pass">PASS</td></tr>
+  <tr><td>6</td><td>Setting OFF => zero auto-retry attempts</td>
+      <td>Integration <code>TransientError_WithSettingOff_ZeroAutoContinues</code> (zero recorded actuations); config default-OFF proven by <code>AutoResumeConfigTests.Get_NoConfig_DefaultsDisabled</code> and live boot <code>enabled=False</code>; trace Scenario C</td><td class="pass">PASS</td></tr>
+  <tr><td>7</td><td>Non-transient error (invalid key/auth) => no auto-retry</td>
+      <td>Integration <code>NonTransientError_WithSettingOn_ZeroAutoContinues</code>; unit <code>IsRetryableTransient_TerminalError_False</code> and the veto test</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof target 1 - a session in the 500 state (field screenshot)</h2>
+<p>Field evidence referenced in the issue (the verbatim 500 at the bottom of a stalled session):</p>
+<img src="field-500-error.png" alt="API Error 500 Internal server error stalled session">
+
+<h2>Proof target 2 - timestamped detection + auto-retry cadence</h2>
+<p>Produced by the shipped decision core (<code>AutoResumeLoop</code>) under a fixed clock at the
+default config, so the spacing is exact rather than wall-clock-flaky. Full file:
+<code>auto-resume-log-trace.txt</code>. Excerpt (Scenario A - retries then recovery):</p>
+<pre>2026-06-21 13:30:11Z [TransientErrorAutoResume] session=...555 terminal shows: "API Error: 500 Internal server error. This is a server-side issue, usually temporary"
+2026-06-21 13:30:11Z [TransientErrorAutoResume] session=...555 state=TRANSIENT-ERROR detected; auto-resume armed, first continue in 60s
+2026-06-21 13:31:11Z [TransientErrorAutoResume] session=...555 AUTO-CONTINUE attempt=1/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:36:11Z [TransientErrorAutoResume] session=...555 AUTO-CONTINUE attempt=2/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:41:11Z [TransientErrorAutoResume] session=...555 state=RECOVERED after 2 auto-continue attempt(s); stopping retry loop</pre>
+
+<h2>Proof target 3 - give-up at the bound</h2>
+<pre>2026-06-21 14:37:11Z [TransientErrorAutoResume] session=...555 AUTO-CONTINUE attempt=12/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:42:11Z [TransientErrorAutoResume] session=...555 GAVE-UP after 12 attempt(s), 61.0min; flagging session needs-you (red)</pre>
+
+<h2>Proof target 4 - the setting (enable + interval) and OFF => zero retries</h2>
+<p>Live Director (this PR's build, slot 13) at boot. Full file: <code>live-director-startup.txt</code>.</p>
+<pre>Boot 1 (default config, no auto_resume section):
+2026-06-21 17:26:23.695 [TransientErrorAutoResume] Start (enabled=False, firstRetry=60s, interval=300s, maxAttempts=12, maxElapsed=120min)
+
+Boot 2 (config.json auto_resume.enabled=true):
+2026-06-21 17:27:34.221 [TransientErrorAutoResume] Start (enabled=True, firstRetry=60s, interval=300s, maxAttempts=12, maxElapsed=120min)</pre>
+<p>OFF => zero retries is proven by the integration test (zero recorded actuations with the verbatim
+500 on screen and the setting OFF) and trace Scenario C.</p>
+<div class="note">The running-Director config was toggled to <code>enabled=true</code> ONLY to capture
+Boot 2, then restored byte-identical (verified by <code>diff</code>). The user's config is unchanged.</div>
+
+<h2>CenCon impact</h2>
+<p>New Wingman component <code>TransientErrorAutoResume</code> takes a Director-driven write action -
+the one approved exception to Wingman charter invariant 8 ("the Wingman never acts on its own").
+Updated in the same change: <code>docs/wingman/WINGMAN.md</code> (invariant 8 amendment + new section
+5c), and the charter-audit test <code>WingmanCharterAuditTests</code> (allow-lists the one approved
+self-actuator). Invariants 1-7 are preserved: no model call in detection, the single write chokepoint
+still holds, and the action is gated default-OFF. No architecture_manifest or security_profile drift
+(the affected containers - CcDirector.Core Wingman, ControlApiHost wiring, config.json - already exist).</p>
+
+<h2>Tests</h2>
+<ul>
+  <li><code>TransientErrorSignaturesTests</code> - transient match / terminal veto / no-error.</li>
+  <li><code>AutoResumeLoopTests</code> - cadence, recovery, give-up (attempts & elapsed), OFF.</li>
+  <li><code>AutoResumeConfigTests</code> - default OFF, full section, wrong-type throws.</li>
+  <li><code>TransientErrorAutoResumeIntegrationTests</code> - live pipeline: actuation ON, zero OFF, zero non-transient.</li>
+  <li><code>WingmanCharterAuditTests</code> - still green with the amended invariant 8.</li>
+</ul>
+<p>Full CcDirector.Core.Tests suite: <span class="pass">2257 passed, 6 skipped, 0 failed</span>. Solution builds clean (0 warnings, 0 errors).</p>
+
+</body>
+</html>

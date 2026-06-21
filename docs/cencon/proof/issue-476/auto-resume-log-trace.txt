@@ -1,0 +1,33 @@
+=== Issue #476 auto-resume cadence trace (driven by AutoResumeLoop, the shipped decision core) ===
+Config: enabled=true, first_retry=60s, interval=300s, max_attempts=12, max_elapsed=120min
+
+--- SCENARIO A: transient 500, retries on cadence, then RECOVERS on attempt 3 ---
+2026-06-21 13:30:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 terminal shows: "API Error: 500 Internal server error. This is a server-side issue, usually temporary"
+2026-06-21 13:30:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 state=TRANSIENT-ERROR detected; auto-resume armed, first continue in 60s
+2026-06-21 13:31:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=1/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:36:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=2/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:41:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 terminal now shows normal output (server recovered)
+2026-06-21 13:41:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 state=RECOVERED after 2 auto-continue attempt(s); stopping retry loop
+
+--- SCENARIO B: transient 500 that never clears -> GIVE UP at the 12-attempt bound ---
+2026-06-21 13:41:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 terminal shows the transient 500
+2026-06-21 13:41:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 state=TRANSIENT-ERROR detected; auto-resume armed, first continue in 60s
+2026-06-21 13:42:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=1/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:47:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=2/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:52:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=3/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 13:57:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=4/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:02:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=5/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:07:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=6/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:12:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=7/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:17:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=8/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:22:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=9/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:27:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=10/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:32:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=11/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:37:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 AUTO-CONTINUE attempt=12/12 performed=true status=ok (submitted "Please continue.")
+2026-06-21 14:42:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 GAVE-UP after 12 attempt(s), 61.0min; flagging session needs-you (red)
+
+--- SCENARIO C: setting OFF -> zero retries even with the 500 on screen ---
+2026-06-21 14:42:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 terminal shows the transient 500, but auto_resume.enabled=false
+2026-06-21 14:42:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 (no action)
+2026-06-21 14:43:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 (no action)
+2026-06-21 14:43:11Z [TransientErrorAutoResume] session=11111111-2222-3333-4444-555555555555 RESULT: zero auto-continue attempts (feature OFF)

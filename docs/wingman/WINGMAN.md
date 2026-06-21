@@ -39,11 +39,18 @@ under `src/CcDirector.Core/Wingman/` violates the mechanical ones.
 7. **One write chokepoint.** All Wingman actuation goes through `WingmanActionExecutor`; it is
    the only file under `src/CcDirector.Core/Wingman/` allowed to call a Session write method,
    and every actuation it performs is logged. (Audited.)
-8. **Actuation is request-driven - the Wingman never acts on its own.** Every action originates
-   from an explicit `POST /sessions/{sid}/wingman/act`. There is no turn-completion hook, timer,
-   or background loop that invokes actuation; the Wingman does not wake up and "figure out what
-   to do" after a turn. (Audited: nothing under `src/CcDirector.Core/Wingman/` calls
-   `WingmanActionExecutor.Execute`.)
+8. **Actuation is request-driven - the Wingman never acts on its own, with ONE approved
+   exception.** Every action normally originates from an explicit `POST /sessions/{sid}/wingman/act`.
+   There is no turn-completion hook, timer, or background loop that invokes actuation; the Wingman
+   does not wake up and "figure out what to do" after a turn. The single sanctioned self-actuator
+   is **transient-error auto-resume** (`TransientErrorAutoResume`, issue #476, section 5c): a
+   Director-driven loop that nudges a session stalled on a *transient* Anthropic API error to
+   continue. It is the only background actuator allowed because (a) it is gated behind a setting
+   that DEFAULTS OFF - opt-in, the human decision on assumption A-3 - so the Director does nothing
+   without explicit user consent, (b) it still writes only through `WingmanActionExecutor`
+   (invariant 7 intact), and (c) it acts only on a narrow, content-matched transient signature and
+   never on a terminal error. (Audited: nothing under `src/CcDirector.Core/Wingman/` calls
+   `WingmanActionExecutor.Execute` EXCEPT the allow-listed `TransientErrorAutoResume.cs`.)
 3. **Faithful, not summarizing, when content is asked for.** Status outputs (badge, terse
    briefing) may be short, but when the user asks to *read* content ("read me the article")
    the Wingman reproduces it verbatim, complete, no length cap.
@@ -177,6 +184,39 @@ permission gates, they are correctness:
 - **Idempotency / cooldown.** The executor refuses to act twice on an unchanged screen within a
   short window (`LastActedScreenHash` + `ActionCooldown`), so a repeated request (e.g. a
   double-tap) cannot inject onto a screen the Wingman just acted on.
+
+---
+
+## 5c. Transient-error auto-resume (the one approved self-actuator)
+
+`TransientErrorAutoResume` (issue #476) is the single exception to invariant 8. Claude Code
+sessions sometimes stall mid-turn on a **transient** Anthropic server error - the field-seen
+`API Error: 500 Internal server error. This is a server-side issue, usually temporary - try
+again in a moment.`, or the related `529 Overloaded` / "try again" family. These usually clear
+themselves in a minute or two, but the session just sits there until a human nudges it. This loop
+recognizes that *transient, retryable* state and auto-continues the session on a cadence until it
+recovers - so long-running / unattended sessions self-heal from Anthropic-side blips.
+
+How it stays inside the charter:
+
+- **Content detection, not a model.** `TransientErrorSignatures.IsRetryableTransient` is a pure,
+  case-insensitive substring check over the resolved screen grid (`Session.SnapshotScreenRows`).
+  It matches the transient signatures AND vetoes on terminal signatures (invalid key, auth,
+  quota/billing, malformed). A terminal error is NEVER auto-retried (scope OUT). No regex, no LLM.
+- **Opt-in, default OFF.** Gated behind `config.json` `auto_resume.enabled` (`AutoResumeConfig`,
+  default `false`). With it off the loop arms nothing and sends zero continues. This is the human
+  decision on assumption A-3: the write action is approved only as an explicit opt-in.
+- **One write chokepoint.** Every auto-continue is a `WingmanAction { submit "Please continue." }`
+  executed through `WingmanActionExecutor` - invariant 7 is preserved, and each attempt is audited.
+- **Bounded cadence + give-up.** First continue after `auto_resume.first_retry_seconds` (default
+  60s), then every `auto_resume.interval_seconds` (default 300s) while the error persists. Stops
+  the instant the error clears (recovery). Gives up after `auto_resume.max_attempts` (default 12)
+  OR `auto_resume.max_elapsed_minutes` (default 120), whichever first, and on give-up flags the
+  session red "needs you" so the user takes over.
+- **Claude Code only.** Non-Claude and GitHub-Actions sessions are never wired (scope OUT).
+
+Every detection, every auto-continue attempt (with attempt count + timestamp), recovery, and
+give-up is logged with the `[TransientErrorAutoResume]` prefix and the session id.
 
 ---
 
