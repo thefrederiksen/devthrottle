@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #474 [Docs] GitHub-facing Help and Documentation entry point in README</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 960px; margin: 2em auto; padding: 0 1em; color: #1f2328; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #d0d7de; padding-bottom: .3em; }
+  h2 { border-bottom: 1px solid #d0d7de; padding-bottom: .3em; margin-top: 1.6em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 13px; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  code { background: #f6f8fa; padding: 1px 5px; border-radius: 4px; font-family: Consolas, monospace; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .verdict { background: #ddf4dd; border: 1px solid #1a7f37; padding: 1em; border-radius: 6px; margin-top: 1.5em; }
+  pre { background: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>QA Proof Report - Issue #474</h1>
+<p><strong>Title:</strong> [Docs] GitHub-facing Help and Documentation entry point in README</p>
+<p><strong>PR:</strong> #605 &nbsp; <strong>Branch:</strong> <code>issue-474-readme-help-docs</code></p>
+<p><strong>Verifier:</strong> QA Agent (independent context - did not reuse the Developer Agent's findings or proof).</p>
+<p><strong>Change type:</strong> Documentation only. No application container (<code>CcDirector.*</code>) is modified, so QA proof is the README content plus an independent link check, not an app build/run (per the issue's Proof Target and Assumption 2).</p>
+
+<h2>How QA verified (independent)</h2>
+<ul>
+  <li>Checked out the PR branch <code>issue-474-readme-help-docs</code> and read the actual <code>README.md</code> Help and Documentation section (lines 107-120) and the new <code>docs/README.md</code> index.</li>
+  <li>Confirmed every relative link target in the README section and the docs index exists on disk (15 of 15 present).</li>
+  <li>Confirmed both external GitHub URLs (issue tracker, Discussions) return HTTP 200 via curl.</li>
+  <li>Confirmed the PR diff touches only <code>README.md</code> and files under <code>docs/</code> - no application code, so no app build/run required and no CenCon architecture/security drift.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Acceptance criterion</th><th>Expected</th><th>Actual (independently observed)</th><th>Status</th></tr>
+  <tr>
+    <td>README contains a clearly-headed Help and Documentation section linking getting-started, installation, quick-start, tools overview, and the Control API docs under <code>docs/public/</code>, plus a where-to-get-help pointer.</td>
+    <td>A section headed "Help and Documentation" with links to Introduction, Installation, Quick Start, Features, Tools, Control API, and a GitHub help pointer.</td>
+    <td>Section <code>## Help &amp; Documentation</code> present at README line 107, with a link table to all six <code>docs/public/</code> guides (Introduction, Installation, Quick Start, Features, Tools, Control API) plus a bold "Where to get help" line pointing to the GitHub issue tracker and Discussions.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Every link in that section resolves to a real target (no dead links).</td>
+    <td>Zero dead links.</td>
+    <td>All 15 relative targets referenced from the README section and the docs index exist on disk. Both external GitHub URLs returned HTTP 200 (issue tracker, Discussions). Zero dead links.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The section does not duplicate the body of the docs - it links to them.</td>
+    <td>Signposting only, not a copy of getting-started content.</td>
+    <td>The section is a one-line intro plus a link table plus a help pointer; it explicitly states it "points you to the docs, it does not repeat them." No doc body is restated. Verified by reading the section.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>PR diff is docs-only: <code>README.md</code> + <code>docs/README.md</code> + proof artifacts under <code>docs/cencon/proof/issue-474/</code>. No application container changed.</li>
+  <li>CenCon: no drift. No architecture or security document needs updating; no <code>DT-*</code> rule touched.</li>
+  <li>No nul files, no stray untracked files.</li>
+</ul>
+
+<div class="verdict">
+  <p><strong>VERIFIED - all acceptance criteria met.</strong> The README has a clearly-headed Help and Documentation section signposting the six docs/public guides plus a where-to-get-help pointer; every link resolves (15 internal targets present, 2 external URLs return HTTP 200); and the section signposts rather than duplicating the docs. PASS.</p>
+</div>
+
+</body>
+</html>
