@@ -2201,12 +2201,74 @@ public partial class MainWindow : Window
             // The "is the Gateway tray app running on THIS machine?" hint only makes sense for
             // the loopback default. For a configured remote gateway the failure is about
             // reachability (the remote gateway is down, or the tailnet is unreachable).
-            var hint = CockpitUrlResolver.IsLocalhostDefault(baseUrl)
-                ? "\n\nIs the Gateway tray app (devthrottle-gateway) running on this machine?"
-                : "\n\nIs the Gateway running on that machine and reachable over your tailnet?";
             await new MessageDialog(
                 "Cannot Open Cockpit",
-                $"Could not reach the gateway at {baseUrl}: {ex.Message}{hint}")
+                BuildGatewayUnreachableMessage(baseUrl, ex.Message))
+                .ShowDialog<bool?>(this);
+        }
+    }
+
+    // Builds the "could not reach the gateway" message shared by the Cockpit and Learn buttons
+    // (#475). The "is the Gateway tray app running on THIS machine?" hint only makes sense for
+    // the loopback default; for a configured remote gateway the failure is about reachability
+    // (the remote gateway is down, or the tailnet is unreachable). Pure string building, so it
+    // is unit-testable without a UI thread.
+    internal static string BuildGatewayUnreachableMessage(string baseUrl, string error)
+    {
+        var hint = CockpitUrlResolver.IsLocalhostDefault(baseUrl)
+            ? "\n\nIs the Gateway tray app (devthrottle-gateway) running on this machine?"
+            : "\n\nIs the Gateway running on that machine and reachable over your tailnet?";
+        return $"Could not reach the gateway at {baseUrl}: {error}{hint}";
+    }
+
+    // Builds the Cockpit Learning page URL from the gateway's Tailscale front-door URL (#475).
+    // Appends the Learning route (#472) with a single, clean separator so a front door that
+    // ends in a slash never yields "//learn". Pure string building, so it is unit-testable.
+    internal static string BuildLearnUrl(string frontDoorUrl) =>
+        frontDoorUrl.TrimEnd('/') + CockpitLearnRoute;
+
+    // The Cockpit Learning page route (#472). Appended to the Cockpit front-door URL
+    // resolved through the gateway, so the Learn button lands on {frontDoor}/learn.
+    private const string CockpitLearnRoute = "/learn";
+
+    // Open the Cockpit Learning page (#475). This reuses the SAME resolution as the Cockpit
+    // button -- we ASK THE CONFIGURED GATEWAY (GET {base}/cockpit) for the Tailscale front-door
+    // URL rather than hardcoding a host/port -- then open {frontDoor}/learn. cc-director never
+    // opens a localhost URL: when the gateway has no tailnet URL (Tailscale down) or cannot be
+    // reached at all, we surface the explicit "is the Gateway running?" hint and open nothing,
+    // never a silent no-op and never a loopback URL that only works on this machine.
+    private async void BtnLearn_Click(object? sender, RoutedEventArgs e)
+    {
+        var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
+        FileLog.Write($"[MainWindow] BtnLearn_Click: asking gateway for Cockpit URL, baseUrl={baseUrl}");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var info = await http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(
+                baseUrl + "/cockpit");
+            if (info?.Url is { } frontDoor)
+            {
+                var learnUrl = BuildLearnUrl(frontDoor);
+                FileLog.Write($"[MainWindow] BtnLearn_Click: opening {learnUrl} (up={info.Up}, baseUrl={baseUrl})");
+                OpenUrlInBrowser(learnUrl);
+            }
+            else
+            {
+                FileLog.Write($"[MainWindow] BtnLearn_Click: gateway at {baseUrl} returned no Tailscale URL (Tailscale unavailable); opening nothing. cc-director never opens a localhost URL.");
+                await new MessageDialog(
+                    "Cannot Open Learning Page",
+                    "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
+                    "Cockpit Learning page. Bring Tailscale up and try again. CC Director never opens " +
+                    "a localhost URL because it would only work on this one machine.")
+                    .ShowDialog<bool?>(this);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnLearn_Click FAILED (baseUrl={baseUrl}): {ex.Message}");
+            await new MessageDialog(
+                "Cannot Open Learning Page",
+                BuildGatewayUnreachableMessage(baseUrl, ex.Message))
                 .ShowDialog<bool?>(this);
         }
     }
