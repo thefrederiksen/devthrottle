@@ -104,9 +104,9 @@ New here? Walk through the **[Quick Start](docs/public/getting-started/03-quick-
 
 Voice mode and the media tools (`cc-voice`, `cc-whisper`, `cc-transcribe`, `cc-image`) call OpenAI, so they need an OpenAI API key. They are **optional** -- add the key only when you want those features.
 
-## Documentation
+## Help & Documentation
 
-The full documentation lives in [`docs/public/`](docs/public/):
+New to DevThrottle, or stuck? Start here. The full documentation lives in [`docs/public/`](docs/public/) (see the [documentation index](docs/README.md)). Each guide below links to the real page -- this section points you to the docs, it does not repeat them.
 
 | Guide | What's in it |
 |-------|--------------|
@@ -116,6 +116,8 @@ The full documentation lives in [`docs/public/`](docs/public/):
 | [Features](docs/public/features/01-overview.md) | Every screen, with screenshots |
 | [Tools](docs/public/tools/01-overview.md) | The 35+ bundled `cc-*` command-line tools |
 | [Control API](docs/public/api/01-control-api.md) | Drive a running Director over its REST interface |
+
+**Where to get help:** open an issue on the **[GitHub issue tracker](https://github.com/thefrederiksen/devthrottle/issues)** to report a bug or request a feature, or ask a question in **[Discussions](https://github.com/thefrederiksen/devthrottle/discussions)**.
 
 ## Build from source
 
