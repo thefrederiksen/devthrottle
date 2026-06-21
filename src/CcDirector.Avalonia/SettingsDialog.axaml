@@ -203,6 +203,14 @@
                         <TextBox x:Name="GatewayTokenBox" Classes="settingsInput"
                                  Watermark="only if the gateway requires one" />
 
+                        <TextBlock Classes="sectionTitle" Text="Register this device" Margin="0,16,0,0" />
+                        <TextBlock Classes="hint" Text="Enroll this machine with the Gateway using a one-time pairing code shown on the gateway host's own screen. The Gateway issues this device a unique key (saved on this machine), so access can be revoked for this device alone." />
+                        <Button x:Name="ConnectToGatewayButton" Classes="dialogButton"
+                                Content="Connect to Gateway..." Width="200"
+                                HorizontalAlignment="Left" Margin="0,4,0,0"
+                                Click="BtnConnectToGateway_Click"
+                                ToolTip.Tip="Enter the pairing code from the gateway host to register this device" />
+
                         <TextBlock Classes="sectionTitle" Text="First-run setup" Margin="0,16,0,0" />
                         <TextBlock Classes="hint" Text="Re-run the guided onboarding wizard that walks you through the gateway connection, the agent check, and creating a first session." />
                         <Button x:Name="RerunOnboardingButton" Classes="dialogButton"

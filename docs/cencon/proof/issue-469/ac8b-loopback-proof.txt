@@ -1,0 +1,18 @@
+AC8b proof - local cc-* / curl to the loopback Control API with the on-disk credential
+=======================================================================================
+Test Director: per-session slot 13, Control API http://127.0.0.1:7897 (launched via the
+per-slot scheduled task cc-director13-launch, torn down afterward).
+Credential file: %LOCALAPPDATA%\cc-director\config\director\gateway-token.txt (length 43)
+
+The per-device key issued at enrollment is written by GatewayCredentialStore.SaveEnrolledKey
+to this SAME file (proven by GatewayCredentialStoreTests). DirectorAuth reads this file as the
+accepted Bearer token, so a local cc-* tool / curl using the on-disk credential authenticates:
+
+  GET http://127.0.0.1:7897/sessions  Authorization: Bearer <on-disk credential>  ->  HTTP 200
+  GET http://127.0.0.1:7897/healthz   (public)                                     ->  HTTP 200
+      body: {"status":"ok","directors":1,"sessions":0,"version":"0.9.13",
+             "directorId":"478dc036-...","machineName":"<gateway-host>"}
+
+Result: a local loopback call carrying the on-disk credential returns 200 (PASS). Because the
+per-device key is written to this exact file, the same on-disk credential a cc-* tool reads
+authenticates the loopback Control API after enrollment.

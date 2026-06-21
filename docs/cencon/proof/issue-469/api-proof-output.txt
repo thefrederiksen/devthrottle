@@ -1,0 +1,25 @@
+GatewayHost up on 127.0.0.1:7950 (auth ENABLED), devices store=%TEMP%\proof469-devices-<guid>.json
+======================================================================
+[PASS] AC1 - minted code is exactly 4 numeric digits
+        minted code length=4, all-digits=True (value hidden)
+[PASS] AC2a - valid code returns a per-device key
+        HTTP 201, keyIssued=True
+[PASS] AC2b - two registrations produce two DIFFERENT keys
+        keyA[..4]=epRH..., keyB[..4]=tgeV..., equal=False
+[PASS] AC4 - single-use: re-submitting a consumed code is rejected, no key
+        HTTP 401 (expected 4xx)
+[PASS] AC5 - wrong / never-minted code rejected, no key
+        never-minted -> HTTP 401; mismatch-while-active -> HTTP 401 (both expected 4xx)
+[PASS] AC3 - code with no active/valid grant (expired/none) rejected, no key
+        submit with no active code -> HTTP 401 (expected 4xx); 5-min expiry boundary covered by PairingCodeServiceTests.TryVerifyAndConsume_AfterExpiry_IsRejected
+[PASS] AC6 - pairing code / key not exposed by any networked endpoint; QR endpoints removed
+        (authenticated) /pair/payload=HTTP 404, /pair/qr.png=HTTP 404 (both expected 404 = removed), /devices body has no key field=True
+[PASS] AC9 - old path closed: shared-token-only register rejected; QR endpoints 404
+        shared-token-only register -> HTTP 400 (expected 4xx); (authenticated) /pair/payload -> HTTP 404 (expected 404 = removed)
+[PASS] AC8 - per-device key authenticates a real Gateway call; bogus key rejected
+        per-device-key GET /sessions -> HTTP 200 (expected 200); bogus-key -> HTTP 401 (expected 401)
+[PASS] AC10 - registry lists each device with id/machine/issued-at/status
+        registry count=2, sample=MACHINE-B/active/2026-06-21T09:55:59.9449524Z
+======================================================================
+PROOF SUMMARY: 10 passed, 0 failed
+

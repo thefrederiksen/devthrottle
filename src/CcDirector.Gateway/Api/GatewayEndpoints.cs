@@ -65,10 +65,12 @@ internal static class GatewayEndpoints
         if (turnJobs is not null)
             GatewayVoiceTurnEndpoint.Map(app, turnJobs, registry, client, owners, token);
 
-        // Issue #385: phone-pairing QR (the Cockpit "Connect a phone" panel reads /pair/qr.png +
-        // /pair/payload). Token-gated like the voice-turn routes so the gate holds even when the
-        // global auth middleware is off (production tray Gateway runs authEnabled=false).
-        GatewayPairingEndpoint.Map(app, token);
+        // Issue #469 closed the secret-embedding phone-pairing QR endpoints (/pair/qr.png and
+        // /pair/payload) that put the shared fleet token directly in a QR/link - a full compromise
+        // if leaked. They are removed; a request to them now falls through to a 404 (no secret is
+        // exposed anywhere over the network). Device enrollment uses the per-device pairing-code
+        // flow (DeviceEnrollmentEndpoint, wired in GatewayHost): the key never travels in a QR or
+        // link, only the short-lived code shown on the Gateway host's own local window does.
 
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting

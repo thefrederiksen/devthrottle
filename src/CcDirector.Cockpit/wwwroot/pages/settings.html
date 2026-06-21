@@ -258,25 +258,11 @@
   <div class="tab-panel" id="tab-phone">
     <div class="section">
       <h2>Connect a phone</h2>
-      <p class="hint">Scan this QR with the DevThrottle phone app to pair it with this Gateway. The code carries the Gateway address and access token, so there is nothing to type. The token is as sensitive as a password &mdash; only scan it on a screen you control.</p>
+      <p class="hint">The old QR pairing &mdash; which embedded the shared access token in the code &mdash; has been retired (issue #469): a leaked QR exposed the whole fleet's secret. Device enrollment now uses a short-lived pairing code shown only on the gateway host's own screen, which issues a unique, individually-revocable per-device key. Use "Register a new device" on the gateway host app.</p>
       <div class="status">
-        <span class="dot" id="phonedot"></span>
-        <span id="phonestate">Loading...</span>
+        <span class="dot amber" id="phonedot"></span>
+        <span id="phonestate">QR pairing retired &mdash; use the gateway host app</span>
       </div>
-      <div id="phoneqrwrap" style="display:none">
-        <img id="phoneqr" alt="Phone-pairing QR code" width="280" height="280"
-             style="display:block;background:#fff;border-radius:12px;padding:14px;margin:4px 0 18px">
-        <div class="kv">
-          <span class="k">Gateway URL</span><span class="v mono" id="phoneurl">-</span>
-          <span class="k">Token</span><span class="v mono" id="phonetoken" style="word-break:break-all">-</span>
-        </div>
-        <div class="row" style="margin-top:14px">
-          <button id="phonecopyurl">Copy URL</button>
-          <button id="phonecopytoken">Copy token</button>
-          <button id="phonecopylink">Copy pairing link</button>
-        </div>
-      </div>
-      <div class="msg" id="phonemsg"></div>
     </div>
   </div>
 
@@ -811,51 +797,10 @@
     btn.disabled = false;
   }
 
-  // ===== Phone pairing (issue #385) =====
-  let phonePayload = '';
-  let phoneUrl = '';
-  let phoneToken = '';
-
-  function setPhoneMsg(text, ok){
-    const m = document.getElementById('phonemsg');
-    m.textContent = text || '';
-    m.className = 'msg ' + (ok ? 'ok' : 'err');
-  }
-
-  async function loadPhone(){
-    const dot = document.getElementById('phonedot');
-    const state = document.getElementById('phonestate');
-    const wrap = document.getElementById('phoneqrwrap');
-    try {
-      const r = await fetch('/pair/payload');
-      if (!r.ok){
-        const e = await r.json().catch(()=>({}));
-        dot.className = 'dot amber';
-        state.textContent = e.error || ('Pairing unavailable (HTTP ' + r.status + ')');
-        wrap.style.display = 'none';
-        return;
-      }
-      const d = await r.json();
-      phonePayload = d.payload; phoneUrl = d.url; phoneToken = d.token;
-      dot.className = 'dot green';
-      state.textContent = 'Ready to pair';
-      document.getElementById('phoneurl').textContent = d.url;
-      document.getElementById('phonetoken').textContent = d.token;
-      // Same-origin image; the gateway cookie carries auth automatically. Cache-bust so a
-      // re-shown tab re-renders rather than serving a stale image.
-      document.getElementById('phoneqr').src = '/pair/qr.png?t=' + Date.now();
-      wrap.style.display = 'block';
-      setPhoneMsg('', true);
-    } catch (e) {
-      dot.className = 'dot red';
-      state.textContent = 'Failed to load (is the Gateway running?)';
-    }
-  }
-
-  async function copyText(text, label){
-    try { await navigator.clipboard.writeText(text); setPhoneMsg(label + ' copied.', true); }
-    catch (e) { setPhoneMsg('Copy failed: ' + e, false); }
-  }
+  // ===== Phone pairing =====
+  // Issue #469 retired the secret-embedding QR pairing (/pair/payload, /pair/qr.png) - those
+  // endpoints are removed Gateway-side. The panel is now a static notice pointing the user at the
+  // gateway host app's per-device pairing-code flow; there is no network call to make here.
 
   // Transcription mode + keys (issue #497)
   document.querySelectorAll('input[name="txmode"]').forEach(function(r){
@@ -1049,9 +994,7 @@
   document.getElementById('wingman').addEventListener('change', toggleWingman);
   document.getElementById('wingman-training').addEventListener('change', toggleTrainingCapture);
   document.getElementById('brainsavebtn').addEventListener('click', saveBrainConfig);
-  document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));
-  document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
-  document.getElementById('phonecopylink').addEventListener('click', () => copyText(phonePayload, 'Pairing link'));
+  // Issue #469: the phone-pairing copy buttons were removed with the secret-embedding QR panel.
   document.getElementById('instr-save').addEventListener('click', saveInstructions);
   document.getElementById('instr-revertdefault').addEventListener('click', switchToDefaultInstr);
   document.getElementById('instr-switch').addEventListener('click', switchToDefaultInstr);
@@ -1066,7 +1009,6 @@
   loadTrainingCapture();
   loadInstructions();
   loadInstrRecords();
-  loadPhone();
 </script>
 </body>
 </html>
