@@ -116,4 +116,42 @@ public sealed class RecordingUploadGateTests
         Assert.True(RecordingUploadGate.IsFullyDelivered("Uploaded", completed: true));
         Assert.True(RecordingUploadGate.IsDeletable("Uploaded", completed: true));
     }
+
+    // ===== RequeueIndicesForResend: the gate-driven resume (issue #591) ======
+
+    [Fact]
+    public void RequeueIndicesForResend_NamesOnlyLocallyPresentMissingIndices()
+    {
+        // The server gate reported indices 1 and 3 as missing/bad; the phone holds 0..3. Exactly
+        // those two are re-armed for re-send - nothing else is touched.
+        var resend = RecordingUploadGate.RequeueIndicesForResend(
+            missingOrBadIndices: new[] { 3, 1 }, localIndices: new[] { 0, 1, 2, 3 });
+        Assert.Equal(new[] { 1, 3 }, resend); // sorted + de-duplicated
+    }
+
+    [Fact]
+    public void RequeueIndicesForResend_NeverInventsASegmentThePhoneNeverHad()
+    {
+        // Zero audio loss the other way: the gate names index 5, but the phone only ever had 0..2.
+        // The phone cannot re-send what it does not have, so 5 is dropped from the resend set - it
+        // is never fabricated.
+        var resend = RecordingUploadGate.RequeueIndicesForResend(
+            missingOrBadIndices: new[] { 1, 5 }, localIndices: new[] { 0, 1, 2 });
+        Assert.Equal(new[] { 1 }, resend);
+    }
+
+    [Fact]
+    public void RequeueIndicesForResend_NullOrEmpty_IsEmpty()
+    {
+        Assert.Empty(RecordingUploadGate.RequeueIndicesForResend(null, new[] { 0, 1 }));
+        Assert.Empty(RecordingUploadGate.RequeueIndicesForResend(Array.Empty<int>(), new[] { 0, 1 }));
+    }
+
+    [Fact]
+    public void RequeueIndicesForResend_DeDuplicatesRepeatedIndices()
+    {
+        var resend = RecordingUploadGate.RequeueIndicesForResend(
+            missingOrBadIndices: new[] { 2, 2, 0, 0 }, localIndices: new[] { 0, 1, 2 });
+        Assert.Equal(new[] { 0, 2 }, resend);
+    }
 }

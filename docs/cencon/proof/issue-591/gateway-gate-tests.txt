@@ -1,0 +1,2 @@
+  Passed CcDirector.Gateway.Tests.RecordingCompletenessGateHttpTests.Complete_EmptyCapture_Returns400_NamedError [180 ms]
+  Passed CcDirector.Gateway.Tests.RecordingCompletenessGateHttpTests.Complete_MissingSegment_Returns409_Incomplete_NamingMissingIndex [61 ms]

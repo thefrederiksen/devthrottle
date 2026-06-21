@@ -111,6 +111,32 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     }
 
     /// <summary>
+    /// Transcribe one complete audio blob to RAW text using the resolved method, with NO dictionary
+    /// correction. This is the transcription half of <see cref="TranscribeAsync"/> on its own, for
+    /// callers that batch-transcribe several segments and then run the dictionary corrector ONCE on
+    /// the assembled concatenation (the phone recorder, issue #591) - so the assembled transcript is
+    /// provably the per-segment raw concatenation plus dictionary edits only, never a per-segment
+    /// reword. Same single transport: ONE batch POST to <c>{baseUrl}/audio/transcriptions</c> with the
+    /// resolved key and model. Throws on a provider error (a missing transcript is a real failure the
+    /// caller must surface, never paper over).
+    /// </summary>
+    /// <param name="audio">The complete audio segment bytes (already gated upstream).</param>
+    /// <param name="fileName">Filename hint for the multipart upload; its extension tells the server how to decode the bytes.</param>
+    /// <param name="routing">The resolved method: base URL, key, and model from the Gateway routing resolver.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<string> TranscribeRawAsync(
+        byte[] audio, string fileName, ResolvedTranscription routing, CancellationToken ct = default)
+    {
+        if (audio is null) throw new ArgumentNullException(nameof(audio));
+        if (routing is null) throw new ArgumentNullException(nameof(routing));
+        if (audio.Length == 0)
+            throw new ArgumentException("audio blob is empty; the Audio Completeness Gate must run before transcription", nameof(audio));
+
+        FileLog.Write($"[BatchTranscriptionPipeline] TranscribeRawAsync: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Model}");
+        return await TranscribeBatchAsync(audio, fileName, routing, ct);
+    }
+
+    /// <summary>
     /// ONE whole-audio batch POST to the OpenAI-compatible <c>/audio/transcriptions</c> endpoint of
     /// the resolved base URL, presenting the resolved key and model. This is the single transcription
     /// transport for the shared pipeline - there is no streaming/partial path here.

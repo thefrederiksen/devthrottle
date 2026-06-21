@@ -428,12 +428,13 @@ containers:
           - Scheduler/RunnersConfig.cs
           - Scheduler/RunnerRegistration.cs
       - name: RecordingIngestService
-        description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, then an audio completeness gate (issue #586) verifies every manifest segment is present, hash-matches, and byte-totals before transcription; an incomplete/empty upload is refused (state "incomplete" naming the missing/bad indices, or a loud empty-capture error) and never transcribed. Passing uploads transcribe, assemble markdown, optionally promote to vault (transient until promoted)
+        description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, then an audio completeness gate (issue #586) verifies every manifest segment is present, hash-matches, and byte-totals before transcription; an incomplete/empty upload is refused (state "incomplete" naming the missing/bad indices, or a loud empty-capture error) and never transcribed. Passing uploads transcribe each segment in batch via the IRecordingTranscriber, assemble the raw per-segment concatenation, apply the dictionary corrector once, write markdown, and optionally promote to vault (transient until promoted)
         file: Recording/RecordingIngestService.cs
-      - name: IRecordingTranscriber / OpenAiRecordingTranscriber
-        description: Transcriber abstraction and its OpenAI implementation (reuses the dictation STT + cleanup pipeline)
+      - name: IRecordingTranscriber / SelectedMethodRecordingTranscriber
+        description: Transcriber abstraction and its production implementation (issue #591) that routes the phone recorder through the ONE shared BatchTranscriptionPipeline using the user-SELECTED transcription method - each segment is one whole-segment batch POST to the resolved method's base URL (BYO -> api.openai.com, DevThrottle -> devthrottle.com), and the assembled raw concatenation runs through the dictionary corrector only (no free-text cleanup), so the assembled transcript is the per-segment raw concatenation plus dictionary edits only. OpenAiRecordingTranscriber remains as an OpenAI-only transcriber used by the real-key end-to-end test
         files:
           - Recording/IRecordingTranscriber.cs
+          - Recording/SelectedMethodRecordingTranscriber.cs
           - Recording/OpenAiRecordingTranscriber.cs
       - name: IVaultFiler / CcVaultFiler
         description: Vault filing abstraction and its implementation that files transcripts via the cc-vault CLI (idempotent)
@@ -702,7 +703,7 @@ containers:
         description: Main HTTP surface - Directors (register/heartbeat/doorbell/verify/registration for discovery + two-way handshake #223/#224, now 3-leg: the HTTP /verify/{nonce} callback plus a WebSocket /verify-ws upgrade that proves the Cockpit terminal-stream path and stamps StreamVerifiedAt/StreamVerifyError + push-down state #186), fleet-wide Sessions (aggregated with Gateway-owned assessed-state stamps), per-session turnbriefs history (#185), interrupted-sessions + /restore (#212), Recordings/Handovers/Fanout/Events, /about diagnostics, and GET /cockpit (unauthenticated) answering where this machine's Cockpit lives - the Tailscale front-door URL with a 500ms TCP liveness probe (null when Tailscale is down, never a loopback fallback)
         file: Api/GatewayEndpoints.cs
       - name: RecordingEndpoints
-        description: Phone-recorder ingest - register, upload audio chunks, complete, transcribe, promote, status, and dictionary endpoints
+        description: Phone-recorder ingest - register, upload audio chunks, complete (audio completeness gate #586, returns 409 naming missing/bad indices), transcribe via the user-selected method (resolves the configured mode + vault key in-process to the resolved base URL/key/model, exactly like /transcription/routing, then routes through SelectedMethodRecordingTranscriber + the shared BatchTranscriptionPipeline, issue #591), promote, status, and dictionary endpoints
         file: Api/RecordingEndpoints.cs
       - name: CommQueueEndpoints
         description: Read-only tailnet view of the local Communication Manager SQLite approval queue
@@ -1127,9 +1128,9 @@ data_flows:
     description: Phone-captured audio transcribed and optionally filed to the vault
     path:
       - Phone uploads chunks -> Gateway RecordingEndpoints
-      - RecordingIngestService (SHA256-checked chunk store, state machine)
-      - "OpenAiRecordingTranscriber (Whisper STT + cleanup)"
-      - Assembled markdown transcript
+      - "RecordingIngestService (SHA256-checked chunk store, state machine, audio completeness gate #586)"
+      - "SelectedMethodRecordingTranscriber -> BatchTranscriptionPipeline: each segment one batch POST to the user-selected method's base URL (issue #591), then the dictionary corrector only on the assembled raw concatenation (no free-text cleanup)"
+      - Assembled markdown transcript (raw per-segment concatenation + dictionary edits only)
       - "On promote: CcVaultFiler -> `cc-vault docs add`"
 
   - id: voice_utterance_flow

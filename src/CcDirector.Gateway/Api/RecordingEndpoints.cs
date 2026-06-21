@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using CcDirector.Core;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Network;
@@ -418,19 +419,56 @@ internal static class RecordingEndpoints
 
         // The transcriber is built LAZILY, only when the background worker actually transcribes -
         // never during register/chunk/complete. This is what guarantees audio + notes always
-        // land on the server regardless of transcription: a missing OpenAI key no longer fails
-        // ingest, it just fails (and reschedules) the downstream transcription job. The key is
-        // read from the Gateway's own vault inside the factory, so a key set/rotated in the
-        // Cockpit after the Gateway started is picked up on the next job attempt without a restart.
+        // land on the server regardless of transcription: a missing key no longer fails ingest, it
+        // just fails (and reschedules) the downstream transcription job.
+        //
+        // It routes through the ONE shared batch pipeline using the user-SELECTED transcription
+        // method (issue #591), exactly as the Gateway's own /transcription/routing endpoint resolves
+        // it: the configured mode -> (baseUrl, keyName, model) from the single pure resolver, with the
+        // key read from the Gateway's own vault. So switching the mode in the Cockpit changes the base
+        // URL the recording transcription POSTs to (BYO -> api.openai.com, DevThrottle ->
+        // devthrottle.com), with no Gateway restart - the mode + key are re-read on every transcribe.
         return new RecordingIngestService(
             root,
-            transcriberFactory: () =>
-            {
-                var openAiKey = new KeyVault().Get("OPENAI_API_KEY");
-                return new OpenAiRecordingTranscriber(apiKey: openAiKey, dictionaryPath: DictionaryFilePath());
-            },
+            transcriberFactory: () => new SelectedMethodRecordingTranscriber(
+                routingResolver: _ => Task.FromResult(ResolveSelectedMethod()),
+                dictionaryResolver: _ => Task.FromResult(DictionaryLoader.LoadFromDisk(DictionaryFilePath()))),
             filer,
             collectionDir);
+    }
+
+    /// <summary>
+    /// Resolve the user-selected transcription method in-process, the same way the Gateway's
+    /// <c>/transcription/routing</c> endpoint does (issue #591): the configured mode -> the
+    /// (baseUrl, keyName, transport, model) tuple from the single pure
+    /// <see cref="TranscriptionEndpointResolver"/>, with the credential read from the Gateway's own
+    /// vault. Re-read on every call so a mode switch or a key rotation in the Cockpit takes effect on
+    /// the next recording with no restart. Returns null when no key is set for the selected mode, so
+    /// the transcriber reports transcription unavailable (a retryable job failure) rather than guess a
+    /// baked-in URL. The bring-your-own OpenAI key is only ever paired with the OpenAI base URL because
+    /// the pair is composed from the one pure resolver - never crossed onto devthrottle.com.
+    /// </summary>
+    private static ResolvedTranscription? ResolveSelectedMethod()
+    {
+        var mode = TranscriptionModeConfig.Get();
+        var endpoint = TranscriptionEndpointResolver.Resolve(mode);
+        var key = new KeyVault().Get(endpoint.KeyName);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, no key for {endpoint.KeyName}");
+            return null;
+        }
+
+        FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, "
+            + $"transport={endpoint.Transport.ToConfigString()}, baseUrl={endpoint.BaseUrl}, model={endpoint.Model}");
+        return new ResolvedTranscription
+        {
+            BaseUrl = endpoint.BaseUrl,
+            ApiKey = key,
+            Transport = endpoint.Transport,
+            Model = endpoint.Model,
+            Mode = endpoint.Mode,
+        };
     }
 
     /// <summary>
