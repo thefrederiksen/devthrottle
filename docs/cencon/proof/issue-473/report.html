@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #473 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b4a6f; padding-bottom: .4rem; }
+  h2 { color: #2b4a6f; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .95rem; }
+  th, td { border: 1px solid #c8c8c8; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #2b4a6f; color: #fff; }
+  tr:nth-child(even) td { background: #f4f6f9; }
+  .pass { color: #1d7a34; font-weight: bold; }
+  code { background: #eef1f4; padding: .1rem .35rem; border-radius: 3px; font-family: Consolas, monospace; font-size: .9em; }
+  pre { background: #1e1e1e; color: #e6e6e6; padding: 1rem; border-radius: 5px; overflow-x: auto; font-size: .82rem; line-height: 1.35; }
+  .meta { color: #555; font-size: .9rem; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; margin: .5rem 0; }
+  .finished { background: #e7f5ea; border-left: 5px solid #1d7a34; padding: 1rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #473 - Public Help / Learn Page (docs/public)</h1>
+<p class="meta">
+  Developer Agent proof report - CenCon Development Method.<br>
+  Branch: <code>issue-473-public-help-page</code> &middot; Type: docs-only content change &middot;
+  Repository: <code>thefrederiksen/devthrottle</code>
+</p>
+
+<h2>What was implemented</h2>
+<p>
+  Authored a new public <strong>Help and Learning</strong> landing page for the DevThrottle
+  website at <code>docs/public/help/01-help.md</code> and registered it as a new
+  <code>help</code> category (placed first) in the manifest <code>docs/public/index.json</code>.
+  The page explains what DevThrottle is, lists its core capabilities, and links to every other
+  public documentation section (getting-started, features, tools, api) and to the GitHub
+  repository.
+</p>
+<p>
+  The content is kept consistent with the in-product Cockpit Learning page landed by issue #472
+  (pull request #618): same definition of DevThrottle as "mission control for your coding
+  agents", the same three-part structure (Director / Gateway / Cockpit), the same Wingman
+  description, and the same open-source message and repository link.
+</p>
+<p>
+  This is a docs-only change. No application container (<code>CcDirector.*</code>) was modified,
+  so per the issue's Proof Target the proof is the rendered page plus the manifest consistency
+  check, not an app screenshot.
+</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>docs/public/help/01-help.md</code> - new public help landing page (created).</li>
+  <li><code>docs/public/index.json</code> - added the <code>help</code> category with the new page (edited).</li>
+  <li><code>docs/cencon/proof/issue-473/*</code> - this proof (report, rendered HTML, screenshot, check script + output).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <thead>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>A new public help page exists under <code>docs/public/</code> describing what DevThrottle is and linking to getting-started, tools, api, and the GitHub repo.</td>
+      <td>A rendered markdown page reads as the public help landing, with an overview and links to the other docs and the repo.</td>
+      <td><code>docs/public/help/01-help.md</code> created. Rendered output (see <code>help-page-rendered.html</code> and <code>help-page-screenshot.png</code>) shows the "What is DevThrottle?" overview, a "Core capabilities" list, a "Where to go next" resource-link list, and the GitHub repo link.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>The new page is listed in <code>docs/public/index.json</code> with a correct <code>file</code> path.</td>
+      <td>The manifest contains an entry whose <code>file</code> points at the new page.</td>
+      <td>A new <code>help</code> category was added with page <code>{ "id": "help", "title": "Help and Learning", "file": "help/01-help.md" }</code>. The path matches the file on disk.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><code>index.json</code> passes the consistency check: every manifest <code>file</code> exists on disk, and every doc page under <code>docs/public/</code> (except <code>index.json</code>) has a manifest entry.</td>
+      <td>A check listing manifest paths vs on-disk pages reports zero mismatches.</td>
+      <td><code>check_manifest.py</code> reports 14 manifest entries and 14 on-disk pages, Rule 1 OK, Rule 2 OK, <strong>TOTAL MISMATCHES: 0, RESULT: PASS</strong> (full output in <code>manifest-check.txt</code>, reproduced below).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>All in-page links resolve to real targets (no dead relative links to other docs/public pages or to the repo).</td>
+      <td>Every relative <code>.md</code> link on the page points to an existing file, and the repo URL is correct.</td>
+      <td>All 7 relative links resolve to existing files (verified by file-existence check). The repo link is <code>https://github.com/thefrederiksen/devthrottle</code> - the same URL used by the in-product Learning page (#472), so it is correct.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Manifest consistency check output (zero mismatches)</h2>
+<pre>
+DevThrottle docs/public manifest consistency check
+
+Manifest entries (declared pages): 14
+Markdown pages found on disk: 14
+
+RULE 1 - every manifest file exists on disk:
+  OK - all 14 manifest entries resolve to a real file.
+
+RULE 2 - every on-disk page is listed in the manifest:
+  OK - all 14 on-disk pages are listed in the manifest.
+
+TOTAL MISMATCHES: 0
+RESULT: PASS - zero mismatches.
+</pre>
+<p class="meta">Full output, including each path listed, is in <code>manifest-check.txt</code>. The check script is <code>check_manifest.py</code> (re-runnable).</p>
+
+<h2>In-page link check (all resolve)</h2>
+<pre>
+  OK   ../getting-started/01-introduction.md
+  OK   ../getting-started/02-installation.md
+  OK   ../getting-started/03-quick-start.md
+  OK   ../getting-started/04-setup-wizard-walkthrough.md
+  OK   ../features/01-overview.md
+  OK   ../tools/01-overview.md
+  OK   ../api/01-control-api.md
+  Repo link: https://github.com/thefrederiksen/devthrottle  (correct - matches #472)
+</pre>
+
+<h2>Rendered help page</h2>
+<p>Full rendering: <code>help-page-rendered.html</code>. Screenshot below.</p>
+<img src="help-page-screenshot.png" alt="Rendered DevThrottle public help and learning page">
+
+<h2>CenCon impact</h2>
+<p>
+  No drift. This is a docs-only content change under <code>docs/public/</code>; no architecture
+  container or security profile (<code>docs/cencon/</code>) is affected, and no blocking security
+  rule applies.
+</p>
+
+<div class="finished">
+  <strong>I believe this is finished.</strong> The public help landing page exists, is registered
+  in the manifest, the manifest passes the consistency check with zero mismatches, and every
+  in-page link resolves. The full solution still builds clean (docs-only, unaffected).
+</div>
+
+</body>
+</html>

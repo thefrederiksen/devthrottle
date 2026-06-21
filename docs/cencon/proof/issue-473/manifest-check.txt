@@ -1,0 +1,43 @@
+DevThrottle docs/public manifest consistency check
+Public docs root: D:\ReposFred\devthrottle-wt-473\docs\public
+
+Manifest entries (declared pages): 14
+  manifest: api\01-control-api.md
+  manifest: features\01-overview.md
+  manifest: features\02-sessions-and-console.md
+  manifest: features\03-source-control-and-repos.md
+  manifest: features\04-panels.md
+  manifest: features\05-wingman-and-voice.md
+  manifest: features\06-mobile.md
+  manifest: features\07-dialogs.md
+  manifest: getting-started\01-introduction.md
+  manifest: getting-started\02-installation.md
+  manifest: getting-started\03-quick-start.md
+  manifest: getting-started\04-setup-wizard-walkthrough.md
+  manifest: help\01-help.md
+  manifest: tools\01-overview.md
+
+Markdown pages found on disk: 14
+  on-disk:  api\01-control-api.md
+  on-disk:  features\01-overview.md
+  on-disk:  features\02-sessions-and-console.md
+  on-disk:  features\03-source-control-and-repos.md
+  on-disk:  features\04-panels.md
+  on-disk:  features\05-wingman-and-voice.md
+  on-disk:  features\06-mobile.md
+  on-disk:  features\07-dialogs.md
+  on-disk:  getting-started\01-introduction.md
+  on-disk:  getting-started\02-installation.md
+  on-disk:  getting-started\03-quick-start.md
+  on-disk:  getting-started\04-setup-wizard-walkthrough.md
+  on-disk:  help\01-help.md
+  on-disk:  tools\01-overview.md
+
+RULE 1 - every manifest file exists on disk:
+  OK - all 14 manifest entries resolve to a real file.
+
+RULE 2 - every on-disk page is listed in the manifest:
+  OK - all 14 on-disk pages are listed in the manifest.
+
+TOTAL MISMATCHES: 0
+RESULT: PASS - zero mismatches.

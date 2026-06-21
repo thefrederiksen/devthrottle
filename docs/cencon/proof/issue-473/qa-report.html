@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #473</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #222; }
+h1 { border-bottom: 2px solid #444; padding-bottom: .3rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; }
+.pass { color: #0a7d00; font-weight: bold; }
+code { background: #f5f5f5; padding: 1px 4px; }
+.verdict { font-size: 1.2rem; font-weight: bold; color: #0a7d00; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #473</h1>
+<p><strong>Issue:</strong> [Docs] Public Help/Learn page on the website (docs/public)<br>
+<strong>PR:</strong> #619 (branch issue-473-public-help-page)<br>
+<strong>Type:</strong> Docs-only - proof is the rendered doc plus the manifest-consistency check (no app-run screenshot required, per the issue).<br>
+<strong>Verifier:</strong> QA Agent, independent worktree at the PR tip (commit 642c417).</p>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+<tr>
+<td>1</td>
+<td>New public help page exists under docs/public/ describing DevThrottle and linking to getting-started, tools, api, and the GitHub repo.</td>
+<td>A markdown page exists, explains what DevThrottle is, and contains the four resource links.</td>
+<td><code>docs/public/help/01-help.md</code> exists. It explains DevThrottle (Director/Gateway/Cockpit/Wingman + core capabilities) and links to getting-started (introduction, installation, quick-start, setup-wizard), features overview, tools overview, api control-api, and the GitHub repo.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>The new page is listed in docs/public/index.json with the correct file path.</td>
+<td>A manifest entry whose <code>file</code> points to the real new file.</td>
+<td>index.json adds a first <code>help</code> category with page <code>{ "id": "help", "file": "help/01-help.md" }</code>; that path resolves to the on-disk file.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td>
+<td>index.json passes the consistency check (every manifest file exists; every doc page has a manifest entry).</td>
+<td>Zero mismatches in both directions.</td>
+<td>Enumerated 14 manifest <code>file</code> entries and 14 on-disk <code>.md</code> files under docs/public/. Set comparison: 0 manifest entries missing on disk, 0 on-disk pages missing from the manifest. (Non-md files are PNG assets under <code>assets/</code> directories, not doc pages, correctly excluded from the page manifest.)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>All in-page links resolve to real targets (no dead relative links; repo link correct).</td>
+<td>Every relative link points to a real file; the GitHub repo URL is correct and live.</td>
+<td>7 relative <code>.md</code> links all resolve to existing files. The repo link is <code>https://github.com/thefrederiksen/devthrottle</code> (correct repo, returns HTTP 200).</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Build Gate</h2>
+<p><code>dotnet build cc-director.sln</code> in the QA worktree: <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span> (Docs-only change; build is a regression sanity gate only.)</p>
+
+<h2>Regression Sweep</h2>
+<p>Docs-only change. Existing categories (getting-started, features, tools, api) and their pages are untouched and still consistent in the manifest. No application container modified.</p>
+
+<p class="verdict">VERIFIED - all acceptance criteria met.</p>
+</body>
+</html>
