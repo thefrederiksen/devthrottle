@@ -217,6 +217,17 @@ public static class CcStorage
     public static string DevThrottleAuthEventsLog() =>
         Path.Combine(ToolConfig("director"), "devthrottle-auth-events.jsonl");
 
+    /// <summary>
+    /// DevThrottle richer usage-telemetry sink: config/director/devthrottle-usage-events.jsonl.
+    /// Append-only JSON-lines record of the user-controllable usage events (issue #582), written only
+    /// while the usage-telemetry toggle is on. Distinct from the always-on authentication-floor log
+    /// (<see cref="DevThrottleAuthEventsLog"/>): when the toggle is off, nothing is written here while
+    /// the authentication events still flow. Records only an event name and timestamp - never the
+    /// token or the user's work.
+    /// </summary>
+    public static string DevThrottleUsageEventsLog() =>
+        Path.Combine(ToolConfig("director"), "devthrottle-usage-events.jsonl");
+
     // -- Life Operating System coaching directories --
 
     /// <summary>Life OS coaching root: vault/life/</summary>

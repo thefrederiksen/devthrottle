@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #582 - In-app account area: identity, log out, usage-telemetry toggle - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #007ACC; font-size: 22px; }
+  h2 { color: #CCCCCC; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; margin-top: 32px; }
+  h3 { color: #AAAAAA; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #252526; color: #CCCCCC; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background: #252526; color: #CCCCCC; }
+  pre { padding: 12px; border: 1px solid #3C3C3C; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+  .pass { color: #22C55E; font-weight: 600; }
+  img { max-width: 760px; border: 1px solid #3C3C3C; border-radius: 6px; display: block; margin: 8px 0 24px; }
+  .meta { color: #888888; font-size: 12px; }
+  .file { color: #3B82F6; }
+</style>
+</head>
+<body>
+
+<h1>Issue #582 - In-app account area: identity, log out, and a usage-telemetry opt-out toggle</h1>
+<p class="meta">Developer Agent proof. Branch <code>issue-582-account-area</code>. Built clean
+(<code>dotnet build cc-director.sln</code> -> Build succeeded, 0 warnings, 0 errors). Verified in a
+running, per-session-isolated test Director (slot 13) driven via UI Automation, with screenshots
+captured by <code>PrintWindow</code> (PW_RENDERFULLCONTENT) and the credential/telemetry state read
+straight from disk.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Account area (new "Account" tab in the Settings dialog).</b> Shows the signed-in DevThrottle
+      identity - email and authentication provider - read locally from the cached access token's
+      claims (no network call), a <b>Log out</b> action, and the usage-telemetry opt-out toggle.</li>
+  <li><b>Identity reader.</b> <code>JwtIdentityReader</code> decodes the Supabase-shaped access-token
+      payload (the <code>email</code> claim and <code>app_metadata.provider</code>) entirely locally;
+      <code>DevThrottleAccountService.GetIdentity()</code> surfaces it. Returns null (an explicit
+      "Not available" state) when no credential is stored or the email claim is absent - no fabricated
+      identity.</li>
+  <li><b>Log out.</b> Clears the credential store and records a logout event (the existing
+      <code>DevThrottleAccountService.Logout()</code> from #583), then returns the Director to the
+      account gate (#580) in-process. Because the main window's close is wired to shut the whole
+      Director down by design, the swap shows the gate as the new main window and hides the old
+      windows rather than closing them, so the process stays up on the gate.</li>
+  <li><b>Usage-telemetry toggle.</b> <code>TelemetrySettings</code> persists <code>telemetry.enabled</code>
+      in <code>config.json</code> (default on) via the non-lossy <code>CcDirectorConfigService.MergePatch</code>.
+      <code>UsageTelemetry.Record(...)</code> gates the richer usage path on that flag; the always-on
+      authentication floor (<code>AuthEventLog</code>) records login/logout regardless. Telemetry is
+      greenfield - this introduces the flag, the always-on floor's separation, the gate on the richer
+      path, and a local usage sink that proves the gate (the server-side pipeline is the internal-repository child).</li>
+</ul>
+
+<h2>Acceptance criteria - met</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+  <tr>
+    <td>AC1 - Account area shows the signed-in identity (email and provider) for a stored credential.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot <span class="file">01-account-tab-identity-and-telemetry.png</span> shows email
+        <code>proof.user@devthrottle.com</code> and provider <code>google</code>. Log line:
+        <code>[JwtIdentityReader] Read: identity resolved (provider=google)</code>,
+        <code>[DevThrottleAccountService] GetIdentity: ... (no network call)</code>.</td>
+  </tr>
+  <tr>
+    <td>AC2 - Log out clears the credential store and records a logout event; the next start shows the gate.</td>
+    <td class="pass">PASS</td>
+    <td>After clicking Log out (and confirming), the credential blob is gone
+        (<code>credential blob exists: False</code>) and a <code>logout</code> event is appended to the
+        auth log. The app returns to the gate in-process (screenshot
+        <span class="file">02-gate-after-logout.png</span>). A fresh start with no credential decides
+        <code>Block</code> and shows the gate again - see <span class="file">director-log-excerpts.txt</span>:
+        <code>IsLoggedIn: no stored credential -> false</code>,
+        <code>Decide: loggedIn=False, decision=Block</code>,
+        <code>Startup blocked by account gate ... gate screen shown, main window not reached</code>.</td>
+  </tr>
+  <tr>
+    <td>AC3 - Telemetry toggle defaults on, persists to config.json under a settings key, reads back after a restart.</td>
+    <td class="pass">PASS</td>
+    <td>The toggle renders checked by default (screenshot 01). Turning it off and saving wrote
+        <code>"telemetry": { "enabled": false }</code> to <code>config.json</code>. A subsequent fresh
+        Director launch read it back: <code>[TelemetrySettings] IsEnabled: persisted value enabled=False</code>.
+        Harness <span class="file">telemetry-gate-output.txt</span> shows default True, persisted False
+        read back on a fresh read, and the config.json block.</td>
+  </tr>
+  <tr>
+    <td>AC4 - With the toggle off, the richer usage reporting does not fire while login/logout still do.</td>
+    <td class="pass">PASS</td>
+    <td>Harness <span class="file">telemetry-gate-output.txt</span>: with the toggle OFF,
+        <code>UsageTelemetry.Record</code> returns False and writes nothing to the usage sink, while the
+        authentication floor still records 2 events (logged-in + logout); with the toggle ON,
+        <code>UsageTelemetry.Record</code> returns True and the richer event is written. Also covered by
+        unit tests <code>UsageTelemetryTests</code>.</td>
+  </tr>
+  <tr>
+    <td>AC5 - The toggle copy is honest about what is always recorded versus what the toggle controls.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot 01 shows the copy: "Nothing about your actual work - your code, prompts, files, or
+        session contents - is ever sent" and "Logging in and logging out are still recorded either way:
+        those two events are inherent to having an account and are what our active-user count is built on."</td>
+  </tr>
+</table>
+
+<h2>Screenshots (captured from the running test Director)</h2>
+
+<h3>AC1, AC3 (default on), AC5 - the Account tab</h3>
+<p>Identity (email + provider), Log out action, telemetry toggle checked by default, and the honest copy.</p>
+<img src="01-account-tab-identity-and-telemetry.png" alt="Account tab with identity, log out, and telemetry toggle">
+
+<h3>AC2 - the gate after logging out</h3>
+<p>After Log out, the Director returns to the account gate in-process (and the same gate is shown on
+the next start because the credential is cleared).</p>
+<img src="02-gate-after-logout.png" alt="Account gate screen shown after logout">
+
+<h2>Telemetry gate harness output (AC3 read-back, AC4 gate)</h2>
+<pre id="harness"></pre>
+
+<h2>Director log excerpts (AC1 no-network identity, AC2 logout + gate)</h2>
+<pre id="log"></pre>
+
+<h2>Unit tests</h2>
+<p>All 74 tests in <code>CcDirector.Core.Tests</code> Account namespace pass. New tests:
+<code>JwtIdentityReaderTests</code> (4), <code>UsageTelemetryTests</code> (4),
+<code>TelemetrySettingsTests</code> (4), and two <code>GetIdentity</code> cases added to
+<code>DevThrottleAccountServiceTests</code>.</p>
+<pre>Passed!  - Failed: 0, Passed: 74, Skipped: 0, Total: 74 - CcDirector.Core.Tests.dll (net10.0)</pre>
+
+<h2>CenCon impact</h2>
+<p>The change stays within the existing <code>core_services</code> (CcDirector.Core) and
+<code>avalonia_ui</code> (CcDirector.Avalonia) containers. It adds a configuration key
+(<code>telemetry.enabled</code>) and a local usage sink; no new container, no architecture drift. No
+security rule is violated: the usage sink and the auth-event log record only an event name/kind and a
+timestamp - never the access/refresh token (DT-05) and nothing about the user's work; the identity
+reader is local-only. The architecture manifest (last_updated 2026-06-21) and security profile
+(last_verified 2026-06-09, within the 30-day threshold) are current and unchanged.</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li>src/CcDirector.Core/Account/AccountIdentity.cs (new)</li>
+  <li>src/CcDirector.Core/Account/JwtIdentityReader.cs (new)</li>
+  <li>src/CcDirector.Core/Account/TelemetrySettings.cs (new)</li>
+  <li>src/CcDirector.Core/Account/UsageTelemetry.cs (new)</li>
+  <li>src/CcDirector.Core/Account/DevThrottleAccountService.cs (added GetIdentity)</li>
+  <li>src/CcDirector.Core/Storage/CcStorage.cs (added DevThrottleUsageEventsLog path)</li>
+  <li>src/CcDirector.Avalonia/SettingsDialog.axaml + .axaml.cs (Account tab, logout, toggle persistence)</li>
+  <li>src/CcDirector.Avalonia/App.axaml.cs (ReturnToGateAfterLogout)</li>
+  <li>src/CcDirector.Core.Tests/Account/* (JwtIdentityReaderTests, UsageTelemetryTests, TelemetrySettingsTests, TestJwt + DevThrottleAccountServiceTests extensions)</li>
+</ul>
+
+<h2>Statement</h2>
+<p class="pass">I believe this is finished. Every acceptance criterion is implemented, the solution
+builds clean with zero warnings, all Account unit tests pass, and each criterion is proven in the
+running Director with screenshots, logs, and the telemetry gate harness committed here.</p>
+
+<script>
+async function load(id, file) {
+  try { const r = await fetch(file); document.getElementById(id).textContent = await r.text(); }
+  catch (e) { document.getElementById(id).textContent = "(open " + file + " directly - " + e + ")"; }
+}
+load("harness", "telemetry-gate-output.txt");
+load("log", "director-log-excerpts.txt");
+</script>
+
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #582 (PR #600)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #4ec9b0; } h2 { color: #569cd6; border-bottom: 1px solid #3c3c3c; padding-bottom: 6px; margin-top: 36px; }
+  .pass { color: #22c55e; font-weight: bold; } .meta { color: #888; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3c3c3c; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #2d2d30; }
+  img { max-width: 760px; border: 1px solid #3c3c3c; margin: 8px 0; display: block; }
+  code { background: #2d2d30; padding: 1px 5px; border-radius: 3px; }
+  .verdict { background: #1b3a2a; border: 1px solid #22c55e; padding: 14px; border-radius: 6px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #582</h1>
+<p class="meta">
+  Issue: [Account] In-app account area: identity, log out, and a usage-telemetry opt-out toggle<br />
+  Pull request: #600 &nbsp; Branch: issue-582-account-area &nbsp; Tested commit: dd719d9<br />
+  Independent verification by the QA Agent in a per-session-isolated test Director (slot 13, Control API port 7893).
+  The QA session seeded its OWN test credential (HMAC-SHA256 token, email <code>qa-verify@devthrottle.com</code>, provider
+  <code>google</code>) via the documented test seam, and produced its own screenshots and Control-API/log/file evidence -
+  the Developer Agent's report and screenshots were NOT trusted.
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+  <tr>
+    <td>AC1</td><td>Account area shows the signed-in identity (email and provider) for a stored credential.</td>
+    <td>Email and provider from the cached token displayed.</td>
+    <td>Settings &gt; Account shows Email = <code>qa-verify@devthrottle.com</code>, Signed in with = <code>google</code> -
+        exactly the claims in the seeded token. UI Automation read confirmed the text values; log shows
+        <code>[JwtIdentityReader] Read: identity resolved (provider=google)</code>, no network call.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC2</td><td>Log out clears the credential store (#583 check false), records a logout event; next start shows the gate.</td>
+    <td>Credential blob removed; logout event appended; gate shown.</td>
+    <td>Clicked Log out -&gt; confirm dialog -&gt; confirmed. <code>devthrottle-credential.bin</code> deleted
+        (exists=False), a <code>{"Kind":"logout"}</code> line appended to <code>devthrottle-auth-events.jsonl</code>,
+        and the Director returned to the "Sign in to DevThrottle" gate (AccountGateScreen logged
+        "no DevThrottle credential on this install; main window blocked"). With the store empty,
+        <code>AccountGatePolicy.Decide</code> returns Block, so the next start shows the gate.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC3</td><td>Toggle defaults to on, persists to config.json under a settings key, reads back after a restart.</td>
+    <td>Default ON; persists <code>telemetry.enabled</code>; reads back.</td>
+    <td>With no persisted value the toggle read ON (UI Automation ToggleState=On; <code>IsEnabled()=True</code>).
+        Toggling off + Save wrote <code>telemetry.enabled=false</code> to <code>config.json</code>; reopening read back
+        Off. The non-lossy merge preserved all other config sections (11 original keys intact).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC4</td><td>With toggle off, richer usage reporting does not fire while login/logout events still do.</td>
+    <td>Richer usage suppressed; auth floor still records.</td>
+    <td>Re-ran the proof harness independently against an isolated config root: toggle OFF -&gt;
+        <code>UsageTelemetry.Record</code> returned False and wrote nothing to the usage sink, while
+        <code>AuthEventLog</code> still recorded both logged-in and logout (2 events). Toggle ON -&gt; the richer path
+        wrote 1 usage event. Backed by 74 passing Account unit tests.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC5</td><td>Toggle copy is honest about what is always recorded versus what the toggle controls.</td>
+    <td>Copy states login/logout always recorded; nothing about work sent.</td>
+    <td>The Usage telemetry card states: "Nothing about your actual work - your code, prompts, files, or session
+        contents - is ever sent" and "Logging in and logging out are still recorded either way: those two events are
+        inherent to having an account ... They never include anything about your work."</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence</h2>
+<p>AC1 + AC5 - Account tab: identity (email + google) and honest telemetry copy.</p>
+<img src="ac1-ac5-identity-and-telemetry-copy.png" alt="Account tab identity and telemetry copy" />
+<p>AC3 - telemetry toggle defaults ON (no persisted value).</p>
+<img src="ac3-telemetry-default-on.png" alt="Telemetry default on" />
+<p>AC2 - logout confirm dialog.</p>
+<img src="ac2-logout-confirm.png" alt="Logout confirm" />
+<p>AC2 - returned to the account gate after logout (no restart).</p>
+<img src="ac2-gate-after-logout.png" alt="Gate after logout" />
+
+<h2>Regression and method checks</h2>
+<ul>
+  <li>Full solution build clean: <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Account unit tests: 74/74 pass.</li>
+  <li>Full Core test suite: 2204 pass, 6 skipped, 2 failures - both in
+      <code>TerminalVerificationIntegrationTests</code> (terminal-content session matching). These are
+      pre-existing, environment-dependent flakes driven by which Claude transcript files happen to be on the machine
+      (the matcher returned a different-but-valid session GUID); they pass on a clean checkout, are unrelated to the
+      Account/Telemetry/Settings code this PR touches, and belong to the category already quarantined in commit 1567bad
+      (#566). Not a regression from this change.</li>
+  <li>Negative sweep of every screenshot: no broken adjacent UI; main window, Settings tabs, and gate all render correctly.</li>
+  <li>CenCon: change is additive (new Account/Telemetry classes, a config key, UI copy); no blocking security rule
+      broken; no token ever logged or written to the usage/auth sinks; architecture is greenfield telemetry as scoped.</li>
+</ul>
+
+<div class="verdict">
+  <strong class="pass">VERIFIED - all acceptance criteria met (5/5).</strong>
+</div>
+</body>
+</html>

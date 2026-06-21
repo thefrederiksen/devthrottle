@@ -1,0 +1,27 @@
+2026-06-21 04:05:24.587 [DevThrottleAccountFactory] CreateForWindows: building credential service
+2026-06-21 04:05:24.587 [DevThrottleAccountFactory] ResolveSigningSecret: signing secret resolved from DEVTHROTTLE_JWT_SIGNING_SECRET
+2026-06-21 04:05:24.587 [DevThrottleAccountFactory] Build: credential service constructed
+2026-06-21 04:05:24.587 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: DEVTHROTTLE_TEST_SEED_TOKEN is set; seeding a test credential into the store
+2026-06-21 04:05:24.593 [AuthEventLog] RecordLoggedIn
+2026-06-21 04:05:24.596 [DevThrottleAccountFactory] SeedTestCredentialIfRequested: test credential stored
+2026-06-21 04:05:24.639 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 04:05:24.639 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 04:05:24.645 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-21 04:05:24.645 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 04:05:25.025 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 04:05:25.025 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+2026-06-21 04:05:25.027 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False
+2026-06-21 04:05:50.040 [SettingsDialog] LoadAsync: reading config.json
+2026-06-21 04:05:50.043 [DevThrottleAccountService] GetIdentity: reading identity from the cached credential (no network call)
+2026-06-21 04:05:50.044 [JwtIdentityReader] Read: extracting identity claims from the cached access token (no network call)
+2026-06-21 04:05:50.044 [JwtIdentityReader] Read: identity resolved (provider=google)
+2026-06-21 04:05:50.044 [DevThrottleAccountService] GetIdentity: identity=resolved
+2026-06-21 04:05:50.045 [TelemetrySettings] IsEnabled: persisted value enabled=False
+2026-06-21 04:05:50.053 [SettingsDialog] LoadAsync: loaded
+2026-06-21 04:05:57.866 [SettingsDialog] BtnLogOut_Click
+2026-06-21 04:06:02.027 [DevThrottleAccountService] Logout: clearing credential store
+2026-06-21 04:06:02.028 [AuthEventLog] RecordLoggedOut
+2026-06-21 04:06:02.029 [DevThrottleAccountService] Logout: cleared
+2026-06-21 04:06:02.030 [SettingsDialog] BtnLogOut_Click: credential cleared; returning to the account gate
+2026-06-21 04:06:02.030 [CcDirector] Logout complete: returning to the account gate (no restart)
+2026-06-21 04:06:02.036 [AccountGateScreen] Shown: no DevThrottle credential on this install; main window blocked
