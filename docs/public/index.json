@@ -8,6 +8,7 @@
       "pages": [
         { "id": "introduction", "title": "Introduction", "file": "getting-started/01-introduction.md" },
         { "id": "installation", "title": "Installation", "file": "getting-started/02-installation.md" },
+        { "id": "setup-wizard", "title": "Setup Wizard Walkthrough", "file": "getting-started/04-setup-wizard-walkthrough.md" },
         { "id": "quick-start", "title": "Quick Start", "file": "getting-started/03-quick-start.md" }
       ]
     },
