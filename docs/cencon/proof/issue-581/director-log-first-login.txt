@@ -1,0 +1,34 @@
+2026-06-21 02:29:23.346 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 02:29:23.346 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 02:29:23.347 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-21 02:29:23.347 [AccountGatePolicy] Decide: loggedIn=False, decision=Block
+2026-06-21 02:29:23.358 [AccountGateScreen] Shown: no DevThrottle credential on this install; main window blocked
+2026-06-21 02:30:20.705 [AccountGateScreen] Sign in clicked: starting the first-run login hand-off (issue #581)
+2026-06-21 02:30:20.757 [FirstRunLoginDialog] Shown: first-run explanation (account required, first setup must be online)
+2026-06-21 02:30:47.524 [FirstRunLoginDialog] Continue clicked: proceeding to the system-browser sign-in
+2026-06-21 02:30:47.841 [FirstRunLoginCoordinator] RunAsync: starting first-run login hand-off
+2026-06-21 02:30:48.597 [LoopbackLoginListener] Started on loopback callback http://127.0.0.1:54050/devthrottle-login-callback/ (127.0.0.1 only)
+2026-06-21 02:30:48.597 [FirstRunLoginCoordinator] RunAsync: launching system browser at https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A54050%2Fdevthrottle-login-callback%2F
+2026-06-21 02:30:48.597 [BrowserLauncher] OpenSystemDefault: target=https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A54050%2Fdevthrottle-login-callback%2F
+2026-06-21 02:30:48.676 [LoopbackLoginListener] WaitForCredentialAsync: awaiting the browser sign-in hand-back
+2026-06-21 02:31:13.171 [LoopbackLoginListener] WaitForCredentialAsync: credential captured from the browser hand-back
+2026-06-21 02:31:13.172 [DevThrottleAccountService] StoreTokens: storing token pair in credential store
+2026-06-21 02:31:13.183 [DevThrottleAccountService] StoreTokens: stored
+2026-06-21 02:31:13.183 [FirstRunLoginCoordinator] RunAsync: credential captured and stored through the credential service
+2026-06-21 02:31:13.184 [AccountGateScreen] First-run login succeeded: clearing the gate and showing the main window
+2026-06-21 02:31:13.185 [CcDirector] First-run login complete: clearing the account gate and showing the main window (no restart)
+2026-06-21 02:31:13.564 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 02:31:13.564 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+2026-06-21 02:31:13.565 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-21 02:31:13.594 [DevThrottleAccountService] RefreshIfNeededAsync: access token still valid -> no refresh needed
+2026-06-21 02:31:13.594 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False
+===== RESTART (credential present, no re-login) =====
+2026-06-21 02:33:59.868 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+2026-06-21 02:33:59.868 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-21 02:33:59.879 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-21 02:33:59.880 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 02:34:00.288 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 02:34:00.288 [AccountGatePolicy] StartBackgroundValidation: scheduling background session validation (does not block the main window)
+2026-06-21 02:34:00.290 [AccountGatePolicy] StartBackgroundValidation: completed, refreshed=False
+--- credential file on disk (DPAPI, survives update) ---
+422 bytes at %LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin (DPAPI-encrypted; per-user path outside the install directory an update replaces)
