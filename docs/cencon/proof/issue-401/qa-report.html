@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #401</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2c5282; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #2c5282; color: #fff; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  code { background: #edf2f7; padding: .1rem .3rem; border-radius: 3px; }
+  .verdict { background: #e6ffed; border: 2px solid #1a7f37; padding: 1rem; margin-top: 1.5rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #401</h1>
+<p><strong>Title:</strong> [Maintenance] Remove completed one-time migration scripts (step1/step2)</p>
+<p><strong>Pull Request:</strong> #615 &mdash; branch <code>issue-401-remove-migration-scripts</code></p>
+<p><strong>Verified by:</strong> QA Agent (independent verification, own worktree from the PR branch, own slot 13)</p>
+<p><strong>Date:</strong> 2026-06-21</p>
+
+<h2>Acceptance criteria verified</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Both <code>scripts/step1-backup.bat</code> and <code>scripts/step2-migrate.bat</code> deleted on the branch.</td>
+    <td>Neither file exists.</td>
+    <td><code>ls</code> of both paths returns "No such file or directory". PR diff shows both files deleted (-14 / -16 lines).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>No live invocation of either script remains anywhere in the repo.</td>
+    <td>Remaining hits are documentation/prose only - never a CI step, batch/PowerShell call, scheduled task, installer, or code path that runs the scripts.</td>
+    <td><code>git grep -i</code> over all tracked files (excluding this issue's own proof dir) returns a single hit: <code>.claude/skills/code-maintenance/skill.md:67</code>, a markdown bullet listing the two filenames as an EXAMPLE of one-time scripts the maintenance skill should flag for archive/delete. No hits in any <code>.yml/.yaml/.ps1/.bat/.cmd/.cs/.csproj/.sln/.json/.sh</code> file (git grep exit code 1 = no match). The former "self-reference" lived inside step1-backup.bat itself, which is now deleted.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><code>dotnet build cc-director.sln</code> builds clean.</td>
+    <td>Build succeeded, 0 errors.</td>
+    <td>Build succeeded. 0 Warning(s), 0 Error(s). All 20+ projects compiled.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>App startup + storage access unaffected.</td>
+    <td>App starts; a storage-backed Control API call succeeds.</td>
+    <td>Built slot-13 exe (cc-director13.exe), launched via the cc-director13-launch scheduled task (PID 73956, Control API port 7889). <code>GET /healthz</code> returned HTTP 200 (version 0.9.13). Storage-backed <code>GET /sessions</code> returned HTTP 200 with valid JSON <code>[]</code>. Director log shows <code>CcStorageMigration.EnsureMigrated</code> ran to completion with no errors and unified storage paths in use. Session torn down cleanly afterwards.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Change is a pure deletion of two dead one-time scripts plus proof artifacts - no production code, no architecture or security surface touched, so no <code>docs/cencon/</code> security/architecture update is required.</li>
+  <li>No blocking CenCon security rule affected. No adjacent breakage: clean full-solution build and a successful storage-backed runtime smoke confirm nothing depended on the removed scripts.</li>
+</ul>
+
+<div class="verdict">
+VERIFIED - all acceptance criteria met. The developer's claim is independently confirmed: both scripts are deleted, the only remaining repository reference is a documentation example (not a live invocation), the solution builds clean, and the app starts and reaches unified storage normally.
+</div>
+</body>
+</html>
