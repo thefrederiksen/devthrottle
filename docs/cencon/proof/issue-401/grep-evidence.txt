@@ -1,0 +1,32 @@
+ISSUE 401 - DEAD-REFERENCE EVIDENCE
+Search for any live invocation of step1-backup.bat / step2-migrate.bat
+Captured: 2026-06-21
+
+Command: ripgrep over the whole repo for "step1-backup" / "step2-migrate"
+
+Results (before deletion):
+  .claude/skills/code-maintenance/skill.md:67  - One-time migration scripts (e.g. `step1-backup.bat`, `step2-migrate.bat`) once the
+  scripts/step1-backup.bat:13                  - echo [OK] Backup complete. You can now run step2-migrate.bat
+
+Analysis of each hit:
+1. .claude/skills/code-maintenance/skill.md:67
+   This is DOCUMENTATION. It names the two scripts only as an ILLUSTRATIVE EXAMPLE of the
+   category "one-time migration scripts ... once the migration is done: ARCHIVE or DELETE."
+   It does NOT invoke, depend on, or require the scripts to exist. The example remains valid
+   guidance after deletion. NOT a live reference. Left unchanged (deliberately in scope: only
+   the two .bat files are deleted per the issue).
+
+2. scripts/step1-backup.bat:13
+   This is a SELF-REFERENCE inside one of the two files being deleted (the echo text telling a
+   human operator to next run step2-migrate.bat). Removed when the file is deleted.
+
+No other hit anywhere references these batch files: no CI workflow, no .NET/C# code, no PowerShell
+build script, no documentation invocation. The remaining "step1"/"step2" grep hits in the repo are
+UNRELATED (UI wizard step labels in cc-director-setup, posthog funnel-test fixtures, and proof
+screenshot filenames in docs/cencon/proof/issue-370) - none reference the migration batch files.
+
+CONCLUSION: Both scripts are DEAD. Deletion is safe. (Per the issue, git revert is the rollback.)
+
+Migration completeness: the app uses unified storage via tools/cc_storage (tools/cc_storage/storage.py,
+migrate.py present and wired into startup as CcStorageMigration.EnsureMigrated - see smoke-launch.log).
+The one-time backup+migrate batch pair is no longer part of any workflow.

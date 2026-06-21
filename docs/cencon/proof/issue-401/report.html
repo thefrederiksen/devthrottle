@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue 401 - Remove completed one-time migration scripts - Developer Agent Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 920px; margin: 2rem auto; padding: 0 1.2rem; color: #1d2733; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #2b6cb0; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f5f7fa; border: 1px solid #d9e2ec; border-radius: 6px; padding: .8rem; overflow-x: auto; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  th, td { border: 1px solid #d9e2ec; padding: .5rem .7rem; text-align: left; vertical-align: top; font-size: .9rem; }
+  th { background: #edf2f7; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .meta { color: #52606d; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Issue 401 - Remove completed one-time migration scripts (step1/step2)</h1>
+<p class="meta">Developer Agent proof - CenCon Development Method - branch <code>issue-401-remove-migration-scripts</code> - worktree <code>devthrottle-wt-401</code> - 2026-06-21</p>
+
+<h2>Release Notes</h2>
+<p>Removed two completed one-time storage-migration helper scripts that are no longer part of any
+workflow: <code>scripts/step1-backup.bat</code> and <code>scripts/step2-migrate.bat</code>. They were
+the manual driver for a ~2026-03 storage migration that is now complete - the application uses unified
+storage via <code>tools/cc_storage</code>. No behavior change; pure dead-file cleanup. Rollback is
+<code>git revert</code>.</p>
+
+<h2>Changes</h2>
+<ul>
+  <li><code>scripts/step1-backup.bat</code> - DELETED (one-time backup driver, called the now-unused backup-before-migration.py).</li>
+  <li><code>scripts/step2-migrate.bat</code> - DELETED (one-time migrate driver, called the now-unused migrate-storage.py).</li>
+</ul>
+<p>Scope note: per the issue, only the two batch files are in scope and were deleted. The example
+mention of these script names in <code>.claude/skills/code-maintenance/skill.md</code> is documentation
+(an illustration of the "delete completed migration scripts" pattern), not an invocation, so it is left
+unchanged.</p>
+
+<h2>Acceptance criteria - how each is met</h2>
+<table>
+  <tr><th>Criterion (from issue)</th><th>How met</th><th>Proof</th></tr>
+  <tr>
+    <td>No script/doc references step1-backup.bat / step2-migrate.bat (grep).</td>
+    <td>Repo-wide ripgrep shows the only two pre-deletion hits are (1) a self-reference inside the file being deleted and (2) a documentation example - neither is a live invocation. No CI, code, or build script invokes them.</td>
+    <td><span class="pass">PASS</span> - see <code>grep-evidence.txt</code></td>
+  </tr>
+  <tr>
+    <td>App startup + storage access unaffected.</td>
+    <td>Built slot-13 exe from the worktree (with both scripts deleted), launched via the per-slot scheduled task. App started clean (version 0.9.13), ran the unified-storage check (CcStorageMigration.EnsureMigrated), bound the Control API, and served the storage-backed /sessions endpoint.</td>
+    <td><span class="pass">PASS</span> - see <code>smoke-launch.log</code></td>
+  </tr>
+  <tr>
+    <td>Solution builds clean.</td>
+    <td><code>dotnet build cc-director.sln</code> from the worktree: Build succeeded, 0 Warning(s), 0 Error(s).</td>
+    <td><span class="pass">PASS</span></td>
+  </tr>
+</table>
+
+<h2>How to test</h2>
+<ol>
+  <li>Confirm <code>scripts/step1-backup.bat</code> and <code>scripts/step2-migrate.bat</code> no longer exist on the branch.</li>
+  <li>Ripgrep the repo for <code>step1-backup</code> / <code>step2-migrate</code> - the only remaining hit is the documentation example in <code>.claude/skills/code-maintenance/skill.md</code>.</li>
+  <li>Run <code>dotnet build cc-director.sln</code> - it builds clean.</li>
+  <li>Launch the app and confirm it starts and reaches storage (Control API <code>/healthz</code> -> ok, <code>/sessions</code> -> HTTP 200).</li>
+</ol>
+
+<h2>Expected result</h2>
+<p>The two batch files are gone, the build is clean, and the application starts and accesses unified
+storage exactly as before - because the deleted scripts were a completed one-time manual migration with
+no runtime dependency.</p>
+
+<h2>Live smoke-launch evidence</h2>
+<pre>=== Control API /healthz (HTTP 200) ===
+{"status":"ok","directors":1,"sessions":0,"version":"0.9.13",...,"machineName":"SOREN_NORTH"}
+
+=== Control API GET /sessions ===
+HTTP 200 (storage-backed endpoint served successfully)
+
+=== Unified storage proof from Director startup log ===
+[CcStorageMigration] EnsureMigrated: checking for legacy data
+[CcStorageMigration] Copied (missing): ...CcDirector\sessions.json -&gt; ...\cc-director\config\director\sessions.json
+[CcStorageMigration] EnsureMigrated: migration check complete
+[ControlApiHost] Kestrel listening on http://127.0.0.1:7889 (loopback only)</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. Deleting two unused one-time batch scripts changes neither the architecture
+(<code>architecture_manifest.yaml</code>) nor the security posture (<code>security_profile.yaml</code>).
+No container is added, removed, or re-wired; the unified storage path was already in place.</p>
+
+<h2>Risk</h2>
+<p>LOW (as stated in the issue). Pure dead-file deletion. Rollback: <code>git revert</code>.</p>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> Both scripts are confirmed dead and deleted, the
+solution builds clean, and a smoke-launch proves app startup and unified-storage access are unaffected.</p>
+</body>
+</html>
