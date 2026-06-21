@@ -173,7 +173,7 @@ public partial class GatewayTroubleshootDialog : Window
                 return;
 
             default:
-                ShowVerdictNeutral("No gateway.url configured - this Director runs local-only. Configure a Gateway in Settings to connect it.");
+                ShowVerdictNeutral("No Gateway URL is configured, and a Gateway is required. Set the Gateway URL in Settings (Gateway tab) to connect this Director - features such as voice keys, the fleet view, and cross-machine sessions need a connected gateway.");
                 return;
         }
         _verdictReportLine = VerdictText.Text + (VerdictLegs.IsVisible ? Environment.NewLine + VerdictLegs.Text : "");

@@ -1,0 +1,7 @@
+2026-06-21 04:48:24.110 [CcDirector] Account gate initialized
+2026-06-21 04:48:24.147 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-21 04:48:24.147 [AccountGatePolicy] Decide: loggedIn=True, decision=Start
+2026-06-21 04:48:24.205 [ControlApiHost] Kestrel listening on http://127.0.0.1:7879 (loopback only; remote access via Tailscale Serve)
+2026-06-21 04:48:24.211 [GatewayConnectionMonitor] Reset: status=NotConfigured
+2026-06-21 04:48:24.397 [CcDirector] Main window shown (account gate passed); starting background session validation next
+2026-06-21 04:48:24.613 [MainWindow] Gateway indicator attached to GatewayConnectionMonitor

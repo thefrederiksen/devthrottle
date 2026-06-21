@@ -448,6 +448,21 @@ public partial class SettingsDialog : Window
             var advertised = GatewayAdvertisedBox.Text?.Trim() ?? "";
             var token = GatewayTokenBox.Text?.Trim() ?? "";
 
+            // A Gateway URL is required (issue #442): a blank or non-absolute-http(s) URL is
+            // rejected so config.json can never be saved with an empty gateway.url through this
+            // dialog. The dialog stays open, the Gateway tab is shown, and the inline message names
+            // the fix. Reachability is NOT checked here - that is what the Test button is for. Reuses
+            // the same syntactic rule the onboarding wizard already enforces (and unit-tests).
+            var urlValidation = OnboardingModel.ValidateGatewayUrl(url);
+            if (!urlValidation.IsValid)
+            {
+                FileLog.Write($"[SettingsDialog] BtnSave_Click: rejected invalid gateway url='{url}': {urlValidation.Message}");
+                SelectGatewayTab();
+                ShowGatewayStatus("A Gateway URL is required. " + urlValidation.Message, error: true);
+                SaveButton.IsEnabled = true;
+                return;
+            }
+
             // Build a patch with ONLY the sections the user changed, so we touch nothing else.
             var patch = new JsonObject();
 
@@ -673,6 +688,15 @@ public partial class SettingsDialog : Window
         GatewayTestStatus.Foreground = error
             ? global::Avalonia.Media.Brushes.IndianRed
             : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    /// <summary>Select the Gateway tab so a gateway-related message (e.g. the required-URL
+    /// validation block on Save, issue #442) is visible to the user.</summary>
+    public void SelectGatewayTab()
+    {
+        // Tab order in SettingsDialog.axaml: Account(0), Gateway(1), Agents(2), ...
+        const int gatewayTabIndex = 1;
+        SettingsTabs.SelectedIndex = gatewayTabIndex;
     }
 
     /// <summary>
