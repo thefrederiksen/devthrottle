@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #389 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1d1d1d; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #007ACC; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { background: #f5f5f5; font-family: Consolas, monospace; }
+  pre { padding: .8rem; overflow-x: auto; border-left: 4px solid #007ACC; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .ac { background: #fafafa; }
+</style>
+</head>
+<body>
+
+<h1>Issue #389 - TTS per-request timeout, retry, and overall budget</h1>
+<p><strong>Title:</strong> [Voice] TTS stalls up to 180s and returns no audio when an OpenAI request hangs (no per-request timeout/retry)</p>
+<p><strong>Branch:</strong> <code>issue-389-tts-per-request-timeout</code></p>
+<p><strong>Type:</strong> Backend resilience fix in <code>CcDirector.Core</code>. Proof target (per the issue's acceptance criteria) is unit tests.</p>
+
+<h2>What was implemented</h2>
+<p>The root cause was that <code>TtsService.GenerateAsync</code> relied solely on the shared
+<code>HttpClient.Timeout = 180s</code> with no retry, so one stalled OpenAI
+<code>/v1/audio/speech</code> chunk blocked the whole voice turn for up to 180 seconds and then
+returned empty audio. The fix, in <code>src/CcDirector.Core/Voice/TtsService.cs</code>:</p>
+<ul>
+  <li><strong>Per-request timeout (~30s/chunk):</strong> each chunk runs under a
+      <code>CancellationTokenSource.CreateLinkedTokenSource(ct)</code> + <code>CancelAfter(PerRequestTimeout)</code>.
+      The shared client no longer carries the 180s ceiling (its timeout is
+      <code>Timeout.InfiniteTimeSpan</code>; the linked tokens are the only deadlines).</li>
+  <li><strong>Retry once on transient failure:</strong> a per-request timeout, a 5xx, or an empty body
+      is flagged transient and retried a single time. A 4xx is permanent and is not retried.</li>
+  <li><strong>Overall TTS budget (~60s):</strong> a second linked CTS with
+      <code>CancelAfter(OverallBudget)</code> spans all chunks (including the retry), so a reply can
+      never block for minutes.</li>
+  <li><strong>Fail fast to text with logging:</strong> on final failure the call returns promptly and
+      <code>FileLog</code> records elapsed milliseconds + failing chunk index + reason. The upstream
+      text-only fallback (in <code>VoiceTurnEndpoint</code>) is unchanged.</li>
+  <li><strong>Injectable HttpMessageHandler:</strong> a second constructor
+      <code>TtsService(AgentOptions, HttpMessageHandler)</code> makes the timeout/retry behaviour
+      unit-testable without the network. The existing <code>TtsService(AgentOptions)</code> constructor
+      and all five call sites are unchanged.</li>
+  <li><strong>Success path byte-identical:</strong> the MP3 chunk concatenation logic is unchanged
+      (the null-forgiving <code>!</code> in the old loop was replaced with explicit null checks per
+      CodingStyle.md).</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+  <tr><th>Criterion</th><th>How the code satisfies it</th><th>Verifying test (Passed)</th></tr>
+  <tr class="ac">
+    <td>A stalled/slow request no longer blocks a turn for 180s; worst-case TTS wall-time &le; ~60s.</td>
+    <td>Per-request <code>CancelAfter(30s)</code> ends a stalled chunk; overall <code>CancelAfter(60s)</code> caps the whole reply.</td>
+    <td><code>GenerateAsync_FirstChunkStalls_PerRequestTimeoutFires_ThenRetries</code> [30s]<br>
+        <code>GenerateAsync_PersistentStall_FailsFast_WithinBudget</code> [60s, &lt; 70s assert]</td>
+  </tr>
+  <tr class="ac">
+    <td>A transient single-chunk failure (timeout or 5xx) is retried once before audio is abandoned.</td>
+    <td>Retry-once wrapper treats timeout / 5xx / empty body as transient.</td>
+    <td><code>GenerateAsync_TransientServerError_RetriesOnce_AndSucceeds</code><br>
+        <code>GenerateAsync_EmptyBody_IsTransient_AndRetried</code></td>
+  </tr>
+  <tr class="ac">
+    <td>When TTS still fails after retry, the reply is delivered (text-only) within a few seconds; the log records elapsed time + failing chunk index + reason.</td>
+    <td>Permanent failure returns immediately after one retry; <code>FileLog</code> logs elapsed ms + chunk index + reason.</td>
+    <td><code>GenerateAsync_PermanentFailure_ReturnsErrorQuickly_NotAfter180s</code> (asserts &lt; 30s)<br>
+        <code>GenerateAsync_ClientError_IsPermanent_NotRetried</code> (4xx, single call)</td>
+  </tr>
+  <tr class="ac">
+    <td>The success path (single- and multi-chunk) is unchanged in output (byte-identical concatenation).</td>
+    <td>Concatenation logic unchanged; explicit null checks instead of <code>!</code>.</td>
+    <td><code>GenerateAsync_SingleChunk_ReturnsBytesUnchanged</code><br>
+        <code>GenerateAsync_MultiChunk_ConcatenatesBytesInOrder</code></td>
+  </tr>
+  <tr class="ac">
+    <td>Unit tests cover (a) per-request timeout triggers and retries, (b) retry succeeds on second attempt, (c) permanent failure returns an error quickly (not after 180s), (d) happy path unchanged.</td>
+    <td>New <code>TtsServiceTests.cs</code> with an injectable scripted HttpMessageHandler covers all four.</td>
+    <td>All 9 tests Passed (see run below).</td>
+  </tr>
+</table>
+
+<h2>Test run (proof)</h2>
+<p>Solution build: <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+<p>Per-test timing demonstrates the behaviour: the stall tests consume the real 30s/60s deadlines
+(proving the per-request timeout and overall budget actually fire), while permanent-failure paths
+return in under a millisecond (proving fail-fast, not a 180s block).</p>
+<pre>
+$ dotnet test --filter "FullyQualifiedName~TtsServiceTests" --no-build
+
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_ClientError_IsPermanent_NotRetried [28 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_EmptyBody_IsTransient_AndRetried [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_EmptyText_ReturnsError_WithoutCallingOpenAi [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_PermanentFailure_ReturnsErrorQuickly_NotAfter180s [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_PersistentStall_FailsFast_WithinBudget [1 m]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_TransientServerError_RetriesOnce_AndSucceeds [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_FirstChunkStalls_PerRequestTimeoutFires_ThenRetries [30 s]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_MultiChunk_ConcatenatesBytesInOrder [1 ms]
+  Passed CcDirector.Core.Tests.Voice.TtsServiceTests.GenerateAsync_SingleChunk_ReturnsBytesUnchanged [&lt; 1 ms]
+
+Passed!  - Failed: 0, Passed: 9, Skipped: 0, Total: 9 - CcDirector.Core.Tests.dll (net10.0)
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a behaviour-only resilience change inside an existing container. The external
+dependency (OpenAI <code>/v1/audio/speech</code>) and the security posture (same endpoint, same
+Bearer-key handling, no new network egress, key never logged) are unchanged, so
+<code>architecture_manifest.yaml</code> and <code>security_profile.yaml</code> do not change.</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>src/CcDirector.Core/Voice/TtsService.cs</code> - per-request timeout, retry-once, overall budget, injectable handler, elapsed/chunk logging.</li>
+  <li><code>src/CcDirector.Core.Tests/Voice/TtsServiceTests.cs</code> - new; 9 tests covering the acceptance criteria via a scripted HttpMessageHandler.</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong></p>
+
+</body>
+</html>
