@@ -50,4 +50,27 @@ public static class RecordingUploadGate
     /// whose audio is not confirmed, or that still owes its notes, must never be removed locally.
     /// </summary>
     public static bool IsDeletable(string state, bool completed) => IsFullyDelivered(state, completed);
+
+    /// <summary>
+    /// The server's audio completeness gate (issue #586) refused the complete call because some
+    /// segments are missing or hash-mismatched on the server, naming their indices. This is the pure
+    /// decision for the gate-driven resume (issue #591): given the indices the gate reported and the
+    /// segment indices this recording actually has locally, return exactly the locally-present indices
+    /// that must be re-armed (their <c>Uploaded</c> flag cleared) so the next upload pass re-sends them
+    /// - and nothing else. With zero audio loss: a segment the gate names but the phone never had is
+    /// not invented here; only segments the phone holds are re-sent. De-duplicated and sorted.
+    /// </summary>
+    /// <param name="missingOrBadIndices">The indices the server gate reported as missing or bad.</param>
+    /// <param name="localIndices">The segment indices this recording has on the phone.</param>
+    public static IReadOnlyList<int> RequeueIndicesForResend(
+        IEnumerable<int>? missingOrBadIndices, IEnumerable<int> localIndices)
+    {
+        if (missingOrBadIndices is null) return Array.Empty<int>();
+        var local = new HashSet<int>(localIndices);
+        return missingOrBadIndices
+            .Where(local.Contains)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+    }
 }

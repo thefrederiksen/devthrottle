@@ -354,6 +354,25 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             ClearProgress();
             Persist();
         }
+        catch (IncompleteUploadException incomplete)
+        {
+            // The server's audio completeness gate (issue #586) refused the complete call: some
+            // segments the phone believed uploaded are missing or hash-mismatched on the server. Re-arm
+            // exactly the named segments the phone still holds (clear their Uploaded flag) and put the
+            // recording back into the audio-upload phase so the next pass re-sends ONLY those bytes and
+            // then re-completes (issue #591). Without this the recording would retry complete forever
+            // against a gate it can never pass. Zero audio loss: only segments the phone has are
+            // re-sent; the notes ride on the eventual successful complete, never stranded.
+            var resend = RecordingUploadGate.RequeueIndicesForResend(
+                incomplete.MissingOrBadIndices, m.Chunks.Select(c => c.Index));
+            foreach (var chunk in m.Chunks.Where(c => resend.Contains(c.Index)))
+                chunk.Uploaded = false;
+            m.State = "Retry";                 // re-enter the audio-upload phase on the next pass
+            m.TranscriptionState = "Failed";
+            m.TranscriptError = incomplete.Message;
+            ClearProgress();
+            Persist();
+        }
         catch (Exception ex)
         {
             // The complete/notes call did not land. Leave Completed=false so the next pass

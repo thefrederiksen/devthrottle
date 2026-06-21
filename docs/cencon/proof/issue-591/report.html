@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #591 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fc; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  .pass { color: #107c10; font-weight: bold; }
+  .box { background: #f8f8f8; border-left: 4px solid #007ACC; padding: .8rem 1rem; margin: 1rem 0; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: .8rem; border-radius: 5px; overflow-x: auto; font-size: .85rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #591 - Bring the phone recorder onto the completeness gate + selected method</h1>
+
+<div class="box">
+<strong>Summary.</strong> The phone recorder now goes through the shared completeness gate (issue #586,
+already enforced - reused unchanged) and routes transcription through the ONE shared batch pipeline
+(issue #587) using the user-SELECTED transcription method, instead of being hardcoded to OpenAI. The
+one-minute segmented capture, resumable upload, and assembly model are unchanged. The phone now reacts
+to a server gate refusal (HTTP 409) by re-sending exactly the named segments, closing a "stuck forever"
+gap so a kill-and-resume run delivers the full segment set with zero audio loss.
+</div>
+
+<h2>What was implemented</h2>
+<ul>
+<li><strong>New <code>SelectedMethodRecordingTranscriber</code></strong> (CcDirector.Core/Recording):
+    an <code>IRecordingTranscriber</code> that resolves the user-selected method (base URL + key + model)
+    FRESH per transcribe, transcribes each segment with ONE whole-segment batch POST to the resolved
+    method via <code>BatchTranscriptionPipeline</code> (returning RAW text only), and applies the
+    validated dictionary corrector ONCE on the assembled raw concatenation. No baked-in OpenAI URL, no
+    free-text cleanup.</li>
+<li><strong><code>BatchTranscriptionPipeline.TranscribeRawAsync</code></strong> (additive): the
+    transcription half of the shared pipeline exposed on its own, so callers that batch-transcribe
+    several segments then run the dictionary corrector once keep using the single transport.</li>
+<li><strong><code>RecordingEndpoints.BuildService</code></strong> (CcDirector.Gateway): now constructs
+    <code>SelectedMethodRecordingTranscriber</code>, resolving the configured mode + vault key in-process
+    exactly like the Gateway's <code>/transcription/routing</code> endpoint - so switching the mode in the
+    Cockpit changes the base URL the recording transcription POSTs to (BYO -&gt; api.openai.com,
+    DevThrottle -&gt; devthrottle.com), with no restart.</li>
+<li><strong>Phone gate-driven resume</strong>: <code>RecordingUploadGate.RequeueIndicesForResend</code>
+    (pure decision), <code>IncompleteUploadException</code> in <code>IngestUploader</code> (surfaces the
+    409 missing/bad indices), and <code>AndroidAudioRecorder</code> re-arms exactly the named segments and
+    re-runs the upload pass.</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+<tr><th>Criterion</th><th>How met</th><th>Proof (all <span class="pass">PASS</span>)</th></tr>
+<tr>
+  <td>Gateway refuses any missing/hash-mismatched segment, reports the bad indices, no transcript - reusing the shared gate (#586)</td>
+  <td>Unchanged shared gate in <code>RecordingIngestService.CompleteAsync</code>; the production path (now backed by the new transcriber) still flows through it</td>
+  <td><code>RecordingCompletenessGateHttpTests.Complete_MissingSegment_Returns409_Incomplete_NamingMissingIndex</code> (HTTP 409 + index [1] + transcript 404); service tests <code>Complete_MissingSegment_RefusedAsIncomplete_NoTranscript</code>, <code>Complete_SegmentShaMismatch...</code>, <code>Complete_ByteTotalMismatch...</code></td>
+</tr>
+<tr>
+  <td>Transcription uses the user-selected method, not a fixed OpenAI model - changing the method changes the base URL</td>
+  <td><code>SelectedMethodRecordingTranscriber</code> resolves the method and POSTs to the resolved base URL; <code>BuildService</code> resolves it from the configured mode + vault key</td>
+  <td><code>SelectedMethodRecordingTranscriberTests.TranscribeChunk_DevThrottleMode_RoutesToDevThrottleUrl_DifferentBaseUrl</code> (BYO -&gt; api.openai.com, DevThrottle -&gt; devthrottle.com, <code>NotEqual</code> base URLs, key never crossed) + <code>..._ByoMode_RoutesToOpenAiUrlWithOpenAiKey</code></td>
+</tr>
+<tr>
+  <td>Transcribed once per segment in batch and assembled, with dictionary correction as the only text change</td>
+  <td>Each segment one batch POST (raw); assembled = raw concatenation; one dictionary corrector pass on the assembled text</td>
+  <td><code>SelectedMethodRecordingTranscriberTests.PerSegmentBatch_NoDictionaryHit_AssembledEqualsRawConcatByteIdentical</code> (assembled == raw concat, byte-identical, no change) + <code>Cleanup_WithDictionaryHit_SwapsKnownTermOnly_AgainstSameMethodUrl</code></td>
+</tr>
+<tr>
+  <td>A recording interrupted mid-upload resumes and completes with zero audio loss</td>
+  <td>Unchanged resumable upload (only not-yet-uploaded segments sent); the gate-driven resume re-arms exactly the named segments on a 409</td>
+  <td><code>RecordingIngestServiceTests.Complete_ResendMissingSegment_ThenPasses_AndTranscribes</code> (incomplete -&gt; resend missing -&gt; queued -&gt; transcribed); phone <code>RecordingUploadGateTests.RequeueIndicesForResend_*</code> (names only locally-present missing indices, never invents a segment the phone never had)</td>
+</tr>
+</table>
+
+<h2>Build &amp; test evidence</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code> -&gt; <span class="pass">Build succeeded. 0 Warning(s) 0 Error(s)</span></li>
+<li>CcDirector.Core.Tests (recording + transcription + dictation filter): <span class="pass">271 passed</span>, 1 skipped (pre-existing CI-flaky background-worker race), 0 failed - includes the 6 new <code>SelectedMethodRecordingTranscriberTests</code>.</li>
+<li>CcDirector.Gateway.Tests (full suite): <span class="pass">858 passed</span>, 1 skipped, 0 failed.</li>
+<li>CcDirectorClient.Tests (phone gate): <span class="pass">19 passed</span> - includes the 4 new <code>RequeueIndicesForResend</code> tests.</li>
+<li>CcRecorder.csproj (net10.0-android): <span class="pass">0 Error(s)</span> (only pre-existing warnings) - the phone <code>IngestUploader</code> + <code>AndroidAudioRecorder</code> changes compile on the real Android target.</li>
+<li>Live Director boot (isolated slot 13, via scheduled task): booted clean, Control API on port 7884, version 0.9.13 - the solution carrying these changes runs.</li>
+</ul>
+
+<p>Raw test output captured alongside this report:
+<code>core-recording-tests.txt</code>, <code>gateway-gate-tests.txt</code>, <code>phone-gate-tests.txt</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>Updated <code>architecture_manifest.yaml</code>: the <code>RecordingIngestService</code> /
+<code>SelectedMethodRecordingTranscriber</code> component and the <code>RecordingEndpoints</code> +
+Phone Recording Ingest Flow descriptions now state that recording transcription flows through the shared
+<code>BatchTranscriptionPipeline</code> via the user-selected method (the same component #587 added). No
+security-rule change: the bring-your-own OpenAI key is still only ever paired with the OpenAI base URL by
+the one pure resolver, so the "DevThrottle key never crossed onto api.openai.com / OpenAI key never crossed
+onto devthrottle.com" invariant is inherited unchanged (and is asserted in the new tests).</p>
+
+<p><strong>I believe this is finished.</strong></p>
+
+</body>
+</html>

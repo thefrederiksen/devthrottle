@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #591 - QA Agent Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #107c10; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #0b5d0b; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #eef7ee; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  .pass { color: #107c10; font-weight: bold; }
+  .box { background: #f4faf4; border-left: 4px solid #107c10; padding: .8rem 1rem; margin: 1rem 0; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: .8rem; border-radius: 5px; overflow-x: auto; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Issue #591 - QA Agent Proof Report</h1>
+<p><strong>Title:</strong> [Recorder] Bring phone recorder onto the completeness gate + selected method<br>
+<strong>Pull request:</strong> #609, branch <code>issue-591-recorder-shared-pipeline</code><br>
+<strong>Verdict:</strong> <span class="pass">VERIFIED - all acceptance criteria met. PASS.</span></p>
+
+<div class="box">
+This report is INDEPENDENT verification by the QA Agent. The change was built and every test run
+in a fresh QA worktree checked out from the PR branch (<code>D:\ReposFred\dt-591-qa</code>), not the
+Developer's binary or screenshots. This is a backend / transcription-pipeline change with no new user
+interface surface; each acceptance criterion is the issue's own stated "Verifiable:" behaviour, proven
+by building the change and running the regression suites that exercise that exact behaviour, plus
+direct reading of the wired-through production code paths.
+</div>
+
+<h2>Build gate</h2>
+<pre>dotnet build cc-director.sln -c Debug
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Gateway refuses to transcribe a recording with any missing or hash-mismatched segment and reports the bad indices, reusing the #586 gate.</td>
+<td>Upload all-but-one segment, <code>complete</code> returns incomplete (409) naming the missing index, no transcript produced.</td>
+<td>HTTP-level test <code>RecordingCompletenessGateHttpTests.Complete_MissingSegment_Returns409_Incomplete_NamingMissingIndex</code> boots the real <code>RecordingEndpoints</code> on a loopback port: segment 0 stored, segment 1 withheld -&gt; <code>complete</code> returns <strong>409 Conflict</strong>, body state <code>"incomplete"</code>, <code>MissingOrBadIndices = [1]</code>, and <code>GET .../transcript</code> returns 404 (no transcript). <code>Complete_EmptyCapture_Returns400_NamedError</code> proves the empty-capture refusal. Both PASS (2/2). Endpoint returns 409 on <code>incomplete</code> at RecordingEndpoints.cs:119-120.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Phone recorder transcription uses the user-selected method via the shared pipeline, not a fixed OpenAI model. Changing the selected method changes the base URL.</td>
+<td>BYO mode -&gt; api.openai.com with the BYO key; DevThrottle mode -&gt; devthrottle.com with the DevThrottle key; the two base URLs differ; BYO key never crosses onto devthrottle.com.</td>
+<td><code>SelectedMethodRecordingTranscriberTests.TranscribeChunk_DevThrottleMode_RoutesToDevThrottleUrl_DifferentBaseUrl</code> asserts <code>StartsWith(OpenAiBaseUrl, byoUrl)</code>, <code>StartsWith(DevThrottleBaseUrl, dtUrl)</code>, <code>NotEqual(byoUrl, dtUrl)</code>, DevThrottle key on the DT call, and no api.openai.com request in DT mode. <code>TranscribeChunk_ByoMode_...</code> proves BYO key never reaches devthrottle.com. PASS (6/6 in this class). Production resolves the method FRESH per call via <code>ResolveSelectedMethod()</code> (RecordingEndpoints.cs:451) reading <code>TranscriptionModeConfig.Get()</code> + vault key, routed through <code>SelectedMethodRecordingTranscriber</code> -&gt; <code>BatchTranscriptionPipeline</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>A completed recording is transcribed once per segment in batch and assembled, with dictionary correction as the only text change.</td>
+<td>Assembled transcript equals the per-segment raw concatenation plus dictionary edits only (byte-identical when no dictionary hit).</td>
+<td><code>PerSegmentBatch_NoDictionaryHit_AssembledEqualsRawConcatByteIdentical</code>: three segments batch-transcribed, empty dictionary -&gt; <code>outcome.Text == assembledRaw</code> byte-for-byte, <code>Applied == false</code>, no changed words. <code>Cleanup_WithDictionaryHit_SwapsKnownTermOnly_AgainstSameMethodUrl</code>: only the known dictionary term is swapped, cleanup POSTs to the SAME resolved base URL/key. PASS. Production wiring in <code>RecordingIngestService</code>: per-segment <code>TranscribeChunkAsync</code> loop -&gt; <code>AssembleRaw</code> -&gt; single <code>CleanupAsync</code> (RecordingIngestService.cs:390-409).</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>A recording interrupted mid-upload resumes and completes with zero audio loss.</td>
+<td>Kill-and-resume run delivers the full segment set; only segments the phone actually holds are re-sent; a recording is never terminal until the complete/notes call is acknowledged.</td>
+<td>Phone <code>RecordingUploadGateTests</code> (19/19 PASS) including <code>RequeueIndicesForResend_NamesOnlyLocallyPresentMissingIndices</code>, <code>_NeverInventsASegmentThePhoneNeverHad</code> (zero-loss both directions), and <code>Lifecycle_NotesSurviveACompleteCallThatFailsThenSucceeds</code> (Uploaded is not terminal until <code>completed</code>; audio not re-sent on resume). Resume is wired in <code>AndroidAudioRecorder.cs:357-374</code>: <code>catch (IncompleteUploadException)</code> -&gt; <code>RequeueIndicesForResend</code> re-arms only locally-held named segments, sets state <code>Retry</code> to re-enter the audio-upload phase.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep (built and run by QA, this worktree)</h2>
+<table>
+<tr><th>Suite</th><th>Result</th></tr>
+<tr><td>CcDirector.Core.Tests (Recording / Transcription / SelectedMethod)</td><td class="pass">112 passed, 1 skipped (pre-existing flaky end-to-end skip, unrelated)</td></tr>
+<tr><td>SelectedMethodRecordingTranscriber tests</td><td class="pass">6 passed, 0 failed</td></tr>
+<tr><td>Phone CcDirectorClient.Tests (RecordingUploadGate)</td><td class="pass">19 passed, 0 failed</td></tr>
+<tr><td>CcDirector.Gateway.Tests (full suite)</td><td class="pass">858 passed, 1 skipped (pre-existing realtime-provider integration skip)</td></tr>
+<tr><td>RecordingCompletenessGateHttpTests (the #586 gate over HTTP)</td><td class="pass">2 passed, 0 failed</td></tr>
+</table>
+
+<h2>Method / CenCon lens</h2>
+<ul>
+<li><strong>No-fallback rule honoured:</strong> when no method resolves (no key for the selected mode) the transcriber throws a clear, retryable error and makes <em>no</em> network call - no baked-in OpenAI URL fallback (test <code>TranscribeChunk_NoMethodResolvable_Throws_NoNetworkCall</code>).</li>
+<li><strong>Credential isolation:</strong> the bring-your-own OpenAI key is provably never paired with the devthrottle.com URL (composed from one pure resolver; asserted in tests).</li>
+<li><strong>Architecture manifest updated:</strong> <code>docs/cencon/architecture_manifest.yaml</code> now describes <code>SelectedMethodRecordingTranscriber</code>, the selected-method routing on <code>RecordingEndpoints</code>, and the updated phone-recording data flow. No security_profile change required (no new credential paths or external endpoints).</li>
+<li><strong>Capture model unchanged:</strong> one-minute segmented capture and resumable upload are untouched, as required by scope.</li>
+</ul>
+
+<p class="pass">VERIFIED - all acceptance criteria met. Recommend merge.</p>
+</body>
+</html>

@@ -1,8 +1,27 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
 namespace CcRecorder.Recording;
+
+/// <summary>
+/// The server's audio completeness gate (issue #586) refused the complete call: one or more segments
+/// are missing or hash-mismatched on the SERVER (HTTP 409), even though the phone believed them
+/// uploaded. <see cref="MissingOrBadIndices"/> names exactly which segment indices the phone must
+/// re-send. The caller re-arms those segments and re-runs the upload pass (issue #591), so a recording
+/// can never get stuck retrying complete forever against a gate it can never pass.
+/// </summary>
+public sealed class IncompleteUploadException : Exception
+{
+    public IReadOnlyList<int> MissingOrBadIndices { get; }
+
+    public IncompleteUploadException(IReadOnlyList<int> missingOrBadIndices)
+        : base($"server refused as incomplete; re-send segment indices [{string.Join(',', missingOrBadIndices)}]")
+    {
+        MissingOrBadIndices = missingOrBadIndices;
+    }
+}
 
 /// <summary>
 /// Talks to the CC Director Gateway ingest API over HTTPS (Tailscale). Two
@@ -173,6 +192,18 @@ public sealed class IngestUploader
         }
 
         var body = await compResp.Content.ReadAsStringAsync(ct);
+
+        // The audio completeness gate (issue #586) returns 409 Conflict when a segment is missing or
+        // hash-mismatched on the server, naming the bad indices. This is NOT a generic failure to
+        // retry blindly: the phone must re-send exactly those segments and try complete again, or it
+        // would retry the same complete forever against a gate it can never pass (issue #591).
+        if (compResp.StatusCode == HttpStatusCode.Conflict)
+        {
+            var incomplete = JsonSerializer.Deserialize<CompleteStatus>(body, CaseInsensitive);
+            var indices = incomplete?.MissingOrBadIndices ?? new List<int>();
+            throw new IncompleteUploadException(indices);
+        }
+
         if (!compResp.IsSuccessStatusCode)
             throw new HttpRequestException($"transcription failed: {(int)compResp.StatusCode} {body}");
 
@@ -257,7 +288,8 @@ public sealed class IngestUploader
 
     private sealed record CompleteStatus(
         string? State, string? VaultDocId, string? Transcript,
-        int ChunksTranscribed, int ChunksTotal);
+        int ChunksTranscribed, int ChunksTotal,
+        List<int>? MissingOrBadIndices = null);
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
