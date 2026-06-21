@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #474 [Docs] GitHub-facing Help &amp; Documentation entry point in README</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 960px; margin: 2em auto; padding: 0 1em; color: #1f2328; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #d0d7de; padding-bottom: .3em; }
+  h2 { border-bottom: 1px solid #d0d7de; padding-bottom: .3em; margin-top: 1.6em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 13px; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  code { background: #f6f8fa; padding: 1px 5px; border-radius: 4px; font-family: Consolas, monospace; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .verdict { background: #ddf4dd; border: 1px solid #1a7f37; padding: 1em; border-radius: 6px; margin-top: 1.5em; }
+  pre { background: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>Proof Report - Issue #474</h1>
+<p><strong>Title:</strong> [Docs] GitHub-facing Help &amp; Documentation entry point in README</p>
+<p><strong>Branch:</strong> <code>issue-474-readme-help-docs</code></p>
+<p><strong>Change type:</strong> Documentation only. No application container (<code>CcDirector.*</code>) is modified, so proof is the rendered README plus a link check, not an app build/run (per the issue's Proof Target and Assumption 2).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>Renamed and expanded the README's <code>## Documentation</code> section into a clearly-headed <code>## Help &amp; Documentation</code> section that signposts the six required targets (Introduction/getting-started, Installation, Quick Start, Features, Tools overview, Control API) under <code>docs/public/</code>, plus an explicit <strong>"Where to get help"</strong> pointer to the GitHub issue tracker and Discussions.</li>
+  <li>The section is signposting only - a short intro line plus a link table - and explicitly states it "points you to the docs, it does not repeat them," so no doc body is duplicated.</li>
+  <li>Added the optional top-level docs index at <code>docs/README.md</code> listing every available page under <code>docs/public/</code> (getting-started, features, tools, API) plus where-to-get-help links. The README's new section links to this index.</li>
+</ul>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>README.md</code> - new <code>## Help &amp; Documentation</code> section (replaces the old <code>## Documentation</code> section).</li>
+  <li><code>docs/README.md</code> - new documentation index (optional part of the issue).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Acceptance criterion</th><th>Expected</th><th>Actual</th><th>Status</th></tr>
+  <tr>
+    <td>README contains a clearly-headed <strong>Help &amp; Documentation</strong> section linking getting-started, installation, quick-start, tools overview, and the Control API docs under <code>docs/public/</code>, plus a "where to get help" pointer.</td>
+    <td>A section headed "Help &amp; Documentation" with links to Introduction, Installation, Quick Start, Features, Tools, Control API, and a GitHub-Issues help pointer.</td>
+    <td>Section <code>## Help &amp; Documentation</code> present, with the link table to all six <code>docs/public/</code> guides and a bold "Where to get help" line pointing to the GitHub issue tracker and Discussions. See <code>readme-help-section.html</code> for the rendered section.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Every link in that section resolves to a real target (no dead links).</td>
+    <td>Zero dead links across the README (and the new docs index).</td>
+    <td>Link check over <code>README.md</code> + <code>docs/README.md</code>: 45 links checked, 0 dead. Relative links verified to resolve to existing files; the three external GitHub URLs (issues, discussions, releases/latest) returned HTTP 200 via curl. See <code>link-check.txt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The section does not duplicate the body of the docs - it links to them.</td>
+    <td>Signposting only, not a copy of getting-started content.</td>
+    <td>The section is a one-line intro plus a link table plus a help pointer; it states it "points you to the docs, it does not repeat them." No doc body is restated. Verified by inspection.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof artifacts (this folder)</h2>
+<ul>
+  <li><code>report.html</code> - this report.</li>
+  <li><code>readme-help-section.html</code> - the rendered Help &amp; Documentation section of the README (HTML rendering of the markdown, GitHub-style table).</li>
+  <li><code>link-check.txt</code> - full link-check output over README.md and docs/README.md (45 links, 0 dead).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a documentation-only change. No application container changes, no architecture change, no security posture change (no <code>DT-*</code> rule touched). No <code>docs/cencon/</code> architecture or security document needs updating.</p>
+
+<div class="verdict">
+  <p><strong>I believe this is finished.</strong> All three acceptance criteria are met: the README has a clearly-headed Help &amp; Documentation section signposting getting-started, installation, quick-start, features, tools, and Control API plus a where-to-get-help pointer; every link resolves (45 checked, 0 dead, external URLs return HTTP 200); and the section signposts rather than duplicating the docs.</p>
+</div>
+
+</body>
+</html>
