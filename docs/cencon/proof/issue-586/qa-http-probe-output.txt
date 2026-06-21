@@ -1,0 +1,13 @@
+AC1 status: Expected=409 Conflict | Actual=409 Conflict
+AC1 state: Expected=incomplete | Actual=incomplete
+AC1 missingIndices: Expected=[1] | Actual=[1]
+AC1 transcript: Expected=404 NotFound | Actual=404 NotFound
+AC1b SHA-mismatch: Expected=409/incomplete/[0] | Actual=409/incomplete/[0]
+AC2 status: Expected=202 Accepted | Actual=202 Accepted
+AC2 state: Expected=queued | Actual=queued
+AC2 missingIndices: Expected=(none) | Actual=(none)
+AC3 first: Expected=409/incomplete/[1] | Actual=409/incomplete/[1]
+AC3 after-resend: Expected=202/queued | Actual=202/queued
+AC5 status: Expected=400 BadRequest | Actual=400 BadRequest
+AC5 body-contains-'empty capture': Expected=true | Actual=True
+QA RESULT: all acceptance criteria 1,2,3,5 verified over real HTTP (criterion 4 verified live against running Director).

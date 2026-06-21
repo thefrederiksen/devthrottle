@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Report - Issue #586 Audio Completeness Gate</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; color: #1c1c1c; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #5319e7; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #333; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f3f0fb; }
+  .pass { color: #137333; font-weight: 700; }
+  .fail { color: #b3261e; font-weight: 700; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }
+  .verdict { background: #e6f4ea; border: 1px solid #137333; border-radius: 8px; padding: 14px 16px; margin: 22px 0; font-size: 15px; }
+  .meta { color: #555; font-size: 13px; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+  .note { background: #fff8e1; border: 1px solid #c8a93a; border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #586</h1>
+<p class="meta">
+  <strong>Title:</strong> [Transcription] Audio Completeness Gate: never transcribe partial audio<br>
+  <strong>Pull request:</strong> #594 (branch <code>issue-586-audio-completeness-gate</code>)<br>
+  <strong>QA Agent:</strong> independent verification in an isolated worktree (<code>D:\ReposFred\devthrottle-qa-586</code>) and isolated test slot 13<br>
+  <strong>Method:</strong> built the PR branch from a fresh checkout, ran the regression suites, drove the production endpoints over real HTTP with a QA-authored probe (not the developer's tests), and probed a live running Director. Each criterion is judged Expected vs Actual against the issue contract, not the developer report.
+</p>
+
+<div class="verdict">
+  <strong>VERDICT: VERIFIED - all 5 acceptance criteria met.</strong> Clean solution build (0 warnings, 0 errors). Core tests 2149 passed / 0 failed; Gateway tests 839 passed / 0 failed. No regression observed; CenCon architecture manifest updated; no security rule violated (the change strengthens audio integrity).
+</div>
+
+<h2>Acceptance Criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>An upload missing an index, failing a SHA256 check, or not totaling the manifest bytes is refused "incomplete" naming the bad indices; no transcription.</td>
+    <td>409 Conflict, state=incomplete, MissingOrBadIndices names the index, transcript 404.</td>
+    <td>Over real HTTP: missing index -> <code>409 / incomplete / [1]</code>, transcript <code>404</code>. SHA mismatch -> <code>409 / incomplete / [0]</code>. (qa-http-probe-output.txt; also covered by RecordingCompletenessGateHttpTests + RecordingIngestServiceTests.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A complete upload (all present, hashes match, bytes total) advances to transcription.</td>
+    <td>202 Accepted, state=queued, no missing indices.</td>
+    <td>Over real HTTP: <code>202 / queued / (no missing indices)</code>. (qa-http-probe-output.txt; Complete_AllSegmentsPresentAndIntact_AdvancesToTranscription.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Client re-sends and finishes after an interruption with zero audio loss (same byte/hash set accepted).</td>
+    <td>First complete 409 names index 1; after re-sending ONLY index 1, the next complete passes (202 queued).</td>
+    <td>Over real HTTP: first <code>409 / incomplete / [1]</code>; after re-sending only the missing piece -> <code>202 / queued</code>. (qa-http-probe-output.txt; Complete_ResendMissingSegment_ThenPasses_AndTranscribes.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>The desktop "recover whatever arrived" truncation path is removed; an early/dropped connection re-sends or fails, never a partial transcript.</td>
+    <td>MinRecoverableAudioBytes / TryRecoverOrDiscard / RecoveredDictationStore / /dictate/recovered gone; a mid-stream drop discards partial audio and never transcribes.</td>
+    <td>Live running Director (slot 13, port 7886, built from PR branch): <code>/dictate.html -> 200</code>, <code>/dictate/recovered -> 404</code> (endpoint removed). The drop test (ClientCloseWithoutStop_discards_partial_audio_and_never_transcribes) passes: 200k bytes streamed then socket dropped -> recorded as "partial audio discarded", no transcript, /dictate/recovered 404. session-view.html recovered-banner UI also removed. (qa-live-runtime-proof.txt.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>An empty capture fails loud with a named error and never produces an empty transcript.</td>
+    <td>400 Bad Request, body names "empty capture".</td>
+    <td>Over real HTTP: zero-segment manifest -> <code>400 BadRequest</code>, body contains "empty capture". (qa-http-probe-output.txt; Complete_EmptyCapture_FailsLoud_NoTranscript + VoiceUtteranceServiceGateTests.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+  <li><strong>Clean build:</strong> <code>dotnet build cc-director.sln</code> = Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><strong>Core suite:</strong> 2149 passed, 0 failed, 6 skipped (skips are the pre-existing CI-quarantined timing/credential tests).</li>
+  <li><strong>Gateway suite:</strong> 839 passed, 0 failed, 1 skipped (the real-OpenAI phase0 clip test self-skips without a key).</li>
+  <li><strong>CenCon:</strong> architecture_manifest.yaml updated for RecordingIngestService, VoiceUtteranceService, and DictationEndpoint. No blocking security rule violated; the gate is security-positive (refuses partial/incomplete audio rather than accepting it).</li>
+  <li><strong>Code lens:</strong> try-catch only at endpoint entry points; logging via FileLog.Write throughout; no fallback programming (incomplete/empty uploads fail explicitly).</li>
+</ul>
+
+<div class="note">
+  <strong>Non-blocking note (not a defect, out of this issue's scope):</strong> <code>src/CcDirector.Cockpit/wwwroot/js/cockpit-dictate.js</code> still references the now-removed <code>MinRecoverableAudioBytes</code> name in a comment and a local <code>MIN_RECOVERABLE_AUDIO_BYTES = 24000</code> constant. That code is the issue #226 client-side Retry-with-preserved-audio mechanism (it replays the WHOLE buffered segment onto a fresh socket, which still requires an explicit stop to transcribe) - it does NOT re-introduce server-side partial transcription, so no acceptance criterion is affected. The file was not in this issue's listed scope (which names DictationEndpoint.cs). Suggest a small follow-up to clean the stale comment reference.
+</div>
+
+<h2>Evidence files (this directory)</h2>
+<ul>
+  <li><code>qa-http-probe-output.txt</code> - QA-authored over-the-wire probe output (Expected vs Actual for criteria 1, 2, 3, 5 against the real RecordingEndpoints on a real Kestrel loopback port).</li>
+  <li><code>qa-live-runtime-proof.txt</code> - QA probe of the live running Director (criterion 4: /dictate.html 200, /dictate/recovered 404).</li>
+</ul>
+
+<p class="meta">QA proof for issue #586. All acceptance criteria independently verified.</p>
+</body>
+</html>

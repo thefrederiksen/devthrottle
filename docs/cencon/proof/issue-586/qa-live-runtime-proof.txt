@@ -1,0 +1,16 @@
+QA INDEPENDENT LIVE RUNTIME PROOF - issue #586 criterion 4 (desktop dictation recover-path removed)
+Running Director: slot 13, PID 45084, Control API port 7886 (built from PR branch issue-586-audio-completeness-gate)
+
+Expected: /dictate.html serves 200 (dictation surface present)
+Actual:   
+/dictate.html -> 200
+
+Expected: /dictate/recovered is 404 (the removed recover-and-pickup endpoint is gone)
+Actual:   
+/dictate/recovered -> 404
+
+Expected: /dictate-worklet.js serves 200
+Actual:   
+/dictate-worklet.js -> 200
+
+VERIFIED: the /dictate/recovered pickup endpoint is removed; the dictation surface still serves.
