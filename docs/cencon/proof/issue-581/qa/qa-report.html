@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #581 First-run login (PR #599)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#007ACC; }
+  h2 { color:#CCCCCC; border-bottom:1px solid #3C3C3C; padding-bottom:6px; margin-top:32px; }
+  .verdict-fail { background:#5a1d1d; color:#ffd7d7; padding:14px 18px; border-radius:6px; font-weight:bold; font-size:16px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#2A2A2A; }
+  .pass { color:#3fb950; font-weight:bold; }
+  .fail { color:#f85149; font-weight:bold; }
+  code { background:#2A2A2A; padding:1px 5px; border-radius:3px; font-family:Cascadia Mono, Consolas, monospace; }
+  img { max-width:560px; border:1px solid #3C3C3C; border-radius:4px; display:block; margin:8px 0; }
+  pre { background:#0d0d0d; padding:12px; border-radius:4px; overflow-x:auto; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #581: First-run login (PR #599)</h1>
+<p><strong>Verifier:</strong> QA Agent (independent; own slot-13 build of branch <code>issue-581-first-run-login</code> at commit <code>a5b8fa1</code>, own scheduled-task launch, own proof).</p>
+
+<div class="verdict-fail">VERDICT: FAIL (flow:qa-failed). All four acceptance criteria pass functionally, but a deterministic regression/method check fails: the new production file <code>LoopbackLoginListener.cs</code> introduces a hardcoded <code>127.0.0.1</code> literal and was not added to the loopback-guard allowlist, so the Core test suite is RED (1 failed / 2198) and PR CI "Build &amp; Test (.NET)" failed.</div>
+
+<h2>Acceptance criteria (functional - all verified)</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>From the gate, Log in opens the system browser at the expected sign-in address.</td>
+  <td>System browser launched at the DevThrottle sign-in URL carrying the loopback callback.</td>
+  <td>Log line: <code>launching system browser at https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A51679%2Fdevthrottle-login-callback%2F</code> and <code>[BrowserLauncher] OpenSystemDefault: target=...</code>. Loopback listener bound 127.0.0.1 only.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Sign-in completion hands a credential back; Director captures it, stores through #583, clears gate, shows main window with no restart.</td>
+  <td>Capture -&gt; store -&gt; gate clears -&gt; main window, same process.</td>
+  <td>Posted credential to loopback callback (HTTP 200). Log sequence: <code>credential captured from the browser hand-back</code> -&gt; <code>StoreTokens: stored</code> -&gt; <code>clearing the account gate and showing the main window (no restart)</code> -&gt; <code>Main window shown (account gate passed)</code>. Same PID throughout (no restart). Credential blob (406 bytes, encrypted) written. Visual proof below.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>First-run explanation (account required, first setup must be online) shown before login.</td>
+  <td>Explanatory dialog appears before the browser opens.</td>
+  <td>Clicking "Sign in" showed the FirstRunLoginDialog ("Before you sign in" - account required, first setup must be online, browser will open for email/Google/GitHub) BEFORE any browser-launch log line. Visual proof below.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Re-running installer / applying an update does not clear the credential and does not force re-login.</td>
+  <td>Credential present, run update, credential still present, Director starts without the gate.</td>
+  <td>Stored a correctly-signed credential, rebuilt the slot exe (install-dir replacement = the "update"), relaunched. Credential blob survived (per-user config path, untouched by the install). Log: <code>IsLoggedIn: valid=True ... result=True (no network call)</code> -&gt; <code>Main window shown (account gate passed)</code> with NO gate screen line. Visual proof below.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method check (FAIL)</h2>
+<p><span class="fail">FAIL:</span> the full Core test suite is RED on this branch. Test <code>CcDirector.Core.Tests.NoCrossMachineLoopbackGuardTests.No_new_production_file_hardcodes_cross_machine_loopback</code> fails:</p>
+<pre>Failed!  - Failed: 1, Passed: 2191, Skipped: 6, Total: 2198
+
+New production file(s) contain a loopback literal (127.0.0.1/localhost)...
+  src/CcDirector.Core/Account/LoopbackLoginListener.cs</pre>
+<p>The new file is a legitimate SAME-machine loopback bind (security rule DT-07), but the architecture-fitness guard requires every such production file to be added to its allowlist with a reason. <code>LoopbackLoginListener.cs</code> is a new file (git status A) and is not in the allowlist. PR CI "Build &amp; Test (.NET)" also FAILED, independently confirming the red suite. The developer's "7 new tests passed" claim was scoped to the new Account tests only; the full suite was not run.</p>
+
+<h2>Method checks that PASS</h2>
+<ul>
+<li>Security rule DT-07 (loopback only): verified in code and at runtime - listener binds 127.0.0.1 only, ephemeral OS-assigned port.</li>
+<li>Security rule DT-05 (no token logging): verified - no log statement in the new code emits a token or secret value; only event facts and env-var names are logged. Confirmed in the runtime logs (no token value ever appeared).</li>
+<li>CenCon docs: <code>docs/cencon/architecture_manifest.yaml</code> was updated with FirstRunLoginDialog and FirstRunLoginCoordinator / LoopbackLoginListener.</li>
+<li>New unit tests: 60/60 Account tests pass (includes the 7 new #581 tests).</li>
+</ul>
+
+<h2>Evidence</h2>
+<h3>1 - Gate screen (no credential on this install)</h3>
+<img src="01-gate-screen.png" alt="Account gate screen">
+<h3>2 - First-run explanation, shown before login (AC3)</h3>
+<img src="02-first-run-explanation.png" alt="First-run explanation dialog">
+<h3>3 - Main window after the credential hand-back, no restart (AC2)</h3>
+<img src="03-main-window-after-login.png" alt="Main window after login">
+<h3>4 - Post-update relaunch: main window, no gate (AC4)</h3>
+<img src="04-post-update-no-gate.png" alt="Post-update main window, no gate">
+
+<h2>Required fix (for the Developer Agent)</h2>
+<p>Add <code>LoopbackLoginListener.cs</code> to the <code>Allowlist</code> in <code>src/CcDirector.Core.Tests/NoCrossMachineLoopbackGuardTests.cs</code> with a reason, e.g.:</p>
+<pre>["src/CcDirector.Core/Account/LoopbackLoginListener.cs"] =
+    "Binds an HttpListener on 127.0.0.1 only (ephemeral port) to receive the first-run browser sign-in hand-back; same-machine loopback trust boundary (DT-07, issue #581).",</pre>
+<p>Then re-run the full <code>CcDirector.Core.Tests</code> suite (must be 0 failed) and confirm CI "Build &amp; Test (.NET)" is green before re-handing to QA.</p>
+</body>
+</html>
