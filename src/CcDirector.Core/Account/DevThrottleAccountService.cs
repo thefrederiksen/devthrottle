@@ -146,6 +146,33 @@ public sealed class DevThrottleAccountService
     }
 
     /// <summary>
+    /// Returns the signed-in identity (email and provider) read locally from the cached access
+    /// token's claims, with NO network call (the account area, issue #582). Returns null when no
+    /// credential is stored or the cached token carries no email claim - the caller shows an explicit
+    /// "identity unavailable" state rather than a fabricated one.
+    /// </summary>
+    public AccountIdentity? GetIdentity()
+    {
+        FileLog.Write("[DevThrottleAccountService] GetIdentity: reading identity from the cached credential (no network call)");
+
+        DevThrottleTokens? tokens;
+        lock (_gate)
+        {
+            tokens = _store.Load();
+        }
+
+        if (tokens is null)
+        {
+            FileLog.Write("[DevThrottleAccountService] GetIdentity: no stored credential -> no identity");
+            return null;
+        }
+
+        var identity = JwtIdentityReader.Read(tokens.AccessToken);
+        FileLog.Write($"[DevThrottleAccountService] GetIdentity: identity={(identity is null ? "<none>" : "resolved")}");
+        return identity;
+    }
+
+    /// <summary>
     /// Clears the stored credential and records a "logout" event. After this the next
     /// <see cref="IsLoggedIn"/> returns false.
     /// </summary>

@@ -175,6 +175,34 @@ public sealed class DevThrottleAccountServiceTests : IDisposable
         Assert.Equal(1, loggedInEvents);
     }
 
+    // Issue #582 AC1: the account area shows the signed-in identity (email and provider) for a stored
+    // credential. GetIdentity reads them from the cached token's claims, with no network call.
+    [Fact]
+    public void GetIdentity_StoredCredentialWithIdentityClaims_ReturnsEmailAndProvider()
+    {
+        var store = new InMemoryTokenStore();
+        var refresher = new StubTokenRefresher(null);
+        var service = MakeService(store, refresher);
+        var token = TestJwt.CreateWithIdentity(_now.AddHours(1), "user@example.com", "google");
+        service.StoreTokens(new DevThrottleTokens(token, "refresh-1"));
+
+        var identity = service.GetIdentity();
+
+        Assert.NotNull(identity);
+        Assert.Equal("user@example.com", identity.Email);
+        Assert.Equal("google", identity.Provider);
+        Assert.False(refresher.WasCalled);
+    }
+
+    // No stored credential -> no identity (the account area shows an explicit unavailable state).
+    [Fact]
+    public void GetIdentity_NoStoredCredential_ReturnsNull()
+    {
+        var service = MakeService(new InMemoryTokenStore());
+
+        Assert.Null(service.GetIdentity());
+    }
+
     private sealed class FixedTime : TimeProvider
     {
         private readonly DateTimeOffset _now;

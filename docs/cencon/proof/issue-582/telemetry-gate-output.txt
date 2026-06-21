@@ -1,0 +1,18 @@
+===== Issue #582 telemetry gate proof =====
+Isolated config root: %TEMP%\cc-dt-582-7c2515abafb848e0bc2906e778b747d2
+
+AC3 default (no persisted value)        -> IsEnabled() = True  (expected True)
+AC3 after SetEnabled(false), fresh read -> IsEnabled() = False  (expected False - the restart case)
+AC3 config.json contents                -> {   "telemetry": {     "enabled": false   } }
+
+AC4 toggle OFF: UsageTelemetry.Record returned False  (expected False - richer usage suppressed)
+AC4 toggle OFF: richer usage sink written? False  (expected False)
+AC4 toggle OFF: authentication-floor events recorded = 2  (expected 2: logged-in + logout - still fire)
+      auth event: kind=logged-in at=2026-06-21T08:09:45.5069708Z
+      auth event: kind=logout at=2026-06-21T08:09:45.5256450Z
+
+AC4 toggle ON:  UsageTelemetry.Record returned True  (expected True - richer usage fires)
+AC4 toggle ON:  richer usage events recorded = 1  (expected 1)
+      usage event: name=session-created at=2026-06-21T08:09:45.5405791Z
+
+===== proof complete =====

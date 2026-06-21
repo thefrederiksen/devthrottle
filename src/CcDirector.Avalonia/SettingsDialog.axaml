@@ -109,6 +109,62 @@
                    Margin="0,0,0,8" />
 
         <TabControl Grid.Row="2" x:Name="SettingsTabs" IsVisible="False">
+            <TabItem Header="Account">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="12" Margin="0,4,0,0">
+
+                        <!-- Signed-in identity card (AC1): email + provider read locally from the
+                             cached credential, plus the Log out action (AC2). -->
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Margin="0" Text="DevThrottle account" />
+                                <TextBlock Classes="hint" Text="The DevThrottle account this Director is signed in with. Logging out clears the saved sign-in on this computer and returns you to the sign-in screen." />
+
+                                <Grid ColumnDefinitions="90,*" Margin="0,4,0,0">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Email" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountEmailText" Grid.Column="1" Text="Loading..."
+                                               Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Signed in with" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountProviderText" Grid.Column="1" Text="Loading..."
+                                               Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </Grid>
+
+                                <Button x:Name="LogOutButton" Classes="dialogButton"
+                                        Content="Log out" Width="120"
+                                        HorizontalAlignment="Left" Margin="0,8,0,0"
+                                        ToolTip.Tip="Clear the saved DevThrottle sign-in on this computer and return to the sign-in screen"
+                                        Click="BtnLogOut_Click" />
+                                <TextBlock x:Name="AccountStatusText" Text="" Foreground="#888888"
+                                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Usage-telemetry opt-out toggle (AC3/AC4/AC5). Default ON; honest copy
+                             about what is always recorded versus what the toggle controls. -->
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Margin="0" Text="Usage telemetry" />
+                                <CheckBox x:Name="TelemetryEnabledCheck"
+                                          Content="Share anonymous usage telemetry"
+                                          IsChecked="True"
+                                          Foreground="#CCCCCC" FontSize="13"
+                                          Margin="0,4,0,0"
+                                          ToolTip.Tip="Default: on. Turn off to stop the richer usage reporting." />
+                                <TextBlock Classes="hint" Margin="24,0,0,0"
+                                           Text="When on, DevThrottle reports anonymous usage telemetry that helps us improve the product. Nothing about your actual work - your code, prompts, files, or session contents - is ever sent." />
+                                <TextBlock Classes="hint" Margin="24,0,0,0"
+                                           Text="Turning this off stops the richer usage reporting. Logging in and logging out are still recorded either way: those two events are inherent to having an account and are what our active-user count is built on. They never include anything about your work." />
+                            </StackPanel>
+                        </Border>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Gateway">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                     <StackPanel Spacing="8" Margin="0,4,0,0">

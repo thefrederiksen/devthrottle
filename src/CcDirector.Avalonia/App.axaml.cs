@@ -162,6 +162,37 @@ public partial class App : Application
         gateScreen.Close();
     }
 
+    /// <summary>
+    /// Returns the Director to the account gate after the user logs out of the account area (issue
+    /// #582) - no restart. The credential has already been cleared by the account area through the
+    /// credential service (issue #583), so the gate now decides Block; this swaps the main window for
+    /// a fresh gate screen and closes the previous window. The next start would likewise show the gate
+    /// (issue #580), because the cleared store leaves the install logged out. Must be called on the UI
+    /// thread.
+    /// </summary>
+    public void ReturnToGateAfterLogout(Window currentWindow, Window? settingsDialog = null)
+    {
+        if (currentWindow is null)
+            throw new ArgumentNullException(nameof(currentWindow));
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            throw new InvalidOperationException("The application lifetime is not a classic desktop lifetime.");
+
+        FileLog.Write("[CcDirector] Logout complete: returning to the account gate (no restart)");
+
+        // The main window's OnClosing is wired to shut the whole Director down (it calls OnShutdown ->
+        // Environment.Exit by design), so we must NOT close it to return to the gate. Instead we show
+        // the gate as the new main window and HIDE the old main window (and the Settings dialog). The
+        // process stays alive on the gate; the credential is already cleared, so the gate decides Block
+        // here and would do so again on the next start (issue #580). The hidden main window is torn
+        // down normally when the user later quits the Director from the gate.
+        var gateScreen = new AccountGateScreen();
+        desktop.MainWindow = gateScreen;
+        gateScreen.Show();
+
+        settingsDialog?.Hide();
+        currentWindow.Hide();
+    }
+
     private void InitializeServices(SplashScreen splash)
     {
         RepositoryRegistry = new RepositoryRegistry();
