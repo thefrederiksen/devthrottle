@@ -19,6 +19,10 @@ live docs in `docs/` (for example `docs/VisualStyle.md` for the current design l
   the tool test tracker, and the LinkedIn enrichment tracker).
 - `specs/` - superseded design specifications (the WPF-era design spec, replaced by
   `docs/VisualStyle.md`, and the Avalonia migration spec).
+- `marketing/` - go-to-market and product-positioning brainstorms kept for their reusable
+  positioning value (the early "CC Director" product overview and launch brainstorm, written
+  before the DevThrottle rebrand). Dated, not maintained - the live product naming and feature
+  set are the current truth.
 
 ## Rules
 
@@ -28,4 +32,7 @@ live docs in `docs/` (for example `docs/VisualStyle.md` for the current design l
 - Links inside these documents may point at paths that no longer exist; that is acceptable
   for a frozen record.
 
-Moved here by issue #402 (part of issue #395) to keep the live `docs/` tree lean.
+Moved here by issue #402 (part of issue #395) to keep the live `docs/` tree lean. The
+`marketing/` subfolder was added by issue #403 (also part of issue #395), which archived the
+product-positioning brainstorm and deleted the disposable external-doc copies and a video
+transcript from `docs/`.
