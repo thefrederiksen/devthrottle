@@ -261,6 +261,46 @@ same MACHINE resources.
 | QA | fresh sub-agent following `qa-agent` | `flow:done` + **squash-merge to main** OR `flow:qa-failed` (bounce) OR `flow:needs-human` (conflict/dirty build) |
 | GUARD | this supervisor (your context) | `flow:needs-human` after 3 bounces; tracks bounce count + ledger only |
 
+## Priority-queue file mode (PRIORITY_LOOP.md)
+
+In addition to selecting from the `flow:ready-dev` label queue, the loop can be driven from a curated
+**priority file**, `PRIORITY_LOOP.md` at the repo root. This is how a human (or a `priority-loop`
+launcher skill) pins an explicit, ordered batch of issues. When the loop is given this file (invoked
+with it, told to "drive PRIORITY_LOOP.md", or handed an explicit ordered list that you record into
+it), it drives the listed issues ONE AT A TIME in EXACT file order - never by age, never reordered.
+File order overrides the oldest-first selection in Step 0.1; the Step 0 CLAIM and every loop guard
+still apply unchanged to each listed issue.
+
+The file is a **supervisor working artifact, not product code.** It MUST stay out of git so that
+writing to it never trips the clean-tree gate: ensure `PRIORITY_LOOP.md` is in `.gitignore` or the
+repo-local `.git/info/exclude` before the first write. The Step 0a pre-flight and the Step 4
+clean-tree gate both read `git status --porcelain`, which then ignores it. NEVER commit it to a PR
+branch.
+
+It carries an ordered table - one row per issue, highest priority first - with a `Status` column the
+loop owns (`pending` | `claimed` | `done` | `needs-human` | `failed`):
+
+```
+| Order | Issue | Status  | Outcome notes |
+|-------|-------|---------|---------------|
+| 1     | 583   | pending | |
+```
+
+**Marking (as each issue moves).** Set the row to `claimed` the moment you win the Step 0.2 claim, so
+a crash leaves a readable trail. Then in Step 4, immediately after you emit the issue's
+`IMPL-LOOP-TERMINAL` sentinel, set `Status` to the terminal signal and put a one-line result (PR
+number + what was verified, or why it parked/failed) in `Outcome notes`. The file is the
+human-readable mirror of the per-issue sentinels.
+
+**Reset at queue exhaustion (the "clean up" - file kept, NEVER deleted).** When the whole loop is
+done - every listed issue reached a terminal state:
+- If ALL rows are `done`: reset `PRIORITY_LOOP.md` to its empty template - the title, the status
+  legend, and an EMPTY queue table (header row + separator only, no data rows) - so it is ready to be
+  refilled next time. We keep the file to use again; do not delete it.
+- If any row ended `needs-human` or `failed`: do NOT reset. Leave the file intact so those rows stay
+  visible as the human's follow-up list, and say so in your final summary. Reset only once those rows
+  are resolved and re-run to `done`.
+
 ## The loop (per issue)
 
 ### Step 0a: Pre-flight (clean tree + correct base) - BEFORE any issue work
@@ -472,6 +512,11 @@ reason: squash-merged to main; 6/6 criteria verified
 Exactly one such block per issue per run. In `--all` mode emit one block per issue as each finishes,
 each as that issue's last output before the next issue begins.
 
+**If driving from `PRIORITY_LOOP.md` (priority-queue file mode):** right after emitting the sentinel,
+mark this issue's row per "Priority-queue file mode" above (Status + one-line Outcome notes), and when
+the whole queue is drained perform the end-of-queue reset described there. Writing to the excluded
+priority file does not affect the clean-tree gate.
+
 - `--all` mode: clear context between issues (memory reset, DEVELOPMENT_METHOD.md Section 7), then
   return to Step 0 for the next `flow:ready-dev`. Stop when the queue is empty. The Step 0a pre-flight
   re-checks the clean tree at the start of each issue too - belt and suspenders.
@@ -535,7 +580,7 @@ your own ledger has grown large over a very long queue).
 
 ---
 
-**Skill Version:** 0.8 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.9 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5, terminal-signal contract Section 7a)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
@@ -545,4 +590,12 @@ your own ledger has grown large over a very long queue).
 **Changes in 0.5 (issue #272):** Added the machine-readable terminal signal. The loop now emits exactly one `IMPL-LOOP-TERMINAL` sentinel block (`signal: done | needs-human | failed`) as its final output on EVERY terminal path - in addition to the human one-line report - so the autonomous queue runner (#270) can detect a finished run without parsing prose. Mapping: MERGED -> `done`; PARKED/ESCALATED/conflict/dirty-build -> `needs-human`; pre-flight stop / abnormal exit -> `failed`. Wired into Step 0a, Step 1, Step 2, Step 3, and Step 4; contract recorded in DEVELOPMENT_METHOD.md Section 7a.
 **Changes in 0.6 (issue #298):** Added the issue-level CLAIM (duplicate-prevention). Step 0 now select-THEN-claims: a stale-claim sweep (Step 0.0) reclaims crashed `flow:in-progress` claims older than 60 min, selection reads `flow:ready-dev` only, and the chosen issue is claimed `flow:ready-dev` -> `flow:in-progress` with a verify-after-claim re-read (oldest `CLAIM` comment wins; the loser backs off). Step 4 adds a claim-release gate (no `flow:in-progress` may linger at a terminal stop). New guards: Issue-claim, Stale-claim, Claim-release. Closes the #199 duplicate-PR race. Mechanism + honest residual-window note in DEVELOPMENT_METHOD.md Section 4a / D6.
 **Changes in 0.7 (issue #299):** Rewrote the concurrency rule: same-machine safety now comes from per-session isolation (own worktree, own slot >= 6 reserved via the per-slot scheduled-task registration in `scripts/agent-session-isolation.ps1`, self-allocated Control API port) instead of the old "single slot-5 so nothing can collide" claim. Two loops on one machine are safe on resources (#299) and on issues (#298).
+**Changes in 0.9:** Added priority-queue file mode (`PRIORITY_LOOP.md`): the loop can be driven from a
+curated, ordered priority file (file order overrides oldest-first selection), it marks each issue's
+row as the issue is claimed and again when it reaches a terminal state (the human-readable mirror of
+the `IMPL-LOOP-TERMINAL` sentinels), and on full clean drain it resets the file to an empty template
+(file kept, never deleted; left intact for human follow-up if any row parked needs-human/failed). The
+priority file is a supervisor working artifact kept out of git (`.gitignore`/`.git/info/exclude`) so
+writing to it never trips the Step 0a / Step 4 clean-tree gate. Pairs with the `priority-loop`
+launcher skill.
 **Changes in 0.8 (issue #300):** Added devops mode (`/implementation-loop --source devops <workItemId>`): CLAIM and WRITE-BACK move to the Azure DevOps work item via `az boards` (State transitions per the pinned Basic/Scrum/Agile mapping table + discussion comments, template chosen by the work item type's state list, verify-after-claim by oldest CLAIM comment as in #298); engineering mechanics stay GitHub PR-based in the code repo the work item description names. The sentinel contract is unchanged - `issue: <workItemId>` is the correlation key. Matches the Gateway's per-source adapter dispatch (`ISourceAdapter`, DEVELOPMENT_METHOD.md Section 7b).
