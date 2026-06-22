@@ -1,0 +1,36 @@
+QA independent verification - issue #625 - GitHub Copilot provider
+Captured by QA Agent, 2026-06-22T02:14:13Z, against real copilot CLI v1.0.63
+
+=== AC5/AC3: live detection (POST /settings/agents/detect Copilot) ===
+{"type":"Copilot","detectable":true,"found":true,"configuredPath":"C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd","resolvedPath":"C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd","source":"configured path","message":"Found GitHub Copilot at C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd."}
+
+=== AC6/AC9: catalog entry (GET /settings/agents/catalog -> Copilot) ===
+[
+  {
+    "type": "Copilot",
+    "displayName": "GitHub Copilot",
+    "detectable": true,
+    "supportsModelSelection": false,
+    "modelFlag": "--model",
+    "detectedDefaultModel": null,
+    "presets": [
+      {
+        "name": "Standard",
+        "arguments": ""
+      },
+      {
+        "name": "Automatic (yolo)",
+        "arguments": "--allow-all"
+      }
+    ],
+    "models": []
+  }
+]
+
+=== AC9/AC11: launch command from Director log (session 1, port 7892) ===
+2026-06-21 22:06:03.682 [CopilotAgent] BuildLaunchSpec result: argsLen=74, preassignedId=c9765016-73c1-4e23-a8af-e02d20cb8fa9
+2026-06-21 22:06:03.707 [CcDirector] Launching 'C:\Users\soren\AppData\Roaming\npm\copilot.cmd' via shell: C:\WINDOWS\system32\cmd.exe /s /c ""C:\Users\soren\AppData\Roaming\npm\copilot.cmd" --allow-all --model auto --session-id c9765016-73c1-4e23-a8af-e02d20cb8fa9"
+
+=== AC10: token injection log line (session, port 7893; value NEVER logged) ===
+2026-06-21 22:11:05.882 [CcDirector] Injected COPILOT_GITHUB_TOKEN into the GitHub Copilot session environment.
+raw-token-occurrences-in-logs: 0 (verified)

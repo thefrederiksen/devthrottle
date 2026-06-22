@@ -1,0 +1,96 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭─╮╭─╮
+  ╰─╯╰─╯  Copilot v1.0.63 uses AI.
+  █ ▘▝ █  Check for mistakes.
+   ▔▔▔▔ ● Tip: /clear└ Abandon this session and start fresh● No copilot-instructions.md found. Run /init to generate.╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Confirm folder trust│
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ │
+│ │ D:\ReposFred\dt-625-qa│ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+││
+│ Copilot can read files in this folder and, with your permission, edit them or run code and shell commands. It will   │
+│ remember your permissions for the rest of this session.│
+││
+│ Do you trust the files in this folder?│
+││
+│ ❯ 1. Yes │
+│   2. Yes, and remember this folder for future sessions│
+│   3. No (Esc)│
+││
+│ ↑/↓ to navigate · enter to select · esc to cancel│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╴╶    ╴╶ ▘▝ ╴╶    ╴╶ ▘▝ ╴╶    ╴╶ ▘▝ 
+
+
+
+
+
+
+
+
+
+
+
+
+ D:\ReposFred\dt-625-qa [⎇ issue-625-copilot-agent*%] [#635]Session: 0 AIC used 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ / commands · ? help                                                                                         GPT-5 mini  ● Working esc cancel❯ Reply with exactly this text and nothing else: COPILOT-QA-625-LIVE-OK%] [#635]  ○  ◎  ◉  ●  ◉  ◎  ○  ◎  ●  ◉  ○  ◉  ◎  ○  ◎  ◉  ●  ◉  ◎  ○  ◎  ◉  ●  ◉  ◎  ○  ◉  ●  ◉  ◎  ○  ◎  ◉  ●  ◉ ● COPI ◎ LOT-QA-625 ○ -LIVE ◎ -OK ◉ Session: 0.27 / commands · ? help 

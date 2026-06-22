@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #625 - GitHub Copilot CLI provider</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  th, td { border: 1px solid #d0d0d0; padding: 7px 9px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #f2f2f2; }
+  .pass { color: #0a7a28; font-weight: bold; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  .verdict { background: #e7f7ec; border: 1px solid #0a7a28; padding: 12px; margin-top: 20px; font-weight: bold; }
+  .meta { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #625</h1>
+<p class="meta">
+  <b>Title:</b> [Desktop] Add GitHub Copilot CLI (copilot) as a CC Director agent provider<br>
+  <b>PR:</b> #635 (branch <code>issue-625-copilot-agent</code>, commit <code>fb84946</code>)<br>
+  <b>Verified by:</b> QA Agent (independent context, own worktree <code>D:\ReposFred\dt-625-qa</code>, own slot 14, own scheduled task <code>cc-director14-launch</code>)<br>
+  <b>Environment:</b> Real GitHub Copilot CLI <b>v1.0.63</b> on Windows; live Director Control API ports 7892 and 7893.<br>
+  <b>Method:</b> built the PR branch myself, ran the tests myself, drove the running app via the loopback Control API myself. Did not reuse the developer's binary or screenshots.
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual (my own proof)</th><th>Result</th></tr>
+
+<tr><td>AC1 - Provider exists</td><td><code>AgentKind.Copilot</code> exists; round-trips through sessions.json serialization.</td>
+<td><code>AgentKind.Copilot = 8</code> present. <code>AgentKind_Copilot_RoundTripsThroughJsonSerialization</code> passed (serializes to <code>"Copilot"</code> and back).</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC2 - Launch spec</td><td>(a) new session emits <code>--session-id &lt;uuid&gt;</code>; (b) yolo preset includes <code>--allow-all</code>; (c) resume passes <code>--resume</code>; (d) <code>SupportsPreassignedSessionId == true</code>.</td>
+<td>All four covered by passing CopilotAgentTests + CopilotDriverTests. Confirmed live in Director log: launch line <code>copilot.cmd --allow-all --model auto --session-id c9765016-73c1-4e23-a8af-e02d20cb8fa9</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC3 - Executable resolution</td><td>Resolves to <code>copilot.cmd</code> on Windows; configured explicit path used.</td>
+<td>Live detect returned <code>resolvedPath = ...\npm\copilot.cmd</code>, <code>source = configured path</code>. Configured-path unit test passes.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC4 - Driver registry</td><td><code>AgentDrivers.For(AgentKind.Copilot)</code> returns a <code>CopilotDriver</code>.</td>
+<td><code>AgentDrivers_For_Copilot_ReturnsCopilotDriver</code> passed; live session reports <code>driverCapabilities: ["PreassignedSessionId","Interrupt"]</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC5 - Detection</td><td><code>ToolDetectionService</code> reports <code>copilot</code> detected on PATH.</td>
+<td>Live <code>POST /settings/agents/detect {"type":"Copilot"}</code> -&gt; <code>found: true</code>. <code>SupportedTools_IncludesCopilot</code> passed.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC6 - Selectable in UI</td><td>"GitHub Copilot" is a selectable agent.</td>
+<td>Live catalog (<code>GET /settings/agents/catalog</code>) lists type <code>Copilot</code>, displayName "GitHub Copilot", presets Standard + Automatic (yolo). Agent editor + New Session dropdowns updated in source.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC7 - Runs inside the Director</td><td>Creating a Copilot session launches <code>copilot</code> into a tab; startup banner visible.</td>
+<td>Live session created (Running). Session buffer shows <code>Copilot v1.0.63 uses AI.</code> banner and the Copilot prompt. See <code>qa-live-session-buffer.txt</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC8 - Accepts a prompt and responds</td><td>Sending a prompt produces a visible Copilot response.</td>
+<td>Sent "Reply with exactly... COPILOT-QA-625-LIVE-OK"; Copilot replied <code>COPILOT-QA-625-LIVE-OK</code> in the tab. Captured in <code>qa-live-session-buffer.txt</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC9 - <code>--allow-all</code> honored</td><td>yolo preset / bypass checkbox puts <code>--allow-all</code> in the launch command.</td>
+<td>Director log: <code>Launching ...copilot.cmd --allow-all --model auto --session-id ...</code>. Catalog preset arg = <code>--allow-all</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC10 - Auth pass-through</td><td>With a token env var configured, the session inherits it and starts without <code>/login</code>; (log).</td>
+<td>(1) First run (no token configured): session started with NO <code>/login</code> prompt (went straight to trust gate) - Copilot used its OS credential store. (2) Second run with <code>COPILOT_GITHUB_TOKEN</code> set: Director log shows <code>Injected COPILOT_GITHUB_TOKEN into the GitHub Copilot session environment.</code> Raw token value appears <b>0 times</b> in any Director log (never logged). ResolveCopilotToken precedence tests pass.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC11 - Session-id preassignment</td><td>Director-minted <code>--session-id</code> echoed back.</td>
+<td>Director minted the UUID and passed it (log). Live <code>copilot -p ... --output-format json --session-id &lt;uuid&gt;</code>: the preassigned UUID appears in the JSONL stream. See <code>qa-noninteractive-jsonl.txt</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC12 - JSONL transcript parse</td><td><code>CopilotDriver</code> parses <code>--output-format json</code> events into <code>TurnWidgetDto</code> (fixture test).</td>
+<td><code>ParseStreamLine_CommittedFixture_ParsesTurnIntoWidgets</code> + parser tests pass. The committed fixture event types match the REAL stream I captured live (session.*, user.message, assistant.turn_start, assistant.reasoning_delta, assistant.message, result).</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC13 - Non-interactive mode</td><td><code>copilot -p "..." --allow-all-tools --output-format json</code> returns JSONL + exit 0.</td>
+<td>Reproduced live with the real binary: <b>exit code 0</b>, full JSONL stream, expected text <code>COPILOT-NONINTERACTIVE-OK</code> returned. See <code>qa-noninteractive-jsonl.txt</code>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC14 - Capability honesty</td><td>Advertises only verified verbs; unsupported verbs throw <code>NotSupported</code>.</td>
+<td><code>Capabilities = Interrupt | PreassignedSessionId</code> (confirmed live on the session). Cancel/History/ClearContext/transcript-read all throw NotSupported (unit tests pass).</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC15 - Build clean</td><td><code>dotnet build cc-director.sln</code> succeeds, no new warnings.</td>
+<td>Slot 14 build from my worktree: <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>.</td><td class="pass">PASS</td></tr>
+
+<tr><td>AC16 - No regression</td><td>Claude, Codex, Cursor still launch/run.</td>
+<td>Full <b>Core.Tests: 2311 passed / 0 failed</b>; <b>HostedAgent.Tests: 75 passed / 0 failed</b>. Live: a ClaudeCode session launched and ran (full capability set) alongside the Copilot session.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Method / CenCon checks</h2>
+<ul>
+<li>Token never logged (DT security): raw token value appears 0 times in any Director log - verified by grep.</li>
+<li>Additive provider following the exact Cursor/Grok precedent; no architecture or security posture change requiring <code>docs/cencon/</code> manifest edits.</li>
+<li>Negative sweep: no adjacent agent broke; both Copilot and Claude sessions coexist live.</li>
+<li>No <code>nul</code> files created; working tree clean apart from intentional QA proof.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 16 acceptance criteria met with independent proof. Recommendation: PASS / flow:done / squash-merge.</div>
+
+<p class="meta">Evidence files in this directory: <code>qa-control-api-evidence.txt</code>, <code>qa-live-session-buffer.txt</code> (AC7/AC8 banner+response), <code>qa-noninteractive-jsonl.txt</code> (AC11/AC13 live JSONL), <code>qa-copilot-tests.trx</code> (41 Copilot unit tests green).</p>
+</body>
+</html>
