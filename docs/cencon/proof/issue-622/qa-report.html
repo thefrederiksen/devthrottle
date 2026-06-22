@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #622 - Cron run-complete notifications</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 2rem auto; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #22543d; font-weight: bold; }
+  .fail { color: #822727; font-weight: bold; }
+  code, pre { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; }
+  code { padding: 1px 4px; }
+  pre { padding: .8rem; overflow-x: auto; font-size: .85rem; }
+  .verdict { background: #f0fff4; border: 2px solid #38a169; padding: 1rem; border-radius: 6px; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #622</h1>
+<p><strong>Title:</strong> [Gateway] Cron run-complete notifications (notify/webhook on fire finish or failure)<br/>
+<strong>Pull request:</strong> #634 (branch <code>issue-622-cron-notify</code>)<br/>
+<strong>QA method:</strong> Independent verification per the CenCon QA Agent role. The QA Agent did NOT
+reuse the Developer's binary or screenshots. It built the PR branch in its own worktree, and proved
+every acceptance criterion with its OWN end-to-end harness that drives ONLY production types - the
+real <code>CronJobEndpoints</code> over real HTTP, the real <code>CronEngine</code>, the real
+<code>GatewayCronNotifier</code>, the real <code>DirectorEventLog</code> (the existing fleet channel),
+and a real <code>HttpListener</code> webhook receiver. The only test double is a controllable
+<code>ICronSessionStarter</code> - the same production seam used to force a "fire failed" outcome.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA evidence)</th><th>Verdict</th></tr>
+<tr><td>AC1</td><td>Notify-enabled job sends a notification on finish: job name, outcome, target machine, session id, WORKING link</td>
+<td>In-fleet event on the existing ring + webhook POST carrying all fields and a working session link</td>
+<td>Real ring recorded <code>cron-run-completed</code> (state <code>started</code>). Real webhook POST captured: <code>jobName</code>, <code>succeeded=true</code>, <code>machine=qa-machine</code>, <code>sessionId=sid-AC1</code>, <code>infraStatus=started</code>, <code>taskStatus=unknown</code>, link <code>https://host.qa.ts.net/sessions/sid-AC1/view?gw=...</code>. Link format is byte-identical to the <code>/sessions</code> aggregation's <code>ViewUrl</code> (GatewayEndpoints.cs:529) and the Control API serves <code>GET /sessions/{sid}/view</code> (ControlEndpoints.cs:179) - a genuinely resolving route.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>A fire that FAILS to start also notifies, with the failure / not-started reason</td>
+<td>Notification with <code>succeeded=false</code> and the reason; no session/link</td>
+<td>Forced failure via the starter seam. Real ring recorded the event under the job id (no Director resolved) with state <code>not-started</code>. Webhook POST captured: <code>succeeded=false</code>, <code>reason="launcher could not start a Director on qa-machine"</code>, <code>sessionId=null</code>, empty link.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td><code>notifyOn</code> honors always vs failure: a SUCCESS under failure-mode sends NOTHING; a FAILURE sends</td>
+<td>Success+failure-mode: silent. Failure+failure-mode: notifies.</td>
+<td>Success under <code>failure</code>: 0 webhook hits AND no new ring event. Failure under <code>failure</code>: 1 webhook hit. Both observed over the real engine + notifier.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Setting round-trips through POST/GET /cron/jobs and is editable in the Schedule UI and cc-cron</td>
+<td>REST echo + editable UI + CLI</td>
+<td>Real HTTP: POST echoed <code>notifyOn=always</code> + webhook; GET round-tripped both; PUT edited to <code>failure</code> and cleared the webhook. Schedule.razor exposes a Notify select (none/always/failure) + conditional webhook input, persists/reloads/preserves on enabled-toggle (lines 200-213, 414-415, 512-513, 599-601). cc-cron adds validated <code>--notify-on</code> + <code>--notify-webhook</code> and renders the policy in <code>get</code>. Cockpit Schedule tests (66) and cc-cron tests (19) pass.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Reuses the EXISTING fleet delivery (not a new channel); optional per-job webhook also receives a POST with the same payload</td>
+<td>Rides the doorbell event ring; webhook gets identical payload</td>
+<td>Code path: <code>GatewayCronNotifier</code> calls <code>DirectorEventLog.Record(...)</code> - the same ring surfaced at <code>GET /directors/{id}/events</code> that carries needs-you / session-created / session-exited (no new channel). Wired in GatewayHost.cs:225 to the real <code>DirectorEvents</code> instance. Webhook leg POSTs the same <code>CronRunCompletedPayload</code>; QA captured it on a real listener and confirmed identical fields.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>Build clean; cron tests pass</td>
+<td>dotnet build succeeds; cron tests green</td>
+<td><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warnings, 0 Errors. Gateway.Tests 876 passed (1 pre-existing dictation skip), Cockpit.Tests 66 passed, cc-cron 19 passed.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Default-OFF (opt-in) - confirmed</h2>
+<ul>
+<li>A job created WITHOUT notify fields round-trips as <code>notifyOn=none</code>, <code>notifyWebhookUrl=null</code> (real POST/GET).</li>
+<li>A <code>none</code> job that fires sends NOTHING on success OR failure (0 webhook hits, no ring event) - verified through the real engine.</li>
+</ul>
+
+<h2>Scope-OUT - respected</h2>
+<p>The diff vs <code>main</code> is purely additive (1053 insertions, 12 deletions across 18 files). No
+retry / escalation / alerting policy beyond a single notification per run; no job chaining; no per-run
+streaming. The <code>CronEngine</code> change only ADDS the opt-in <code>NotifyIfOptedInAsync</code> call
+at the end of the existing fire path - the sibling #621 cc-cron / Schedule surface was EXTENDED with
+the setting, not rebuilt. Delivery is best-effort and isolated: a notification failure can never affect
+the fire (its outcome is already in run history before the notifier runs).</p>
+
+<h2>Regression sweep</h2>
+<table>
+<tr><th>Suite</th><th>Result</th></tr>
+<tr><td>CcDirector.Gateway.Tests (full)</td><td class="pass">876 passed, 1 skipped (pre-existing)</td></tr>
+<tr><td>CcDirector.Cockpit.Tests (full)</td><td class="pass">66 passed</td></tr>
+<tr><td>cc-cron pytest (full)</td><td class="pass">19 passed</td></tr>
+<tr><td>dotnet build cc-director.sln</td><td class="pass">Build succeeded, 0 Warnings, 0 Errors</td></tr>
+</table>
+
+<h2>QA harness output (the QA Agent's own evidence)</h2>
+<pre>
+[PASS] AC4 POST echoes notifyOn=always  --  got 'always'
+[PASS] AC4 POST echoes webhook url
+[PASS] AC4 GET round-trips notifyOn  --  always
+[PASS] AC4 GET round-trips webhook
+[PASS] AC4 PUT edits notifyOn to failure  --  failure
+[PASS] AC4 PUT clears webhook  --  null
+[PASS] Default-OFF: bare job notifyOn=none  --  none
+[PASS] Default-OFF: bare job webhook null  --  null
+[PASS] AC1 in-fleet event recorded on existing ring  --  cron-run-completed
+[PASS] AC1 event state carries infra-status started  --  started
+[PASS] AC1 webhook received exactly one POST  --  {"jobId":...,"succeeded":true,"machine":"qa-machine","sessionId":"sid-AC1","sessionLink":"https://host.qa.ts.net/sessions/sid-AC1/view?gw=..."}
+[PASS] AC1 payload jobName
+[PASS] AC1 payload succeeded=true
+[PASS] AC1 payload machine  --  qa-machine
+[PASS] AC1 payload sessionId  --  sid-AC1
+[PASS] AC1 payload WORKING link contains session + director endpoint
+[PASS] AC1 payload infra=started task=unknown  --  started/unknown
+[PASS] AC2 failed fire recorded on ring (under job id, no director)  --  not-started
+[PASS] AC2 webhook received the failure
+[PASS] AC2 succeeded=false
+[PASS] AC2 carries the not-started reason  --  launcher could not start a Director on qa-machine
+[PASS] AC2 no session, no link  --  sid= link=''
+[PASS] AC3 SUCCESS under failure-mode sends NOTHING (no webhook)  --  0 hits
+[PASS] AC3 SUCCESS under failure-mode adds NO ring event  --  1->1
+[PASS] AC3 FAILURE under failure-mode SENDS  --  1 hits
+[PASS] Default-OFF firing: notifyOn=none sends nothing on success OR failure  --  0 hits
+
+==== RESULT: 26 passed, 0 failed ====
+</pre>
+
+<h2>Verdict</h2>
+<p class="verdict"><strong>VERIFIED - all 6 acceptance criteria met.</strong> Default-OFF confirmed,
+Scope-OUT respected, existing fleet channel reused (not a new mechanism), webhook delivers the same
+payload, build clean, regression suites green. PASS.</p>
+</body>
+</html>
