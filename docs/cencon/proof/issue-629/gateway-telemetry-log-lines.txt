@@ -1,0 +1,43 @@
+2026-06-22 06:21:50.186 [TelemetryRetryQueue] Load: no queue file at D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue.json; starting empty
+2026-06-22 06:21:50.247 [TelemetryRetryQueue] StartFlushing: retryInterval=2s, maxSize=8, depth=0
+2026-06-22 06:21:50.627 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:50.633 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=1
+2026-06-22 06:21:50.644 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:50.645 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=2
+2026-06-22 06:21:50.646 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:50.647 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3
+2026-06-22 06:21:50.648 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:50.649 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=4
+2026-06-22 06:21:50.650 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:50.651 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=5
+2026-06-22 06:21:51.169 [TelemetryRetryQueue] DisposeAsync: stopping flush loop, depth=5
+2026-06-22 06:21:51.189 [TelemetryRetryQueue] Load: restored 5 queued event(s) from D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue.json
+2026-06-22 06:21:51.203 [TelemetryRetryQueue] StartFlushing: retryInterval=2s, maxSize=8, depth=5
+2026-06-22 06:21:51.215 [TelemetryRetryQueue] forward OK: http://127.0.0.1:60538/api/v1/telemetry/login -> 200, id=e85afad4376c424db97f090e7cfaf12d
+2026-06-22 06:21:51.217 [TelemetryRetryQueue] forward OK: http://127.0.0.1:60538/api/v1/telemetry/login -> 200, id=ada2e6a5b0824d3b95a14eb172e30aa9
+2026-06-22 06:21:51.219 [TelemetryRetryQueue] forward OK: http://127.0.0.1:60538/api/v1/telemetry/login -> 200, id=f46d57f26f7c4fc29ee9d4fd86e98475
+2026-06-22 06:21:51.221 [TelemetryRetryQueue] forward OK: http://127.0.0.1:60538/api/v1/telemetry/login -> 200, id=1fd99bf162b74eeab2444c8ade1f64d8
+2026-06-22 06:21:51.223 [TelemetryRetryQueue] forward OK: http://127.0.0.1:60538/api/v1/telemetry/login -> 200, id=ef5d35ffe7734867a929c8090ee52f33
+2026-06-22 06:21:51.224 [TelemetryRetryQueue] flush pass delivered 5, remaining depth=0
+2026-06-22 06:21:51.325 [TelemetryRetryQueue] DisposeAsync: stopping flush loop, depth=0
+2026-06-22 06:21:51.329 [TelemetryRetryQueue] Load: no queue file at D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue-evict.json; starting empty
+2026-06-22 06:21:51.337 [TelemetryRetryQueue] StartFlushing: retryInterval=2s, maxSize=3, depth=0
+2026-06-22 06:21:51.541 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.542 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=1
+2026-06-22 06:21:51.545 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.551 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=2
+2026-06-22 06:21:51.552 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.553 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3
+2026-06-22 06:21:51.554 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.554 [TelemetryRetryQueue] WARNING bound exceeded (maxSize=3); evicted OLDEST event id=41a0dae815904782bcc06036fa0e6b5d enqueuedAt=2026-06-22T10:21:51.5416413Z target=http://127.0.0.1:60538/api/v1/telemetry/login (dropped, not delivered)
+2026-06-22 06:21:51.555 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3 (oldest evicted)
+2026-06-22 06:21:51.555 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.555 [TelemetryRetryQueue] WARNING bound exceeded (maxSize=3); evicted OLDEST event id=52b9156b9fa04abd9896a47ce890318d enqueuedAt=2026-06-22T10:21:51.5457593Z target=http://127.0.0.1:60538/api/v1/telemetry/login (dropped, not delivered)
+2026-06-22 06:21:51.556 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3 (oldest evicted)
+2026-06-22 06:21:51.557 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.557 [TelemetryRetryQueue] WARNING bound exceeded (maxSize=3); evicted OLDEST event id=7c727c00482847b497ea24ecc0a39a79 enqueuedAt=2026-06-22T10:21:51.5526777Z target=http://127.0.0.1:60538/api/v1/telemetry/login (dropped, not delivered)
+2026-06-22 06:21:51.558 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3 (oldest evicted)
+2026-06-22 06:21:51.559 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 06:21:51.560 [TelemetryRetryQueue] WARNING bound exceeded (maxSize=3); evicted OLDEST event id=47fb52d7a9f64633a046eeb3351fb2c7 enqueuedAt=2026-06-22T10:21:51.5542860Z target=http://127.0.0.1:60538/api/v1/telemetry/login (dropped, not delivered)
+2026-06-22 06:21:51.561 [TelemetryRetryQueue] Enqueue: target=http://127.0.0.1:60538/api/v1/telemetry/login (bearerPresent=True), depth=3 (oldest evicted)
+2026-06-22 06:21:51.872 [TelemetryRetryQueue] DisposeAsync: stopping flush loop, depth=3
