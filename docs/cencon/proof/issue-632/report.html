@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #632 - Director-startup telemetry to the Gateway - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  .pass { color: #137333; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f5f5f5; border: 1px solid #ddd; padding: .7rem; overflow-x: auto; font-size: .85rem; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .6rem .9rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #632 - Fire a Director-startup telemetry event to the Gateway on launch</h1>
+
+<p><strong>Branch:</strong> <code>issue-632-director-startup-telemetry</code> &nbsp;|&nbsp;
+   <strong>Implementation commit:</strong> <code>5df1a0f</code> (rebased onto post-#664 <code>main</code> <code>4fecb53</code>)</p>
+
+<h2>What was implemented</h2>
+<p>On Director startup, once the Control API has initialized and a stable <code>DirectorId</code> is known,
+the Director fires <strong>exactly one</strong> best-effort POST to
+<code>&lt;gateway.url&gt;/telemetry/director-startup</code> with the body
+<code>{ director_id, machine_name, app_version }</code>. The report runs off the user-interface thread
+(inside the Control API startup <code>Task.Run</code>), so it never delays the main window appearing.
+When no <code>gateway.url</code> is configured the reporter is a logged no-op with no cloud call.</p>
+
+<p>New and changed files:</p>
+<ul>
+  <li><code>src/CcDirector.Core/Account/IDirectorStartupTelemetryReporter.cs</code> - the reporter contract.</li>
+  <li><code>src/CcDirector.Core/Account/DevThrottleDirectorStartupTelemetryReporter.cs</code> - the reporter,
+      modeled on <code>DevThrottleLoginTelemetryReporter</code> (#630): same <code>gateway.url</code>
+      resolution from <code>config.json</code>, the same <code>DEVTHROTTLE_STARTUP_TELEMETRY_URL</code>
+      environment override seam, and the same best-effort no-op-when-unconfigured pattern.</li>
+  <li><code>src/CcDirector.Avalonia/App.axaml.cs</code> - wires <code>FireDirectorStartupTelemetryAsync</code>
+      into startup, fired off the UI thread after the DirectorId is known, with a best-effort swallow+log.</li>
+  <li><code>src/CcDirector.Core.Tests/Account/DevThrottleDirectorStartupTelemetryReporterTests.cs</code> - 7 unit tests.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>On launch with a Gateway configured, the Director POSTs exactly one startup event to
+      <code>&lt;gateway.url&gt;/telemetry/director-startup</code> (Gateway log shows it with the director_id).</td>
+  <td>Exactly one POST; body carries director_id, machine_name, app_version.</td>
+  <td>Live run of the slot-14 Director against a stub Gateway: the stub log shows
+      <strong>exactly one</strong> POST with body
+      <code>{"director_id":"d0d3ae7b-...","machine_name":"SOREN_NORTH","app_version":"0.9.13"}</code>.
+      See <code>scenarioA-stub-gateway-requests.log</code> and <code>scenarioA-director-timeline.txt</code>.
+      Also proven over real HTTP by the harness (<code>results.json</code>: ac1_post_count=1).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>With no <code>gateway.url</code> configured, startup proceeds normally and a skip line is logged
+      (no crash, no cloud call).</td>
+  <td>No HTTP call; a skip line logged; no throw.</td>
+  <td>Harness AC2 (reporter constructed with empty gateway URL, env override unset):
+      gateway hits unchanged (0 -&gt; 0), no throw, and the skip line
+      <code>[DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: no gateway.url configured,
+      skipping director-startup telemetry (Phase 1 no-op)</code> is logged.
+      See <code>director-reporter-log-lines.txt</code> and <code>results.json</code> (ac2_no_call=true, ac2_threw=false).
+      Also covered by the unit test <code>ReportStartupAsync_NoGatewayConfigured_IsNoOpAndMakesNoCall</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>The startup POST runs off the UI thread and does not delay the main window appearing
+      (window-shown log timestamp is not gated on the POST).</td>
+  <td>POST runs on a background task; main window shown independently of the POST.</td>
+  <td>The reporter is fired inside the Control API startup <code>Task.Run</code> (a background thread),
+      not on the UI dispatcher path that shows the window. In the live timeline the POST completes at
+      <code>09:34:49.605</code> while the main window is shown at <code>09:34:49.841</code> on the UI thread -
+      the "Main window shown" line is on a separate thread and is NOT sequenced after the POST in code.
+      The running app is captured in <code>scenarioA-running-app.png</code>. See <code>scenarioA-director-timeline.txt</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>Unit/integration coverage for the reporter target (Gateway URL + body) and the no-gateway no-op.</td>
+  <td>Tests assert the URL + body and the no-op-makes-no-call.</td>
+  <td>7 unit tests pass (<code>unit-tests.txt</code>): URL+body, trailing-slash handling, app_version omission,
+      no-gateway no-op (no call), non-success throws, empty director-id throws, machine_name default.
+      Plus the live HTTP harness exercising both AC1 and AC2.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Scenario A - Gateway configured (live Director)</h2>
+<p>Stub Gateway request log (the first line is the harness reset marker; the single Director POST follows):</p>
+<pre>[scenario-A] log reset 2026-06-22T09:34:46
+[2026-06-22T13:34:49.602Z] POST /telemetry/director-startup body={"director_id":"d0d3ae7b-60c9-4ade-ab2e-82c1c4c5f3e1","machine_name":"SOREN_NORTH","app_version":"0.9.13"}</pre>
+
+<p>Director log timeline (off-UI-thread POST vs main-window-shown):</p>
+<pre>09:34:49.510 [CcDirector] Account startup gate decided Start ...; showing the main window
+09:34:49.594 [CcDirector] Control API listening on http://127.0.0.1:7892 (directorId=d0d3ae7b-...)
+09:34:49.599 [DevThrottleDirectorStartupTelemetryReporter] POSTing director-startup event to gateway ...
+09:34:49.605 [DevThrottleDirectorStartupTelemetryReporter] response status=202
+09:34:49.606 [CcDirector] Director-startup telemetry reported (directorId=d0d3ae7b-...)
+09:34:49.841 [CcDirector] Main window shown; starting background session validation next</pre>
+
+<p>Running app (slot-14 build, v0.9.13 (5df1a0f)):</p>
+<img src="scenarioA-running-app.png" alt="CC Director main window running, All systems go">
+
+<h2>Scenario B - No gateway configured (live HTTP harness)</h2>
+<p>Reporter log lines captured during the harness run (the third line is the no-op skip line):</p>
+<pre>[DevThrottleDirectorStartupTelemetryReporter] POSTing director-startup event to gateway http://127.0.0.1:59723/telemetry/director-startup (director_id=director-proof-id-001, machine_name=PROOF-MACHINE)
+[DevThrottleDirectorStartupTelemetryReporter] response status=202
+[DevThrottleDirectorStartupTelemetryReporter] no gateway.url configured, skipping director-startup telemetry (Phase 1 no-op)</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The new egress is via the Gateway (an existing architectural element);
+there is no new direct-cloud egress, and no security rule (DT-01..DT-NN) changes. The reporter never logs a
+token (it sends none) and the body carries only director_id, machine_name, and app_version.</p>
+
+<div class="note">
+<strong>Note on branch base:</strong> the branch was rebased onto current <code>main</code> (which now contains
+#664, the startup login-gate removal) so the telemetry is wired into the post-#664 App startup flow and the
+main window boots straight up - matching the live Scenario A capture above.
+</div>
+
+<h2>Build &amp; tests</h2>
+<p><code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</p>
+<p>Reporter unit tests -&gt; Passed! Failed: 0, Passed: 7. See <code>unit-tests.txt</code>.</p>
+
+<p><strong>I believe this is finished.</strong></p>
+
+</body>
+</html>

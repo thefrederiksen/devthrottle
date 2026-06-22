@@ -1,0 +1,9 @@
+{
+  "ac1_post_count": 1,
+  "ac1_body": "{\u0022director_id\u0022:\u0022director-proof-id-001\u0022,\u0022machine_name\u0022:\u0022PROOF-MACHINE\u0022,\u0022app_version\u0022:\u00229.9.9\u0022}",
+  "ac1_pass": true,
+  "ac2_no_call": true,
+  "ac2_threw": false,
+  "ac2_pass": true,
+  "all_pass": true
+}

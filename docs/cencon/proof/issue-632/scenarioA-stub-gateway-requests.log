@@ -1,0 +1,2 @@
+[scenario-A] log reset 2026-06-22T09:34:46.9912746-04:00
+[2026-06-22T13:34:49.602Z] POST /telemetry/director-startup body={"director_id":"d0d3ae7b-60c9-4ade-ab2e-82c1c4c5f3e1","machine_name":"SOREN_NORTH","app_version":"0.9.13"}
