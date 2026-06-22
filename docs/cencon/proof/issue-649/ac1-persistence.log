@@ -1,0 +1,25 @@
+############ AC1: consent toggle on the Gateway, default ON, persists across restart ############
+
+### [1] Fresh proof root, no config.json yet -> GET must default ON
+--- config dir before any write ---
+director/
+--- GET /gateway/telemetry-consent ---
+{"enabled":true}
+
+### [2] PUT enabled=false (user turns telemetry OFF on the Cockpit/Gateway)
+{"enabled":false}
+--- GET reflects OFF ---
+{"enabled":false}
+--- config.json persisted on the Gateway ---
+{
+  "telemetry_consent": false
+}
+
+### [3] Restart the Gateway: stop the process, GET must be unreachable
+listener PID=28400 name=ConsentProofGateway
+stopped my harness
+ <- gateway down (expected)
+
+### [4] After restart: GET re-reads config.json from disk -> must STILL be OFF (persisted across restart)
+{"enabled":false}
+PASS: the OFF value set before the restart survived (default is ON, so OFF can only come from persisted state).

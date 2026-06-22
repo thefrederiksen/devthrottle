@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #649: Centralized telemetry consent toggle on the Gateway</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background:#1e1e1e; color:#ccc; max-width:1000px; margin:24px auto; padding:0 20px; line-height:1.5; }
+  h1 { color:#fff; font-size:24px; }
+  h2 { color:#fff; font-size:18px; margin-top:32px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  h3 { color:#fff; font-size:15px; margin-top:22px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  code, pre { font-family:'Cascadia Mono', Consolas, monospace; background:#252526; }
+  code { padding:1px 4px; border-radius:3px; font-size:12px; }
+  pre { padding:12px; border-radius:6px; overflow-x:auto; font-size:12px; color:#cfcfcf; }
+  .pass { color:#22C55E; font-weight:600; }
+  img { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; }
+  .muted { color:#888; font-size:13px; }
+  ul { font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #649</h1>
+<p class="muted">[Cockpit] Centralized telemetry consent toggle on the Gateway &mdash; Gateway Centralization Phase 3, plan decision #4.</p>
+
+<h2>What was implemented</h2>
+<p>
+The richer-usage-telemetry consent (opt-out) is now an <strong>authoritative, fleet-wide setting on the
+Gateway</strong>, with a Cockpit toggle to change it, and Directors honor it. The always-on
+authentication-floor events (the <code>/telemetry/login</code> and <code>/telemetry/director-startup</code>
+events, issues #628/#631) are <strong>not</strong> gated by this and keep flowing. Default is ON.
+</p>
+<ul>
+  <li><strong>Gateway-owned setting</strong> &mdash; <code>CcDirector.Core/Configuration/TelemetryConsentConfig.cs</code>:
+      persisted in <code>config.json</code> as the top-level boolean <code>telemetry_consent</code>, default ON,
+      read at decision time (no restart). Distinct from the per-Director <code>telemetry.enabled</code> flag,
+      which this issue deliberately leaves in place (its removal is #651).</li>
+  <li><strong>Gateway endpoint</strong> &mdash; <code>CcDirector.Gateway/Api/TelemetryConsentEndpoint.cs</code>
+      maps <code>GET/PUT /gateway/telemetry-consent</code>; mapped from <code>SettingsEndpoints</code> and
+      surfaced in the <code>/gateway/settings</code> snapshot.</li>
+  <li><strong>Director-side reader</strong> &mdash; <code>CcDirector.Core/Account/GatewayTelemetryConsent.cs</code>:
+      <code>RefreshAsync()</code> fetches the authoritative value off-thread and caches it to disk;
+      <code>IsConsentedCached()</code> reads the last-known value synchronously. When the Gateway is unreachable
+      the synchronous decision stays at the last-known value (degraded, decision #3) &mdash; never a hidden
+      fallback. When nothing was ever cached it uses the documented default (ON).</li>
+  <li><strong>Gating</strong> &mdash; <code>UsageTelemetry.ForDirector(...)</code> composes the Gateway consent
+      AND the local toggle, so turning the Gateway setting OFF stops the richer usage events fleet-wide.</li>
+  <li><strong>Cockpit toggle</strong> &mdash; <code>CcDirector.Cockpit/Components/Pages/Telemetry.razor</code>
+      + <code>GatewayClient.GetTelemetryConsentAsync/SetTelemetryConsentAsync</code> +
+      <code>TelemetryConsentDto</code> contract + a Telemetry nav entry. Cockpit talks ONLY to the Gateway.
+      Styled to the dark VS Code palette per <code>docs/VisualStyle.md</code>.</li>
+</ul>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+<tr><th style="width:32%">Criterion</th><th style="width:34%">Expected</th><th style="width:34%">Actual (verified)</th></tr>
+
+<tr>
+  <td><strong>AC1.</strong> A consent toggle exists on the gateway/Cockpit, defaults ON, and persists on the gateway across restart.</td>
+  <td>Cockpit page shows the toggle defaulting ON; PUT OFF persists to the gateway; a gateway restart still reports the persisted value.</td>
+  <td class="pass">PASS. Cockpit <code>/telemetry</code> renders "Richer usage telemetry is ON" by default (screenshot below). Live: a fresh gateway with no config returns <code>{"enabled":true}</code>; PUT OFF writes <code>telemetry_consent:false</code> to config.json; after stopping and restarting the gateway, GET still returns <code>{"enabled":false}</code> (read from disk). Endpoint + config unit tests confirm.</td>
+</tr>
+
+<tr>
+  <td><strong>AC2.</strong> The richer usage telemetry is gated by the gateway setting; turning it OFF stops the richer usage events fleet-wide while the always-on login/startup events still flow.</td>
+  <td>With gateway consent OFF, <code>UsageTelemetry</code> records nothing; the auth-floor reporters still POST.</td>
+  <td class="pass">PASS. <code>UsageTelemetry_ForDirector_WhenGatewayConsentOff_DoesNotRecord</code> proves <code>Record()</code> returns false and writes no sink file when consent is OFF (local toggle ON, so only the gateway gate stops it). <code>AuthFloorReporter_StillPosts_WhenGatewayConsentOff</code> proves the director-startup reporter still POSTs with consent OFF (it has no dependency on the consent at all).</td>
+</tr>
+
+<tr>
+  <td><strong>AC3.</strong> A Director reads the gateway consent and honors it; with the gateway unreachable it uses the last-known value (degraded).</td>
+  <td>Director fetches and honors the gateway value; when the gateway is down it uses the last-known cached value.</td>
+  <td class="pass">PASS. <code>RefreshAsync_ReadsGatewayValue_AndCachesIt</code> + <code>IsConsentedCached_AfterRefresh_ReturnsTheGatewayValue</code> prove the director honors the gateway value. <code>IsConsentedCached_WhenGatewayUnreachable_UsesLastKnownValue</code> proves the degraded path returns the last-known OFF. <code>IsConsentedCached_WhenNothingCached_DefaultsOn</code> proves the documented default. <code>RefreshAsync_WhenGatewayUnreachable_Throws_AndCacheIsUnchanged</code> proves no hidden fallback inside the network read.</td>
+</tr>
+
+<tr>
+  <td><strong>AC4.</strong> Unit tests cover default-ON, persisted-OFF gates richer telemetry, and auth-floor events remain ungated.</td>
+  <td>Tests in <code>CcDirector.Gateway.Tests</code> (and Core where the gating lives).</td>
+  <td class="pass">PASS. 17 new tests, all green: 4 endpoint tests (Gateway.Tests), 5 config tests + 8 reader/gating/auth-floor tests (Core.Tests). See test-results.log.</td>
+</tr>
+</table>
+
+<h2>Live Cockpit proof (real Cockpit talking to a real Gateway endpoint)</h2>
+<p class="muted">The real <code>CcDirector.Cockpit</code> Blazor app, pointed at a real <code>TelemetryConsentEndpoint</code>
+host over an isolated config root. The toggle was clicked in the browser; the Gateway value flipped OFF in
+response (<code>{"enabled":false}</code>), and the page confirmed "Saved".</p>
+
+<h3>Default ON (AC1)</h3>
+<img src="cockpit-telemetry-on.png" alt="Cockpit Telemetry page, telemetry ON by default">
+
+<h3>After toggling OFF in the browser (AC1 + AC2 surface)</h3>
+<img src="cockpit-telemetry-off.png" alt="Cockpit Telemetry page, telemetry OFF after toggle, Saved banner">
+
+<h2>Live persistence-across-restart proof (AC1)</h2>
+<pre>
+Fresh proof root, no config.json -> GET /gateway/telemetry-consent => {"enabled":true}   (default ON)
+PUT {"enabled":false}                                              => {"enabled":false}
+GET reflects OFF                                                   => {"enabled":false}
+config.json on disk                                               => { "telemetry_consent": false }
+[stop the gateway process]                                        => /healthz unreachable
+[restart the gateway]                                             => GET => {"enabled":false}  (survived restart)
+</pre>
+<p class="muted">Full transcript: <code>ac1-persistence.log</code>. The default is ON, so an OFF read after a
+restart can only come from persisted state.</p>
+
+<h2>Automated tests (AC4)</h2>
+<pre>
+Core.Tests   (TelemetryConsentConfig + GatewayTelemetryConsent): 13 passed
+Gateway.Tests (TelemetryConsentEndpoint):                          4 passed
+Total: 17 passed, 0 failed
+</pre>
+<p class="muted">Full output: <code>test-results.log</code>. Solution build: <code>dotnet build cc-director.sln</code> &mdash;
+Build succeeded, 0 Warning(s), 0 Error(s) (warnings-as-errors on).</p>
+
+<h2>CenCon impact</h2>
+<p>
+No architecture container added or removed: this extends the existing <code>CcDirector.Gateway</code> settings
+surface, <code>CcDirector.Cockpit</code> settings UI, and <code>CcDirector.Core</code> telemetry within already
+-documented containers. No security posture change &mdash; the consent flag carries no token and no PII, and no
+credential material is logged (the response is a single boolean). No <code>docs/cencon/</code> drift.
+</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All four acceptance criteria are met and proven (live Cockpit
+screenshots, a live persistence-across-restart transcript, and 17 passing unit tests), the solution builds
+clean with warnings-as-errors, and the change stays within the documented architecture and security posture.</p>
+
+</body>
+</html>

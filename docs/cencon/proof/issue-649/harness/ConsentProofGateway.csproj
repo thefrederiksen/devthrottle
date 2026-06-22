@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Issue #649 proof harness ONLY. Not part of cc-director.sln. Hosts the real
+       TelemetryConsentEndpoint on loopback so the Cockpit and curl can drive it for the proof.
+       Removed from the build after the proof is captured. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\src\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+  </ItemGroup>
+
+</Project>

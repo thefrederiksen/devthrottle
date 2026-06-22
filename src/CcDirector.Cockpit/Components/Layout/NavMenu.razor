@@ -102,6 +102,13 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.75" /><path d="M3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4" /></svg>
         <span class="nv-label">Account</span>
     </NavLink>
+    @* Telemetry - the fleet-wide richer-usage-telemetry consent (opt-out), default ON (issue #649).
+       The setting lives on the Gateway, so it surfaces here on the Cockpit. In-app NavLink, same rail
+       pattern as the rest. *@
+    <NavLink class="nv-item" href="/telemetry" title="Telemetry - fleet-wide usage telemetry consent">
+        <svg class="nv-ico" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 0 0-6.5 6.5M8 4.5a3.5 3.5 0 0 0-3.5 3.5" /><circle cx="8" cy="8" r="1.25" /></svg>
+        <span class="nv-label">Telemetry</span>
+    </NavLink>
     <NavLink class="nv-item" href="/about" title="About - version, URL, what's installed">
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" /><path d="M8 7.25v3.75M8 5h.01" /></svg>
         <span class="nv-label">About</span>

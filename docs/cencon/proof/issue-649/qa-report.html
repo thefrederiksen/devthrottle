@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #649 Centralized telemetry consent on the Gateway</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background:#1e1e1e; color:#ddd; margin:0; padding:32px; }
+  h1 { color:#fff; font-size:22px; }
+  h2 { color:#fff; font-size:16px; margin-top:28px; border-bottom:1px solid #333; padding-bottom:6px; }
+  .pass { color:#22C55E; font-weight:600; }
+  .fail { color:#ff6b6b; font-weight:600; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13px; }
+  th, td { border:1px solid #333; padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#fff; }
+  code { background:#252526; padding:1px 5px; border-radius:3px; color:#9cdcfe; }
+  .meta { color:#888; font-size:12px; }
+  .banner { background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:12px; border-radius:6px; margin-top:24px; font-weight:600; }
+  img { max-width:480px; border:1px solid #333; border-radius:6px; display:block; margin:8px 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #649</h1>
+<p class="meta">[Cockpit] Centralized telemetry consent toggle on the Gateway &middot; PR #682 &middot;
+branch <code>issue-649-gateway-telemetry-consent</code> &middot; head <code>52211c2</code><br>
+Independent QA verification (separate from the Developer Agent). Verified in an isolated worktree built
+from the PR branch. <code>dotnet build cc-director.sln</code> = Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<h2>Criterion 1 - toggle exists, defaults ON, persists across Gateway restart</h2>
+<p>Live HTTP against the <strong>real</strong> <code>TelemetryConsentEndpoint</code> (mapped the same way
+the Gateway maps it) over an isolated config root, driven across <strong>two separate OS process
+lifetimes</strong> (the restart).</p>
+<table>
+<tr><th>Step</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>GET, never set</td><td>enabled=true (default ON)</td><td>enabled=True</td><td class="pass">PASS</td></tr>
+<tr><td>PUT {"enabled":false}</td><td>echo enabled=false</td><td>enabled=False</td><td class="pass">PASS</td></tr>
+<tr><td>GET after PUT</td><td>enabled=false</td><td>enabled=False</td><td class="pass">PASS</td></tr>
+<tr><td>config.json on disk</td><td>telemetry_consent persisted false</td><td><code>{ "telemetry_consent": false }</code></td><td class="pass">PASS</td></tr>
+<tr><td>GET after RESTART (fresh process re-reads disk)</td><td>enabled=false (persisted)</td><td>enabled=False</td><td class="pass">PASS</td></tr>
+</table>
+<p>The Cockpit toggle (<code>Components/Pages/Telemetry.razor</code>) shows ON/OFF, defaults ON, and a
+"Turn telemetry off/on" button that PUTs the new value. It injects only <code>GatewayClient</code> and
+calls only <code>gateway/telemetry-consent</code> - the Cockpit talks ONLY to the Gateway. Developer
+screenshots for reference:</p>
+<img src="cockpit-telemetry-on.png" alt="Cockpit telemetry ON">
+<img src="cockpit-telemetry-off.png" alt="Cockpit telemetry OFF">
+
+<h2>Criterion 2 - richer usage telemetry gated fleet-wide; auth-floor still flows</h2>
+<p>Live, in-process against the <strong>real</strong> <code>UsageTelemetry.ForDirector</code>,
+<code>GatewayTelemetryConsent</code>, and <code>DevThrottleDirectorStartupTelemetryReporter</code>.</p>
+<table>
+<tr><th>Case</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Gateway consent ON</td><td>richer usage event records</td><td>recorded=True, count=1</td><td class="pass">PASS</td></tr>
+<tr><td>Gateway consent OFF (local toggle ON)</td><td>richer event suppressed fleet-wide</td><td>recorded=False, sink not created</td><td class="pass">PASS</td></tr>
+<tr><td>Auth-floor (director-startup) while consent OFF</td><td>still POSTs (ungated)</td><td>authPosts=1, method=POST</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Criterion 3 - Director honors Gateway value; unreachable -> last-known (degraded)</h2>
+<table>
+<tr><th>Case</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Gateway unreachable after a refresh recorded OFF</td><td>synchronous gate keeps last-known OFF; RefreshAsync throws (no hidden fallback); cache untouched</td><td>honorsLastKnownOff=True, refreshThrew=True, cacheStillOff=True</td><td class="pass">PASS</td></tr>
+<tr><td>Nothing ever cached</td><td>documented default ON</td><td>value=True</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Criterion 4 - unit tests cover the contract (read AND run)</h2>
+<table>
+<tr><th>Assertion</th><th>Test</th><th>Result</th></tr>
+<tr><td>Default ON</td><td>TelemetryConsentConfigTests.Get_WhenNeverSet_DefaultsOn; TelemetryConsentEndpointTests.Get_consent_defaults_on_when_never_set</td><td class="pass">PASS</td></tr>
+<tr><td>Persisted OFF gates richer telemetry</td><td>GatewayTelemetryConsentTests.UsageTelemetry_ForDirector_WhenGatewayConsentOff_DoesNotRecord / ...On_Records</td><td class="pass">PASS</td></tr>
+<tr><td>Auth-floor events remain ungated</td><td>GatewayTelemetryConsentTests.AuthFloorReporter_StillPosts_WhenGatewayConsentOff</td><td class="pass">PASS</td></tr>
+<tr><td>Persistence across restart</td><td>TelemetryConsentEndpointTests.Put_consent_off_survives_a_fresh_read_from_disk; TelemetryConsentConfigTests.Set_Off_PersistsAndSurvivesFreshReadFromDisk</td><td class="pass">PASS</td></tr>
+</table>
+<p>17 new tests pass (4 endpoint + 5 config + 8 reader/gating/auth-floor). Full in-scope regression:
+Gateway.Tests 943 passed / 1 skipped / 0 failed; Core.Tests 2354 passed / 6 skipped / 0 failed. No
+adjacent breakage; no VaultGatewayIntegrationTests failures locally.</p>
+
+<h2>Scope / CenCon</h2>
+<p>In scope and present: CcDirector.Gateway, CcDirector.Cockpit, CcDirector.Core, CcDirector.Gateway.Tests
+(plus the Gateway.Contracts DTO and Core.Tests). Out of scope, correctly NOT done: no first-run consent
+screen (#650); the per-Director local toggle is NOT removed - that is #651 (<code>ForDirector</code>
+composes both gates). Additive Gateway endpoint inheriting the host-wide token middleware; response
+carries no token or user data - no security/architecture doc drift requiring update.</p>
+
+<div class="banner">VERIFIED - all 4 acceptance criteria met. PASS.</div>
+</body>
+</html>

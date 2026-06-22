@@ -242,6 +242,43 @@ public sealed class GatewayClient
             ?? throw new HttpRequestException("account/logout returned an empty body");
     }
 
+    // ===== Telemetry consent (issue #649): the Cockpit telemetry surface is a pure client of the
+    // Gateway telemetry-consent endpoints. The consent setting lives on the Gateway (fleet-wide), so
+    // the Cockpit READS it from GET /gateway/telemetry-consent and toggles it via
+    // PUT /gateway/telemetry-consent. The toggle gates only the richer usage telemetry; the always-on
+    // login/startup auth-floor events are never gated by it.
+
+    /// <summary>
+    /// The Gateway's fleet-wide richer-usage-telemetry consent (<c>GET /gateway/telemetry-consent</c>,
+    /// issue #649): <c>{ enabled }</c>, default ON. Throws on transport failure (the Telemetry page
+    /// surfaces it as a banner) so a dead Gateway never looks like a consented-off fleet.
+    /// </summary>
+    public async Task<TelemetryConsentDto> GetTelemetryConsentAsync(CancellationToken ct = default)
+    {
+        _log.LogDebug("GetTelemetryConsentAsync: GET {Base}gateway/telemetry-consent", _http.BaseAddress);
+        var dto = await _http.GetFromJsonAsync<TelemetryConsentDto>("gateway/telemetry-consent", ct);
+        return dto ?? throw new HttpRequestException("gateway/telemetry-consent returned an empty body");
+    }
+
+    /// <summary>
+    /// Set the Gateway's fleet-wide richer-usage-telemetry consent (<c>PUT /gateway/telemetry-consent</c>,
+    /// issue #649). Turning it off stops the richer usage events fleet-wide. User action: throws with the
+    /// server error on failure so the Telemetry page can show it. Returns the post-set value the Gateway
+    /// echoes back.
+    /// </summary>
+    public async Task<TelemetryConsentDto> SetTelemetryConsentAsync(bool enabled, CancellationToken ct = default)
+    {
+        _log.LogInformation("SetTelemetryConsentAsync: PUT {Base}gateway/telemetry-consent enabled={Enabled}", _http.BaseAddress, enabled);
+        var resp = await _http.PutAsJsonAsync("gateway/telemetry-consent", new { enabled }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"set telemetry consent failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<TelemetryConsentDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("telemetry-consent set returned an empty body");
+    }
+
     /// <summary>
     /// The repositories a given Director offers for a new session. The Gateway proxies this to
     /// the Director's <c>GET /repos</c>, so the Cockpit never needs that Director's endpoint.

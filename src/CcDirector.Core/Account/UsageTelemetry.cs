@@ -48,6 +48,37 @@ public sealed class UsageTelemetry
     }
 
     /// <summary>
+    /// Builds a usage-telemetry path whose richer events are gated by the GATEWAY's fleet-wide consent
+    /// (issue #649) AND the Director's local toggle. The Gateway consent is the authoritative,
+    /// fleet-wide opt-out; the local <see cref="TelemetrySettings"/> toggle remains until the Director
+    /// cleanup issue (#651) removes it. Both must be on for an event to be recorded, so turning the
+    /// Gateway setting OFF stops the richer usage events on every Director (fleet-wide). The decision is
+    /// taken at the moment of each record from the Gateway consent's last-known cached value (refreshed
+    /// off-thread by <see cref="GatewayTelemetryConsent.RefreshAsync"/>), so the synchronous gate never
+    /// blocks on the network. The always-on login/director-startup auth-floor events are recorded
+    /// elsewhere and are NOT gated by either flag.
+    /// </summary>
+    /// <param name="gatewayConsent">The Director-side reader of the Gateway's fleet-wide consent.</param>
+    /// <param name="localToggle">
+    /// The Director's local opt-out (issue #582). Defaults to <see cref="TelemetrySettings.IsEnabled"/>.
+    /// </param>
+    /// <param name="sinkPath">Where richer usage events are written. Defaults to the Director usage-events log.</param>
+    public static UsageTelemetry ForDirector(
+        GatewayTelemetryConsent gatewayConsent,
+        Func<bool>? localToggle = null,
+        string? sinkPath = null)
+    {
+        if (gatewayConsent is null)
+            throw new ArgumentNullException(nameof(gatewayConsent));
+
+        var local = localToggle ?? TelemetrySettings.IsEnabled;
+        // Both gates must be on for an event to record. The Gateway read is the authoritative fleet
+        // decision, read synchronously from the last-known cache (no network on this hot path).
+        Func<bool> composed = () => local() && gatewayConsent.IsConsentedCached();
+        return new UsageTelemetry(composed, sinkPath);
+    }
+
+    /// <summary>
     /// Records a richer usage event, but ONLY when the usage-telemetry toggle is on. When the toggle
     /// is off this is a no-op and returns false, so the caller cannot accidentally report usage while
     /// the user has opted out. Returns true when the event was written.

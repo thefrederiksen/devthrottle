@@ -1,0 +1,27 @@
+Issue #649 - automated test results (run 2026-06-22T22:11:13Z)
+=====================================================================
+
+## Core.Tests: TelemetryConsentConfig + GatewayTelemetryConsent (AC1 default, AC2 gating, AC2/AC4 auth-floor ungated, AC3 last-known/degraded)
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.UsageTelemetry_ForDirector_WhenGatewayConsentOn_Records [44 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.UsageTelemetry_ForDirector_WhenGatewayConsentOff_DoesNotRecord [5 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.AuthFloorReporter_StillPosts_WhenGatewayConsentOff [10 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.RefreshAsync_WhenGatewayUnreachable_Throws_AndCacheIsUnchanged [5 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.IsConsentedCached_AfterRefresh_ReturnsTheGatewayValue [4 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.RefreshAsync_ReadsGatewayValue_AndCachesIt [4 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.IsConsentedCached_WhenNothingCached_DefaultsOn [1 ms]
+  Passed CcDirector.Core.Tests.Account.GatewayTelemetryConsentTests.IsConsentedCached_WhenGatewayUnreachable_UsesLastKnownValue [4 ms]
+  Passed CcDirector.Core.Tests.Configuration.TelemetryConsentConfigTests.Set_OnAgain_PersistsOn [4 ms]
+  Passed CcDirector.Core.Tests.Configuration.TelemetryConsentConfigTests.Set_PreservesOtherConfigSections [3 ms]
+  Passed CcDirector.Core.Tests.Configuration.TelemetryConsentConfigTests.Set_Off_PersistsAndSurvivesFreshReadFromDisk [2 ms]
+  Passed CcDirector.Core.Tests.Configuration.TelemetryConsentConfigTests.Get_WhenNeverSet_DefaultsOn [< 1 ms]
+  Passed CcDirector.Core.Tests.Configuration.TelemetryConsentConfigTests.Get_WhenValueIsNotBoolean_Throws [1 ms]
+Total tests: 13
+     Passed: 13
+
+## Gateway.Tests: TelemetryConsentEndpoint (AC1 endpoint default ON, persist OFF, across-restart read, bad body)
+  Passed CcDirector.Gateway.Tests.TelemetryConsentEndpointTests.Put_consent_rejects_non_object_body [66 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryConsentEndpointTests.Put_consent_off_survives_a_fresh_read_from_disk [17 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryConsentEndpointTests.Put_consent_off_persists_and_get_reflects_it [5 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryConsentEndpointTests.Get_consent_defaults_on_when_never_set [2 ms]
+Total tests: 4
+     Passed: 4

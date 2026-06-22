@@ -229,6 +229,16 @@ public static class CcStorage
         Path.Combine(ToolConfig("director"), "devthrottle-usage-events.jsonl");
 
     /// <summary>
+    /// The Director's last-known cache of the Gateway's fleet-wide telemetry-consent setting:
+    /// config/director/telemetry-consent-cache.json (issue #649). The Director reads the authoritative
+    /// value from the Gateway and caches it here; when the Gateway is unreachable it falls back to this
+    /// last-known value (degraded, decision #3) rather than guessing. Holds only the boolean consent and
+    /// the time it was cached - no token, no user data.
+    /// </summary>
+    public static string TelemetryConsentCache() =>
+        Path.Combine(ToolConfig("director"), "telemetry-consent-cache.json");
+
+    /// <summary>
     /// Encrypted DevThrottle account credential blob on the Gateway: config/gateway/devthrottle-credential.bin.
     /// The Gateway-Centralization Phase 2 foundation (issue #636): the access-plus-refresh token pair is
     /// written here encrypted at rest by the operating system credential store (Windows Data Protection on
