@@ -32,7 +32,13 @@
         <svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" /></svg>
         <span class="nv-label">Sessions</span>
     </NavLink>
-    <NavLink class="nv-item" href="/schedule" title="Schedule - cron jobs on the Gateway">
+    @* The Schedule nav item (the Cockpit cron page, issue #488) is hidden for the v1 default
+       install (issue #621, same v1-alpha posture as the hidden Voice item #571 and the desktop
+       Scheduler overlay #570). The page itself is NOT deleted - /schedule still loads by direct
+       URL and is fully functional (list, next-run, run history, create/run/delete) - it is simply
+       not advertised in the default nav. The documented, discoverable opt-in is to navigate to
+       /schedule directly; see the "Scheduling" section of docs/CC_TOOLS.md. Agents use cc-cron. *@
+    <NavLink class="nv-item" href="/schedule" title="Schedule - cron jobs on the Gateway" style="display:none">
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 1.5" /></svg>
         <span class="nv-label">Schedule</span>
     </NavLink>
