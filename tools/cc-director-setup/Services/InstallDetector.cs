@@ -11,8 +11,22 @@ namespace CcDirectorSetup.Services;
 /// </summary>
 public static class InstallDetector
 {
-    private static readonly string Root = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
+    private static readonly string Root = ResolveRoot();
+
+    /// <summary>
+    /// The per-user install root used for detection. A non-empty <c>CC_DIRECTOR_SETUP_INSTALL_ROOT</c>
+    /// environment variable overrides it so QA/CI can exercise the wizard in fresh-install mode on a
+    /// machine that already has a real install. The override changes ONLY what the wizard detects; it
+    /// never redirects where an actual install is written.
+    /// </summary>
+    private static string ResolveRoot()
+    {
+        var overrideRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_SETUP_INSTALL_ROOT");
+        if (!string.IsNullOrWhiteSpace(overrideRoot))
+            return overrideRoot;
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
+    }
 
     private static readonly string AppExe = Path.Combine(Root, "app", "cc-director.exe");
     private static readonly string LegacyExe = Path.Combine(Root, "bin", "cc-director.exe");

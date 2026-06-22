@@ -17,7 +17,10 @@ public partial class MainWindow : Window
     private int _skippedCount;
     private string _installPath = "";
     private string _directorExePath = "";
-    private InstallRole _role = InstallRole.Workstation;
+    // Default to Gateway so a fresh install's step rail matches the pre-selected "first machine" card
+    // (issue #645). Update mode overrides this from disk in the constructor; the live RoleSelected handler
+    // tracks the user toggling cards. The committed value is read from the Welcome step when leaving step 1.
+    private InstallRole _role = InstallRole.Gateway;
     private string? _gatewayResultMessage;
 
     private readonly bool _isUpdate;
@@ -38,11 +41,18 @@ public partial class MainWindow : Window
 
     // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Privacy, 5 Skills, 6 Install, 7 Complete.
     // The forced sign-in (issue #657) and the Privacy step (issue #659) slot in after the prerequisite
-    // Checks; Privacy comes right after Sign in.
-    private const int StepSignIn = 3;
+    // Checks; Privacy comes right after Sign in. Sign in applies only to a Gateway install - a Workstation
+    // signs in through its Gateway, so the wizard skips step 3 entirely for the Workstation role.
+    private const int StepSignIn = WizardStepFlow.StepSignIn;
     private const int StepPrivacy = 4;
     private const int StepInstall = 6;
     private const int StepComplete = 7;
+
+    // Role-aware step ordering (skip Sign-in for a Workstation) lives in WizardStepFlow so it is
+    // unit-testable without constructing this WPF window. These thin members bind it to the current role.
+    private List<int> VisibleSteps() => WizardStepFlow.VisibleSteps(_role);
+    private int NextStep(int step) => WizardStepFlow.NextStep(step, _role);
+    private int PrevStep(int step) => WizardStepFlow.PrevStep(step, _role);
 
     public MainWindow()
     {
@@ -92,8 +102,14 @@ public partial class MainWindow : Window
         // they do. (Update mode hides the picker and never fires this.)
         step.RoleSelected += (_, _) =>
         {
-            if (_currentStep == 1)
-                NextButton.IsEnabled = true;
+            if (_currentStep != 1)
+                return;
+            NextButton.IsEnabled = true;
+            // Keep the step rail honest as the user toggles cards: the Sign-in step applies only to a
+            // Gateway install, so switching to "I already have a gateway" (Workstation) drops it live and
+            // switching back restores it.
+            _role = _welcomeStep?.SelectedRole ?? _role;
+            UpdateSidebar();
         };
         return step;
     }
@@ -180,6 +196,9 @@ public partial class MainWindow : Window
 
     private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56, Line67];
 
+    private Panel[] GetStepRows() =>
+        [Step1Row, Step2Row, Step3Row, Step4Row, Step5Row, Step6Row, Step7Row];
+
     private void ShowStep(int step)
     {
         SetupLog.Write($"[MainWindow] ShowStep: step={step}");
@@ -213,24 +232,43 @@ public partial class MainWindow : Window
     private void UpdateSidebar()
     {
         var stepUIs = GetStepUIs();
+        var rows = GetStepRows();
         var lines = GetLines();
+        var visible = VisibleSteps();
         var accentBrush = (SolidColorBrush)FindResource("AccentBrush");
         var successBrush = (SolidColorBrush)FindResource("SuccessBrush");
         var inactiveBrush = (SolidColorBrush)FindResource("StepInactive");
         var dimBrush = (SolidColorBrush)FindResource("DimText");
+        var doneLabelBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+
+        // Progress is measured by position within the visible steps, not the absolute step id, so a
+        // skipped step never throws off the highlighting.
+        var currentPos = visible.IndexOf(_currentStep);
 
         for (int i = 0; i < stepUIs.Count; i++)
         {
-            var stepNum = i + 1;
+            var stepId = i + 1;
             var ui = stepUIs[i];
+            var pos = visible.IndexOf(stepId);
 
-            if (stepNum < _currentStep)
+            // A step not in the visible set (Sign-in on a Workstation) is hidden entirely.
+            if (pos < 0)
+            {
+                rows[i].Visibility = Visibility.Collapsed;
+                continue;
+            }
+
+            rows[i].Visibility = Visibility.Visible;
+            // Renumber the visible circles 1..N so a skipped step leaves no gap (e.g. "...2, 4...").
+            if (ui.Number != null) ui.Number.Text = (pos + 1).ToString();
+
+            if (pos < currentPos)
             {
                 ui.Circle.Background = successBrush;
-                ui.Label.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+                ui.Label.Foreground = doneLabelBrush;
                 if (ui.Number != null) ui.Number.Foreground = Brushes.White;
             }
-            else if (stepNum == _currentStep)
+            else if (pos == currentPos)
             {
                 ui.Circle.Background = accentBrush;
                 ui.Label.Foreground = Brushes.White;
@@ -242,11 +280,20 @@ public partial class MainWindow : Window
                 ui.Label.Foreground = dimBrush;
                 if (ui.Number != null) ui.Number.Foreground = dimBrush;
             }
+        }
 
-            if (i < lines.Length)
+        // A line sits after step (i+1). Hide the line that trails a hidden step so the rail stays
+        // continuous (Workstation: step 2's line runs straight into Privacy).
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var pos = visible.IndexOf(i + 1);
+            if (pos < 0)
             {
-                lines[i].Background = stepNum < _currentStep ? successBrush : inactiveBrush;
+                lines[i].Visibility = Visibility.Collapsed;
+                continue;
             }
+            lines[i].Visibility = Visibility.Visible;
+            lines[i].Background = pos < currentPos ? successBrush : inactiveBrush;
         }
     }
 
@@ -527,7 +574,7 @@ public partial class MainWindow : Window
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentStep > 1)
-            ShowStep(_currentStep - 1);
+            ShowStep(PrevStep(_currentStep));
     }
 
     private void NextButton_Click(object sender, RoutedEventArgs e)
@@ -561,6 +608,9 @@ public partial class MainWindow : Window
                         ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
+                // Drop any captured sign-in if the role changed: a Workstation skips Sign-in entirely, and a
+                // re-entry as Gateway should start the sign-in fresh.
+                _signInStep = null;
                 _privacyStep = null;
                 _skillsStep = null;
                 _installStep = null;
@@ -578,7 +628,7 @@ public partial class MainWindow : Window
             if (_currentStep == StepInstall)
                 _completeStep = null;
 
-            ShowStep(_currentStep + 1);
+            ShowStep(NextStep(_currentStep));
         }
     }
 
