@@ -8,10 +8,11 @@ namespace CcDirector.Core.Tests.Account;
 
 /// <summary>
 /// Proves the login telemetry reporter sends the Gateway contract (Gateway Centralization Phase 1,
-/// issue #630): a POST to <c>&lt;gateway.url&gt;/telemetry/login</c>, a Bearer access token, and a body with
-/// source="app" (plus the optional app_version); that a non-success response surfaces as a thrown
-/// error the best-effort caller logs; and that with no Gateway configured the reporter is a logged
-/// no-op that makes no direct call to the cloud.
+/// issue #630; updated for Phase 2, issue #642): a POST to <c>&lt;gateway.url&gt;/telemetry/login</c> with a
+/// body of source="app" (plus the optional app_version) and NO Authorization header - the Director holds
+/// no credential and the Gateway attaches its own token on the forward (issue #639); that a non-success
+/// response surfaces as a thrown error the best-effort caller logs; and that with no Gateway configured
+/// the reporter is a logged no-op that makes no direct call to the cloud.
 ///
 /// Every test passes an explicit <c>gatewayUrl</c> so the reporter never reads the test machine's
 /// config.json - the target is determined by the test, not the environment.
@@ -21,7 +22,7 @@ public sealed class DevThrottleLoginTelemetryReporterTests
     private const string TestGatewayUrl = "http://127.0.0.1:7878";
 
     [Fact]
-    public async Task ReportLoginAsync_PostsToGatewayWithBearerTokenAndSourceApp()
+    public async Task ReportLoginAsync_PostsToGatewayWithSourceAppAndNoAuthorizationHeader()
     {
         var handler = new CapturingHandler(HttpStatusCode.OK);
         var reporter = new DevThrottleLoginTelemetryReporter(new HttpClient(handler), appVersion: "1.2.3", gatewayUrl: TestGatewayUrl);
@@ -31,8 +32,10 @@ public sealed class DevThrottleLoginTelemetryReporterTests
         Assert.Equal(1, handler.CallCount);
         Assert.Equal(HttpMethod.Post, handler.Request!.Method);
         Assert.Equal($"{TestGatewayUrl}{DevThrottleLoginTelemetryReporter.GatewayLoginPath}", handler.Request.RequestUri!.ToString());
-        Assert.Equal("Bearer", handler.Request.Headers.Authorization!.Scheme);
-        Assert.Equal("access-xyz", handler.Request.Headers.Authorization.Parameter);
+
+        // Issue #642: the Director holds no credential and the Gateway attaches its own token on the
+        // forward (issue #639), so the Director's login POST carries NO Authorization header.
+        Assert.Null(handler.Request.Headers.Authorization);
 
         var body = JsonNode.Parse(handler.Body!)!.AsObject();
         Assert.Equal("app", (string?)body["source"]);

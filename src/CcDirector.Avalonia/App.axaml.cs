@@ -305,6 +305,23 @@ public partial class App : Application
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException(
                 "The DevThrottle account credential store is Windows-only today (issue #583); the macOS Keychain store is a later drop-in.");
+
+        // Gateway Centralization Phase 2 migration (issue #642): the Gateway is the account authority
+        // now, so the Director must hold NO credential of its own. Delete any stale local credential
+        // blob an older build left behind, with a log line. This runs once per launch before the
+        // account service is built; a failure here only logs (it must never block startup).
+        try
+        {
+            var deleted = DevThrottleCredentialMigration.DeleteStaleDirectorCredential();
+            log(deleted
+                ? "DevThrottle credential migration: deleted a stale Director credential blob (Gateway is the authority now, issue #642)"
+                : "DevThrottle credential migration: no stale Director credential blob to delete (issue #642)");
+        }
+        catch (Exception ex)
+        {
+            log($"DevThrottle credential migration FAILED (ignored, the Director holds no credential regardless): {ex.Message}");
+        }
+
         var accountService = DevThrottleAccountFactory.CreateForWindows();
         AccountService = accountService;
         AccountGate = new AccountGatePolicy(accountService);

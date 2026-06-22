@@ -61,7 +61,11 @@ public partial class AccountGateScreen : Window
             // while leaving Quit enabled so the user is never trapped waiting.
             SetBusy("Waiting for sign-in to complete in your web browser...");
 
-            var coordinator = new FirstRunLoginCoordinator(account);
+            // The Director holds NO credential of its own (issue #642): the Gateway is the account
+            // authority. So this sign-in flow is wired with the non-persisting persist action - it
+            // captures the hand-back and reports the login (with no Authorization header), but it never
+            // writes a local devthrottle-credential.bin on the Director.
+            var coordinator = new FirstRunLoginCoordinator(account, persistCredential: FirstRunLoginCoordinator.WithoutPersisting);
             var result = await coordinator.RunAsync(_signInCts.Token);
 
             if (result.Succeeded)

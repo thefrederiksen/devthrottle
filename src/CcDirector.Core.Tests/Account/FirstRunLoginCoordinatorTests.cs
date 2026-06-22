@@ -66,6 +66,40 @@ public sealed class FirstRunLoginCoordinatorTests
         Assert.Equal(capturedTokens.AccessToken, reportedToken);
     }
 
+    // Issue #642: the Director wires the coordinator with the non-persisting persist action, so a
+    // successful sign-in captures the hand-back and still reports the login, but stores NO credential.
+    [Fact]
+    public async Task RunAsync_DirectorNonPersistingVariant_CapturesAndReportsButStoresNothing()
+    {
+        var store = new InMemoryTokenStore();
+        var account = MakeAccount(store);
+        var capturedTokens = new DevThrottleTokens(TestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-1");
+
+        using var listener = new LoopbackLoginListener();
+        var reporter = new RecordingLoginReporter();
+        var coordinator = new FirstRunLoginCoordinator(
+            account,
+            openBrowser: _ => Task.CompletedTask,
+            listenerFactory: () => listener,
+            loginReporter: reporter,
+            persistCredential: FirstRunLoginCoordinator.WithoutPersisting);
+
+        var run = coordinator.RunAsync();
+        await PostStandInCompletionAsync(listener.CallbackUrl, capturedTokens);
+        var result = await run;
+
+        Assert.True(result.Succeeded);
+
+        // The Director holds NO credential: nothing was stored, and IsLoggedIn stays false.
+        Assert.False(store.HasTokens);
+        Assert.Null(store.Load());
+        Assert.False(account.IsLoggedIn());
+
+        // The always-on login telemetry still fires best-effort with the captured access token.
+        var reportedToken = await reporter.Reported.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(capturedTokens.AccessToken, reportedToken);
+    }
+
     /// <summary>A login reporter that records the access token it was asked to report, for assertions.</summary>
     private sealed class RecordingLoginReporter : ILoginTelemetryReporter
     {

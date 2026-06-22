@@ -1,0 +1,15 @@
+﻿=== Issue #642 PROOF - AC2: a pre-existing devthrottle-credential.bin is DELETED on first run of the new build ===
+Director slot 14 (cc-director14.exe), PID 78556, Control API port 7897
+Blob path: C:\Users\soren\AppData\Local\cc-director\config\director\devthrottle-credential.bin
+Seeded an 8-byte stale blob BEFORE this launch (present-before = True).
+Blob exists AFTER first run of the new build: 
+False
+  (expected: False -> deleted)
+healthz reported status=ok and the main window was shown (Director still reaches main window with no credential, AC4).
+
+--- relevant director log lines (note the 'deleted stale Director credential blob' line) ---
+2026-06-22 14:35:48.117 [DevThrottleCredentialMigration] DeleteStaleDirectorCredential: checking for a stale Director credential blob at C:\Users\soren\AppData\Local\cc-director\config\director\devthrottle-credential.bin
+2026-06-22 14:35:48.118 [DevThrottleCredentialMigration] DeleteStaleDirectorCredential: deleted stale Director credential blob at C:\Users\soren\AppData\Local\cc-director\config\director\devthrottle-credential.bin (the Gateway is the account authority now, issue #642)
+2026-06-22 14:35:48.118 [CcDirector] DevThrottle credential migration: deleted a stale Director credential blob (Gateway is the authority now, issue #642)
+2026-06-22 14:35:48.159 [CcDirector] Account startup gate decided Start (interim: local credential no longer gates startup, issue #664); showing the main window
+2026-06-22 14:35:48.443 [CcDirector] Main window shown; starting background session validation next

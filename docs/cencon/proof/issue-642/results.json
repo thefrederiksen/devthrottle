@@ -1,0 +1,18 @@
+{
+  "ac3a_login_path": "/telemetry/login",
+  "ac3a_login_body": "{\u0022source\u0022:\u0022app\u0022,\u0022app_version\u0022:\u00229.9.9\u0022}",
+  "ac3a_login_has_authorization": false,
+  "ac3a_pass": true,
+  "ac3b_startup_path": "/telemetry/director-startup",
+  "ac3b_startup_body": "{\u0022director_id\u0022:\u0022director-proof-id-642\u0022,\u0022machine_name\u0022:\u0022PROOF-MACHINE\u0022,\u0022app_version\u0022:\u00229.9.9\u0022}",
+  "ac3b_startup_has_authorization": false,
+  "ac3b_pass": true,
+  "ac2_present_before": true,
+  "ac2_deleted": true,
+  "ac2_absent_after": true,
+  "ac2_pass": true,
+  "ac1_reported_deleted": false,
+  "ac1_still_absent": true,
+  "ac1_pass": true,
+  "all_pass": true
+}

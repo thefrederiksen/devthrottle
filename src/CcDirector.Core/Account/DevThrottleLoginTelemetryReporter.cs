@@ -1,5 +1,4 @@
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
 using CcDirector.Core.Configuration;
@@ -10,17 +9,21 @@ namespace CcDirector.Core.Account;
 /// <summary>
 /// Reports a successful login by POSTing the login event to the configured CC Director Gateway
 /// (Gateway Centralization Phase 1, issue #630): <c>POST &lt;gateway.url&gt;/telemetry/login</c> with a
-/// <c>Bearer</c> access token and a <c>{ source: "app", app_version? }</c> body. The Gateway forwards
-/// the request UNCHANGED to the live backend (<see cref="ForwardTargetEndpoint"/>) so the Gateway is
-/// the single egress to the cloud and the Director no longer calls <c>devthrottle.com</c> directly.
+/// <c>{ source: "app", app_version? }</c> body and NO <c>Authorization</c> header. The Gateway is the
+/// account authority now (Gateway Centralization Phase 2, issue #642): it attaches its OWN account
+/// token when it forwards the request (issue #639), so the Director neither holds nor sends a token of
+/// its own. The Gateway forwards the request to the live backend (<see cref="ForwardTargetEndpoint"/>)
+/// so the Gateway is the single egress to the cloud and the Director no longer calls
+/// <c>devthrottle.com</c> directly.
 ///
 /// Phase 1 is transitional: when no Gateway URL is configured the reporter is a NO-OP that logs a skip
 /// line - it never crashes and never falls back to a direct cloud call. The Gateway becomes mandatory
 /// in Phase 3.
 ///
-/// This is the always-on authentication floor (issue #40) - no consent gate. The token is sent as the
-/// Authorization header and is never written to the log (security rule DT-05); only the outcome is
-/// logged.
+/// This is the always-on authentication floor (issue #40) - no consent gate. The Director sends no
+/// access token on this POST (issue #642); the Gateway supplies the bearer when it forwards. The login
+/// completion still passes the access token through this method's signature, but it is NOT sent on the
+/// wire and is never written to the log (security rule DT-05); only the outcome is logged.
 /// </summary>
 public sealed class DevThrottleLoginTelemetryReporter : ILoginTelemetryReporter
 {
@@ -84,6 +87,10 @@ public sealed class DevThrottleLoginTelemetryReporter : ILoginTelemetryReporter
 
     public async Task ReportLoginAsync(string accessToken, CancellationToken ct = default)
     {
+        // The access token is still part of the login-completion signature (and is validated as
+        // present), but the Director NO LONGER attaches it to this request (issue #642): the Gateway is
+        // the account authority and supplies its own token when it forwards (issue #639). The token is
+        // never sent on the wire here and is never logged (security rule DT-05).
         if (string.IsNullOrWhiteSpace(accessToken))
             throw new ArgumentException("Access token is required", nameof(accessToken));
 
@@ -103,13 +110,14 @@ public sealed class DevThrottleLoginTelemetryReporter : ILoginTelemetryReporter
         if (!string.IsNullOrWhiteSpace(_installId))
             body["install_id"] = _installId;
 
+        // No Authorization header (issue #642): the Director holds no credential and the Gateway attaches
+        // its own account token on the forward (issue #639).
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-        FileLog.Write($"[DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway {endpoint} (source=app)");
+        FileLog.Write($"[DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway {endpoint} (source=app, no Authorization header)");
         using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
         FileLog.Write($"[DevThrottleLoginTelemetryReporter] ReportLoginAsync: response status={(int)response.StatusCode}");
         response.EnsureSuccessStatusCode();
