@@ -41,6 +41,7 @@ public sealed class CronEngine
     private readonly CronRunHistoryStore _history;
     private readonly ICronSessionStarter _starter;
     private readonly ICronWorkListRunner _workListRunner;
+    private readonly ICronNotifier _notifier;
     private readonly IClock _clock;
     private readonly TimeSpan _catchUpThreshold;
 
@@ -49,6 +50,10 @@ public sealed class CronEngine
 
     /// <param name="starter">Starts a single seeded session for a seed-action job.</param>
     /// <param name="workListRunner">Drains a named work list for a work-list-action job (#484).</param>
+    /// <param name="notifier">
+    /// Delivers the per-job run-complete notification (issue #622) when the job opts in via
+    /// <see cref="CronJobDto.NotifyOn"/>. Best-effort: a notification failure never affects a fire.
+    /// </param>
     /// <param name="catchUpThreshold">
     /// How far past its due time a scheduled fire must be to be labeled a catch-up (default 2 min).
     /// Purely cosmetic on the run record; it does not change whether the job fires.
@@ -58,6 +63,7 @@ public sealed class CronEngine
         CronRunHistoryStore history,
         ICronSessionStarter starter,
         ICronWorkListRunner workListRunner,
+        ICronNotifier notifier,
         IClock clock,
         TimeSpan? catchUpThreshold = null)
     {
@@ -65,6 +71,7 @@ public sealed class CronEngine
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
         _workListRunner = workListRunner ?? throw new ArgumentNullException(nameof(workListRunner));
+        _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _catchUpThreshold = catchUpThreshold ?? TimeSpan.FromMinutes(2);
     }
@@ -192,6 +199,13 @@ public sealed class CronEngine
             if (error is not null)
                 FileLog.Write($"[CronEngine] fire start error: job={job.Id}: {error}");
             FileLog.Write($"[CronEngine] fired: job={job.Id}, manual={isManual}, infra={infraStatus}, sid={sessionId}");
+
+            // Issue #622: deliver the per-job run-complete notification when the job opts in. This is
+            // the terminal event a supervisor wants to be told about - it rides the existing fleet
+            // channel (and an optional webhook). Best-effort and isolated: a notification failure must
+            // never affect the fire, whose outcome is already in run history above.
+            await NotifyIfOptedInAsync(job, record, started, error, resolvedDirectorId, ct);
+
             return new CronRunNowResult(CronFireOutcome.Fired, record);
         }
         finally
@@ -199,6 +213,36 @@ public sealed class CronEngine
             if (job.PreventOverlap)
                 ExitFlight(job.Id);
         }
+    }
+
+    /// <summary>
+    /// Deliver the run-complete notification when <paramref name="job"/> opts in via its
+    /// <see cref="CronJobDto.NotifyOn"/> policy (issue #622). Builds the payload - job name, outcome
+    /// (infra-status vs task-status), machine, session id, and a deep link to the session - and hands
+    /// it to the notifier, which rides the existing fleet channel and the optional webhook. The
+    /// notifier is best-effort and swallows its own delivery failures, so this never disturbs the fire.
+    /// </summary>
+    private async Task NotifyIfOptedInAsync(
+        CronJobDto job, CronRunRecord record, bool started, string? error, string? directorId, CancellationToken ct)
+    {
+        if (!CronNotify.ShouldNotify(job.NotifyOn, started))
+            return;
+
+        var payload = new CronRunCompletedPayload
+        {
+            JobId = job.Id,
+            JobName = job.Name,
+            Succeeded = started,
+            InfraStatus = record.InfraStatus,
+            TaskStatus = record.TaskStatus,
+            Machine = record.Machine,
+            SessionId = record.SessionId,
+            SessionLink = _notifier.BuildSessionLink(directorId, record.SessionId),
+            Reason = started ? null : (error ?? "the scheduled run did not start"),
+            FiredUtc = record.FiredUtc,
+        };
+
+        await _notifier.NotifyRunCompletedAsync(job, directorId ?? "", payload, ct);
     }
 
     private static string WorkListStatusSuffix(CronWorkListOutcome outcome) => outcome switch

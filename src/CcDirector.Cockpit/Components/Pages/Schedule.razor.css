@@ -99,3 +99,10 @@
 .dpicker-filter:focus { outline: none; border-color: var(--accent); }
 /* in the dialog the card list gets real room to scroll */
 .dpicker-modal .dpick { max-height: 56vh; }
+
+/* run-complete notification badge (#622) - compact, token-driven, no hard-coded colors */
+.notify-badge {
+    display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--accent); border: 1px solid var(--accent); white-space: nowrap;
+}

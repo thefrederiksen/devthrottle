@@ -52,7 +52,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         var runner = new RecordingWorkListRunner(CronWorkListOutcome.Started);
         var starter = new ThrowingStarter();
         var created = store.Create(WorkListJob());
-        var engine = new CronEngine(store, history, starter, runner, new FakeClock(DateTime.UtcNow));
+        var engine = new CronEngine(store, history, starter, runner, new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
 
         var result = await engine.RunNowAsync(created.Id, CancellationToken.None);
 
@@ -72,7 +72,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         var runner = new RecordingWorkListRunner(CronWorkListOutcome.Started);
         var starter = new RecordingStarter();
         var created = store.Create(SeedJob());
-        var engine = new CronEngine(store, history, starter, runner, new FakeClock(DateTime.UtcNow));
+        var engine = new CronEngine(store, history, starter, runner, new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
 
         var result = await engine.RunNowAsync(created.Id, CancellationToken.None);
 
@@ -91,7 +91,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         var history = NewHistory();
         var runner = new RecordingWorkListRunner(CronWorkListOutcome.EmptyList);
         var created = store.Create(WorkListJob());
-        var engine = new CronEngine(store, history, new ThrowingStarter(), runner, new FakeClock(DateTime.UtcNow));
+        var engine = new CronEngine(store, history, new ThrowingStarter(), runner, new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
 
         var result = await engine.RunNowAsync(created.Id, CancellationToken.None);
 
@@ -107,7 +107,7 @@ public sealed class CronEngineWorkListTests : IDisposable
         var runner = new RecordingWorkListRunner(CronWorkListOutcome.Started);
         var created = store.Create(WorkListJob());
         var clock = new FakeClock(created.NextRunUtc!.Value.AddMinutes(1));
-        var engine = new CronEngine(store, history, new ThrowingStarter(), runner, clock);
+        var engine = new CronEngine(store, history, new ThrowingStarter(), runner, new NullCronNotifier(), clock);
 
         var fired = await engine.EvaluateDueAsync(CancellationToken.None);
 

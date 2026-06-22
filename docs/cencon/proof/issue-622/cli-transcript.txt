@@ -1,0 +1,22 @@
+######## cc-cron CLI surfacing of the notify setting (#622) ########
+
+$ cc-cron --gateway http://127.0.0.1:8622 create --name 'cli nightly' --machine workstation-A --repo D:\repo --cron '0 0 * * *' --tz America/Chicago --seed /help --notify-on always --notify-webhook https://example.com/hook
+Created cron job.
+  Id:        cj_513eaf
+  Name:      cli nightly
+  Next run:  2026-06-22T05:00:00Z UTC
+
+$ cc-cron --gateway http://127.0.0.1:8622 get cj_513eaf
+cli nightly  (cj_513eaf)
+  Enabled:    yes
+  Machine:    workstation-A
+  Repo:       D:\repo
+  Runs:       skill C:/Program Files/Git/help
+  Schedule:   cron 0 0 * * *  (America/Chicago)
+  Notify:     always (success + failure) + webhook https://example.com/hook
+  Next run:   2026-06-22T05:00:00Z UTC
+  Last fired: -  (-)
+  Created:    2026-06-22T01:38:01.7027357Z UTC
+
+$ cc-cron --gateway http://127.0.0.1:8622 create --name x ... --notify-on bogus   (validation)
+Error: --notify-on must be one of none, always, failure.

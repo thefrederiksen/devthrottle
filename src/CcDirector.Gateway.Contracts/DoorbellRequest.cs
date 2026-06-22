@@ -48,6 +48,12 @@ public static class DoorbellEvents
     /// input-prompt state (WaitingForInput / WaitingForPerm). No prompt understanding -
     /// WHAT is being asked is Gateway interpretation (flagged assumption on issue #330).</summary>
     public const string PromptDetected = "prompt-detected";
+
+    /// <summary>A scheduled cron job finished a fire (issue #622). Unlike the other events this
+    /// one ORIGINATES in the Gateway's firing engine, not a Director doorbell ping, but it rides
+    /// the same per-Director event ring so the fleet's existing notification channel carries it.
+    /// The accompanying state is the run's infra-status (started / not-started / catch-up / ...).</summary>
+    public const string CronRunCompleted = "cron-run-completed";
 }
 
 /// <summary>

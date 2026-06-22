@@ -1,0 +1,44 @@
+======================================================================
+ ISSUE 622 PROOF - cron run-complete notifications
+ REAL CronEngine + GatewayCronNotifier + DirectorEventLog + CronJobStore
+ driven over REAL HTTP. Only seam: ProofStarter fails a fire iff the job
+ name carries the marker [FAILSTART]; everything else is production code.
+ Gateway=http://127.0.0.1:8622  Webhook listener=http://127.0.0.1:8623/hook
+======================================================================
+
+########## AC4 - notify settings round-trip POST -> GET ##########
+POST created success job id=cj_e24e91
+GET echo:  notifyOn=always   notifyWebhookUrl=http://127.0.0.1:8623/hook
+GET echo (no notify set): notifyOn=none  notifyWebhookUrl=None  [default OFF]
+
+########## AC1 + AC5 - SUCCESS fire notifies on fleet ring + webhook ##########
+run record:  infra=started  sid=sess-0001  machine=workstation-A  director=director-1
+fleet event ring  GET /directors/director-1/events  (the EXISTING channel, not a new one):
+   {"receivedAt": "2026-06-22T01:37:10.5285919Z", "sessionId": "sess-0001", "event": "cron-run-completed", "state": "started"}
+webhook received the SAME payload (AC5):
+  jobName=AC1 success notify
+  succeeded=True infra=started task=unknown
+  machine=workstation-A sid=sess-0001
+  sessionLink=https://proofhost.ts.net/sessions/sess-0001/view?gw=http%3A%2F%2F127.0.0.1%3A8622
+
+########## AC2 - a FAILED fire still notifies, with the reason ##########
+run record:  infra=not-started  sid=None  (the fire was recorded even though it failed to start)
+fleet event ring filed under the JOB id (no director resolved on a not-started failure):
+   {"receivedAt": "2026-06-22T01:37:38.0598938Z", "sessionId": "", "event": "cron-run-completed", "state": "not-started"}
+webhook carried the failure reason:
+  succeeded=False  infra=not-started
+  reason=launcher could not start a Director on the target machine
+
+########## AC3 - notifyOn=failure honors always-vs-failure ##########
+  SUCCESS fire (infra=started) under notifyOn=failure: webhooks 2 -> 2  => SILENT  [PASS - success under failure-policy sends nothing]
+  FAILED  fire (infra=not-started) under notifyOn=failure: webhooks 2 -> 3  => NOTIFIED [PASS - failure under failure-policy notifies]
+
+########## Default-OFF - notifyOn=none fires SILENTLY (existing/silent jobs unaffected) ##########
+  notifyOn=none fire: webhooks 3 -> 3  => SILENT  [PASS - default OFF sends nothing]
+  (and a notifyOn=none job created no run-complete event on the fleet ring)
+
+======================================================================
+ RESULT: AC1 success-notify, AC2 failure-notify, AC3 always-vs-failure,
+         AC4 round-trip, AC5 fleet-ring + webhook, default-OFF - ALL
+         demonstrated over real HTTP against production code.
+======================================================================

@@ -797,6 +797,12 @@ containers:
       - name: DirectorForwarding
         description: Single source of truth for how the Gateway dials a Director's Control API for the per-session proxy and the stream-leg verify probe - HttpClient/ClientWebSocket (not YARP, which fails the Schannel TLS handshake to a Tailscale Serve backend) with the WebSocket upgrade pinned to HTTP/1.1
         file: DirectorForwarding.cs
+      - name: CronEngine + CronRunNotifier
+        description: The scheduled-job firing engine (epic #479, #483) plus the run-complete notification path (issue #622). On each fire (success OR start-failure) the engine records a CronRunRecord and, when the job opts in via CronJobDto.NotifyOn (none|always|failure, default none - opt-in so existing/silent jobs never start notifying), delivers a notification through the EXISTING fleet notification channel - the per-Director doorbell event ring (DirectorEventLog, #330) observed at GET /directors/{id}/events - and, when the job sets NotifyWebhookUrl, ALSO POSTs the same CronRunCompletedPayload to that user-configured outbound webhook URL. The webhook is the one new EGRESS surface from the Gateway (best-effort, short-timeout HttpClient, http(s) only, never affecting the fire); it rides the same single-owner tailnet trust boundary as the rest of the Gateway.
+        files:
+          - Running/CronEngine.cs
+          - Running/GatewayCronNotifier.cs
+          - Running/ICronNotifier.cs
 
   - id: gateway_app
     name: Gateway Tray App

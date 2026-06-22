@@ -85,6 +85,7 @@ owasp_desktop:
     notes:
       - "By design: the /file endpoint serves absolute paths without a sandbox and relies on the tailnet trust boundary - revisit only if a non-owner ever joins the tailnet"
       - "Recording/voice IDs are GUID-validated and path-safed; chunks are SHA256-checked"
+      - "Outbound cron run-complete webhook (issue #622): a per-job, owner-configured URL the Gateway POSTs the run summary to. EGRESS only (no new inbound surface), validated to http(s), passed as a typed HttpClient call (no shell/string concatenation), best-effort and isolated from the fire. The URL is set by the single owner per job - the same tailnet trust boundary applies; no SSRF mitigation beyond owner-trust in v1 (the owner already controls the machine)"
 
   - id: DT-05
     name: Information Disclosure
