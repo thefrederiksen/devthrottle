@@ -1,0 +1,21 @@
+Installer log excerpt (file: setup-20260622-084631.log) - issue #657 acceptance: access token is never written to the installer log.
+Captured by the proof harness running the REAL SignInStep + SignInRunner against the dev sign-in stand-in.
+Note: the sign-in URL is logged (call shape), the hand-back is logged as 'credential captured' only, and NO access_token / refresh_token / JWT value appears anywhere.
+----------------------------------------------------------------------
+1:[08:46:31.226] [SignInStep] Created
+2:[08:46:31.610] [SignInStep] Created
+3:[08:46:31.826] [SignInStep] SignInButton_Click
+4:[08:46:31.827] [SignInRunner] RunAsync: starting installer sign-in hand-off
+5:[08:46:31.828] [SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8765/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A55198%2Fdevthrottle-login-callback%2F
+6:[08:46:31.920] [SignInRunner] RunAsync: credential captured from the browser hand-back
+7:[08:46:31.922] [SignInStep] ApplyResult: outcome=SignedIn
+8:[08:46:32.266] [SignInStep] Created
+9:[08:46:32.485] [SignInStep] SignInButton_Click
+10:[08:46:32.486] [SignInRunner] RunAsync: starting installer sign-in hand-off
+11:[08:46:32.487] [SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8765/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A55201%2Fdevthrottle-login-callback%2F
+12:[08:46:33.090] [SignInStep] CancelButton_Click: cancelling the sign-in wait
+13:[08:46:33.091] [SignInRunner] RunAsync: sign-in cancelled before a credential arrived
+14:[08:46:33.092] [SignInStep] ApplyResult: outcome=Cancelled
+----------------------------------------------------------------------
+Token-leak scan over the WHOLE log file (access_token | refresh_token | JWT 'eyJ' prefix):
+RESULT: no token value found in the installer log (PASS)

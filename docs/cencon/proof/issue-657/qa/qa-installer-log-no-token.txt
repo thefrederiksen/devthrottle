@@ -1,0 +1,19 @@
+QA independent installer-log excerpt - issue #657 acceptance: the access token is never written to the installer log.
+Captured by the QA harness (qa-e2e/UiShot.cs) running the REAL SignInStep + SignInRunner against the dev sign-in stand-in (tools/devthrottle-dev-signin).
+The sign-in URL is logged (call shape); the hand-back is logged as 'credential captured' only; NO access_token / refresh_token / JWT value appears.
+Source log file: setup-20260622-092853.log
+----------------------------------------------------------------------
+[09:28:53.548] [SignInStep] Created
+[09:28:53.749] [MainWindow] Started: isUpdate=True, installedVersion=0.9.13+888edfaa1818470f901815a2f40b948613a26293
+[09:28:53.774] [MainWindow] install role: Workstation
+[09:28:53.777] [MainWindow] ShowStep: step=1
+[09:28:53.798] [WelcomeStep] Created: isUpdate=True
+[09:28:53.836] [MainWindow] FetchLatestVersionAsync: checking for latest release
+[09:28:53.885] [SignInStep] SignInButton_Click
+[09:28:53.886] [SignInRunner] RunAsync: starting installer sign-in hand-off
+[09:28:53.900] [SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8771/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A55612%2Fdevthrottle-login-callback%2F
+[09:28:53.996] [SignInRunner] RunAsync: credential captured from the browser hand-back
+[09:28:54.044] [SignInStep] ApplyResult: outcome=SignedIn
+----------------------------------------------------------------------
+Token-leak scan over the WHOLE log file (access_token | refresh_token | JWT 'eyJ' prefix | dev token literals):
+RESULT: no token value found in the installer log (PASS)

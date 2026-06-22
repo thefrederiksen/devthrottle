@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Verification Report - Issue #657 (Installer forced sign-in step)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#ddd; margin:0; padding:32px; }
+  h1 { color:#fff; } h2 { color:#4ec9b0; margin-top:32px; }
+  .verdict { background:#163; color:#fff; padding:16px 20px; border-radius:6px; font-size:18px; font-weight:600; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3c3c3c; padding:10px 12px; vertical-align:top; text-align:left; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22c55e; font-weight:700; }
+  code { background:#252526; padding:2px 5px; border-radius:3px; color:#ce9178; }
+  img { max-width:560px; border:1px solid #3c3c3c; border-radius:4px; display:block; margin:8px 0; }
+  .note { color:#999; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #657</h1>
+<p><strong>[Installer] Forced Sign-in step after Checks (one button, browser loopback)</strong><br/>
+Pull request #666 &middot; branch <code>issue-657-installer-signin-step</code> &middot; base <code>main</code></p>
+
+<p class="verdict">VERIFIED - all five acceptance criteria met. Outcome: PASS.</p>
+
+<p class="note">Independent verification by the QA Agent. The change was built and run from a fresh checkout of
+the pull request branch in an isolated git worktree; the QA Agent produced its own proof and did not reuse
+the Developer Agent's binaries or screenshots. The behavioural outcomes were exercised end to end against the
+local development sign-in stand-in (<code>tools/devthrottle-dev-signin</code>), because the real production
+sign-in page is not yet live (backend devthrottle_internal#46). Production cannot be exercised here; where
+that is the case, Expected versus Actual is stated against the stand-in, which performs the exact same
+loopback hand-back contract the real backend will.</p>
+
+<h2>How this was verified</h2>
+<ul>
+  <li><strong>Unit tests</strong> (<code>tools/cc-director-setup.Tests</code>): 5/5 pass against a real
+      <code>LoopbackLoginListener</code> - signed-in, cancelled, timed-out, browser-cannot-open, and the result helper.</li>
+  <li><strong>End-to-end runner test</strong> (QA harness): the real <code>SignInRunner</code> + real
+      <code>LoopbackLoginListener</code> driven against the running dev stand-in on <code>http://127.0.0.1:8771</code>
+      - proved the sign-in URL shape, the browser hand-back, and the SignedIn / TimedOut / Cancelled outcomes.</li>
+  <li><strong>UI render test</strong> (QA harness): the real <code>SignInStep</code> production control rendered
+      with the installer's App resources, clicked, and driven to completion against the stand-in; the wizard gate
+      value <code>SignInStep.IsSignedIn</code> (which <code>MainWindow</code> uses for <code>NextButton.IsEnabled</code>)
+      was asserted False before and True after. Screenshots below.</li>
+  <li><strong>Installer-log scan</strong>: the QA run's own setup log was scanned for any token value.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>After Checks, a Sign-in step shows a single "Sign in to DevThrottle" button; Next disabled until sign-in completes.</td>
+  <td>Step ordering Welcome -> Prerequisites (Checks) -> Sign in; one button; Next off until signed in.</td>
+  <td>Sign-in is step 3, immediately after the Prerequisites/Checks step 2 (<code>MainWindow</code> step map).
+      The rendered step shows exactly one "Sign in to DevThrottle" button (screenshot 01). The QA harness observed
+      <code>IsSignedIn = False</code> before sign-in, and <code>MainWindow</code> sets
+      <code>NextButton.IsEnabled = _signInStep?.IsSignedIn == true</code>, so Next is disabled. No skip control exists.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>Clicking opens the system browser at <code>&lt;signin-url&gt;?redirect_uri=&lt;loopback&gt;</code>; completing sign-in (stand-in) captures the hand-back and enables Next.</td>
+  <td>URL = signin base + a loopback <code>redirect_uri</code>; completing returns SignedIn and enables Next.</td>
+  <td>The runner built
+      <code>http://127.0.0.1:8771/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A55612%2Fdevthrottle-login-callback%2F</code>
+      (loopback redirect_uri). The stand-in served the page (200), a provider completion redirected (302) carrying the
+      credential back to the loopback callback, the listener captured it (200), the runner returned <code>SignedIn</code>,
+      and <code>IsSignedIn</code> flipped to True with <code>SignInCompleted</code> raised - the exact signal that enables
+      Next (screenshot 02). <span class="note">Expected against production: identical call shape; the real page replaces the stand-in.</span></td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Cancel returns to a retryable state with a clear message; an abandoned sign-in times out and is retryable (no hang, no crash).</td>
+  <td>Cancel -> Cancelled (retryable); no hand-back within timeout -> TimedOut (retryable); process stable.</td>
+  <td>Cancel produced <code>Cancelled</code> with message "Sign-in was cancelled. Click 'Sign in to DevThrottle' to try again."
+      and re-enabled the button. An abandoned sign-in produced <code>TimedOut</code> with "Sign-in timed out ... please try again."
+      The waiting state shows a Cancel action (screenshot 01b). No hang or crash; the harness exited cleanly.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>The wizard cannot proceed to Install without a completed sign-in.</td>
+  <td>Install unreachable while not signed in.</td>
+  <td>Install is step 5, reachable only by Next from step 4, reachable only by Next from the Sign-in step 3, whose Next is
+      gated on <code>IsSignedIn</code>. <code>NextButton_Click</code> has no bypass. With <code>IsSignedIn = False</code>,
+      Next is disabled, so Install cannot be reached.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>The access token is never written to the installer log.</td>
+  <td>No <code>access_token</code> / <code>refresh_token</code> / JWT value anywhere in the setup log.</td>
+  <td>A full scan of the QA run's own setup log found no token value. The log records the sign-in URL (call shape) and
+      "credential captured from the browser hand-back" only. <code>SignInRunner</code> and <code>LoopbackLoginListener</code>
+      never log the token, and the runner does not return or persist it (persistence is the separate issue #658).
+      See <code>qa/qa-installer-log-no-token.txt</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshots (QA-produced)</h2>
+<p><strong>01 - Sign-in step, single button, Next disabled (IsSignedIn = False):</strong></p>
+<img src="qa/qa-01-signin-next-disabled.png" alt="Sign-in step with single button, Next disabled" />
+<p><strong>01b - Waiting state with a Cancel action (retryable busy state):</strong></p>
+<img src="qa/qa-01b-waiting.png" alt="Waiting for sign-in with Cancel" />
+<p><strong>02 - Signed in via the stand-in; success banner, Next would enable (IsSignedIn = True):</strong></p>
+<img src="qa/qa-02-signin-completed-next-enabled.png" alt="Signed in, click Next to continue" />
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>The installer (<code>tools/cc-director-setup</code>), its engine, <code>CcDirector.Core</code>, and the test project
+      all build clean (0 warnings, 0 errors) from the pull request branch.</li>
+  <li>No CenCon blocking-security rule is broken: the token stays on loopback, is never logged, and is not persisted in this
+      issue; sign-in is forced with no skip. The reused account loopback contract is unchanged.</li>
+  <li>No adjacent wizard step regressed: the existing Welcome/Prerequisites/Skills/Install/Complete steps are renumbered but
+      otherwise unchanged, and the build confirms the step map and navigation compile and resolve.</li>
+</ul>
+
+<p class="verdict">VERIFIED - all five acceptance criteria met. Outcome: PASS.</p>
+</body>
+</html>

@@ -28,15 +28,18 @@ public partial class MainWindow : Window
 
     private WelcomeStep? _welcomeStep;
     private PrerequisitesStep? _prerequisitesStep;
+    private SignInStep? _signInStep;
     private SkillsStep? _skillsStep;
     private InstallStep? _installStep;
     private CompleteStep? _completeStep;
 
     private readonly record struct StepUI(Border Circle, TextBlock Label, TextBlock? Number);
 
-    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Skills, 4 Install, 5 Complete.
-    private const int StepInstall = 4;
-    private const int StepComplete = 5;
+    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Skills, 5 Install, 6 Complete.
+    // The forced sign-in (issue #657) slots in after the prerequisite Checks.
+    private const int StepSignIn = 3;
+    private const int StepInstall = 5;
+    private const int StepComplete = 6;
 
     public MainWindow()
     {
@@ -63,7 +66,7 @@ public partial class MainWindow : Window
         {
             Title = "DevThrottle Update";
             SubtitleText.Text = "Update";
-            Step4Label.Text = "Update";
+            Step5Label.Text = "Update";
         }
 
         Loaded += MainWindow_Loaded;
@@ -87,6 +90,19 @@ public partial class MainWindow : Window
         step.RoleSelected += (_, _) =>
         {
             if (_currentStep == 1)
+                NextButton.IsEnabled = true;
+        };
+        return step;
+    }
+
+    /// <summary>Build the forced Sign-in step (issue #657) and wire its completion to enable Next.
+    /// Next stays disabled on this step until a sign-in completes - there is no skip.</summary>
+    private SignInStep BuildSignInStep()
+    {
+        var step = new SignInStep();
+        step.SignInCompleted += (_, _) =>
+        {
+            if (_currentStep == StepSignIn)
                 NextButton.IsEnabled = true;
         };
         return step;
@@ -145,9 +161,10 @@ public partial class MainWindow : Window
         new(Step3Circle, Step3Label, Step3Num),
         new(Step4Circle, Step4Label, Step4Num),
         new(Step5Circle, Step5Label, Step5Num),
+        new(Step6Circle, Step6Label, Step6Num),
     ];
 
-    private Border[] GetLines() => [Line12, Line23, Line34, Line45];
+    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56];
 
     private void ShowStep(int step)
     {
@@ -161,9 +178,10 @@ public partial class MainWindow : Window
         {
             1 => _welcomeStep ??= BuildWelcomeStep(),
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
-            3 => _skillsStep ??= new SkillsStep(_isUpdate),
-            4 => _installStep ??= new InstallStep(),
-            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate, _cachedPrep?.Version),
+            StepSignIn => _signInStep ??= BuildSignInStep(),
+            4 => _skillsStep ??= new SkillsStep(_isUpdate),
+            StepInstall => _installStep ??= new InstallStep(),
+            StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate, _cachedPrep?.Version),
             _ => null
         };
 
@@ -235,6 +253,13 @@ public partial class MainWindow : Window
         {
             NextButton.Content = "Next";
             UpdateNextButtonForPrereqs();
+        }
+        else if (_currentStep == StepSignIn)
+        {
+            // Forced sign-in (issue #657): Next is disabled until a sign-in completes, with no skip.
+            // On a return visit via Back, IsSignedIn is still true so Next stays enabled.
+            NextButton.Content = "Next";
+            NextButton.IsEnabled = _signInStep?.IsSignedIn == true;
         }
         else if (_currentStep == 1 && !_isUpdate)
         {
