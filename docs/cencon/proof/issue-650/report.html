@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #650 - Gateway first-run consent screen - Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #D0D0D0; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #4FC1FF; font-size: 24px; }
+  h2 { color: #F0F4F8; font-size: 18px; margin-top: 32px; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; }
+  h3 { color: #E6E6E6; font-size: 15px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background: #252526; border: 1px solid #3C3C3C; border-radius: 6px; padding: 12px; overflow-x: auto; color: #C8E6FF; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252526; color: #F0F4F8; }
+  .pass { color: #22C55E; font-weight: 600; }
+  .key { color: #4FC1FF; }
+  img { max-width: 900px; border: 1px solid #3C3C3C; border-radius: 6px; display: block; margin: 12px 0; }
+  .note { color: #9A9A9A; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #650 - First-run consent screen shown once at Gateway first launch</h1>
+<p class="note">Gateway Centralization Phase 3. Branch: <code>issue-650-gateway-consent</code>. Verified on a real, running Gateway build with an isolated config root (a genuine first launch).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><span class="key">src/CcDirector.Core/Configuration/GatewayConsentAck.cs</span> (new) - the gateway-side persisted acknowledgement flag, the relocation of the per-Director <code>FirstRunConsent</code> flag. Persists <code>gateway_consent.acknowledged</code> in the Gateway's <code>config.json</code> via the non-lossy <code>CcDirectorConfigService.MergePatch</code> (the same store the centralized #649 setting uses). Deliberately a separate config section from the per-Director <code>consent</code> section.</li>
+  <li><span class="key">src/CcDirector.Gateway/Account/GatewayConsentSurface.cs</span> (new) - the pure, unit-tested decision-and-persistence library (mirrors <code>GatewaySignInTraySurface</code>): <code>ShouldShowConsentOnLaunch()</code>, <code>CurrentUsageSharingChoice()</code> (reads the #649 default), and <code>Acknowledge(shareUsage)</code> which writes BOTH the centralized consent setting (<code>TelemetryConsentConfig.Set</code>, #649) and the gateway acknowledgement (<code>GatewayConsentAck.MarkAcknowledged</code>) in one step.</li>
+  <li><span class="key">src/CcDirector.GatewayApp/GatewayConsentWindow.axaml(.cs)</span> (new) - the consent screen, modeled on the per-Director <code>FirstRunConsentDialog</code> (dark theme #1E1E1E, accent #007ACC, per <code>docs/VisualStyle.md</code>), relocated onto the Gateway. The checkbox is the fleet-wide centralized consent; "Got it - continue" calls <code>GatewayConsentSurface.Acknowledge</code> off the UI thread (button disabled during the write).</li>
+  <li><span class="key">src/CcDirector.GatewayApp/GatewayTrayController.cs</span> - after host start (alongside the #637 first-launch sign-in), shows the consent screen once via <code>ShowConsentIfNeeded()</code> only when not yet acknowledged. Closed on Quit; tracked so a Gateway restart within one run never stacks two screens.</li>
+  <li><span class="key">Tests</span>: <code>CcDirector.Gateway.Tests/Account/GatewayConsentSurfaceTests.cs</code> (6) + <code>CcDirector.Core.Tests/Configuration/GatewayConsentAckTests.cs</code> (4).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proven)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Gateway's first launch shows the consent screen once; acknowledging records the acknowledgement on the gateway and sets the centralized consent value.</td>
+    <td>Screen shown on first launch; on "continue", <code>gateway_consent.acknowledged=true</code> and <code>telemetry_consent</code> written.</td>
+    <td>Screenshot below shows the screen at first launch. Log: "ShowConsentIfNeeded: gateway consent not yet acknowledged - showing the consent screen". After clicking continue, <code>config.json</code> holds both keys.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A subsequent gateway launch does NOT show the consent screen again (acknowledged flag persisted on the gateway).</td>
+    <td>Second launch (same config root): no consent window; decision reads the persisted ack.</td>
+    <td>Log on the second launch: "ShowConsentIfNeeded: gateway consent already acknowledged - not showing". UI Automation confirmed no consent window present.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>The usage-sharing choice made on the screen is reflected in the gateway's centralized consent setting (#649) (verified).</td>
+    <td>Unchecking the box and continuing sets the centralized #649 setting to OFF.</td>
+    <td>Box unchecked via UI Automation, continue clicked. <code>config.json</code> -> <code>telemetry_consent: false</code>; the live #649 endpoint <code>GET /gateway/telemetry-consent</code> returns <code>{"enabled":false}</code> (and still false after a restart).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Proof shows the consent screen at gateway first launch, the persisted acknowledgement, and no re-show on the next launch.</td>
+    <td>Screenshot + persisted state + second-launch evidence.</td>
+    <td>All present below (screenshot, config.json, endpoint snapshot, log slices).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof 1 - Consent screen at the Gateway's first launch (criteria 1, 4)</h2>
+<p class="note">Rendered from the running Gateway build (devthrottle-gateway.exe) on a fresh isolated config root, so this is a genuine first launch.</p>
+<img src="consent-first-launch.png" alt="Gateway first-run consent screen" />
+
+<h2>Proof 2 - Persisted acknowledgement + centralized consent reflecting the choice (criteria 1, 3)</h2>
+<p>After unchecking the usage-sharing box and clicking "Got it - continue", the Gateway's <code>config.json</code> holds both the acknowledgement and the centralized consent value:</p>
+<pre>{
+  "telemetry_consent": false,
+  "gateway_consent": {
+    "acknowledged": true
+  }
+}</pre>
+<p>The live centralized #649 endpoint reflects the same choice (and survives a Gateway restart):</p>
+<pre>GET /gateway/telemetry-consent  ->  {"enabled":false}</pre>
+
+<h2>Proof 3 - Second launch does NOT re-show (criterion 2)</h2>
+<pre>=== FIRST LAUNCH: consent screen shown, then acknowledged (opted OUT) ===
+[GatewayConsentAck] HasAcknowledged: no persisted value -> default false (gateway consent screen not yet shown)
+[GatewayTrayController] ShowConsentIfNeeded: gateway consent not yet acknowledged - showing the consent screen
+[GatewayConsentWindow] Shown: gateway first-run consent screen ...
+[GatewayConsentWindow] Continue clicked: persisting centralized usage-sharing choice shareUsage=False and acknowledging gateway consent
+[GatewayConsentSurface] Acknowledge: writing centralized consent shareUsage=False and recording the gateway acknowledgement
+[TelemetryConsentConfig] Set: enabled=False ... persisted
+[GatewayConsentAck] MarkAcknowledged: persisting acknowledged=true ... persisted
+
+=== SECOND LAUNCH: not re-shown ===
+[GatewayTrayController] ShowConsentIfNeeded: gateway consent already acknowledged - not showing</pre>
+<p class="note">Full slices in <code>gateway-logs.txt</code>; persisted config in <code>config-after-acknowledge.json</code>; endpoint snapshot in <code>endpoint-after-acknowledge.txt</code>.</p>
+
+<h2>Tests</h2>
+<pre>CcDirector.Gateway.Tests  - GatewayConsentSurfaceTests   : Passed 6, Failed 0
+CcDirector.Core.Tests     - GatewayConsentAckTests        : Passed 4, Failed 0
+Full solution build       - Build succeeded. 0 Warning(s) 0 Error(s)  (TreatWarningsAsErrors on)</pre>
+<ul>
+  <li>First launch shows + pre-selects the #649 default (ON).</li>
+  <li>Acknowledge(true) records ack AND sets centralized consent ON.</li>
+  <li>Acknowledge(false) sets centralized consent OFF (durable on disk under the #649 key).</li>
+  <li>After acknowledge, a subsequent launch does NOT re-show; ack survives a fresh read from disk.</li>
+  <li>Toggling the centralized consent later does NOT un-acknowledge / re-show the screen (separate facts).</li>
+  <li>Ack flag is a separate config section from the per-Director consent flag; does not touch it.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is additive UI within the already-documented <code>CcDirector.GatewayApp</code> and <code>CcDirector.Gateway</code> containers: it reuses the existing <code>config.json</code> store and the existing #649 centralized consent setting and its endpoint. No new container, no new endpoint, no new external integration, no new credential/token handling, no security boundary change. Per CenCon law 3, no <code>docs/cencon</code> update is required. Security profile last_verified 2026-06-09 (within the 30-day threshold).</p>
+
+<h2>Out of scope (separate issues, not done here)</h2>
+<ul>
+  <li>Removing the per-Director <code>FirstRunConsentDialog</code> - Director cleanup issue #651.</li>
+  <li>The centralized consent setting mechanism itself - #649 (done); this issue PRESENTS it.</li>
+</ul>
+
+<p class="pass" style="font-size:16px; margin-top:24px;">I believe this is finished. All four acceptance criteria are proven on a running Gateway build.</p>
+
+</body>
+</html>

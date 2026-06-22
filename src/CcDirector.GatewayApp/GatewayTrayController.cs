@@ -42,6 +42,9 @@ public sealed class GatewayTrayController : IDisposable
     private CockpitSupervisor? _cockpit;
     private SettingsWindow? _settingsWindow;
     private PairingWindow? _pairingWindow;
+    // Issue #650: the first-run consent screen, shown once at the Gateway's first launch. Tracked so a
+    // Gateway restart inside one run does not stack two screens and so Quit closes it.
+    private GatewayConsentWindow? _consentWindow;
     private HostState _state = HostState.Stopped;
     private bool _busy;
     private bool _disposed;
@@ -257,12 +260,47 @@ public sealed class GatewayTrayController : IDisposable
             // launch. When the Gateway has no stored credential, auto-prompt the browser loopback
             // sign-in; when it already has one, do nothing (a subsequent launch never re-prompts).
             PromptSignInIfNeeded();
+
+            // Issue #650 (Gateway Centralization Phase 3): the first-run consent screen, shown ONCE
+            // at the Gateway's first launch alongside the sign-in. When the Gateway has not yet
+            // acknowledged it, show it; a subsequent launch never re-shows it.
+            ShowConsentIfNeeded();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayTrayController] StartHostAsync FAILED: {ex.Message}");
             await DiagnoseStartFailureAsync();
         }
+    }
+
+    /// <summary>
+    /// Issue #650: on launch, show the first-run consent screen only when the Gateway has not yet
+    /// acknowledged it (<see cref="CcDirector.Gateway.Account.GatewayConsentSurface"/>). Once
+    /// acknowledged, a subsequent launch never re-shows it (acceptance criterion 2). The screen is
+    /// shown on the UI thread (it has no owner window - the Gateway is a tray-only app) and is only
+    /// raised once per process via <see cref="_consentWindow"/>, so a Gateway restart inside one run
+    /// does not stack two screens.
+    /// </summary>
+    private void ShowConsentIfNeeded()
+    {
+        if (!CcDirector.Gateway.Account.GatewayConsentSurface.ShouldShowConsentOnLaunch())
+        {
+            FileLog.Write("[GatewayTrayController] ShowConsentIfNeeded: gateway consent already acknowledged - not showing");
+            return;
+        }
+
+        FileLog.Write("[GatewayTrayController] ShowConsentIfNeeded: gateway consent not yet acknowledged - showing the consent screen");
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_consentWindow is { } open)
+            {
+                open.Activate();
+                return;
+            }
+            _consentWindow = new GatewayConsentWindow();
+            _consentWindow.Closed += (_, _) => _consentWindow = null;
+            _consentWindow.Show();
+        });
     }
 
     /// <summary>
@@ -484,6 +522,7 @@ public sealed class GatewayTrayController : IDisposable
             _flyout?.Close();
             _settingsWindow?.Close();
             _pairingWindow?.Close();
+            _consentWindow?.Close();
             if (_trayIcon is not null) _trayIcon.IsVisible = false;
             _desktop.Shutdown();
         });
