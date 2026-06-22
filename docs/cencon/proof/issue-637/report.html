@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #637 - Gateway sign-in: browser loopback flow on first launch - Developer proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1b1b1b; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #444; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f0f0; }
+  code, pre { font-family: Consolas, monospace; font-size: 13px; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .pass { color: #14702a; font-weight: bold; }
+  .meta { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #637 - Gateway sign-in: browser loopback flow on first launch</h1>
+<p class="meta">Developer Agent proof. Branch <code>issue-637-gateway-signin</code>.
+Gateway Centralization Phase 2: the browser loopback sign-in that used to run on the Director now runs
+ON THE GATEWAY (plan decision #2 - forced sign-in at the Gateway's first launch). The reused
+<code>CcDirector.Core.Account</code> types <code>FirstRunLoginCoordinator</code> +
+<code>LoopbackLoginListener</code> (the same browser-opener + loopback mechanism the Director used) are
+driven from the Gateway, and the captured token is stored through the Gateway credential service from
+issue #636 (<code>GatewayHost.Account</code>). Tokens are never logged (security rule DT-05).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New <code>CcDirector.Gateway/Account/GatewaySignInService.cs</code></b> - drives the reused
+      Core <code>FirstRunLoginCoordinator</code> over the Gateway-hosted credential service: opens the
+      system browser at the configured sign-in address, captures the credential the sign-in completion
+      hands back on the loopback callback, and stores it through the credential service. Adds the
+      Gateway-side single-flight guard (an auto-prompt at launch and a tray click never run two browser
+      hand-offs at once) and the <code>IsSignedIn()</code> / <code>GetIdentity()</code> queries the tray
+      reads. A no-op login reporter is injected (login telemetry forwarding is the Gateway's own relay,
+      issues #628/#630, not this flow). Access and refresh tokens are never logged on any path.</li>
+  <li><b>New <code>CcDirector.Gateway/Account/GatewaySignInTraySurface.cs</code></b> - the pure,
+      UI-framework-free tray decisions (<code>ShouldPromptOnLaunch</code>,
+      <code>ShouldShowSignInAction</code>, <code>AccountRowValue</code>), kept in the library so the tray
+      surface logic is unit-testable without an Avalonia UI thread.</li>
+  <li><b><code>CcDirector.Gateway/GatewayHost.cs</code></b> - constructs the
+      <code>GatewaySignInService</code> over <code>Account</code> and exposes it as the
+      <code>SignIn</code> property (null on a host with no credential service - a non-Windows host).</li>
+  <li><b><code>CcDirector.GatewayApp/GatewayTrayController.cs</code></b> (tray surface) - on host start,
+      auto-prompts the browser sign-in when the Gateway has no stored credential
+      (<code>PromptSignInIfNeeded</code>); adds the <b>"Sign in to DevThrottle"</b> flyout action that
+      starts/retries it; adds an <b>Account</b> status row; cancels any in-flight sign-in on quit. The
+      sign-in run is detached with a boundary try-catch so a failure never crashes the tray and stays
+      retryable.</li>
+  <li><b><code>CcDirector.Gateway.Tests/Account/GatewaySignInServiceTests.cs</code></b> - 10 tests
+      (7 service + 3 tray surface), reusing the existing <code>GatewayTestJwt</code> helper and the
+      injected-browser-opener + real-loopback + stand-in-completion pattern of the Core
+      <code>FirstRunLoginCoordinatorTests</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How verified</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>With no Gateway credential, the first launch opens the system browser at the configured sign-in
+      URL and the tray exposes a "Sign in to DevThrottle" action.</td>
+  <td>End-to-end proof harness over the real <code>GatewaySignInService</code>: with no credential,
+      <code>IsSignedIn()</code> is false (so the tray prompts) and the injected opener records the
+      browser opened at the sign-in URL. Tray-surface unit test
+      <code>TraySurface_NotSignedIn_PromptsAndShowsSignInActionAndNotSignedInRow</code>
+      (<code>ShouldPromptOnLaunch</code> + <code>ShouldShowSignInAction</code> both true). Tray wiring in
+      <code>GatewayTrayController.PromptSignInIfNeeded</code> / <code>BuildFlyoutModel</code>.</td>
+  <td>Not signed in -&gt; browser opens at sign-in URL; "Sign in to DevThrottle" action shown.</td>
+  <td>IsSignedIn()=False; browser opened at <code>http://127.0.0.1:8765/signin?redirect_uri=...</code>;
+      action + "Not signed in" row shown.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Completing sign-in (via <code>tools/devthrottle-dev-signin</code>) captures the loopback hand-back
+      and stores the token through the credential service; the Gateway then reports signed-in=true.</td>
+  <td>Proof harness ran the real dev sign-in tool; the headless browser followed the page's
+      "Continue with email" -&gt; 302 to the loopback callback (exactly what a real browser does). Tests
+      <code>RunSignInAsync_OpensBrowserCapturesHandBackAndStores_GatewayThenReportsSignedIn</code> and
+      <code>RunSignInAsync_AfterSignIn_GatewayReadsIdentity</code>.</td>
+  <td>Sign-in succeeds; token stored; IsSignedIn()=true; identity read.</td>
+  <td>succeeded=True; IsSignedIn()=True; identity <code>gateway.dev@example.com</code> / <code>email</code>;
+      credential blob written.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>A subsequent Gateway launch with a stored credential does NOT prompt sign-in.</td>
+  <td>Proof harness built a FRESH service over the SAME store with an opener that throws if called; it
+      was never called. Test
+      <code>TraySurface_SignedIn_DoesNotPromptOrShowActionAndShowsIdentity</code>
+      (<code>ShouldPromptOnLaunch</code> false).</td>
+  <td>IsSignedIn()=true; no browser opened; no sign-in action shown.</td>
+  <td>IsSignedIn()=True on the second launch; the throwing opener was never invoked.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>A failed/cancelled sign-in leaves the Gateway un-signed-in and retryable from the tray (no crash).</td>
+  <td>Proof harness cancelled a sign-in on a fresh, no-credential Gateway. Tests
+      <code>RunSignInAsync_Cancelled_LeavesGatewayUnsignedInAndRetryable</code> and
+      <code>RunSignInAsync_BrowserCannotOpen_ReturnsFailureAndStaysUnsignedIn</code> - both return a
+      user-safe failure (no throw), IsSignedIn() stays false, the single-flight guard is released.</td>
+  <td>Cancelled -&gt; failure (no crash); IsSignedIn()=false; retryable.</td>
+  <td>succeeded=False; reason "Sign-in was cancelled."; IsSignedIn()=False; IsSignInRunning=False (a new
+      attempt can start).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Unit/integration tests cover the capture-and-store path (injected browser opener + loopback, as
+      the existing <code>FirstRunLoginCoordinatorTests</code> do).</td>
+  <td><code>GatewaySignInServiceTests</code>: 10 tests using the injected opener + a real
+      <code>LoopbackLoginListener</code> + a stand-in completion posting the token. Full Gateway suite:
+      913 passed.</td>
+  <td>Tests cover capture-and-store, already-signed-in, cancelled/failed, single-flight, identity, tray
+      surface.</td>
+  <td>10/10 sign-in tests pass; full Gateway suite 913 passed, 1 pre-existing skip, 0 failed.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>SEC</td>
+  <td>Tokens are never written to the Gateway log (DT-05, carried over from #636).</td>
+  <td>Proof harness inspected the on-disk credential blob; the access token is not present as plaintext
+      (encrypted at rest). Code: <code>GatewaySignInService</code> and the Core coordinator log only the
+      outcome, never token values.</td>
+  <td>Access token not present as plaintext in the blob; no token in logs.</td>
+  <td>access token present as plaintext = False.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>End-to-end proof output (against the real tools/devthrottle-dev-signin)</h2>
+<p class="meta">Full output in <code>proof-output.txt</code>; the dev sign-in tool's own log in
+<code>dev-signin-tool.log</code>.</p>
+<pre>=== Issue #637 proof: Gateway browser loopback sign-in, end to end against tools/devthrottle-dev-signin ===
+dev sign-in URL: http://127.0.0.1:8765/signin
+
+[AC1] With no stored credential, the Gateway reports signed-in:
+      IsSignedIn() = False   EXPECTED: False (so the tray prompts + shows 'Sign in to DevThrottle')
+
+[AC2] Running the browser loopback sign-in against the dev sign-in tool...
+[browser] opened system browser at: http://127.0.0.1:8765/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A57115%2Fdevthrottle-login-callback%2F
+[browser] user chose 'Continue with email' -> GET http://127.0.0.1:8765/complete (follows the 302 to the loopback callback)
+[browser] loopback callback responded 200 (the listener captured the credential)
+      sign-in succeeded = True   EXPECTED: True
+      IsSignedIn() = True   EXPECTED: True
+      identity email = gateway.dev@example.com, provider = email   EXPECTED: gateway.dev@example.com / email
+      credential blob written = True   EXPECTED: True
+
+[AC3] Subsequent launch with a stored credential (fresh service over the same store):
+      IsSignedIn() = True   EXPECTED: True (so the tray does NOT prompt and the browser is NOT opened)
+
+[AC4] Cancelled sign-in on a fresh, no-credential Gateway leaves it un-signed-in and retryable:
+      cancelled sign-in succeeded = False   EXPECTED: False
+      failure reason (user-safe) = "Sign-in was cancelled."
+      IsSignedIn() = False   EXPECTED: False
+      IsSignInRunning (guard released, retryable) = False   EXPECTED: False (a new attempt can start)
+      no crash = True
+
+[SECURITY] Token never written in plaintext to the credential blob (DT-05):
+      access token present as plaintext in blob = False   EXPECTED: False (encrypted at rest)
+
+RESULT: ALL ACCEPTANCE CRITERIA PASS</pre>
+
+<h2>Tests</h2>
+<pre>Passed!  - Failed: 0, Passed: 10, Skipped: 0, Total: 10 - GatewaySignInServiceTests
+Passed!  - Failed: 0, Passed: 913, Skipped: 1, Total: 914 - full CcDirector.Gateway.Tests suite</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This reuses the #636 Gateway credential service and the Core
+<code>FirstRunLoginCoordinator</code> + <code>LoopbackLoginListener</code> as-is; it adds a Gateway-side
+service plus a tray surface within the already-documented Gateway containers. Tokens are never logged
+(DT-05 honored, carried over from #636). The relocation matches the documented Phase 2 plan decision #2
+(forced sign-in at the Gateway's first launch).</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All five acceptance criteria and the token-never-logged
+security rule are met and proven end to end against the real <code>tools/devthrottle-dev-signin</code>
+tool, with 10 dedicated tests and the full Gateway suite passing, on a clean full-solution build (0
+warnings, 0 errors).</p>
+
+</body>
+</html>

@@ -45,6 +45,9 @@ public sealed class GatewayTrayController : IDisposable
     private HostState _state = HostState.Stopped;
     private bool _busy;
     private bool _disposed;
+    // Issue #637: cancels an in-flight browser loopback sign-in when the app quits, so a pending
+    // hand-off never outlives the process. A fresh source is created for each sign-in run.
+    private CancellationTokenSource? _signInCts;
 
     public GatewayTrayController(IClassicDesktopStyleApplicationLifetime desktop, int port)
     {
@@ -127,6 +130,13 @@ public sealed class GatewayTrayController : IDisposable
         var up = DateTime.UtcNow - StartedAtUtc;
         var uptime = up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes:D2}m" : $"{up.Minutes}m {up.Seconds:D2}s";
 
+        // Issue #637: the Gateway's DevThrottle sign-in state, surfaced on the tray. The decision logic
+        // lives in GatewaySignInTraySurface (library, unit-tested) so this method stays a thin binding.
+        // Read locally from the cached credential (no network). A null sign-in flow (no credential
+        // service on this host) shows nothing rather than a misleading "signed out".
+        var signIn = _host?.SignIn;
+        var accountValue = CcDirector.Gateway.Account.GatewaySignInTraySurface.AccountRowValue(signIn);
+
         var rows = new List<StatusRow>
         {
             new("Version", AppVersion.Full.Split('+')[0]), // trim the +githash, matching the launcher
@@ -134,6 +144,8 @@ public sealed class GatewayTrayController : IDisposable
             new("Mode", GatewayAppOptions.Managed ? "managed" : "dev"),
             new("Uptime", uptime),
         };
+        if (accountValue is not null)
+            rows.Add(new(CcDirector.Gateway.Account.GatewaySignInTraySurface.AccountRowLabel, accountValue));
 
         // ONE URL (docs/plans/one-url-cockpit.md): Open Cockpit is the primary action.
         var actions = new List<FlyoutAction>
@@ -146,6 +158,11 @@ public sealed class GatewayTrayController : IDisposable
             new() { Text = "Restart Gateway", OnClick = () => _ = RestartAsync() },
             new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
         };
+        // Issue #637: the "Sign in to DevThrottle" action starts (or retries) the browser loopback
+        // sign-in. Shown only while the Gateway is NOT signed in, so it is the start/retry surface
+        // for the forced first-launch sign-in and the retry after a failed/cancelled attempt.
+        if (CcDirector.Gateway.Account.GatewaySignInTraySurface.ShouldShowSignInAction(signIn))
+            actions.Insert(1, new() { Text = CcDirector.Gateway.Account.GatewaySignInTraySurface.SignInActionText, OnClick = StartSignIn });
 
         ToggleSpec? toggle = OperatingSystem.IsWindows()
             ? new ToggleSpec { Label = "Start on login", IsOn = GatewayAutostart.IsRegistered(), OnChanged = SetAutostart }
@@ -235,12 +252,78 @@ public sealed class GatewayTrayController : IDisposable
             _host = host;
             SetState(HostState.Running);
             FileLog.Write($"[GatewayTrayController] Gateway running on :{_port}");
+
+            // Issue #637 (Gateway Centralization Phase 2): forced sign-in at the Gateway's first
+            // launch. When the Gateway has no stored credential, auto-prompt the browser loopback
+            // sign-in; when it already has one, do nothing (a subsequent launch never re-prompts).
+            PromptSignInIfNeeded();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayTrayController] StartHostAsync FAILED: {ex.Message}");
             await DiagnoseStartFailureAsync();
         }
+    }
+
+    /// <summary>
+    /// Issue #637: on launch, prompt the browser loopback sign-in only when the Gateway has no stored
+    /// credential. Already signed in -> no prompt (acceptance criterion 3). Fire-and-forget so the
+    /// host-start path is never blocked by the browser hand-off.
+    /// </summary>
+    private void PromptSignInIfNeeded()
+    {
+        var signIn = _host?.SignIn;
+        if (!CcDirector.Gateway.Account.GatewaySignInTraySurface.ShouldPromptOnLaunch(signIn))
+        {
+            FileLog.Write(signIn is null
+                ? "[GatewayTrayController] PromptSignInIfNeeded: no sign-in flow on this host (no credential service) - skipping"
+                : "[GatewayTrayController] PromptSignInIfNeeded: Gateway already signed in - not prompting");
+            return;
+        }
+
+        FileLog.Write("[GatewayTrayController] PromptSignInIfNeeded: Gateway has no credential - prompting browser sign-in");
+        StartSignIn();
+    }
+
+    /// <summary>
+    /// Issue #637: start (or retry) the browser loopback sign-in. Detached and guarded so the tray
+    /// click returns immediately and a second click while one is running is a no-op (the service's
+    /// single-flight guard). A failed or cancelled sign-in only logs - the Gateway stays un-signed-in
+    /// and the tray "Sign in to DevThrottle" action remains, so it is retryable with no crash.
+    /// </summary>
+    private void StartSignIn()
+    {
+        var signIn = _host?.SignIn;
+        if (signIn is null)
+        {
+            FileLog.Write("[GatewayTrayController] StartSignIn: no sign-in flow on this host - ignoring");
+            return;
+        }
+        if (signIn.IsSignInRunning)
+        {
+            FileLog.Write("[GatewayTrayController] StartSignIn: a sign-in is already in flight - ignoring");
+            return;
+        }
+
+        _signInCts?.Dispose();
+        _signInCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var ct = _signInCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await signIn.RunSignInAsync(ct);
+                FileLog.Write(result.Succeeded
+                    ? "[GatewayTrayController] StartSignIn: signed in to DevThrottle"
+                    : $"[GatewayTrayController] StartSignIn: not signed in ({result.FailureReason}); retryable from the tray");
+            }
+            catch (Exception ex)
+            {
+                // Boundary swallow for the detached task: a sign-in failure must never crash the tray.
+                FileLog.Write($"[GatewayTrayController] StartSignIn FAILED: {ex.Message}; retryable from the tray");
+            }
+        });
     }
 
     /// <summary>
@@ -542,6 +625,10 @@ public sealed class GatewayTrayController : IDisposable
         try { _host?.StopAsync().GetAwaiter().GetResult(); } // also gracefully stops the host-owned brain
         catch (Exception ex) { FileLog.Write($"[GatewayTrayController] Dispose stop error: {ex.Message}"); }
         _host = null;
+        // Issue #637: _lifetime.Cancel() above already cancelled any in-flight sign-in (its token is
+        // linked); dispose the source so it does not leak.
+        try { _signInCts?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayTrayController] Dispose sign-in cts error: {ex.Message}"); }
+        _signInCts = null;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;
         _lifetime.Dispose();
     }
