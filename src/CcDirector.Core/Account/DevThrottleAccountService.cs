@@ -173,6 +173,35 @@ public sealed class DevThrottleAccountService
     }
 
     /// <summary>
+    /// Returns the stored access token to attach when this install acts as the single egress to the
+    /// cloud (the Gateway forwarding telemetry on the Director's behalf, issue #639), or null when the
+    /// install is not signed in. "Signed in" here is the same local check <see cref="IsLoggedIn"/>
+    /// applies - a stored token whose signature verifies and is valid-or-renewable - so a tampered or
+    /// absent credential yields null and the caller must NOT forward. The returned token value is for
+    /// attaching to an outbound request ONLY and is NEVER written to the log; this method logs only
+    /// whether a token was available, never the token itself (security rule DT-05).
+    /// </summary>
+    public string? GetAccessTokenForForwarding()
+    {
+        DevThrottleTokens? tokens;
+        lock (_gate)
+        {
+            tokens = _store.Load();
+        }
+
+        if (tokens is null)
+        {
+            FileLog.Write("[DevThrottleAccountService] GetAccessTokenForForwarding: no stored credential -> no token (caller must not forward)");
+            return null;
+        }
+
+        var validation = _validator.Validate(tokens.AccessToken);
+        var available = validation.IsValid || validation.IsExpiredButWellFormed;
+        FileLog.Write($"[DevThrottleAccountService] GetAccessTokenForForwarding: tokenAvailable={available} (no network call)");
+        return available ? tokens.AccessToken : null;
+    }
+
+    /// <summary>
     /// Clears the stored credential and records a "logout" event. After this the next
     /// <see cref="IsLoggedIn"/> returns false.
     /// </summary>

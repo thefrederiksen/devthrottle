@@ -21,9 +21,13 @@ namespace CcDirector.Gateway.Api;
 ///
 /// Reuse (issues #628 / #629): when a startup URL IS configured the event is enqueued into the same
 /// durable <see cref="TelemetryRetryQueue"/> the login relay uses, so delivery, retry-with-backoff,
-/// FIFO flush, the bound, and restart survival are shared - this endpoint adds no new forwarder. Unlike
-/// the login relay, a startup event carries NO inbound Bearer token (Phase 1 startup is unauthenticated
-/// to the cloud per the provisional contract), so the enqueued bearer is always null.
+/// FIFO flush, the bound, and restart survival are shared - this endpoint adds no new forwarder. The
+/// enqueued per-event bearer is always null: this endpoint never carried an inbound Director token.
+///
+/// Gateway Centralization Phase 2 (issue #639): like the login relay, when the shared queue is wired
+/// with the Gateway's token source the Gateway attaches its OWN account token at forward time, and a
+/// startup forward is deferred (kept queued) until the Gateway is signed in. So the Gateway is the
+/// single egress here too, and no Director token is ever attached.
 /// </summary>
 internal static class DirectorStartupTelemetryEndpoint
 {

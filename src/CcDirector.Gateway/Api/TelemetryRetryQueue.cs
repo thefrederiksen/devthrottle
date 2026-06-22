@@ -44,6 +44,7 @@ public sealed class TelemetryRetryQueue : IAsyncDisposable
     private readonly string _path;
     private readonly HttpClient _client;
     private readonly TimeSpan _retryInterval;
+    private readonly IGatewayTelemetryTokenSource? _gatewayTokenSource;
     private readonly LinkedList<QueuedEvent> _events = new();
 
     private readonly CancellationTokenSource _flushCts = new();
@@ -70,10 +71,24 @@ public sealed class TelemetryRetryQueue : IAsyncDisposable
     /// idle poll interval when the queue is empty).
     /// </param>
     /// <param name="maxSize">The bound; the oldest event is evicted once the queue exceeds this.</param>
+    /// <param name="gatewayTokenSource">
+    /// Gateway Centralization Phase 2 (issue #639): the source of the GATEWAY's own account token,
+    /// attached at FORWARD time when the Gateway acts as the single egress to the cloud. When supplied:
+    /// the Gateway's token is attached and any per-event stored <see cref="QueuedEvent.Bearer"/> (a
+    /// leftover inbound Director token) is IGNORED; and when the Gateway is NOT signed in the forward is
+    /// deferred (the event stays queued, FIFO preserved, and flushes once the Gateway signs in). When
+    /// null (a host with no credential service, or Phase 1 callers) the queue falls back to the stored
+    /// per-event Bearer - the original #628/#629 behaviour, unchanged.
+    /// </param>
     /// <exception cref="ArgumentException">The path is null/empty/whitespace.</exception>
     /// <exception cref="ArgumentNullException">The client is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">maxSize or retryInterval is not positive.</exception>
-    public TelemetryRetryQueue(string path, HttpClient client, TimeSpan retryInterval, int maxSize = DefaultMaxSize)
+    public TelemetryRetryQueue(
+        string path,
+        HttpClient client,
+        TimeSpan retryInterval,
+        int maxSize = DefaultMaxSize,
+        IGatewayTelemetryTokenSource? gatewayTokenSource = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("queue path is required", nameof(path));
@@ -87,6 +102,7 @@ public sealed class TelemetryRetryQueue : IAsyncDisposable
         _path = path;
         _client = client;
         _retryInterval = retryInterval;
+        _gatewayTokenSource = gatewayTokenSource;
         MaxSize = maxSize;
         Load();
     }
@@ -190,19 +206,39 @@ public sealed class TelemetryRetryQueue : IAsyncDisposable
     }
 
     /// <summary>
-    /// Forward one event to its backend URL with the stored body + Bearer. Returns true on a 2xx,
-    /// false on any non-2xx or transport failure. The token value is never logged.
+    /// Forward one event to its backend URL with the stored body and the token to attach. Returns true
+    /// on a 2xx, false on any non-2xx or transport failure - and false WITHOUT forwarding when a Gateway
+    /// token source is configured but the Gateway is not signed in, so the event stays queued for a later
+    /// pass (issue #639). The token value is never logged.
     /// </summary>
     private async Task<bool> TryForwardAsync(QueuedEvent item, CancellationToken cancellationToken)
     {
+        // Issue #639: when a Gateway token source is wired, the Gateway attaches its OWN account token
+        // and the per-event stored Bearer (a leftover inbound Director token) is ignored. If the Gateway
+        // is not signed in, the forward is DEFERRED (event stays queued) - never sent without the token.
+        string? tokenToAttach;
+        if (_gatewayTokenSource is not null)
+        {
+            if (!_gatewayTokenSource.TryGetAccessToken(out tokenToAttach) || tokenToAttach is null)
+            {
+                FileLog.Write($"[TelemetryRetryQueue] forward DEFERRED (gateway not signed in): {item.TargetUrl}, id={item.Id} (kept queued, will flush after sign-in)");
+                return false;
+            }
+        }
+        else
+        {
+            // Phase 1 / no-credential-service host: fall back to the stored per-event Bearer unchanged.
+            tokenToAttach = item.Bearer;
+        }
+
         try
         {
             using var forward = new HttpRequestMessage(HttpMethod.Post, item.TargetUrl)
             {
                 Content = new StringContent(item.Body, System.Text.Encoding.UTF8, "application/json"),
             };
-            if (item.Bearer is not null)
-                forward.Headers.Authorization = new AuthenticationHeaderValue("Bearer", item.Bearer);
+            if (tokenToAttach is not null)
+                forward.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenToAttach);
 
             using var resp = await _client.SendAsync(forward, cancellationToken);
             if (resp.IsSuccessStatusCode)

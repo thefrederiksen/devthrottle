@@ -1,0 +1,8 @@
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.Forward_WhenSignedIn_AttachesTheGatewayToken [44 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.InboundDirectorBearer_IsIgnored_GatewayTokenUsedInstead [3 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.NotSignedIn_QueuesEventsThenFlushesAfterSignIn_InOrder [10 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.Forward_NeverWritesTheGatewayTokenToTheLog [25 s]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.PostLogin_WithoutAuthorizationHeader_ForwardsWithGatewayToken [196 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.PostLogin_WhenGatewayNotSignedIn_QueuesThenFlushesAfterSignIn [693 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.NoTokenSource_FallsBackToTheStoredPerEventBearer [2 ms]
+  Passed CcDirector.Gateway.Tests.Issue639GatewayTelemetryTokenTests.PostLogin_WithInboundDirectorBearer_ForwardsGatewayTokenAndNotTheDirectorToken [134 ms]
