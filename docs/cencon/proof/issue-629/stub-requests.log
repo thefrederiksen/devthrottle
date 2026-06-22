@@ -1,0 +1,7 @@
+# Stub backend - forwarded telemetry requests received (proof of delivery)
+# backend came UP at the AC2 step; expected FIFO seqs [0,1,2,3,4]
+2026-06-22T10:21:51.2146762Z  auth=Bearer <redacted>  body={"source":"app","app_version":"629.0.0","seq":0}
+2026-06-22T10:21:51.2173359Z  auth=Bearer <redacted>  body={"source":"app","app_version":"629.0.0","seq":1}
+2026-06-22T10:21:51.2192473Z  auth=Bearer <redacted>  body={"source":"app","app_version":"629.0.0","seq":2}
+2026-06-22T10:21:51.2216424Z  auth=Bearer <redacted>  body={"source":"app","app_version":"629.0.0","seq":3}
+2026-06-22T10:21:51.2232109Z  auth=Bearer <redacted>  body={"source":"app","app_version":"629.0.0","seq":4}

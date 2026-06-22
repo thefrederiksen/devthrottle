@@ -42,8 +42,11 @@ public sealed class TelemetryRelayEndpointTests
     private sealed record CapturedRequest(string Method, string Path, string? Authorization, string Body);
 
     /// <summary>
-    /// Boots the relay endpoint and (optionally) a stub backend that records every request it gets.
-    /// Returns the relay's base address, the captured-request list, and an async disposer.
+    /// Boots the relay endpoint over a durable retry queue (issue #629) and (optionally) a stub
+    /// backend that records every request it gets. Returns the relay's base address, the
+    /// captured-request list, and an async disposer. The queue uses a short retry interval so the
+    /// happy-path forward (which is now asynchronous - the relay enqueues and the flusher delivers)
+    /// completes quickly.
     /// </summary>
     private static async Task<(HttpClient relay, ConcurrentQueue<CapturedRequest> captured, Func<Task> dispose)>
         StartAsync(bool startStub, int backendStatus = 200)
@@ -87,8 +90,17 @@ public sealed class TelemetryRelayEndpointTests
         relayBuilder.Logging.ClearProviders();
         var relay = relayBuilder.Build();
         relay.Urls.Add($"http://127.0.0.1:{relayPort}");
-        // Short-timeout client so the unreachable case fails fast.
-        TelemetryRelayEndpoint.Map(relay, new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+
+        // Issue #629: the relay enqueues into a durable retry queue and the queue's flusher delivers.
+        // Short-timeout client so the unreachable case fails fast; short retry interval so the
+        // happy-path delivery is observable within the test's poll window. Isolated temp file.
+        var queuePath = Path.Combine(Path.GetTempPath(), $"telemetry-queue-{Guid.NewGuid():N}.json");
+        var queue = new TelemetryRetryQueue(
+            queuePath,
+            new HttpClient { Timeout = TimeSpan.FromSeconds(3) },
+            retryInterval: TimeSpan.FromMilliseconds(100));
+        TelemetryRelayEndpoint.Map(relay, queue);
+        queue.StartFlushing();
         await relay.StartAsync();
 
         var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{relayPort}/") };
@@ -96,12 +108,25 @@ public sealed class TelemetryRelayEndpointTests
         Func<Task> dispose = async () =>
         {
             client.Dispose();
+            await queue.DisposeAsync();
             await relay.DisposeAsync();
             if (stub is not null) await stub.DisposeAsync();
+            try { if (File.Exists(queuePath)) File.Delete(queuePath); } catch { /* temp cleanup */ }
             Environment.SetEnvironmentVariable(TelemetryRelayEndpoint.TargetUrlEnvVar, prev);
         };
 
         return (client, captured, dispose);
+    }
+
+    /// <summary>
+    /// Polls until the stub has captured at least <paramref name="count"/> requests, or the timeout
+    /// elapses. Delivery is asynchronous now (the queue flusher), so happy-path assertions wait here.
+    /// </summary>
+    private static async Task WaitForCapturedAsync(ConcurrentQueue<CapturedRequest> captured, int count, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (captured.Count < count && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
     }
 
     private static HttpRequestMessage LoginRequest(string accessToken, object body)
@@ -137,6 +162,8 @@ public sealed class TelemetryRelayEndpointTests
             var resp = await relay.SendAsync(LoginRequest(AccessToken, new { source = "app", app_version = "9.9.9" }));
             Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
 
+            // Delivery is asynchronous now (the queue flusher) - wait for the one forwarded POST.
+            await WaitForCapturedAsync(captured, 1);
             // Exactly one forwarded POST reached the stub.
             Assert.Single(captured);
             Assert.True(captured.TryDequeue(out var fwd));
@@ -169,8 +196,10 @@ public sealed class TelemetryRelayEndpointTests
             // Best-effort: a backend 5xx must NOT propagate as a 5xx to the caller.
             Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
             Assert.True((int)resp.StatusCode < 500);
-            // The forward still happened (the backend is the one that failed).
-            Assert.Single(captured);
+            // The forward attempt still happened (the backend is the one that failed). The queue keeps
+            // retrying a 5xx, so at least one POST reached the stub.
+            await WaitForCapturedAsync(captured, 1);
+            Assert.True(captured.Count >= 1);
         }
         finally { await dispose(); }
     }
@@ -213,7 +242,8 @@ public sealed class TelemetryRelayEndpointTests
         {
             var resp = await relay.SendAsync(LoginRequest(AccessToken, new { source = "app", app_version = "4.5.6" }));
             Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
-            Assert.Single(captured); // confirm the path that logs actually ran
+            await WaitForCapturedAsync(captured, 1);
+            Assert.Single(captured); // confirm the enqueue + flush path that logs actually ran
         }
         finally
         {

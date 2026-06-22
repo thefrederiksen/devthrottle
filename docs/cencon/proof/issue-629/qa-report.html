@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 629 - Durable telemetry retry queue</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; }
+  .pass { color: #15803d; font-weight: bold; }
+  .verdict { background: #ecfdf5; border: 1px solid #15803d; padding: 1rem; margin-top: 1rem; font-size: 1.1rem; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 1rem; overflow-x: auto; border-radius: 5px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue 629</h1>
+<p><strong>Title:</strong> [Gateway] Durable retry queue for telemetry forwarding (survive cloud outages)<br>
+<strong>PR:</strong> #656 (branch <code>issue-629-telemetry-retry-queue</code>)<br>
+<strong>QA method:</strong> Independent verification. The QA Agent did NOT trust the Developer's report or
+harness. It built the PR branch in its own worktree and drove the <em>real</em> <code>GatewayHost</code>
+over <em>real</em> HTTP with its own controllable stub backend, including a <em>real</em> Gateway
+stop+restart. Queue depth was measured by reading the persisted JSON file directly (independent of any
+in-process counter).</p>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently observed)</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Backend unreachable: N posts accepted (202) and recorded as queued (depth=N)</td>
+  <td>5 posts -> all 202; persisted depth=5; stub receives nothing</td>
+  <td>allAccepted=True; persisted depth=5; stub received 0</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>Backend reachable: queued events forward (all N) in FIFO order within one retry interval</td>
+  <td>All 5 forwarded; order [0,1,2,3,4]; Bearer replayed unchanged; depth-&gt;0</td>
+  <td>5 forwarded; order [0,1,2,3,4]; every forward carried <code>Bearer &lt;token&gt;</code>; depth drained to 0</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Queued events survive a Gateway restart</td>
+  <td>depth 3 before stop; restored to 3 after a real restart; survivors flush</td>
+  <td>persisted depth=3 before stop; new GatewayHost over same file restored depth=3; survivors [100,101,102] flushed by the restarted Gateway</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Queue is bounded; when full the oldest is dropped with a logged warning</td>
+  <td>bound=5; posting 8 caps depth at 5; oldest evicted; survivors newest five; WARNING logged</td>
+  <td>persisted depth capped at 5; survivors [203,204,205,206,207]; 10 <code>bound exceeded</code> WARNING lines in the real Gateway log</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Unit tests cover enqueue-on-failure, flush-on-recovery, persistence round-trip, bound eviction</td>
+  <td>Tests exist and genuinely assert the behaviours; suite green</td>
+  <td>17 telemetry tests pass; full Gateway suite 893 passed / 1 skipped / 0 failed. Tests read and confirmed to assert depth growth while down, FIFO order + replayed Bearer, dispose+reconstruct round-trip, and eviction of the oldest leaving the newest [2,3,4]</td><td class="pass">PASS</td></tr>
+<tr><td>SEC</td><td>#628 carry-over: a distinctive Bearer token must NOT appear in any log</td>
+  <td>0 log lines contain the token (it may live in the persisted payload only)</td>
+  <td>0 Gateway log lines contained the distinctive token <code>QA629-DISTINCTIVE-BEARER-TOKEN-...</code></td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Independent harness output (real GatewayHost, real HTTP, real restart)</h2>
+<pre>
+[harness] Gateway #1 started on port 58316
+[PASS] AC1 all 5 posts returned 202 Accepted
+[PASS] AC1 queue depth = 5 while backend down (persisted depth=5)
+[PASS] AC1 stub received nothing while down
+[PASS] AC2 stub received all 5
+[PASS] AC2 FIFO order [0,1,2,3,4]
+[PASS] AC2 Bearer replayed unchanged on every forward
+[PASS] AC2 queue drained to depth 0
+[PASS] AC3 depth > 0 before restart (persisted depth=3)
+[harness] STOPPING Gateway #1 (real stop)
+[harness] Gateway #2 (restart) started on port 58321
+[PASS] AC3 events restored after restart (depth still 3)
+[PASS] AC3 survivors flushed after restart (seqs=[100,101,102])
+[PASS] AC4 queue never grows past bound (depth=5)
+[PASS] AC4 oldest evicted; survivors are newest five [203..207]
+[PASS] AC4 'bound exceeded' WARNING logged (10 lines)
+[PASS] SECURITY token NEVER in any Gateway log line (0 lines)
+[harness] RESULT: pass=14 fail=0
+</pre>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Full Gateway test suite: 893 passed, 1 skipped, 0 failed.</li>
+<li>Scope confirmed: only <code>CcDirector.Gateway</code> + <code>CcDirector.Gateway.Tests</code> (plus proof docs) changed.</li>
+<li>No fallback programming: Save failure logs and throws; corrupt queue file is quarantined (preserved), not silently overwritten; no token in any log line.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Issue 629 PASSES QA.</div>
+</body>
+</html>

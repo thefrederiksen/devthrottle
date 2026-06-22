@@ -1,0 +1,28 @@
+2026-06-22T10:21:50.1120636Z  [harness] stub backend listening at http://127.0.0.1:60538/api/v1/telemetry/login (initial state: DOWN)
+2026-06-22T10:21:50.2480572Z  [harness] Gateway (first boot) started on http://127.0.0.1:60539 (queueFile=D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue.json, bound=8, retry=2s)
+2026-06-22T10:21:50.2481254Z  [harness] AC1: posting 5 events to /telemetry/login while backend is DOWN (bound=8, room for all)
+2026-06-22T10:21:50.6410530Z  [harness]   POST /telemetry/login seq=0 -> 202 Accepted
+2026-06-22T10:21:50.6464374Z  [harness]   POST /telemetry/login seq=1 -> 202 Accepted
+2026-06-22T10:21:50.6481638Z  [harness]   POST /telemetry/login seq=2 -> 202 Accepted
+2026-06-22T10:21:50.6498396Z  [harness]   POST /telemetry/login seq=3 -> 202 Accepted
+2026-06-22T10:21:50.6514394Z  [harness]   POST /telemetry/login seq=4 -> 202 Accepted
+2026-06-22T10:21:51.1666626Z  [harness] AC1: queue depth (from persisted file) = 5, expected = 5, all 202 = True
+2026-06-22T10:21:51.1671365Z  [harness] AC3: STOPPING Gateway (first boot) with queue depth=5 ...
+2026-06-22T10:21:51.1842724Z  [harness] AC3: Gateway stopped. Persisted queue depth on disk = 5
+2026-06-22T10:21:51.2037405Z  [harness] Gateway (after restart) started on http://127.0.0.1:60542 (queueFile=D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue.json, bound=8, retry=2s)
+2026-06-22T10:21:51.2040487Z  [harness] AC3: Gateway restarted. Reloaded queue depth = 5
+2026-06-22T10:21:51.2040690Z  [harness] AC2: bringing backend UP; expecting 5 events to flush in FIFO order within ~2s
+2026-06-22T10:21:51.3199449Z  [harness] AC2: stub received 5 forwarded events
+2026-06-22T10:21:51.3237847Z  [harness] AC2: received seqs = [0,1,2,3,4], expected FIFO = [0,1,2,3,4], match=True
+2026-06-22T10:21:51.3238111Z  [harness] AC2: queue depth after drain = 0; bearer replayed unchanged on all = True
+2026-06-22T10:21:51.3250831Z  [harness] wrote stub request log -> D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\stub-requests.log
+2026-06-22T10:21:51.3373495Z  [harness] Gateway (eviction phase) started on http://127.0.0.1:60546 (queueFile=D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\telemetry-queue-evict.json, bound=3, retry=2s)
+2026-06-22T10:21:51.3373716Z  [harness] AC4: posting 7 events into a bound-3 queue while backend is DOWN
+2026-06-22T10:21:51.5431702Z  [harness]   POST /telemetry/login seq=0 -> 202 Accepted
+2026-06-22T10:21:51.5521074Z  [harness]   POST /telemetry/login seq=1 -> 202 Accepted
+2026-06-22T10:21:51.5539478Z  [harness]   POST /telemetry/login seq=2 -> 202 Accepted
+2026-06-22T10:21:51.5552649Z  [harness]   POST /telemetry/login seq=3 -> 202 Accepted
+2026-06-22T10:21:51.5568580Z  [harness]   POST /telemetry/login seq=4 -> 202 Accepted
+2026-06-22T10:21:51.5594466Z  [harness]   POST /telemetry/login seq=5 -> 202 Accepted
+2026-06-22T10:21:51.5617422Z  [harness]   POST /telemetry/login seq=6 -> 202 Accepted
+2026-06-22T10:21:51.8725338Z  [harness] AC4: depth capped at 3 (bound=3); survivors=[4,5,6], expected newest=[4,5,6]; match=True

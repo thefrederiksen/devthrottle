@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using CcDirector.Core.Utilities;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -7,9 +6,9 @@ using Microsoft.AspNetCore.Routing;
 namespace CcDirector.Gateway.Api;
 
 /// <summary>
-/// Gateway Centralization Phase 1 (issue #628): the inbound login-telemetry RELAY. The Director
-/// POSTs its login-telemetry event here instead of calling the cloud directly, and the Gateway
-/// forwards it to the backend so the Gateway becomes the single egress to the cloud.
+/// Gateway Centralization Phase 1: the inbound login-telemetry RELAY. The Director POSTs its
+/// login-telemetry event here instead of calling the cloud directly, and the Gateway forwards it to
+/// the backend so the Gateway becomes the single egress to the cloud.
 ///
 /// Wire contract: the inbound request carries the body <c>{ "source": "app", "app_version"?: "..." }</c>
 /// and an <c>Authorization: Bearer &lt;access token&gt;</c> header. The Gateway forwards BOTH the body
@@ -17,12 +16,15 @@ namespace CcDirector.Gateway.Api;
 /// (default <c>https://devthrottle.com/api/v1/telemetry/login</c>, overridable on the Gateway via the
 /// <c>DEVTHROTTLE_TELEMETRY_URL</c> environment variable).
 ///
-/// Best-effort by design: a backend failure (5xx or unreachable) is logged and the Gateway still
-/// answers the caller a non-5xx (202 Accepted) - it must NEVER throw back to the Director. The richer
-/// retry/queue behaviour is a later issue.
+/// Issue #629 - durable retry queue: the relay no longer forwards inline. It ENQUEUES every accepted
+/// event into the <see cref="TelemetryRetryQueue"/> (durable, bounded, restart-surviving) and answers
+/// the caller 202 Accepted immediately. The queue owns delivery: it flushes in FIFO order, retries
+/// with backoff while the backend is unreachable, survives a Gateway restart, and is bounded (the
+/// oldest event is evicted when full). The relay therefore NEVER throws back to the Director and a
+/// backend outage queues events instead of dropping them.
 ///
 /// Security: the inbound access token (the Bearer) is NEVER written to the Gateway log on this path.
-/// Every log line records only the target URL and the outcome - never the token value.
+/// Every log line records only the target URL and whether a token was present - never the token value.
 /// </summary>
 internal static class TelemetryRelayEndpoint
 {
@@ -47,17 +49,14 @@ internal static class TelemetryRelayEndpoint
     /// <summary>
     /// Maps <c>POST /telemetry/login</c>. The inbound Gateway token convention (when Gateway auth is
     /// enabled) is applied by the host-wide auth middleware, exactly like the other Gateway endpoints.
+    /// Every accepted event is enqueued into <paramref name="queue"/> for durable, retried delivery.
     /// </summary>
     /// <param name="app">The route builder.</param>
-    /// <param name="forwardClient">
-    /// The HttpClient used to forward the event to the backend. Tests inject a short-timeout client
-    /// pointed (via the env var) at a local stub; production omits it for a default forwarder.
-    /// </param>
-    public static void Map(IEndpointRouteBuilder app, HttpClient? forwardClient = null)
+    /// <param name="queue">The durable retry queue that owns delivery to the backend (issue #629).</param>
+    public static void Map(IEndpointRouteBuilder app, TelemetryRetryQueue queue)
     {
-        // One forwarder client for the lifetime of the host. A short timeout keeps a slow/unreachable
-        // backend from holding the inbound request open - the best-effort contract answers fast.
-        var client = forwardClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        if (queue is null)
+            throw new ArgumentNullException(nameof(queue));
 
         app.MapPost("/telemetry/login", async (HttpContext ctx) =>
         {
@@ -71,34 +70,14 @@ internal static class TelemetryRelayEndpoint
             // Pull the inbound Bearer token. It is forwarded UNCHANGED; it is NEVER logged.
             var bearer = ExtractBearer(ctx.Request.Headers.Authorization.ToString());
 
-            // Log that a forward is happening - target URL and presence of a token only, never the value.
-            FileLog.Write($"[TelemetryRelayEndpoint] POST /telemetry/login -> forwarding to {targetUrl} (bearerPresent={(bearer is not null)})");
+            // Enqueue for durable delivery. The queue logs the target + depth (never the token value)
+            // and owns the retry / persistence / bound-eviction behaviour; the relay just hands off.
+            FileLog.Write($"[TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for {targetUrl} (bearerPresent={(bearer is not null)})");
+            queue.Enqueue(targetUrl, body, bearer);
 
-            // Best-effort forward: any backend failure is logged and the caller still gets a non-5xx.
-            // The try/catch is the boundary for the outbound call - the inbound request must never
-            // surface a backend error to the Director.
-            try
-            {
-                using var forward = new HttpRequestMessage(HttpMethod.Post, targetUrl)
-                {
-                    Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-                };
-                if (bearer is not null)
-                    forward.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-
-                using var resp = await client.SendAsync(forward, ctx.RequestAborted);
-                if (resp.IsSuccessStatusCode)
-                    FileLog.Write($"[TelemetryRelayEndpoint] forward OK: {targetUrl} -> {(int)resp.StatusCode}");
-                else
-                    FileLog.Write($"[TelemetryRelayEndpoint] forward FAILED (backend status): {targetUrl} -> {(int)resp.StatusCode} (best-effort, caller still accepted)");
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[TelemetryRelayEndpoint] forward FAILED (unreachable): {targetUrl} -> {ex.Message} (best-effort, caller still accepted)");
-            }
-
-            // The relay accepts the event regardless of the backend outcome (best-effort). 202 Accepted
-            // is the truthful answer: "received and handed onward", never a guarantee of cloud delivery.
+            // The relay accepts the event regardless of the backend's current reachability (the queue
+            // delivers it when the backend is up). 202 Accepted is the truthful answer: "received and
+            // queued for delivery", never a guarantee the cloud has it yet.
             return Results.StatusCode(StatusCodes.Status202Accepted);
         });
     }

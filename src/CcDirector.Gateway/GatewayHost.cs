@@ -122,6 +122,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Wingman.WingmanTrainingStore _trainingStore = new();
     private System.Threading.Timer? _voiceSweepTimer;
     private AdvertisedEndpointMonitor? _endpointMonitor;
+    // Issue #629: the durable, bounded, restart-surviving retry queue behind the login-telemetry
+    // relay. Constructed here (loads any events a previous run left on disk), wired into the relay
+    // endpoint, started flushing in StartAsync, and disposed in StopAsync.
+    private readonly Api.TelemetryRetryQueue _telemetryQueue;
     private WebApplication? _app;
     private bool _stopped;
 
@@ -153,7 +157,20 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override the cron run-history store file (epic #479, #483). Tests pass an isolated temp path;
     /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\cronruns.json</c>.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null)
+    /// <param name="telemetryQueuePath">
+    /// Override the durable telemetry retry-queue store file (issue #629). Tests pass an isolated temp
+    /// path; production omits it for the shared default at
+    /// <c>%LOCALAPPDATA%\cc-director\config\director\telemetry-queue.json</c>.
+    /// </param>
+    /// <param name="telemetryQueueMaxSize">
+    /// Override the telemetry retry-queue bound (issue #629). Tests pass a small value to exercise
+    /// eviction; production omits it for <see cref="Api.TelemetryRetryQueue.DefaultMaxSize"/>.
+    /// </param>
+    /// <param name="telemetryRetryInterval">
+    /// Override how often the telemetry retry-queue flusher re-attempts delivery (issue #629). Tests
+    /// pass a short interval; production omits it for a sensible default.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, string? telemetryQueuePath = null, int? telemetryQueueMaxSize = null, TimeSpan? telemetryRetryInterval = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -204,6 +221,17 @@ public sealed class GatewayHost : IAsyncDisposable
         // target Director from the registry and starts a session over the shared client (the same
         // path the work-list runner uses). The background sweep timer is started in StartAsync.
         _cronRuns = new CronRunHistoryStore(cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        // Durable telemetry retry queue (issue #629): one JSON file under the Gateway config directory
+        // (the DeviceRegistry / gateway-token precedent), loaded here so events a previous run left
+        // undelivered survive a restart. A short-timeout forwarder client keeps a slow/unreachable
+        // backend from holding a flush pass open. Tests pass an isolated path + a small bound + a short
+        // retry interval so they never touch the real store and can exercise eviction quickly.
+        var telemetryForwardClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _telemetryQueue = new Api.TelemetryRetryQueue(
+            telemetryQueuePath ?? Path.Combine(CcStorage.Config(), "director", "telemetry-queue.json"),
+            telemetryForwardClient,
+            telemetryRetryInterval ?? TimeSpan.FromSeconds(30),
+            telemetryQueueMaxSize ?? Api.TelemetryRetryQueue.DefaultMaxSize);
         // A cron job targets a MACHINE (#503): resolve it to a Director at fire time, launching one
         // via the launcher (the shipped /machines/{m}/director/start relay, #331) if none is running.
         var cronTargetResolver = new Running.RegistryDirectorTargetResolver(
@@ -593,7 +621,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // so the Gateway becomes the single egress. Best-effort: a backend failure is logged and the
         // caller still gets a non-5xx; the inbound access token is forwarded unchanged but NEVER logged.
         // Inherits the host-wide token middleware above (the existing gateway.token convention).
-        TelemetryRelayEndpoint.Map(_app);
+        // Issue #629: the relay enqueues every accepted event into the durable retry queue (which owns
+        // delivery, retry-with-backoff, FIFO flush, the bound, and restart survival) instead of
+        // forwarding inline. The flush loop is started just below in StartAsync.
+        TelemetryRelayEndpoint.Map(_app, _telemetryQueue);
 
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
@@ -666,6 +697,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // also catches up a fire that came due while the Gateway was down (at most once per job).
         _cronTimer = new System.Threading.Timer(_ => SweepCron(), null, CronSweepInterval, CronSweepInterval);
         FileLog.Write($"[GatewayHost] cron sweep started: every {CronSweepInterval.TotalSeconds:0}s");
+
+        // Issue #629: start the durable telemetry retry-queue flusher. It drains any events restored
+        // from disk on construction (so a backend outage that spanned the previous run's lifetime now
+        // delivers) and every event the relay enqueues going forward, in FIFO order, retrying with
+        // backoff while the backend is unreachable.
+        _telemetryQueue.StartFlushing();
     }
 
     /// <summary>
@@ -695,6 +732,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
         try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
         _endpointMonitor = null;
+
+        // Issue #629: stop the telemetry retry-queue flusher. The queue file is written through on
+        // every mutation, so any undelivered events are already on disk and reload on the next start -
+        // stopping never loses them.
+        try { await _telemetryQueue.DisposeAsync(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] telemetry queue dispose error: {ex.Message}"); }
 
         // Turn-end watcher + voice sweep first (they drive the brain), then the brain itself - the
         // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).

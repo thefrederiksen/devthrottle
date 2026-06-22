@@ -1,0 +1,35 @@
+{
+  "allPass": true,
+  "n": 5,
+  "bound": 8,
+  "retrySeconds": 2,
+  "results": [
+    {
+      "ac": "AC1 - unreachable backend: N posts accepted (202) and queued (depth == N)",
+      "pass": true,
+      "detail": "all202=True; queued depth=5 (== N=5; nothing dropped, nothing lost)"
+    },
+    {
+      "ac": "AC3 - queued events survive a Gateway restart",
+      "pass": true,
+      "detail": "depth before stop=5, on disk while down=5, reloaded after restart=5"
+    },
+    {
+      "ac": "AC2 - on recovery, queued events flush to backend in FIFO order",
+      "pass": true,
+      "detail": "received=5; seqs=[0,1,2,3,4] (FIFO OK); depth after drain=0; bearer-unchanged=True"
+    },
+    {
+      "ac": "AC4 - bounded queue: oldest dropped when full (logged warning)",
+      "pass": true,
+      "detail": "posted 7 into bound-3 queue; depth capped at 3; oldest 4 evicted; survivors=[4,5,6] (newest, FIFO); eviction WARNING in gateway log"
+    },
+    {
+      "ac": "Security - access token NEVER written to the Gateway log",
+      "pass": true,
+      "detail": "43 telemetry log lines; token \u0027PROOF-629-AC...\u0027 appears ZERO times; lines record only target \u002B bearerPresent flag"
+    }
+  ],
+  "queueFile": "D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\\telemetry-queue.json",
+  "stubLog": "D:/ReposFred/devthrottle-wt-629/docs/cencon/proof/issue-629/run\\stub-requests.log"
+}

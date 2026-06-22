@@ -1,0 +1,22 @@
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.13]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.14]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.PostLogin_ForwardsExactlyOnce_WithSameBearerAndSourceApp [222 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.ResolveTargetUrl_WithEnv_ReturnsOverride [< 1 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.PostLogin_WithValidBodyAndBearer_Returns202 [14 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.PostLogin_WhenBackendUnreachable_CallerStillGetsNon5xx [22 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.PostLogin_NeverWritesAccessTokenToTheGatewayLog [23 s]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.PostLogin_WhenBackendReturns5xx_CallerStillGets202 [133 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRelayEndpointTests.ResolveTargetUrl_NoEnv_ReturnsDefault [< 1 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.PersistenceRoundTrip_QueuedEventsSurviveDisposeAndReconstruct [19 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.FlushOnRecovery_MidStreamFailure_PreservesHeadAndOrder [4 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.FlushOnRecovery_WhenBackendReachable_DeliversAllInFifoOrder [10 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.Constructor_NullOrEmptyPath_Throws [< 1 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.Enqueue_EmptyTargetUrl_Throws [< 1 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.Load_CorruptFile_IsQuarantined_AndQueueStartsEmpty [3 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.PersistedFile_ContainsTokenForReplay_ButEnqueueDoesNotThrow [15 ms]
+[xUnit.net 00:00:24.19]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.Constructor_NonPositiveMaxSize_Throws [< 1 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.EnqueueOnFailure_BackendUnreachable_EventsStayQueuedAndDepthGrows [4 ms]
+  Passed CcDirector.Gateway.Tests.TelemetryRetryQueueTests.BoundEviction_WhenFull_DropsOldestAndKeepsNewest [12 ms]

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #629 - Durable telemetry retry queue - Developer Proof</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 0 0 64px; color: #1b1f24; background: #f6f8fa; }
+  header { background: #0d1b2a; color: #fff; padding: 28px 40px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header .sub { color: #9fb3c8; font-size: 14px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { background: #fff; border: 1px solid #d7dee6; border-radius: 8px; margin: 24px 0; padding: 20px 24px; }
+  h2 { font-size: 18px; margin: 0 0 12px; border-bottom: 2px solid #eef1f4; padding-bottom: 8px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid #e1e7ee; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #0a7d33; font-weight: 700; }
+  .fail { color: #b31d28; font-weight: 700; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+  .pill.pass { background: #def7e5; color: #0a7d33; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1b2a; color: #d7e3ee; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+  .files li { margin: 4px 0; }
+  .note { background: #fff8e6; border: 1px solid #f0d999; border-radius: 6px; padding: 10px 14px; font-size: 13px; }
+  .verdict { font-size: 16px; font-weight: 700; color: #0a7d33; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Issue #629 - Durable retry queue for telemetry forwarding (survive cloud outages)</h1>
+  <div class="sub">Gateway Centralization Phase 1, plan decision #3 &middot; Containers: CcDirector.Gateway, CcDirector.Gateway.Tests &middot; Developer Agent proof</div>
+</header>
+<main>
+
+<section>
+  <h2>What was implemented</h2>
+  <p>
+    A durable, bounded, restart-surviving <strong>retry queue</strong> behind the Gateway's login-telemetry
+    relay (the forwarder shipped in issue #628). The relay no longer forwards inline; it <strong>enqueues</strong>
+    every accepted event and answers the caller <code>202 Accepted</code> immediately. The queue owns delivery:
+    it flushes in <strong>FIFO order</strong>, retries with backoff while the backend is unreachable, is
+    <strong>bounded</strong> (the oldest event is evicted when full, with a logged warning), and
+    <strong>persists across a Gateway restart</strong> (one JSON file under the Gateway config directory, written
+    through atomically on every mutation and reloaded on construction).
+  </p>
+  <h3>Changes</h3>
+  <ul>
+    <li><code>src/CcDirector.Gateway/Api/TelemetryRetryQueue.cs</code> - NEW. The durable bounded FIFO queue:
+        enqueue (with oldest-eviction at the bound), a background flush loop with a retry interval, FIFO
+        head-first drain that stops at the first failure (preserving order), atomic temp+rename write-through
+        persistence, corrupt-file quarantine, and a clean async dispose. The access token is stored on disk for
+        replay but is <strong>never written to a log line</strong> - logs record only the target URL, the
+        queue depth, and a <code>bearerPresent</code> flag.</li>
+    <li><code>src/CcDirector.Gateway/Api/TelemetryRelayEndpoint.cs</code> - the relay endpoint now takes the
+        queue and <code>Enqueue</code>s instead of forwarding inline.</li>
+    <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - constructs the queue (config-dir path, short-timeout
+        forwarder client, 30s production retry interval), wires it into the relay, starts the flusher in
+        <code>StartAsync</code>, and disposes it in <code>StopAsync</code>. New test-injectable constructor
+        params: <code>telemetryQueuePath</code>, <code>telemetryQueueMaxSize</code>, <code>telemetryRetryInterval</code>.</li>
+    <li><code>src/CcDirector.Gateway.Tests/TelemetryRetryQueueTests.cs</code> - NEW. 10 unit tests.</li>
+    <li><code>src/CcDirector.Gateway.Tests/TelemetryRelayEndpointTests.cs</code> - updated the #628 wire tests to
+        the enqueue-then-flush flow (delivery is asynchronous now).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <p>Proven against the <strong>real production <code>GatewayHost</code></strong> over real HTTP, with a genuine
+     Gateway stop/start in between (the harness news up two <code>GatewayHost</code> instances over the same
+     on-disk queue file). Summary: <span class="pill pass">ALL ACCEPTANCE CRITERIA: PASS</span></p>
+
+  <table>
+    <tr><th style="width:7%">AC</th><th style="width:34%">Expected</th><th style="width:44%">Actual (observed)</th><th style="width:15%">Result</th></tr>
+    <tr>
+      <td><strong>1</strong></td>
+      <td>With the stub backend unreachable, N posts to <code>/telemetry/login</code> are accepted (202) and
+          recorded as queued (queue depth = N).</td>
+      <td>5 posts each returned <code>202 Accepted</code> while the backend was DOWN; the persisted queue file
+          showed <strong>depth = 5</strong> (nothing dropped, nothing lost). Gateway log shows five
+          <code>Enqueue ... depth=1..5</code> lines.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>2</strong></td>
+      <td>When the stub becomes reachable, the queued events forward (stub receives all N) in FIFO order within
+          one retry interval.</td>
+      <td>Backend brought UP; within ~1 retry interval the stub received all 5 events with body seqs
+          <strong>[0,1,2,3,4]</strong> (FIFO), queue depth drained to <strong>0</strong>, and the Bearer was
+          replayed unchanged on every forward. See <code>stub-requests.log</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>3</strong></td>
+      <td>Queued events survive a Gateway restart: stop with depth &gt; 0, restart, they still flush.</td>
+      <td>Gateway stopped with depth 5; on-disk depth while down = 5; a fresh Gateway over the same file
+          reloaded <strong>depth = 5</strong> (log: <code>Load: restored 5 queued event(s)</code>) and then
+          flushed them all to the stub.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>4</strong></td>
+      <td>The queue is bounded; when full the oldest event is dropped with a logged warning (no unbounded growth) -
+          demonstrated by exceeding the bound.</td>
+      <td>7 events posted into a bound-3 queue while DOWN: depth capped at <strong>3</strong>, the oldest 4 were
+          evicted, survivors were the newest <strong>[4,5,6]</strong> in FIFO order, and the Gateway log carries
+          the <code>WARNING bound exceeded (maxSize=3); evicted OLDEST event ...</code> lines.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>Sec</strong></td>
+      <td>Security property from #628 preserved: the inbound access token must never be written to the Gateway log.</td>
+      <td>43 telemetry log lines were captured from the live run; the proof access token appears
+          <strong>ZERO</strong> times across all Gateway log files. Lines record only the target URL and a
+          <code>bearerPresent=True</code> flag.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>5</strong></td>
+      <td>Unit tests cover enqueue-on-failure, flush-on-recovery, persistence round-trip, and bound eviction.</td>
+      <td>17 telemetry tests pass (10 new queue tests + 7 relay tests), including
+          <code>EnqueueOnFailure_...</code>, <code>FlushOnRecovery_...InFifoOrder</code>,
+          <code>PersistenceRoundTrip_...SurviveDisposeAndReconstruct</code>,
+          <code>BoundEviction_WhenFull_DropsOldestAndKeepsNewest</code>, plus corrupt-file quarantine and
+          validation. See <code>unit-test-output.txt</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Live-run narrative (Gateway log excerpt - the restart in the middle)</h2>
+  <pre>[TelemetryRetryQueue] StartFlushing: retryInterval=2s, maxSize=8, depth=0
+[TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:.../api/v1/telemetry/login (bearerPresent=True)
+[TelemetryRetryQueue] Enqueue: target=... (bearerPresent=True), depth=1
+   ... depth=2 ... depth=3 ... depth=4 ... depth=5
+[TelemetryRetryQueue] DisposeAsync: stopping flush loop, depth=5        &lt;-- Gateway STOPPED with depth 5
+[TelemetryRetryQueue] Load: restored 5 queued event(s) from ...\telemetry-queue.json   &lt;-- RESTART reloads them
+[TelemetryRetryQueue] StartFlushing: retryInterval=2s, maxSize=8, depth=5
+[TelemetryRetryQueue] forward OK: ... -> 200, id=...   (x5, FIFO)
+[TelemetryRetryQueue] flush pass delivered 5, remaining depth=0
+... (eviction phase, bound=3) ...
+[TelemetryRetryQueue] WARNING bound exceeded (maxSize=3); evicted OLDEST event id=... (dropped, not delivered)</pre>
+  <p class="note">The access token value never appears on any of these lines - only <code>bearerPresent=True</code>.
+     The full captured excerpt is in <code>gateway-telemetry-log-lines.txt</code>.</p>
+</section>
+
+<section>
+  <h2>CenCon impact</h2>
+  <p>No architecture or security-posture drift. This wraps the existing #628 forwarder with a queue; it adds no
+     new container, no new egress, and no new event type. The egress target and the Gateway-as-single-egress
+     posture are unchanged. The #628 security property (token never logged) is preserved and re-proven here.
+     No blocking security rule (DT-*) is affected. Persistence lives under the Gateway config directory, which
+     the issue's assumptions explicitly permit.</p>
+</section>
+
+<section>
+  <h2>Proof artifacts (this directory)</h2>
+  <ul class="files">
+    <li><code>report.html</code> - this report</li>
+    <li><code>harness.log</code> - the full live-run transcript (real GatewayHost, real HTTP, real restart)</li>
+    <li><code>stub-requests.log</code> - the stub backend's received requests (proof of FIFO delivery; token redacted)</li>
+    <li><code>gateway-telemetry-log-lines.txt</code> - the live Gateway log's telemetry lines (restart + eviction WARNING; no token)</li>
+    <li><code>results.json</code> - machine-readable per-criterion results</li>
+    <li><code>unit-test-output.txt</code> - the 17 passing telemetry unit tests</li>
+    <li><code>proof-harness-Program.cs.txt</code> - the proof harness source (reproducible)</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Verdict</h2>
+  <p class="verdict">I believe this is finished. All five acceptance criteria are met and proven, the #628 token-secrecy
+     property is preserved and re-proven, the full solution builds with 0 warnings / 0 errors, and the telemetry
+     unit tests pass.</p>
+</section>
+
+</main>
+</body>
+</html>
