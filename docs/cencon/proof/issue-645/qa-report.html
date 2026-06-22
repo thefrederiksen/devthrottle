@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #645</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 32px; }
+  h1 { color: #fff; } h2 { color: #4fc3f7; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3c3c3c; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #252526; color: #fff; }
+  .pass { color: #4caf50; font-weight: bold; }
+  .logic { color: #ffb74d; font-weight: bold; }
+  code { background: #252526; padding: 1px 5px; border-radius: 3px; color: #ce9178; }
+  .verdict { background: #16466a; border: 1px solid #007acc; padding: 14px 18px; border-radius: 6px; margin-top: 24px; }
+  img { max-width: 520px; border: 1px solid #3c3c3c; border-radius: 4px; display: block; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #645</h1>
+<p><strong>Title:</strong> [Installer] Solo install provisions a local Gateway (every install has a gateway)</p>
+<p><strong>PR:</strong> #678 &nbsp; <strong>Branch:</strong> issue-645-solo-local-gateway &nbsp; <strong>QA verified by:</strong> independent QA Agent</p>
+<p><strong>Scope:</strong> <code>tools/cc-director-setup</code> + <code>tools/cc-director-setup-engine</code> (InstallRole, InstalledRoleDetector, WelcomeStep).</p>
+
+<h2>Verification approach</h2>
+<p>Each criterion was verified independently in the QA Agent's own worktree on the PR branch
+(<code>D:\ReposFred\dt-645-qa</code>), not by trusting the Developer's report. The role-selection and
+provisioning logic was traced through the source and confirmed by the test suites the QA Agent built
+and ran itself.</p>
+<p><strong>Install-OUTCOME note (AC#1 / AC#4):</strong> a genuine end-to-end install was deliberately
+NOT run. The installer writes to the shared per-user root <code>%LOCALAPPDATA%\cc-director</code>
+(<code>InstallLayout.Default()</code>), starts the always-on Gateway tray process, registers a Windows
+autostart Run key, and writes a Tailscale front-door mapping. Those are machine-global side effects that
+no environment override isolates; running it would collide with the user's REAL running Gateway/Director
+and live sessions. An isolated throwaway install is therefore NOT safely feasible, so AC#1 and AC#4 are
+verified at the LOGIC level (the role -> provisioning chain that lays down the gateway), per the QA
+task's explicit allowance. AC#2 and AC#3 are fully verified.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently observed)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Fresh install where the user does NOT connect to an existing gateway -> local Gateway role installed and gateway tray app running (<code>devthrottle-gateway.exe</code> present + running, cockpit reachable).</td>
+<td>Solo (default) path resolves to <code>InstallRole.Gateway</code> and provisions the gateway tray app + director + cockpit.</td>
+<td>Solo path pre-selects <code>FirstMachineRadio</code> (WelcomeStep.xaml.cs:62); <code>SelectedRole</code> maps it to <code>InstallRole.Gateway</code> (:79-82). MainWindow captures it into <code>_role</code> (:560) and, when <code>_role == Gateway</code>, runs <code>RunGatewayTrayInstallAsync</code> (:440-441) -> CLI <code>install --role gateway --component gateway</code> (GatewayTrayLauncher.cs:46), which places <code>devthrottle-gateway.exe</code> (InstallLayout.cs:113, asset <code>devthrottle-gateway-win-x64.exe</code>), extracts Cockpit, and starts the tray. Test <code>FreshInstall_DefaultsToGatewayRole_SoSoloInstallProvisionsLocalGateway</code> PASSES. Provisioning code unchanged by this PR.</td>
+<td class="logic">PASS (logic-verified)</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Role step presents "first machine / I already have a gateway" clearly, defaulting the solo path to a local gateway.</td>
+<td>Two cards, first-machine pre-selected, mapped to the local-gateway role.</td>
+<td>WelcomeStep.xaml reframed: heading "Do you already have a gateway?", two cards <code>FirstMachineRadio</code> ("I'm setting up my first machine", Recommended) and <code>HaveGatewayRadio</code> ("I already have a gateway"). First-machine card pre-selected (xaml.cs:62), Next enabled from the start (MainWindow:285). Tests <code>FreshInstall_FirstMachineCard_MapsToGatewayRole</code>, <code>..._HaveGatewayCard_MapsToWorkstationRole</code>, <code>..._RoleSelected_Fires...</code> PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Update detects installed role and does not downgrade (existing <code>InstalledRoleDetector</code> behavior preserved).</td>
+<td>Update reads the disk-detected role, hides the picker, never narrows Gateway -> Workstation.</td>
+<td><code>InstalledRoleDetector.cs</code> and <code>InstallRole.cs</code> UNTOUCHED by the PR (diff name-only confirms). MainWindow on update sets <code>_role = InstalledRoleDetector.Detect(...)</code> (:64-65) and hides the picker; WelcomeStep update mode collapses RolePanel and selects no card. Test <code>UpdateMode_DoesNotPreSelectAnyRole_SoTheUpdatePathUsesTheDetectedRole</code> PASS; the 3 detector regression tests (<code>Detect_GatewayExePresent_IsGateway</code> etc.) PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Proof shows a clean solo install ending with a running local gateway.</td>
+<td>Evidence that the solo default ends with the gateway provisioned.</td>
+<td>The role -> provisioning chain (AC#1) is the proof at logic level; an actual live install is not run for the safety reason above. Developer proof (XAML-rendered screenshots + Expected/Actual + build/test logs) present under this directory and honestly labelled as logic-level, not a live install.</td>
+<td class="logic">PASS (logic-verified)</td>
+</tr>
+</table>
+
+<h2>Build and test (run by QA, on the PR branch)</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code></td><td class="pass">Build succeeded - 0 Warning(s), 0 Error(s)</td></tr>
+<tr><td>cc-director-setup.Tests (incl. 5 new WelcomeStepRoleTests)</td><td class="pass">21 / 21 passed</td></tr>
+<tr><td>cc-director-setup-engine.Tests (incl. InstalledRoleDetector regression)</td><td class="pass">166 / 166 passed</td></tr>
+<tr><td>cc-director-setup-cli.Tests</td><td class="pass">17 / 17 passed</td></tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Diff is confined to WelcomeStep (XAML + code-behind), MainWindow role capture, the new test, and proof - no adjacent containers touched.</li>
+<li><code>InstallRole</code>, <code>InstalledRoleDetector</code>, and the gateway-provisioning path (<code>GatewayTrayLauncher</code>) are unchanged - update-mode no-downgrade is preserved.</li>
+<li>No new attack surface; no new blocking security rule; no architecture/security CenCon doc drift (UI reframe + role mapping only).</li>
+<li>Out of scope confirmed not done: Workstation pair-to-existing-gateway path (#646), sign-in change, Director startup gating.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - all acceptance criteria met.</strong> AC#2 and AC#3 fully verified; AC#1 and AC#4
+verified at the logic level (role-selection + unchanged gateway-provisioning chain) because an isolated
+end-to-end install cannot be run without disturbing the user's real Gateway/Director. Build clean, all
+relevant test suites green.
+</div>
+</body>
+</html>

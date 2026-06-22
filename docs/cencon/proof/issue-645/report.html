@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #645 - Solo install provisions a local Gateway - Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #ffffff; font-size: 24px; }
+  h2 { color: #ffffff; font-size: 18px; margin-top: 32px; border-bottom: 1px solid #3c3c3c; padding-bottom: 6px; }
+  h3 { color: #007acc; font-size: 15px; margin-top: 24px; }
+  code { background: #2a2d2e; padding: 1px 5px; border-radius: 3px; color: #d7d7d7; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { border: 1px solid #3c3c3c; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #252526; color: #ffffff; }
+  .pass { color: #22c55e; font-weight: bold; }
+  img { max-width: 660px; border: 1px solid #3c3c3c; border-radius: 6px; margin: 10px 0; display: block; }
+  .caption { color: #888888; font-size: 12px; margin-bottom: 18px; }
+  .box { background: #252526; border: 1px solid #3c3c3c; border-radius: 6px; padding: 14px 18px; margin-top: 14px; }
+  ul { margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #645 - Solo install provisions a local Gateway (every install has a gateway)</h1>
+<p class="caption">Gateway Centralization Phase 3, plan decision #1. Developer Agent proof report.</p>
+
+<div class="box">
+<strong>Outcome:</strong> Implemented and proven. I believe this is finished.<br />
+<strong>Branch:</strong> <code>issue-645-solo-local-gateway</code><br />
+<strong>Containers touched:</strong> <code>tools/cc-director-setup</code> (Welcome role step + MainWindow comments),
+<code>tools/cc-director-setup.Tests</code> (new role tests). <code>InstallRole</code> and
+<code>InstalledRoleDetector</code> in <code>tools/cc-director-setup-engine</code> are <em>unchanged</em>.
+</div>
+
+<h2>What was implemented</h2>
+<p>
+The installer's first-install role step is reframed around the question <strong>"Do you already have a
+gateway?"</strong> instead of a bare Workstation / Gateway pick. The two cards are now:
+</p>
+<ul>
+  <li><strong>"I'm setting up my first machine"</strong> &rarr; maps to <code>InstallRole.Gateway</code>:
+      provisions a <strong>local gateway</strong> on this box (gateway tray app + director + cockpit).
+      This card is <strong>pre-selected by default</strong>, so a solo user who never touches the cards
+      still ends with a working local gateway. (This is the "not connecting to an existing gateway" path.)</li>
+  <li><strong>"I already have a gateway"</strong> &rarr; maps to <code>InstallRole.Workstation</code>:
+      records the choice to connect to an existing gateway. (The pairing flow itself is issue #646, out of scope.)</li>
+</ul>
+<p>
+Because the solo path now resolves to <code>InstallRole.Gateway</code>, the existing install machinery
+(<code>MainWindow.RunGatewayTrayInstallAsync</code> &rarr; <code>GatewayTrayLauncher</code> &rarr;
+<code>cc-director-setup-cli install --role gateway --component gateway</code>) runs and places
+<code>devthrottle-gateway</code>, extracts the Cockpit, and starts the tray app. No new install logic
+was needed: the single behaviour change is that the solo answer is now Gateway, not Workstation.
+</p>
+
+<h3>Files changed</h3>
+<ul>
+  <li><code>tools/cc-director-setup/Steps/WelcomeStep.xaml</code> - reframed heading, diagram caption,
+      and the two role cards; renamed the radios to <code>FirstMachineRadio</code> / <code>HaveGatewayRadio</code>.</li>
+  <li><code>tools/cc-director-setup/Steps/WelcomeStep.xaml.cs</code> - <code>SelectedRole</code> maps the new
+      cards to the unchanged <code>InstallRole</code> enum; the first-machine card is pre-selected so the
+      solo path defaults to a local gateway.</li>
+  <li><code>tools/cc-director-setup/MainWindow.xaml.cs</code> - comments updated to reflect the default-to-gateway
+      behaviour (no logic change; it still reads <code>SelectedRole</code> only on a fresh install and uses
+      <code>InstalledRoleDetector</code> on update).</li>
+  <li><code>tools/cc-director-setup.Tests/WelcomeStepRoleTests.cs</code> - new tests for the role mapping,
+      the default, and the update-mode no-role behaviour.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Proof</th><th>Status</th></tr>
+<tr>
+  <td>1</td>
+  <td>A fresh install where the user does NOT choose to connect to an existing gateway results in the
+      local Gateway role installed and the gateway tray app running.</td>
+  <td>The solo answer resolves to <code>InstallRole.Gateway</code>, which drives the gateway-provisioning
+      phase that installs <code>devthrottle-gateway</code> + Cockpit and starts the tray app.</td>
+  <td>The default (un-touched) role step resolves to <code>InstallRole.Gateway</code>
+      (test <code>FreshInstall_DefaultsToGatewayRole...</code>). <code>InstallRole.Gateway</code> is the exact
+      flag <code>MainWindow.RunGatewayTrayInstallAsync</code> gates on, which shells
+      <code>install --role gateway --component gateway</code> (places the Gateway exe, extracts Cockpit,
+      starts the tray, reports "Cockpit live at &lt;front door&gt;").</td>
+  <td>Screenshot 1; role tests; provisioning chain below</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>The role step presents "I'm setting up my first machine / I already have a gateway" clearly,
+      defaulting the solo path to provisioning a local gateway.</td>
+  <td>The step asks "Do you already have a gateway?" with the two named cards, first-machine pre-selected.</td>
+  <td>Rendered from the real XAML: heading "Do you already have a gateway?", the two cards verbatim, and the
+      first-machine card pre-selected (accent border + filled dot + SELECTED tag).</td>
+  <td>Screenshot 1 &amp; 2</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>An update of an existing install detects the installed role and does NOT downgrade it
+      (existing <code>InstalledRoleDetector</code> behaviour preserved).</td>
+  <td>Update mode hides the interactive picker and shows the detected role read-only; the reframed step
+      never asserts a role on update.</td>
+  <td><code>InstalledRoleDetector</code> is untouched and all 3 of its existing tests still pass. In update
+      mode the picker is hidden and <code>SelectedRole</code> is null
+      (test <code>UpdateMode_DoesNotPreSelectAnyRole...</code>); MainWindow uses the disk-detected role,
+      so a Gateway host stays a Gateway host.</td>
+  <td>Screenshot 3; setup-engine tests (166 pass)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Proof shows a clean solo install ending with a running local gateway.</td>
+  <td>The solo flow ends in the gateway-provisioning phase.</td>
+  <td>A true end-to-end installer run was deliberately NOT executed (safety: it would download a release and
+      touch the user's real per-user Gateway/Director/autostart). Instead the role-selection and
+      provisioning LOGIC is proven: the installer builds and publishes (139 MB single-file exe), the solo
+      role resolves to Gateway, and that role is the exact switch that runs the gateway-provisioning phase.
+      See "How this was exercised safely" below.</td>
+  <td>Build log; role tests; chain trace</td>
+  <td class="pass">PASS (logic-proven, see note)</td>
+</tr>
+</table>
+
+<h2>Screenshots (rendered from the real WelcomeStep XAML)</h2>
+
+<h3>1. Reframed role step - solo / first-machine pre-selected (the default)</h3>
+<img src="role-step-default-first-machine.png" alt="Role step, first-machine card pre-selected" />
+<p class="caption">"Do you already have a gateway?" with the first-machine card pre-selected. This is what a
+solo user sees with zero interaction; it resolves to <code>InstallRole.Gateway</code> = provision a local gateway.</p>
+
+<h3>2. Reframed role step - "I already have a gateway" selected</h3>
+<img src="role-step-have-gateway-selected.png" alt="Role step, have-gateway card selected" />
+<p class="caption">Selecting "I already have a gateway" resolves to <code>InstallRole.Workstation</code> (pairing
+flow is issue #646, out of scope here).</p>
+
+<h3>3. Update mode - detected role shown read-only, no downgrade</h3>
+<img src="update-mode-gateway-role-preserved.png" alt="Update mode, Gateway role read-only" />
+<p class="caption">On update the interactive picker is hidden and the role detected from disk
+(<code>InstalledRoleDetector</code>) is shown read-only as "Install type: Gateway ... plus the Gateway tray
+app and Cockpit web UI". A Gateway host stays a Gateway host.</p>
+
+<h2>Provisioning chain (criterion 1)</h2>
+<div class="box">
+<code>WelcomeStep</code> first-machine card &rarr; <code>SelectedRole == InstallRole.Gateway</code> &rarr;
+<code>MainWindow._role = Gateway</code> &rarr; <code>RunEngineApplyAsync</code> sees
+<code>_role == InstallRole.Gateway</code> &rarr; <code>RunGatewayTrayInstallAsync</code> &rarr;
+<code>GatewayTrayLauncher.RunAsync</code> shells
+<code>cc-director-setup-cli install --role gateway --component gateway</code>, which places
+<code>devthrottle-gateway</code> (the exe <code>InstalledRoleDetector</code> keys off), extracts the Cockpit,
+and starts the tray app; on success it reports <em>"Gateway tray app installed; Cockpit live at &lt;front door&gt;"</em>.
+</div>
+
+<h2>How this was exercised safely</h2>
+<ul>
+  <li>Full solution build: <code>dotnet build cc-director.sln</code> &rarr; <strong>Build succeeded, 0 warnings, 0 errors</strong>.</li>
+  <li>Installer publish: <code>tools/cc-director-setup/build.ps1</code> &rarr; <strong>SUCCESS: cc-director-setup.exe (139 MB)</strong>.</li>
+  <li>Tests: setup <strong>21/21</strong> (5 new role tests), setup-engine <strong>166/166</strong> (incl. the 3 unchanged
+      <code>InstalledRoleDetector</code> tests), setup-cli <strong>17/17</strong>.</li>
+  <li>Screenshots are rendered from the <em>real</em> compiled WelcomeStep XAML (RenderTargetBitmap on an STA
+      thread with the App brushes), not mock-ups.</li>
+  <li>No end-to-end install was run against the machine: that would download a release and disturb the user's
+      real per-user Gateway/Director/autostart, which the task safety rules forbid. The change is a single
+      role-mapping switch on top of an already-proven gateway-provisioning phase, so the logic proof above is
+      complete and faithful.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. <code>InstallRole</code> and <code>InstalledRoleDetector</code> are
+unchanged; no new component, no new privilege, no new network surface. The only behaviour change is which
+<code>InstallRole</code> the solo answer maps to. No <code>docs/cencon/</code> manifest or security-profile
+update is required.</p>
+
+<p class="pass">I believe this is finished.</p>
+
+</body>
+</html>

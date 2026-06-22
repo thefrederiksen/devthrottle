@@ -53,11 +53,13 @@ public partial class WelcomeStep : UserControl
             DescriptionText.Visibility = Visibility.Collapsed;
             ClickNextHint.Visibility = Visibility.Collapsed;
 
-            // No silent default: neither role is pre-selected, so the user is forced to make the
-            // one decision this screen exists for. Either pick raises RoleSelected so MainWindow can
-            // enable the (initially disabled) Next button.
-            WorkstationRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
-            GatewayRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
+            // Reframed around "do you already have a gateway?" (issue #645). Default the solo path to
+            // provisioning a LOCAL gateway: the "first machine" card (InstallRole.Gateway) is
+            // pre-selected so a solo user ends with a working local gateway and Next is enabled right
+            // away. Either pick raises RoleSelected so MainWindow can re-confirm the Next button.
+            FirstMachineRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
+            HaveGatewayRadio.Checked += (_, _) => RoleSelected?.Invoke(this, EventArgs.Empty);
+            FirstMachineRadio.IsChecked = true;
         }
 
         SetupLog.Write($"[WelcomeStep] Created: isUpdate={isUpdate}");
@@ -69,11 +71,14 @@ public partial class WelcomeStep : UserControl
         UninstallRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>The install type the user picked, or null if neither card is selected yet.
-    /// There is no default - the wizard keeps Next disabled until this is non-null.</summary>
+    /// <summary>The install type the user picked, or null if neither card is selected yet. The
+    /// "first machine" card maps to <see cref="InstallRole.Gateway"/> (provision a local gateway here)
+    /// and the "I already have a gateway" card maps to <see cref="InstallRole.Workstation"/>. On a
+    /// fresh install the first-machine card is pre-selected (issue #645), so this is non-null from the
+    /// start and the solo path provisions a local gateway by default.</summary>
     public InstallRole? SelectedRole =>
-        GatewayRadio.IsChecked == true ? InstallRole.Gateway
-        : WorkstationRadio.IsChecked == true ? InstallRole.Workstation
+        FirstMachineRadio.IsChecked == true ? InstallRole.Gateway
+        : HaveGatewayRadio.IsChecked == true ? InstallRole.Workstation
         : null;
 
     public void UpdateVersionInfo(string? installedVersion, string? latestVersion)
