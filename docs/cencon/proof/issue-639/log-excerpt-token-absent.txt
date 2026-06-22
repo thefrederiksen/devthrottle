@@ -1,0 +1,17 @@
+=== Issue #639 log evidence ===
+The forward path logs only target URL, queue depth, bearer-PRESENCE (true/false), and outcome.
+It NEVER logs a token value. Source: the cc-director director FileLog sink the unit tests assert against.
+
+--- Representative forward-path lines (issue #639 test run) ---
+2026-06-22 11:49:43.701 [TelemetryRetryQueue] forward DEFERRED (gateway not signed in): http://127.0.0.1:51364/api/v1/telemetry/login, id=f97a303294634348ae690b0f41aaaee0 (kept queued, will flush after sign-in)
+2026-06-22 11:49:43.810 [TelemetryRetryQueue] forward DEFERRED (gateway not signed in): http://127.0.0.1:51364/api/v1/telemetry/login, id=f97a303294634348ae690b0f41aaaee0 (kept queued, will flush after sign-in)
+2026-06-22 11:49:43.944 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:51368/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+2026-06-22 11:49:44.202 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:51372/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+2026-06-22 11:49:45.234 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:51376/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+2026-06-22 11:49:45.243 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:51379/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+2026-06-22 11:50:03.699 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:51340/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+2026-06-22 11:50:18.990 [TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for http://127.0.0.1:61958/api/v1/telemetry/login (inboundAuthPresent=True; ignored, gateway token attached on forward)
+
+--- Token-value scan ---
+Occurrences of the test Gateway token or Director token in ANY director log line: 0
+RESULT: OK - neither token value appears in any director log line (AC4 satisfied).

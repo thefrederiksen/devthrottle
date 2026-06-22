@@ -10,21 +10,28 @@ namespace CcDirector.Gateway.Api;
 /// login-telemetry event here instead of calling the cloud directly, and the Gateway forwards it to
 /// the backend so the Gateway becomes the single egress to the cloud.
 ///
-/// Wire contract: the inbound request carries the body <c>{ "source": "app", "app_version"?: "..." }</c>
-/// and an <c>Authorization: Bearer &lt;access token&gt;</c> header. The Gateway forwards BOTH the body
-/// and the Bearer token UNCHANGED to the backend login endpoint
+/// Wire contract: the inbound request carries the body <c>{ "source": "app", "app_version"?: "..." }</c>.
+/// The Gateway forwards the body UNCHANGED to the backend login endpoint
 /// (default <c>https://devthrottle.com/api/v1/telemetry/login</c>, overridable on the Gateway via the
 /// <c>DEVTHROTTLE_TELEMETRY_URL</c> environment variable).
 ///
-/// Issue #629 - durable retry queue: the relay no longer forwards inline. It ENQUEUES every accepted
-/// event into the <see cref="TelemetryRetryQueue"/> (durable, bounded, restart-surviving) and answers
-/// the caller 202 Accepted immediately. The queue owns delivery: it flushes in FIFO order, retries
-/// with backoff while the backend is unreachable, survives a Gateway restart, and is bounded (the
-/// oldest event is evicted when full). The relay therefore NEVER throws back to the Director and a
-/// backend outage queues events instead of dropping them.
+/// Gateway Centralization Phase 2 (issue #639): the relay no longer requires - and no longer forwards -
+/// an inbound <c>Authorization</c> header from the Director. The Gateway is now the single egress, so it
+/// attaches its OWN stored account token (from the Gateway credential service, issue #636) when it
+/// forwards to the cloud; that token is resolved at forward time by the <see cref="TelemetryRetryQueue"/>
+/// from its configured Gateway token source. A Director Bearer, if still present on the inbound request,
+/// is therefore IGNORED here (no double-auth, no Director token leaked to the cloud). When the Gateway is
+/// not signed in, the queue holds the event and flushes it once the Gateway signs in.
 ///
-/// Security: the inbound access token (the Bearer) is NEVER written to the Gateway log on this path.
-/// Every log line records only the target URL and whether a token was present - never the token value.
+/// Issue #629 - durable retry queue: the relay does not forward inline. It ENQUEUES every accepted event
+/// into the <see cref="TelemetryRetryQueue"/> (durable, bounded, restart-surviving) and answers the
+/// caller 202 Accepted immediately. The queue owns delivery: it flushes in FIFO order, retries with
+/// backoff while the backend is unreachable (or while the Gateway is not yet signed in), survives a
+/// Gateway restart, and is bounded (the oldest event is evicted when full). The relay therefore NEVER
+/// throws back to the Director and a backend outage queues events instead of dropping them.
+///
+/// Security: no token value is written to the Gateway log on this path. Every log line records only the
+/// target URL - never a token, neither the (ignored) inbound Director Bearer nor the Gateway's token.
 /// </summary>
 internal static class TelemetryRelayEndpoint
 {
@@ -67,34 +74,22 @@ internal static class TelemetryRelayEndpoint
             using (var reader = new StreamReader(ctx.Request.Body))
                 body = await reader.ReadToEndAsync(ctx.RequestAborted);
 
-            // Pull the inbound Bearer token. It is forwarded UNCHANGED; it is NEVER logged.
-            var bearer = ExtractBearer(ctx.Request.Headers.Authorization.ToString());
+            // Issue #639: the inbound Authorization header (a Director Bearer, if still present) is
+            // IGNORED - it is neither required nor forwarded. The Gateway attaches its OWN account token
+            // at forward time (resolved by the queue's Gateway token source). We record only whether an
+            // inbound header was present (never its value) so the ignore is observable in the log.
+            var inboundAuthPresent = !string.IsNullOrEmpty(ctx.Request.Headers.Authorization.ToString());
 
-            // Enqueue for durable delivery. The queue logs the target + depth (never the token value)
-            // and owns the retry / persistence / bound-eviction behaviour; the relay just hands off.
-            FileLog.Write($"[TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for {targetUrl} (bearerPresent={(bearer is not null)})");
-            queue.Enqueue(targetUrl, body, bearer);
+            // Enqueue for durable delivery with NO stored Bearer - the Gateway token is attached when the
+            // queue forwards. The queue logs the target + depth (never any token value) and owns the
+            // retry / persistence / bound-eviction behaviour; the relay just hands off.
+            FileLog.Write($"[TelemetryRelayEndpoint] POST /telemetry/login -> enqueue for {targetUrl} (inboundAuthPresent={inboundAuthPresent}; ignored, gateway token attached on forward)");
+            queue.Enqueue(targetUrl, body, bearer: null);
 
-            // The relay accepts the event regardless of the backend's current reachability (the queue
-            // delivers it when the backend is up). 202 Accepted is the truthful answer: "received and
-            // queued for delivery", never a guarantee the cloud has it yet.
+            // The relay accepts the event regardless of the backend's current reachability or whether the
+            // Gateway is signed in yet (the queue delivers it once both are ready). 202 Accepted is the
+            // truthful answer: "received and queued for delivery", never a guarantee the cloud has it yet.
             return Results.StatusCode(StatusCodes.Status202Accepted);
         });
-    }
-
-    /// <summary>
-    /// Extracts the token from an <c>Authorization: Bearer &lt;token&gt;</c> header value, or null when
-    /// the header is absent or not a Bearer credential. The token value is returned for forwarding only
-    /// and must never be logged.
-    /// </summary>
-    private static string? ExtractBearer(string authorizationHeader)
-    {
-        if (string.IsNullOrWhiteSpace(authorizationHeader))
-            return null;
-        const string prefix = "Bearer ";
-        if (!authorizationHeader.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            return null;
-        var token = authorizationHeader.Substring(prefix.Length).Trim();
-        return string.IsNullOrEmpty(token) ? null : token;
     }
 }

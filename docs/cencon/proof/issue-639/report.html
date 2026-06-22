@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #639 - Gateway forwards telemetry with its own account token - Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #007ACC; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #007ACC; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; background: #f5f5f5; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #ddd; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .crit { font-weight: bold; }
+  .note { background: #fffbe6; border: 1px solid #e6d780; padding: .6rem .9rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #639 - Gateway forwards telemetry with its own account token</h1>
+
+<p><strong>Branch:</strong> issue-639-gateway-telemetry-token &nbsp;|&nbsp;
+   <strong>Containers touched:</strong> CcDirector.Gateway, CcDirector.Gateway.Tests
+   (plus a small read-only accessor on CcDirector.Core.Account.DevThrottleAccountService).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>The Gateway is now the single egress and attaches its OWN account token.</strong>
+      A new <code>IGatewayTelemetryTokenSource</code> supplies the Gateway's stored account token, read
+      from the Gateway credential service (<code>DevThrottleAccountService</code>, issue #636) via the new
+      <code>GatewayAccountTelemetryTokenSource</code> adapter. The credential service gained one read-only
+      accessor, <code>GetAccessTokenForForwarding()</code>, which returns the stored access token when the
+      Gateway is signed in (same local valid-or-renewable check as <code>IsLoggedIn</code>) and null
+      otherwise. The token value is never logged.</li>
+  <li><strong>The token is resolved at forward time, inside <code>TelemetryRetryQueue.TryForwardAsync</code>.</strong>
+      When a token source is wired: signed in -&gt; attach the Gateway token (any leftover per-event stored
+      Bearer is ignored); not signed in -&gt; the forward is DEFERRED (the event stays at the head of the
+      queue, FIFO preserved) and flushes once the Gateway signs in. When no token source is wired (a host
+      with no credential service) the queue keeps its Phase 1 behaviour (forward the stored per-event
+      Bearer), so nothing on non-Windows hosts regresses.</li>
+  <li><strong>The login relay (<code>POST /telemetry/login</code>) no longer requires or forwards an inbound
+      Authorization header.</strong> An inbound Director Bearer, if still present, is ignored (logged only as
+      present/absent, never its value) and the event is enqueued with no stored bearer.</li>
+  <li><strong>The director-startup forward (<code>POST /telemetry/director-startup</code>) shares the same
+      queue</strong>, so it too now attaches the Gateway token at forward time and defers while not signed in.</li>
+  <li><strong>GatewayHost wiring:</strong> the credential service (<code>Account</code>) is resolved before the
+      telemetry queue is built, and when present the queue is constructed with a
+      <code>GatewayAccountTelemetryTokenSource</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Proving test(s)</th><th>Expected</th><th>Actual</th></tr>
+  <tr>
+    <td class="crit">1</td>
+    <td>An event posted WITHOUT an Authorization header is forwarded to the cloud (stub) carrying the
+        GATEWAY's token, not a Director token.</td>
+    <td><code>PostLogin_WithoutAuthorizationHeader_ForwardsWithGatewayToken</code> (end-to-end through the
+        real relay + local stub backend); <code>Forward_WhenSignedIn_AttachesTheGatewayToken</code>
+        (queue level).</td>
+    <td>Stub records <code>Authorization: Bearer GATEWAY-OWN-ACCOUNT-TOKEN-639...</code>.</td>
+    <td class="pass">PASS - stub received the Gateway token; 202 to the caller.</td>
+  </tr>
+  <tr>
+    <td class="crit">2</td>
+    <td>When the Gateway is NOT signed in, a posted event is QUEUED (not forwarded) and is flushed to the
+        stub after the Gateway signs in (seeded token), in order.</td>
+    <td><code>PostLogin_WhenGatewayNotSignedIn_QueuesThenFlushesAfterSignIn</code> (end-to-end);
+        <code>NotSignedIn_QueuesEventsThenFlushesAfterSignIn_InOrder</code> (queue level, FIFO over 4 events).</td>
+    <td>Nothing reaches the stub while signed out; after sign-in the queued event(s) flush in enqueue order
+        carrying the Gateway token.</td>
+    <td class="pass">PASS - stub stayed empty while signed out; flushed in FIFO order after sign-in.</td>
+  </tr>
+  <tr>
+    <td class="crit">3</td>
+    <td>An inbound Director Bearer, if still present, is IGNORED in favour of the Gateway's token (no
+        double-auth, no Director-token leakage to the cloud).</td>
+    <td><code>PostLogin_WithInboundDirectorBearer_ForwardsGatewayTokenAndNotTheDirectorToken</code>
+        (end-to-end); <code>InboundDirectorBearer_IsIgnored_GatewayTokenUsedInstead</code> (queue level);
+        plus the updated <code>TelemetryRelayEndpointTests.PostLogin_ForwardsExactlyOnce_IgnoringInboundBearer_WithSourceApp</code>.</td>
+    <td>Stub sees only the Gateway token; the Director token never appears in any forwarded Authorization.</td>
+    <td class="pass">PASS - Gateway token forwarded; Director token absent from the forward.</td>
+  </tr>
+  <tr>
+    <td class="crit">4</td>
+    <td>The Gateway's token is NEVER written to the log.</td>
+    <td><code>Forward_NeverWritesTheGatewayTokenToTheLog</code> (asserts neither the Gateway token nor the
+        ignored Director token appears in any new log line, while confirming the forward path logged).</td>
+    <td>No log line contains the Gateway token (nor the Director token); the path still logs (target + depth
+        + outcome).</td>
+    <td class="pass">PASS - tokens absent from the log; log lines present.</td>
+  </tr>
+  <tr>
+    <td class="crit">5</td>
+    <td>Unit tests cover forward-with-gateway-token, queue-when-not-signed-in + flush-after-sign-in, and
+        inbound-bearer-ignored.</td>
+    <td>The whole <code>Issue639GatewayTelemetryTokenTests</code> suite (8 tests) plus the updated existing
+        relay test.</td>
+    <td>All three behaviours covered at both the queue level and end-to-end through the HTTP relay.</td>
+    <td class="pass">PASS - 8/8 new tests green.</td>
+  </tr>
+</table>
+
+<h2>Test run (the local stub backend is the "cloud stub" the issue references)</h2>
+<p>The end-to-end tests boot the real <code>TelemetryRelayEndpoint</code> over a durable
+   <code>TelemetryRetryQueue</code> wired with the Gateway token source, plus a local stub backend that
+   records the exact body and Authorization header of every forwarded request. The queue-level tests drive
+   delivery deterministically through <code>FlushOnceAsync</code> with a fake token source.</p>
+<pre>
+Passed Issue639GatewayTelemetryTokenTests.Forward_WhenSignedIn_AttachesTheGatewayToken [44 ms]
+Passed Issue639GatewayTelemetryTokenTests.InboundDirectorBearer_IsIgnored_GatewayTokenUsedInstead [3 ms]
+Passed Issue639GatewayTelemetryTokenTests.NotSignedIn_QueuesEventsThenFlushesAfterSignIn_InOrder [10 ms]
+Passed Issue639GatewayTelemetryTokenTests.Forward_NeverWritesTheGatewayTokenToTheLog [25 s]
+Passed Issue639GatewayTelemetryTokenTests.PostLogin_WithoutAuthorizationHeader_ForwardsWithGatewayToken [196 ms]
+Passed Issue639GatewayTelemetryTokenTests.PostLogin_WhenGatewayNotSignedIn_QueuesThenFlushesAfterSignIn [693 ms]
+Passed Issue639GatewayTelemetryTokenTests.NoTokenSource_FallsBackToTheStoredPerEventBearer [2 ms]
+Passed Issue639GatewayTelemetryTokenTests.PostLogin_WithInboundDirectorBearer_ForwardsGatewayTokenAndNotTheDirectorToken [134 ms]
+
+Telemetry + account regression set (Issue639 + TelemetryRelayEndpoint + TelemetryRetryQueue
+  + DirectorStartupTelemetryEndpoint + GatewayAccountService):
+Passed!  - Failed: 0, Passed: 38, Skipped: 0, Total: 38
+
+GatewayHostTests:  Passed! - Failed: 0, Passed: 13
+Core account tests: Passed! - Failed: 0, Passed: 90
+
+Full solution build: Build succeeded. 0 Warning(s). 0 Error(s).
+</pre>
+
+<p class="note"><strong>Why no running Director screenshot:</strong> these acceptance criteria are HTTP/telemetry
+   forwarding behaviours with no user-visible surface. The proof is the local cloud stub recording exactly
+   what the Gateway forwarded (the Authorization header it received) and the queue's signed-out/signed-in
+   delivery order - which the end-to-end relay tests and queue tests demonstrate deterministically. The AC4
+   test reads the real FileLog output and asserts the token is absent.</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture drift: the containers (Gateway, Gateway.Tests) and the cloud wire contract
+   (Bearer + <code>source:"app"</code>) are unchanged - only <em>whose</em> token is attached changes. The
+   security posture is preserved and reinforced: the Gateway token is never logged (rule DT-05), and a
+   Director token is no longer forwarded to the cloud, removing a credential-leakage path.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All five acceptance criteria are met and proven, the full
+   solution builds clean with zero warnings, and the existing telemetry tests were updated to the new
+   contract (the inbound Director Bearer is ignored).</p>
+
+</body>
+</html>

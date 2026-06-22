@@ -20,10 +20,15 @@ namespace CcDirector.Gateway.Tests;
 /// points the relay at the stub (or, for the unreachable case, at a dead port). Each test sets and
 /// then restores the env var, so they are self-contained.
 ///
-/// Covers: the forward happy-path (exactly one backend POST, correct URL, POST method, the SAME
-/// Bearer token, a body with <c>source:"app"</c>, and a 202 to the caller); backend 5xx and backend
-/// unreachable (the caller still gets a non-5xx and the failure is logged); and that the access token
-/// is never written to the Gateway log.
+/// Covers: the forward happy-path (exactly one backend POST, correct URL, POST method, a body with
+/// <c>source:"app"</c>, and a 202 to the caller); backend 5xx and backend unreachable (the caller still
+/// gets a non-5xx and the failure is logged); and that the access token is never written to the Gateway
+/// log.
+///
+/// Gateway Centralization Phase 2 (issue #639): the relay no longer forwards an inbound Director Bearer.
+/// These tests boot the queue with NO Gateway token source (the Phase 1 forwarder shape), so a forwarded
+/// request carries NO Authorization header - the inbound Bearer is ignored and the Gateway attaches its
+/// own token only when a token source is wired (covered by Issue639GatewayTelemetryTokenTests).
 /// </summary>
 public sealed class TelemetryRelayEndpointTests
 {
@@ -154,7 +159,7 @@ public sealed class TelemetryRelayEndpointTests
     }
 
     [Fact]
-    public async Task PostLogin_ForwardsExactlyOnce_WithSameBearerAndSourceApp()
+    public async Task PostLogin_ForwardsExactlyOnce_IgnoringInboundBearer_WithSourceApp()
     {
         var (relay, captured, dispose) = await StartAsync(startStub: true);
         try
@@ -173,8 +178,9 @@ public sealed class TelemetryRelayEndpointTests
             Assert.Equal("POST", fwd!.Method);
             Assert.Equal("/api/v1/telemetry/login", fwd.Path);
 
-            // The SAME Bearer token, unchanged.
-            Assert.Equal($"Bearer {AccessToken}", fwd.Authorization);
+            // Issue #639: the inbound Director Bearer is IGNORED. With no Gateway token source wired here,
+            // the forward carries NO Authorization header at all - and the Director token never leaked.
+            Assert.Null(fwd.Authorization);
 
             // A body carrying source:"app".
             using var doc = JsonDocument.Parse(fwd.Body);

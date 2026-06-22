@@ -249,17 +249,39 @@ public sealed class GatewayHost : IAsyncDisposable
         // target Director from the registry and starts a session over the shared client (the same
         // path the work-list runner uses). The background sweep timer is started in StartAsync.
         _cronRuns = new CronRunHistoryStore(cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        // The Gateway-hosted DevThrottle credential service (issue #636, Gateway Centralization Phase 2
+        // foundation). Tests inject their own service over an isolated store; production builds the
+        // Windows Data Protection-backed service rooted under the Gateway config directory. The
+        // operating-system credential store is Windows-only for now (the issue's assumption), so on a
+        // non-Windows host Account stays null until the macOS Keychain store is added - the platform
+        // guard also satisfies the platform-compatibility analyzer. Resolved BEFORE the telemetry queue
+        // so the queue can attach the Gateway's own account token when forwarding (issue #639).
+        if (account is not null)
+            Account = account;
+        else if (OperatingSystem.IsWindows())
+            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows();
+        else
+            FileLog.Write("[GatewayHost] DevThrottle credential service not built: operating-system credential store is Windows-only for now");
+
         // Durable telemetry retry queue (issue #629): one JSON file under the Gateway config directory
         // (the DeviceRegistry / gateway-token precedent), loaded here so events a previous run left
         // undelivered survive a restart. A short-timeout forwarder client keeps a slow/unreachable
         // backend from holding a flush pass open. Tests pass an isolated path + a small bound + a short
         // retry interval so they never touch the real store and can exercise eviction quickly.
+        // Issue #639: when the Gateway has a credential service the queue is wired with a Gateway token
+        // source, so it attaches the GATEWAY's own account token at forward time (and holds events while
+        // the Gateway is not signed in). On a host with no credential service the source stays null and
+        // the queue keeps its Phase 1 behaviour (forward with the per-event stored bearer, unchanged).
         var telemetryForwardClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var gatewayTelemetryTokenSource = Account is not null
+            ? new Api.GatewayAccountTelemetryTokenSource(Account)
+            : null;
         _telemetryQueue = new Api.TelemetryRetryQueue(
             telemetryQueuePath ?? Path.Combine(CcStorage.Config(), "director", "telemetry-queue.json"),
             telemetryForwardClient,
             telemetryRetryInterval ?? TimeSpan.FromSeconds(30),
-            telemetryQueueMaxSize ?? Api.TelemetryRetryQueue.DefaultMaxSize);
+            telemetryQueueMaxSize ?? Api.TelemetryRetryQueue.DefaultMaxSize,
+            gatewayTelemetryTokenSource);
         // A cron job targets a MACHINE (#503): resolve it to a Director at fire time, launching one
         // via the launcher (the shipped /machines/{m}/director/start relay, #331) if none is running.
         var cronTargetResolver = new Running.RegistryDirectorTargetResolver(
@@ -290,19 +312,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_client, cronTargetResolver),
             cronWorkListRunner, cronNotifier, new Running.SystemClock());
-
-        // The Gateway-hosted DevThrottle credential service (issue #636, Gateway Centralization Phase 2
-        // foundation). Tests inject their own service over an isolated store; production builds the
-        // Windows Data Protection-backed service rooted under the Gateway config directory. The
-        // operating-system credential store is Windows-only for now (the issue's assumption), so on a
-        // non-Windows host Account stays null until the macOS Keychain store is added - the platform
-        // guard also satisfies the platform-compatibility analyzer.
-        if (account is not null)
-            Account = account;
-        else if (OperatingSystem.IsWindows())
-            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows();
-        else
-            FileLog.Write("[GatewayHost] DevThrottle credential service not built: operating-system credential store is Windows-only for now");
 
         // The browser loopback sign-in flow relocated onto the Gateway (issue #637). It is built over
         // the credential service, so it exists only when that service does - on a host with no
