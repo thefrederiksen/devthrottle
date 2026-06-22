@@ -29,17 +29,20 @@ public partial class MainWindow : Window
     private WelcomeStep? _welcomeStep;
     private PrerequisitesStep? _prerequisitesStep;
     private SignInStep? _signInStep;
+    private PrivacyStep? _privacyStep;
     private SkillsStep? _skillsStep;
     private InstallStep? _installStep;
     private CompleteStep? _completeStep;
 
     private readonly record struct StepUI(Border Circle, TextBlock Label, TextBlock? Number);
 
-    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Skills, 5 Install, 6 Complete.
-    // The forced sign-in (issue #657) slots in after the prerequisite Checks.
+    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Privacy, 5 Skills, 6 Install, 7 Complete.
+    // The forced sign-in (issue #657) and the Privacy step (issue #659) slot in after the prerequisite
+    // Checks; Privacy comes right after Sign in.
     private const int StepSignIn = 3;
-    private const int StepInstall = 5;
-    private const int StepComplete = 6;
+    private const int StepPrivacy = 4;
+    private const int StepInstall = 6;
+    private const int StepComplete = 7;
 
     public MainWindow()
     {
@@ -66,7 +69,7 @@ public partial class MainWindow : Window
         {
             Title = "DevThrottle Update";
             SubtitleText.Text = "Update";
-            Step5Label.Text = "Update";
+            Step6Label.Text = "Update";
         }
 
         Loaded += MainWindow_Loaded;
@@ -106,6 +109,16 @@ public partial class MainWindow : Window
                 NextButton.IsEnabled = true;
         };
         return step;
+    }
+
+    /// <summary>Build the Privacy step (issue #659). It reads the Bearer access token captured at
+    /// Sign-in from the Sign-in step in memory (never logged) so it can pre-fill and write the
+    /// per-account telemetry flag. The Privacy step never gates Next - the toggle is a choice.</summary>
+    private PrivacyStep BuildPrivacyStep()
+    {
+        // The token provider reads the in-memory captured token from the Sign-in step on demand; it is
+        // never copied into a field here and never logged.
+        return new PrivacyStep(() => _signInStep?.CapturedAccessToken);
     }
 
     /// <summary>
@@ -162,9 +175,10 @@ public partial class MainWindow : Window
         new(Step4Circle, Step4Label, Step4Num),
         new(Step5Circle, Step5Label, Step5Num),
         new(Step6Circle, Step6Label, Step6Num),
+        new(Step7Circle, Step7Label, Step7Num),
     ];
 
-    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56];
+    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56, Line67];
 
     private void ShowStep(int step)
     {
@@ -179,7 +193,8 @@ public partial class MainWindow : Window
             1 => _welcomeStep ??= BuildWelcomeStep(),
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
             StepSignIn => _signInStep ??= BuildSignInStep(),
-            4 => _skillsStep ??= new SkillsStep(_isUpdate),
+            StepPrivacy => _privacyStep ??= BuildPrivacyStep(),
+            5 => _skillsStep ??= new SkillsStep(_isUpdate),
             StepInstall => _installStep ??= new InstallStep(),
             StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate, _cachedPrep?.Version),
             _ => null
@@ -543,10 +558,18 @@ public partial class MainWindow : Window
                         ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
+                _privacyStep = null;
                 _skillsStep = null;
                 _installStep = null;
                 _completeStep = null;
             }
+
+            // Leaving Privacy (issue #659): apply the telemetry choice. This writes the per-account
+            // server flag (best-effort) and always mirrors the choice to the local config.json. It must
+            // never block the wizard - the toggle is a choice, not a gate - so we fire it detached and
+            // proceed to the next step immediately regardless of the toggle value or the call outcome.
+            if (_currentStep == StepPrivacy)
+                ApplyPrivacyChoiceBestEffort();
 
             // Leaving Install: rebuild Complete with the final counts.
             if (_currentStep == StepInstall)
@@ -554,5 +577,33 @@ public partial class MainWindow : Window
 
             ShowStep(_currentStep + 1);
         }
+    }
+
+    /// <summary>
+    /// Applies the Privacy step's telemetry choice fully detached so a slow or failed telemetry call can
+    /// never block the wizard (issue #659). <see cref="PrivacyStep.ApplyChoiceAsync"/> itself never
+    /// throws and writes the local config.json mirror either way; this only logs the completion.
+    /// </summary>
+    private void ApplyPrivacyChoiceBestEffort()
+    {
+        var step = _privacyStep;
+        if (step is null)
+            return;
+
+        // Snapshot the checkbox state and the token on the UI thread; the detached apply touches no UI.
+        var snapshot = step.SnapshotChoice();
+        SetupLog.Write($"[MainWindow] ApplyPrivacyChoiceBestEffort: applying telemetry choice (detached, non-blocking), enabled={snapshot.Enabled}");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await step.ApplyChoiceAsync(snapshot);
+                SetupLog.Write("[MainWindow] ApplyPrivacyChoiceBestEffort: telemetry choice applied");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write($"[MainWindow] ApplyPrivacyChoiceBestEffort: applying telemetry choice failed (ignored, best-effort): {ex.Message}");
+            }
+        });
     }
 }

@@ -1,0 +1,94 @@
+<UserControl x:Class="CcDirectorSetup.Steps.PrivacyStep"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="A quick, honest note"
+                       Foreground="White"
+                       FontSize="22"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="Here is what we do and do not collect. You set the one usage-sharing choice below."
+                       Foreground="{StaticResource TextForeground}"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,0" />
+        </StackPanel>
+
+        <!-- Centered privacy card: three one-liners + a single checkbox -->
+        <Border Background="#252526"
+                CornerRadius="6"
+                Padding="32"
+                Margin="0,32,0,0"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Center"
+                MinWidth="480">
+            <StackPanel>
+
+                <!-- One-liner 1 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <TextBlock Text="&#x2713;"
+                               Foreground="{StaticResource SuccessBrush}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               VerticalAlignment="Top"
+                               Margin="0,0,10,0" />
+                    <TextBlock Text="We can see how many people use CC Director."
+                               Foreground="{StaticResource TextForeground}"
+                               FontSize="14"
+                               TextWrapping="Wrap"
+                               MaxWidth="380" />
+                </StackPanel>
+
+                <!-- One-liner 2 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <TextBlock Text="&#x2713;"
+                               Foreground="{StaticResource SuccessBrush}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               VerticalAlignment="Top"
+                               Margin="0,0,10,0" />
+                    <TextBlock Text="Your code, prompts, and files never leave your machine."
+                               Foreground="{StaticResource TextForeground}"
+                               FontSize="14"
+                               TextWrapping="Wrap"
+                               MaxWidth="380" />
+                </StackPanel>
+
+                <!-- One-liner 3 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                    <TextBlock Text="&#x2713;"
+                               Foreground="{StaticResource SuccessBrush}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               VerticalAlignment="Top"
+                               Margin="0,0,10,0" />
+                    <TextBlock Text="Cloud features later are always optional."
+                               Foreground="{StaticResource TextForeground}"
+                               FontSize="14"
+                               TextWrapping="Wrap"
+                               MaxWidth="380" />
+                </StackPanel>
+
+                <!-- Divider -->
+                <Border Height="1" Background="{StaticResource StepInactive}" Margin="0,0,0,20" />
+
+                <!-- The single, default-on telemetry toggle -->
+                <CheckBox x:Name="TelemetryToggle"
+                          IsChecked="True"
+                          Foreground="{StaticResource TextForeground}"
+                          FontSize="14"
+                          VerticalContentAlignment="Center">
+                    <TextBlock Text="Share anonymous usage information to help improve CC Director"
+                               TextWrapping="Wrap"
+                               MaxWidth="400" />
+                </CheckBox>
+
+                <TextBlock x:Name="PrefillHint"
+                           Text="Loading your current preference..."
+                           Foreground="{StaticResource DimText}"
+                           FontSize="11"
+                           Margin="26,8,0,0" />
+            </StackPanel>
+        </Border>
+    </DockPanel>
+</UserControl>

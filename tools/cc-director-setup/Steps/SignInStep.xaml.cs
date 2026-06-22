@@ -22,18 +22,29 @@ public partial class SignInStep : UserControl
     /// true it stays true so returning to the step via Back keeps the completed state.</summary>
     public bool IsSignedIn { get; private set; }
 
+    /// <summary>
+    /// The access token captured from the successful sign-in, held in memory ONLY so the next wizard
+    /// step (the Privacy step, issue #659) can use it as the Bearer for the per-account telemetry calls.
+    /// Null until a sign-in completes. It is never written to the installer log (security rule DT-05).
+    /// </summary>
+    public string? CapturedAccessToken { get; private set; }
+
     /// <summary>Raised once when the browser hand-back is captured, so the wizard can enable Next.</summary>
     public event EventHandler? SignInCompleted;
 
-    public SignInStep() : this(new SignInRunner())
+    public SignInStep() : this(runner: null)
     {
     }
 
-    /// <summary>Constructor seam so a test or a non-default timeout can inject a runner.</summary>
-    public SignInStep(SignInRunner runner)
+    /// <summary>Constructor seam so a test or a non-default timeout can inject a runner. When no runner
+    /// is supplied a default one is built that publishes the captured access token into
+    /// <see cref="CapturedAccessToken"/> (in memory only) for the Privacy step.</summary>
+    public SignInStep(SignInRunner? runner)
     {
         InitializeComponent();
-        _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        // The default runner publishes the captured access token into this step in memory only, so the
+        // Privacy step can read it. The token is never logged and never carried on the sign-in result.
+        _runner = runner ?? new SignInRunner(publishAccessToken: token => CapturedAccessToken = token);
         SetupLog.Write("[SignInStep] Created");
     }
 
