@@ -299,6 +299,15 @@
       "description": "PostHog analytics CLI: page views, funnels, events, recordings",
       "built": true,
       "requirements": ["PostHog account + API key"]
+    },
+    {
+      "name": "cc-cron",
+      "category": "data-utilities",
+      "type": "python",
+      "description": "Manage cron jobs on the DevThrottle Gateway (schedule sessions and work-list drains)",
+      "built": true,
+      "ship": true,
+      "requirements": []
     }
   ]
 }

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #621 - Developer Agent proof</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 18px; color: #1c2230; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #2563eb; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #1d4ed8; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #d2d8e2; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #eef2fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  .pass { color: #15803d; font-weight: 700; }
+  .img { border: 1px solid #cbd5e1; border-radius: 6px; max-width: 100%; margin: 8px 0; }
+  .meta { color: #475569; font-size: 14px; }
+  .note { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 8px 12px; margin: 12px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #621 - Make cron first-class for agents + humans</h1>
+<p class="meta">
+  Developer Agent proof. Branch <code>issue-621-cc-cron</code>.
+  <strong>cc-cron</strong> CLI (cc-tools family) wrapping the Gateway cron REST surface, plus the
+  Cockpit Schedule page surfaced via a documented, discoverable opt-in.
+</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>New <code>cc-cron</code> CLI</strong> under <code>tools/cc-cron/</code> (Python/typer/rich,
+      same structure as <code>cc-settings</code>): <code>list</code>, <code>get &lt;id&gt;</code>,
+      <code>runs &lt;id&gt;</code>, <code>create</code> (one-off <code>--at</code>/<code>--tz</code> or
+      recurring <code>--cron</code>/<code>--tz</code>, with <code>--machine</code>, <code>--repo</code>,
+      and <code>--seed</code> OR <code>--worklist</code>), <code>run &lt;id&gt;</code> (run-now),
+      <code>enable</code>/<code>disable &lt;id&gt;</code>, <code>delete &lt;id&gt;</code>, and an
+      <code>endpoint</code> diagnostic. A thin REST consumer only - it owns no job state and runs no
+      scheduler (Scope OUT honored: no engine/store/<code>CronJobDto</code>/<code>CronRunRecord</code>
+      change).</li>
+  <li><strong>Gateway base URL discovery with no hard-coded port</strong>: resolves from the single
+      configured source of truth <code>gateway.url</code> (via <code>cc_shared.config</code>, the same
+      value the desktop and Cockpit use); falls back to the documented loopback default only when no
+      gateway URL is configured, mirroring C# <code>CockpitUrlResolver.LocalhostDefault</code>. A global
+      <code>--gateway</code> override is available. The Gateway's 400 validation message is echoed
+      verbatim; an unreachable Gateway yields a clear error, never a stack trace.</li>
+  <li><strong>Registered</strong> in <code>tools/registry.json</code> (<code>"ship": true</code>) with a
+      <code>pyproject.toml</code>, <code>cc-cron.spec</code>, <code>build.ps1</code>, and unit tests
+      (<code>tests/test_gateway.py</code>, 13 tests passing).</li>
+  <li><strong>Cockpit Schedule page surfaced via documented opt-in (AC5, conservative route per the
+      recorded decision)</strong>: the Schedule nav item is hidden by default
+      (<code>style="display:none"</code> in <code>NavMenu.razor</code>, the same v1-alpha posture as the
+      other hidden items); the <code>/schedule</code> route stays fully functional and is reached by the
+      documented, discoverable opt-in of navigating to it directly. NOT graduated to default-on.</li>
+  <li><strong>Docs</strong>: a <code>CC_TOOLS.md</code> entry for <code>cc-cron</code> (with the full flag
+      table and the endpoint-discovery / error behavior) plus a one-paragraph "Scheduling" section
+      pointing humans at the Schedule page (and how to opt in) and agents at <code>cc-cron</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Proof</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>cc-cron create --name ... --at ... --tz America/New_York --machine ... --repo ... --seed "/help"</code> -> 201 + id + nextRunUtc</td>
+    <td>Gateway returns 201; CLI prints new id and nextRunUtc; GET echoes the job.</td>
+    <td>Created <code>cj_5ae17c</code>, <code>nextRunUtc 2026-06-28T22:00:00Z</code> (18:00 EDT -> 22:00 UTC, DST-correct), <code>seed /help</code> stored correctly; <code>list</code> echoes it.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>list / get / runs / run / delete (and enable/disable, recurring create) map to REST with readable output</td>
+    <td>Each maps to the matching GET/POST/PUT/DELETE route; readable tables/fields.</td>
+    <td>All exercised against the live Gateway; rich tables + field views; enable/disable via read-modify-write PUT (same path as the Cockpit toggle).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Endpoint discovery with no hard-coded port; clear not-reachable error</td>
+    <td>Base URL from <code>gateway.url</code>, loopback default otherwise; friendly error when down.</td>
+    <td><code>endpoint</code> resolved <code>http://127.0.0.1:17900</code> purely from config; <code>--gateway</code> at a dead port -> "Gateway not reachable ..." with no stack trace.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Invalid schedule surfaces the Gateway 400 message, not a stack trace</td>
+    <td>Echo the Gateway's validation text.</td>
+    <td>Bad cron -> <code>invalid cron expression: not-a-cron</code>; bad time -> <code>runAt is not a parseable timestamp: not-a-time</code>; bad tz -> <code>unknown timeZoneId: Not/AZone</code>. Single "Error:" line, exit 1, no traceback.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Schedule page reachable in a default v1 install via a documented, discoverable opt-in; shows jobs/next-run/history; can create/run/delete</td>
+    <td>Nav item hidden by default; <code>/schedule</code> reachable directly and fully functional.</td>
+    <td>Screenshot: nav rail has NO Schedule item; <code>/schedule</code> shows both jobs with next-run, run history, ENABLED status, Run now / Edit / Delete, and New cron job. Create modal opens; UI Delete removed a job (2 -> 1).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td><code>CC_TOOLS.md</code> documents <code>cc-cron</code>; build clean</td>
+    <td>Doc entry present; full solution builds with 0 errors.</td>
+    <td><code>CC_TOOLS.md</code> has the cc-cron entry + Scheduling section. <code>dotnet build cc-director.sln</code> -> <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>. 13 cc-cron unit tests pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>How it was verified (real Gateway, isolated)</h2>
+<p class="meta">
+  A real Gateway REST surface was exercised, NOT a mock. An isolated dev console Gateway was launched
+  on a free port (<code>127.0.0.1:17900</code>) with <code>CC_DIRECTOR_ROOT</code> pointed at a scratch
+  directory, so the user's cron store and running Directors/Gateway were never touched. The Cockpit was
+  run standalone on <code>127.0.0.1:17470</code> pointed at that test Gateway. cc-cron resolved the base
+  URL from an isolated <code>config.json</code> (proving the production discovery path end-to-end). All
+  test processes were torn down afterward.
+</p>
+
+<div class="note">
+  Note on the "Error:" cases in the transcript: cc-cron prints exactly one <code>Error: &lt;message&gt;</code>
+  line to stderr and exits non-zero. There is no Python stack trace. (PowerShell additionally decorates a
+  native program's stderr with its own "python.exe : ..." block; that is PowerShell, not cc-cron.)
+</div>
+
+<h2>cc-cron command transcript</h2>
+<p class="meta">Full transcript: <code>transcript.txt</code> (same directory).</p>
+
+<h2>Schedule page via the documented opt-in (AC5)</h2>
+<p class="meta">Reached by navigating directly to <code>/schedule</code>; the nav rail does not advertise it.
+   The page shows both cron jobs with next-run and run history, and the create/run/delete actions.</p>
+<img class="img" src="schedule-page-opt-in.png" alt="Schedule page reachable via the direct-URL opt-in, two jobs, nav rail without a Schedule item">
+<p class="meta">The "New cron job" create modal (create capability):</p>
+<img class="img" src="schedule-create-modal.png" alt="New cron job create modal">
+<p class="meta">After deleting the demo job through the page (delete capability), one job remains:</p>
+<img class="img" src="schedule-after-delete.png" alt="Schedule page after a UI delete, one job remaining">
+
+<h2>CenCon impact</h2>
+<p>
+  No architecture or security drift. cc-cron is a pure REST consumer of the already-shipped Gateway cron
+  surface; no cron engine/store/<code>CronJobDto</code>/<code>CronRunRecord</code> contract changed, no new
+  security surface was added (it reuses the existing <code>gateway.token</code> Bearer model and the
+  same-machine loopback path). The Cockpit change is a single nav-visibility toggle. No
+  <code>docs/cencon/</code> manifest or security-profile update is required.
+</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this is finished.</strong> All six acceptance criteria are met and proven against a
+   live, isolated Gateway, the full solution builds clean (0 warnings, 0 errors), and the cc-cron unit
+   tests pass.</p>
+
+</body>
+</html>

@@ -1,0 +1,142 @@
+############################################################
+# cc-cron PROOF TRANSCRIPT  (issue #621)
+# Shell: Windows PowerShell (the documented Windows shell)
+# Gateway: isolated dev console host on 127.0.0.1:17900,
+#   CC_DIRECTOR_ROOT=_scratch\gwroot (no user data touched).
+# cc-cron resolves the base URL from config gateway.url - no
+#   port literal is passed on the command line (AC3).
+#
+# Note on the "Error: ..." cases: cc-cron prints exactly one
+# "Error: <message>" line to stderr and exits non-zero ([exit 1]).
+# There is no Python stack trace. (When run from PowerShell, the
+# shell additionally decorates native-program stderr with its own
+# "python.exe : ..." + "CategoryInfo" block - that is PowerShell,
+# not cc-cron, and is omitted here for clarity.)
+############################################################
+
+=== AC3: endpoint discovery (resolved from config gateway.url) ===
+$ cc-cron endpoint
+http://127.0.0.1:17900
+[exit 0]
+
+=== AC1: create one-off (--at/--tz/--machine/--repo/--seed) -> 201 + id + nextRunUtc ===
+$ cc-cron create --name "Help once - issue 621 proof" --at 2026-06-28T18:00:00 --tz America/New_York --machine soren_north --repo D:\ReposFred\devthrottle --seed /help
+Created cron job.
+  Id:        cj_5ae17c
+  Name:      Help once - issue 621 proof
+  Next run:  2026-06-28T22:00:00Z UTC
+[exit 0]
+
+=== AC1 echo + AC2 list: GET /cron/jobs renders readable output ===
+$ cc-cron list
++-----------------------------------------------------------------------------------------------------------------------------------+
+| Id        | Name                        | Machine     | Runs        | Schedule                   | Next run (UTC)       | Enabled |
+|-----------+-----------------------------+-------------+-------------+----------------------------+----------------------+---------|
+| cj_5ae17c | Help once - issue 621 proof | soren_north | skill /help | once @ 2026-06-28T18:00:00 | 2026-06-28T22:00:00Z | yes     |
++-----------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+(resolved job id for the id-addressed commands: cj_5ae17c)
+
+=== AC2 get: GET /cron/jobs/{id} ===
+$ cc-cron get cj_5ae17c
+Help once - issue 621 proof  (cj_5ae17c)
+  Enabled:    yes
+  Machine:    soren_north
+  Repo:       D:\ReposFred\devthrottle
+  Runs:       skill /help
+  Schedule:   once @ 2026-06-28T18:00:00  (America/New_York)
+  Next run:   2026-06-28T22:00:00Z UTC
+  Last fired: -  (-)
+  Created:    2026-06-22T00:36:53.7952203Z UTC
+[exit 0]
+
+=== AC2 create recurring (--cron + --worklist) ===
+$ cc-cron create --name "Nightly drain - proof" --cron "0 0 * * *" --tz America/Chicago --machine soren_north --repo D:\ReposFred\devthrottle --worklist Tonight
+Created cron job.
+  Id:        cj_eaca98
+  Name:      Nightly drain - proof
+  Next run:  2026-06-22T05:00:00Z UTC
+[exit 0]
+
+=== AC2 list (now two jobs) ===
+$ cc-cron list
++-----------------------------------------------------------------------------------------------------------------------------------------+
+| Id        | Name                        | Machine     | Runs              | Schedule                   | Next run (UTC)       | Enabled |
+|-----------+-----------------------------+-------------+-------------------+----------------------------+----------------------+---------|
+| cj_5ae17c | Help once - issue 621 proof | soren_north | skill /help       | once @ 2026-06-28T18:00:00 | 2026-06-28T22:00:00Z | yes     |
+| cj_eaca98 | Nightly drain - proof       | soren_north | work list Tonight | cron 0 0 * * *             | 2026-06-22T05:00:00Z | yes     |
++-----------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+=== AC2 run: POST /cron/jobs/{id}/run (run-now) ===
+$ cc-cron run cj_5ae17c
+Fired the job.
+  Fired:   2026-06-22T00:36:55.5852501Z UTC
+  Target:  -
+  Session: -
+  Infra:   not-started
+  Task:    unknown
+[exit 0]
+
+=== AC2 runs: GET /cron/jobs/{id}/runs (run history) ===
+$ cc-cron runs cj_5ae17c
++--------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)              | Fired (UTC)                  | Target | Session | Infra       | Task    |
+|------------------------------+------------------------------+--------+---------+-------------+---------|
+| 2026-06-22T00:36:55.5826045Z | 2026-06-22T00:36:55.5852501Z | -      | -       | not-started | unknown |
++--------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+=== AC2 disable (read-modify-write PUT) ===
+$ cc-cron disable cj_5ae17c
+Disabled Help once - issue 621 proof (cj_5ae17c).
+[exit 0]
+
+=== AC2 enable ===
+$ cc-cron enable cj_5ae17c
+Enabled Help once - issue 621 proof (cj_5ae17c).
+[exit 0]
+
+============================================================
+# AC4: invalid schedule surfaces the Gateway 400 message, not a stack trace
+============================================================
+
+=== AC4a: bad cron expression ===
+$ cc-cron create --name "Bad cron" --cron not-a-cron --tz America/Chicago --machine soren_north --repo D:\ReposFred\devthrottle --seed /help
+Error: invalid cron expression: not-a-cron
+[exit 1]
+
+=== AC4b: unparseable one-off timestamp ===
+$ cc-cron create --name "Bad time" --at not-a-time --tz America/Chicago --machine soren_north --repo D:\ReposFred\devthrottle --seed /help
+Error: runAt is not a parseable timestamp: not-a-time
+[exit 1]
+
+=== AC4c: unknown time zone ===
+$ cc-cron create --name "Bad tz" --at 2026-06-28T18:00:00 --tz Not/AZone --machine soren_north --repo D:\ReposFred\devthrottle --seed /help
+Error: unknown timeZoneId: Not/AZone
+[exit 1]
+
+=== AC2 delete: DELETE /cron/jobs/{id} ===
+$ cc-cron delete cj_5ae17c
+Deleted cron job cj_5ae17c.
+[exit 0]
+
+=== AC2 list after delete (one job remains) ===
+$ cc-cron list
++-----------------------------------------------------------------------------------------------------------------------+
+| Id        | Name                  | Machine     | Runs              | Schedule       | Next run (UTC)       | Enabled |
+|-----------+-----------------------+-------------+-------------------+----------------+----------------------+---------|
+| cj_eaca98 | Nightly drain - proof | soren_north | work list Tonight | cron 0 0 * * * | 2026-06-22T05:00:00Z | yes     |
++-----------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+============================================================
+# AC3: a clear error when the Gateway is not reachable
+#   (point --gateway at a dead port; no stack trace)
+============================================================
+
+=== AC3 not-reachable ===
+$ cc-cron --gateway http://127.0.0.1:19999 list
+Error: Gateway not reachable at http://127.0.0.1:19999. Is the Gateway tray app running on this machine? If you target a remote Gateway, set gateway.url with 'cc-settings set gateway.url <url>'.
+[exit 1]

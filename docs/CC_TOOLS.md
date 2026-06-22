@@ -70,6 +70,7 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz (not yet built) |
 | cc-director-setup | Windows installer for CC Director | None |
 | cc-personresearch | Person research aggregation | (not yet built) |
+| cc-cron | Manage Gateway cron jobs (schedule sessions / work-list drains) | Running Gateway |
 
 ---
 
@@ -1028,6 +1029,87 @@ cc-director-setup
 ```
 
 Downloads tools from GitHub releases, configures PATH, installs Claude Code skill. No admin privileges required.
+
+---
+
+### cc-cron
+
+Manage cron jobs on the DevThrottle Gateway from the command line. A cron job schedules a
+session (a skill or prompt) or a named work-list drain to run on a chosen machine, either once
+(`--at`) or on a recurring cron expression (`--cron`). `cc-cron` is a thin REST consumer of the
+Gateway's `/cron/jobs` surface: it owns no job state and runs no scheduler of its own - the
+Gateway is the single scheduler. It is the agent-facing counterpart of the human-facing Cockpit
+Schedule page.
+
+```bash
+# List / inspect
+cc-cron list                       # every job: id, name, machine, schedule, next run, enabled
+cc-cron get <id>                   # one job in full
+cc-cron runs <id>                  # run history for a job (infra status vs task status)
+
+# Create a one-off (runs once at a local time in a time zone)
+cc-cron create --name "Help once" \
+  --at "2026-06-28T18:00:00" --tz America/New_York \
+  --machine <machine> --repo "D:\ReposFred\devthrottle" --seed "/help"
+
+# Create a recurring job (5-field cron expression)
+cc-cron create --name "Nightly drain" \
+  --cron "0 0 * * *" --tz America/Chicago \
+  --machine <machine> --repo "D:\ReposFred\devthrottle" --worklist "Tonight"
+
+# Fire / enable / disable / delete
+cc-cron run <id>                   # run now (fires immediately, independent of the schedule)
+cc-cron enable <id>                # re-arm a disabled job
+cc-cron disable <id>               # stop firing but keep the definition
+cc-cron delete <id>                # remove the job
+
+# Diagnostics
+cc-cron endpoint                   # show the Gateway base URL cc-cron resolves to
+```
+
+**Flags for `create`:**
+
+| Flag | Meaning |
+|------|---------|
+| `--name` | Human-readable label (required) |
+| `--machine` | Target machine name, from `GET /directors` (required) |
+| `--repo` | Working directory the fired session runs in (required) |
+| `--tz` | IANA/Windows time zone id, e.g. `America/New_York` (required) |
+| `--at` | One-off local timestamp, e.g. `2026-06-28T18:00:00` (one of `--at` / `--cron`) |
+| `--cron` | Recurring 5-field cron expression, e.g. `"0 0 * * *"` (one of `--at` / `--cron`) |
+| `--seed` | Skill or prompt the session runs, e.g. `/help` (one of `--seed` / `--worklist`) |
+| `--worklist` | Named work list to drain (one of `--seed` / `--worklist`) |
+
+**Endpoint discovery (no hard-coded port):** `cc-cron` resolves the Gateway base URL from the
+single configured source of truth - the `gateway.url` value in `config.json` (the same value the
+desktop app and the Cockpit use). When no `gateway.url` is configured, it uses the loopback
+default `http://127.0.0.1:7878` (correct for a same-machine install). Point it at a specific
+Gateway with the global `--gateway <url>` option. If the Gateway is not reachable, `cc-cron`
+prints a clear "Gateway not reachable" error (is the Gateway tray app running?), not a stack
+trace. An invalid schedule (bad cron expression, unparseable one-off time, unknown time zone)
+surfaces the Gateway's own validation message verbatim.
+
+`--json` is available on `list`, `get`, `runs`, `create`, and `run` for scripting.
+
+**Requirements:** a running DevThrottle Gateway. No extra credentials for a same-machine
+loopback Gateway; a configured remote Gateway uses its `gateway.token` automatically.
+
+---
+
+## Scheduling
+
+DevThrottle ships a self-hosted scheduler in the Gateway: cron jobs that start a session (a skill
+or prompt) or drain a named work list on a chosen machine, once or on a recurring schedule. There
+are two front doors to it, both pure clients of the same Gateway `/cron/jobs` surface (the Gateway
+is the only scheduler - neither front door owns job state):
+
+- **Humans:** the Cockpit **Schedule** page. It shows every job, its next run, and its run history,
+  and lets you create, run-now, enable/disable, and delete jobs with a director picker. For the v1
+  default install the Schedule nav item is hidden (the same minimal-v1 posture as the other
+  alpha-gated surfaces). The documented, discoverable opt-in is to navigate to it directly: open
+  the Cockpit and go to **`/schedule`** (for a same-machine Gateway, `http://127.0.0.1:7878/schedule`).
+  The page is fully functional from that URL; a later release can simply un-hide the nav item.
+- **Agents and scripts:** the `cc-cron` CLI documented above.
 
 ---
 
