@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #642 (Director holds no credential, sends no token, migrates stale blob)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1000px; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #22863a; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code, pre { background: #f6f8fa; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { padding: .7rem; overflow-x: auto; }
+  .verdict { background: #e6ffed; border: 2px solid #22863a; padding: 1rem; margin-top: 2rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report &mdash; Issue #642</h1>
+<p><strong>Title:</strong> [Desktop] Director stops holding a credential and stops sending tokens (+ migrate blob)<br>
+<strong>Pull request:</strong> #676 (branch <code>issue-642-director-no-credential</code>)<br>
+<strong>QA identity:</strong> independent verifier (separate from the Developer Agent).<br>
+<strong>Verification method:</strong> own worktree built from the pull request branch, own isolated slot 14, Director launched via <code>cc-director14-launch</code> scheduled task, telemetry captured by an independent stub Gateway logging request headers.<br>
+<strong>Date:</strong> 2026-06-22</p>
+
+<h2>Build and test environment</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> &mdash; <span class="pass">Build succeeded. 0 Warning(s) / 0 Error(s).</span></li>
+  <li>Director build: <code>local_builds/cc-director14.exe</code> (Release, win-x64), version 0.9.13.</li>
+  <li>Telemetry redirected to an independent stub Gateway at <code>http://127.0.0.1:7892</code> via <code>DEVTHROTTLE_STARTUP_TELEMETRY_URL</code> / <code>DEVTHROTTLE_TELEMETRY_URL</code>; the stub logged the <code>Authorization</code> header of every POST and returned 200.</li>
+</ul>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Verdict</th></tr>
+
+<tr>
+<td>1</td>
+<td>A fresh Director run never creates the Director credential blob.</td>
+<td>Blob absent before and after a normal run.</td>
+<td>PRE: <code>devthrottle-credential.bin</code> absent. Launched Director (PID 75888, Control API <code>/healthz</code> = 200, directors:1). POST: blob still absent. Log: <code>[DevThrottleCredentialMigration] ... no Director credential blob present (nothing to migrate)</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>An existing blob is deleted on first run of the new build, with a log line.</td>
+<td>Blob present before, absent after, log line.</td>
+<td>Pre-seeded an 8-byte <code>devthrottle-credential.bin</code> (PRE: exists=True, 8 bytes). Launched Director (PID 46932, healthz 200). POST: blob absent. Log: <code>[DevThrottleCredentialMigration] ... deleted stale Director credential blob ... (the Gateway is the account authority now, issue #642)</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Director login and startup telemetry POSTs carry no <code>Authorization</code> header.</td>
+<td>No Authorization header on the telemetry POSTs.</td>
+<td>Stub Gateway captured two <code>POST /telemetry/director-startup</code> requests, both with <code>Authorization=NONE</code>. Login reporter verified by source (no Authorization construction) and unit test <code>ReportLoginAsync_PostsToGatewayWithSourceAppAndNoAuthorizationHeader</code> asserting <code>Request.Headers.Authorization</code> is null.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Director still functions end to end with no local credential (reaches main window, telemetry forwarded).</td>
+<td>Main window reached; telemetry forwarded.</td>
+<td>Both runs: process has a window with <code>MainWindowTitle='CC Director'</code>, <code>HasWindow=True</code>; Control API <code>/healthz</code> = 200; startup telemetry forwarded to the Gateway. No local credential present.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Unit/integration tests updated: no token stored on the Director; reporters send no Bearer; migration deletes a pre-existing blob.</td>
+<td>Tests exist and genuinely assert this.</td>
+<td>Read all four test files. <code>FirstRunLoginCoordinatorTests.RunAsync_DirectorNonPersistingVariant_...</code> asserts <code>store.HasTokens</code> false, <code>account.IsLoggedIn()</code> false. <code>DevThrottleLoginTelemetryReporterTests</code> and <code>DevThrottleDirectorStartupTelemetryReporterTests</code> assert <code>Authorization</code> is null. <code>DevThrottleCredentialMigrationTests</code> asserts a pre-existing blob is deleted. All Core.Tests Account suite (95), full Core.Tests (2332), Avalonia.Tests (82) pass.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression: Gateway credential store (issues #636 / #637) not broken</h2>
+<p>The same <code>CcDirector.Core.Account</code> types are used by the Gateway to STORE a credential. Confirmed independently:</p>
+<ul>
+  <li>The Director's non-persisting variant is an <em>injected</em> seam; the coordinator's default persist action is still <code>_account.StoreTokens</code> &mdash; proven by <code>FirstRunLoginCoordinatorTests.RunAsync_OpensBrowserAtSignInUrlThenCapturesAndStoresCredential</code> (still stores tokens, <code>IsLoggedIn()</code> true).</li>
+  <li>The Gateway stores via <code>service.StoreTokens(...)</code> into <code>CcStorage.GatewayDevThrottleCredentialBlob()</code> = <code>config/gateway/devthrottle-credential.bin</code> &mdash; a path DISTINCT from the Director's <code>config/director/devthrottle-credential.bin</code>. The migration only targets the Director path and never the Gateway path.</li>
+  <li><code>CcDirector.Gateway.Tests</code>: <span class="pass">934 passed, 1 skipped, 0 failed</span> (account service, sign-in service, token refresh, account status endpoint).</li>
+</ul>
+
+<h2>Method / regression sweep</h2>
+<ul>
+  <li>No fallback programming: the migration is fail-loud (no swallow); the startup call site wraps it in a single entry-point try-catch that only logs (never blocks startup).</li>
+  <li>Security: the change removes a stored credential and a Bearer token from telemetry &mdash; it strengthens credential handling (DT-05), never weakens it. The access token is never logged.</li>
+  <li>No CenCon architecture/security doc drift requiring update for this Director-side cleanup.</li>
+</ul>
+
+<div class="verdict">VERIFIED &mdash; all five acceptance criteria met, and the Gateway credential-store regression check passes. This issue is approved.</div>
+</body>
+</html>
