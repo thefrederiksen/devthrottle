@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Local development sign-in stand-in for DevThrottle.
+
+    The real sign-in page (devthrottle.com/signin) is owned by the backend and is not yet built.
+    This tiny tool serves a real sign-in page on loopback and completes the EXACT same browser
+    hand-back the Director's LoopbackLoginListener expects: it redirects the browser to the
+    redirect_uri carrying access_token + refresh_token. That means the whole first-run login flow
+    works end to end on a developer machine with no backend, and the real page can replace this
+    later with zero changes to the desktop app.
+
+    Deliberately standalone (not in cc-director.sln): it is a dev utility, run with `dotnet run`.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>DevThrottle.DevSignin</RootNamespace>
+    <AssemblyName>devthrottle-dev-signin</AssemblyName>
+  </PropertyGroup>
+
+</Project>

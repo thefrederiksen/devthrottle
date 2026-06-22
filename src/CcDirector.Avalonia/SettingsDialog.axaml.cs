@@ -971,9 +971,19 @@ public partial class SettingsDialog : Window
                 return;
             }
 
+            // Logging out is a full sign-out: it stops every running session (like Quit, but returning
+            // to the sign-in screen), so warn with the exact count before doing anything destructive.
+            var sessionCount = app?.SessionManager?.ListSessions().Count ?? 0;
+            var sessionWarning = sessionCount switch
+            {
+                0 => "",
+                1 => " This will stop the 1 session running right now.",
+                _ => $" This will stop all {sessionCount} sessions running right now.",
+            };
+
             var confirm = new ConfirmDialog(
                 "Log out?",
-                "This clears the saved DevThrottle sign-in on this computer and returns you to the sign-in screen. You will need to sign in again to use the Director.",
+                $"Logging out clears the saved DevThrottle sign-in on this computer and returns you to the sign-in screen.{sessionWarning} You will need to sign in again to use the Director.",
                 confirmLabel: "Log out");
             if (await confirm.ShowDialog<bool>(this) != true)
             {
@@ -982,8 +992,17 @@ public partial class SettingsDialog : Window
             }
 
             LogOutButton.IsEnabled = false;
+
+            // Stop all running sessions first (off the UI thread), then clear the credential. A
+            // logged-out account must not leave agent sessions running in the background.
+            if (app?.SessionManager is not null)
+            {
+                FileLog.Write($"[SettingsDialog] BtnLogOut_Click: stopping {sessionCount} running session(s) before sign-out");
+                await Task.Run(() => app!.SessionManager.KillAllSessionsAsync());
+            }
+
             await Task.Run(account.Logout);
-            FileLog.Write("[SettingsDialog] BtnLogOut_Click: credential cleared; returning to the account gate");
+            FileLog.Write("[SettingsDialog] BtnLogOut_Click: sessions stopped and credential cleared; returning to the account gate");
 
             // Hand the window swap to App, which holds shutdown across it. We close this Settings
             // dialog and the main window inside App.ReturnToGateAfterLogout AFTER the gate is shown, so

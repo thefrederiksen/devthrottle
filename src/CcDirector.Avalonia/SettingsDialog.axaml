@@ -149,7 +149,7 @@
                             <StackPanel Spacing="8">
                                 <TextBlock Classes="sectionTitle" Margin="0" Text="Usage telemetry" />
                                 <CheckBox x:Name="TelemetryEnabledCheck"
-                                          Content="Share anonymous usage telemetry"
+                                          Content="Share anonymous usage information to help improve DevThrottle"
                                           IsChecked="True"
                                           Foreground="#CCCCCC" FontSize="13"
                                           Margin="0,4,0,0"

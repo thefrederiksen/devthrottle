@@ -1,0 +1,128 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.FirstRunConsentDialog"
+        Title="How DevThrottle handles your information"
+        Width="880" Height="540"
+        MinWidth="760" MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#1E1E1E">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.brandLogo">
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="#4FC1FF" />
+        </Style>
+        <Style Selector="TextBlock.brandHeadline">
+            <Setter Property="Foreground" Value="#F0F4F8" />
+            <Setter Property="FontSize" Value="28" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="36" />
+        </Style>
+        <Style Selector="TextBlock.brandSub">
+            <Setter Property="Foreground" Value="#A9C7DB" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#E6E6E6" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.point">
+            <Setter Property="Foreground" Value="#D0D0D0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.check">
+            <Setter Property="Foreground" Value="#22C55E" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="44" />
+            <Setter Property="MinWidth" Value="200" />
+            <Setter Property="Padding" Value="20,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#0A86D6" />
+        </Style>
+    </Window.Styles>
+
+    <Grid ColumnDefinitions="*,1.05*">
+
+        <!-- Left: brand panel -->
+        <Border Grid.Column="0">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#0A3A5C" Offset="0" />
+                    <GradientStop Color="#07263B" Offset="0.6" />
+                    <GradientStop Color="#13202A" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <StackPanel VerticalAlignment="Center" Margin="48,0" Spacing="20">
+                <TextBlock Classes="brandLogo" Text="DEVTHROTTLE" />
+                <Border Height="2" Background="#007ACC" HorizontalAlignment="Left" Width="56" />
+                <TextBlock Classes="brandHeadline" Text="You're in. One quick, honest note." />
+                <TextBlock Classes="brandSub"
+                           Text="Here is exactly what we do and do not collect. You stay in control of it." />
+            </StackPanel>
+        </Border>
+
+        <!-- Right: the three points, the choice, and continue -->
+        <Grid Grid.Column="1" Margin="56,0">
+            <StackPanel VerticalAlignment="Center" Spacing="18" MaxWidth="400" HorizontalAlignment="Left">
+
+                <TextBlock Classes="title" Text="Your privacy, in three lines" />
+
+                <StackPanel Spacing="12">
+                    <Grid ColumnDefinitions="24,*">
+                        <TextBlock Grid.Column="0" Classes="check" Text="&#x2713;" />
+                        <TextBlock Grid.Column="1" Classes="point"
+                                   Text="We can see how many people use DevThrottle. That's the whole reason for the account." />
+                    </Grid>
+                    <Grid ColumnDefinitions="24,*">
+                        <TextBlock Grid.Column="0" Classes="check" Text="&#x2713;" />
+                        <TextBlock Grid.Column="1" Classes="point"
+                                   Text="Your code, prompts, files, and sessions never leave your computer." />
+                    </Grid>
+                    <Grid ColumnDefinitions="24,*">
+                        <TextBlock Grid.Column="0" Classes="check" Text="&#x2713;" />
+                        <TextBlock Grid.Column="1" Classes="point"
+                                   Text="Cloud features are coming later, and anything sent to the cloud is always optional." />
+                    </Grid>
+                </StackPanel>
+
+                <!-- The real usage-telemetry opt-out (on by default). -->
+                <Border Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="4">
+                        <CheckBox x:Name="ShareUsageCheck"
+                                  Content="Share anonymous usage information to help improve DevThrottle"
+                                  IsChecked="True"
+                                  Foreground="#E6E6E6" FontSize="14" FontWeight="SemiBold"
+                                  ToolTip.Tip="On by default. You can change this any time under Settings." />
+                        <TextBlock Classes="point" FontSize="12" Foreground="#9A9A9A" Margin="24,0,0,0"
+                                   Text="On by default. Never includes anything about your actual work. Change it any time under Settings." />
+                    </StackPanel>
+                </Border>
+
+                <Button x:Name="ContinueButton" Classes="primaryButton"
+                        Content="Got it - continue" Click="BtnContinue_Click"
+                        IsDefault="True" HorizontalAlignment="Left"
+                        ToolTip.Tip="Save your choice and start using the Director" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

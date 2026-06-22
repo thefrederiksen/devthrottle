@@ -140,6 +140,44 @@ public partial class App : Application
         _ = gate.StartBackgroundValidation();
 
         StartUpdateService(mainWindow);
+
+        // First-run consent step: the first time on this install, explain in plain language what
+        // DevThrottle does and does not collect and let the person set the usage-sharing choice,
+        // before they start using the Director. This is the single chokepoint for both startup paths
+        // (a brand-new account sign-in and an existing credential upgrading into this version), so the
+        // step is shown exactly once regardless of which path reached the main window.
+        ShowFirstRunConsentIfNeeded(mainWindow);
+    }
+
+    /// <summary>
+    /// Shows the first-run consent step (<see cref="FirstRunConsentDialog"/>) modally over the main
+    /// window when it has not yet been acknowledged on this install (<see cref="FirstRunConsent"/>).
+    /// It is posted to run AFTER the main window is shown, so it never delays the window appearing
+    /// (CodingStyle: responsive UI), and is modal so the explanation is acknowledged once. When the
+    /// consent has already been acknowledged this is a no-op. Must be called on the UI thread.
+    /// </summary>
+    private void ShowFirstRunConsentIfNeeded(Window owner)
+    {
+        if (FirstRunConsent.HasAcknowledged())
+        {
+            FileLog.Write("[CcDirector] First-run consent already acknowledged on this install; not showing the consent step");
+            return;
+        }
+
+        global::Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                FileLog.Write("[CcDirector] First-run consent not yet acknowledged; showing the consent step over the main window");
+                var consent = new FirstRunConsentDialog();
+                await consent.ShowDialog(owner);
+                FileLog.Write("[CcDirector] First-run consent step closed");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[CcDirector] First-run consent step FAILED: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>

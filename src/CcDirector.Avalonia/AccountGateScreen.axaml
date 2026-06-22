@@ -2,92 +2,126 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.AccountGateScreen"
         Title="Sign in to DevThrottle"
-        Width="520" Height="420"
-        MinWidth="480" MinHeight="380"
+        Width="880" Height="560"
+        MinWidth="760" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         CanResize="False"
         Background="#1E1E1E">
 
     <Window.Styles>
-        <Style Selector="TextBlock.title">
-            <Setter Property="Foreground" Value="#CCCCCC" />
+        <Style Selector="TextBlock.brandLogo">
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
             <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="#4FC1FF" />
+        </Style>
+        <Style Selector="TextBlock.brandHeadline">
+            <Setter Property="Foreground" Value="#F0F4F8" />
+            <Setter Property="FontSize" Value="30" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="38" />
+        </Style>
+        <Style Selector="TextBlock.brandSub">
+            <Setter Property="Foreground" Value="#A9C7DB" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#E6E6E6" />
+            <Setter Property="FontSize" Value="24" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
-        <Style Selector="TextBlock.body">
-            <Setter Property="Foreground" Value="#AAAAAA" />
-            <Setter Property="FontSize" Value="13" />
+        <Style Selector="TextBlock.sub">
+            <Setter Property="Foreground" Value="#9A9A9A" />
+            <Setter Property="FontSize" Value="14" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
         <Style Selector="Button.primaryButton">
-            <Setter Property="Height" Value="34" />
-            <Setter Property="MinWidth" Value="160" />
-            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="Height" Value="46" />
+            <Setter Property="MinWidth" Value="300" />
+            <Setter Property="Padding" Value="20,0" />
             <Setter Property="Background" Value="#007ACC" />
             <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
-        <Style Selector="Button.secondaryButton">
-            <Setter Property="Height" Value="34" />
-            <Setter Property="MinWidth" Value="100" />
-            <Setter Property="Padding" Value="16,0" />
-            <Setter Property="Background" Value="#3C3C3C" />
-            <Setter Property="Foreground" Value="#CCCCCC" />
+        <Style Selector="Button.primaryButton:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#0A86D6" />
+        </Style>
+        <Style Selector="Button.linkButton">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#8A8A8A" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.linkButton:pointerover /template/ ContentPresenter">
+            <Setter Property="Foreground" Value="#CCCCCC" />
         </Style>
     </Window.Styles>
 
-    <Grid Margin="32" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid ColumnDefinitions="*,1.05*">
 
-        <!-- Brand -->
-        <StackPanel Grid.Row="0" HorizontalAlignment="Left">
-            <TextBlock Text="DEVTHROTTLE"
-                       FontFamily="Cascadia Mono, Consolas, Courier New"
-                       FontSize="15"
-                       FontWeight="Bold"
-                       Foreground="#007ACC" />
-            <Border Height="2" Background="#007ACC"
-                    HorizontalAlignment="Left" Width="60" Margin="0,10,0,0" />
-        </StackPanel>
+        <!-- Left: brand panel -->
+        <Border Grid.Column="0">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#0A3A5C" Offset="0" />
+                    <GradientStop Color="#07263B" Offset="0.6" />
+                    <GradientStop Color="#13202A" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <StackPanel VerticalAlignment="Center" Margin="48,0" Spacing="20">
+                <TextBlock Classes="brandLogo" Text="DEVTHROTTLE" />
+                <Border Height="2" Background="#007ACC" HorizontalAlignment="Left" Width="56" />
+                <TextBlock Classes="brandHeadline" Text="Run more coding agents, with less chaos." />
+                <TextBlock Classes="brandSub"
+                           Text="The Director runs locally on your machine. Sign in once to get started." />
+            </StackPanel>
+        </Border>
 
-        <!-- Heading -->
-        <TextBlock Grid.Row="1" Classes="title"
-                   Text="An account is required to run the Director"
-                   Margin="0,28,0,0" />
+        <!-- Right: action panel -->
+        <Grid Grid.Column="1" Margin="56,0">
+            <StackPanel VerticalAlignment="Center" Spacing="14" MaxWidth="360" HorizontalAlignment="Left">
+                <TextBlock Classes="title" Text="Sign in" />
+                <TextBlock Classes="sub"
+                           Text="An account is required to run the Director. You only sign in once, while online; after that it runs offline on a cached sign-in." />
 
-        <!-- Explanation: why an account is required -->
-        <StackPanel Grid.Row="2" Spacing="14" Margin="0,16,0,0">
-            <TextBlock Classes="body"
-                       Text="DevThrottle is open source, and the Director runs on your machine - but it needs a DevThrottle account before it will start. This is the front door to the product." />
-            <TextBlock Classes="body"
-                       Text="You only have to sign in once, while you are online. After that the Director runs locally and quietly on a cached credential, online or offline - so being off the network later never blocks you." />
-        </StackPanel>
+                <Button x:Name="SignInButton" Classes="primaryButton"
+                        Content="Sign in to DevThrottle" Click="BtnSignIn_Click"
+                        IsDefault="True" Margin="0,8,0,0"
+                        HorizontalAlignment="Stretch"
+                        ToolTip.Tip="Open your web browser to sign in to DevThrottle" />
 
-        <!-- Status line: busy ("waiting for sign-in in your browser") or an error after a failed attempt -->
-        <TextBlock x:Name="StatusText" Grid.Row="3"
-                   Classes="body"
-                   IsVisible="False"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Left"
-                   MaxWidth="240"
-                   Margin="0,24,0,0" />
+                <TextBlock Classes="sub" FontSize="13"
+                           Text="You'll continue with Google, GitHub, or email in your browser." />
 
-        <!-- Actions: the action that leads to login (the system-browser sign-in hand-off, issue #581) -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal"
-                    HorizontalAlignment="Right" Spacing="10" Margin="0,24,0,0">
-            <Button x:Name="QuitButton" Classes="secondaryButton"
-                    Content="Quit" Click="BtnQuit_Click"
-                    ToolTip.Tip="Close the Director" />
-            <Button x:Name="SignInButton" Classes="primaryButton"
-                    Content="Sign in to DevThrottle" Click="BtnSignIn_Click"
-                    IsDefault="True"
-                    ToolTip.Tip="Sign in to your DevThrottle account to start the Director" />
-        </StackPanel>
+                <!-- Status line: busy ("waiting for sign-in in your browser") or an error after a failed attempt -->
+                <TextBlock x:Name="StatusText"
+                           Classes="sub" FontSize="13"
+                           IsVisible="False"
+                           Foreground="#A9C7DB"
+                           Margin="0,4,0,0" />
+
+                <!-- Shown only while a sign-in is in progress, so an abandoned browser sign-in is never a dead end. -->
+                <Button x:Name="CancelButton" Classes="linkButton"
+                        Content="Cancel sign-in" Click="BtnCancel_Click"
+                        IsVisible="False"
+                        HorizontalAlignment="Left" Margin="0,2,0,0"
+                        ToolTip.Tip="Stop waiting for the browser sign-in and return here" />
+
+                <Button x:Name="QuitButton" Classes="linkButton"
+                        Content="Quit" Click="BtnQuit_Click"
+                        HorizontalAlignment="Left" Margin="0,12,0,0"
+                        ToolTip.Tip="Close the Director" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>
