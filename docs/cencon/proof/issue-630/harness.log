@@ -1,0 +1,28 @@
+2026-06-22T10:54:04.1529091Z  [harness] stub cloud (devthrottle.com stand-in) listening at http://127.0.0.1:58577 - MUST receive zero requests
+2026-06-22T10:54:04.1655536Z  [harness] stub gateway listening at http://127.0.0.1:58578/telemetry/login (the Director's new egress target)
+2026-06-22T10:54:04.1656040Z  
+2026-06-22T10:54:04.1656064Z  [harness] AC1: real first-run login WITH a gateway configured
+2026-06-22T10:54:05.0037984Z  [harness]   login succeeded         : True
+2026-06-22T10:54:05.0038490Z  [harness]   gateway received POST   : True path=/telemetry/login
+2026-06-22T10:54:05.0038547Z  [harness]   bearer present          : True
+2026-06-22T10:54:05.0038580Z  [harness]   body.source             : app
+2026-06-22T10:54:05.0038600Z  [harness]   body.app_version        : proof-630
+2026-06-22T10:54:05.0038615Z  [harness]   direct devthrottle.com  : NONE (correct)
+2026-06-22T10:54:05.0038652Z  [harness]   AC1 RESULT              : PASS
+2026-06-22T10:54:05.0038701Z  
+2026-06-22T10:54:05.0038717Z  [harness] AC2: real first-run login WITH NO gateway configured (empty gateway.url)
+2026-06-22T10:54:06.1975187Z  [harness]   login succeeded         : True
+2026-06-22T10:54:06.1977101Z  [harness]   reporter logged skip    : True
+2026-06-22T10:54:06.1977215Z  [harness]   gateway received        : NONE (correct)
+2026-06-22T10:54:06.1977248Z  [harness]   direct devthrottle.com  : NONE (correct)
+2026-06-22T10:54:06.1977437Z  [harness]   AC2 RESULT              : PASS
+2026-06-22T10:54:06.1977579Z  
+2026-06-22T10:54:06.1977831Z  [harness] AC3: real first-run login with the gateway returning 500 (telemetry error)
+2026-06-22T10:54:06.9662231Z  [harness]   login succeeded despite telemetry 500 : True
+2026-06-22T10:54:06.9662468Z  [harness]   gateway WAS contacted (then errored)  : True
+2026-06-22T10:54:06.9662541Z  [harness]   direct devthrottle.com                : NONE (correct)
+2026-06-22T10:54:06.9662638Z  [harness]   AC3 RESULT              : PASS
+2026-06-22T10:54:07.4840138Z  
+2026-06-22T10:54:07.4840512Z  [harness] DT-05 token-never-logged   : NOT in log (correct)
+2026-06-22T10:54:07.4840670Z  
+2026-06-22T10:54:07.4840712Z  [harness] OVERALL: ALL ACCEPTANCE CRITERIA PASS

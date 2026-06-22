@@ -1,0 +1,6 @@
+{
+  "AC1_gateway_post_no_cloud": true,
+  "AC2_no_gateway_noop_skip": true,
+  "AC3_telemetry_error_never_blocks_login": true,
+  "DT05_token_never_logged": true
+}

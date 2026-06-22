@@ -1,0 +1,5 @@
+2026-06-22 06:54:04.233 [DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway http://127.0.0.1:58578/telemetry/login (source=app)
+2026-06-22 06:54:04.279 [DevThrottleLoginTelemetryReporter] ReportLoginAsync: response status=202
+2026-06-22 06:54:05.009 [DevThrottleLoginTelemetryReporter] ReportLoginAsync: no gateway.url configured, skipping login telemetry (Phase 1 no-op)
+2026-06-22 06:54:06.201 [DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway http://127.0.0.1:58578/telemetry/login (source=app)
+2026-06-22 06:54:06.203 [DevThrottleLoginTelemetryReporter] ReportLoginAsync: response status=500

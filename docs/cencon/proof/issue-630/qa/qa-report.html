@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #630 - QA Proof Report - Re-point the Director's login telemetry to the Gateway</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 0 0 64px; color: #1b1f24; background: #f6f8fa; }
+  header { background: #0d1b2a; color: #fff; padding: 28px 40px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header .sub { color: #9fb3c8; font-size: 14px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { background: #fff; border: 1px solid #d7dee6; border-radius: 8px; margin: 24px 0; padding: 20px 24px; }
+  h2 { font-size: 18px; margin: 0 0 12px; border-bottom: 2px solid #eef1f4; padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid #e1e7ee; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #0a7d33; font-weight: 700; }
+  pre { background: #0d1b2a; color: #d7e3ee; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+  .verdict { font-size: 16px; font-weight: 700; color: #0a7d33; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Issue #630 - QA Proof Report</h1>
+  <div class="sub">Re-point the Director's login telemetry to the Gateway &middot; Gateway Centralization Phase 1 &middot; PR #662 &middot; Independent QA verification</div>
+</header>
+<main>
+
+<section>
+  <h2>Summary</h2>
+  <p>Independent verification of PR #662 against issue #630's four acceptance criteria. The QA Agent
+  built the PR branch in its own worktree, read the source and test diffs, ran the unit tests itself,
+  grepped the code path to confirm no direct <code>devthrottle.com</code> login call remains, and built
+  the full solution clean. The Developer Agent's report and proof were treated as context, not proof.</p>
+  <p class="verdict">VERIFIED - all acceptance criteria met.</p>
+</section>
+
+<section>
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+    <tr>
+      <td>AC1</td>
+      <td>After login, Director POSTs to <code>&lt;gateway.url&gt;/telemetry/login</code> and makes no direct devthrottle.com call.</td>
+      <td>POST target = gateway URL + /telemetry/login, Bearer access token, body source=app; no cloud call.</td>
+      <td>Unit test ReportLoginAsync_PostsToGatewayWithBearerTokenAndSourceApp asserts exactly 1 POST to TestGatewayUrl + GatewayLoginPath, Bearer scheme + token, body source=app + app_version. Code grep: ResolveTargetUrl() returns only the env override, or &lt;gateway.url&gt;/telemetry/login, or null - there is NO code path that POSTs to devthrottle.com. The devthrottle.com string in the reporter is the renamed ForwardTargetEndpoint constant (documentation only) and comments.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>AC2</td>
+      <td>No gateway.url configured: login succeeds, reporter logs a skip line, no crash, no devthrottle.com call.</td>
+      <td>Empty gateway URL (and no env override) -> 0 HTTP calls, skip line logged, no exception.</td>
+      <td>Unit test ReportLoginAsync_NoGatewayConfigured_IsNoOpAndMakesNoCall: gatewayUrl="" yields handler.CallCount==0 and handler.Request==null, no throw. Confirmed DEVTHROTTLE_TELEMETRY_URL is unset on the test machine so the no-op path is genuinely exercised. Code writes "no gateway.url configured, skipping login telemetry (Phase 1 no-op)" then returns.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>AC3</td>
+      <td>A telemetry error never blocks or fails login (best-effort preserved).</td>
+      <td>A non-success response / exception is swallowed; login still succeeds.</td>
+      <td>FirstRunLoginCoordinator.ReportLoginBestEffort fires the report detached in Task.Run with a try/catch that logs and ignores any exception (best-effort). Unit test ReportLoginAsync_NonSuccess_Throws confirms a 500 surfaces as HttpRequestException, which the best-effort caller catches. Login is never on the telemetry path.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>AC4</td>
+      <td>Unit tests updated: reporter targets the Gateway URL with Bearer + source body; no-gateway path is a logged no-op.</td>
+      <td>Tests assert the gateway target/Bearer/source and the no-op-no-call path; all green.</td>
+      <td>Read the tests - they genuinely assert the gateway target URL, Bearer token, source=app body, trailing-slash collapse, and the zero-call no-op path. QA ran them: 6 reporter tests + 4 coordinator tests = 10 passed, 0 failed.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Security and method checks</h2>
+  <ul>
+    <li><strong>DT-05 (token never logged):</strong> the reporter logs only the resolved endpoint URL and the response status code; the access token travels solely in the Authorization header and is never written to the log. PASS.</li>
+    <li><strong>Scope:</strong> only src/CcDirector.Core/Account/DevThrottleLoginTelemetryReporter.cs and src/CcDirector.Core.Tests/Account/DevThrottleLoginTelemetryReporterTests.cs changed (plus proof artifacts). Matches the issue's Affected Containers. PASS.</li>
+    <li><strong>No CenCon drift:</strong> behavior-preserving re-point; no architecture/security doc update required. PASS.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Build and test evidence (QA run)</h2>
+  <pre>QA worktree: D:\ReposFred\dt-630-qa  (origin/issue-630-gateway-login-telemetry @ 783df30)
+
+dotnet test ...DevThrottleLoginTelemetryReporterTests
+  Passed!  - Failed: 0, Passed: 6, Skipped: 0, Total: 6
+
+dotnet test ...FirstRunLoginCoordinator
+  Passed!  - Failed: 0, Passed: 4, Skipped: 0, Total: 4
+
+DEVTHROTTLE_TELEMETRY_URL = []   (unset - no-op path genuinely exercised)
+
+dotnet build cc-director.sln
+  Build succeeded.
+  0 Warning(s)
+  0 Error(s)</pre>
+</section>
+
+</main>
+</body>
+</html>
