@@ -42,6 +42,21 @@ public sealed class DevThrottleDirectorStartupTelemetryReporterTests
     }
 
     [Fact]
+    public async Task ReportStartupAsync_SendsNoAuthorizationHeader()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK);
+        var reporter = new DevThrottleDirectorStartupTelemetryReporter(
+            new HttpClient(handler), machineName: "TEST-MACHINE", appVersion: "1.2.3", gatewayUrl: TestGatewayUrl);
+
+        await reporter.ReportStartupAsync("dir-abc");
+
+        // Issue #642: the Director holds no credential; the Gateway attaches its own token on the
+        // forward (issue #639), so the Director's startup POST carries NO Authorization header.
+        Assert.NotNull(handler.Request);
+        Assert.Null(handler.Request.Headers.Authorization);
+    }
+
+    [Fact]
     public async Task ReportStartupAsync_TrailingSlashGatewayUrl_DoesNotDoubleSlash()
     {
         var handler = new CapturingHandler(HttpStatusCode.OK);

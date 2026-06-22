@@ -46,6 +46,7 @@ public sealed class FirstRunLoginCoordinator
     private readonly Func<string, Task> _openBrowser;
     private readonly Func<LoopbackLoginListener> _listenerFactory;
     private readonly ILoginTelemetryReporter _loginReporter;
+    private readonly Action<DevThrottleTokens> _persistCredential;
 
     /// <summary>
     /// Creates the coordinator. The collaborators are injected so the flow is testable without a real
@@ -64,11 +65,18 @@ public sealed class FirstRunLoginCoordinator
     /// best-effort on success. Defaults to the real <see cref="DevThrottleLoginTelemetryReporter"/>
     /// stamped with this build's version.
     /// </param>
+    /// <param name="persistCredential">
+    /// What to do with the captured token pair. Defaults to storing it through the credential service
+    /// (<see cref="DevThrottleAccountService.StoreTokens"/>) - the Gateway path, where the Gateway is the
+    /// account authority and DOES keep the credential (issues #636/#637). The Director (issue #642) injects
+    /// a NON-persisting action via <see cref="WithoutPersisting"/> so it holds no credential of its own.
+    /// </param>
     public FirstRunLoginCoordinator(
         DevThrottleAccountService account,
         Func<string, Task>? openBrowser = null,
         Func<LoopbackLoginListener>? listenerFactory = null,
-        ILoginTelemetryReporter? loginReporter = null)
+        ILoginTelemetryReporter? loginReporter = null,
+        Action<DevThrottleTokens>? persistCredential = null)
     {
         _account = account ?? throw new ArgumentNullException(nameof(account));
         _openBrowser = openBrowser ?? (url =>
@@ -78,6 +86,20 @@ public sealed class FirstRunLoginCoordinator
         });
         _listenerFactory = listenerFactory ?? (() => new LoopbackLoginListener());
         _loginReporter = loginReporter ?? new DevThrottleLoginTelemetryReporter(appVersion: AppVersion.Semver);
+        _persistCredential = persistCredential ?? _account.StoreTokens;
+    }
+
+    /// <summary>
+    /// A non-persisting credential action (issue #642): it deliberately stores NOTHING, logging only that
+    /// the capture was not persisted. The Director uses this so a sign-in on the Director never writes a
+    /// local credential blob - the Gateway is the single account authority. The captured token value is
+    /// never logged.
+    /// </summary>
+    public static void WithoutPersisting(DevThrottleTokens tokens)
+    {
+        if (tokens is null)
+            throw new ArgumentNullException(nameof(tokens));
+        FileLog.Write("[FirstRunLoginCoordinator] WithoutPersisting: captured credential NOT persisted on the Director (Gateway is the authority, issue #642)");
     }
 
     /// <summary>
@@ -141,8 +163,8 @@ public sealed class FirstRunLoginCoordinator
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
 
-        _account.StoreTokens(tokens);
-        FileLog.Write("[FirstRunLoginCoordinator] RunAsync: credential captured and stored through the credential service");
+        _persistCredential(tokens);
+        FileLog.Write("[FirstRunLoginCoordinator] RunAsync: credential captured (persistence handled by the injected persist action)");
 
         ReportLoginBestEffort(tokens.AccessToken);
         return FirstRunLoginResult.Success();

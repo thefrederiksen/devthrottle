@@ -1,0 +1,7 @@
+2026-06-22T18:37:51.0939932Z  Stub gateway listening on http://127.0.0.1:63635 (records Authorization header for each POST)
+2026-06-22T18:37:51.0959908Z  AC3a: firing the REAL login telemetry reporter against the stub gateway ...
+2026-06-22T18:37:51.3752287Z  AC3a: gateway received POST /telemetry/login; source=app; Authorization header present=False (value=<none>) -> PASS
+2026-06-22T18:37:51.3752572Z  AC3b: firing the REAL director-startup telemetry reporter against the stub gateway ...
+2026-06-22T18:37:51.5850496Z  AC3b: gateway received POST /telemetry/director-startup; Authorization header present=False (value=<none>) -> PASS
+2026-06-22T18:37:51.5928498Z  AC2: blob presentBefore=True, migration deleted=True, absentAfter=True -> PASS
+2026-06-22T18:37:51.5928979Z  AC1: migration with no blob -> reported deleted=False (expected False), file created=False (expected False) -> PASS

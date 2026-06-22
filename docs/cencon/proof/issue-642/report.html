@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #642 - Developer Agent proof report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1100px; }
+  h1 { border-bottom: 2px solid #0a66c2; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #0a3d62; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #1e7a35; font-weight: bold; }
+  code { background: #f5f5f5; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #f5f5f5; padding: .8rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; margin: .5rem 0; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #642 - Director holds no credential and sends no token (plus migrate the blob)</h1>
+
+<p><strong>Branch:</strong> <code>issue-642-director-no-credential</code><br>
+<strong>Touches:</strong> CcDirector.Core (account/telemetry), CcDirector.Avalonia (startup), CcDirector.Core.Tests<br>
+<strong>Build:</strong> <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Login telemetry sends no Authorization header.</strong>
+      <code>DevThrottleLoginTelemetryReporter.ReportLoginAsync</code> no longer attaches a
+      <code>Bearer</code> token. The Director holds no credential; the Gateway attaches its own account
+      token when it forwards (issue #639). The director-startup reporter already sent no Authorization
+      header and stays that way (now covered by a test).</li>
+  <li><strong>The Director login flow no longer persists a token.</strong>
+      <code>FirstRunLoginCoordinator</code> gained an injectable <code>persistCredential</code> seam
+      (default = <code>account.StoreTokens</code>, which preserves the Gateway sign-in path that
+      legitimately stores). The Director's post-logout <code>AccountGateScreen</code> now wires the
+      coordinator with <code>FirstRunLoginCoordinator.WithoutPersisting</code>, so a sign-in on the
+      Director captures and reports the login but writes NO local credential blob.</li>
+  <li><strong>Migration: the stale blob is deleted on upgrade.</strong>
+      New <code>DevThrottleCredentialMigration.DeleteStaleDirectorCredential</code> deletes any
+      pre-existing <code>%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin</code>
+      with a log line. It is called from <code>App.InitializeServices</code> on every launch (before the
+      account service is built). It targets ONLY the Director's per-install blob, never the Gateway's.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>A fresh Director run never creates <code>devthrottle-credential.bin</code>.</td>
+    <td>File absent after a normal run.</td>
+    <td>Launched the real Director (slot 14, PID 85788). The blob was absent before and stayed absent;
+        the migration logged "no Director credential blob present (nothing to migrate)".
+        See <code>ac1-fresh-run-no-blob.txt</code>. Also proven at the unit/harness level
+        (AC1 in <code>harness.log</code>).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>An existing blob present before upgrade is deleted on first run, with a log line.</td>
+    <td>Present before, absent after, deletion logged.</td>
+    <td>Seeded an 8-byte blob at the real Director path, then launched the real Director (PID 78556).
+        The blob was deleted; log line:
+        <code>[DevThrottleCredentialMigration] ... deleted stale Director credential blob ... (issue #642)</code>.
+        See <code>ac2-migration-deletes-blob.txt</code>. Also proven by the harness (AC2) and three
+        unit tests.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Login and startup telemetry POSTs carry no Authorization header (verified via a Gateway capture).</td>
+    <td>No Authorization header on either POST.</td>
+    <td>The proof harness drives the REAL reporters against a stub Gateway that records the inbound
+        Authorization header. Login POST <code>/telemetry/login</code>: Authorization present = False.
+        Startup POST <code>/telemetry/director-startup</code>: Authorization present = False.
+        See <code>results.json</code> / <code>harness.log</code>. Also covered by unit tests.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>The Director still functions end to end with no local credential (reaches the main window).</td>
+    <td>Main window shown; boots unconditionally (#664).</td>
+    <td>Both launches showed the main window ("Main window shown ..." log line) and a healthy Control
+        API (<code>/healthz</code> status=ok). Screenshot: <code>ac4-director-main-window.png</code>
+        (CC Director main window, "All systems go", no sign-in prompt).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Tests updated: no token stored on the Director; reporters send no Bearer; migration deletes a blob.</td>
+    <td>Passing tests.</td>
+    <td>95 Account tests pass (<code>unit-tests-output.txt</code>), including: login reporter sends no
+        Authorization; startup reporter sends no Authorization; the Director non-persisting coordinator
+        path stores nothing; and three migration tests (delete present blob, no-op on absent, safe to
+        re-run). The Gateway suite (934 passed) confirms the shared coordinator's storing path is
+        unchanged.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>AC4 screenshot - Director main window with no local credential</h2>
+<img src="ac4-director-main-window.png" alt="CC Director main window reached with no local credential">
+
+<h2>Harness output (AC1/AC2/AC3)</h2>
+<pre>AC3a: gateway received POST /telemetry/login; source=app; Authorization header present=False -&gt; PASS
+AC3b: gateway received POST /telemetry/director-startup; Authorization header present=False -&gt; PASS
+AC2:  blob presentBefore=True, migration deleted=True, absentAfter=True -&gt; PASS
+AC1:  migration with no blob -&gt; reported deleted=False, file created=False -&gt; PASS
+OVERALL: ALL ACCEPTANCE CRITERIA PASS</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture container changes. The security posture only strengthens: the Director ceases to
+store a DevThrottle credential and stops sending a bearer token, confining the account token to the
+Gateway. No blocking security rule (DT-01..DT-07) is violated and none needed a change; DT-05
+(information disclosure) is reinforced because the token is no longer held or transmitted by the
+Director, and the access token is still never logged. No <code>docs/cencon/</code> drift.</p>
+
+<h2>Proof files</h2>
+<ul class="files">
+  <li><code>ac1-fresh-run-no-blob.txt</code> - real Director: fresh run, blob absent, migration "nothing to delete".</li>
+  <li><code>ac2-migration-deletes-blob.txt</code> - real Director: seeded blob deleted on first run, with the log line.</li>
+  <li><code>ac3 (results.json + harness.log)</code> - stub-Gateway capture: no Authorization header on either telemetry POST.</li>
+  <li><code>ac4-director-main-window.png</code> - the Director reaching the main window with no credential.</li>
+  <li><code>unit-tests-output.txt</code> - 95 Account tests passing.</li>
+  <li><code>_proof-harness/</code> - the throwaway proof harness (not in cc-director.sln, not shipped).</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong> All five acceptance criteria are met and proven against a
+real running Director and a stub Gateway, the full solution builds clean (0 warnings, 0 errors), and the
+shared Gateway sign-in path is preserved.</p>
+
+</body>
+</html>

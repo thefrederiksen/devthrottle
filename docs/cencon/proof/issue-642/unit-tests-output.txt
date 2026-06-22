@@ -1,0 +1,10 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wt-642\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wt-642\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wt-642\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Core.Tests -> D:\ReposFred\devthrottle-wt-642\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll
+Test run for D:\ReposFred\devthrottle-wt-642\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    95, Skipped:     0, Total:    95, Duration: 421 ms - CcDirector.Core.Tests.dll (net10.0)
