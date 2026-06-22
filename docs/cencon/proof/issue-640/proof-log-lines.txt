@@ -1,0 +1,26 @@
+2026-06-22 12:32:42.681 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-22 12:32:42.681 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-22 12:32:42.681 [GatewayHttpTokenRefresher] RefreshAsync: evaluating configured refresh endpoint
+2026-06-22 12:32:42.744 [GatewayHttpTokenRefresher] RefreshAsync: refreshed token pair received from the backend exchange
+2026-06-22 12:32:42.744 [DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored
+2026-06-22 12:32:42.758 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-22 12:32:42.763 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-22 12:32:42.763 [GatewayHttpTokenRefresher] RefreshAsync: evaluating configured refresh endpoint
+2026-06-22 12:32:42.763 [GatewayHttpTokenRefresher] RefreshAsync: no refresh endpoint configured (DEVTHROTTLE_REFRESH_URL unset) -> refresh unavailable (cached credential kept)
+2026-06-22 12:32:42.763 [DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential
+2026-06-22 12:32:42.765 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-22 12:32:42.770 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-22 12:32:42.770 [GatewayHttpTokenRefresher] RefreshAsync: evaluating configured refresh endpoint
+2026-06-22 12:32:42.778 [GatewayHttpTokenRefresher] ExchangeAsync: refresh endpoint unreachable or unparseable -> refresh unavailable: The requested address is not valid in its context. (127.0.0.1:0)
+2026-06-22 12:32:42.778 [GatewayHttpTokenRefresher] RefreshAsync: refresh unavailable (endpoint unreachable or declined) -> cached credential kept
+2026-06-22 12:32:42.778 [DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential
+2026-06-22 12:32:42.792 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-22 12:32:42.798 [DevThrottleAccountService] RefreshIfNeededAsync: access token still valid -> no refresh needed
+2026-06-22 12:32:42.803 [GatewayTokenRefreshService] Start: background token refresh every 30s (first sweep in 0s)
+2026-06-22 12:32:43.008 [DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential
+2026-06-22 12:32:43.009 [DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+2026-06-22 12:32:43.009 [GatewayHttpTokenRefresher] RefreshAsync: evaluating configured refresh endpoint
+2026-06-22 12:32:43.013 [GatewayHttpTokenRefresher] RefreshAsync: refreshed token pair received from the backend exchange
+2026-06-22 12:32:43.013 [DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored
+2026-06-22 12:32:43.014 [GatewayTokenRefreshService] RefreshOnceAsync: access token renewed in the background
+2026-06-22 12:32:43.024 [GatewayTokenRefreshService] Dispose: stopping background token refresh

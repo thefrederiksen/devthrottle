@@ -1,0 +1,51 @@
+D:\ReposFred\devthrottle-wt-640\proof-harness\Program.cs(117,16): warning CA1416: This call site is reachable on all platforms. 'WindowsProtectedTokenStore.Load()' is only supported on: 'windows'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [D:\ReposFred\devthrottle-wt-640\proof-harness\Issue640Proof.csproj]
+D:\ReposFred\devthrottle-wt-640\proof-harness\Program.cs(96,16): warning CA1416: This call site is reachable on all platforms. 'WindowsProtectedTokenStore.Load()' is only supported on: 'windows'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [D:\ReposFred\devthrottle-wt-640\proof-harness\Issue640Proof.csproj]
+D:\ReposFred\devthrottle-wt-640\proof-harness\Program.cs(42,17): warning CA1416: This call site is reachable on all platforms. 'WindowsProtectedTokenStore' is only supported on: 'windows'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [D:\ReposFred\devthrottle-wt-640\proof-harness\Issue640Proof.csproj]
+D:\ReposFred\devthrottle-wt-640\proof-harness\Program.cs(96,16): warning CA1416: This call site is reachable on all platforms. 'WindowsProtectedTokenStore' is only supported on: 'windows'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [D:\ReposFred\devthrottle-wt-640\proof-harness\Issue640Proof.csproj]
+D:\ReposFred\devthrottle-wt-640\proof-harness\Program.cs(117,16): warning CA1416: This call site is reachable on all platforms. 'WindowsProtectedTokenStore' is only supported on: 'windows'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [D:\ReposFred\devthrottle-wt-640\proof-harness\Issue640Proof.csproj]
+ISSUE 640 PROOF - Gateway-owned token refresh
+log file: C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-22-30384.log
+
+==== CRITERION 1: expired-but-well-formed token + stub endpoint -> exchanges and stores a fresh valid pair ====
+seeded access token expired? True
+signed-in before refresh (well-formed expired still counts)? True
+forwardable current token before refresh? True
+RefreshIfNeededAsync returned: True  (expected True)
+stub received exactly one exchange? True
+stub received the cached refresh token? True
+forwardable current (non-expired) token after refresh? True
+stored access token now non-expired? True
+RESULT: PASS
+
+==== CRITERION 2: NO refresh endpoint configured -> keeps the cached credential and logs unavailability ====
+RefreshIfNeededAsync returned: False  (expected False)
+cached credential kept unchanged (same expired access token)? True
+cached refresh token kept unchanged? True
+still reports signed-in on the kept (well-formed) token? True
+no crash (we got here) ? True
+RESULT: PASS
+
+==== CRITERION 2b: endpoint configured but UNREACHABLE -> keeps cached credential, no crash ====
+RefreshIfNeededAsync returned: False  (expected False)
+cached credential kept unchanged? True
+RESULT: PASS
+
+==== CRITERION 3: still-valid (unexpired) access token -> NO refresh exchange ====
+RefreshIfNeededAsync returned: False  (expected False)
+stub exchange request count: 0  (expected 0)
+RESULT: PASS
+
+==== CRITERION 4: refresh runs in the BACKGROUND via GatewayTokenRefreshService and never blocks ====
+Start() returned in 0 ms (immediate, did not block) - exchanges so far: 0 (expected 0 right after Start)
+token already refreshed at Start() time? False  (expected False - it runs LATER, in the background)
+background exchange happened after Start() returned? True
+token is now non-expired after the background refresh? True
+RESULT: PASS
+
+==== SECURITY + LOGGING: tokens absent from the log; unavailability is logged ====
+seed refresh token marker absent from log? True
+rotated refresh token marker absent from log? True
+unavailability clearly logged (criterion 2)? True
+RESULT: PASS
+
+PROOF COMPLETE
