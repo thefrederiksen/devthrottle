@@ -95,6 +95,13 @@
     </NavLink>
     @* The standalone "API Keys" item was folded into Settings > Transcription (issue #497):
        both transcription keys are managed where they are used. *@
+    @* Account - the DevThrottle identity this Gateway is signed in as, plus the Log out action
+       (issue #648). The credential lives on the Gateway, so identity + logout surface here on the
+       Cockpit. In-app NavLink, same rail pattern as the rest. *@
+    <NavLink class="nv-item" href="/account" title="Account - the signed-in DevThrottle identity and Log out">
+        <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.75" /><path d="M3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4" /></svg>
+        <span class="nv-label">Account</span>
+    </NavLink>
     <NavLink class="nv-item" href="/about" title="About - version, URL, what's installed">
         <svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" /><path d="M8 7.25v3.75M8 5h.01" /></svg>
         <span class="nv-label">About</span>

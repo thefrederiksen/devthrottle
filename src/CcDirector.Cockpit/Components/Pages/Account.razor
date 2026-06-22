@@ -1,0 +1,125 @@
+@page "/account"
+@using CcDirector.Gateway.Contracts
+@inject CcDirector.Cockpit.Services.GatewayClient Gateway
+
+@* Gateway Centralization Phase 3 (issue #648): the DevThrottle account surface on the Cockpit (the
+   Gateway's web dashboard). The credential now lives on the Gateway, so identity + logout belong here.
+   This page is a pure CLIENT of the Gateway account endpoints: it READS the signed-in identity from
+   GET /account/status (#638, computed locally on the Gateway with no cloud call) and CLEARS it via
+   POST /account/logout (#648). The raw access/refresh token is NEVER fetched, stored, or displayed -
+   the contract carries only the boolean + identity (security rule DT-05). Styled to match the Cockpit
+   page conventions (the dark VS Code palette used by About.razor). *@
+
+<PageTitle>Account - DevThrottle</PageTitle>
+
+<div style="padding:24px; color:#ccc; font-family:'Segoe UI',sans-serif; max-width:780px;">
+    <h1 style="color:#fff; font-size:22px; font-weight:600; margin:0 0 4px;">DevThrottle Account</h1>
+    <div style="color:#888; font-size:12px; margin-bottom:16px;">
+        The DevThrottle identity this Gateway is signed in as. The credential lives on the Gateway; this is read locally, with no cloud call.
+    </div>
+
+    @if (_error is not null)
+    {
+        <div style="background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:12px; border-radius:6px;">
+            Could not load account status from the Gateway: @_error
+        </div>
+    }
+    else if (_status is null)
+    {
+        <p style="color:#888;">Loading...</p>
+    }
+    else if (_status.SignedIn)
+    {
+        <div style="background:#252526; border-radius:8px; padding:18px;">
+            <div style="display:flex; align-items:center; margin-bottom:14px;">
+                <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#22C55E; margin-right:8px;"></span>
+                <span style="color:#22C55E; font-size:13px; font-weight:600;">Signed in</span>
+            </div>
+            @Row("Email", string.IsNullOrEmpty(_status.Email) ? "(not available)" : _status.Email!)
+            @Row("Provider", string.IsNullOrEmpty(_status.Provider) ? "(not available)" : _status.Provider!)
+        </div>
+
+        <div style="margin-top:18px;">
+            <button @onclick="LogOutAsync" disabled="@_busy"
+                    style="height:30px; padding:0 16px; background:@(_busy ? "#004E82" : "#007ACC"); color:@(_busy ? "#6699BB" : "#fff"); border:none; border-radius:4px; cursor:@(_busy ? "default" : "pointer"); font-size:13px;">
+                @(_busy ? "Logging out..." : "Log out")
+            </button>
+            <span style="color:#888; font-size:12px; margin-left:12px;">Clears the Gateway credential and returns the Gateway to its sign-in prompt.</span>
+        </div>
+    }
+    else
+    {
+        <div style="background:#252526; border-radius:8px; padding:18px;">
+            <div style="display:flex; align-items:center; margin-bottom:10px;">
+                <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#888; margin-right:8px;"></span>
+                <span style="color:#ccc; font-size:13px; font-weight:600;">Not signed in</span>
+            </div>
+            <div style="color:#aaa; font-size:13px; line-height:1.5;">
+                This Gateway is not signed in to DevThrottle. Use the <strong style="color:#ccc;">"Sign in to DevThrottle"</strong>
+                action on the Gateway tray to sign in; the Gateway also prompts sign-in automatically the next time it launches.
+            </div>
+        </div>
+    }
+
+    @if (_loggedOut)
+    {
+        <div style="margin-top:16px; background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:10px 12px; border-radius:6px; font-size:13px;">
+            Logged out. The Gateway credential was cleared.
+        </div>
+    }
+</div>
+
+@code {
+    private AccountStatusDto? _status;
+    private string? _error;
+    private bool _busy;
+    private bool _loggedOut;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatusAsync();
+    }
+
+    private async Task LoadStatusAsync()
+    {
+        try
+        {
+            _error = null;
+            _status = await Gateway.GetAccountStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task LogOutAsync()
+    {
+        if (_busy)
+            return;
+
+        _busy = true;
+        _loggedOut = false;
+        try
+        {
+            _status = await Gateway.LogoutAccountAsync();
+            _loggedOut = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private RenderFragment Row(string label, string value) => __builder =>
+    {
+        <div style="display:flex; margin-bottom:6px;">
+            <div style="width:120px; color:#aaa; font-size:13px;">@label</div>
+            <div style="flex:1; color:#ccc; font-size:13px; font-family:'Cascadia Mono',Consolas,monospace; word-break:break-all;">@value</div>
+        </div>
+    };
+}

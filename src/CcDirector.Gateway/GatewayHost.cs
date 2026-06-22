@@ -724,6 +724,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // not-signed-in.
         AccountStatusEndpoint.Map(_app, Account);
 
+        // Gateway Centralization Phase 3 (issue #648): POST /account/logout CLEARS the Gateway-hosted
+        // DevThrottle credential through the same reused DevThrottleAccountService (Account). The account
+        // lives on the gateway, so the logout action lives here too: the Cockpit account surface calls
+        // it, and afterward GET /account/status reports signedIn=false and the gateway returns to its
+        // sign-in prompt. The clear is entirely local (no cloud call) and the response carries only the
+        // post-logout boolean, never the access/refresh token (security rule DT-05). Inherits the
+        // host-wide token middleware above. On a host with no credential service (Account null) there is
+        // nothing to clear and it reports not-signed-in.
+        AccountLogoutEndpoint.Map(_app, Account);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure
