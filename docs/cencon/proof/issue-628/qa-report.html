@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #628 (Gateway login-telemetry relay)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #2b6cb0; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #22683b; font-weight: bold; }
+  .fail { color: #b91c1c; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; background: #f7fafc; }
+  pre { padding: .6rem; border: 1px solid #e2e8f0; overflow-x: auto; }
+  .verdict { background: #f0fff4; border: 1px solid #22683b; padding: 1rem; margin-top: 1.5rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #628</h1>
+<p><strong>Title:</strong> [Gateway] Telemetry login relay endpoint that forwards to the cloud<br>
+<strong>Pull request:</strong> #654 (branch <code>issue-628-telemetry-login-relay</code>)<br>
+<strong>QA verifier:</strong> independent QA Agent session (separate identity from the developer session)<br>
+<strong>Method:</strong> own worktree off the pull-request branch; clean full-solution build; full Gateway
+unit-test regression suite; and a LIVE harness that boots the actual production
+<code>TelemetryRelayEndpoint.Map</code> (invoked via reflection - the type is internal) over a real Kestrel
+HTTP wire with a real <code>curl</code> client and the real <code>FileLog</code> sink, plus a stub backend I control,
+driven through the <code>DEVTHROTTLE_TELEMETRY_URL</code> override exactly as the issue's Proof Target asks.</p>
+
+<h2>Build and regression</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> - <span class="pass">Build succeeded. 0 Warning(s) / 0 Error(s)</span></li>
+  <li><code>dotnet test CcDirector.Gateway.Tests</code> (full suite) - <span class="pass">883 passed, 1 skipped (unrelated transcription test), 0 failed</span></li>
+  <li>Scope - only <code>CcDirector.Gateway</code> (new <code>Api/TelemetryRelayEndpoint.cs</code> + 7 lines in
+      <code>GatewayHost.cs</code>), <code>CcDirector.Gateway.Tests</code>, the CenCon manifest, and proof files changed. <span class="pass">In scope.</span></li>
+  <li>Wiring - <code>TelemetryRelayEndpoint.Map(_app)</code> is mapped AFTER the host-wide gateway-token
+      auth middleware in <code>GatewayHost.StartAsync</code>, so it inherits the existing gateway.token convention as required.</li>
+</ul>
+
+<h2>Acceptance criteria - independently verified</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>POST /telemetry/login returns 202 for a valid body + Bearer.</td>
+<td>HTTP 202 Accepted.</td>
+<td>Live <code>curl</code> POST with <code>{"source":"app","app_version":"7.7.7"}</code> + Bearer -> <code>HTTP_STATUS=202</code>, empty body.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>One Gateway POST -> exactly one stub POST, same Bearer + body with source:"app".</td>
+<td>Exactly one forwarded POST; identical Bearer; body has source:"app".</td>
+<td>Stub request log = 1 line:<br>
+<pre>POST /api/v1/telemetry/login AUTH=[Bearer QA628-DISTINCTIVE-TOKEN-zzz999-DO-NOT-LOG] BODY={"source":"app","app_version":"7.7.7"}</pre>
+Exactly one entry; method POST; correct path; same distinctive Bearer; body carries source:"app".</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Backend 5xx OR unreachable -> caller still gets non-5xx, failure logged.</td>
+<td>Caller gets non-5xx (202); a failure line is logged in each case.</td>
+<td><b>5xx:</b> stub returns 500 -> caller <code>HTTP_STATUS=202</code>; log: <code>forward FAILED (backend status): ... -> 500 (best-effort, caller still accepted)</code>.<br>
+<b>Unreachable:</b> dead port -> caller <code>HTTP_STATUS=202</code>; log: <code>forward FAILED (unreachable): ... actively refused it ... (best-effort, caller still accepted)</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>The access token is NEVER written to the Gateway log.</td>
+<td>The distinctive token string is absent from the Gateway log; logging still wired.</td>
+<td>For all three live runs (success, 5xx, unreachable) I grepped the exact per-process Gateway
+<code>FileLog</code> file (<code>director-2026-06-22-&lt;PID&gt;.log</code>) AND all director logs for the distinctive
+token (e.g. <code>QA628-DISTINCTIVE-TOKEN-zzz999-DO-NOT-LOG</code>) -> <b>0 matches</b> every time. The relay DID log
+on this path (<code>... -&gt; forwarding to ... (bearerPresent=True)</code> and the outcome line), proving logging is
+wired while the token value never appears.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Unit tests cover forward happy-path and backend-failure.</td>
+<td>Tests assert correct URL, POST, Bearer header, source:"app" body; and caller-success + failure-logged.</td>
+<td>I read <code>TelemetryRelayEndpointTests.cs</code>: the happy-path test asserts <code>Assert.Single(captured)</code>
+(exactly one forward), method <code>POST</code>, path <code>/api/v1/telemetry/login</code>, <code>Bearer {AccessToken}</code> exact
+match, and <code>source == "app"</code>; the 5xx and unreachable tests assert the caller gets 202 / non-5xx; and a
+dedicated test reads the real FileLog and asserts the relay logged a line yet the token is absent. 7/7 pass.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>The change is purely additive (a new endpoint + its mapping). Full Gateway suite green (883/884, the one skip
+pre-existing and unrelated). No adjacent endpoint or middleware behaviour altered. The try/catch is confined to the
+single outbound forward call (the correct boundary), and the relay always answers 202 - it can never surface a
+backend error to the Director.</p>
+
+<div class="verdict">
+<strong>VERIFIED - all 5 acceptance criteria met.</strong> Build clean, full Gateway regression green, live
+end-to-end proof for AC1-AC4 with my own curl + stub + log grep, and AC5 confirmed by reading the test assertions.
+The security gate (AC4 - token never logged) passed in all three scenarios.
+</div>
+
+</body>
+</html>
