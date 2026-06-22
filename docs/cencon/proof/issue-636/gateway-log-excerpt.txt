@@ -1,0 +1,31 @@
+﻿2026-06-22 10:10:29.686 [GatewayAccountFactory] CreateForWindows: building the Gateway-hosted credential service
+2026-06-22 10:10:29.698 [WindowsProtectedTokenStore] ctor: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin
+2026-06-22 10:10:29.698 [GatewayAccountFactory] ResolveSigningSecret: DEVTHROTTLE_JWT_SIGNING_SECRET not set; using placeholder (a backend-signed token would not verify until the secret is configured)
+2026-06-22 10:10:29.698 [GatewayAccountFactory] Build: Gateway credential service constructed
+2026-06-22 10:10:29.699 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-22 10:10:29.699 [WindowsProtectedTokenStore] Load: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin, exists=False
+2026-06-22 10:10:29.699 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-06-22 10:10:29.700 [DevThrottleAccountService] GetIdentity: reading identity from the cached credential (no network call)
+2026-06-22 10:10:29.700 [WindowsProtectedTokenStore] Load: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin, exists=False
+2026-06-22 10:10:29.700 [DevThrottleAccountService] GetIdentity: no stored credential -> no identity
+2026-06-22 10:10:29.700 [GatewayAccountFactory] CreateForWindows: building the Gateway-hosted credential service
+2026-06-22 10:10:29.700 [WindowsProtectedTokenStore] ctor: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin
+2026-06-22 10:10:29.700 [GatewayAccountFactory] ResolveSigningSecret: signing secret resolved from DEVTHROTTLE_JWT_SIGNING_SECRET
+2026-06-22 10:10:29.700 [GatewayAccountFactory] Build: Gateway credential service constructed
+2026-06-22 10:10:29.700 [GatewayAccountFactory] SeedTestCredentialIfRequested: DEVTHROTTLE_TEST_SEED_TOKEN is set; seeding a test credential into the Gateway store
+2026-06-22 10:10:29.700 [DevThrottleAccountService] StoreTokens: storing token pair in credential store
+2026-06-22 10:10:29.700 [WindowsProtectedTokenStore] Save: encrypting token pair to credential store
+2026-06-22 10:10:29.707 [WindowsProtectedTokenStore] Save: wrote 518 encrypted bytes
+2026-06-22 10:10:29.711 [DevThrottleAccountService] StoreTokens: stored
+2026-06-22 10:10:29.711 [GatewayAccountFactory] SeedTestCredentialIfRequested: test credential stored
+2026-06-22 10:10:29.711 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-06-22 10:10:29.711 [WindowsProtectedTokenStore] Load: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin, exists=True
+2026-06-22 10:10:29.716 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-22 10:10:29.718 [JwtAccessTokenValidator] Validate: signature OK, expiresAtUtc=2026-06-22T15:10:29.0000000Z, expired=False
+2026-06-22 10:10:29.718 [DevThrottleAccountService] IsLoggedIn: valid=True, expiredButWellFormed=False, result=True (no network call)
+2026-06-22 10:10:29.718 [DevThrottleAccountService] GetIdentity: reading identity from the cached credential (no network call)
+2026-06-22 10:10:29.718 [WindowsProtectedTokenStore] Load: blobPath=D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin, exists=True
+2026-06-22 10:10:29.719 [WindowsProtectedTokenStore] Load: decrypted token pair (hasTokens=True)
+2026-06-22 10:10:29.719 [JwtIdentityReader] Read: extracting identity claims from the cached access token (no network call)
+2026-06-22 10:10:29.719 [JwtIdentityReader] Read: identity resolved (provider=github)
+2026-06-22 10:10:29.719 [DevThrottleAccountService] GetIdentity: identity=resolved

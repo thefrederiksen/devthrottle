@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #636 - Gateway-hosted DevThrottle credential service - Developer proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1b1b1b; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #444; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f0f0; }
+  code, pre { font-family: Consolas, monospace; font-size: 13px; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .pass { color: #14702a; font-weight: bold; }
+  .meta { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #636 - Account credential service on the Gateway (store, validate, identity)</h1>
+<p class="meta">Developer Agent proof. Branch <code>issue-636-gateway-credential-service</code>.
+Gateway Centralization Phase 2 foundation: a Gateway-hosted credential service that stores the
+DevThrottle access-plus-refresh token pair encrypted at rest, validates it locally, and exposes the
+signed-in identity. The existing <code>CcDirector.Core.Account</code> types
+(<code>WindowsProtectedTokenStore</code>, <code>JwtAccessTokenValidator</code>,
+<code>DevThrottleAccountService</code>, <code>JwtIdentityReader</code>) are reused as-is from the
+Gateway, not duplicated.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New <code>CcDirector.Gateway/Account/GatewayAccountFactory.cs</code></b> - the Gateway-side
+      wiring that builds the reused <code>DevThrottleAccountService</code> over a
+      <code>WindowsProtectedTokenStore</code> and an <code>AuthEventLog</code> rooted under the
+      <b>Gateway</b> config directory, honoring the <code>DEVTHROTTLE_JWT_SIGNING_SECRET</code> signing
+      secret and seeding from <code>DEVTHROTTLE_TEST_SEED_TOKEN</code>. The access/refresh tokens are
+      never logged on any path.</li>
+  <li><b><code>CcDirector.Core/Storage/CcStorage.cs</code></b> - added
+      <code>GatewayDevThrottleCredentialBlob()</code> (<code>config/gateway/devthrottle-credential.bin</code>)
+      and <code>GatewayDevThrottleAuthEventsLog()</code>, keeping the Gateway's account storage distinct
+      from the per-Director store under <code>config/director</code>.</li>
+  <li><b><code>CcDirector.Gateway/GatewayHost.cs</code></b> - constructs the credential service and
+      exposes it as the <code>Account</code> property. On Windows it builds the Windows Data
+      Protection-backed service; on a non-Windows host it stays null (the operating-system credential
+      store is Windows-only for now, the issue's stated assumption). A test seam lets a test inject its
+      own service over an isolated store.</li>
+  <li><b><code>CcDirector.Gateway.Tests/Account/GatewayAccountServiceTests.cs</code></b> (8 tests) plus
+      a local <code>GatewayTestJwt</code> helper.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How verified</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Gateway stores the token pair and persists it as an ENCRYPTED blob under the Gateway config
+      directory (file exists; contents not plaintext).</td>
+  <td>Proof harness ran the real <code>GatewayAccountFactory.CreateForWindows()</code> seeded via
+      <code>DEVTHROTTLE_TEST_SEED_TOKEN</code>; inspected the on-disk blob. Unit test
+      <code>StoreTokens_PersistsAnEncryptedBlobNotPlaintext</code>.</td>
+  <td>Blob exists; raw token strings absent from the bytes; DPAPI ciphertext header present.</td>
+  <td>Blob exists (518 bytes); access &amp; refresh token strings NOT in the blob; first bytes are the
+      DPAPI header <code>01000000 D08C9DDF 0115D111 8C7A00C0 4FC297EB</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Gateway answers "signed in?" locally (true with a valid seeded token, false with none) - no
+      network call.</td>
+  <td>Proof harness <code>IsLoggedIn()</code> with and without a credential. Unit tests
+      <code>IsLoggedIn_ValidStoredToken_ReturnsTrue</code>,
+      <code>IsLoggedIn_NoStoredCredential_ReturnsFalse</code>. The only network seam
+      (<code>ITokenRefresher</code>) is never invoked on this path.</td>
+  <td>True with valid token; False with none.</td>
+  <td>True with the seeded valid token; False with no credential.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Gateway reads the identity (email + provider) from the stored token; returns "unavailable" when
+      no token is present.</td>
+  <td>Proof harness <code>GetIdentity()</code>. Unit tests
+      <code>GetIdentity_StoredTokenWithIdentityClaims_ReturnsEmailAndProvider</code>,
+      <code>GetIdentity_NoStoredCredential_ReturnsNull</code>.</td>
+  <td>email=proof-user@example.com, provider=github; null when no token.</td>
+  <td>email=proof-user@example.com, provider=github; null (unavailable) when no token.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>The access/refresh tokens are never written to the Gateway log.</td>
+  <td>Proof harness activated the file logger, ran the full store/validate/identity path, flushed the
+      log, then scanned it. The reused Core types log only non-token context.</td>
+  <td>31 credential-service log lines written (logging WAS active), 0 of which contain a token.</td>
+  <td>31 credential-service log lines written; token string found in any log = False.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Unit tests cover store/load round-trip, signed-in true/false, identity read, and the
+      no-credential path.</td>
+  <td><code>dotnet test</code> on the new <code>GatewayAccountServiceTests</code>.</td>
+  <td>All tests pass.</td>
+  <td>8 passed, 0 failed (round-trip, encrypted-blob, signed-in true/false, identity, no-credential,
+      seed-token seam, seed no-op).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Proof harness output</h2>
+<p class="meta">The harness exercises the exact production code path
+(<code>GatewayAccountFactory.CreateForWindows()</code> + the env-var seam) against an isolated Gateway
+config root, so it never touches the user's real Gateway store. See <code>proof-output.txt</code>.</p>
+<pre>
+=== Issue #636 proof: Gateway-hosted DevThrottle credential service ===
+Gateway config root: ...\proof-root\config
+Credential blob path: ...\proof-root\config\gateway\devthrottle-credential.bin
+
+--- Acceptance criterion 2 and 3: no credential present ---
+IsLoggedIn (no token)            EXPECTED=False  ACTUAL=False
+GetIdentity (no token) is null   EXPECTED=True   ACTUAL=True
+
+--- Acceptance criterion 1, 2, 3: seeded credential via DEVTHROTTLE_TEST_SEED_TOKEN ---
+Blob exists on disk             EXPECTED=True   ACTUAL=True
+IsLoggedIn (seeded valid token) EXPECTED=True   ACTUAL=True
+Identity resolved               EXPECTED=True   ACTUAL=True
+  Identity.Email                EXPECTED=proof-user@example.com  ACTUAL=proof-user@example.com
+  Identity.Provider             EXPECTED=github            ACTUAL=github
+
+--- Acceptance criterion 1: persisted blob is encrypted, not plaintext ---
+Blob size (bytes): 518
+Refresh token string in blob    EXPECTED=False  ACTUAL=False
+Access token string in blob     EXPECTED=False  ACTUAL=False
+First 64 bytes of blob (hex, encrypted ciphertext):
+  01000000D08C9DDF0115D1118C7A00C04FC297EB...
+
+--- Acceptance criterion 4: tokens absent from the Gateway log ---
+Log files scanned: 1
+Credential-service log lines written (proves logging was active): 31
+Token string found in any log   EXPECTED=False  ACTUAL=False
+
+=== End of proof ===
+</pre>
+
+<h2>On-disk evidence (criterion 1 and 4)</h2>
+<p class="meta"><code>devthrottle-credential.bin</code> is the actual encrypted blob the harness wrote (the
+DPAPI ciphertext). <code>blob-hexdump.txt</code> shows the DPAPI header. <code>gateway-log-excerpt.txt</code>
+is the full set of credential-service log lines written during the run - none carries a token.</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture drift: the change reuses the existing <code>CcDirector.Core.Account</code> container
+types and adds a thin Gateway wiring class plus two storage-path helpers. It strengthens
+<b>DT-01 (Insecure Data Storage)</b> - the Gateway credential is encrypted at rest via Windows Data
+Protection - and respects <b>DT-05 (Information Disclosure)</b> - tokens are never logged (proven by
+criterion 4). No blocking security rule is violated; no <code>docs/cencon/</code> file required an
+update.</p>
+
+<h2>Build and test status</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><code>dotnet test</code> (GatewayAccountServiceTests): 8 passed, 0 failed.</li>
+</ul>
+
+<p><b>I believe this is finished.</b> All five acceptance criteria are met and proven; the build is
+clean and the new unit tests pass.</p>
+
+</body>
+</html>
