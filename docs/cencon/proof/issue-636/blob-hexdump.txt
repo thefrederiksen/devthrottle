@@ -1,0 +1,5 @@
+﻿Encrypted credential blob: 518 bytes
+DPAPI ciphertext header (first 64 bytes, hex):
+01 00 00 00 D0 8C 9D DF 01 15 D1 11 8C 7A 00 C0 4F C2 97 EB 01 00 00 00 0D 6F 42 11 67 4D 5B 4D 9F 64 E8 E8 48 21 EE 6C 00 00 00 00 02 00 00 00 00 00 10 66 00 00 00 01 00 00 20 00 00 00 FB 89
+
+Note: 01000000 D08C9DDF 0115D111 8C7A00C0 4FC297EB is the standard Windows Data Protection (DPAPI) blob header - confirms the bytes are ciphertext, not the plaintext token JSON.

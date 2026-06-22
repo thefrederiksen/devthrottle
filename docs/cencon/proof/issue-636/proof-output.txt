@@ -1,0 +1,29 @@
+﻿=== Issue #636 proof: Gateway-hosted DevThrottle credential service ===
+Gateway config root: D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config
+Credential blob path: D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\config\gateway\devthrottle-credential.bin
+FileLog dir: D:\ReposFred\devthrottle-wt-636\local_builds\issue636-proof\proof-root\logs\director
+
+--- Acceptance criterion 2 and 3: no credential present ---
+IsLoggedIn (no token)            EXPECTED=False  ACTUAL=False
+GetIdentity (no token) is null   EXPECTED=True   ACTUAL=True
+
+--- Acceptance criterion 1, 2, 3: seeded credential via DEVTHROTTLE_TEST_SEED_TOKEN ---
+Blob exists on disk             EXPECTED=True   ACTUAL=True
+IsLoggedIn (seeded valid token) EXPECTED=True   ACTUAL=True
+Identity resolved               EXPECTED=True   ACTUAL=True
+  Identity.Email                EXPECTED=proof-user@example.com  ACTUAL=proof-user@example.com
+  Identity.Provider             EXPECTED=github            ACTUAL=github
+
+--- Acceptance criterion 1: persisted blob is encrypted, not plaintext ---
+Blob size (bytes): 518
+Refresh token string in blob    EXPECTED=False  ACTUAL=False
+Access token string in blob     EXPECTED=False  ACTUAL=False
+First 64 bytes of blob (hex, encrypted ciphertext):
+  01000000D08C9DDF0115D1118C7A00C04FC297EB010000000D6F4211674D5B4D9F64E8E84821EE6C00000000020000000000106600000001000020000000FB89
+
+--- Acceptance criterion 4: tokens absent from the Gateway log ---
+Log files scanned: 1
+Credential-service log lines written (proves logging was active): 31
+Token string found in any log   EXPECTED=False  ACTUAL=False
+
+=== End of proof ===

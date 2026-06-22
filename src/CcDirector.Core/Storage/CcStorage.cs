@@ -228,6 +228,27 @@ public static class CcStorage
     public static string DevThrottleUsageEventsLog() =>
         Path.Combine(ToolConfig("director"), "devthrottle-usage-events.jsonl");
 
+    /// <summary>
+    /// Encrypted DevThrottle account credential blob on the Gateway: config/gateway/devthrottle-credential.bin.
+    /// The Gateway-Centralization Phase 2 foundation (issue #636): the access-plus-refresh token pair is
+    /// written here encrypted at rest by the operating system credential store (Windows Data Protection on
+    /// Windows), never as plain text. Distinct from the per-Director credential blob
+    /// (<see cref="DevThrottleCredentialBlob"/>) under config/director - the account moves onto the Gateway
+    /// so each Director no longer holds its own copy.
+    /// </summary>
+    public static string GatewayDevThrottleCredentialBlob() =>
+        Path.Combine(ToolConfig("gateway"), "devthrottle-credential.bin");
+
+    /// <summary>
+    /// DevThrottle authentication-floor event log on the Gateway: config/gateway/devthrottle-auth-events.jsonl.
+    /// Append-only JSON-lines record of "logged-in" / "logout" events for the Gateway-hosted account
+    /// (issue #636). Records only the event kind and timestamp - never the token - so it can never leak a
+    /// credential. Distinct from the per-Director authentication log
+    /// (<see cref="DevThrottleAuthEventsLog"/>) under config/director.
+    /// </summary>
+    public static string GatewayDevThrottleAuthEventsLog() =>
+        Path.Combine(ToolConfig("gateway"), "devthrottle-auth-events.jsonl");
+
     // -- Life Operating System coaching directories --
 
     /// <summary>Life OS coaching root: vault/life/</summary>

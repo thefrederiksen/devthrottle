@@ -95,6 +95,17 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public LauncherRegistry Launchers { get; } = new();
 
+    /// <summary>
+    /// Issue #636 (Gateway Centralization Phase 2 foundation): the Gateway-hosted DevThrottle credential
+    /// service. Stores the access-plus-refresh token pair encrypted at rest under the Gateway config
+    /// directory, answers "signed in?" locally with no network call, and reads the signed-in identity
+    /// from the cached token. Reuses the Core <see cref="Core.Account.DevThrottleAccountService"/> as-is.
+    /// On Windows it is backed by Windows Data Protection; on a non-Windows host (the operating-system
+    /// credential store is Windows-only for now, per the issue's assumption) it is null and the Gateway
+    /// holds no account credential until the macOS Keychain store is added.
+    /// </summary>
+    public Core.Account.DevThrottleAccountService? Account { get; }
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
@@ -170,7 +181,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override how often the telemetry retry-queue flusher re-attempts delivery (issue #629). Tests
     /// pass a short interval; production omits it for a sensible default.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, string? telemetryQueuePath = null, int? telemetryQueueMaxSize = null, TimeSpan? telemetryRetryInterval = null)
+    /// <param name="account">
+    /// Override the Gateway-hosted DevThrottle credential service (issue #636). Tests pass a service
+    /// over an in-memory or temp-directory store so they never touch the real Windows Data Protection
+    /// store; production omits it so the host builds the Windows-backed service on Windows (and leaves
+    /// <see cref="Account"/> null on a non-Windows host, where the operating-system credential store is
+    /// not yet implemented).
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, string? telemetryQueuePath = null, int? telemetryQueueMaxSize = null, TimeSpan? telemetryRetryInterval = null, Core.Account.DevThrottleAccountService? account = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -262,6 +280,19 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_client, cronTargetResolver),
             cronWorkListRunner, cronNotifier, new Running.SystemClock());
+
+        // The Gateway-hosted DevThrottle credential service (issue #636, Gateway Centralization Phase 2
+        // foundation). Tests inject their own service over an isolated store; production builds the
+        // Windows Data Protection-backed service rooted under the Gateway config directory. The
+        // operating-system credential store is Windows-only for now (the issue's assumption), so on a
+        // non-Windows host Account stays null until the macOS Keychain store is added - the platform
+        // guard also satisfies the platform-compatibility analyzer.
+        if (account is not null)
+            Account = account;
+        else if (OperatingSystem.IsWindows())
+            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows();
+        else
+            FileLog.Write("[GatewayHost] DevThrottle credential service not built: operating-system credential store is Windows-only for now");
     }
 
     /// <summary>
