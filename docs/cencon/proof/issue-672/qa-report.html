@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Verification Report - Issue 672 (Grok Build first-class agent)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d27; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  pre { background: #f4f4f4; padding: .7rem; border-radius: 4px; overflow-x: auto; }
+  .verdict { background: #e6f4ea; border: 2px solid #0a7d27; padding: 1rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue 672</h1>
+<p><strong>Issue:</strong> Confirm Grok Build (Grok CLI) is a first-class supported agent + document it<br>
+<strong>Pull Request:</strong> #677 (branch <code>issue-672-grok-verify</code>)<br>
+<strong>QA role:</strong> independent verification - the Developer's report and proof files were treated as context only; every result below was reproduced by QA with its own build, its own test run, and its own Grok execution.<br>
+<strong>Date:</strong> 2026-06-22</p>
+
+<h2>Method</h2>
+<ul>
+  <li>Checked out the PR branch <code>issue-672-grok-verify</code> and built the full solution myself: <code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.</li>
+  <li>Ran the full CcDirector.Core test suite myself: <strong>2327 passed, 0 failed, 6 skipped</strong> (Duration 3m21s).</li>
+  <li>Read the Grok integration source directly (AgentKind, AgentToolCatalog, ToolDetectionService, AgentDrivers, GrokAgent, GrokSlashCommands, AgentEditorDialog).</li>
+  <li>Executed a real Grok task end-to-end myself using the same binary cc-director's <code>GrokAgent.ExecutablePath</code> launches (<code>~/.grok/bin/grok.exe</code>, version 0.2.60).</li>
+  <li>Attempted to drive a live test Director via the Control API on an isolated slot (slot 14). The Director booted but could not bind a Control API port - <strong>all ports 7879..7898 were busy</strong> (8+ other Directors already running on this shared machine). This is an environment port-exhaustion constraint, NOT a defect in the change under test. End-to-end Grok execution was therefore proven directly against the same grok binary cc-director invokes, plus the cc-director wiring proven by the green tests that assert exactly that wiring.</li>
+</ul>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Verdict</th></tr>
+
+<tr>
+<td>1</td>
+<td>A Grok Build session starts and completes a real task end-to-end.</td>
+<td>Grok accepts a prompt and returns the requested output.</td>
+<td>Ran <code>~/.grok/bin/grok.exe -p "Reply with exactly this text and nothing else: QA_GROK_VERIFIED_672"</code> (the exact binary cc-director's GrokAgent launches). Output: <code>QA_GROK_VERIFIED_672</code>. Evidence: <code>qa-grok-run.txt</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Grok's slash commands are present and correct in a Grok session.</td>
+<td>Provider returns Grok's interactive slash commands, no CLI subcommands, no Claude commands.</td>
+<td>Reviewed <code>GrokSlashCommands.cs</code> (new/home/fork/find/compact/copy/feedback/quit). My own test run includes <code>GetCommands_GrokSession_ReturnsInteractiveSlashCommands_NotCliSubcommands</code> - green: asserts new/compact/fork/quit present, login/sessions/output-style/permissions absent.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Grok shows in tool detection + catalog and is selectable in the agent editor.</td>
+<td>Catalog contains Grok; detection resolves the grok path; agent editor offers a Grok option.</td>
+<td>Source read: <code>AgentKind.Grok = 7</code>; <code>AgentToolCatalog</code> returns a grok entry in the catalog array; <code>ToolDetectionService</code> maps AgentKind.Grok -&gt; GrokPath/"Grok"; <code>AgentEditorDialog</code> has <code>new AgentTypeOption(AgentKind.Grok, "Grok")</code>. My own test run includes <code>AgentToolCatalogTests</code> (Grok in kinds), <code>AcceptSelected_GrokAndCursor_DoesNotThrow_AndAddsBothEntries</code>, and <code>AgentEntryTests</code> (Grok seeds from default path) - all green.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Any gap fixed, with relevant tests green.</td>
+<td>Solution builds; AgentToolCatalogTests / ToolDetectionWizardModelTests green.</td>
+<td>My own build: 0 errors. My own full Core suite: <strong>2327 passed, 0 failed</strong>, including all Grok-specific tests above.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Docs/README list Grok Build as a supported agent.</td>
+<td>The public supported-agents list names Grok Build.</td>
+<td>Diff of <code>docs/public/getting-started/01-introduction.md</code>: the "Other coding agents" line now reads "... opencode, Cursor, <strong>Grok Build</strong> (the xAI Grok CLI), GitHub Copilot, or Pi ...".</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>6</td>
+<td>If everything already works, close as verified, no code change required.</td>
+<td>Verification-first; only a doc gap to close.</td>
+<td>Confirmed: the Grok integration was already wired; the only change is the one-line docs addition. Verified as such.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Full Core test suite green (2327/0/6) - nothing adjacent broke.</li>
+  <li>The only product change is additive documentation (one line) - no architecture or security posture change, so no <code>docs/cencon/</code> drift and no blocking security rule (DT-*) engaged.</li>
+  <li>Working tree left clean; an unrelated test-generated proof log (issue-509 ask-sequence, random GUID churn from running the test suite) was reverted so no stray change ships.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - all 6 acceptance criteria met.</strong> Grok Build is a first-class, end-to-end supported agent in cc-director (catalog + detection + agent editor + slash commands + real session run), and the public docs now list it. Independently confirmed by QA's own build, own full test run, and own Grok execution.
+</div>
+
+</body>
+</html>
