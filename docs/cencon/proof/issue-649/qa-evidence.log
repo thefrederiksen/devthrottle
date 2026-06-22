@@ -1,0 +1,90 @@
+QA Agent independent verification - issue #649
+Centralized telemetry consent toggle on the Gateway
+Verifier: QA Agent (independent of Developer Agent). PR #682, branch issue-649-gateway-telemetry-consent.
+Worktree: D:\ReposFred\dt-649-qa  (checked out at PR head 52211c2)
+
+==============================================================================
+BUILD
+==============================================================================
+dotnet build cc-director.sln
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+==============================================================================
+UNIT TESTS (criterion 4 - read AND run)
+==============================================================================
+Gateway.Tests / TelemetryConsentEndpointTests (4):  Passed 4, Failed 0
+Core.Tests / TelemetryConsentConfigTests (5) + GatewayTelemetryConsentTests (8) = 13:  Passed 13, Failed 0
+Total new telemetry-consent tests: 17 passed / 0 failed.
+
+The tests genuinely assert the contract (read by QA, not taken on trust):
+  - Default ON: TelemetryConsentConfigTests.Get_WhenNeverSet_DefaultsOn;
+    TelemetryConsentEndpointTests.Get_consent_defaults_on_when_never_set.
+  - Persisted OFF gates richer telemetry:
+    GatewayTelemetryConsentTests.UsageTelemetry_ForDirector_WhenGatewayConsentOff_DoesNotRecord
+    (recorded=false, sink not even created) and ...WhenGatewayConsentOn_Records (records 1).
+  - Auth-floor events remain UNGATED:
+    GatewayTelemetryConsentTests.AuthFloorReporter_StillPosts_WhenGatewayConsentOff
+    (consent OFF, the real DevThrottleDirectorStartupTelemetryReporter still POSTs 1 event).
+  - Persistence across restart: TelemetryConsentEndpointTests.Put_consent_off_survives_a_fresh_read_from_disk
+    and Set_Off_PersistsAndSurvivesFreshReadFromDisk (re-read config.json from disk = OFF).
+
+FULL REGRESSION SUITES (in-scope projects, no adjacent breakage):
+  Gateway.Tests: Passed 943, Skipped 1, Failed 0  (3m26s)
+  Core.Tests:    Passed 2354, Skipped 6, Failed 0  (3m02s)
+  (No VaultGatewayIntegrationTests failures locally.)
+
+==============================================================================
+CRITERION 1 - toggle exists, DEFAULTS ON, PERSISTS across Gateway restart (LIVE HTTP)
+==============================================================================
+Independent harness hosting the REAL TelemetryConsentEndpoint (mapped by reflection, the same
+delegate the Gateway maps) on loopback over an isolated CC_DIRECTOR_ROOT, driven over real HTTP
+across TWO separate OS process lifetimes (the restart):
+
+  C1a  GET /gateway/telemetry-consent (never set)   -> enabled=True   EXPECT True   PASS
+  C1b  PUT {"enabled":false} echo                    -> enabled=False  EXPECT False  PASS
+  C1c  GET after PUT (same process)                  -> enabled=False  EXPECT False  PASS
+  config\config.json on disk -> { "telemetry_consent": false }   (persisted on the Gateway)
+  --- gateway process killed and a FRESH process started (restart) ---
+  C1d  GET after RESTART (new process, re-read disk) -> enabled=False  EXPECT False  PASS
+  C1_RESULT=PASS
+
+Cockpit toggle: src/CcDirector.Cockpit/Components/Pages/Telemetry.razor is a pure client of the
+Gateway endpoints (injects only GatewayClient; calls GET/PUT gateway/telemetry-consent). The page
+shows ON/OFF, defaults ON, and a "Turn telemetry off/on" button that PUTs the new value. Nav entry
+added (visible, no display:none). Cockpit talks ONLY to the Gateway (no Director reference in the
+telemetry path).
+
+==============================================================================
+CRITERION 2 - richer usage telemetry gated fleet-wide; auth-floor still flows (LIVE, real Core types)
+==============================================================================
+Independent harness exercising the REAL UsageTelemetry.ForDirector + GatewayTelemetryConsent +
+DevThrottleDirectorStartupTelemetryReporter:
+
+  C2 gatewayON_records       recorded=True  count=1                          PASS
+  C2 gatewayOFF_suppresses   recorded=False sinkExists=False (local toggle still ON)  PASS
+  C2 authFloor_ungated       consentOff=True authPosts=1 method=POST          PASS
+
+Turning the Gateway consent OFF stops the richer usage events even with the Director local toggle ON
+(so it is the GATEWAY gate doing it, fleet-wide), while the always-on director-startup auth-floor
+reporter still POSTs.
+
+==============================================================================
+CRITERION 3 - Director honors Gateway value; UNREACHABLE -> last-known (degraded)
+==============================================================================
+  C3 degraded_lastKnown        honorsLastKnownOff=True refreshThrew=True cacheStillOff=True  PASS
+       (refresh recorded OFF, then gateway unreachable: synchronous gate keeps honoring last-known
+        OFF; RefreshAsync fails loudly with no hidden fallback; cache untouched.)
+  C3 nothingCached_defaultsON  value=True                                                    PASS
+       (nothing ever cached -> documented default ON.)
+
+==============================================================================
+SCOPE / CenCon
+==============================================================================
+In scope, all present: CcDirector.Gateway, CcDirector.Cockpit, CcDirector.Core,
+CcDirector.Gateway.Tests (+ Gateway.Contracts DTO, Core.Tests).
+OUT of scope, correctly NOT done: no first-run consent screen (#650); the per-Director local toggle
+(TelemetrySettings) is NOT removed - that is #651 (UsageTelemetry.ForDirector composes both gates).
+No security/architecture doc drift requiring update (additive Gateway setting endpoint, inherits the
+host-wide token middleware like every other Gateway endpoint; response carries no token/user data).
+
+VERDICT: VERIFIED - all 4 acceptance criteria met.
