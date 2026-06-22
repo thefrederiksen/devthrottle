@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using CcDirector.Core.Account;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Onboarding;
@@ -87,9 +88,10 @@ public partial class SettingsDialog : Window
             GatewayTokenBox.Text = token;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
 
-            // Read-only Account tab (issue #664): the account is managed by the Gateway, so show the
-            // configured Gateway URL (or an explicit "not configured" state) instead of a local sign-in.
-            ShowGatewayManaged(url);
+            // Read-only Account tab (issue #651): the account is managed by the Gateway, so show the
+            // configured Gateway URL immediately and fetch the signed-in identity from the Gateway's
+            // /account/status in the background (no local sign-in, no logout, no consent toggle here).
+            ShowGatewayManaged(url, token);
 
             LoadAgentEntries();
 
@@ -123,17 +125,71 @@ public partial class SettingsDialog : Window
     }
 
     /// <summary>
-    /// Show the read-only "managed by your Gateway" state on the Account tab (issue #664): the configured
-    /// Gateway URL when one is set, or an explicit "not configured" state otherwise. This is a static
-    /// read-only display - the account is managed by the Gateway, so there is no local sign-in here. It
-    /// does NOT call the Gateway (the <c>/account/status</c> endpoint, issue #638, is not built yet); it
-    /// reflects only the configured Gateway URL from config.json.
+    /// Show the read-only gateway connection + identity on the Account tab (issue #651). The configured
+    /// Gateway URL (or an explicit "not configured" state) is rendered immediately so the panel is
+    /// responsive; the signed-in identity is then read from the Gateway's <c>GET /account/status</c>
+    /// (issue #638) in the background and the identity line updated when it arrives. This is purely
+    /// informational and read-only: the account is managed by the Gateway, so there is no local sign-in,
+    /// logout, or consent control here, and an unreachable Gateway never blocks the Director.
     /// </summary>
-    private void ShowGatewayManaged(string gatewayUrl)
+    /// <param name="gatewayUrl">The configured Gateway URL from config.json (may be empty).</param>
+    /// <param name="gatewayToken">The configured Gateway bearer token from config.json (may be empty).</param>
+    private void ShowGatewayManaged(string gatewayUrl, string gatewayToken)
     {
-        GatewayManagedUrlText.Text = string.IsNullOrWhiteSpace(gatewayUrl)
-            ? "Not configured (set the Gateway URL on the Gateway tab)"
-            : gatewayUrl;
+        var configured = !string.IsNullOrWhiteSpace(gatewayUrl);
+        GatewayManagedUrlText.Text = configured
+            ? gatewayUrl
+            : "Not configured (set the Gateway URL on the Gateway tab)";
+
+        if (!configured)
+        {
+            // No Gateway configured: there is nothing to read an identity from. This is informational,
+            // never a gate - the Director still runs.
+            GatewayIdentityText.Text = "No Gateway configured. Connect this Director to a Gateway on the Gateway tab.";
+            return;
+        }
+
+        GatewayIdentityText.Text = "Checking the Gateway...";
+
+        // Build the immutable config snapshot here on the UI thread, then fetch off it. Failures and
+        // signed-out states are surfaced as plain text on the identity line, never as a blocking error.
+        var config = new GatewayConfig { Url = gatewayUrl, Token = gatewayToken };
+        _ = LoadGatewayIdentityAsync(config);
+    }
+
+    /// <summary>
+    /// Fetch the Gateway's signed-in identity from <c>GET /account/status</c> and update the read-only
+    /// identity line (issue #651). Best-effort: a signed-out Gateway or an unreachable Gateway is shown
+    /// as a clear "not signed in" / "not connected" line, never an error dialog and never a gate.
+    /// </summary>
+    private async Task LoadGatewayIdentityAsync(GatewayConfig config)
+    {
+        FileLog.Write("[SettingsDialog] LoadGatewayIdentityAsync: reading the Gateway signed-in status");
+        var client = new GatewayAccountStatusClient();
+        var status = await client.GetStatusAsync(config);
+        GatewayIdentityText.Text = DescribeGatewayIdentity(status);
+        FileLog.Write($"[SettingsDialog] LoadGatewayIdentityAsync: reachable={status.Reachable}, signedIn={status.SignedIn}");
+    }
+
+    /// <summary>
+    /// Turn a <see cref="GatewayAccountStatus"/> into the read-only identity line: the signed-in email
+    /// (with provider when known), or a clear not-signed-in / not-connected state. Identity only, never
+    /// any token material (security rule DT-05).
+    /// </summary>
+    private static string DescribeGatewayIdentity(GatewayAccountStatus status)
+    {
+        if (!status.Reachable)
+            return status.Error ?? "Not connected to the Gateway.";
+
+        if (!status.SignedIn)
+            return "The Gateway is not signed in to DevThrottle. Sign in from the Cockpit.";
+
+        if (string.IsNullOrWhiteSpace(status.Email))
+            return "Signed in (identity unavailable).";
+
+        return string.IsNullOrWhiteSpace(status.Provider)
+            ? status.Email
+            : $"{status.Email}  (via {status.Provider})";
     }
 
     // ----------------------------------------------------------------------------------------

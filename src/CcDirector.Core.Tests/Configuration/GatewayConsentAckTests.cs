@@ -7,8 +7,9 @@ namespace CcDirector.Core.Tests.Configuration;
 /// <summary>
 /// Proves the Gateway's first-run consent acknowledgement flag (issue #650) persists to config.json
 /// under <c>gateway_consent.acknowledged</c> and reads back, so the Gateway consent screen is shown
-/// once and then not again. This is the gateway-side relocation of the per-Director
-/// <see cref="Account.FirstRunConsent"/> flag and is deliberately a SEPARATE config section from it.
+/// once and then not again. The per-Director first-run consent flag was removed in issue #651; this
+/// gateway acknowledgement is deliberately a SEPARATE config section (<c>gateway_consent</c>) from the
+/// legacy per-Director <c>consent</c> section an older build may have left behind.
 /// These tests redirect the storage root with the CC_DIRECTOR_ROOT override, so they are not run in
 /// parallel with anything else that reads config.json (own collection, no parallelism).
 /// </summary>
@@ -72,16 +73,17 @@ public sealed class GatewayConsentAckTests : IDisposable
         Assert.True(GatewayConsentAck.HasAcknowledged());
     }
 
-    // The gateway acknowledgement is distinct from the per-Director consent flag: recording the gateway
-    // one does not touch the per-Director consent section (on a co-located dev machine they share one
-    // config.json).
+    // The gateway acknowledgement writes ONLY its own gateway_consent section: it never writes the
+    // legacy per-Director consent section (the per-Director consent surface was removed in issue #651,
+    // but a co-located dev machine sharing one config.json must still never have that section fabricated).
     [Fact]
-    public void MarkAcknowledged_DoesNotTouchPerDirectorConsentSection()
+    public void MarkAcknowledged_DoesNotWriteLegacyPerDirectorConsentSection()
     {
         GatewayConsentAck.MarkAcknowledged();
 
-        // The per-Director consent section is untouched: still its default (not acknowledged).
-        Assert.False(CcDirector.Core.Account.FirstRunConsent.HasAcknowledged());
+        // The gateway acknowledgement is recorded, and no legacy per-Director "consent" section exists.
         Assert.True(GatewayConsentAck.HasAcknowledged());
+        var root = CcDirectorConfigService.ReadRaw();
+        Assert.False(root["consent"] is JsonObject, "MarkAcknowledged must not write the legacy per-Director consent section");
     }
 }

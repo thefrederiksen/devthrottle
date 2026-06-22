@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Throwaway headless render harness for the issue #651 proof: renders the REAL Director
+       Settings dialog (Account tab) to a PNG in-process via Avalonia.Headless + Skia, so the
+       read-only Gateway connection + signed-in identity panel is provable without an interactive
+       desktop session (this agent runs in a non-interactive/Session-0 context). Not part of the
+       product build; lives under docs/cencon/proof/. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="11.*" />
+    <PackageReference Include="Avalonia.Skia" Version="11.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\src\CcDirector.Avalonia\CcDirector.Avalonia.csproj" />
+    <ProjectReference Include="..\..\..\..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

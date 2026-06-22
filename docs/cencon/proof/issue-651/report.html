@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Developer Agent proof - Issue #651</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; color: #1e1e1e; line-height: 1.5; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #007ACC; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #094771; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f4f8; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  .pass { color: #137333; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: 8px 0; }
+  .small { color: #555; font-size: 13px; }
+  figure { margin: 16px 0; }
+  figcaption { font-size: 13px; color: #444; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Developer Agent proof - Issue #651</h1>
+<p><strong>[Desktop] Remove the Director's account/consent/sign-in surfaces; show read-only gateway connection.</strong>
+This is the last Phase 3 issue of the Gateway Centralization epic.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Job 1 - live read-only Account panel.</strong> The Director Settings &rarr; Account tab now shows the
+      configured Gateway URL plus the signed-in identity (email + provider) read live from the Gateway's
+      <code>GET /account/status</code> (issue #638) via a new Director-side
+      <code>GatewayAccountStatusClient</code> (CcDirector.Core). The URL renders immediately and the identity
+      line is fetched in the background. The panel is <strong>read-only</strong>: no logout, no consent toggle
+      (logout lives on the Cockpit per #648; consent is centralized per #649). When the Gateway is unreachable
+      or reports <code>signedIn:false</code>, a clear informational line is shown - it is never a startup gate.</li>
+  <li><strong>Job 2 - deleted the dead Director-side account/consent/sign-in code.</strong> Removed
+      <code>FirstRunConsentDialog</code> (the per-Director first-run consent screen),
+      <code>AccountGateScreen</code> (the Director "sign in to DevThrottle" surface), and their App wiring
+      (<code>AccountGate</code>/<code>AccountService</code>/<code>ProceedToMainWindowAfterLogin</code>/
+      <code>ReturnToGateAfterLogout</code>). Removed the now-dead Core types
+      <code>AccountGatePolicy</code>, <code>GateDecision</code>, and <code>FirstRunConsent</code> and their
+      tests. The Director boots unconditionally - no startup gate, no browser sign-in.</li>
+</ul>
+<p class="small"><strong>Trap avoided:</strong> every shared <code>Core.Account</code> type the Gateway / GatewayApp /
+   Cockpit reuse (Phase 2: <code>DevThrottleAccountService</code>, <code>FirstRunLoginCoordinator</code>,
+   <code>DevThrottleAccountFactory</code>, <code>WindowsProtectedTokenStore</code>,
+   <code>JwtAccessTokenValidator</code>, <code>TelemetrySettings</code>, the token stores/validators, etc.) was
+   kept. Only Director-only dead code was deleted. The full solution (including Gateway, GatewayApp, Cockpit)
+   builds clean - see the build log.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Proof</th></tr>
+<tr>
+  <td>AC1</td>
+  <td>Settings &rarr; Account shows a read-only Gateway connection + identity panel (no logout, no consent toggle), sourced from the Gateway.</td>
+  <td>Panel shows the Gateway URL and the signed-in identity from <code>/account/status</code>; clear states for signed-out and unreachable; no controls.</td>
+  <td>Live render of the real <code>SettingsDialog</code> shows <code>Gateway: http://127.0.0.1:7901</code> and
+      <code>Signed in as: person@example.com (via google)</code> read from a real <code>/account/status</code>.
+      Signed-out shows "The Gateway is not signed in to DevThrottle"; unreachable shows "Could not reach the
+      Gateway". No logout/consent control present.</td>
+  <td class="pass">PASS - 3 screenshots below</td>
+</tr>
+<tr>
+  <td>AC2</td>
+  <td><code>FirstRunConsentDialog</code> removed and no longer shown by the Director (no reference remains; build clean).</td>
+  <td>Files deleted; no source reference; build clean.</td>
+  <td>Files deleted; <code>grep</code> shows zero references under <code>src/</code>.</td>
+  <td class="pass">PASS - grep-dead-surfaces.txt</td>
+</tr>
+<tr>
+  <td>AC3</td>
+  <td>No Director code path opens a <code>devthrottle.com</code> sign-in, and the per-Director "sign in to DevThrottle" surface is gone.</td>
+  <td><code>AccountGateScreen</code> + sign-in wiring deleted; no devthrottle.com sign-in in the Director source.</td>
+  <td><code>grep</code> over the Director source (and git-tracked Director files) shows no
+      <code>AccountGateScreen</code>, <code>FirstRunLoginCoordinator</code>, or devthrottle.com sign-in path.</td>
+  <td class="pass">PASS - grep-director-no-signin.txt</td>
+</tr>
+<tr>
+  <td>AC4</td>
+  <td><code>dotnet build cc-director.sln</code> is clean (no dead-reference warnings); removed types have no lingering references.</td>
+  <td>0 errors, 0 warnings across the whole solution.</td>
+  <td><code>Build succeeded. 0 Warning(s) 0 Error(s)</code> for all projects including Gateway, GatewayApp, Cockpit.</td>
+  <td class="pass">PASS - build-log.txt</td>
+</tr>
+<tr>
+  <td>AC5</td>
+  <td>A screenshot shows the Director's read-only connection/identity panel.</td>
+  <td>Screenshot of the live panel.</td>
+  <td>settings-account-live.png (signed-in identity from <code>/account/status</code>).</td>
+  <td class="pass">PASS - screenshot below</td>
+</tr>
+</table>
+
+<h2>Screenshots (live render of the real SettingsDialog)</h2>
+<p class="small">Captured by a headless Avalonia + Skia render of the shipping <code>SettingsDialog</code>
+   (<code>_render-harness/</code>), driving the real <code>GatewayAccountStatusClient</code> against a local stub
+   serving the exact <code>GET /account/status</code> contract (issue #638). A headless render was used because
+   this agent runs in a non-interactive session where GDI screen capture of the on-desktop window is
+   unavailable; the render exercises the real panel XAML + the real client code end to end.</p>
+
+<figure>
+  <img src="settings-account-live.png" alt="Account tab - signed in" />
+  <figcaption>AC1/AC5 - Signed in: Gateway URL + "person@example.com (via google)" read live from /account/status. No logout, no consent toggle.</figcaption>
+</figure>
+<figure>
+  <img src="settings-account-signedout.png" alt="Account tab - gateway not signed in" />
+  <figcaption>AC1 - Gateway reachable but signed out: "The Gateway is not signed in to DevThrottle. Sign in from the Cockpit." (informational, not a gate).</figcaption>
+</figure>
+<figure>
+  <img src="settings-account-notconnected.png" alt="Account tab - gateway not reachable" />
+  <figcaption>AC1 - Gateway unreachable: "Could not reach the Gateway at http://127.0.0.1:7901." (informational, not a gate).</figcaption>
+</figure>
+
+<h2>Tests</h2>
+<ul>
+  <li><code>GatewayAccountStatusClientTests</code> (new, CcDirector.Core.Tests) - 7 tests: not-configured (no call),
+      signed-in identity + Bearer header, no-token = no Authorization, signed-out, non-success = not-reachable
+      (no throw), transport failure = not-reachable (no throw), trailing-slash URL normalization. All pass.</li>
+  <li><code>GatewayConsentAckTests</code> updated for the removal of the per-Director <code>FirstRunConsent</code>
+      type (asserts the gateway acknowledgement never writes a legacy per-Director consent section). All pass.</li>
+  <li>Full <code>CcDirector.Core.Tests</code> (2354 passed) and <code>CcDirector.Avalonia.Tests</code> (82 passed)
+      green after the deletions.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>Updated <code>docs/cencon/architecture_manifest.yaml</code>: removed the deleted
+   <code>AccountGateScreen</code> / stale <code>FirstRunLoginDialog</code> (Avalonia) and the
+   <code>AccountGatePolicy</code>/<code>GateDecision</code> component entry (Core); added the new
+   <code>GatewayAccountStatusClient</code>; reframed the remaining Core account-factory entry; bumped
+   <code>last_updated</code> to 2026-06-22. No security-profile change: the Director reads an existing
+   token-gated Gateway endpoint with the existing gateway token, the response carries no token, and the
+   token is never logged (DT-05); no new trust boundary or secret storage. <code>security_profile.yaml</code>
+   <code>last_verified: 2026-06-09</code> is within its 30-day threshold.</p>
+
+<p><strong>I believe this is finished.</strong> All five acceptance criteria are met with committed proof, the full
+   solution builds clean (Gateway included), and the relevant tests pass.</p>
+
+</body>
+</html>

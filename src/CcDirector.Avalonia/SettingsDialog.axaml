@@ -113,27 +113,32 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                     <StackPanel Spacing="12" Margin="0,4,0,0">
 
-                        <!-- Read-only "managed by your Gateway" panel (issue #664). The account is moving
-                             onto the Gateway, so the Director no longer signs in or out here. This is a
-                             static, read-only panel: no sign-in, identity, log-out, or consent controls
-                             that could invoke the half-migrated local sign-in flow. The live identity
-                             panel that reads the Gateway is issue #651 (it depends on /account/status,
-                             issue #638, which is not built yet); this is the interim placeholder. -->
+                        <!-- Read-only gateway connection + identity panel (issue #651). The account is
+                             managed by the Gateway, so the Director only READS the signed-in identity
+                             from the Gateway's GET /account/status (issue #638) and displays it. There
+                             are deliberately NO controls here: sign-in/sign-out lives on the Cockpit
+                             (issue #648) and the usage-sharing choice is centralized on the Gateway
+                             (issue #649). This panel never gates the Director - it is informational. -->
                         <Border Classes="card">
                             <StackPanel Spacing="8">
                                 <TextBlock Classes="sectionTitle" Margin="0" Text="DevThrottle account" />
                                 <TextBlock Classes="hint"
-                                           Text="Your account is managed by your Gateway. This Director no longer signs in or out on its own - sign-in, identity, and the usage-sharing choice are handled centrally by the Gateway your Directors connect to. There is nothing to configure here." />
+                                           Text="Your account is managed by your Gateway. This Director no longer signs in or out on its own - sign-in, identity, and the usage-sharing choice are handled centrally by the Gateway your Directors connect to. This panel just shows what the Gateway reports." />
 
-                                <Grid ColumnDefinitions="110,*" Margin="0,8,0,0">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Gateway" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="GatewayManagedUrlText" Grid.Column="1" Text="Loading..."
+                                <Grid ColumnDefinitions="110,*" Margin="0,8,0,0" RowDefinitions="Auto,Auto">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Gateway" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="GatewayManagedUrlText" Grid.Row="0" Grid.Column="1" Text="Loading..."
                                                Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center"
                                                TextTrimming="CharacterEllipsis" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Signed in as" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="GatewayIdentityText" Grid.Row="1" Grid.Column="1" Text="Checking the Gateway..."
+                                               Foreground="#AAAAAA" FontSize="13" VerticalAlignment="Center"
+                                               TextWrapping="Wrap" />
                                 </Grid>
 
                                 <TextBlock Classes="hint" Margin="0,4,0,0"
-                                           Text="Set or change the Gateway connection on the Gateway tab." />
+                                           Text="Set or change the Gateway connection on the Gateway tab. Sign in or out from the Cockpit." />
                             </StackPanel>
                         </Border>
 
