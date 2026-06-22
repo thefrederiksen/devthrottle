@@ -472,6 +472,11 @@ public partial class App : Application
                         ControlApiHost.DirectorId, Environment.ProcessId,
                         Environment.MachineName, Environment.UserName, DateTimeOffset.UtcNow);
                     CrashJournal.Update(Array.Empty<DirectorCrashJournalSession>());
+
+                    // Fire the best-effort Director-startup telemetry once the Control API has a
+                    // stable DirectorId (issue #632). This already runs off the UI thread inside this
+                    // Task.Run, so it cannot delay the main window; failures are swallowed and logged.
+                    await FireDirectorStartupTelemetryAsync(ControlApiHost.DirectorId, log).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -487,6 +492,27 @@ public partial class App : Application
         catch (Exception ex)
         {
             log($"Control API setup FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Fires the single best-effort Director-startup telemetry event (issue #632). Runs off the UI
+    /// thread (its only caller is the Control API startup <c>Task.Run</c>), so a slow or failing report
+    /// never delays the main window. A failure is swallowed and logged - it must never fail startup -
+    /// and a missing Gateway URL is a logged no-op inside the reporter.
+    /// </summary>
+    private static async Task FireDirectorStartupTelemetryAsync(string directorId, Action<string> log)
+    {
+        try
+        {
+            var reporter = new DevThrottleDirectorStartupTelemetryReporter();
+            await reporter.ReportStartupAsync(directorId).ConfigureAwait(false);
+            log($"Director-startup telemetry reported (directorId={directorId})");
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: a telemetry failure must never affect startup. Swallow + log only.
+            log($"Director-startup telemetry FAILED (best-effort, ignored): {ex.Message}");
         }
     }
 
