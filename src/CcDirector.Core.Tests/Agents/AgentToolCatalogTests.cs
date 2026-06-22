@@ -10,7 +10,7 @@ public class AgentToolCatalogTests
     {
         var kinds = AgentToolCatalog.Entries.Select(e => e.Tool).ToHashSet();
 
-        Assert.Equal(7, AgentToolCatalog.Entries.Count);
+        Assert.Equal(8, AgentToolCatalog.Entries.Count);
         Assert.Contains(AgentKind.ClaudeCode, kinds);
         Assert.Contains(AgentKind.Pi, kinds);
         Assert.Contains(AgentKind.Codex, kinds);
@@ -18,6 +18,24 @@ public class AgentToolCatalogTests
         Assert.Contains(AgentKind.OpenCode, kinds);
         Assert.Contains(AgentKind.Cursor, kinds);
         Assert.Contains(AgentKind.Grok, kinds);
+        Assert.Contains(AgentKind.Copilot, kinds);
+    }
+
+    [Fact]
+    public void CopilotEntry_DefaultPresetIsStandard_AndOffersYoloWithAllowAll()
+    {
+        // Issue #625: GitHub Copilot defaults to Standard (no flags) and offers an opt-in
+        // "Automatic (yolo)" preset that adds --allow-all.
+        var copilot = AgentToolCatalog.GetEntry(AgentKind.Copilot);
+
+        Assert.Equal("GitHub Copilot", copilot.DisplayName);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, copilot.DefaultPreset.Name);
+        Assert.Equal("", copilot.DefaultPreset.Arguments);
+
+        var yolo = copilot.Presets.FirstOrDefault(p => p.Name == AgentToolCatalog.CopilotAutomaticPresetName);
+        Assert.NotNull(yolo);
+        Assert.Equal(AgentToolCatalog.CopilotAllowAllArg, yolo.Arguments);
+        Assert.Equal("--allow-all", AgentToolCatalog.CopilotAllowAllArg);
     }
 
     [Fact]

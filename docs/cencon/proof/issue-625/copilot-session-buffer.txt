@@ -1,0 +1,47 @@
+Captured live from the test Director Control API (loopback, port 7894) on 2026-06-22.
+Session 22055b1f-5a1a-4180-84be-9a932aa35fde, repo D:\ReposFred\devthrottle-wt-625, agent=Copilot.
+
+=== AC7: copilot launched inside the Director session tab (startup banner) ===
+GET /sessions/{sid}/buffer (immediately after launch):
+
+  ╭─╮╭─╮
+  ╰─╯╰─╯  Copilot v1.0.63 uses AI.
+  █ ▘▝ █  Check for mistakes.
+   ▔▔▔▔ ● Tip: /app  Prefer a visual workspace? Try out the GitHub Copilot desktop app  https://github.com/features/ai/github-app
+  ● No copilot-instructions.md found. Run /init to generate.
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ Confirm folder trust                                                                   │
+  │ ──────────────────────────────────────────────────────────────────────────────────── │
+  │   D:\ReposFred\devthrottle-wt-625                                                       │
+  │ Copilot can read files in this folder and, with your permission, edit them or run code │
+  │ and shell commands. It will remember your permissions for the rest of this session.    │
+  │ Do you trust the files in this folder?                                                 │
+  │ > 1. Yes                                                                                │
+  │   2. Yes, and remember this folder for future sessions                                 │
+  │   3. No (Esc)                                                                           │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+(The Copilot v1.0.63 banner and prompt are visible. No /login prompt appeared - the resolved
+GitHub token authenticated the session. This is the GenericDriver/CopilotDriver launch path
+working end to end: copilot.cmd spawned into a Director ConPty session tab.)
+
+=== AC8: session accepts a prompt and responds ===
+After confirming folder trust (sent "1"), the composer prompt appeared:
+
+   D:\ReposFred\devthrottle-wt-625 [issue-625-copilot-agent*%]   Session: 0 AIC used
+  ────────────────────────────────────────────────────────────────────────────────────
+  >
+  ────────────────────────────────────────────────────────────────────────────────────
+   / commands . ? help                                                       GPT-5 mini
+
+POST /sessions/{sid}/prompt  body: { "Text": "Reply with exactly: COPILOT-IN-DIRECTOR-OK" }
+-> { "accepted": true, "activityState": "Working" }
+
+Buffer after the turn completed:
+
+  > Reply with exactly: COPILOT-IN-DIRECTOR-OK
+  ● COPILOT-IN-DIRECTOR-OK
+  Session: 0.49
+
+(Expected: the agent echoes the requested string. Actual: "COPILOT-IN-DIRECTOR-OK" rendered as
+the assistant response in the session tab. AC8 satisfied.)

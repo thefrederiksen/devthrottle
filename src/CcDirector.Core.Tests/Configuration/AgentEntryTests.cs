@@ -58,9 +58,9 @@ public sealed class AgentEntryTests : IDisposable
 
         var entries = AgentEntryStore.LoadEntries(new AgentOptions());
 
-        Assert.Equal(7, entries.Count);
+        Assert.Equal(8, entries.Count);
         Assert.Equal(
-            new[] { AgentKind.ClaudeCode, AgentKind.Pi, AgentKind.Codex, AgentKind.Gemini, AgentKind.OpenCode, AgentKind.Cursor, AgentKind.Grok },
+            new[] { AgentKind.ClaudeCode, AgentKind.Pi, AgentKind.Codex, AgentKind.Gemini, AgentKind.OpenCode, AgentKind.Cursor, AgentKind.Grok, AgentKind.Copilot },
             entries.Select(e => e.Type).ToArray());
         Assert.Equal("C:/tools/claude.cmd", entries[0].ExecutablePath);
         Assert.Equal("C:/tools/opencode.exe", entries[4].ExecutablePath);
@@ -70,8 +70,11 @@ public sealed class AgentEntryTests : IDisposable
         // Grok likewise has no legacy *_path key here, so it seeds from its default path.
         Assert.Equal(AgentKind.Grok, entries[6].Type);
         Assert.Equal("grok", entries[6].ExecutablePath);
+        // Copilot (issue #625) also has no legacy *_path key here, so it seeds from its default path.
+        Assert.Equal(AgentKind.Copilot, entries[7].Type);
+        Assert.Equal(new AgentOptions().CopilotPath, entries[7].ExecutablePath);
         // Each seeded entry has a stable, unique id.
-        Assert.Equal(7, entries.Select(e => e.Id).Distinct().Count());
+        Assert.Equal(8, entries.Select(e => e.Id).Distinct().Count());
         Assert.All(entries, e => Assert.False(string.IsNullOrWhiteSpace(e.Id)));
     }
 

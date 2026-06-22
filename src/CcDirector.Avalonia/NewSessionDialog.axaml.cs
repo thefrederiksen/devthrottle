@@ -641,17 +641,20 @@ public partial class NewSessionDialog : Window
         var agentKind = entry?.Type ?? AgentKind.ClaudeCode;
 
         // The Bypass-permissions checkbox maps to each agent's permission-bypass flag:
-        // Claude's --dangerously-skip-permissions and Cursor's --force (issue #517). It is
-        // enabled for those two and disabled (with a neutral label) for agents that have no
-        // such per-session flag, so the UI never misleads.
+        // Claude's --dangerously-skip-permissions, Cursor's --force (issue #517), and GitHub
+        // Copilot's --allow-all (issue #625). It is enabled for those agents and disabled (with a
+        // neutral label) for agents that have no such per-session flag, so the UI never misleads.
         var isClaude = agentKind == AgentKind.ClaudeCode;
         var isCursor = agentKind == AgentKind.Cursor;
+        var isCopilot = agentKind == AgentKind.Copilot;
         if (BypassPermissionsCheckBox is not null)
         {
-            BypassPermissionsCheckBox.IsEnabled = isClaude || isCursor;
+            BypassPermissionsCheckBox.IsEnabled = isClaude || isCursor || isCopilot;
             BypassPermissionsCheckBox.Content = isCursor
                 ? "Bypass permission prompts (--force)"
-                : "Bypass permission prompts";
+                : isCopilot
+                    ? "Bypass permission prompts (--allow-all)"
+                    : "Bypass permission prompts";
         }
 
         // Show the custom-CLI command/args panel only when a Custom CLI entry is selected, and

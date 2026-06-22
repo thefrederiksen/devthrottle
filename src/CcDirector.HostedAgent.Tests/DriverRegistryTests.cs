@@ -16,6 +16,7 @@ public class DriverRegistryTests
         Assert.IsType<ClaudeDriver>(AgentDrivers.For(AgentKind.ClaudeCode));
         Assert.IsType<PiDriver>(AgentDrivers.For(AgentKind.Pi));
         Assert.IsType<CursorDriver>(AgentDrivers.For(AgentKind.Cursor));
+        Assert.IsType<CopilotDriver>(AgentDrivers.For(AgentKind.Copilot));
         Assert.IsType<GenericDriver>(AgentDrivers.For(AgentKind.Codex));
         Assert.IsType<GenericDriver>(AgentDrivers.For(AgentKind.Gemini));
     }

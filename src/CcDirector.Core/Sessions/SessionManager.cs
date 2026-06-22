@@ -246,6 +246,20 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // GitHub Copilot authenticates via a GitHub token (issue #625). Inject the configured
+            // token (or the resolved COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN env value) as
+            // COPILOT_GITHUB_TOKEN so copilot starts without an interactive /login. When none is
+            // configured Director injects nothing and the user logs in inside the tab. Never logged.
+            if (agent.Kind == AgentKind.Copilot)
+            {
+                var copilotToken = _options.ResolveCopilotToken();
+                if (!string.IsNullOrEmpty(copilotToken))
+                {
+                    envVars["COPILOT_GITHUB_TOKEN"] = copilotToken;
+                    _log?.Invoke("Injected COPILOT_GITHUB_TOKEN into the GitHub Copilot session environment.");
+                }
+            }
+
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
             // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from

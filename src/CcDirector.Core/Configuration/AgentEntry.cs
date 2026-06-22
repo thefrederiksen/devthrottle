@@ -94,6 +94,7 @@ public static class AgentEntryStore
         AgentKind.OpenCode,
         AgentKind.Cursor,
         AgentKind.Grok,
+        AgentKind.Copilot,
     };
 
     /// <summary>
@@ -263,6 +264,7 @@ public static class AgentEntryStore
         AgentKind.OpenCode => "opencode_path",
         AgentKind.Cursor => "cursor_path",
         AgentKind.Grok => "grok_path",
+        AgentKind.Copilot => "copilot_path",
         _ => "custom_path",
     };
 
@@ -275,6 +277,7 @@ public static class AgentEntryStore
         AgentKind.OpenCode => "OpenCodePath",
         AgentKind.Cursor => "CursorPath",
         AgentKind.Grok => "GrokPath",
+        AgentKind.Copilot => "CopilotPath",
         _ => "CustomPath",
     };
 
@@ -287,6 +290,7 @@ public static class AgentEntryStore
         AgentKind.OpenCode => options.OpenCodePath,
         AgentKind.Cursor => options.CursorPath,
         AgentKind.Grok => options.GrokPath,
+        AgentKind.Copilot => options.CopilotPath,
         _ => "",
     };
 
@@ -299,6 +303,7 @@ public static class AgentEntryStore
         AgentKind.OpenCode => "OpenCode",
         AgentKind.Cursor => "Cursor",
         AgentKind.Grok => "Grok",
+        AgentKind.Copilot => "GitHub Copilot",
         AgentKind.RawCli => "Custom",
         _ => tool.ToString(),
     };

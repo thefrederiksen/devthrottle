@@ -1505,6 +1505,7 @@ internal static class ControlEndpoints
                     AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
                     AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
                     AgentKind.Grok => new GrokAgent(sessionManager.Options),
+                    AgentKind.Copilot => new CopilotAgent(sessionManager.Options),
                     _ => throw new InvalidOperationException("unreachable"),
                 };
 
@@ -2383,7 +2384,7 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = $"repoPath does not exist: {req.RepoPath}" });
 
             if (!Enum.TryParse<AgentKind>(req.Agent, ignoreCase: true, out var kind))
-                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode, Grok, RawCli" });
+                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode, Grok, Copilot, RawCli" });
 
             // RawCli requires a Command; validate before constructing the agent.
             if (kind == AgentKind.RawCli && string.IsNullOrWhiteSpace(req.Command))
@@ -2397,6 +2398,7 @@ internal static class ControlEndpoints
                 AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
                 AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
                 AgentKind.Grok => new GrokAgent(sessionManager.Options),
+                AgentKind.Copilot => new CopilotAgent(sessionManager.Options),
                 AgentKind.RawCli => new RawCliAgent(req.Command!, req.CommandArgs),
                 _ => throw new InvalidOperationException("unreachable"),
             };

@@ -36,5 +36,12 @@ public enum AgentKind
     Cursor = 6,
 
     /// <summary>xAI Grok CLI (the <c>grok</c> binary installed via <c>irm https://x.ai/cli/install.ps1 | iex</c>).</summary>
-    Grok = 7
+    Grok = 7,
+
+    /// <summary>
+    /// GitHub Copilot CLI (the <c>copilot</c> binary from <c>@github/copilot</c>). On Windows the
+    /// npm global install drops <c>copilot</c>, <c>copilot.cmd</c>, and <c>copilot.ps1</c>; the
+    /// launchable shim for a process spawner is <c>copilot.cmd</c> (issue #625).
+    /// </summary>
+    Copilot = 8
 }

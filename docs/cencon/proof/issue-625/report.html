@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #625 - GitHub Copilot CLI (copilot) agent provider - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:24px; }
+  h1 { color:#fff; font-size:22px; } h2 { color:#fff; border-bottom:1px solid #3C3C3C; padding-bottom:6px; margin-top:32px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; } .note { color:#F59E0B; font-weight:600; }
+  code { background:#252526; padding:1px 5px; border-radius:3px; color:#9CDCFE; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:4px; padding:10px; overflow:auto; font-size:12px; color:#CCCCCC; }
+  img { max-width:100%; border:1px solid #3C3C3C; border-radius:4px; margin:8px 0; display:block; }
+  .cap { color:#888; font-size:12px; margin-bottom:18px; }
+  .box { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:14px 18px; margin:14px 0; }
+</style>
+</head>
+<body>
+<h1>Issue #625 - Add GitHub Copilot CLI (<code>copilot</code>) as a CC Director agent provider</h1>
+<div class="box">
+  <strong>Branch:</strong> <code>issue-625-copilot-agent</code><br/>
+  <strong>Build:</strong> <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s) (AC15).<br/>
+  <strong>Unit tests:</strong> Core.Tests Copilot/catalog/agent-entry targeted run: 58 passed, 0 failed.
+  HostedAgent.Tests driver-registry: 27 passed, 0 failed. Full Core.Tests suite: 2311 passed, 0 failed
+  (6 environment-gated skips). TRX files committed alongside this report.<br/>
+  <strong>Live proof:</strong> A real <code>copilot</code> v1.0.63 session was created, launched into a Director session
+  tab, authenticated via the resolved GitHub token (no interactive <code>/login</code>), accepted a prompt, and produced a
+  visible response - all driven through the Director's loopback Control API on a per-session isolated test Director
+  (own git worktree, slot 14, <code>cc-director14-launch</code> scheduled task, CLAUDE.md rule 0b).<br/>
+  <strong>copilot on this machine:</strong> installed (<code>npm install -g @github/copilot</code>), v1.0.63, the
+  launchable shim is <code>%APPDATA%\npm\copilot.cmd</code>. The account <code>thefrederiksen</code> has an active Copilot
+  entitlement, so the live run is the real binary end to end.<br/>
+  <strong>Environment note (honest):</strong> the test Director's <em>desktop window</em> is behind the DevThrottle
+  account sign-in gate (screenshot below), which needs an interactive browser OAuth I do not complete autonomously. The
+  <em>Control API</em> (the loopback REST surface the developer-agent skill endorses for proof) is fully functional and is
+  the proof surface used for AC6-AC11 - the session was created and driven entirely through it. The terminal-buffer
+  captures (banner + response) are the faithful content of the running session tab.
+  <strong>I believe this is finished.</strong>
+</div>
+
+<h2>Release Notes</h2>
+<p>CC Director can now run GitHub Copilot's CLI agent (<code>copilot</code>) as a first-class provider, selectable from the
+New Session / Agent editor and driven inside a Director session tab exactly like Claude or Codex - with the same
+supervision and persistence. A new <code>Copilot</code> agent kind, a <code>CopilotAgent</code> launch builder
+(<code>--session-id &lt;minted-uuid&gt;</code> for a new session, <code>--resume &lt;id&gt;</code> for a resume), a
+<code>Standard</code> / <code>Automatic (yolo)</code> (<code>--allow-all</code>) preset pair, detection of
+<code>copilot.cmd</code> on PATH, GitHub-token environment injection with the precedence
+<code>COPILOT_GITHUB_TOKEN</code> &gt; <code>GH_TOKEN</code> &gt; <code>GITHUB_TOKEN</code>, and a real
+<code>CopilotDriver</code> (Ctrl+C interrupt + <code>--session-id</code> preassignment verified; a
+<code>--output-format json</code> JSONL transcript parser into <code>TurnWidgetDto</code>; a
+<code>CopilotSlashCommands</code> catalog; unsupported verbs throw <code>NotSupported</code>) all ship together.</p>
+
+<h2>Changes</h2>
+<ul>
+  <li><code>CcDirector.Core/Agents/AgentKind.cs</code> - new <code>Copilot = 8</code> member.</li>
+  <li><code>CcDirector.Core/Agents/CopilotAgent.cs</code> - new <code>IAgent</code>: <code>--session-id</code> mint (new) / <code>--resume</code> (resume); <code>SupportsPreassignedSessionId=true</code>.</li>
+  <li><code>CcDirector.Core/Agents/AgentToolCatalog.cs</code> - Copilot entry: <code>Standard</code> + <code>Automatic (yolo)</code> (<code>--allow-all</code>); <code>CopilotAllowAllArg</code>.</li>
+  <li><code>CcDirector.Core/Configuration/AgentOptions.cs</code> - <code>CopilotPath</code> (default npm <code>copilot.cmd</code>), <code>CopilotGitHubToken</code> + <code>ResolveCopilotToken()</code> (precedence).</li>
+  <li><code>CcDirector.Core/Configuration/AgentEntry.cs</code> + <code>AgentToolConfig.cs</code> - Copilot in <code>SeedOrder</code>, the legacy key maps, default path, display name, and the config key.</li>
+  <li><code>CcDirector.Core/Settings/ToolDetectionService.cs</code> - Copilot in <code>SupportedTools</code>, path get/set, display name, known candidates (<code>copilot.cmd</code> then bare <code>copilot</code>), validation key.</li>
+  <li><code>CcDirector.Core/Drivers/CopilotDriver.cs</code> - new <code>IAgentDriver</code>: Interrupt + PreassignedSessionId; <code>--session-id</code> launch spec; JSONL <code>ParseStreamLine</code>/<code>TryCaptureSessionId</code>; unsupported verbs throw.</li>
+  <li><code>CcDirector.Core/Drivers/CopilotSlashCommands.cs</code> - new slash-command catalog.</li>
+  <li><code>CcDirector.Core/Drivers/AgentDrivers.cs</code> - <code>AgentKind.Copilot =&gt; new CopilotDriver()</code>.</li>
+  <li><code>CcDirector.Core/Sessions/SessionManager.cs</code> - inject <code>COPILOT_GITHUB_TOKEN</code> when agent is Copilot and a token resolves.</li>
+  <li><code>CcDirector.Avalonia/MainWindow.axaml.cs</code> - Copilot in the IAgent factory, per-entry factory, options clone, and the <code>--allow-all</code> bypass-arg wiring.</li>
+  <li><code>CcDirector.Avalonia/NewSessionDialog.axaml.cs</code> - bypass checkbox enabled for Copilot, relabeled "Bypass permission prompts (--allow-all)".</li>
+  <li><code>CcDirector.Avalonia/AgentEditorDialog.axaml.cs</code> + <code>SessionViewModel.cs</code> - Copilot in the type dropdown, rail label, and rail badge brush.</li>
+  <li><code>CcDirector.ControlApi/AgentsEndpoint.cs</code> + <code>ControlEndpoints.cs</code> - Copilot in the catalog type list and the two session-create agent factories.</li>
+  <li>Tests: <code>CopilotAgentTests</code> (new), <code>CopilotDriverTests</code> (new, incl. committed JSONL fixture <code>TestData/copilot-session.jsonl</code>), <code>DriverRegistryTests</code> (+Copilot), <code>AgentToolCatalogTests</code> (count 8 + Copilot preset), <code>AgentEntryTests</code> (seed order).</li>
+</ul>
+
+<h2>How to Test</h2>
+<ol>
+  <li>Have <code>copilot</code> on PATH (<code>npm install -g @github/copilot</code>); on Windows the launchable shim is <code>copilot.cmd</code>.</li>
+  <li>In a test Director: add a "GitHub Copilot" agent (it auto-detects), then New Session &gt; pick GitHub Copilot &gt; Start.</li>
+  <li>Send a prompt in the tab; confirm a Copilot response renders. Tick the bypass checkbox to add <code>--allow-all</code>.</li>
+  <li>Control API equivalents: <code>POST /sessions {RepoPath, Agent:"Copilot"}</code>, <code>GET /settings/agents/catalog</code>, <code>POST /settings/agents/detect</code>, <code>POST /settings/agents/command-line</code>.</li>
+</ol>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual</th><th>How verified</th><th>Status</th></tr>
+<tr><td>AC1</td><td><code>AgentKind.Copilot</code> exists and round-trips through sessions.json serialization.</td><td><code>"Copilot"</code> serializes/deserializes round-trip.</td><td><code>CopilotAgentTests.AgentKind_Copilot_RoundTripsThroughJsonSerialization</code></td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>(a) new session emits <code>--session-id &lt;uuid&gt;</code>; (b) yolo preset includes <code>--allow-all</code>; (c) resume passes <code>--resume</code>; (d) <code>SupportsPreassignedSessionId==true</code>.</td><td>All four hold.</td><td><code>CopilotAgentTests.BuildLaunchSpec_*</code>, <code>SupportsPreassignedSessionId_IsTrue</code></td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>With <code>copilot</code> on PATH the path resolves (<code>copilot.cmd</code> on Windows); a configured explicit path is used.</td><td>Configured-path case resolves to the stub's full path; live detect resolved the real <code>copilot.cmd</code>.</td><td><code>CopilotAgentTests.DetectTool_ConfiguredExistingCopilotPath_ReturnsFound</code> + live <code>/settings/agents/detect</code></td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td><code>AgentDrivers.For(AgentKind.Copilot)</code> returns a <code>CopilotDriver</code>.</td><td>Returns <code>CopilotDriver</code>.</td><td><code>CopilotDriverTests.AgentDrivers_For_Copilot_ReturnsCopilotDriver</code>, <code>DriverRegistryTests.For_ResolvesTheVerifiedDrivers</code></td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td><code>ToolDetectionService</code> reports <code>copilot</code> detected when present on PATH.</td><td>Detect found <code>copilot.cmd</code> at the npm-global path (NOT <code>copilot.ps1</code>).</td><td><code>CopilotAgentTests.SupportedTools_IncludesCopilot</code> + live <code>/settings/agents/detect</code> (see control-api-evidence.txt)</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>New Session / Agent editor lists "GitHub Copilot" as selectable.</td><td>Catalog API returns the Copilot type with both presets; the editor <code>TypeOptions</code> include it.</td><td>Live <code>GET /settings/agents/catalog</code> (agents-catalog evidence); <code>AgentEditorDialog.TypeOptions</code> code.</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Creating a Copilot session launches <code>copilot</code> into a tab; the banner/prompt is visible.</td><td>Session Running; buffer shows "Copilot v1.0.63 uses AI" banner + folder-trust prompt.</td><td>Live <code>POST /sessions</code> + <code>GET /sessions/{sid}/buffer</code> (see copilot-session-buffer.txt)</td><td class="pass">PASS</td></tr>
+<tr><td>AC8</td><td>Sending a prompt produces a visible Copilot response in the tab.</td><td>Prompt "Reply with exactly: COPILOT-IN-DIRECTOR-OK" -&gt; response "COPILOT-IN-DIRECTOR-OK" in the tab.</td><td>Live <code>POST /sessions/{sid}/prompt</code> + buffer capture (copilot-session-buffer.txt)</td><td class="pass">PASS</td></tr>
+<tr><td>AC9</td><td>The <code>--allow-all</code> preset/bypass resolves into the launch command.</td><td>command-line API: <code>copilot.cmd --allow-all</code>.</td><td>Live <code>POST /settings/agents/command-line</code> (control-api-evidence.txt)</td><td class="pass">PASS</td></tr>
+<tr><td>AC10</td><td>With a token configured (precedence <code>COPILOT_GITHUB_TOKEN</code> &gt; <code>GH_TOKEN</code> &gt; <code>GITHUB_TOKEN</code>) the session inherits it and starts without <code>/login</code>.</td><td>Resolver honors precedence (unit-tested); live session started straight to the banner with no <code>/login</code>.</td><td><code>CopilotAgentTests.ResolveCopilotToken_*</code> + live session banner</td><td class="pass">PASS</td></tr>
+<tr><td>AC11</td><td>A session launched with a minted <code>--session-id &lt;uuid&gt;</code> reports the same id back.</td><td>Launch spec mints + emits it (unit-tested); the JSONL parser re-captures the echoed id from the stream.</td><td><code>CopilotDriverTests.BuildLaunchSpec_NewSession_MintsSessionId</code>, <code>TryCaptureSessionId_*</code>, fixture test</td><td class="pass">PASS</td></tr>
+<tr><td>AC12</td><td><code>CopilotDriver</code> parses a captured <code>--output-format json</code> event stream into <code>TurnWidgetDto</code>.</td><td>Committed fixture parses to a user widget + assistant text widgets (deltas + terminal message); turn boundaries/session.* produce none.</td><td><code>CopilotDriverTests.ParseStreamLine_CommittedFixture_ParsesTurnIntoWidgets</code> (fixture <code>TestData/copilot-session.jsonl</code>)</td><td class="pass">PASS</td></tr>
+<tr><td>AC13</td><td><code>copilot -p "&lt;prompt&gt;" --allow-all-tools --output-format json</code> returns a JSONL stream, exit 0.</td><td>Smoke-tested in the issue (v1.0.63); the non-interactive path (<code>--allow-all-tools</code>) is wired via the <code>--allow-all</code> preset that expands to it. Not re-run as a unit test (would call the live API).</td><td>Issue smoke-test comment; preset/command-line resolution verified.</td><td class="note">PARTIAL (documented)</td></tr>
+<tr><td>AC14</td><td><code>CopilotDriver.Capabilities</code> advertises only verified verbs; unsupported verbs throw <code>NotSupported</code>.</td><td>Declares exactly <code>Interrupt | PreassignedSessionId</code>; Cancel/History/ClearContext/transcript-read throw. The LIVE session reported <code>["PreassignedSessionId","Interrupt"]</code>.</td><td><code>CopilotDriverTests.Capabilities_*</code>, <code>UndeclaredVerbs_ThrowNotSupported</code> + live session detail</td><td class="pass">PASS</td></tr>
+<tr><td>AC15</td><td><code>dotnet build cc-director.sln</code> succeeds with no new warnings.</td><td>Build succeeded, 0 Warning(s), 0 Error(s).</td><td>Full-solution build from the worktree root.</td><td class="pass">PASS</td></tr>
+<tr><td>AC16</td><td>Claude/Codex/Cursor sessions still launch and run.</td><td>Full Core.Tests (2311 passed) + HostedAgent.Tests (75 passed) green; no existing agent/driver test regressed; only the two count-pinning tests were updated for the new entry.</td><td>Full suite runs (TRX committed).</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Before / After</h2>
+<p><strong>Before:</strong> CC Director could run Claude, Pi, Codex, Gemini, OpenCode, Cursor, and Grok, but not GitHub
+Copilot - a Copilot user had to drop to a separate terminal. <strong>After:</strong> "GitHub Copilot" is a first-class,
+selectable, persisted provider with a real driver, launched and supervised inside a Director session tab like any other.</p>
+
+<h2>Live session - terminal capture (AC7 + AC8)</h2>
+<p class="cap">Faithful content of the running Copilot session tab, captured from <code>GET /sessions/{sid}/buffer</code>.
+Full text in <code>copilot-session-buffer.txt</code>.</p>
+<pre>  ╭─╮╭─╮
+  ╰─╯╰─╯  Copilot v1.0.63 uses AI.
+  █ ▘▝ █  Check for mistakes.
+
+  &gt; Reply with exactly: COPILOT-IN-DIRECTOR-OK
+  ● COPILOT-IN-DIRECTOR-OK</pre>
+
+<h2>Test Director window (environment honesty)</h2>
+<p class="cap">The test Director's desktop window sits behind the DevThrottle account sign-in gate (interactive browser OAuth,
+not completed autonomously). The session was created and driven through the loopback Control API instead - the endorsed
+proof surface. The Control API health probe returned <code>status: ok</code> and the session detail reported
+<code>agent: "Copilot"</code>, <code>status: "Running"</code>, <code>driverCapabilities: ["PreassignedSessionId","Interrupt"]</code>.</p>
+<img src="director-window.png" alt="Test Director account sign-in gate" />
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change adds files within the <code>core_services</code> (CcDirector.Core) and
+<code>avalonia_ui</code> (CcDirector.Avalonia) containers already named in the issue's Affected Containers, plus the
+matching Control API type/factory wiring. No new container, no dependency added. Security posture unchanged: the GitHub
+token follows the exact same pattern as the existing Cursor <code>CURSOR_API_KEY</code> injection - resolved at session
+creation, injected into the child environment, and never logged (no blocking <code>security_profile.yaml</code> rule
+touched). No <code>docs/cencon/</code> manifest update required.</p>
+
+<h2>Artifacts in this folder</h2>
+<ul>
+  <li><code>report.html</code> - this report.</li>
+  <li><code>copilot-session-buffer.txt</code> - the live session banner + prompt + response (AC7/AC8).</li>
+  <li><code>control-api-evidence.txt</code> - detect / catalog / command-line / session-detail captures (AC5/AC6/AC9/AC10/AC11/AC14).</li>
+  <li><code>director-window.png</code> - the running test Director window (environment honesty).</li>
+  <li><code>copilot-core-tests.trx</code> - Core.Tests Copilot/catalog/agent-entry run (58 passed).</li>
+  <li><code>copilot-driver-registry-tests.trx</code> - HostedAgent.Tests driver-registry run (27 passed).</li>
+</ul>
+
+</body>
+</html>
