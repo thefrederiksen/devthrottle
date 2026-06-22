@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #621 (cc-cron CLI + Schedule page opt-in)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f3f0fb; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .fail { color: #c00; font-weight: bold; }
+  pre { background: #f6f8fa; border: 1px solid #ddd; padding: .7rem; overflow-x: auto; font-size: .85rem; }
+  code { background: #f0f0f0; padding: 0 .25rem; }
+  .verdict { background: #e8f8ec; border: 2px solid #0a7d28; padding: 1rem; font-size: 1.1rem; margin-top: 2rem; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #621</h1>
+<p><strong>Title:</strong> Make cron first-class for agents + humans: cc-cron CLI + surface the Schedule page<br>
+<strong>PR:</strong> #626 (branch <code>issue-621-cc-cron</code>)<br>
+<strong>Verifier:</strong> QA Agent (independent verification - developer report and screenshots NOT trusted)<br>
+<strong>Method:</strong> own worktree from PR branch; isolated slot 13 build; a fresh headless GatewayHost
+on an ephemeral loopback port with isolated temp cron stores (no Tailscale, no auth) - cc-cron driven
+against that live Gateway over real HTTP. The user's production Gateway was never written to.</p>
+
+<h2>Decision context</h2>
+<p>Per the recorded decision on flagged Assumption 1, the Schedule page is NOT graduated out of the v1
+alpha flag. AC#5 is satisfied via a documented, discoverable direct-URL opt-in (<code>/schedule</code>).
+AC#5 was verified against THIS decision: the nav item is hidden, but the page is fully reachable and
+functional by direct URL, and the opt-in is documented in CC_TOOLS.md and in the NavMenu code comment.</p>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (verified)</th><th>Result</th></tr>
+
+<tr><td>1</td><td>create one-off (issue command) returns 201 + id + nextRunUtc; cross-check GET /cron/jobs</td>
+<td>Gateway 201; prints new id + nextRunUtc; job present in list</td>
+<td><code>cc-cron create --name "QA help once" --at "2026-06-28T18:00:00" --tz America/New_York --machine workstation-A --repo D:\repo --seed "/help"</code> -> Created, Id <code>cj_62d32a</code>, Next run <code>2026-06-28T22:00:00Z</code> (18:00 EDT = 22:00 UTC, DST-correct). Confirmed via <code>cc-cron list</code> and <code>cc-cron get</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>list / get / runs / run / enable / disable / delete map to the right REST call, readable output</td>
+<td>Each subcommand maps to one REST call and renders cleanly</td>
+<td>All exercised: list (table + --json), get (full detail), recurring create, run (POST /run -> fired, recorded a run with infraStatus not-started since no live Director resolves the target - correct), runs (history record returned), disable/enable (read-modify-write PUT toggles enabled), delete (both jobs removed, list -> []). 404 on unknown id renders "no such cron job", no trace.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>endpoint discovery: no hard-coded port (same mechanism as other cc-* tools); clear not-reachable error</td>
+<td>Resolves from config gateway.url; friendly error when Gateway down</td>
+<td>Code: <code>gateway.py resolve_base_url()</code> reads <code>config.gateway.url</code> via <code>cc_shared.config.CCDirectorConfig</code> (the same on-disk camelCase block the desktop and Cockpit use), loopback default only when unset - no per-call port literal. Run with a dead gateway: <code>--gateway http://127.0.0.1:19999 list</code> -> "Gateway not reachable at ... Is the Gateway tray app running?" exit 1, no stack trace. <code>cc-cron endpoint</code> resolved the machine's configured Tailscale Gateway URL.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>invalid schedule surfaces the Gateway 400 message, not a stack trace</td>
+<td>Gateway validation text echoed verbatim</td>
+<td>bad cron -> <code>Error: invalid cron expression: not-a-cron</code>; past/garbage one-off -> <code>Error: runAt is not a parseable timestamp: not-a-time</code>; unknown tz -> <code>Error: unknown timeZoneId: Mars/Olympus</code>. All exit 1, all the Gateway's own message, no Python traceback.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Schedule page reachable via documented opt-in; shows jobs/next-run/history; can create/run/delete</td>
+<td>Page works by direct URL; nav item hidden; documented opt-in</td>
+<td>Cockpit run against the isolated Gateway; navigated to <code>/schedule</code> (HTTP 200). Live render (see screenshot) shows both seeded jobs with NEXT RUN, LAST RUN (run history), STATUS, and New cron job / Run now / Edit / Delete controls. The left nav rail shows NO Schedule item - the page is reachable only via the direct-URL opt-in. Opt-in documented in <code>docs/CC_TOOLS.md</code> (Scheduling section) and the NavMenu.razor code comment. Page component <code>Schedule.razor</code> is unchanged by the PR.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>CC_TOOLS.md documents cc-cron; build clean</td>
+<td>Docs present; solution builds with no errors</td>
+<td>CC_TOOLS.md has a cc-cron table row, a full <code>### cc-cron</code> section (all subcommands, endpoint discovery, error behavior), and a Scheduling section pointing humans at /schedule and agents at cc-cron. <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s) (Cockpit project included). cc-cron 13 unit tests pass.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Live Schedule page (AC#5) - via the /schedule direct-URL opt-in</h2>
+<p>Note the nav rail has no "Schedule" entry; the page is reachable only by direct URL.</p>
+<img src="qa-schedule-page.png" alt="Schedule page rendered via direct-URL opt-in">
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>Gateway cron tests: <strong>61 passed, 0 failed</strong> (CronEngine/Store/Endpoints/Schedule - contracts intact).</li>
+<li>Cockpit Schedule/cron tests: <strong>17 passed, 0 failed</strong>.</li>
+<li>cc-cron unit tests: <strong>13 passed</strong>.</li>
+<li>Full solution build: <strong>0 Warnings, 0 Errors</strong>.</li>
+<li>Method lens (review-code): pure REST consumer layer; no hardcoded secrets (token read from config only);
+no architecture/security change, so no docs/cencon update required; tests present.</li>
+</ul>
+
+<h2>Scope OUT respected</h2>
+<p>Diff touches only: the new <code>tools/cc-cron</code> tool, <code>tools/registry.json</code> (ship entry),
+<code>NavMenu.razor</code> (Schedule item set to display:none plus an explanatory comment - 8 lines),
+<code>docs/CC_TOOLS.md</code>, and proof artifacts. Confirmed NO change to the cron engine, store,
+<code>CronJobDto</code> or <code>CronRunRecord</code> contracts, and NO run-complete notifications
+(that is sibling #622).</p>
+
+<div class="verdict">VERIFIED - all 6 acceptance criteria met, regression and method checks pass, scope respected.</div>
+</body>
+</html>
