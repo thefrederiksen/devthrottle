@@ -41,7 +41,7 @@
                 <!-- Step indicators -->
                 <StackPanel x:Name="StepIndicators" VerticalAlignment="Top">
                     <!-- Step 1: Welcome -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step1Row" Orientation="Horizontal">
                         <Border x:Name="Step1Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource AccentBrush}">
                             <TextBlock Text="1" Foreground="White" FontSize="13"
@@ -60,7 +60,7 @@
                             x:Name="Line12" />
 
                     <!-- Step 2: Prerequisites -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step2Row" Orientation="Horizontal">
                         <Border x:Name="Step2Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="2" Foreground="{StaticResource DimText}" FontSize="13"
@@ -80,7 +80,7 @@
                             x:Name="Line23" />
 
                     <!-- Step 3: Sign in (forced first-run sign-in, issue #657) -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step3Row" Orientation="Horizontal">
                         <Border x:Name="Step3Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="3" Foreground="{StaticResource DimText}" FontSize="13"
@@ -100,7 +100,7 @@
                             x:Name="Line34" />
 
                     <!-- Step 4: Privacy (telemetry consent, issue #659) -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step4Row" Orientation="Horizontal">
                         <Border x:Name="Step4Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="4" Foreground="{StaticResource DimText}" FontSize="13"
@@ -120,7 +120,7 @@
                             x:Name="Line45" />
 
                     <!-- Step 5: Skills -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step5Row" Orientation="Horizontal">
                         <Border x:Name="Step5Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="5" Foreground="{StaticResource DimText}" FontSize="13"
@@ -140,7 +140,7 @@
                             x:Name="Line56" />
 
                     <!-- Step 6: Install -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step6Row" Orientation="Horizontal">
                         <Border x:Name="Step6Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="6" Foreground="{StaticResource DimText}" FontSize="13"
@@ -160,7 +160,7 @@
                             x:Name="Line67" />
 
                     <!-- Step 7: Complete -->
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel x:Name="Step7Row" Orientation="Horizontal">
                         <Border x:Name="Step7Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
                             <TextBlock Text="7" Foreground="{StaticResource DimText}" FontSize="13"
