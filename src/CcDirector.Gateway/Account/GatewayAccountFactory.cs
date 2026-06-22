@@ -31,6 +31,13 @@ public static class GatewayAccountFactory
     public const string TestSeedTokenEnvVar = "DEVTHROTTLE_TEST_SEED_TOKEN";
 
     /// <summary>
+    /// The environment variable that configures the backend refresh-exchange endpoint the Gateway-owned
+    /// token refresher (issue #640) uses. Mirrors <see cref="GatewayHttpTokenRefresher.RefreshUrlEnvVar"/>;
+    /// when unset the refresher reports refresh unavailable and the cached credential is kept.
+    /// </summary>
+    public const string RefreshUrlEnvVar = GatewayHttpTokenRefresher.RefreshUrlEnvVar;
+
+    /// <summary>
     /// Creates the Gateway-hosted credential service on Windows, using Windows Data Protection as the
     /// credential store under the Gateway config directory. Honors the signing-secret and test-seed
     /// environment variables (see the type summary) so the "credential present" outcomes can be proven
@@ -63,7 +70,13 @@ public static class GatewayAccountFactory
 
         var validator = new JwtAccessTokenValidator(ResolveSigningSecret());
         var eventLog = new AuthEventLog(authEventsLogPath);
-        var refresher = new BackendUnavailableTokenRefresher();
+        // Issue #640: the real Gateway-owned token refresher replaces the no-op
+        // BackendUnavailableTokenRefresher. It exchanges an expired token's refresh token for a fresh
+        // pair against the backend ONLY when DEVTHROTTLE_REFRESH_URL is configured; with no endpoint
+        // configured (or it unreachable) it reports refresh unavailable and the caller keeps the cached
+        // credential (no fallback that hides the failure). A short timeout keeps a slow/unreachable
+        // backend from holding a background refresh pass open. Tokens are never logged.
+        var refresher = new GatewayHttpTokenRefresher(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
 
         FileLog.Write("[GatewayAccountFactory] Build: Gateway credential service constructed");
         return new DevThrottleAccountService(store, validator, eventLog, refresher);

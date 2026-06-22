@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #640 (Gateway-owned token refresh)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #bbb; padding: .5rem .7rem; vertical-align: top; text-align: left; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d00; font-weight: bold; }
+  .fail { color: #b00000; font-weight: bold; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  .verdict { background: #e8f7e8; border: 1px solid #0a7d00; padding: 1rem; margin: 1.5rem 0; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #640</h1>
+<p><strong>Title:</strong> [Gateway] Token refresh owned by the Gateway<br/>
+<strong>Pull request:</strong> #674 (branch <code>issue-640-gateway-token-refresh</code>)<br/>
+<strong>QA identity:</strong> independent verifier (separate from the Developer Agent)<br/>
+<strong>Method:</strong> own git worktree from the PR branch, own clean build, own test runs, plus an
+independent DT-05 leak probe against a QA-owned stub. The Developer Agent's report and screenshots were
+NOT trusted as proof.</p>
+
+<h2>Build and regression</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -&gt; <span class="pass">Build succeeded. 0 Warning(s) 0 Error(s)</span></li>
+  <li>Full Gateway test suite (<code>CcDirector.Gateway.Tests</code>) -&gt; <span class="pass">934 passed, 1 skipped, 0 failed</span> (the 3 VaultGatewayIntegrationTests known red on continuous-integration main passed locally, as expected).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Expired-but-well-formed access token + configured refresh endpoint (stub) -&gt; Gateway exchanges the refresh token and stores a fresh valid pair; signed-in flips back to non-expired.</td>
+    <td>Exchange occurs; stub receives the cached refresh token; stored access token becomes non-expired and forwardable.</td>
+    <td>Verified by <code>RefreshIfNeeded_ExpiredTokenWithStubEndpoint_StoresFreshValidPair</code> AND by an independent QA probe driving the full path against a QA-owned stub: <code>stub.LastRefreshToken</code> equals the cached refresh token, and <code>GetAccessTokenForForwarding()</code> returns a non-expired token after the call.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>No refresh endpoint configured OR endpoint unreachable -&gt; Gateway keeps the cached credential and logs the unavailability; no crash; no fallback that hides the failure.</td>
+    <td>Both paths return "no renewal"; cached credential unchanged on disk; unavailability logged; no fabricated token.</td>
+    <td>Unset path: <code>RefreshIfNeeded_ExpiredTokenNoEndpoint_KeepsCachedCredential</code> - the stored access and refresh tokens are byte-for-byte unchanged. Unreachable path: <code>RefreshIfNeeded_ExpiredTokenUnreachableEndpoint_KeepsCachedCredential</code> - same kept-cached outcome. Code returns <code>null</code> (the same explicit "refresh unavailable" signal) and logs the reason; no token is fabricated.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>A still-valid (unexpired) access token triggers NO refresh call.</td>
+    <td>Stub receives zero requests.</td>
+    <td><code>RefreshIfNeeded_ValidToken_TriggersNoExchange</code> asserts <code>stub.RequestCount == 0</code>. <code>RefreshIfNeededAsync</code> short-circuits on a valid token before any network call.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Refresh runs in the background and never blocks Gateway startup or request handling.</td>
+    <td><code>Start()</code> returns immediately; first sweep deferred; disposed on shutdown.</td>
+    <td><code>GatewayTokenRefreshService.Start()</code> arms a <code>System.Threading.Timer</code> (first sweep after a delay) and returns; each sweep is fire-and-forget with a boundary try/catch. Constructed in <code>GatewayHost</code> (non-blocking), <code>Start()</code> called at the end of <code>StartAsync</code>, disposed in <code>StopAsync</code>. Confirmed by code inspection.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Unit tests cover refresh-on-expiry (stub), no-endpoint kept-cached, and valid-token no-op.</td>
+    <td>Tests exist and genuinely assert the behavior; all pass.</td>
+    <td>Five tests in <code>GatewayTokenRefreshTests</code> read in full and confirmed to assert the outcomes (not vacuous). Filtered run: <span class="pass">5 passed, 0 failed</span>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Security - DT-05 (tokens never written to the log)</h2>
+<p>Code review: no <code>FileLog.Write</code> in the new code interpolates a token value - only constant strings,
+HTTP status codes, and exception messages (which carry no token). Independent live-log probe: drove the full
+refresh path with a distinctive access-token email marker and distinctive refresh tokens, with the real
+<code>FileLog</code> writer running, then read the actual log file and asserted none of the markers appear in it.
+<span class="pass">PASS</span></p>
+
+<h2>Scope and method checks</h2>
+<ul>
+  <li>In-scope only: <code>CcDirector.Gateway</code> (refresher, background service, host wiring, factory), <code>CcDirector.Gateway.Tests</code>. The <code>ITokenRefresher</code> contract in <code>CcDirector.Core</code> was reused unchanged.</li>
+  <li>Out-of-scope correctly NOT done: no sign-in change, no Director-side change.</li>
+  <li>No-fallback rule honored: an unavailable refresh returns the explicit <code>null</code> signal and keeps the cached credential - it never fabricates a token.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met, DT-05 confirmed, build clean, Gateway regression suite green.</div>
+</body>
+</html>

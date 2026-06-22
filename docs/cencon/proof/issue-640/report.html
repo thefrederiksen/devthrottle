@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof - Issue #640: Gateway-owned token refresh</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; background: #fafafa; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #007ACC; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #007ACC; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; background: #fff; }
+  th, td { border: 1px solid #d0d0d0; padding: .55rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #eef4fa; }
+  .pass { color: #137333; font-weight: bold; }
+  .pill { display: inline-block; background: #137333; color: #fff; border-radius: 10px; padding: .1rem .6rem; font-size: .8rem; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; overflow-x: auto; border-radius: 4px; font-size: .82rem; }
+  code { background: #eee; padding: .1rem .3rem; border-radius: 3px; }
+  .note { background: #fff8e1; border-left: 4px solid #f0ad4e; padding: .7rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #640: Token refresh owned by the Gateway</h1>
+
+<p><strong>Outcome:</strong> <span class="pill">I believe this is finished</span> &nbsp; All five acceptance criteria proven.</p>
+
+<p>
+Token refresh is now the Gateway's job. A real <code>ITokenRefresher</code> implementation
+(<code>GatewayHttpTokenRefresher</code>) replaces the no-op <code>BackendUnavailableTokenRefresher</code> that
+was wired into the Gateway-hosted credential service. When the cached access token is expired-but-well-formed
+and a refresh endpoint is configured (<code>DEVTHROTTLE_REFRESH_URL</code>), the Gateway exchanges the refresh
+token for a fresh access-plus-refresh pair and stores it through the credential service - in the background,
+never blocking startup or request handling. When no endpoint is configured, or it is unreachable, the cached
+credential is kept and the unavailability is logged clearly (no fallback that hides the failure).
+</p>
+
+<h2>What was implemented</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway/Account/GatewayHttpTokenRefresher.cs</code> (new)</td>
+    <td>The real <code>ITokenRefresher</code> on the Gateway. Gated on <code>DEVTHROTTLE_REFRESH_URL</code>:
+    when set, POSTs <code>{ "refresh_token": "..." }</code> and parses <code>{ "access_token", "refresh_token" }</code>;
+    when unset it reports refresh unavailable (returns null). A connectivity error / non-success status / response
+    missing either token is treated as "refresh unavailable" (null) and logged WITHOUT the token values.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway/Account/GatewayTokenRefreshService.cs</code> (new)</td>
+    <td>The background refresh loop: a timer that periodically calls
+    <code>DevThrottleAccountService.RefreshIfNeededAsync</code> fire-and-forget. <code>Start()</code> returns
+    immediately (first sweep after a short delay), so it never blocks Gateway startup or request handling. The
+    timer callback owns its try/catch so a refresh failure never crashes the timer thread.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway/Account/GatewayAccountFactory.cs</code></td>
+    <td>Wires <code>GatewayHttpTokenRefresher</code> (short-timeout <code>HttpClient</code>) into the credential
+    service in place of the no-op refresher. Adds the <code>RefreshUrlEnvVar</code> constant.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway/GatewayHost.cs</code></td>
+    <td>Constructs the background refresh service when a credential service exists, starts it in
+    <code>StartAsync</code> (after the host is listening, non-blocking), and disposes it in <code>StopAsync</code>.</td>
+  </tr>
+  <tr>
+    <td><code>src/CcDirector.Gateway.Tests/Account/GatewayTokenRefreshTests.cs</code> (new)</td>
+    <td>Five unit tests covering refresh-on-expiry against a local stub, no-endpoint kept-cached,
+    unreachable-endpoint kept-cached, valid-token no-op (zero exchanges), and the refresher's no-endpoint null.</td>
+  </tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof harness against a local stub)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Expired-but-well-formed token + refresh endpoint configured -> exchange and store a fresh valid pair (signed-in flips back to a non-expired token).</td>
+    <td><code>RefreshIfNeededAsync</code> returns true; stub receives the cached refresh token once; stored token is non-expired afterward.</td>
+    <td>Returned True; stub received exactly one exchange carrying the seed refresh token; forwardable current (non-expired) token present after refresh.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>No refresh endpoint configured (or unreachable) -> keep the cached credential and log unavailability; no crash, no hiding fallback.</td>
+    <td>Returns false; cached access + refresh tokens unchanged; an unavailability line is logged.</td>
+    <td>Returned False; cached credential unchanged (same expired access + seed refresh token); still reports signed-in on the kept token; log line <code>no refresh endpoint configured (DEVTHROTTLE_REFRESH_URL unset) -&gt; refresh unavailable</code>. Unreachable-endpoint variant (2b) also kept the credential with an explicit log line and no crash.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>A still-valid (unexpired) access token triggers NO refresh call.</td>
+    <td>Returns false; the stub backend receives zero requests.</td>
+    <td>Returned False; stub exchange request count = 0. Log shows <code>access token still valid -&gt; no refresh needed</code> (the refresher is never reached).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Refresh runs in the BACKGROUND and never blocks Gateway startup or request handling.</td>
+    <td><code>Start()</code> returns immediately (0 exchanges at that instant); the exchange happens later, on the background timer.</td>
+    <td><code>Start()</code> returned in 0 ms with 0 exchanges; ~200 ms later the background sweep fired and renewed the token (log: <code>GatewayTokenRefreshService ... access token renewed in the background</code>).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Unit tests cover refresh-on-expiry (stub), no-endpoint kept-cached, and valid-token no-op.</td>
+    <td>New tests pass.</td>
+    <td>5 tests in <code>GatewayTokenRefreshTests</code> - all passing (refresh-on-expiry, no-endpoint, unreachable-endpoint, valid-token-no-op, refresher-no-endpoint-null).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>SEC</td>
+    <td>Tokens (access/refresh) must never be written to the Gateway log (DT-05 carry-over).</td>
+    <td>No token text in the log.</td>
+    <td>Seed and rotated refresh-token plaintext markers both ABSENT from the log file; only outcomes are logged.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Proof harness output</h2>
+<p>Run against a local in-process Kestrel stub of the backend refresh-exchange endpoint, exercising the real
+<code>GatewayHttpTokenRefresher</code> + <code>DevThrottleAccountService</code> + <code>GatewayTokenRefreshService</code>.
+Full capture in <code>proof-output.txt</code>.</p>
+<pre>CRITERION 1: PASS - expired token + stub endpoint -> exchanged, stored a fresh non-expired pair (stub got the cached refresh token once)
+CRITERION 2: PASS - no endpoint configured -> cached credential kept unchanged, unavailability logged, no crash
+CRITERION 2b: PASS - configured-but-unreachable endpoint -> cached credential kept, no crash
+CRITERION 3: PASS - valid (unexpired) token -> no exchange (stub request count 0)
+CRITERION 4: PASS - Start() returned in 0 ms (0 exchanges); background sweep refreshed the token ~200 ms later
+SECURITY + LOGGING: PASS - seed + rotated refresh-token markers absent from the log; unavailability logged</pre>
+
+<h2>Log evidence (tokens never appear; outcomes do)</h2>
+<p>Selected lines from the run log. Full capture in <code>proof-log-lines.txt</code>.</p>
+<pre>[DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh
+[GatewayHttpTokenRefresher] RefreshAsync: refreshed token pair received from the backend exchange
+[DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored
+
+[GatewayHttpTokenRefresher] RefreshAsync: no refresh endpoint configured (DEVTHROTTLE_REFRESH_URL unset) -> refresh unavailable (cached credential kept)
+[DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential
+
+[GatewayHttpTokenRefresher] ExchangeAsync: refresh endpoint unreachable or unparseable -> refresh unavailable: ... (127.0.0.1:0)
+
+[DevThrottleAccountService] RefreshIfNeededAsync: access token still valid -> no refresh needed
+
+[GatewayTokenRefreshService] Start: background token refresh every 30s (first sweep in 0s)
+[GatewayTokenRefreshService] RefreshOnceAsync: access token renewed in the background
+[GatewayTokenRefreshService] Dispose: stopping background token refresh</pre>
+
+<div class="note">
+<strong>Backend dependency (provisional contract).</strong> The backend refresh-exchange endpoint is a flagged
+dependency (the issue's stated assumption). The refresh is therefore GATED on configuration
+(<code>DEVTHROTTLE_REFRESH_URL</code>) and proven against a local stub, exactly as the issue's proof target asks.
+The wire shape (<code>{ refresh_token }</code> in, <code>{ access_token, refresh_token }</code> out) is Supabase-shaped
+and provisional; it is isolated in <code>GatewayHttpTokenRefresher</code> and easy to adjust when the backend contract lands.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The single network-touching seam (<code>ITokenRefresher</code>) already exists
+in the manifest; this only supplies a real implementation of it - no new container. Security rule DT-05 (never log
+the token) is upheld and proven above. Verdict: No drift.</p>
+
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln   -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test  (GatewayTokenRefreshTests) -> Passed: 5, Failed: 0, Skipped: 0</pre>
+
+</body>
+</html>

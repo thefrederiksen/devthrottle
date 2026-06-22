@@ -116,6 +116,16 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Account.GatewaySignInService? SignIn { get; }
 
+    /// <summary>
+    /// Issue #640 (Gateway Centralization Phase 2): the background token refresh service. Built over
+    /// <see cref="Account"/>, it periodically renews the Gateway's access token when it has expired by
+    /// exchanging the refresh token against the configured backend endpoint - in the background, never
+    /// blocking startup or request handling. Null on a host with no credential service (a non-Windows host,
+    /// where <see cref="Account"/> is null). Started in <see cref="StartAsync"/>, disposed in
+    /// <see cref="StopAsync"/>. Tokens are never logged.
+    /// </summary>
+    private Account.GatewayTokenRefreshService? _tokenRefresh;
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
@@ -321,6 +331,15 @@ public sealed class GatewayHost : IAsyncDisposable
             SignIn = new Account.GatewaySignInService(Account);
         else
             FileLog.Write("[GatewayHost] DevThrottle sign-in flow not built: no credential service on this host");
+
+        // The Gateway-owned background token refresh (issue #640, Gateway Centralization Phase 2). Built
+        // over the credential service, so it exists only when that service does - on a host with no
+        // credential service there is no token to refresh. Constructed here; the timer is started in
+        // StartAsync (so it never blocks construction) and disposed in StopAsync.
+        if (Account is not null)
+            _tokenRefresh = new Account.GatewayTokenRefreshService(Account);
+        else
+            FileLog.Write("[GatewayHost] DevThrottle token refresh not built: no credential service on this host");
     }
 
     /// <summary>
@@ -782,6 +801,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // delivers) and every event the relay enqueues going forward, in FIFO order, retrying with
         // backoff while the backend is unreachable.
         _telemetryQueue.StartFlushing();
+
+        // Issue #640: start the Gateway-owned background token refresh. Start() returns immediately (the
+        // first sweep runs after a short delay), so this never blocks startup. When the cached access
+        // token has expired and a refresh endpoint is configured, the sweep exchanges the refresh token
+        // for a fresh pair; otherwise it is a no-op or keeps the cached credential. Null on a host with no
+        // credential service.
+        _tokenRefresh?.Start();
     }
 
     /// <summary>
@@ -811,6 +837,10 @@ public sealed class GatewayHost : IAsyncDisposable
 
         try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
         _endpointMonitor = null;
+
+        // Issue #640: stop the background token refresh timer.
+        try { _tokenRefresh?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] token refresh dispose error: {ex.Message}"); }
+        _tokenRefresh = null;
 
         // Issue #629: stop the telemetry retry-queue flusher. The queue file is written through on
         // every mutation, so any undelivered events are already on disk and reload on the next start -
