@@ -45,8 +45,19 @@ public enum SignInOutcome
 /// <c>tools/devthrottle-dev-signin</c> (pointed at by <c>DEVTHROTTLE_SIGNIN_URL</c>); the listener and
 /// this runner do not know or care whether the real backend or the stand-in completes the hand-back.
 ///
+/// On a successful hand-back the captured token pair is persisted into the SAME operating-system
+/// credential store the Director reads (issue #658): the pair is handed to the existing
+/// <see cref="DevThrottleAccountService"/>, which encrypts it at rest through
+/// <see cref="WindowsProtectedTokenStore"/> to
+/// <c>%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin</c>. Because the installer
+/// runs as the same Windows user who will run the Director, the Director's first-run account gate then
+/// sees "already signed in" and goes straight to the main window. Persistence happens ONLY on a
+/// successful sign-in - on cancel, timeout, or failure nothing is written, so a credential is never
+/// stored for an incomplete sign-in.
+///
 /// The captured access token is NEVER written to the installer log (an explicit acceptance criterion):
-/// this runner logs only that a credential was captured, never its value, and does not return the token.
+/// this runner logs only that a credential was captured and persisted, never its value, and does not
+/// return the token.
 /// </summary>
 public sealed class SignInRunner
 {
@@ -56,11 +67,13 @@ public sealed class SignInRunner
 
     private readonly Func<LoopbackLoginListener> _listenerFactory;
     private readonly Action<string> _openBrowser;
+    private readonly Action<DevThrottleTokens> _persistCredential;
     private readonly TimeSpan _timeout;
 
     /// <summary>
     /// Creates the runner. The collaborators are injected so the flow is testable without a real
-    /// browser or a real loopback callback (no fallback construction - each has an explicit default).
+    /// browser, a real loopback callback, or the real credential store (no fallback construction -
+    /// each has an explicit default).
     /// </summary>
     /// <param name="listenerFactory">
     /// Creates the loopback listener that receives the hand-back. Defaults to a real
@@ -70,16 +83,24 @@ public sealed class SignInRunner
     /// Opens the system browser at the sign-in URL. Defaults to a shell-executed
     /// <see cref="Process.Start(ProcessStartInfo)"/>.
     /// </param>
+    /// <param name="persistCredential">
+    /// Persists the captured token pair into the Director's operating-system credential store. Defaults
+    /// to the real <see cref="DevThrottleAccountService"/> writing the encrypted blob the Director reads
+    /// (issue #658). Tests inject a recording seam so persistence is provable without Windows Data
+    /// Protection.
+    /// </param>
     /// <param name="timeout">
     /// How long to wait for the hand-back before timing out. Defaults to <see cref="DefaultTimeout"/>.
     /// </param>
     public SignInRunner(
         Func<LoopbackLoginListener>? listenerFactory = null,
         Action<string>? openBrowser = null,
+        Action<DevThrottleTokens>? persistCredential = null,
         TimeSpan? timeout = null)
     {
         _listenerFactory = listenerFactory ?? (() => new LoopbackLoginListener());
         _openBrowser = openBrowser ?? OpenSystemBrowser;
+        _persistCredential = persistCredential ?? PersistToDirectorCredentialStore;
         _timeout = timeout ?? DefaultTimeout;
     }
 
@@ -116,12 +137,13 @@ public sealed class SignInRunner
         using var timeoutSource = new CancellationTokenSource(_timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutSource.Token);
 
+        DevThrottleTokens capturedTokens;
         try
         {
-            // The token pair is captured here and then deliberately discarded - persistence is issue
-            // #658. The value is never logged and never returned (acceptance criterion: no token in
+            // The token pair captured here is handed to the Director credential store below (issue
+            // #658). The value is never logged and never returned (acceptance criterion: no token in
             // the installer log).
-            await listener.WaitForCredentialAsync(linked.Token).ConfigureAwait(false);
+            capturedTokens = await listener.WaitForCredentialAsync(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -144,6 +166,26 @@ public sealed class SignInRunner
         }
 
         SetupLog.Write("[SignInRunner] RunAsync: credential captured from the browser hand-back");
+
+        // Hand the captured sign-in to the app (issue #658): persist the token pair into the same
+        // operating-system credential store the Director reads, so its first-run account gate sees
+        // "already signed in". This runs only on a successful capture - the cancel/timeout/failure
+        // paths above all returned before reaching here, so no credential is ever written for an
+        // incomplete sign-in. A persistence failure is surfaced as a failure (no fallback): if the
+        // credential cannot be stored, the install has not achieved "open already signed in", so we
+        // must not report success.
+        try
+        {
+            _persistCredential(capturedTokens);
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[SignInRunner] RunAsync: persisting the captured credential failed: {ex.Message}");
+            return new SignInResult(SignInOutcome.Failed,
+                "Signed in, but the sign-in could not be saved for the app. Please try again.");
+        }
+
+        SetupLog.Write("[SignInRunner] RunAsync: captured credential persisted to the Director credential store");
         return new SignInResult(SignInOutcome.SignedIn, "Signed in to DevThrottle.");
     }
 
@@ -151,5 +193,19 @@ public sealed class SignInRunner
     private static void OpenSystemBrowser(string url)
     {
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// Persists the captured token pair into the Director's operating-system credential store via the
+    /// existing <see cref="DevThrottleAccountService"/>, which encrypts the pair at rest through
+    /// <see cref="WindowsProtectedTokenStore"/> at the Director's credential path. The installer runs
+    /// as the same Windows user who will run the Director, so the Director can decrypt what is written
+    /// here (Windows Data Protection is per-user). The token value is never logged.
+    /// </summary>
+    private static void PersistToDirectorCredentialStore(DevThrottleTokens tokens)
+    {
+        SetupLog.Write("[SignInRunner] PersistToDirectorCredentialStore: storing captured credential for the Director");
+        var service = DevThrottleAccountFactory.CreateForWindows();
+        service.StoreTokens(tokens);
     }
 }
