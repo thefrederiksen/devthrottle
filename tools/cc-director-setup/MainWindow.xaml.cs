@@ -33,26 +33,35 @@ public partial class MainWindow : Window
     private PrerequisitesStep? _prerequisitesStep;
     private SignInStep? _signInStep;
     private PrivacyStep? _privacyStep;
+    private GatewayConnectStep? _gatewayConnectStep;
     private SkillsStep? _skillsStep;
     private InstallStep? _installStep;
     private CompleteStep? _completeStep;
 
     private readonly record struct StepUI(Border Circle, TextBlock Label, TextBlock? Number);
 
-    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Privacy, 5 Skills, 6 Install, 7 Complete.
-    // The forced sign-in (issue #657) and the Privacy step (issue #659) slot in after the prerequisite
-    // Checks; Privacy comes right after Sign in. Sign in applies only to a Gateway install - a Workstation
-    // signs in through its Gateway, so the wizard skips step 3 entirely for the Workstation role.
+    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Sign in, 4 Privacy, 5 Connect, 6 Skills, 7 Install,
+    // 8 Complete. The forced sign-in (issue #657) and the Privacy step (issue #659) slot in after the
+    // prerequisite Checks; Privacy comes right after Sign in.
+    //
+    // Two steps are role-aware and are exact inverses of each other (the whole policy lives in
+    // WizardStepFlow so it is unit-testable without this window):
+    //   - Sign in (3) applies only to a Gateway install - a Workstation signs in through its gateway
+    //     (issue #679).
+    //   - Connect (5), the mandatory gateway-pairing step (issue #646), applies only to a fresh
+    //     Workstation install - the Gateway IS the gateway, and an update keeps its connection.
     private const int StepSignIn = WizardStepFlow.StepSignIn;
     private const int StepPrivacy = 4;
-    private const int StepInstall = 6;
-    private const int StepComplete = 7;
+    private const int StepConnect = WizardStepFlow.StepConnect;
+    private const int StepInstall = 7;
+    private const int StepComplete = 8;
 
-    // Role-aware step ordering (skip Sign-in for a Workstation) lives in WizardStepFlow so it is
-    // unit-testable without constructing this WPF window. These thin members bind it to the current role.
-    private List<int> VisibleSteps() => WizardStepFlow.VisibleSteps(_role);
-    private int NextStep(int step) => WizardStepFlow.NextStep(step, _role);
-    private int PrevStep(int step) => WizardStepFlow.PrevStep(step, _role);
+    // Role-aware step ordering lives in WizardStepFlow so it is unit-testable without constructing this
+    // WPF window. These thin members bind it to the current role + install kind - there is no parallel
+    // navigation logic in this window.
+    private List<int> VisibleSteps() => WizardStepFlow.VisibleSteps(_role, _isUpdate);
+    private int NextStep(int step) => WizardStepFlow.NextStep(step, _role, _isUpdate);
+    private int PrevStep(int step) => WizardStepFlow.PrevStep(step, _role, _isUpdate);
 
     public MainWindow()
     {
@@ -79,7 +88,7 @@ public partial class MainWindow : Window
         {
             Title = "DevThrottle Update";
             SubtitleText.Text = "Update";
-            Step6Label.Text = "Update";
+            Step7Label.Text = "Update";
         }
 
         Loaded += MainWindow_Loaded;
@@ -105,9 +114,9 @@ public partial class MainWindow : Window
             if (_currentStep != 1)
                 return;
             NextButton.IsEnabled = true;
-            // Keep the step rail honest as the user toggles cards: the Sign-in step applies only to a
-            // Gateway install, so switching to "I already have a gateway" (Workstation) drops it live and
-            // switching back restores it.
+            // Keep the step rail honest as the user toggles cards. The two role-aware steps flip
+            // together: switching to "I already have a gateway" (Workstation) drops Sign-in and adds the
+            // mandatory Connect step; switching back to the Gateway "first machine" role does the inverse.
             _role = _welcomeStep?.SelectedRole ?? _role;
             UpdateSidebar();
         };
@@ -135,6 +144,21 @@ public partial class MainWindow : Window
         // The token provider reads the in-memory captured token from the Sign-in step on demand; it is
         // never copied into a field here and never logged.
         return new PrivacyStep(() => _signInStep?.CapturedAccessToken);
+    }
+
+    /// <summary>Build the mandatory gateway-pairing step (issue #646) and wire its verification to
+    /// enable Next. Next stays disabled on this step until the gateway verifies the pairing and issues
+    /// a device key - there is no skip, so a Workstation install cannot finish without a gateway. On a
+    /// return visit via Back, IsVerified is still true so Next stays enabled.</summary>
+    private GatewayConnectStep BuildGatewayConnectStep()
+    {
+        var step = new GatewayConnectStep();
+        step.PairingVerified += (_, _) =>
+        {
+            if (_currentStep == StepConnect)
+                NextButton.IsEnabled = true;
+        };
+        return step;
     }
 
     /// <summary>
@@ -192,12 +216,13 @@ public partial class MainWindow : Window
         new(Step5Circle, Step5Label, Step5Num),
         new(Step6Circle, Step6Label, Step6Num),
         new(Step7Circle, Step7Label, Step7Num),
+        new(Step8Circle, Step8Label, Step8Num),
     ];
 
-    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56, Line67];
+    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56, Line67, Line78];
 
     private Panel[] GetStepRows() =>
-        [Step1Row, Step2Row, Step3Row, Step4Row, Step5Row, Step6Row, Step7Row];
+        [Step1Row, Step2Row, Step3Row, Step4Row, Step5Row, Step6Row, Step7Row, Step8Row];
 
     private void ShowStep(int step)
     {
@@ -213,7 +238,8 @@ public partial class MainWindow : Window
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
             StepSignIn => _signInStep ??= BuildSignInStep(),
             StepPrivacy => _privacyStep ??= BuildPrivacyStep(),
-            5 => _skillsStep ??= new SkillsStep(_isUpdate),
+            StepConnect => _gatewayConnectStep ??= BuildGatewayConnectStep(),
+            6 => _skillsStep ??= new SkillsStep(_isUpdate),
             StepInstall => _installStep ??= new InstallStep(),
             StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate, _cachedPrep?.Version),
             _ => null
@@ -251,7 +277,8 @@ public partial class MainWindow : Window
             var ui = stepUIs[i];
             var pos = visible.IndexOf(stepId);
 
-            // A step not in the visible set (Sign-in on a Workstation) is hidden entirely.
+            // A step not in the visible set (Sign-in on a Workstation, Connect on a Gateway / update)
+            // is hidden entirely.
             if (pos < 0)
             {
                 rows[i].Visibility = Visibility.Collapsed;
@@ -283,7 +310,8 @@ public partial class MainWindow : Window
         }
 
         // A line sits after step (i+1). Hide the line that trails a hidden step so the rail stays
-        // continuous (Workstation: step 2's line runs straight into Privacy).
+        // continuous (Workstation: step 2's line runs straight into Privacy; Gateway: Privacy's line
+        // runs straight into Skills).
         for (int i = 0; i < lines.Length; i++)
         {
             var pos = visible.IndexOf(i + 1);
@@ -322,6 +350,15 @@ public partial class MainWindow : Window
             // On a return visit via Back, IsSignedIn is still true so Next stays enabled.
             NextButton.Content = "Next";
             NextButton.IsEnabled = _signInStep?.IsSignedIn == true;
+        }
+        else if (_currentStep == StepConnect)
+        {
+            // Mandatory gateway pairing (issue #646): a Workstation install cannot finish without a
+            // verified gateway connection, so Next is disabled until the pairing verifies and a device
+            // key is issued + persisted - there is no skip. On a return visit via Back, IsVerified is
+            // still true so Next stays enabled. (This step is only reached on the Workstation path.)
+            NextButton.Content = "Next";
+            NextButton.IsEnabled = _gatewayConnectStep?.IsVerified == true;
         }
         else if (_currentStep == 1 && !_isUpdate)
         {
@@ -608,10 +645,11 @@ public partial class MainWindow : Window
                         ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
-                // Drop any captured sign-in if the role changed: a Workstation skips Sign-in entirely, and a
-                // re-entry as Gateway should start the sign-in fresh.
+                // Drop any captured step state if the role changed: a Workstation skips Sign-in entirely
+                // (re-entry as Gateway should start it fresh), and a Gateway skips the Connect/pairing step.
                 _signInStep = null;
                 _privacyStep = null;
+                _gatewayConnectStep = null;
                 _skillsStep = null;
                 _installStep = null;
                 _completeStep = null;
