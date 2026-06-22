@@ -4,10 +4,13 @@ namespace CcDirector.Core.Account;
 
 /// <summary>
 /// The startup gate policy (issue #580). It consumes the offline "is this install logged in?" check
-/// delivered by the credential service (issue #583) and decides whether the Director may reach a
-/// usable main window (<see cref="GateDecision.Start"/>) or must block and route the user to log in
-/// (<see cref="GateDecision.Block"/>). It also owns the rule that, once started, the online session
-/// validation or refresh runs in the background without blocking the main window.
+/// delivered by the credential service (issue #583). Originally it decided whether the Director may
+/// reach a usable main window (<see cref="GateDecision.Start"/>) or must block and route the user to
+/// log in (<see cref="GateDecision.Block"/>). As of the interim Gateway-account unblock (issue #664)
+/// it no longer blocks startup on a missing local credential - <see cref="Decide"/> always returns
+/// <see cref="GateDecision.Start"/> - because the account is moving onto the Gateway. It still owns the
+/// rule that, once started, the online session validation or refresh runs in the background without
+/// blocking the main window.
 ///
 /// The decision is a fast, local check with NO outbound network call (the credential service answers
 /// from the cached credential), so it never delays the splash-to-window transition. The background
@@ -29,16 +32,25 @@ public sealed class AccountGatePolicy
     }
 
     /// <summary>
-    /// Decides whether the Director may start to the main window. Returns <see cref="GateDecision.Start"/>
-    /// when a usable cached credential exists (online or offline), and <see cref="GateDecision.Block"/>
-    /// when no credential has ever been stored on this install. This is a local check - no network call.
+    /// Decides whether the Director may start to the main window. As of the interim Gateway-account
+    /// unblock (issue #664) this ALWAYS returns <see cref="GateDecision.Start"/>: the account is moving
+    /// onto the Gateway (the Gateway Centralization epic), so the Director no longer gates its own
+    /// startup on a local DevThrottle credential. A missing or unusable local credential therefore
+    /// decides Start, not Block, and the Director boots straight to the main window with no sign-in
+    /// prompt. The cached logged-in check is still read and logged for diagnostics, but it never blocks
+    /// the window. The Gateway-verified startup gate is issue #641 and the full account-surface removal
+    /// is issue #651; this keeps the method (and the <see cref="GateDecision.Block"/> value) in place so
+    /// those issues land cleanly. This is a local check - no network call.
     /// </summary>
     public GateDecision Decide()
     {
         FileLog.Write("[AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)");
         var loggedIn = _account.IsLoggedIn();
-        var decision = loggedIn ? GateDecision.Start : GateDecision.Block;
-        FileLog.Write($"[AccountGatePolicy] Decide: loggedIn={loggedIn}, decision={decision}");
+        // Interim unblock (issue #664): the local credential no longer gates startup, so a missing or
+        // unusable credential decides Start rather than Block. The Director boots straight to the main
+        // window; the Gateway-verified gate is issue #641 and the full removal is issue #651.
+        const GateDecision decision = GateDecision.Start;
+        FileLog.Write($"[AccountGatePolicy] Decide: loggedIn={loggedIn}, decision={decision} (interim: local credential no longer gates startup, issue #664)");
         return decision;
     }
 

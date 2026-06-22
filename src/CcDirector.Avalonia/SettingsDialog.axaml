@@ -113,51 +113,27 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                     <StackPanel Spacing="12" Margin="0,4,0,0">
 
-                        <!-- Signed-in identity card (AC1): email + provider read locally from the
-                             cached credential, plus the Log out action (AC2). -->
+                        <!-- Read-only "managed by your Gateway" panel (issue #664). The account is moving
+                             onto the Gateway, so the Director no longer signs in or out here. This is a
+                             static, read-only panel: no sign-in, identity, log-out, or consent controls
+                             that could invoke the half-migrated local sign-in flow. The live identity
+                             panel that reads the Gateway is issue #651 (it depends on /account/status,
+                             issue #638, which is not built yet); this is the interim placeholder. -->
                         <Border Classes="card">
                             <StackPanel Spacing="8">
                                 <TextBlock Classes="sectionTitle" Margin="0" Text="DevThrottle account" />
-                                <TextBlock Classes="hint" Text="The DevThrottle account this Director is signed in with. Logging out clears the saved sign-in on this computer and returns you to the sign-in screen." />
+                                <TextBlock Classes="hint"
+                                           Text="Your account is managed by your Gateway. This Director no longer signs in or out on its own - sign-in, identity, and the usage-sharing choice are handled centrally by the Gateway your Directors connect to. There is nothing to configure here." />
 
-                                <Grid ColumnDefinitions="90,*" Margin="0,4,0,0">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Email" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="AccountEmailText" Grid.Column="1" Text="Loading..."
-                                               Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis" />
-                                </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Signed in with" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="AccountProviderText" Grid.Column="1" Text="Loading..."
+                                <Grid ColumnDefinitions="110,*" Margin="0,8,0,0">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Gateway" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="GatewayManagedUrlText" Grid.Column="1" Text="Loading..."
                                                Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center"
                                                TextTrimming="CharacterEllipsis" />
                                 </Grid>
 
-                                <Button x:Name="LogOutButton" Classes="dialogButton"
-                                        Content="Log out" Width="120"
-                                        HorizontalAlignment="Left" Margin="0,8,0,0"
-                                        ToolTip.Tip="Clear the saved DevThrottle sign-in on this computer and return to the sign-in screen"
-                                        Click="BtnLogOut_Click" />
-                                <TextBlock x:Name="AccountStatusText" Text="" Foreground="#888888"
-                                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Usage-telemetry opt-out toggle (AC3/AC4/AC5). Default ON; honest copy
-                             about what is always recorded versus what the toggle controls. -->
-                        <Border Classes="card">
-                            <StackPanel Spacing="8">
-                                <TextBlock Classes="sectionTitle" Margin="0" Text="Usage telemetry" />
-                                <CheckBox x:Name="TelemetryEnabledCheck"
-                                          Content="Share anonymous usage information to help improve DevThrottle"
-                                          IsChecked="True"
-                                          Foreground="#CCCCCC" FontSize="13"
-                                          Margin="0,4,0,0"
-                                          ToolTip.Tip="Default: on. Turn off to stop the richer usage reporting." />
-                                <TextBlock Classes="hint" Margin="24,0,0,0"
-                                           Text="When on, DevThrottle reports anonymous usage telemetry that helps us improve the product. Nothing about your actual work - your code, prompts, files, or session contents - is ever sent." />
-                                <TextBlock Classes="hint" Margin="24,0,0,0"
-                                           Text="Turning this off stops the richer usage reporting. Logging in and logging out are still recorded either way: those two events are inherent to having an account and are what our active-user count is built on. They never include anything about your work." />
+                                <TextBlock Classes="hint" Margin="0,4,0,0"
+                                           Text="Set or change the Gateway connection on the Gateway tab." />
                             </StackPanel>
                         </Border>
 
