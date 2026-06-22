@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #664 - Unblock Director startup gate</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fafafa; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #1e3a8a; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef2ff; }
+  .pass { color: #15803d; font-weight: bold; }
+  .fail { color: #b91c1c; font-weight: bold; }
+  code, pre { background: #f0f0f0; padding: .15rem .35rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { padding: .8rem; overflow-x: auto; }
+  img { max-width: 100%; border: 1px solid #999; margin: .6rem 0; }
+  .verdict { background: #dcfce7; border: 2px solid #15803d; padding: 1rem; font-size: 1.15rem; font-weight: bold; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #664</h1>
+<p><strong>Title:</strong> [Desktop] Unblock Director startup: boot without the Director's own DevThrottle login gate (interim ahead of #641/#651)</p>
+<p><strong>Pull request:</strong> #665 (branch <code>issue-664-unblock-startup-gate</code>, HEAD <code>8e9c63b</code>)</p>
+<p><strong>Verified by:</strong> QA Agent - independent verification in a fresh git worktree (<code>devthrottle-wt-664</code>), isolated slot 14, launched via the <code>cc-director14-launch</code> scheduled task with NO local DevThrottle credential present.</p>
+<p><strong>Date:</strong> 2026-06-22</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. The change is in scope (interim). PASS.</div>
+
+<h2>Test environment (independent build and launch)</h2>
+<ul>
+  <li>Worktree: <code>D:\ReposFred\devthrottle-wt-664</code> on the PR branch, HEAD == origin (<code>8e9c63b</code>), clean tree.</li>
+  <li>Slot 14 exe built from the worktree: <code>local_builds\cc-director14.exe</code>.</li>
+  <li>Launched via scheduled task <code>cc-director14-launch</code> (CLAUDE.md rule 0b), PID 9076, Control API port 7894.</li>
+  <li>Clean state confirmed: <code>%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin</code> ABSENT, so <code>IsLoggedIn()</code> is false.</li>
+  <li><code>GET /healthz</code> returned <code>{"status":"ok","directors":1,...,"version":"0.9.13"}</code> - the Director is alive and running normally.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>No-credential Director boots to the MAIN WINDOW, no sign-in prompt, no browser sign-in.</td>
+  <td>Main window shown; gate decides Start with loggedIn=False.</td>
+  <td>Director log lines (PID 9076):<br>
+    <code>[AccountGatePolicy] Decide: loggedIn=False, decision=Start (interim ... issue #664)</code><br>
+    <code>[CcDirector] Account startup gate decided Start ... showing the main window</code><br>
+    <code>[CcDirector] Main window shown; starting background session validation next</code><br>
+    Main window screenshot captured (live session UI: Stop/Interrupt/History/Send, GATEWAY CONNECTED).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>No startup path opens a devthrottle.com browser sign-in; first-run consent does not block startup.</td>
+  <td>No AccountGateScreen / loopback / FirstRunConsent / devthrottle.com in the startup path.</td>
+  <td>Grep of the full PID-9076 launch log for <code>AccountGateScreen|loopback|FirstRunConsent|devthrottle.com</code> returned ZERO matches. Code: <code>App.axaml.cs</code> removed the Block branch and the <code>ShowFirstRunConsentIfNeeded</code> startup call entirely. The dead <code>ReturnToGateAfterLogout</code> / <code>OnFirstRunLoginComplete</code> methods (which still reference <code>AccountGateScreen</code>) have NO caller in the startup path (full removal is #651).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Settings -&gt; Account is a read-only "managed by your Gateway" panel with no broken sign-in/logout/consent controls.</td>
+  <td>Static read-only panel; no Log out, no telemetry toggle, no identity card.</td>
+  <td>UI Automation on the running Settings window:<br>
+    <code>GatewayManagedUrlText</code> present = True (value <code>http://soren-north.taildb08ed.ts.net:7878</code>);<br>
+    <code>LogOutButton</code> present = False; <code>TelemetryEnabledCheck</code> present = False; <code>AccountEmailText</code> present = False.<br>
+    Screenshot shows the read-only "managed by your Gateway" text and the Gateway URL, no controls.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td><code>dotnet build cc-director.sln</code> is clean (no dead-reference warnings).</td>
+  <td>0 Warnings, 0 Errors.</td>
+  <td><code>dotnet build cc-director.sln -c Debug</code> -&gt; <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>AccountGatePolicyTests updated: missing-credential install decides Start (not Block); existing suites pass.</td>
+  <td>Tests assert Start for missing/tampered credential; suites green.</td>
+  <td>Read the tests: <code>Decide_NoStoredCredential_ReturnsStart</code> and <code>Decide_TamperedCredential_ReturnsStart</code> both <code>Assert.Equal(GateDecision.Start, policy.Decide())</code>. Ran: AccountGatePolicyTests 8/8 pass; full Core Account suite 83/83; Avalonia 82/82.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Scope check (interim - confirmed in scope)</h2>
+<p>The change did NOT attempt: the Gateway-verified gate (#641), live identity from <code>/account/status</code> (#638 - the Account tab explicitly does not call it), credential-blob deletion / telemetry Bearer removal (#642), or the full account-surface removal (#651). The account/credential types are left present and compiling but no longer gate startup. In scope.</p>
+
+<h2>Regression sweep</h2>
+<ul>
+  <li>Core Account suite: 83 passed / 0 failed.</li>
+  <li>Avalonia tests: 82 passed / 0 failed.</li>
+  <li>Solution build: 0 warnings / 0 errors.</li>
+  <li>Running Director healthy via Control API; main window and Settings both operational.</li>
+  <li>CenCon: no architecture or security drift (credential storage, telemetry Bearer, account types untouched).</li>
+</ul>
+
+<h2>Screenshots</h2>
+<p><strong>Main window reached with no DevThrottle credential:</strong></p>
+<img src="qa-main-window-no-credential.png" alt="Main window with no credential" />
+<p><strong>Settings -&gt; Account read-only "managed by your Gateway" panel:</strong></p>
+<img src="qa-settings-account-managed-by-gateway.png" alt="Account tab managed by Gateway" />
+
+<div class="verdict">FINAL: PASS - 5/5 acceptance criteria verified with independent proof.</div>
+</body>
+</html>
