@@ -1,0 +1,130 @@
+<UserControl x:Class="CcDirectorSetup.Steps.GatewayConnectStep"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="Connect to your gateway"
+                       Foreground="White"
+                       FontSize="22"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="This machine joins an existing fleet, so it must connect to your gateway before we finish. Enter the gateway URL and the 4-digit pairing code shown on the gateway host."
+                       Foreground="{StaticResource TextForeground}"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,0" />
+        </StackPanel>
+
+        <!-- Centered pairing card -->
+        <Border Background="#252526"
+                CornerRadius="6"
+                Padding="32"
+                Margin="0,28,0,0"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Center"
+                MinWidth="440">
+            <StackPanel>
+
+                <!-- Gateway URL -->
+                <TextBlock Text="Gateway URL"
+                           Foreground="{StaticResource TextForeground}"
+                           FontSize="13"
+                           FontWeight="SemiBold" />
+                <TextBox x:Name="UrlBox"
+                         Margin="0,6,0,0"
+                         Height="34"
+                         VerticalContentAlignment="Center"
+                         Background="#1E1E1E"
+                         Foreground="#CCCCCC"
+                         CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C"
+                         BorderThickness="1"
+                         Padding="8,6"
+                         FontSize="13" />
+                <TextBlock Text="e.g. http://gateway.your-tailnet.ts.net:7878"
+                           Foreground="{StaticResource DimText}"
+                           FontSize="11"
+                           Margin="0,4,0,0" />
+
+                <!-- Pairing code -->
+                <TextBlock Text="Pairing code"
+                           Foreground="{StaticResource TextForeground}"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Margin="0,18,0,0" />
+                <TextBox x:Name="CodeBox"
+                         Margin="0,6,0,0"
+                         Width="140"
+                         Height="40"
+                         HorizontalAlignment="Left"
+                         MaxLength="4"
+                         VerticalContentAlignment="Center"
+                         Background="#1E1E1E"
+                         Foreground="#CCCCCC"
+                         CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C"
+                         BorderThickness="1"
+                         Padding="8,6"
+                         FontFamily="Cascadia Mono, Consolas, Courier New"
+                         FontSize="22" />
+                <TextBlock Text="4 digits, shown on the gateway host's screen."
+                           Foreground="{StaticResource DimText}"
+                           FontSize="11"
+                           Margin="0,4,0,0" />
+
+                <!-- Connect button -->
+                <Button x:Name="ConnectButton"
+                        Content="Connect to gateway"
+                        Width="220"
+                        Height="40"
+                        FontSize="15"
+                        Margin="0,22,0,0"
+                        HorizontalAlignment="Left"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="ConnectButton_Click" />
+
+                <!-- Waiting state -->
+                <StackPanel x:Name="WaitingPanel"
+                            Orientation="Horizontal"
+                            Margin="0,18,0,0"
+                            Visibility="Collapsed">
+                    <TextBlock Text="Verifying with the gateway..."
+                               Foreground="{StaticResource AccentBrush}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Status message (error / blocked reason) -->
+                <TextBlock x:Name="StatusText"
+                           FontSize="13"
+                           TextWrapping="Wrap"
+                           Foreground="#E05656"
+                           Margin="0,18,0,0"
+                           Visibility="Collapsed" />
+
+                <!-- Success banner -->
+                <StackPanel x:Name="SuccessPanel"
+                            Orientation="Horizontal"
+                            Margin="0,18,0,0"
+                            Visibility="Collapsed">
+                    <Border Width="28" Height="28" CornerRadius="14"
+                            Background="{StaticResource SuccessBrush}"
+                            Margin="0,0,10,0">
+                        <TextBlock Text="OK"
+                                   Foreground="White"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock x:Name="SuccessText"
+                               Text="Connected. Click Next to continue."
+                               Foreground="{StaticResource SuccessBrush}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </DockPanel>
+</UserControl>

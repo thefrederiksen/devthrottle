@@ -1,0 +1,40 @@
+PROOF issue-646 (post-rebase onto WizardStepFlow): isolated CC_DIRECTOR_ROOT = C:\Users\soren\AppData\Local\Temp\cc-proof646-edaed57bf7c740ee88723e26c4ac858a
+
+Disposable gateway listening at http://127.0.0.1:59954
+Gateway minted pairing code: 8799
+
+[AC2] Pairing with an INVALID url 'not-a-url' (must BLOCK)...
+   Success = False  (expected False)
+   Message = The gateway URL is not valid. Use http://host:port or https://host:port.
+
+[AC2] Pairing with a WRONG code '0000' (must BLOCK)...
+   Success = False  (expected False)
+   Message = Pairing code is wrong, expired, or already used. Mint a new code on the gateway host and try again.
+   config.json gateway url after bad attempt = '' (expected empty)
+
+[AC2] Pairing against an UNREACHABLE url http://127.0.0.1:1 (must BLOCK)...
+   Success = False  (expected False)
+   Message = Could not reach the gateway at http://127.0.0.1:1. Check the URL and that the gateway is running.
+
+[AC2/AC3] Pairing with the CORRECT code '8799' (must VERIFY + PERSIST)...
+   Success = True  (expected True)
+   Device key issued for machine = WORKSTATION-1, status = active
+
+[AC3] Persisted config.json gateway block:
+   gateway.url   = http://127.0.0.1:59954
+   gateway.token = PROOFK...(redacted)
+
+[AC3] Raw config.json at C:\Users\soren\AppData\Local\Temp\cc-proof646-edaed57bf7c740ee88723e26c4ac858a\config\config.json:
+{
+  "gateway": {
+    "url": "http://127.0.0.1:59954",
+    "token": "PROOFKEY-4f6e238e5c4448a6a82dd3590833f4e1"
+  }
+}
+
+[AC1/AC4/AC5] Wizard gate (asserted by GatewayConnectStep + MainWindow + WizardStepFlowTests):
+   - Connect is on the fresh-Workstation rail and Sign-in is dropped (WizardStepFlow rail tests).
+   - GatewayConnectStep.IsVerified flips true ONLY on a verified+persisted pairing (above).
+   - MainWindow gates Next/Finish on PairingVerified, so the install cannot finish unverified.
+
+OVERALL: PASS - invalid blocked, wrong-code blocked, unreachable blocked, good-code verified+persisted.

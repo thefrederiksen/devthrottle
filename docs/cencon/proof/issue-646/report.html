@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #646 - Workstation install requires gateway pairing before finishing</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #CCCCCC; margin: 0; padding: 32px; }
+  h1 { color: #FFFFFF; font-size: 24px; }
+  h2 { color: #FFFFFF; font-size: 18px; margin-top: 32px; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; }
+  .sub { color: #888888; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+  th { background: #252526; color: #FFFFFF; }
+  .pass { color: #22C55E; font-weight: 600; }
+  code { background: #252526; padding: 1px 5px; border-radius: 3px; font-family: Cascadia Mono, Consolas, monospace; }
+  img { max-width: 760px; border: 1px solid #3C3C3C; border-radius: 4px; margin: 8px 0 4px; display: block; }
+  .cap { color: #888888; font-size: 12px; margin-bottom: 20px; }
+  pre { background: #252526; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+  .belief { background: #14331F; border: 1px solid #22C55E; border-radius: 4px; padding: 12px 16px; margin-top: 24px; color: #B7F7CC; }
+  .note { background: #2A2410; border: 1px solid #B7950B; border-radius: 4px; padding: 10px 14px; margin: 12px 0; color: #E8D48A; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Issue #646 - Workstation install requires pairing to a Gateway before finishing</h1>
+<p class="sub">Gateway Centralization Phase 3. A Workstation-role install ("I already have a gateway") now
+cannot finish without a verified gateway connection. The mandatory pairing step reuses the existing
+device pairing-code flow (<code>POST /devices/register</code>) and persists the issued per-device key to
+<code>config.json</code>.</p>
+
+<div class="note"><strong>This proof was refreshed after rebasing onto the merged sibling PR #679.</strong>
+PR #679 introduced <code>tools/cc-director-setup/Services/WizardStepFlow.cs</code> - a pure, unit-testable
+navigation policy that drops the in-wizard Sign-in step for the Workstation role. This issue's mandatory
+"Connect" step is now <strong>integrated INTO that same WizardStepFlow policy</strong> as the exact inverse
+of Sign-in (Connect applies to a fresh Workstation install; Sign-in applies to a Gateway install). There is
+ONE role-aware rail and no parallel/ad-hoc navigation logic.</div>
+
+<h2>How it was integrated onto WizardStepFlow</h2>
+<ul>
+  <li><strong><code>WizardStepFlow</code></strong> now models BOTH role-aware steps: <code>StepSignIn = 3</code>
+  (Gateway-only, from #679) and the new <code>StepConnect = 5</code> (fresh-Workstation-only).
+  <code>SignInApplies(role)</code> and <code>ConnectApplies(role, isUpdate)</code> are exact inverses;
+  <code>VisibleSteps</code>/<code>NextStep</code>/<code>PrevStep</code> take <code>(role, isUpdate)</code>
+  and skip whichever role-aware step does not apply, with no gaps. The full id set is
+  <code>1 Welcome, 2 Prerequisites, 3 Sign in, 4 Privacy, 5 Connect, 6 Skills, 7 Install, 8 Complete</code>.</li>
+  <li><strong><code>MainWindow</code></strong> drives the rail through those <code>WizardStepFlow</code>
+  members only - the ad-hoc 8-step rail, <code>RequiresGatewayPairing</code>,
+  <code>ApplyConnectStepVisibility</code>, and the duplicate <code>NextVisibleStep</code>/<code>PrevVisibleStep</code>
+  from the pre-rebase branch were removed. The sidebar uses #679's position-based rendering, so the visible
+  circles renumber 1..N and skipped rows + their trailing connector lines collapse with no gap, for either
+  role.</li>
+  <li><strong><code>GatewayPairingRunner</code></strong> (engine) and <strong><code>GatewayConnectStep</code></strong>
+  (UI) are unchanged from this issue's original work: verify reachability + pairing via <code>/devices/register</code>,
+  issue a per-device key, persist gateway URL + key to <code>config.json</code> via
+  <code>GatewayCredentialStore.SaveEnrolledKey</code>, and gate the wizard's Next on
+  <code>IsVerified</code>/<code>PairingVerified</code>. They are now wired through the WizardStepFlow rail.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Evidence (post-integration)</th></tr>
+  <tr>
+    <td>1. A Workstation install presents a mandatory gateway-pairing step (gateway URL + pairing code).</td>
+    <td class="pass">PASS</td>
+    <td><code>rail-proof.txt</code> (read off the live integrated <code>MainWindow</code>): the fresh
+    Workstation rail is <code>Welcome, Prerequisites, Privacy, Connect, Skills, Install, Complete</code> -
+    Sign-in dropped, <strong>Connect present</strong> at rail position 4. Screenshot 01 shows the Connect
+    step's URL + 4-digit code fields. <code>WizardStepFlowTests</code> assert the Workstation rail includes
+    Connect (<code>VisibleSteps_WorkstationFreshInstall_DropsSignInIncludesConnect</code>).</td>
+  </tr>
+  <tr>
+    <td>2. The step verifies reachable AND pairing (device key issued) before finishing; an invalid URL or
+    bad code blocks completion with a clear message.</td>
+    <td class="pass">PASS</td>
+    <td><code>gateway-pairing-proof.txt</code>: an invalid URL, a wrong code, and an unreachable gateway each
+    BLOCK (no key, nothing persisted), driven through the real <code>GatewayPairingRunner</code> against a
+    disposable in-process gateway. <code>rail-proof.txt</code>: the same wrong code, driven through the real
+    <code>GatewayConnectStep</code> UI, shows "Pairing code is wrong, expired, or already used..." with Next
+    still disabled. The 10 <code>GatewayPairingRunnerTests</code> assert the same gate.</td>
+  </tr>
+  <tr>
+    <td>3. On success the gateway URL + issued device key are persisted to <code>config.json</code>.</td>
+    <td class="pass">PASS</td>
+    <td><code>gateway-pairing-proof.txt</code> shows the raw persisted <code>config.json</code> with the
+    <code>gateway.url</code> + <code>gateway.token</code> (per-device key) block, written by the existing
+    <code>GatewayCredentialStore.SaveEnrolledKey</code> - exactly what the Director reads on first run.</td>
+  </tr>
+  <tr>
+    <td>4. The install cannot be completed (Finish disabled/blocked) while pairing is unverified.</td>
+    <td class="pass">PASS</td>
+    <td><code>rail-proof.txt</code>: on the Connect step <code>NextButton.IsEnabled = False</code> while
+    unverified and still False after a bad code; only after the correct code verifies does
+    <code>GatewayConnectStep.IsVerified = True</code> and <code>NextButton.IsEnabled = True</code>. Screenshots
+    01/02 show Next dimmed; 03 shows it enabled after verification.</td>
+  </tr>
+  <tr>
+    <td>5. Proof shows a Workstation install blocked until pairing verifies, then completing.</td>
+    <td class="pass">PASS</td>
+    <td>The <code>rail-proof.txt</code> sequence (unverified -> bad code blocked -> correct code verified,
+    Next enabled) plus screenshots 01 -> 02 -> 03, all on the integrated Workstation rail with the mandatory
+    Connect step.</td>
+  </tr>
+</table>
+
+<h2>Integrated rail (read off the live MainWindow after the rebase)</h2>
+<p class="sub"><code>rail-proof.txt</code> - produced by a disposable WPF harness that drove the REAL
+installer <code>MainWindow</code> + <code>GatewayConnectStep</code> + <code>GatewayPairingRunner</code>
+against a disposable in-process gateway, with <code>CC_DIRECTOR_ROOT</code> + the wizard's install-detect
+root redirected to temp dirs - so the machine's real install/config were never touched.</p>
+<pre>Workstation (fresh install) rail - Sign-in DROPPED, Connect PRESENT:
+   [1] Welcome  [2] Prerequisites  [3] Privacy  [4] Connect  [5] Skills  [6] Install  [7] Complete
+
+[AC1/AC4] On the Connect step: NextButton.IsEnabled = False (unverified)
+[AC2]     Wrong code '0000' -> blocked: "Pairing code is wrong, expired, or already used..."
+[AC4]     NextButton.IsEnabled after bad code = False
+[AC2]     Correct code '8799' -> verified: "Connected to the gateway ... Click Next to continue."
+[AC4/AC5] GatewayConnectStep.IsVerified = True; NextButton.IsEnabled = True (install can now finish)
+
+Gateway (fresh install) rail - Sign-in PRESENT, Connect EXCLUDED:
+   [1] Welcome  [2] Prerequisites  [3] Sign in  [4] Privacy  [5] Skills  [6] Install  [7] Complete</pre>
+
+<h2>Verify + persist transcript (disposable gateway)</h2>
+<p class="sub"><code>gateway-pairing-proof.txt</code> - invalid URL blocked, wrong code blocked, unreachable
+blocked, correct code verified + key issued + persisted to <code>config.json</code> (isolated
+<code>CC_DIRECTOR_ROOT</code>).</p>
+<pre>[AC2] Invalid url 'not-a-url' -> Success=False ("The gateway URL is not valid...")
+[AC2] Wrong code '0000'       -> Success=False, config.json gateway url stays empty (no persist)
+[AC2] Unreachable url         -> Success=False ("Could not reach the gateway ...")
+[AC2/AC3] Correct code        -> Success=True, device key issued
+[AC3] Persisted config.json:
+{
+  "gateway": {
+    "url": "http://127.0.0.1:&lt;port&gt;",
+    "token": "&lt;per-device-key&gt;"
+  }
+}
+OVERALL: PASS</pre>
+
+<h2>Screenshots (the real shipping <code>GatewayConnectStep</code> control)</h2>
+<p class="sub">These capture the real installer <code>GatewayConnectStep</code> UI states + the wizard Next
+gate.</p>
+<div class="note">The step <em>content</em> (the pairing card, the Connect button, the waiting/error/success
+states, and the Next gate) is exactly current. The step rail rendered <em>in these three images</em> was
+captured before the rebase, so it still lists "Sign in" alongside "Connect" on the Workstation path. The
+integrated rail (Sign-in dropped, Connect present, renumbered with no gap) is the authoritative one shown in
+<code>rail-proof.txt</code> above and asserted by <code>WizardStepFlowTests</code> - that is the navigation
+policy that ships.</div>
+
+<img src="01-connect-step-next-disabled.png" alt="Connect step, Next disabled" />
+<p class="cap">01 - The mandatory Connect step. Gateway URL + 4-digit code fields present; the wizard "Next"
+is dimmed/disabled (unverified). [AC1, AC4]</p>
+
+<img src="02-bad-code-blocked-next-disabled.png" alt="Bad code blocked, Next disabled" />
+<p class="cap">02 - A wrong code (<code>0000</code>) is rejected; the clear error message shows and "Next" stays
+disabled - the install cannot finish. [AC2, AC4]</p>
+
+<img src="03-verified-next-enabled.png" alt="Verified, Next enabled" />
+<p class="cap">03 - The correct code verifies; the green "Connected to the gateway" banner shows and "Next" is
+enabled (solid blue) to continue. [AC2, AC4, AC5]</p>
+
+<h2>Tests &amp; build</h2>
+<p class="sub">
+  <code>WizardStepFlowTests</code>: <strong>18 passed</strong> (rewritten for the integrated rail - Workstation
+  includes Connect &amp; drops Sign-in; Gateway includes Sign-in &amp; excludes Connect; updates drop Connect;
+  forward/back walks reproduce each role/update rail).<br>
+  Setup-app test project (incl. WizardStepFlowTests): <strong>39 passed, 0 failed, 0 warnings</strong>
+  (<code>TreatWarningsAsErrors</code>).<br>
+  <code>GatewayPairingRunnerTests</code>: <strong>10 passed</strong>.<br>
+  <code>dotnet build cc-director.sln</code>: Build succeeded, 0 warnings, 0 errors. The installer app + both
+  setup test projects build clean.
+</p>
+
+<h2>CenCon impact</h2>
+<p class="sub">No architecture or security drift. The gate reuses the existing <code>/devices/register</code>
+enrollment surface, the existing per-device-key trust model, and <code>GatewayCredentialStore</code> (the same
+credential file + <code>config.json</code> gateway block the Director already uses). No new endpoint, no new
+secret path, no new pairing mechanism. The rebase consolidated navigation into the one
+<code>WizardStepFlow</code> policy #679 introduced (less code, fully unit-tested), removing the duplicate rail
+logic.</p>
+
+<div class="belief">I believe this is finished: the mandatory Workstation gateway-pairing step is integrated
+onto the single WizardStepFlow rail (Connect as the inverse of Sign-in), all five acceptance criteria are met
+and proven against a disposable gateway, the rail tests and engine tests pass, and the full solution builds
+clean. PR #680 rebased onto origin/main with the conflicts resolved.</div>
+</body>
+</html>

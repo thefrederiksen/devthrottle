@@ -14,4 +14,12 @@
     <InternalsVisibleTo Include="CcDirector.Setup.Engine.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The Workstation gateway-pairing gate (issue #646) reuses the existing /devices/register
+         contract (Gateway.Contracts) and persists the issued device key via GatewayCredentialStore
+         (Core), exactly as the Director's Connect-to-Gateway dialog does - no new pairing mechanism. -->
+    <ProjectReference Include="..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+    <ProjectReference Include="..\..\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

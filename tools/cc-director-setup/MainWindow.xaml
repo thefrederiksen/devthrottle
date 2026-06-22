@@ -119,7 +119,8 @@
                             Background="{StaticResource StepInactive}"
                             x:Name="Line45" />
 
-                    <!-- Step 5: Skills -->
+                    <!-- Step 5: Connect (mandatory gateway pairing, fresh Workstation only, issue #646).
+                         Hidden by WizardStepFlow for the Gateway role and for any update. -->
                     <StackPanel x:Name="Step5Row" Orientation="Horizontal">
                         <Border x:Name="Step5Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
@@ -128,7 +129,7 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step5Num" />
                         </Border>
-                        <TextBlock x:Name="Step5Label" Text="Skills"
+                        <TextBlock x:Name="Step5Label" Text="Connect"
                                    Foreground="{StaticResource DimText}" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
@@ -139,7 +140,7 @@
                             Background="{StaticResource StepInactive}"
                             x:Name="Line56" />
 
-                    <!-- Step 6: Install -->
+                    <!-- Step 6: Skills -->
                     <StackPanel x:Name="Step6Row" Orientation="Horizontal">
                         <Border x:Name="Step6Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
@@ -148,7 +149,7 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step6Num" />
                         </Border>
-                        <TextBlock x:Name="Step6Label" Text="Install"
+                        <TextBlock x:Name="Step6Label" Text="Skills"
                                    Foreground="{StaticResource DimText}" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
@@ -159,7 +160,7 @@
                             Background="{StaticResource StepInactive}"
                             x:Name="Line67" />
 
-                    <!-- Step 7: Complete -->
+                    <!-- Step 7: Install -->
                     <StackPanel x:Name="Step7Row" Orientation="Horizontal">
                         <Border x:Name="Step7Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="{StaticResource StepInactive}">
@@ -168,7 +169,27 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step7Num" />
                         </Border>
-                        <TextBlock x:Name="Step7Label" Text="Complete"
+                        <TextBlock x:Name="Step7Label" Text="Install"
+                                   Foreground="{StaticResource DimText}" FontSize="13"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Line 7-8 -->
+                    <Border Width="2" Height="24" Margin="13,0,0,0"
+                            HorizontalAlignment="Left"
+                            Background="{StaticResource StepInactive}"
+                            x:Name="Line78" />
+
+                    <!-- Step 8: Complete -->
+                    <StackPanel x:Name="Step8Row" Orientation="Horizontal">
+                        <Border x:Name="Step8Circle" Width="28" Height="28" CornerRadius="14"
+                                Background="{StaticResource StepInactive}">
+                            <TextBlock Text="8" Foreground="{StaticResource DimText}" FontSize="13"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       x:Name="Step8Num" />
+                        </Border>
+                        <TextBlock x:Name="Step8Label" Text="Complete"
                                    Foreground="{StaticResource DimText}" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>

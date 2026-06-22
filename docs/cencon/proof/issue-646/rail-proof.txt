@@ -1,0 +1,28 @@
+PROOF issue-646 RAIL (the integrated WizardStepFlow rail, read off the live MainWindow):
+
+Workstation (fresh install) rail - Sign-in DROPPED, Connect PRESENT:
+   [1] Welcome
+   [2] Prerequisites
+   [3] Privacy
+   [4] Connect
+   [5] Skills
+   [6] Install
+   [7] Complete
+
+[AC1/AC4] On the Connect step: NextButton.IsEnabled = False (expected False - unverified).
+
+[AC2] Wrong code '0000' -> blocked. Message: Pairing code is wrong, expired, or already used. Mint a new code on the gateway host and try again.
+[AC4] NextButton.IsEnabled after bad code = False (expected False).
+
+[AC2] Correct code '8799' -> verified. Banner: Connected to the gateway as SOREN_NORTH. Click Next to continue.
+[AC4/AC5] GatewayConnectStep.IsVerified = True (expected True); NextButton.IsEnabled = True (expected True - install can now finish).
+
+Gateway (fresh install) rail - Sign-in PRESENT, Connect EXCLUDED:
+   [1] Welcome
+   [2] Prerequisites
+   [3] Sign in
+   [4] Privacy
+   [5] Skills
+   [6] Install
+   [7] Complete
+
