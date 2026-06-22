@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #659 - Installer Privacy step - Developer Agent proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:24px; }
+  h2 { color:#fff; font-size:18px; margin-top:32px; border-bottom:1px solid #3C3C3C; padding-bottom:6px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background:#252526; color:#CCCCCC; }
+  pre { padding:12px; border-radius:4px; overflow:auto; border:1px solid #3C3C3C; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .warn { color:#F59E0B; font-weight:600; }
+  img { max-width:780px; border:1px solid #3C3C3C; border-radius:4px; margin-top:12px; }
+  .note { color:#888; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Issue #659 - Installer Privacy step: three one-liners + one default-on telemetry toggle</h1>
+<p>Developer Agent proof. Part of the Installer first-run epic (#661): Welcome &rarr; Checks &rarr; Sign in &rarr; <b>Privacy</b> &rarr; Install &rarr; Done. Builds on the forced Sign-in step (#657) and the hand-sign-in-to-app step (#658).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>A new <b>Privacy</b> wizard step in the installer, inserted right after Sign in (the step rail is now Welcome, Prerequisites, Sign in, Privacy, Skills, Install, Complete). It shows three plain-English one-liners and one checkbox, "Share anonymous usage information to help improve CC Director", <b>on by default</b>.</li>
+  <li>The per-account <b>server flag is the source of truth</b>. A small HTTP client (<code>AccountTelemetryClient</code> in <code>CcDirector.Core</code>) reads it with <code>GET /api/v1/auth/me</code> (<code>telemetry_enabled</code>) to pre-fill the checkbox and writes it with <code>PATCH /api/v1/account/telemetry {"enabled":bool}</code>, both with the Sign-in <code>Bearer</code> token.</li>
+  <li>The captured access token is published <b>in memory only</b> from the Sign-in step to the Privacy step; it is never written to the installer log and never carried on the sign-in result (security rule DT-05).</li>
+  <li>Best-effort and non-blocking: a failed telemetry call is logged and the wizard continues to Install regardless of the toggle value. The chosen value is always mirrored into the local <code>config.json</code> <code>telemetry.enabled</code> as an offline cache (via the existing <code>TelemetrySettings.SetEnabled</code>).</li>
+  <li>The endpoint base is overridable via <code>DEVTHROTTLE_API_URL</code> so dev/QA can point at a stub.</li>
+</ul>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>src/CcDirector.Core/Account/AccountTelemetryClient.cs</code> (new) - the auth/me + telemetry PATCH client.</li>
+  <li><code>tools/cc-director-setup/Steps/PrivacyStep.xaml</code> + <code>.xaml.cs</code> (new) - the Privacy step UI and behavior.</li>
+  <li><code>tools/cc-director-setup/Services/TelemetryChoiceApplier.cs</code> (new) - pre-fill read + apply (server PATCH best-effort + local mirror).</li>
+  <li><code>tools/cc-director-setup/Services/SignInRunner.cs</code> - optional in-memory <code>publishAccessToken</code> seam (token never logged, never on the result).</li>
+  <li><code>tools/cc-director-setup/Steps/SignInStep.xaml.cs</code> - exposes the captured access token in memory.</li>
+  <li><code>tools/cc-director-setup/MainWindow.xaml</code> + <code>.xaml.cs</code> - 7-step rail; Privacy at step 4; apply the choice (detached, non-blocking) on leaving Privacy.</li>
+  <li>Tests: <code>src/CcDirector.Core.Tests/Account/AccountTelemetryClientTests.cs</code> (9), <code>tools/cc-director-setup.Tests/TelemetryChoiceApplierTests.cs</code> (8).</li>
+</ul>
+
+<h2>The Privacy step (toggle default ON)</h2>
+<p>Rendered from the real <code>PrivacyStep</code> control, after the pre-fill read from <code>/auth/me</code> returned the server default (ON):</p>
+<img src="privacy-step-default-on.png" alt="Privacy step with three one-liners and the default-on checkbox" />
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr>
+  <td>1</td>
+  <td>After Sign in, Privacy step shows the three one-liners + single checkbox, pre-filled from <code>/auth/me</code> (defaults ON when unreachable).</td>
+  <td class="pass">PASS</td>
+  <td>Screenshot above (three one-liners + one checkbox, checked). Transcript shows the GET /auth/me pre-fill returning ON. Unit test <code>ReadPrefillAsync_ServerUnreachable_DefaultsOn</code> + <code>ReadPrefillAsync_NoToken_DefaultsOnAndMakesNoCall</code> prove the default-ON fallback.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Unchecking + Next sends <code>PATCH /api/v1/account/telemetry {"enabled":false}</code>; re-reading <code>/auth/me</code> shows <code>telemetry_enabled=false</code>.</td>
+  <td class="pass">PASS</td>
+  <td>Transcript: <code>PATCH /api/v1/account/telemetry ... Body={"enabled":false}</code>, then re-read <code>/auth/me</code> shows <code>telemetry_enabled now = False</code>.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Leaving it checked does not flip the server flag to false.</td>
+  <td class="pass">PASS</td>
+  <td>Unit test <code>ApplyChoiceAsync_CheckedAndToken_PatchesTrueAndMirrorsTrue</code> sends <code>{"enabled":true}</code> (never false) when checked.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>A failed telemetry call does not block install (logged, wizard continues); local <code>config.json</code> mirror reflects the choice either way.</td>
+  <td class="pass">PASS</td>
+  <td>Unit test <code>ApplyChoiceAsync_ServerWriteFails_DoesNotThrowAndStillMirrors</code> (server 500 -&gt; no throw, mirror still written). In the wizard the apply runs detached and navigation to Install proceeds regardless. Transcript shows the local <code>config.json</code> mirror set to <code>false</code>.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>The Bearer token is never written to the installer log.</td>
+  <td class="pass">PASS</td>
+  <td>Product code logs only request shape + outcome, never the token (see <code>AccountTelemetryClient</code>, <code>TelemetryChoiceApplier</code>, <code>SignInRunner</code> log lines). The token is held in memory only and never placed on <code>SignInResult</code>.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Next proceeds to Install regardless of the toggle value (the toggle is a choice, not a gate).</td>
+  <td class="pass">PASS</td>
+  <td><code>MainWindow.NextButton_Click</code> fires the apply detached and immediately calls <code>ShowStep(next)</code>; Next is never gated on this step.</td>
+</tr>
+</table>
+
+<h2>Live transcript (against a local stub backend)</h2>
+<p>Produced by exercising the real <code>TelemetryChoiceApplier</code> + <code>AccountTelemetryClient</code> with <code>DEVTHROTTLE_API_URL</code> pointed at an in-process stub implementing the devthrottle_internal#59 contract, and <code>CC_DIRECTOR_ROOT</code> isolating <code>config.json</code> to a temp dir:</p>
+<pre id="transcript">See telemetry-transcript.txt in this folder.</pre>
+
+<h2>Production verification - Expected vs Actual</h2>
+<p class="warn">Production pass deferred (cannot be exercised yet).</p>
+<p class="note">
+The real production sign-in page is not live, and the local stand-in token (<code>tools/devthrottle-dev-signin</code>) is not a real Supabase JWT, so the production consent endpoint returns <code>401</code>. Per the issue's dev/QA note, the call shape (method, URL, body, Bearer header) and the local <code>config.json</code> mirror are verified against a stub (above). The production pass is left for once real sign-in is live; the backend contract devthrottle_internal#59 is live but unreachable with a stand-in token.
+<br/><br/>
+<b>Expected in production:</b> with a real Supabase token, GET <code>/api/v1/auth/me</code> returns the account's <code>telemetry_enabled</code>; PATCH <code>/api/v1/account/telemetry {"enabled":false}</code> returns 200 and the server flag flips to false. <b>Actual against a stand-in token:</b> 401 (best-effort path logs and continues; the local mirror still reflects the choice).
+</p>
+
+<h2>CenCon impact</h2>
+<p class="note">
+Adds a small outbound HTTP client from the installer (GET /auth/me + PATCH /account/telemetry) using the token already captured at Sign-in. Same security posture as the existing login-telemetry reporter: Bearer header, token never logged (DT-05). No new architecture container and no change to any blocking security rule.
+</p>
+
+<p><b>I believe this is finished</b> for the dev/QA scope (call shape + local mirror proven against a stub; build clean; all tests pass). The production pass is explicitly deferred until real sign-in is live.</p>
+</body>
+</html>

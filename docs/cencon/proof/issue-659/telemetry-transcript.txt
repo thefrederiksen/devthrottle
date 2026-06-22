@@ -1,0 +1,34 @@
+=== Issue #659 proof transcript ===
+Stub backend: http://127.0.0.1:9659/
+DEVTHROTTLE_API_URL = http://127.0.0.1:9659
+CC_DIRECTOR_ROOT (isolated config.json) = C:\Users\soren_slq752\AppData\Local\Temp\issue-659-proof-49e4ee2c0b7c447fa6b8c7fa9180e245
+Bearer token used: <a throwaway stand-in value; never logged by product code>
+
+[Part 1] Rendered PrivacyStep to privacy-step-default-on.png (pre-fill completed=True, checkbox checked=True)
+
+[Part 2] Pre-fill read from server (GET /auth/me):
+   pre-filled checkbox value = True  (server default ON)
+
+[Part 2] User UNCHECKS the box and presses Next -> ApplyChoiceAsync(enabled=false):
+   server PATCH succeeded = True
+
+[Part 2] Re-read /auth/me after the PATCH:
+   server telemetry_enabled now = False
+
+[Part 2] Local config.json mirror (CC_DIRECTOR_ROOT):
+   config.json telemetry.enabled = False
+   config.json contents:
+{
+  "telemetry": {
+    "enabled": false
+  }
+}
+
+=== Captured HTTP requests at the stub backend ===
+   GET /api/v1/auth/me  Authorization=Bearer proof-stand-in-access-token  Body=<none>
+   GET /api/v1/auth/me  Authorization=Bearer proof-stand-in-access-token  Body=<none>
+   PATCH /api/v1/account/telemetry  Authorization=Bearer proof-stand-in-access-token  Body={"enabled":false}
+   GET /api/v1/auth/me  Authorization=Bearer proof-stand-in-access-token  Body=<none>
+
+Note: Authorization shows 'Bearer <token>' on the wire (required), but the product code
+never writes the token to the installer log - only the request shape and outcome.

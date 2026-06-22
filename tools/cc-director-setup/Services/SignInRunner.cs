@@ -68,6 +68,7 @@ public sealed class SignInRunner
     private readonly Func<LoopbackLoginListener> _listenerFactory;
     private readonly Action<string> _openBrowser;
     private readonly Action<DevThrottleTokens> _persistCredential;
+    private readonly Action<string>? _publishAccessToken;
     private readonly TimeSpan _timeout;
 
     /// <summary>
@@ -92,16 +93,25 @@ public sealed class SignInRunner
     /// <param name="timeout">
     /// How long to wait for the hand-back before timing out. Defaults to <see cref="DefaultTimeout"/>.
     /// </param>
+    /// <param name="publishAccessToken">
+    /// An optional in-memory seam that receives the captured access token on a successful sign-in, so the
+    /// next wizard step (the Privacy step, issue #659) can use it as the Bearer for the per-account
+    /// telemetry calls. The token is published ONLY in process memory and is NEVER written to the
+    /// installer log and NEVER carried on <see cref="SignInResult"/> (security rule DT-05). When null,
+    /// no token is published (the prior behavior).
+    /// </param>
     public SignInRunner(
         Func<LoopbackLoginListener>? listenerFactory = null,
         Action<string>? openBrowser = null,
         Action<DevThrottleTokens>? persistCredential = null,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        Action<string>? publishAccessToken = null)
     {
         _listenerFactory = listenerFactory ?? (() => new LoopbackLoginListener());
         _openBrowser = openBrowser ?? OpenSystemBrowser;
         _persistCredential = persistCredential ?? PersistToDirectorCredentialStore;
         _timeout = timeout ?? DefaultTimeout;
+        _publishAccessToken = publishAccessToken;
     }
 
     /// <summary>
@@ -186,6 +196,16 @@ public sealed class SignInRunner
         }
 
         SetupLog.Write("[SignInRunner] RunAsync: captured credential persisted to the Director credential store");
+
+        // Publish the captured access token in process memory only (issue #659) so the Privacy step can
+        // use it as the Bearer for the per-account telemetry calls. The token is never logged and never
+        // returned on the result.
+        if (_publishAccessToken is not null)
+        {
+            SetupLog.Write("[SignInRunner] RunAsync: publishing captured access token in memory for the Privacy step (token not logged)");
+            _publishAccessToken(capturedTokens.AccessToken);
+        }
+
         return new SignInResult(SignInOutcome.SignedIn, "Signed in to DevThrottle.");
     }
 
