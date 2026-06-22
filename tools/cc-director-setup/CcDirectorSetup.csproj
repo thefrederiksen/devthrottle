@@ -17,5 +17,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+    <!-- Reused for the forced first-run sign-in step (issue #657): the loopback listener and the
+         sign-in URL builder are the same contract the Director uses, so the installer hands the
+         browser sign-in back over the exact same loopback callback. -->
+    <ProjectReference Include="..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
   </ItemGroup>
 </Project>
