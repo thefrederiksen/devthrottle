@@ -216,9 +216,24 @@ public sealed class GatewayHost : IAsyncDisposable
             cronTargetResolver,
             _runnerManager,
             new Running.DirectorWorkListDrainLauncher(_workLists, _client));
+        // Run-complete notifications (issue #622, the deferred "notify on completion" piece of #479).
+        // The notifier rides the EXISTING fleet channel - the per-Director doorbell event ring
+        // (DirectorEvents, #330) observed at GET /directors/{id}/events - and optionally POSTs the same
+        // payload to a per-job webhook. The deep link is built from the resolved Director's tailnet
+        // endpoint (the same source the /sessions aggregation uses for ViewUrl); the gw query roots on
+        // this Gateway's loopback base. The webhook client is short-timeout, best-effort.
+        var cronNotifier = new Running.GatewayCronNotifier(
+            DirectorEvents,
+            directorId =>
+            {
+                var d = Registry.Get(directorId);
+                return d is null ? null : (d.TailnetEndpoint ?? d.ControlEndpoint);
+            },
+            $"http://127.0.0.1:{Port}",
+            new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_client, cronTargetResolver),
-            cronWorkListRunner, new Running.SystemClock());
+            cronWorkListRunner, cronNotifier, new Running.SystemClock());
     }
 
     /// <summary>

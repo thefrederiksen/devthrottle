@@ -181,12 +181,74 @@ public sealed class SchedulePageTests : TestContext
         });
     }
 
-    /// <summary>Routing handler that also captures the body of a PUT /cron/jobs/{id}.</summary>
+    [Fact]
+    public void Create_modal_shows_the_run_complete_notify_control_with_all_three_policies()
+    {
+        // AC4 (#622): the notify setting is surfaced and editable in the Schedule UI.
+        var cut = Render(SampleJobs());
+        cut.Find("button.btn.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Notify when run completes", cut.Markup);
+            // The notify <select> carries none / always / failure.
+            var selects = cut.FindAll(".sched-modal select");
+            var notify = selects.First(s => s.InnerHtml.Contains("Always (success or failure)"));
+            Assert.Contains("Off (no notification)", notify.InnerHtml);
+            Assert.Contains("Only on failure", notify.InnerHtml);
+        });
+    }
+
+    [Fact]
+    public void Choosing_notify_always_with_a_webhook_sends_them_in_the_create_post_body()
+    {
+        // AC4 (#622): the chosen notify policy + webhook reach the Gateway on create.
+        var handler = new CaptureHandler(SampleJobs(), SampleDirectors());
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://gw.test/") };
+        Services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
+        Services.AddSingleton(new GatewayClient(http, NullLogger<GatewayClient>.Instance));
+        var cut = RenderComponent<Schedule>();
+
+        cut.Find("button.btn.primary").Click();
+        cut.WaitForAssertion(() => Assert.Contains("New cron job", cut.Find(".modal-head").TextContent));
+
+        // Set notify = always; the webhook field appears, then fill it.
+        var notifySelect = cut.FindAll(".sched-modal select").First(s => s.InnerHtml.Contains("Always (success or failure)"));
+        notifySelect.Change("always");
+        cut.WaitForAssertion(() => Assert.Contains("Webhook URL (optional)", cut.Markup));
+        var webhookInput = cut.FindAll(".sched-modal .fld input")
+            .First(i => i.GetAttribute("placeholder") == "https://example.com/hook");
+        webhookInput.Input("https://example.com/hook");
+
+        cut.Find(".modal-foot .btn.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(handler.LastPostBody);
+            var sent = JsonSerializer.Deserialize<CronJobDto>(handler.LastPostBody!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            Assert.NotNull(sent);
+            Assert.Equal("always", sent!.NotifyOn);
+            Assert.Equal("https://example.com/hook", sent.NotifyWebhookUrl);
+        });
+    }
+
+    [Fact]
+    public void Notify_enabled_job_shows_a_badge_in_the_table()
+    {
+        var jobs = SampleJobs();
+        jobs[1].NotifyOn = "always";
+        var cut = Render(jobs);
+        cut.WaitForAssertion(() => Assert.Contains("notify-badge", cut.Markup));
+    }
+
+    /// <summary>Routing handler that also captures the body of a PUT or POST /cron/jobs.</summary>
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly IReadOnlyList<CronJobDto> _jobs;
         private readonly IReadOnlyList<DirectorDto> _directors;
         public string? LastPutBody { get; private set; }
+        public string? LastPostBody { get; private set; }
         public CaptureHandler(IReadOnlyList<CronJobDto> jobs, IReadOnlyList<DirectorDto> directors)
         { _jobs = jobs; _directors = directors; }
 
@@ -199,6 +261,14 @@ public sealed class SchedulePageTests : TestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(LastPutBody ?? "{}", System.Text.Encoding.UTF8, "application/json"),
+                };
+            }
+            if (request.Method == HttpMethod.Post && path == "/cron/jobs")
+            {
+                LastPostBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(LastPostBody ?? "{}", System.Text.Encoding.UTF8, "application/json"),
                 };
             }
 
@@ -228,9 +298,16 @@ public sealed class SchedulePageTests : TestContext
         var proofDir = Environment.GetEnvironmentVariable("CC488_PROOF_DIR");
         if (string.IsNullOrWhiteSpace(proofDir)) return;
 
-        var cut = Render(SampleJobs());
+        var jobs = SampleJobs();
+        jobs[1].NotifyOn = "always";                 // show the notify badge in the table too (#622)
+        var cut = Render(jobs);
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("table.sched-tbl tbody tr")));
-        // Open the create modal too, so the proof shows the form.
+        // Open the create modal and turn notifications on, so the proof shows the #622 controls.
+        cut.Find("button.btn.primary").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Notify when run completes", cut.Markup));
+        var notifySelect = cut.FindAll(".sched-modal select").First(s => s.InnerHtml.Contains("Always (success or failure)"));
+        notifySelect.Change("always");
+        cut.WaitForAssertion(() => Assert.Contains("Webhook URL (optional)", cut.Markup));
         var pageHtml = cut.Markup;
 
         var here = AppContext.BaseDirectory;

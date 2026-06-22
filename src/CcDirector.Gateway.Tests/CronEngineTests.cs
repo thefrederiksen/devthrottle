@@ -26,9 +26,11 @@ public sealed class CronEngineTests : IDisposable
     }
 
     // All tests in this file exercise SEED jobs, so the work-list runner is never invoked; this
-    // helper supplies a stub for the #484 constructor parameter without changing any test.
+    // helper supplies a stub for the #484 constructor parameter without changing any test. A null
+    // notifier (#622) stands in for the fleet channel + webhook so the existing tests stay unchanged;
+    // the notify-specific assertions live in CronNotifyTests, which drives the notifier directly.
     private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, IClock clock) =>
-        new(store, history, starter, new UnusedWorkListRunner(), clock);
+        new(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
 
     private sealed class UnusedWorkListRunner : ICronWorkListRunner
     {

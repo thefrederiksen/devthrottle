@@ -44,7 +44,13 @@
                         <td><span class="cell-name">@job.Name</span></td>
                         <td class="mono">@job.Target.Machine</td>
                         <td>@RunsLabel(job)</td>
-                        <td>@ScheduleLabel(job)</td>
+                        <td>
+                            @ScheduleLabel(job)
+                            @if (NotifyEnabled(job))
+                            {
+                                <span class="notify-badge" title="@NotifyTitle(job)">@NotifyLabel(job)</span>
+                            }
+                        </td>
                         <td class="mono">@FmtUtc(job.NextRunUtc)</td>
                         <td class="dim">@(job.LastFiredUtc is null ? "never" : FmtUtc(job.LastFiredUtc)) @(job.LastStatus is { Length: > 0 } ? $"({job.LastStatus})" : "")</td>
                         <td>
@@ -187,6 +193,26 @@
                     <input class="mono" @bind="_fTimeZone" @bind:event="oninput" placeholder="America/Chicago" />
                 </div>
 
+                @* Run-complete notification (#622): opt-in per job. Defaults to "none" so a silent
+                   job never starts notifying. When enabled, the notification rides the existing fleet
+                   channel (desktop + phone); an optional webhook URL also receives the same payload. *@
+                <div class="fld">
+                    <label class="fld-label">Notify when run completes</label>
+                    <select @bind="_fNotifyOn">
+                        <option value="none">Off (no notification)</option>
+                        <option value="always">Always (success or failure)</option>
+                        <option value="failure">Only on failure</option>
+                    </select>
+                </div>
+
+                @if (_fNotifyOn != "none")
+                {
+                    <div class="fld">
+                        <label class="fld-label">Webhook URL (optional)</label>
+                        <input class="mono" @bind="_fNotifyWebhookUrl" @bind:event="oninput" placeholder="https://example.com/hook" />
+                    </div>
+                }
+
                 @if (_formError is not null)
                 {
                     <div class="modal-error">@_formError</div>
@@ -300,6 +326,9 @@
     private string _fCron = "";
     private string _fRunAt = "";
     private string _fTimeZone = "";
+    // Run-complete notification (#622): opt-in per job, default "none".
+    private string _fNotifyOn = "none";
+    private string _fNotifyWebhookUrl = "";
     // Non-form-control state preserved across an edit (QA #488): a create defaults these on; an edit
     // must keep the job's current values so renaming/rescheduling a DISABLED job never re-arms it.
     private bool _fEnabled = true;
@@ -362,6 +391,7 @@
         _fName = ""; _fMachine = ""; _fRepoPath = "";
         _fActionKind = "worklist"; _fWorkListName = ""; _fSeed = "";
         _fScheduleKind = "oneOff"; _fCron = ""; _fRunAt = ""; _fTimeZone = "";
+        _fNotifyOn = "none"; _fNotifyWebhookUrl = "";
         _fEnabled = true; _fPreventOverlap = true;
         _formError = null;
         _showForm = true;
@@ -381,6 +411,8 @@
         _fCron = job.CronExpression ?? "";
         _fRunAt = job.RunAt ?? "";
         _fTimeZone = job.TimeZoneId;
+        _fNotifyOn = string.IsNullOrWhiteSpace(job.NotifyOn) ? "none" : job.NotifyOn;
+        _fNotifyWebhookUrl = job.NotifyWebhookUrl ?? "";
         // Preserve the state the form has no control for, so an edit never silently changes it (QA #488).
         _fEnabled = job.Enabled;
         _fPreventOverlap = job.PreventOverlap;
@@ -477,6 +509,8 @@
             WorkListName = _fActionKind == "worklist" ? _fWorkListName.Trim() : null,
         },
         PreventOverlap = _fPreventOverlap,
+        NotifyOn = _fNotifyOn,
+        NotifyWebhookUrl = _fNotifyOn != "none" && _fNotifyWebhookUrl.Trim().Length > 0 ? _fNotifyWebhookUrl.Trim() : null,
     };
 
     private async Task SaveAsync()
@@ -562,6 +596,9 @@
                 Target = new CronJobTarget { Machine = job.Target.Machine },
                 Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
                 PreventOverlap = job.PreventOverlap,
+                // Preserve the notify settings (#622) so toggling enabled never silently clears them.
+                NotifyOn = job.NotifyOn,
+                NotifyWebhookUrl = job.NotifyWebhookUrl,
             };
             await Gateway.UpdateCronJobAsync(job.Id, dto, _cts.Token);
             await RefreshAsync();
@@ -574,6 +611,18 @@
     }
 
     // ---- display helpers ----
+
+    // Run-complete notification (#622) - shown as a compact badge in the Schedule cell.
+    private static bool NotifyEnabled(CronJobDto j) =>
+        !string.IsNullOrWhiteSpace(j.NotifyOn) && !string.Equals(j.NotifyOn, "none", StringComparison.OrdinalIgnoreCase);
+
+    private static string NotifyLabel(CronJobDto j) =>
+        string.Equals(j.NotifyOn, "failure", StringComparison.OrdinalIgnoreCase) ? "notify: failures" : "notify: always";
+
+    private static string NotifyTitle(CronJobDto j) =>
+        string.IsNullOrWhiteSpace(j.NotifyWebhookUrl)
+            ? "Run-complete notification rides the fleet channel"
+            : $"Run-complete notification + webhook: {j.NotifyWebhookUrl}";
 
     private static string ScheduleLabel(CronJobDto j) =>
         string.Equals(j.ScheduleKind, "recurring", StringComparison.OrdinalIgnoreCase)

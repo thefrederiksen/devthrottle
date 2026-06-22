@@ -35,6 +35,13 @@ err_console = Console(stderr=True)
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
 
+# Run-complete notification policy values on the wire - must match
+# CcDirector.Gateway.Contracts.CronNotify.
+NOTIFY_NONE = "none"
+NOTIFY_ALWAYS = "always"
+NOTIFY_FAILURE = "failure"
+NOTIFY_CHOICES = (NOTIFY_NONE, NOTIFY_ALWAYS, NOTIFY_FAILURE)
+
 # Set by the --gateway global option; None means "discover from config" (the default).
 _gateway_override: Optional[str] = None
 
@@ -92,6 +99,15 @@ def _runs_label(job: dict) -> str:
     if work_list:
         return f"work list {work_list}"
     return f"skill {_fmt(action.get('seed'))}"
+
+
+def _notify_label(job: dict) -> str:
+    policy = (job.get("notifyOn") or NOTIFY_NONE).lower()
+    if policy == NOTIFY_NONE:
+        return "off"
+    webhook = job.get("notifyWebhookUrl")
+    base = "always (success + failure)" if policy == NOTIFY_ALWAYS else "on failure"
+    return f"{base} + webhook {webhook}" if webhook else base
 
 
 # ---- read commands ----
@@ -163,6 +179,7 @@ def get(
     console.print(f"  Repo:       {_fmt(action.get('repoPath'))}")
     console.print(f"  Runs:       {_runs_label(job)}")
     console.print(f"  Schedule:   {_schedule_label(job)}  ({_fmt(job.get('timeZoneId'))})")
+    console.print(f"  Notify:     {_notify_label(job)}")
     console.print(f"  Next run:   {_fmt(job.get('nextRunUtc'))} UTC")
     console.print(f"  Last fired: {_fmt(job.get('lastFiredUtc'))}  ({_fmt(job.get('lastStatus'))})")
     console.print(f"  Created:    {_fmt(job.get('createdUtc'))} UTC")
@@ -229,6 +246,17 @@ def create(
     worklist: Optional[str] = typer.Option(
         None, "--worklist", help="Named work list to drain (one of --seed/--worklist)"
     ),
+    notify_on: str = typer.Option(
+        NOTIFY_NONE,
+        "--notify-on",
+        help="Run-complete notification: none (default), always, or failure. Opt-in per job - "
+        "rides the existing fleet channel (desktop + phone).",
+    ),
+    notify_webhook: Optional[str] = typer.Option(
+        None,
+        "--notify-webhook",
+        help="Optional outbound webhook URL that also receives the run-complete payload (with --notify-on).",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the created job as JSON"),
 ) -> None:
     """Create a cron job (one-off with --at, or recurring with --cron)."""
@@ -245,6 +273,11 @@ def create(
         _fail("specify only one of --seed or --worklist, not both.")
         return
 
+    notify_value = (notify_on or NOTIFY_NONE).strip().lower()
+    if notify_value not in NOTIFY_CHOICES:
+        _fail(f"--notify-on must be one of {', '.join(NOTIFY_CHOICES)}.")
+        return
+
     job = {
         "name": name,
         "enabled": True,
@@ -259,6 +292,8 @@ def create(
             "workListName": worklist if worklist else None,
         },
         "preventOverlap": True,
+        "notifyOn": notify_value,
+        "notifyWebhookUrl": notify_webhook if notify_webhook else None,
     }
 
     try:

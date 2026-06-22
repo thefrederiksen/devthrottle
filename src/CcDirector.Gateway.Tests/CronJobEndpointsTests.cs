@@ -166,6 +166,73 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
     }
 
+    [Fact]
+    public async Task Post_NotifySettings_RoundTripThroughPostAndGet()
+    {
+        // AC4: the notify policy + webhook round-trip through POST /cron/jobs and GET /cron/jobs/{id}.
+        var body = new
+        {
+            name = "notifies",
+            scheduleKind = "recurring",
+            cronExpression = "0 0 * * *",
+            timeZoneId = "America/Chicago",
+            target = new { machine = "workstation-A" },
+            action = new { repoPath = @"D:\repo", seed = "/help" },
+            notifyOn = "always",
+            notifyWebhookUrl = "https://example.com/hook",
+        };
+
+        var resp = await _http.PostAsJsonAsync("/cron/jobs", body);
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var created = JsonSerializer.Deserialize<CronJobDto>(await resp.Content.ReadAsStringAsync(), JsonOpts);
+        Assert.NotNull(created);
+        Assert.Equal("always", created!.NotifyOn);
+        Assert.Equal("https://example.com/hook", created.NotifyWebhookUrl);
+
+        var get = await _http.GetAsync($"/cron/jobs/{created.Id}");
+        var fetched = JsonSerializer.Deserialize<CronJobDto>(await get.Content.ReadAsStringAsync(), JsonOpts);
+        Assert.NotNull(fetched);
+        Assert.Equal("always", fetched!.NotifyOn);
+        Assert.Equal("https://example.com/hook", fetched.NotifyWebhookUrl);
+    }
+
+    [Fact]
+    public async Task Post_NoNotify_DefaultsToNone()
+    {
+        // AC4 default-OFF: a job created without the notify fields comes back as "none".
+        var created = await CreateJob("silent");
+        var get = await _http.GetAsync($"/cron/jobs/{created.Id}");
+        var fetched = JsonSerializer.Deserialize<CronJobDto>(await get.Content.ReadAsStringAsync(), JsonOpts);
+        Assert.NotNull(fetched);
+        Assert.Equal("none", fetched!.NotifyOn);
+        Assert.Null(fetched.NotifyWebhookUrl);
+    }
+
+    [Fact]
+    public async Task Put_EditsNotifySettings()
+    {
+        // AC4: editing a job updates the notify policy + webhook.
+        var created = await CreateJob("editme");
+
+        var edit = new
+        {
+            name = "editme",
+            scheduleKind = "recurring",
+            cronExpression = "0 0 * * *",
+            timeZoneId = "America/Chicago",
+            target = new { machine = "workstation-A" },
+            action = new { repoPath = @"D:\repo", seed = "/help" },
+            notifyOn = "failure",
+            notifyWebhookUrl = "https://example.com/h2",
+        };
+        var put = await _http.PutAsJsonAsync($"/cron/jobs/{created.Id}", edit);
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var dto = JsonSerializer.Deserialize<CronJobDto>(await put.Content.ReadAsStringAsync(), JsonOpts);
+        Assert.NotNull(dto);
+        Assert.Equal("failure", dto!.NotifyOn);
+        Assert.Equal("https://example.com/h2", dto.NotifyWebhookUrl);
+    }
+
     private static int AllocateFreePort()
     {
         var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);

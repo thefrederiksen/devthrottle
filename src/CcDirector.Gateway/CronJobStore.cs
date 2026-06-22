@@ -71,6 +71,9 @@ public sealed class CronJobStore
             job.CreatedUtc = now;
             job.LastFiredUtc = null;
             job.LastStatus = null;
+            // Canonicalize the notify policy (#622) so the store only ever holds none/always/failure
+            // (an unknown or empty value becomes the opt-in default "none").
+            job.NotifyOn = CronNotify.Normalize(job.NotifyOn);
             job.NextRunUtc = CronSchedule.ComputeNextRunUtc(job, now);
 
             _jobs[job.Id] = Copy(job);
@@ -132,6 +135,8 @@ public sealed class CronJobStore
             existing.Target = new CronJobTarget { Machine = incoming.Target.Machine };
             existing.Action = new CronJobAction { RepoPath = incoming.Action.RepoPath, Seed = incoming.Action.Seed, WorkListName = incoming.Action.WorkListName };
             existing.PreventOverlap = incoming.PreventOverlap;
+            existing.NotifyOn = CronNotify.Normalize(incoming.NotifyOn);   // editable run-complete policy (#622)
+            existing.NotifyWebhookUrl = incoming.NotifyWebhookUrl;
             existing.NextRunUtc = CronSchedule.ComputeNextRunUtc(existing, DateTime.UtcNow);
 
             Save();
@@ -217,6 +222,8 @@ public sealed class CronJobStore
         Target = new CronJobTarget { Machine = job.Target.Machine },
         Action = new CronJobAction { RepoPath = job.Action.RepoPath, Seed = job.Action.Seed, WorkListName = job.Action.WorkListName },
         PreventOverlap = job.PreventOverlap,
+        NotifyOn = job.NotifyOn,
+        NotifyWebhookUrl = job.NotifyWebhookUrl,
         CreatedUtc = job.CreatedUtc,
         LastFiredUtc = job.LastFiredUtc,
         NextRunUtc = job.NextRunUtc,

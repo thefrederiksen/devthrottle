@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #622 - Cron run-complete notifications - Developer Proof</title>
+<style>
+  body { background:#1e1e1e; color:#d4d4d4; font-family:'Segoe UI',sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; border-bottom:2px solid #3794ff; padding-bottom:10px; }
+  h2 { color:#3794ff; margin-top:32px; }
+  code, pre { font-family:'Cascadia Mono',Consolas,monospace; background:#252526; }
+  pre { padding:12px; border-radius:6px; overflow-x:auto; border:1px solid #333; font-size:12.5px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; }
+  th, td { border:1px solid #3a3a3a; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#2d2d30; color:#fff; }
+  .pass { color:#4ec96b; font-weight:600; }
+  .ac { background:#252526; }
+  img { max-width:760px; border:1px solid #3a3a3a; border-radius:6px; margin:10px 0; }
+  .meta { color:#999; font-size:13px; }
+  .note { background:#21333f; border-left:3px solid #3794ff; padding:10px 14px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #622 - Cron run-complete notifications</h1>
+<p class="meta">Developer Agent proof &middot; branch <code>issue-622-cron-notify</code> &middot; CenCon Development Method</p>
+
+<h2>What was implemented</h2>
+<p>Per-job, opt-in <strong>run-complete notifications</strong> for Gateway cron jobs. When a fire finishes
+(success OR start-failure), and the job opts in via its <code>notifyOn</code> policy, the Gateway delivers a
+notification carrying the job name, the outcome (infra-status vs task-status per #483), the target machine,
+the resulting session id, and a deep link to that session.</p>
+<ul>
+  <li><strong>Rides the EXISTING fleet notification channel</strong> - the per-Director doorbell event ring
+      (<code>DirectorEventLog</code>, #330) observed at <code>GET /directors/{id}/events</code>, the same path
+      needs-you / session-created / session-exited already use. No new channel was invented (Assumption 1).</li>
+  <li><strong>Optional per-job outbound webhook</strong> - when <code>notifyWebhookUrl</code> is set, the same
+      payload is also POSTed there for external consumers.</li>
+  <li><strong>Default OFF</strong> - <code>notifyOn</code> defaults to <code>none</code>, so existing/silent jobs
+      never start notifying (Assumption 2). A single notification per run (Assumption 3).</li>
+  <li><strong>Fires on BOTH outcomes</strong> - a clean fire AND a fire that fails to start both notify.</li>
+  <li>Surfaced in <strong>both</strong> the Cockpit Schedule UI and the <code>cc-cron</code> CLI (building on #621).</li>
+</ul>
+
+<h2>Changes</h2>
+<table>
+<tr><th>Area</th><th>File(s)</th><th>Change</th></tr>
+<tr><td>gateway_contracts</td><td><code>CronJobDto.cs</code></td><td>Added <code>NotifyOn</code> (none/always/failure, default none) and <code>NotifyWebhookUrl</code>; added the <code>CronNotify</code> policy helper and the <code>CronRunCompletedPayload</code> DTO.</td></tr>
+<tr><td>gateway_contracts</td><td><code>DoorbellRequest.cs</code></td><td>Added the <code>cron-run-completed</code> event name to the existing doorbell event vocabulary.</td></tr>
+<tr><td>gateway</td><td><code>Running/ICronNotifier.cs</code>, <code>Running/GatewayCronNotifier.cs</code></td><td>New notifier: records onto the existing per-Director event ring AND POSTs the optional webhook; builds the session deep link the same way the /sessions aggregation does.</td></tr>
+<tr><td>gateway</td><td><code>Running/CronEngine.cs</code></td><td>On fire finish, gates on <code>NotifyOn</code> vs the outcome and delivers the notification (best-effort, never affects the fire).</td></tr>
+<tr><td>gateway</td><td><code>CronJobStore.cs</code></td><td>Persists + normalizes the notify fields through create/update/copy.</td></tr>
+<tr><td>gateway</td><td><code>GatewayHost.cs</code></td><td>Wires the production notifier (event ring + registry endpoint resolver + webhook HttpClient).</td></tr>
+<tr><td>cockpit</td><td><code>Components/Pages/Schedule.razor(.css)</code></td><td>Notify dropdown + conditional webhook field in the create/edit modal; preserved through edit/toggle; a table badge.</td></tr>
+<tr><td>cc-cron CLI</td><td><code>tools/cc-cron/src/cli.py</code></td><td><code>--notify-on</code> / <code>--notify-webhook</code> on <code>create</code> (validated), surfaced in <code>get</code>.</td></tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<p>Every criterion was proven over <strong>real HTTP</strong> against the production <code>CronEngine</code> +
+<code>GatewayCronNotifier</code> + <code>DirectorEventLog</code> + <code>CronJobStore</code>, plus a real webhook
+listener (the only test seam is a session starter that fails a fire when the job name carries the marker
+<code>[FAILSTART]</code> - the engine, notifier, store, event ring and webhook are all production code).</p>
+
+<table>
+<tr><th>AC</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr class="ac"><td>AC1</td><td>A notify-enabled job sends a notification on finish carrying job name, outcome, target machine, session id, and a working link to the session.</td><td>Success fire produced a <code>cron-run-completed</code> event on the fleet ring (sid <code>sess-0001</code>, state <code>started</code>) and a webhook payload with jobName, succeeded=true, infra=started, machine=workstation-A, sid=sess-0001, and a working <code>sessionLink</code>. See <code>transcript.txt</code> / <code>captured_webhooks.jsonl</code>.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>AC2</td><td>A job whose fire FAILS also notifies, with the failure / not-started reason.</td><td><code>[FAILSTART]</code> fire (notifyOn=always): run recorded infra=not-started; a <code>cron-run-completed</code> event filed under the job id; webhook payload carried succeeded=false, infra=not-started, reason="launcher could not start a Director on the target machine".</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>AC3</td><td><code>notifyOn</code> honors always vs failure: success under failure sends nothing; failure notifies.</td><td>SUCCESS under notifyOn=failure -> webhooks unchanged (SILENT). FAILED under notifyOn=failure -> +1 webhook (NOTIFIED). See transcript AC3 block.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>AC4</td><td>The setting round-trips through POST/GET /cron/jobs and is editable in the Schedule UI + cc-cron.</td><td>POST then GET echo <code>notifyOn=always notifyWebhookUrl=...</code>; a no-notify job comes back <code>notifyOn=none</code>. Schedule UI modal screenshot shows the dropdown set to Always + the webhook field; cc-cron <code>create --notify-on/--notify-webhook</code> and <code>get</code> render it (cli-transcript.txt). bUnit tests assert the POST body carries the fields.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>AC5</td><td>Notifications reuse the existing fleet delivery (not a new channel); an optional per-job webhook also receives a POST with the same payload.</td><td>The notification is recorded via the existing <code>DirectorEventLog</code> at <code>GET /directors/{id}/events</code> (no new channel). The webhook listener captured the identical payload. See <code>GatewayCronNotifier.cs</code> + <code>captured_webhooks.jsonl</code>.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>AC6</td><td>Build clean; cron tests pass.</td><td><code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s). Gateway suite: 876 passed / 1 skipped. cc-cron: 19 passed. Cockpit Schedule: 9 passed.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Schedule UI - create modal with the run-complete notify controls (AC4)</h2>
+<img src="schedule-notify-modal.png" alt="Schedule create modal showing the Notify dropdown set to Always and the Webhook URL field">
+<p class="meta">Rendered from the real compiled <code>Schedule.razor</code> + real app.css via the project's bUnit proof-artifact emitter.</p>
+
+<h2>Live HTTP transcript (AC1-AC3, AC5, default-OFF)</h2>
+<p class="meta">Full transcript: <code>transcript.txt</code>. CLI transcript: <code>cli-transcript.txt</code>. Webhook capture: <code>captured_webhooks.jsonl</code>. Reproducible harness: <code>harness/</code>.</p>
+
+<h2>CenCon impact</h2>
+<div class="note">
+This change adds one new architecturally-relevant behavior: the Gateway now makes an <strong>outbound webhook
+POST</strong> (the first per-job egress from the Gateway). Documented in
+<code>docs/cencon/architecture_manifest.yaml</code> (new <em>CronEngine + CronRunNotifier</em> component on the
+gateway container) and noted under <code>DT-07</code> in <code>docs/cencon/security_profile.yaml</code>: egress only,
+validated to http(s), typed HttpClient (no shell/string concatenation), best-effort and isolated from the fire,
+owner-configured per job on the same single-owner tailnet trust boundary. The in-fleet notification reuses the
+existing doorbell event ring - no new inbound surface. The one allowed contract change (the notify settings on
+<code>CronJobDto</code> + the run payload) is exactly what the issue scoped IN.
+</div>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> All six acceptance criteria are met and proven against production
+code over real HTTP, the full solution builds clean with zero warnings, and the cron / cc-cron / Schedule test
+suites pass (including new tests for notify-on-success, notify-on-failure, always-vs-failure gating, default-OFF,
+the webhook POST, and the REST round-trip).</p>
+
+</body>
+</html>

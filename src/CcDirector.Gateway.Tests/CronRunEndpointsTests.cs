@@ -34,7 +34,7 @@ public sealed class CronRunEndpointsTests : IAsyncLifetime
 
         _store = new CronJobStore(_jobsPath);
         var history = new CronRunHistoryStore(_runsPath);
-        var engine = new CronEngine(_store, history, new FakeStarter(), new UnusedWorkListRunner(), new SystemClock());
+        var engine = new CronEngine(_store, history, new FakeStarter(), new UnusedWorkListRunner(), new NullCronNotifier(), new SystemClock());
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();

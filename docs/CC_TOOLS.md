@@ -1057,6 +1057,15 @@ cc-cron create --name "Nightly drain" \
   --cron "0 0 * * *" --tz America/Chicago \
   --machine <machine> --repo "D:\ReposFred\devthrottle" --worklist "Tonight"
 
+# Opt in to a run-complete notification (issue #622). --notify-on is one of
+# none (default), always, or failure; an optional --notify-webhook also POSTs the
+# run summary to an external URL. The in-fleet notification rides the existing
+# needs-you / session-done channel (desktop + phone).
+cc-cron create --name "Nightly drain" \
+  --cron "0 0 * * *" --tz America/Chicago \
+  --machine <machine> --repo "D:\ReposFred\devthrottle" --worklist "Tonight" \
+  --notify-on always --notify-webhook "https://example.com/hook"
+
 # Fire / enable / disable / delete
 cc-cron run <id>                   # run now (fires immediately, independent of the schedule)
 cc-cron enable <id>                # re-arm a disabled job
