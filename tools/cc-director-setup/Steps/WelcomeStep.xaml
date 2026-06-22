@@ -104,21 +104,28 @@
 
             <!-- ============================ FRESH INSTALL: the one decision ============================ -->
             <!-- RolePanel stays the named container the update path collapses. On a fresh install it is
-                 the hero of the screen: a picture of one Gateway with Workstations hanging off it, then
-                 two big cards. WorkstationRadio / GatewayRadio keep their names so SelectedRole is unchanged. -->
+                 the hero of the screen, reframed around "do you already have a gateway?" (issue #645):
+                 a picture of one Gateway with Workstations hanging off it, then two big cards. The
+                 first-machine card maps to InstallRole.Gateway (provision a LOCAL gateway here) and is
+                 pre-selected, so a solo user ends with a working local gateway by default; the
+                 already-have-a-gateway card maps to InstallRole.Workstation. The radio names changed to
+                 match the new framing - SelectedRole maps them back to the unchanged InstallRole enum. -->
             <StackPanel x:Name="RolePanel" Margin="24,12,24,0">
-                <TextBlock Text="How will you use this machine?"
+                <TextBlock Text="Do you already have a gateway?"
                            Foreground="White"
                            FontSize="18"
                            FontWeight="SemiBold"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="Pick one. You can change it later by re-running setup."
+                <TextBlock Text="Every DevThrottle setup has one gateway. Setting up your first machine? It becomes your gateway. You can change this later by re-running setup."
                            Foreground="{StaticResource DimText}"
                            FontSize="12"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
                            HorizontalAlignment="Center"
                            Margin="0,4,0,0" />
 
-                <!-- The picture: install ONE Gateway; every other machine is a Workstation that connects to it. -->
+                <!-- The picture: every setup has ONE Gateway; every other machine connects to it. Your
+                     FIRST machine becomes that gateway, so a solo user is never left without one. -->
                 <Border Background="#171717" CornerRadius="8" Padding="16,12" Margin="0,10,0,0">
                     <Grid Width="420" HorizontalAlignment="Center">
                         <Grid.RowDefinitions>
@@ -140,7 +147,7 @@
                                 <TextBlock Text="GATEWAY"
                                            Foreground="White" FontWeight="Bold" FontSize="14"
                                            HorizontalAlignment="Center" />
-                                <TextBlock Text="install ONE - your main machine"
+                                <TextBlock Text="your first machine - holds your account + Cockpit"
                                            Foreground="{StaticResource AccentBrush}" FontSize="11"
                                            HorizontalAlignment="Center" Margin="0,2,0,0" />
                             </StackPanel>
@@ -217,54 +224,60 @@
                     </Grid>
                 </Border>
 
-                <!-- The two choices, as big cards. Neither is pre-selected: the user must pick one
-                     before Next is enabled (no silent default). -->
+                <!-- The two choices, as big cards, reframed around "do you already have a gateway?".
+                     The first-machine card (InstallRole.Gateway) is pre-selected in the code-behind so
+                     a solo user provisions a local gateway by default and Next is enabled immediately. -->
                 <Grid Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <RadioButton x:Name="GatewayRadio"
+                    <!-- "I'm setting up my first machine" -> InstallRole.Gateway: provision a local gateway here. -->
+                    <RadioButton x:Name="FirstMachineRadio"
                                  Grid.Column="0"
                                  GroupName="role"
                                  Style="{StaticResource RoleCard}"
                                  Margin="0,0,8,0">
                         <StackPanel>
-                            <TextBlock Text="GATEWAY" Foreground="White"
-                                       FontWeight="SemiBold" FontSize="15" />
-                            <TextBlock Text="This is my MAIN machine."
+                            <TextBlock Text="I'm setting up my first machine" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" />
+                            <TextBlock Text="Recommended"
                                        Foreground="{StaticResource AccentBrush}"
                                        FontSize="12" Margin="0,4,0,0" />
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="{StaticResource TextForeground}"
                                        FontSize="12" Margin="0,6,0,0" LineHeight="16"
-                                       Text="Runs the hub everyone connects to, plus the web Cockpit. Install on ONE machine only." />
+                                       Text="This machine becomes your gateway: it holds your account and runs the web Cockpit. Everything works on its own - no other machine needed." />
                         </StackPanel>
                     </RadioButton>
 
-                    <RadioButton x:Name="WorkstationRadio"
+                    <!-- "I already have a gateway" -> InstallRole.Workstation: connect to the existing gateway.
+                         The pairing flow itself is a separate issue (#646); this card records the choice. -->
+                    <RadioButton x:Name="HaveGatewayRadio"
                                  Grid.Column="1"
                                  GroupName="role"
                                  Style="{StaticResource RoleCard}"
                                  Margin="8,0,0,0">
                         <StackPanel>
-                            <TextBlock Text="WORKSTATION" Foreground="White"
-                                       FontWeight="SemiBold" FontSize="15" />
-                            <TextBlock Text="This is a SECONDARY machine."
+                            <TextBlock Text="I already have a gateway" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" />
+                            <TextBlock Text="Adding another machine"
                                        Foreground="{StaticResource AccentBrush}"
                                        FontSize="12" Margin="0,4,0,0" />
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="{StaticResource TextForeground}"
                                        FontSize="12" Margin="0,6,0,0" LineHeight="16"
-                                       Text="Runs the DevThrottle app + all CLI tools and connects to the Gateway. Install on every other machine." />
+                                       Text="Runs the DevThrottle app + all CLI tools and connects to the gateway you already set up on another machine." />
                         </StackPanel>
                     </RadioButton>
                 </Grid>
 
-                <TextBlock Text="Not sure? Choose Workstation. There should only ever be one Gateway."
+                <TextBlock Text="Not sure? Choose 'first machine'. It sets up a working gateway right here."
                            Foreground="{StaticResource DimText}"
                            FontSize="11"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
                            HorizontalAlignment="Center"
                            Margin="0,10,0,0" />
             </StackPanel>

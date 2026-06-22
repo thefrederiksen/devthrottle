@@ -278,8 +278,9 @@ public partial class MainWindow : Window
         }
         else if (_currentStep == 1 && !_isUpdate)
         {
-            // Fresh install: no role is pre-selected, so Next stays disabled until the user picks one
-            // (RoleSelected re-enables it). On a return visit from step 2 a pick already exists.
+            // Fresh install: the "first machine" card is pre-selected by default (issue #645), so a role
+            // is already picked and Next is enabled from the start; switching cards keeps it enabled
+            // (RoleSelected re-confirms). Still gate on a non-null pick so the invariant is explicit.
             NextButton.Content = "Next";
             NextButton.IsEnabled = _welcomeStep?.SelectedRole != null;
         }
@@ -548,11 +549,13 @@ public partial class MainWindow : Window
         {
             // Leaving Welcome: capture the chosen role and rebuild all forward steps fresh. On update
             // the role picker is hidden and the role was already detected from disk in the constructor,
-            // so only a fresh install reads the user's pick (the hidden picker reports Workstation).
+            // so only a fresh install reads the user's pick (the hidden picker is never constructed).
             if (_currentStep == 1)
             {
-                // Next is gated on a non-null pick (UpdateNavButtons), so SelectedRole is guaranteed
-                // here on a fresh install - no silent default. Fail loudly if that invariant breaks.
+                // The "first machine" card is pre-selected on a fresh install (issue #645) so the solo
+                // path provisions a local gateway by default; the user can still switch to "I already
+                // have a gateway". SelectedRole is non-null from the start, so this is always set here.
+                // Fail loudly if that invariant ever breaks.
                 if (!_isUpdate)
                     _role = _welcomeStep?.SelectedRole
                         ?? throw new InvalidOperationException("Next reached on Welcome with no role selected.");
