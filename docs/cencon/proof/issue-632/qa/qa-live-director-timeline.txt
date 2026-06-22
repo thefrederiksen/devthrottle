@@ -1,0 +1,6 @@
+92:2026-06-22 09:51:37.864 [ControlApiHost] StartAsync: directorId=48d05b79-58e5-42cb-a5b1-83dc7853296b, ephemeral=False
+128:2026-06-22 09:51:38.211 [CcDirector] Control API listening on http://127.0.0.1:7896 (directorId=48d05b79-58e5-42cb-a5b1-83dc7853296b)
+129:2026-06-22 09:51:38.250 [DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: POSTing director-startup event to gateway http://127.0.0.1:7977/telemetry/director-startup (director_id=48d05b79-58e5-42cb-a5b1-83dc7853296b, machine_name=SOREN_NORTH)
+131:2026-06-22 09:51:38.262 [DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: response status=200
+132:2026-06-22 09:51:38.263 [CcDirector] Director-startup telemetry reported (directorId=48d05b79-58e5-42cb-a5b1-83dc7853296b)
+143:2026-06-22 09:51:39.572 [CcDirector] Main window shown; starting background session validation next

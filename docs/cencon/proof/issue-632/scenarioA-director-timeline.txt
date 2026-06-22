@@ -1,0 +1,6 @@
+112:2026-06-22 09:34:49.510 [CcDirector] Account startup gate decided Start (interim: local credential no longer gates startup, issue #664); showing the main window
+121:2026-06-22 09:34:49.594 [CcDirector] Control API listening on http://127.0.0.1:7892 (directorId=d0d3ae7b-60c9-4ade-ab2e-82c1c4c5f3e1)
+122:2026-06-22 09:34:49.599 [DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: POSTing director-startup event to gateway http://127.0.0.1:17632/telemetry/director-startup (director_id=d0d3ae7b-60c9-4ade-ab2e-82c1c4c5f3e1, machine_name=SOREN_NORTH)
+124:2026-06-22 09:34:49.605 [DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: response status=202
+125:2026-06-22 09:34:49.606 [CcDirector] Director-startup telemetry reported (directorId=d0d3ae7b-60c9-4ade-ab2e-82c1c4c5f3e1)
+132:2026-06-22 09:34:49.841 [CcDirector] Main window shown; starting background session validation next

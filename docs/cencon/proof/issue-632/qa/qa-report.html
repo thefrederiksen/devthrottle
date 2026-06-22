@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #632 (Director-startup telemetry)</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+h2 { margin-top: 2rem; color: #1e3a8a; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #cbd5e1; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: #eff6ff; }
+.pass { color: #15803d; font-weight: bold; }
+.fail { color: #b91c1c; font-weight: bold; }
+pre { background: #f1f5f9; padding: .8rem; overflow-x: auto; border-left: 3px solid #2563eb; font-size: .85rem; }
+.verdict { background: #dcfce7; border: 2px solid #15803d; padding: 1rem; font-size: 1.1rem; font-weight: bold; margin-top: 1.5rem; }
+.meta { color: #475569; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #632</h1>
+<p class="meta"><strong>Title:</strong> [Desktop] Fire a Director-startup telemetry event to the Gateway on launch<br>
+<strong>Pull request:</strong> #667 (branch issue-632-director-startup-telemetry)<br>
+<strong>Verified by:</strong> QA Agent (independent verification, separate identity from Developer)<br>
+<strong>Date:</strong> 2026-06-22<br>
+<strong>Method:</strong> Own worktree (dt-632-qa) from the PR branch, own test slot 14, Director launched via the per-slot scheduled task against a stub Gateway (env override seam), and the dev proof harness re-run independently.</p>
+
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln -c Debug
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>On launch with a Gateway configured, the Director POSTs exactly one startup event to &lt;gateway.url&gt;/telemetry/director-startup with {director_id, machine_name, app_version}.</td>
+<td>Exactly one POST; body has the three fields; director_id matches the Control API DirectorId.</td>
+<td>Live launch (slot 14, PID 73956). Stub Gateway received EXACTLY ONE POST:<br>
+<code>POST /telemetry/director-startup BODY={"director_id":"48d05b79-58e5-42cb-a5b1-83dc7853296b","machine_name":"SOREN_NORTH","app_version":"0.9.13"}</code><br>
+Control API /healthz reported the same directorId 48d05b79-58e5-42cb-a5b1-83dc7853296b. Director log: response status=200, exactly one "POSTing director-startup event" line (count=1). Stub log: count=1.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>With no gateway.url configured, startup proceeds normally and a skip line is logged (no crash, no cloud call).</td>
+<td>Reporter is a no-op: 0 HTTP calls, no throw, a skip line logged.</td>
+<td>Proof harness (re-run by QA) AC2: gateway hits unchanged (0-&gt;0), threw=False. Reporter log line emitted:<br>
+<code>[DevThrottleDirectorStartupTelemetryReporter] ReportStartupAsync: no gateway.url configured, skipping director-startup telemetry (Phase 1 no-op)</code><br>
+Unit test ReportStartupAsync_NoGatewayConfigured_IsNoOpAndMakesNoCall asserts CallCount==0 and Request==null with no throw. PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>The startup POST runs off the UI thread and does not delay the main window (window-shown timestamp not gated on the POST).</td>
+<td>Fire-and-forget off the UI thread; window-show does not await the POST.</td>
+<td>Code: the POST is fired inside <code>_ = Task.Run(async () =&gt; { ... await FireDirectorStartupTelemetryAsync(...) })</code> in StartControlApi - a detached Task.Run never awaited by the window-show path. ShowMainWindow runs on its own UI-thread continuation after InitializeServices returns, independent of the Task.Run. Live timeline confirms the window-show line is a separate, ungated event:<br>
+<code>09:51:38.250 POSTing ... -&gt; 09:51:38.263 telemetry reported</code><br>
+<code>09:51:39.572 Main window shown</code></td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Unit/integration coverage for the reporter target (Gateway URL + body) and the no-gateway no-op.</td>
+<td>Tests assert URL + body and the no-op; they genuinely run and pass.</td>
+<td>7 tests in DevThrottleDirectorStartupTelemetryReporterTests, all pass. Read and confirmed they assert: POST method, exact URL &lt;gateway&gt;/telemetry/director-startup, body director_id/machine_name/app_version, trailing-slash dedup, app_version omitted when blank, no-gateway no-op (0 calls, null request), non-success throws, empty director id throws, machine-name default.<br>
+<code>Passed! - Failed: 0, Passed: 7, Skipped: 0, Total: 7</code></td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Full CcDirector.Core.Tests suite: <code>Passed! - Failed: 0, Passed: 2327, Skipped: 6, Total: 2333</code>. No regressions. The 3 VaultGatewayIntegrationTests reported red on CI main are pre-existing/environmental (they PASS locally here) and are unrelated to this change - not newly broken by this PR.</p>
+
+<h2>CenCon / method lens</h2>
+<ul>
+<li>No blocking security rule broken. The startup event carries NO Bearer/token (unauthenticated to the cloud in Phase 1, per architecture_manifest) and the body has no PII (director_id, machine_name, app_version).</li>
+<li>No fallback programming: a missing Gateway URL is an explicit, documented no-op with a skip line - it does NOT silently fall back to a direct cloud call.</li>
+<li>Enterprise logging present (entry, POST target, response status, skip, best-effort swallow). Try-catch only at the App entry point.</li>
+<li>The Gateway-side endpoint and the "#632 Director-side firing" are already documented in docs/cencon/architecture_manifest.yaml.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 4 acceptance criteria met. Issue #632 PASSES QA.</div>
+</body>
+</html>
