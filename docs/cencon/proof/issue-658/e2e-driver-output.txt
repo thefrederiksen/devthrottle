@@ -1,0 +1,9 @@
+[e2e] CC_DIRECTOR_ROOT = %LOCALAPPDATA-USER%\AppData\Local\Temp\issue658-root-5d5a63d4faca4806bd5d1aef6b042908
+[e2e] credential path  = %LOCALAPPDATA-USER%\AppData\Local\Temp\issue658-root-5d5a63d4faca4806bd5d1aef6b042908\config\director\devthrottle-credential.bin
+[e2e] sign-in url       = http://127.0.0.1:8801/signin
+[e2e] SignInRunner outcome = SignedIn
+[e2e] PASS criterion-1a: credential blob exists at the Director credential path
+[e2e] PASS criterion-1b: blob decrypts to a non-empty access+refresh token pair
+[e2e] PASS criterion-2: the Director account gate IsLoggedIn() == true (no second login)
+[e2e] setup log = %LOCALAPPDATA-USER%\AppData\Local\cc-director\logs\setup\setup-20260622-110126.log
+[e2e] ALL CRITERIA PASSED

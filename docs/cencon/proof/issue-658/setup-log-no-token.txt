@@ -1,0 +1,5 @@
+[11:01:26.609] [SignInRunner] RunAsync: starting installer sign-in hand-off
+[11:01:26.641] [SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8801/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A56450%2Fdevthrottle-login-callback%2F
+[11:01:26.743] [SignInRunner] RunAsync: credential captured from the browser hand-back
+[11:01:26.743] [SignInRunner] PersistToDirectorCredentialStore: storing captured credential for the Director
+[11:01:26.780] [SignInRunner] RunAsync: captured credential persisted to the Director credential store

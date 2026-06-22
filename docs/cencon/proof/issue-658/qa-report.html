@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QA Verification - Issue #658: Hand the captured sign-in to the app</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family:'Segoe UI',system-ui,Arial,sans-serif; background:#1E1E1E; color:#CCCCCC; line-height:1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { color:#4FC1FF; font-size:26px; margin:0 0 4px; }
+  h2 { color:#007ACC; font-size:19px; margin:32px 0 10px; border-bottom:1px solid #333; padding-bottom:6px; }
+  .sub { color:#9A9A9A; font-size:14px; margin:0 0 8px; }
+  code, pre { font-family:'Cascadia Mono',Consolas,monospace; }
+  pre { background:#161616; border:1px solid #333; border-radius:8px; padding:14px 16px; overflow:auto; font-size:12.5px; color:#D7D7D7; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#E6E6E6; }
+  .pass { color:#4EC9B0; font-weight:600; }
+  .note { background:#22272e; border-left:3px solid #007ACC; padding:10px 14px; border-radius:4px; margin:12px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QA verification - Issue #658: installer hands the captured sign-in to the app</h1>
+  <p class="sub">Independent QA Agent report - CenCon Development Method. Branch: <code>issue-658-handoff-signin</code> (pull request #670).
+    The QA Agent is a separate identity from the Developer Agent and did NOT reuse the developer's binary or proof.</p>
+
+  <div class="note">
+    <strong>How this was verified independently.</strong> A fresh QA driver
+    (<code>Qa658Driver</code>, not the developer's throwaway) was written that drives the
+    <strong>real</strong> <code>SignInRunner</code> default persistence path - the production
+    <code>PersistToDirectorCredentialStore</code> -&gt; <code>DevThrottleAccountFactory.CreateForWindows()</code>
+    -&gt; <code>WindowsProtectedTokenStore</code> chain, with NO test seam - under an
+    <strong>isolated <code>CC_DIRECTOR_ROOT</code></strong> in a throwaway temp directory. This means the
+    user's real credential blob at <code>%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin</code>
+    was <strong>never read, written, or deleted</strong>. A properly HMAC-SHA256-signed development
+    access token (dev signing secret) plus a refresh token were captured over the same loopback contract
+    the Director uses, then read back exactly as the Director's account gate does. The 8 unit tests in
+    <code>SignInRunnerTests</code> were also re-run from a clean QA checkout of the pull-request branch.
+  </div>
+
+  <h2>Acceptance criteria - independently verified</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+    <tr>
+      <td>1. After a completed sign-in, the credential blob exists at the Director's credential path and
+        decrypts to the captured token pair.</td>
+      <td>Blob present at <code>config/director/devthrottle-credential.bin</code> under the (isolated)
+        Director root; decrypts to exactly the captured access+refresh pair; encrypted at rest.</td>
+      <td>Blob written by the real default persistence; <code>WindowsProtectedTokenStore.Load()</code>
+        returned EXACTLY the captured access token and refresh token; raw bytes contain no plaintext
+        token and begin with the Windows Data Protection header (<code>01 00 00 00 ...</code>).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2. Launching the Director after install does not show the account gate - the gate's
+        <code>IsLoggedIn()</code> is satisfied by the stored credential.</td>
+      <td><code>DevThrottleAccountFactory.CreateForWindows().IsLoggedIn()</code> (the exact construction
+        the Director uses) returns <code>true</code> from the stored credential.</td>
+      <td><code>IsLoggedIn() == true</code> reading back the credential the installer path wrote.
+        (See note on issue #664 below: the startup gate is currently always-Start, so #658's genuine,
+        verifiable contribution is that the stored credential satisfies the logged-in check - which is
+        what QA confirmed directly.)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3. The token is written only to the encrypted store, never to the installer log.</td>
+      <td>No token text in the on-disk blob; the runner never passes the token to a log call.</td>
+      <td>The on-disk blob contains no <code>eyJ</code> / access-token / refresh-token text (DPAPI
+        encrypted). Source review of <code>SignInRunner.cs</code> confirms only "credential captured" and
+        "credential persisted" are logged - the value is never passed to a log call and never returned.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4. If sign-in did not happen (error path), no credential is written.</td>
+      <td>On a non-success outcome, no blob is created.</td>
+      <td>QA driver: the browser-cannot-open path returned <code>Failed</code> and NO blob existed at the
+        credential path afterward. Unit tests assert persistence is never called on cancel, timeout, or
+        browser-open failure, and that a persistence failure is surfaced as <code>Failed</code> (no
+        fallback) rather than reporting a sign-in it cannot deliver.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>Note on criterion 2 and issue #664 (verified, not taken on trust).</strong> The Director's
+    startup account gate was disabled in #664 (<code>AccountGatePolicy.Decide()</code> always returns
+    <code>Start</code>), so a launched Director boots to the main window regardless of the stored
+    credential - the developer's <code>director-startup-log.txt</code> even shows the slot Director
+    booting with <code>no stored credential -&gt; false, decision=Start</code>. Therefore "no gate UI" is
+    NOT proof of #658. QA verified the part #658 actually delivers and that is durable: the credential the
+    installer writes makes the gate's <code>IsLoggedIn()</code> return <code>true</code>. Launching a full
+    Director to observe this was deliberately avoided because that path reads the shared real credential
+    file; the isolated-root driver proves the same logged-in behavior without risking the user's
+    credential.
+  </div>
+
+  <h2>QA driver output (real persistence path, isolated CC_DIRECTOR_ROOT)</h2>
+  <pre>[qa] CC_DIRECTOR_ROOT = ...\Temp\qa658-root-5e533974...
+[qa] credential path  = ...\Temp\qa658-root-5e533974...\config\director\devthrottle-credential.bin
+[qa] PASS criterion-4: error path returns Failed
+[qa] PASS criterion-4: NO credential blob written on the error path
+[qa] PASS success path returns SignedIn
+[qa] PASS criterion-1a: credential blob exists at the Director credential path
+[qa] PASS criterion-1b: blob decrypts to EXACTLY the captured access+refresh pair
+[qa] PASS criterion-1/3: token text is NOT present in the on-disk blob (encrypted at rest)
+[qa] PASS criterion-1: blob carries the Windows Data Protection header
+[qa] PASS criterion-2: DevThrottleAccountFactory.CreateForWindows().IsLoggedIn() == true
+[qa] RESULT: ALL CRITERIA PASSED
+DRIVER_EXIT=0</pre>
+
+  <h2>Unit tests (re-run by QA from the PR branch)</h2>
+  <pre>dotnet test tools/cc-director-setup.Tests (filter SignInRunnerTests)
+Passed!  - Failed: 0, Passed: 8, Skipped: 0, Total: 8 - CcDirectorSetup.Tests.dll</pre>
+
+  <h2>Build gate</h2>
+  <pre>dotnet build cc-director.sln  ->  Build succeeded.  0 Error(s)</pre>
+
+  <h2>Regression / method check</h2>
+  <p>Negative sweep: the change is confined to <code>SignInRunner</code> (one new injected collaborator
+    with an explicit default) and its tests; it reuses the existing credential store and service, adds no
+    new container and no new credential path. No CenCon security rule is broken - it strengthens the
+    "never log a secret" posture by keeping the captured token out of the installer log and the encrypted
+    blob. No <code>docs/cencon/</code> update required.</p>
+
+  <h2>Conclusion</h2>
+  <p class="pass">VERIFIED - all acceptance criteria met. The installer's captured sign-in is persisted
+    on success only into the same encrypted, per-user operating-system credential store the Director
+    reads; it decrypts to exactly the captured pair; it satisfies the gate's <code>IsLoggedIn()</code>
+    check; the token never reaches the installer log; and no credential is written on any error path.
+    The user's real credential file was never touched during verification.</p>
+</div>
+</body>
+</html>

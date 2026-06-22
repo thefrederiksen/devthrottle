@@ -1,0 +1,40 @@
+QA Agent independent verification of issue #658 (pull request #670).
+
+The QA driver (Qa658Driver - a fresh program written by the QA Agent, NOT the
+developer's throwaway) drives the REAL SignInRunner default persistence path with
+no test seam:
+
+    PersistToDirectorCredentialStore
+      -> DevThrottleAccountFactory.CreateForWindows()
+      -> DevThrottleAccountService.StoreTokens
+      -> WindowsProtectedTokenStore (Windows Data Protection, per-user)
+
+It runs under an ISOLATED CC_DIRECTOR_ROOT in a throwaway temp directory, so the
+user's real credential blob at
+%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin was never
+read, written, or deleted. A properly HMAC-SHA256-signed development access token
+plus a refresh token are captured over the same loopback contract the Director
+uses, then read back exactly as the Director's account gate does.
+
+----------------------------------------------------------------------
+[qa] CC_DIRECTOR_ROOT = <temp>\qa658-root-5e533974...
+[qa] credential path  = <temp>\qa658-root-5e533974...\config\director\devthrottle-credential.bin
+[qa] PASS criterion-4: error path returns Failed
+[qa] PASS criterion-4: NO credential blob written on the error path
+[qa] PASS success path returns SignedIn
+[qa] PASS criterion-1a: credential blob exists at the Director credential path
+[qa] PASS criterion-1b: blob decrypts to EXACTLY the captured access+refresh pair
+[qa] PASS criterion-1/3: token text is NOT present in the on-disk blob (encrypted at rest)
+[qa] PASS criterion-1: blob carries the Windows Data Protection header
+[qa] PASS criterion-2: DevThrottleAccountFactory.CreateForWindows().IsLoggedIn() == true
+[qa] RESULT: ALL CRITERIA PASSED
+DRIVER_EXIT=0
+----------------------------------------------------------------------
+
+Unit tests re-run by QA from the pull-request branch checkout:
+    dotnet test tools/cc-director-setup.Tests (filter SignInRunnerTests)
+    Passed!  - Failed: 0, Passed: 8, Skipped: 0, Total: 8
+
+Full solution build (merge gate): dotnet build cc-director.sln -> Build succeeded, 0 Error(s).
+
+VERDICT: all four acceptance criteria PASS.
