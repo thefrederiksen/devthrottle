@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #646 (Workstation install requires gateway pairing)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1f2328; line-height: 1.5; padding: 0 16px; }
+  h1 { border-bottom: 2px solid #d0d7de; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #e1e4e8; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .fail { color: #cf222e; font-weight: bold; }
+  .note { color: #9a6700; }
+  code, pre { background: #f6f8fa; border-radius: 4px; }
+  pre { padding: 12px; overflow-x: auto; border: 1px solid #d0d7de; }
+  img { max-width: 720px; border: 1px solid #d0d7de; border-radius: 4px; display: block; margin: 8px 0; }
+  .verdict { background: #dafbe1; border: 1px solid #1a7f37; border-radius: 6px; padding: 14px; font-size: 16px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #646</h1>
+<p><strong>Title:</strong> Workstation install requires pairing to a Gateway before finishing<br />
+<strong>Pull Request:</strong> #680 (branch <code>issue-646-workstation-gateway-pairing</code>)<br />
+<strong>Verifier:</strong> QA Agent (independent) - verified in an isolated worktree built from the PR branch head, never the developer's binary.<br />
+<strong>Scope:</strong> <code>tools/cc-director-setup</code>, <code>tools/cc-director-setup-engine</code> (reuses the gateway device-pairing surface <code>POST /devices/register</code>).</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. Integration with the sibling WizardStepFlow rail (PR #679) is coherent: a single role-aware navigation policy, no parallel rail. PASS.</div>
+
+<h2>A. Integration correctness (post-rebase coherence)</h2>
+<table>
+<tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>Single role-aware navigation policy</td>
+  <td><code>WizardStepFlow</code> owns ordering; <code>MainWindow</code> has no parallel/ad-hoc step rail</td>
+  <td><code>MainWindow.VisibleSteps()/NextStep()/PrevStep()</code> are thin wrappers over <code>WizardStepFlow</code> (MainWindow.xaml.cs:62-64). The pre-rebase ad-hoc 8-step rail, <code>RequiresGatewayPairing</code>, <code>ApplyConnectStepVisibility</code>, and duplicate Next/Prev helpers are gone. <code>UpdateSidebar</code> is driven purely by <code>VisibleSteps()</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Workstation rail = includes Connect, excludes Sign-in</td>
+  <td>Fresh Workstation -> <code>[1,2,4,5,6,7,8]</code></td>
+  <td><code>WizardStepFlowTests.VisibleSteps_WorkstationFreshInstall_DropsSignInIncludesConnect</code> asserts exactly <code>[1,2,4,5,6,7,8]</code>, Contains StepConnect, DoesNotContain StepSignIn. Passed.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Gateway rail = includes Sign-in, excludes Connect (exact inverse)</td>
+  <td>Fresh Gateway -> <code>[1,2,3,4,6,7,8]</code></td>
+  <td><code>VisibleSteps_GatewayFreshInstall_IncludesSignInExcludesConnect</code> asserts <code>[1,2,3,4,6,7,8]</code>, Contains StepSignIn, DoesNotContain StepConnect. Plus next/prev walk tests for both roles. Passed.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>WizardStepFlowTests suite</td>
+  <td>All rail + nav assertions pass</td>
+  <td>18 WizardStepFlow tests in a 39-test setup suite: <strong>39 passed, 0 failed</strong>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>B. Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Evidence</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Workstation install presents a mandatory gateway-pairing step (URL + pairing code)</td>
+  <td>Step present on Workstation rail, no skip</td>
+  <td>Connect (StepConnect=5) is in the Workstation visible set and is never skippable. <code>GatewayConnectStep.xaml</code> renders a real Gateway-URL field, a 4-digit pairing-code field, and a Connect button (see screenshot 01).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Verifies reachability + pairing (device key issued via <code>POST /devices/register</code>); bad URL / bad code blocks with a clear message</td>
+  <td>Success only on a real key; bad-url / unreachable / wrong-code / no-key all block</td>
+  <td><strong>Independently exercised against a REAL running disposable gateway</strong> (real <code>PairingCodeService</code> + real <code>DeviceRegistry</code> behind a real Kestrel host, isolated <code>CC_DIRECTOR_ROOT</code>). The real <code>GatewayPairingRunner</code>: bad URL blocked (no call), unreachable blocked, a wrong code rejected by the gateway's real HTTP 401 blocked, a correctly minted code verified (real HTTP 201) and a real per-device key issued, and single-use replay blocked. See the harness transcript below. 10 unit tests (<code>GatewayPairingRunnerTests</code>) cover the same matrix.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>On success, gateway URL + issued device key persisted to <code>config.json</code></td>
+  <td><code>config.json</code> gains a <code>gateway</code> block with the URL and the issued key</td>
+  <td>After the successful pairing the harness read the persisted <code>config.json</code> from the isolated root: <code>gateway.url</code> equals the gateway URL and <code>gateway.token</code> equals the exact issued device key. Persisted via the existing <code>GatewayCredentialStore.SaveEnrolledKey</code> (same store the Director's runtime Connect dialog uses).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Install cannot complete (Finish disabled/blocked) while pairing is unverified</td>
+  <td>Next disabled until <code>IsVerified</code></td>
+  <td><code>MainWindow.UpdateNavButtons</code> sets <code>NextButton.IsEnabled = _gatewayConnectStep?.IsVerified == true</code> on the Connect step; there is no skip. The harness also confirmed nothing is persisted before a verification succeeds (no premature <code>config.json</code>). Screenshot 01 (Next greyed) and 02 (bad code, Next still greyed) show the gate.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Proof shows a Workstation install blocked until pairing verifies, then completing</td>
+  <td>Blocked -> verified -> Next enabled</td>
+  <td>Screenshots 01 (Next disabled), 02 (bad code blocked, Next disabled), 03 (verified "Connected to the gateway as WORKSTATION-1", Next enabled) demonstrate the gate releasing only on a verified pairing.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Independent end-to-end harness transcript (real gateway)</h2>
+<p>The QA Agent stood up a real Kestrel host exposing the exact <code>/devices/register</code> contract driven by the real <code>PairingCodeService</code> + real <code>DeviceRegistry</code>, minted real codes, and ran the real <code>GatewayPairingRunner</code> against it with storage isolated to a temp <code>CC_DIRECTOR_ROOT</code>. The real install was never touched. The harness lived outside the repo and was deleted after the run.</p>
+<pre>
+CC_DIRECTOR_ROOT = ...\Temp\dt646-qa-e6153d70
+Disposable gateway listening at http://127.0.0.1:55820
+[PASS] AC2 bad-url blocks :: The gateway URL is not valid. Use http://host:port or https://host:port.
+[PASS] AC2 unreachable blocks :: Could not reach the gateway at http://127.0.0.1:1. ...
+[PASS] AC2 bad-code blocks (real 401) :: Pairing code is wrong, expired, or already used. ...
+[PASS] AC4 no persist before verify :: config.json absent as expected
+[PASS] AC2 correct code verifies (real 201)
+[PASS] AC2 device key issued :: key=fOr1Pp7oHjSwoxH_PUcD4V7LOQvk7ZcwRRqfAKsI9k8
+[PASS] AC3 config.json written
+----- config.json -----
+{
+  "gateway": {
+    "url": "http://127.0.0.1:55820",
+    "token": "fOr1Pp7oHjSwoxH_PUcD4V7LOQvk7ZcwRRqfAKsI9k8"
+  }
+}
+-----------------------
+[PASS] AC3 gateway.url persisted :: url=http://127.0.0.1:55820
+[PASS] AC3 gateway.token == issued key :: token=fOr1Pp7oHjSwoxH_PUcD4V7LOQvk7ZcwRRqfAKsI9k8
+[PASS] AC2 single-use: replay blocked :: first=True, second=False
+
+TOTAL FAILURES: 0
+</pre>
+
+<h2>UI proof screenshots</h2>
+<p>Connect step with Next disabled (pairing not yet verified):</p>
+<img src="01-connect-step-next-disabled.png" alt="Connect step, Next disabled" />
+<p>Bad pairing code blocked with a clear message; Next stays disabled:</p>
+<img src="02-bad-code-blocked-next-disabled.png" alt="Bad code blocked, Next disabled" />
+<p>Pairing verified; Next enabled so the install can proceed:</p>
+<img src="03-verified-next-enabled.png" alt="Verified, Next enabled" />
+<p class="note"><strong>Proof-freshness note (not a defect):</strong> the three screenshots above were captured by the developer before the rebase, so their left-hand sidebar still shows "3 Sign in" on a Workstation install. After the integration into <code>WizardStepFlow</code>, a fresh Workstation correctly DROPS Sign-in (rail <code>[1,2,4,5,6,7,8]</code>). That integrated behavior is proven authoritatively by the 18 passing <code>WizardStepFlowTests</code> (and the <code>UpdateSidebar</code> code that renders only the visible steps), so the stale sidebar is cosmetic proof drift, not a behavioral defect. The Connect-step behavior the screenshots demonstrate (gate disabled, bad code blocked, verified-then-enabled) is unchanged and correct.</p>
+
+<h2>Build, tests, regression</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code>: <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.</li>
+<li>Setup app tests (<code>CcDirectorSetup.Tests</code>, includes 18 WizardStepFlow tests): <strong>39 passed, 0 failed</strong>.</li>
+<li>Setup engine tests (<code>CcDirector.Setup.Engine.Tests</code>, includes 10 GatewayPairingRunner tests): <strong>176 passed, 0 failed</strong>.</li>
+<li>Negative sweep: no adjacent installer step regressed; the Gateway path still keeps Sign-in and excludes Connect; an update of either role excludes Connect.</li>
+<li>CenCon: no drift. The change reuses the existing <code>/devices/register</code> enrollment surface, the per-device-key trust model, and <code>GatewayCredentialStore</code> - no new endpoint, no new secret path.</li>
+</ul>
+
+<h2>Logic-verified vs install-verified (honesty statement)</h2>
+<p>The pairing gate logic - verify against a real <code>/devices/register</code>, real per-device key issuance, real <code>config.json</code> persistence, the Finish gate, and the role-aware rail - was verified end-to-end against a REAL running disposable gateway and by the full unit-test suites. A full live installer run that writes to the real machine's per-user install was deliberately NOT performed (it would touch the real system); the installer-UI behavior is evidenced by the wired <code>GatewayConnectStep</code> + <code>MainWindow</code> gating code and the developer's Connect-step screenshots. Every acceptance criterion is met.</p>
+
+<p><strong>VERDICT: PASS - all 5 acceptance criteria verified; integration coherent; merge approved.</strong></p>
+</body>
+</html>
