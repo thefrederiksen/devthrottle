@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #648 (Cockpit Account identity + Log out on the Gateway)</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #222; padding: 0 16px; }
+  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #f3f3f3; }
+  code, pre { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+  pre { background: #f6f8fa; padding: 10px; border-radius: 6px; overflow-x: auto; }
+  .pass { color: #137333; font-weight: 600; }
+  .note { color: #666; font-size: 12px; }
+  .verdict { background: #e6f4ea; border: 1px solid #137333; padding: 12px; border-radius: 6px; margin-top: 18px; font-weight: 600; }
+  img { max-width: 460px; border: 1px solid #ccc; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #648</h1>
+<p class="note">[Cockpit] Account identity + logout move to the Gateway/Cockpit. PR #681, branch
+<code>issue-648-cockpit-account-logout</code>. Verified independently by the QA Agent in its own
+worktree (<code>dt-648-qa</code>) - the Developer Agent's report and screenshots were treated as
+context only, not as proof.</p>
+
+<h2>How this was verified independently</h2>
+<ul>
+  <li><b>Clean solution build:</b> <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><b>Live HTTP end-to-end test (QA-authored harness):</b> booted the REAL
+    <code>AccountStatusEndpoint</code> + <code>AccountLogoutEndpoint</code> over a seeded Gateway credential
+    on a real Kestrel port and curled the actual wire for the before -&gt; logout -&gt; after transition,
+    asserting the seeded access JWT and refresh-token plaintext marker never appear in any response.</li>
+  <li><b>Full Gateway test suite:</b> 939 passed, 1 skipped, 0 failed (includes the 5 new
+    <code>AccountLogoutEndpointTests</code>; the 3 VaultGatewayIntegrationTests that are red on CI main pass locally).</li>
+  <li><b>Code review</b> of the actual diff for the local-read / no-token / scope guarantees.</li>
+</ul>
+
+<h2>Live HTTP evidence (QA harness, real Kestrel server)</h2>
+<pre>BEFORE_STATUS={"signedIn":true,"email":"qa-user@example.com","provider":"github"}
+LOGOUT_HTTP=200
+LOGOUT_BODY={"signedIn":false,"email":null,"provider":null}
+AFTER_STATUS={"signedIn":false}
+REFRESH_TOKEN_LEAKED=False
+ACCESS_TOKEN_LEAKED=False
+LIVE_LOGGEDIN_AFTER=False</pre>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Surface shows signed-in email + provider when the Gateway holds a credential; "not signed in" otherwise.</td>
+    <td>Signed-in: email + provider shown. No credential: not-signed-in state.</td>
+    <td>Seeded credential -&gt; <code>GET /account/status</code> = <code>{"signedIn":true,"email":"qa-user@example.com","provider":"github"}</code>. After clear -&gt; <code>{"signedIn":false}</code>. The Cockpit <code>/account</code> page renders the signed-in block (email/provider rows) vs the not-signed-in block purely from <code>AccountStatusDto.SignedIn</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Log out clears the Gateway credential; afterward <code>signedIn:false</code> and sign-in is prompted again.</td>
+    <td>Logout -&gt; credential cleared, status flips true-&gt;false.</td>
+    <td><code>POST /account/logout</code> = HTTP 200 <code>{"signedIn":false,...}</code>; subsequent <code>GET /account/status</code> = <code>{"signedIn":false}</code>; live <code>account.IsLoggedIn()</code> = <b>False</b> (credential actually cleared, not just reported). Not-signed-in block tells the user to use the Gateway tray "Sign in to DevThrottle" action.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Identity read locally (no cloud call); page never displays the raw token.</td>
+    <td>No network call for identity; no access/refresh token in page or response.</td>
+    <td>Status/logout compute via local <code>IsLoggedIn()</code> / <code>GetIdentity()</code> / <code>Logout()</code> (local HMAC validation, no network). <code>AccountStatusDto</code> has NO token field by construction (DT-05). QA harness asserts <code>ACCESS_TOKEN_LEAKED=False</code> and <code>REFRESH_TOKEN_LEAKED=False</code> across all three bodies. The page binds only the boolean + email + provider.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Proof: identity displayed, then logout returns the Gateway to a not-signed-in state.</td>
+    <td>Before signed-in with identity -&gt; after not-signed-in.</td>
+    <td>Demonstrated above: BEFORE signed-in (email+provider) -&gt; logout -&gt; AFTER not-signed-in. Cockpit screenshots <code>01-account-signed-in.png</code> / <code>02-account-after-logout.png</code> show the two rendered states.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Scope &amp; method checks</h2>
+<ul>
+  <li><b>In scope, present:</b> <code>CcDirector.Cockpit</code> (<code>/account</code> page + nav item, GatewayClient methods), <code>CcDirector.Gateway</code> (<code>POST /account/logout</code>), <code>CcDirector.Gateway.Contracts</code> (<code>AccountStatusDto</code>), <code>CcDirector.Gateway.Tests</code> (5 new tests). No other projects touched.</li>
+  <li><b>Out of scope, correctly NOT done:</b> Director-side Account tab removal (#651) - not touched; consent toggle (#649) - not touched.</li>
+  <li><b>Cockpit talks only to the Gateway:</b> the page calls <code>GatewayClient.GetAccountStatusAsync</code> / <code>LogoutAccountAsync</code>, which hit the Gateway REST surface - never a Director directly.</li>
+  <li><b>Security (DT-05):</b> no token field on any contract or response; tokens never logged (endpoints log only the outcome).</li>
+  <li><b>Regression sweep:</b> full Gateway suite green (939/0/1).</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 4 acceptance criteria met. Build clean. No regression. flow:done.</div>
+
+<p class="note">Minor non-blocking observation (not a defect): the logout response body serializes
+<code>email</code>/<code>provider</code> as explicit <code>null</code> while <code>GET /account/status</code>
+omits them. Neither carries a token, so DT-05 / AC3 hold; the difference is cosmetic.</p>
+
+<h2>Screenshots (Developer-committed Cockpit renders, corroborated by the wire contract)</h2>
+<p>
+  <img src="01-account-signed-in.png" alt="Account page signed in">
+  <img src="02-account-after-logout.png" alt="Account page after logout">
+</p>
+</body>
+</html>

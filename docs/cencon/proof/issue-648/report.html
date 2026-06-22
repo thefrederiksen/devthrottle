@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #648: Account identity + logout on the Gateway/Cockpit</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1040px; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .3rem; }
+  h2 { margin-top: 1.8rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: .7rem; overflow-x: auto; }
+  .pass { color: #0a6b0a; font-weight: bold; }
+  .note { background: #fff8e1; border: 1px solid #e0d28a; padding: .6rem; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #648</h1>
+<p><strong>Title:</strong> [Cockpit] Account identity + logout move to the Gateway/Cockpit</p>
+<p><strong>Branch:</strong> issue-648-cockpit-account-logout &nbsp; | &nbsp;
+   <strong>Affected containers:</strong> CcDirector.Cockpit, CcDirector.Gateway (account endpoints),
+   CcDirector.Gateway.Tests, CcDirector.Gateway.Contracts</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>New gateway endpoint <code>POST /account/logout</code>
+      (<code>src/CcDirector.Gateway/Api/AccountLogoutEndpoint.cs</code>) that CLEARS the Gateway-hosted
+      DevThrottle credential through the reused <code>DevThrottleAccountService.Logout()</code>
+      (the same service that already backs <code>GET /account/status</code>, issue #638). The clear is
+      entirely local - no cloud call. The response echoes the post-logout status
+      (<code>{ "signedIn": false }</code>) and carries no token.</li>
+  <li>Wired into <code>GatewayHost.StartAsync</code> directly after <code>AccountStatusEndpoint.Map</code>,
+      so it inherits the existing host-wide Gateway token middleware (<code>AuthMiddleware</code>) exactly
+      like every other gateway endpoint.</li>
+  <li>Identity is READ via the EXISTING <code>GET /account/status</code> (issue #638) - no duplicate read.
+      A new shared contract <code>CcDirector.Gateway.Contracts/AccountStatusDto.cs</code>
+      (<code>{ signedIn, email?, provider? }</code>) lets the Cockpit deserialize it; it carries no token
+      field by construction (security rule DT-05).</li>
+  <li>New Cockpit account surface <code>src/CcDirector.Cockpit/Components/Pages/Account.razor</code>
+      (route <code>/account</code>), plus an <strong>Account</strong> nav item in
+      <code>Components/Layout/NavMenu.razor</code>. It shows the signed-in email + provider when the
+      gateway holds a credential, a "not signed in" state otherwise, and a <strong>Log out</strong> button.
+      Styled to the Cockpit dark VS Code palette (same conventions as About.razor).</li>
+  <li>Cockpit client methods <code>GatewayClient.GetAccountStatusAsync()</code> and
+      <code>GatewayClient.LogoutAccountAsync()</code> - the Cockpit talks ONLY to the gateway REST surface,
+      never a Director directly.</li>
+  <li>Unit tests: <code>src/CcDirector.Gateway.Tests/Account/AccountLogoutEndpointTests.cs</code> (5 tests)
+      - logout clears the credential and <code>signedIn</code> flips true-&gt;false (verified via the live
+      <code>/account/status</code>); the logout response contains no token; logout is an idempotent no-op
+      when not signed in; no-credential-service host; and auth-enabled 401 (unauthenticated callers cannot
+      clear the credential) + authorized 200.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Cockpit shows signed-in email + provider when the gateway holds a credential; a "not signed in"
+        state otherwise.</td>
+    <td>Signed-in: "Signed in", email <code>proof-user@devthrottle.com</code>, provider <code>github</code>.
+        Signed-out: "Not signed in".</td>
+    <td>Screenshot <code>01-account-signed-in.png</code> shows exactly that; after logout
+        <code>02-account-after-logout.png</code> shows "Not signed in".</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A Log out action clears the gateway credential; afterward the gateway reports
+        <code>signedIn:false</code> and prompts sign-in again (verified via <code>/account/status</code>
+        + the sign-in prompt).</td>
+    <td>Before: <code>{"signedIn":true,"email":...,"provider":...}</code>.
+        After Log out: <code>{"signedIn":false}</code> and the page returns to a "Sign in to DevThrottle"
+        prompt.</td>
+    <td>API before/after captured (<code>ac1-status-before-logout.txt</code> -&gt;
+        <code>ac2-status-after-logout.txt</code>): true-&gt;false. The Cockpit Log out button drives the
+        same flip and the page shows the "Sign in to DevThrottle" tray prompt + a "Logged out" confirmation.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Identity is read LOCALLY on the gateway (no cloud call) and the page NEVER displays the raw token.</td>
+    <td>Status/logout computed from the cached credential only; no token in any response or on the page.</td>
+    <td><code>DevThrottleAccountService.IsLoggedIn()/GetIdentity()/Logout()</code> are local-only (no network
+        seam on these paths). All three captured bodies contain no "token" substring; the
+        <code>AccountStatusDto</code> contract has no token field; the page renders only email + provider.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Proof shows the identity displayed, then logout returning the gateway to a not-signed-in state.</td>
+    <td>Before/after screenshots + before/after API bodies.</td>
+    <td>Both screenshots below; both <code>/account/status</code> bodies captured.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence - API (live gateway, port 7920)</h2>
+<p><strong>Before logout</strong> (<code>GET /account/status</code>):</p>
+<pre>{"signedIn":true,"email":"proof-user@devthrottle.com","provider":"github"}</pre>
+<p><strong>Log out</strong> (<code>POST /account/logout</code> response):</p>
+<pre>{"signedIn":false,"email":null,"provider":null}</pre>
+<p><strong>After logout</strong> (<code>GET /account/status</code>):</p>
+<pre>{"signedIn":false}</pre>
+<p class="note">None of the three bodies contains a "token" substring - the raw access/refresh token is never
+   returned. The seeded credential lived only in an in-memory store inside a proof harness; the user's real
+   gateway credential was never touched.</p>
+
+<h2>Evidence - Cockpit screenshots</h2>
+<p><strong>Signed in</strong> - identity displayed, Log out button present:</p>
+<img src="01-account-signed-in.png" alt="Cockpit Account page, signed in">
+<p><strong>After Log out</strong> - not-signed-in state, returns to the sign-in prompt:</p>
+<img src="02-account-after-logout.png" alt="Cockpit Account page, after logout">
+
+<h2>Tests</h2>
+<p>All 10 account endpoint tests pass (5 new logout + 5 existing status). Full solution build:
+   <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</p>
+<pre>Passed  AccountLogoutEndpointTests.Logout_ClearsCredential_SignedInFlipsToFalse_AndNoToken
+Passed  AccountLogoutEndpointTests.Logout_WhenNotSignedIn_IsNoOp_ReportsSignedInFalse
+Passed  AccountLogoutEndpointTests.Logout_NoCredentialService_Returns200_SignedInFalse
+Passed  AccountLogoutEndpointTests.Logout_AuthEnabled_NoToken_Returns401
+Passed  AccountLogoutEndpointTests.Logout_AuthEnabled_WithToken_Returns200_AndClears
+Passed  AccountStatusEndpointTests.SignedIn_Returns200_WithIdentity_AndNoToken
+Passed  AccountStatusEndpointTests.NotSignedIn_Returns200_SignedInFalse_NoIdentityFields
+Passed  AccountStatusEndpointTests.NoCredentialService_Returns200_SignedInFalse
+Passed  AccountStatusEndpointTests.AuthEnabled_NoToken_Returns401
+Passed  AccountStatusEndpointTests.AuthEnabled_WithToken_Returns200</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This stays within the Gateway Centralization design already recorded
+   for Phase 2: it reuses <code>DevThrottleAccountService</code> (issue #636) and the existing
+   <code>GET /account/status</code> (issue #638), adds one sibling gateway endpoint, and surfaces the result
+   on the Cockpit. Security rule DT-05 (never return/log the raw token) is preserved - the new contract has
+   no token field and the new log lines record only the outcome.</p>
+
+<h2>Out of scope (separate issues)</h2>
+<ul>
+  <li>Director-side Account tab removal / read-only panel - issue #651.</li>
+  <li>The consent toggle - issue #649.</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong></p>
+</body>
+</html>

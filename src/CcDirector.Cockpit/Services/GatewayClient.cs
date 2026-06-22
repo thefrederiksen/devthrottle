@@ -205,6 +205,43 @@ public sealed class GatewayClient
         return a ?? throw new HttpRequestException("about returned an empty body");
     }
 
+    // ===== DevThrottle account (issue #648): the Cockpit account surface is a pure client of the
+    // Gateway account endpoints. The credential lives on the Gateway, so identity is READ from
+    // GET /account/status (#638) and logout CLEARS it via POST /account/logout (#648). The Cockpit
+    // never sees, stores, or displays the raw token - the contract carries only the boolean + identity.
+
+    /// <summary>
+    /// The Gateway's signed-in DevThrottle status and identity (<c>GET /account/status</c>, issue #638):
+    /// <c>{ signedIn, email?, provider? }</c>, computed locally on the Gateway with no cloud call. Throws
+    /// on transport failure (the Account page surfaces it as a banner) so a dead Gateway never looks like
+    /// a signed-out one.
+    /// </summary>
+    public async Task<AccountStatusDto> GetAccountStatusAsync(CancellationToken ct = default)
+    {
+        _log.LogDebug("GetAccountStatusAsync: GET {Base}account/status", _http.BaseAddress);
+        var status = await _http.GetFromJsonAsync<AccountStatusDto>("account/status", ct);
+        return status ?? throw new HttpRequestException("account/status returned an empty body");
+    }
+
+    /// <summary>
+    /// Clear the Gateway's DevThrottle credential (<c>POST /account/logout</c>, issue #648). After this
+    /// the Gateway reports <c>signedIn:false</c> and returns to its sign-in prompt. User action: throws
+    /// with the server error on failure so the Account page can show it. Returns the post-logout status
+    /// the Gateway echoes back (signed-out) so the page can confirm without a second round-trip.
+    /// </summary>
+    public async Task<AccountStatusDto> LogoutAccountAsync(CancellationToken ct = default)
+    {
+        _log.LogInformation("LogoutAccountAsync: POST {Base}account/logout", _http.BaseAddress);
+        var resp = await _http.PostAsync("account/logout", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"logout failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<AccountStatusDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("account/logout returned an empty body");
+    }
+
     /// <summary>
     /// The repositories a given Director offers for a new session. The Gateway proxies this to
     /// the Director's <c>GET /repos</c>, so the Cockpit never needs that Director's endpoint.
