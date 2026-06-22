@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #637 (Gateway sign-in)</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1E1E1E; color: #E6E6E6; margin: 0; padding: 32px; }
+  h1 { color: #4FC1FF; font-size: 24px; }
+  h2 { color: #007ACC; border-bottom: 1px solid #333; padding-bottom: 6px; margin-top: 32px; }
+  .verdict { background: #0d3a1a; border: 1px solid #1d7a3a; padding: 16px; border-radius: 8px; font-size: 18px; font-weight: 600; color: #7CFC9A; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { border: 1px solid #333; padding: 8px 12px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252525; color: #9CDCFE; }
+  .pass { color: #7CFC9A; font-weight: 600; }
+  code { background: #161616; padding: 2px 6px; border-radius: 4px; color: #CE9178; font-size: 13px; }
+  pre { background: #161616; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; color: #D4D4D4; }
+  .muted { color: #9A9A9A; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #637</h1>
+<p class="muted">[Gateway] Gateway sign-in: browser loopback flow on first launch &middot; PR #669 &middot;
+branch <code>issue-637-gateway-signin</code> &middot; verified by the QA Agent (independent verification).</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met, plus the DT-05 token-never-logged property. PASS.</div>
+
+<h2>How this was verified</h2>
+<p>Independent verification in a clean worktree off the PR branch (<code>D:\ReposFred\dt-637</code>), not the developer's
+binary. Beyond running the developer's unit tests, an independent end-to-end harness drove the <strong>real</strong>
+<code>GatewaySignInService</code> over a <strong>real</strong> Windows Data Protection credential store against the
+<strong>real</strong> <code>tools/devthrottle-dev-signin</code> tool. The injected browser-opener behaves like a real
+system browser (returns immediately, then navigates the sign-in page -&gt; provider action -&gt; 302 back to the loopback
+callback), so the whole capture-and-store chain runs, not a stand-in shortcut.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independent evidence)</th><th>Result</th></tr>
+<tr><td>1</td><td>No credential -&gt; first launch opens system browser at the configured sign-in URL AND tray exposes "Sign in to DevThrottle"</td>
+<td>Browser opened at sign-in URL; tray prompts on launch and shows the action; action text exact.</td>
+<td>Harness: browser opened at <code>http://127.0.0.1:8765/signin...</code>; <code>ShouldPromptOnLaunch</code>=true, <code>ShouldShowSignInAction</code>=true, <code>SignInActionText</code>="Sign in to DevThrottle". <code>GatewayTrayController.PromptSignInIfNeeded</code> auto-prompts; flyout inserts the action when not signed in.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Completing sign-in via the dev tool captures the loopback hand-back, stores the token via the #636 credential service, Gateway reports signed-in=true</td>
+<td>End-to-end sign-in succeeds; token persisted to DPAPI store; <code>IsSignedIn()</code>=true; identity readable.</td>
+<td>Harness end-to-end against the real dev-signin tool: <code>RunSignInAsync</code> succeeded; token round-tripped to the on-disk Windows store; <code>IsSignedIn()</code>=true; identity = <code>dev.user@gmail.com (google)</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Subsequent launch WITH a stored credential does NOT prompt</td>
+<td>A fresh service over the same store reports signed-in; tray does not prompt or show the action.</td>
+<td>Harness: second <code>GatewaySignInService</code> over the populated store -&gt; <code>IsSignedIn()</code>=true; <code>ShouldPromptOnLaunch</code>=false; <code>ShouldShowSignInAction</code>=false.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Failed/cancelled sign-in leaves Gateway un-signed-in and retryable from the tray (no crash)</td>
+<td>Cancellation returns a user-safe failure (no throw); stays un-signed-in; single-flight released so retry is possible.</td>
+<td>Harness: cancelled run returned <code>Succeeded=false</code> with a failure reason (no exception); <code>IsSignedIn()</code>=false; <code>IsSignInRunning</code>=false. Tray <code>StartSignIn</code> has a boundary try-catch on the detached task.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Unit/integration tests cover the capture-and-store path (injected opener + loopback)</td>
+<td>Tests genuinely assert browser-opened, hand-back captured, token stored, signed-in.</td>
+<td>Read <code>GatewaySignInServiceTests.cs</code> (10 tests): they post a stand-in completion to the real loopback callback and assert the URL opened, the token stored to the DPAPI blob, identity read, single-flight, cancel, and tray surface. 10/10 pass on Windows (0 skipped).</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Carry-over: token-never-logged (DT-05)</h2>
+<p>The harness ran with the real production <code>FileLog</code> started, performed a full sign-in, then grepped the actual
+director log file. Both the stored access token and refresh token strings were <strong>absent</strong> from the log.</p>
+
+<h2>Scope check</h2>
+<p>Diff touches only <code>CcDirector.Gateway</code> (service + tray surface + <code>GatewayHost.SignIn</code>),
+<code>CcDirector.GatewayApp</code> (tray controller), <code>CcDirector.Gateway.Tests</code>, and proof docs. No
+<code>CcDirector.Core</code> source change (the Core <code>FirstRunLoginCoordinator</code> + <code>LoopbackLoginListener</code>
+are reused as-is). Out-of-scope confirmed NOT done: no <code>/account/status</code> endpoint (#638), no Director-side gate
+change (#641), no Cockpit sign-in surfacing.</p>
+
+<h2>Build &amp; regression</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Focused: <code>GatewaySignInServiceTests</code> - 10 passed, 0 failed, 0 skipped.</li>
+<li>Full Gateway suite: 916 passed, 1 pre-existing skip, 0 failed.</li>
+<li><code>VaultGatewayIntegrationTests</code> pass locally (5/5) - the 3 CI-red ones are pre-existing and unrelated to #637; not newly broken by this change.</li>
+</ul>
+
+<h2>Harness output</h2>
+<pre>=== QA #637 end-to-end harness ===
+[PASS] dev-signin tool is listening
+[PASS] AC1: starts NOT signed in (would prompt)
+[PASS] AC2: sign-in succeeded end-to-end via dev-signin tool
+[PASS] AC1: browser opened at configured sign-in URL
+[PASS] AC2: Gateway now reports signed-in=true
+[PASS] AC2: token persisted to the Windows credential store
+[PASS] AC2: identity readable from stored token
+  signed-in identity: dev.user@gmail.com (google)
+  grepped log: ...\director-2026-06-22-27156.log (4205 chars)
+[PASS] DT-05: access token string ABSENT from the log
+[PASS] DT-05: refresh token string ABSENT from the log
+[PASS] AC3: subsequent launch sees stored credential (signed-in)
+[PASS] AC3: tray would NOT prompt on subsequent launch
+[PASS] AC3: tray would NOT show sign-in action when signed in
+[PASS] AC1: tray WOULD prompt on launch when no credential
+[PASS] AC1: tray WOULD show 'Sign in to DevThrottle' action
+[PASS] AC1: action text is 'Sign in to DevThrottle'
+[PASS] AC4: cancelled sign-in returns failure (no throw)
+[PASS] AC4: cancelled leaves Gateway un-signed-in
+[PASS] AC4: cancelled is retryable (single-flight released)
+
+=== HARNESS RESULT: ALL CHECKS PASSED ===</pre>
+
+<p class="muted">QA Agent &middot; CenCon Development Method &middot; independent verification (SOC 2 separation of duties).</p>
+</body>
+</html>
