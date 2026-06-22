@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #628 - Gateway login-telemetry relay - Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #005a9e; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: .8rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+  .pass { color: #137333; font-weight: bold; }
+  .crit { background: #fff4e5; border-left: 4px solid #c77700; padding: .6rem .9rem; margin: 1rem 0; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #628 - Gateway login-telemetry relay endpoint</h1>
+<p><strong>Branch:</strong> <code>issue-628-telemetry-login-relay</code> &nbsp;
+   <strong>Containers touched:</strong> <code>CcDirector.Gateway</code>, <code>CcDirector.Gateway.Tests</code> &nbsp;
+   <strong>Date:</strong> 2026-06-22</p>
+
+<h2>What was implemented</h2>
+<p>
+Gateway Centralization Phase 1: a new inbound <code>POST /telemetry/login</code> endpoint on the
+Gateway that forwards the login-telemetry event to the cloud backend, so the Gateway becomes the
+single egress. The Director will (in a later issue) POST its login telemetry here instead of calling
+the cloud directly.
+</p>
+<ul>
+  <li><strong>Endpoint:</strong> <code>src/CcDirector.Gateway/Api/TelemetryRelayEndpoint.cs</code> -
+      maps <code>POST /telemetry/login</code>. Reads the inbound JSON body and the inbound
+      <code>Authorization: Bearer &lt;access token&gt;</code>, then forwards BOTH UNCHANGED to the
+      backend login endpoint.</li>
+  <li><strong>Target URL:</strong> default <code>https://devthrottle.com/api/v1/telemetry/login</code>,
+      overridable on the Gateway via the environment variable <code>DEVTHROTTLE_TELEMETRY_URL</code>
+      (<code>ResolveTargetUrl()</code>).</li>
+  <li><strong>Wiring:</strong> <code>TelemetryRelayEndpoint.Map(_app)</code> in
+      <code>GatewayHost.cs</code>, mapped alongside the other literal endpoints so the host-wide
+      gateway-token auth middleware (the existing convention, applied when Gateway auth is enabled)
+      governs it exactly like the other Gateway endpoints.</li>
+  <li><strong>Best-effort:</strong> a backend 5xx or an unreachable backend is logged and the caller
+      still gets a non-5xx (202 Accepted). The outbound call is wrapped in a try/catch boundary so a
+      backend error NEVER throws back to the Director.</li>
+</ul>
+
+<div class="crit">
+<strong>Security (acceptance criterion):</strong> the inbound access token (the Bearer) is forwarded
+unchanged but is <strong>NEVER written to the Gateway log</strong>. Every log line on this path
+records only the target URL, whether a Bearer was present, and the outcome - never the token value.
+This was verified live by grepping the real Gateway log for the token string (zero matches).
+</div>
+
+<h2>Acceptance criteria - expected vs actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (live proof)</th><th>Result</th></tr>
+
+<tr>
+  <td>AC1</td>
+  <td><code>POST /telemetry/login</code> returns 202 for a valid body + Bearer.</td>
+  <td>HTTP 202 Accepted</td>
+  <td><code>HTTP/1.1 202 Accepted</code> (ac1-curl-response.txt)</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC2</td>
+  <td>One POST to the Gateway produces EXACTLY ONE POST to the stub with the SAME Bearer and a body
+      with <code>source:"app"</code>.</td>
+  <td>1 stub POST; method POST; path <code>/api/v1/telemetry/login</code>; same Bearer; body
+      <code>{source:"app", ...}</code></td>
+  <td>1 request captured. method=POST, path=/api/v1/telemetry/login,
+      authorization=<code>Bearer LIVE-PROOF-ACCESS-TOKEN-628-...</code>,
+      decoded body <code>{'source': 'app', 'app_version': '7.8.9'}</code>
+      (stub-requests-success.log)</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC3</td>
+  <td>When the backend returns 5xx or is unreachable, the Gateway still returns a non-5xx and logs
+      the failure.</td>
+  <td>202 to caller in both cases; a logged failure line</td>
+  <td>Backend 500 -&gt; <code>202 Accepted</code> + log
+      <code>forward FAILED (backend status): ... -&gt; 500 (best-effort, caller still accepted)</code>.
+      Backend unreachable -&gt; <code>202 Accepted</code> + log
+      <code>forward FAILED (unreachable): ... actively refused ... (best-effort, caller still accepted)</code>.
+      (ac3-5xx-*.txt, ac3-unreachable-*.txt)</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC4</td>
+  <td>The access token is NEVER written to the Gateway log.</td>
+  <td>grep token in Gateway log = 0 matches</td>
+  <td>0 matches in the full success-run Gateway log; the relay lines log only the target URL +
+      <code>bearerPresent=True</code> + outcome.
+      (ac4-full-gateway-log-success.txt, ac4-gateway-log-relay-lines.txt)</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC5</td>
+  <td>Unit tests cover forward happy-path (URL, POST, Bearer, source:"app") and backend-failure
+      (caller still succeeds, failure logged).</td>
+  <td>All tests pass</td>
+  <td>7/7 passed in <code>TelemetryRelayEndpointTests</code> (unit-test-output.txt)</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Live proof - key excerpts</h2>
+
+<h3>AC1 - curl POST with Bearer to the running Gateway</h3>
+<pre>HTTP/1.1 202 Accepted
+Content-Length: 0
+Server: Kestrel</pre>
+
+<h3>AC2 - the local stub received exactly one matching POST</h3>
+<pre>stub request count: 1
+method: POST
+path: /api/v1/telemetry/login
+authorization: Bearer LIVE-PROOF-ACCESS-TOKEN-628-secret-xyz789
+decoded body: {'source': 'app', 'app_version': '7.8.9'}</pre>
+
+<h3>AC3 - backend 5xx and unreachable both return 202 and log the failure</h3>
+<pre>[TelemetryRelayEndpoint] forward FAILED (backend status): http://127.0.0.1:9630/api/v1/telemetry/login -> 500 (best-effort, caller still accepted)
+[TelemetryRelayEndpoint] forward FAILED (unreachable): http://127.0.0.1:9999/api/v1/telemetry/login -> No connection could be made because the target machine actively refused it. (127.0.0.1:9999) (best-effort, caller still accepted)</pre>
+
+<h3>AC4 - the access token is absent from the Gateway log</h3>
+<pre>token occurrences in gateway log: 0
+
+[TelemetryRelayEndpoint] POST /telemetry/login -> forwarding to http://127.0.0.1:9628/api/v1/telemetry/login (bearerPresent=True)
+[TelemetryRelayEndpoint] forward OK: http://127.0.0.1:9628/api/v1/telemetry/login -> 200</pre>
+
+<h3>AC5 - unit tests</h3>
+<pre>Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7 - CcDirector.Gateway.Tests.dll</pre>
+
+<h2>How the live proof was produced</h2>
+<p>
+A real Gateway was run via the Gateway dev console host
+(<code>dotnet run --project src/CcDirector.Gateway -- --port N</code>) with
+<code>DEVTHROTTLE_TELEMETRY_URL</code> pointed at a local stub backend (<code>stub/</code>, which logs
+every request it receives) and an isolated <code>CC_DIRECTOR_ROOT</code> so the Gateway's real
+on-disk FileLog could be grepped. The success run used a stub returning 200; the AC3 runs used a stub
+returning 500 and then no stub at all (a dead port). All proof Gateway processes were launched from
+this worktree's bin and stopped by exact PID/image-path after capture - no <code>cc-director.exe</code>
+and no other session's Director was touched.
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+Additive: one new component, <code>TelemetryRelayEndpoint</code>, added to the <code>gateway</code>
+container in <code>docs/cencon/architecture_manifest.yaml</code> (the new single-egress login-telemetry
+relay). No security rule (DT-*) is violated - the relay never logs the token and consolidates egress,
+which is the Phase 1 goal. No other architecture or security drift.
+</p>
+
+<h2>Build</h2>
+<p><code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded. 0 Warning(s). 0 Error(s).</strong></p>
+
+<h2>Committed proof files</h2>
+<ul class="files">
+  <li><code>report.html</code> (this file)</li>
+  <li><code>ac1-curl-response.txt</code> - AC1: 202 from the live Gateway</li>
+  <li><code>stub-requests-success.log</code> - AC2: the forwarded POST the stub received</li>
+  <li><code>ac3-5xx-curl-response.txt</code>, <code>ac3-5xx-gateway-log.txt</code> - AC3 backend 5xx</li>
+  <li><code>ac3-unreachable-curl-response.txt</code>, <code>ac3-unreachable-gateway-log.txt</code> - AC3 unreachable</li>
+  <li><code>ac4-full-gateway-log-success.txt</code>, <code>ac4-gateway-log-relay-lines.txt</code> - AC4: token-absent log</li>
+  <li><code>unit-test-output.txt</code> - AC5: 7/7 passing</li>
+  <li><code>stub/</code> - the local stub backend source used for the live forwarding proof</li>
+</ul>
+
+<p style="margin-top:2rem; font-size:1.1rem;"><strong>I believe this is finished.</strong> All five
+acceptance criteria are proven both by unit tests and by a live Gateway + local stub, and the access
+token is confirmed absent from the Gateway log.</p>
+
+</body>
+</html>

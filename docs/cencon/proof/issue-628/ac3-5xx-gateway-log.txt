@@ -1,0 +1,2 @@
+2026-06-22 05:38:33.933 [TelemetryRelayEndpoint] POST /telemetry/login -> forwarding to http://127.0.0.1:9630/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 05:38:33.967 [TelemetryRelayEndpoint] forward FAILED (backend status): http://127.0.0.1:9630/api/v1/telemetry/login -> 500 (best-effort, caller still accepted)

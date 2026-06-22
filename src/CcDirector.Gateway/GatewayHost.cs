@@ -588,6 +588,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // host-wide token middleware above.
         VaultEndpoints.Map(_app, _keyVault);
 
+        // Gateway Centralization Phase 1 (issue #628): the inbound login-telemetry RELAY. The Director
+        // POSTs its login-telemetry event here (instead of the cloud) and the Gateway forwards it on,
+        // so the Gateway becomes the single egress. Best-effort: a backend failure is logged and the
+        // caller still gets a non-5xx; the inbound access token is forwarded unchanged but NEVER logged.
+        // Inherits the host-wide token middleware above (the existing gateway.token convention).
+        TelemetryRelayEndpoint.Map(_app);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure

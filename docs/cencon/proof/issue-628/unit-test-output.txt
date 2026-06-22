@@ -1,0 +1,4 @@
+Test run for D:\ReposFred\devthrottle-wt-628\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7, Duration: 22 s - CcDirector.Gateway.Tests.dll (net10.0)
