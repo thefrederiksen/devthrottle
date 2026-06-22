@@ -1,0 +1,8 @@
+=== AC1 (auth off): GET /account/status, valid credential -> 200 signedIn:true + identity, NO token ===
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Mon, 22 Jun 2026 15:19:42 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"signedIn":true,"email":"gateway-user@example.com","provider":"github"}

@@ -1,0 +1,4 @@
+--- AC4 check: assert the JWT and refresh marker are absent from the body ---
+Body: {"signedIn":true,"email":"gateway-user@example.com","provider":"github"}
+PASS: no refresh token in body
+PASS: no JWT/access-token in body

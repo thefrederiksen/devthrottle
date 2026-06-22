@@ -686,6 +686,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // (issues #628 / #629), adding no new forwarder. Inherits the host-wide token middleware above.
         DirectorStartupTelemetryEndpoint.Map(_app, _telemetryQueue);
 
+        // Gateway Centralization Phase 2 (issue #638): GET /account/status answers "is the Gateway
+        // signed in to DevThrottle, and as whom?" computed ENTIRELY LOCALLY from the Gateway-hosted
+        // credential service (issue #636, the reused DevThrottleAccountService exposed as Account) -
+        // no cloud call. A Director's future startup gate (a separate issue) reads this. The response
+        // carries only the boolean + identity, never the access/refresh token (security rule DT-05).
+        // Inherits the host-wide token middleware above (the existing gateway.token convention). On a
+        // host with no credential service (a non-Windows host, Account null) it truthfully reports
+        // not-signed-in.
+        AccountStatusEndpoint.Map(_app, Account);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure

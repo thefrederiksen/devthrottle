@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #638 (GET /account/status)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: .8rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+  .verdict { background: #e6ffed; border: 2px solid #1a7f37; padding: 1rem; border-radius: 6px; font-size: 1.1rem; }
+  code { background: #eef; padding: .1rem .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #638</h1>
+<p><strong>Title:</strong> [Gateway] GET /account/status (is the Gateway signed in, and who as)<br>
+<strong>Pull Request:</strong> #671 (branch <code>issue-638-account-status</code>)<br>
+<strong>Verifier:</strong> QA Agent (independent of the Developer Agent), CenCon Development Method<br>
+<strong>Method:</strong> Built and ran the change in a fresh worktree from the PR branch. Booted the real
+<code>AccountStatusEndpoint</code> over the real <code>DevThrottleAccountService</code> credential service
+behind the real host-wide <code>AuthMiddleware</code>, and hit it with actual <code>curl.exe</code> for raw-wire proof.
+Did not reuse the Developer's binary or screenshots.</p>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (own evidence)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>200 with signedIn:true + decoded email/provider when the Gateway holds a valid (seeded) credential; identity matches the seeded token.</td>
+<td>200; <code>{"signedIn":true,"email":...,"provider":...}</code></td>
+<td>Live curl returned <code>200 {"signedIn":true,"email":"qa-verifier@example.com","provider":"github"}</code>. The email and provider exactly match the seeded JWT identity claims.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>200 with signedIn:false and NO identity fields when the Gateway has no credential.</td>
+<td>200; <code>{"signedIn":false}</code>, no email/provider keys</td>
+<td>Live curl returned <code>200 {"signedIn":false}</code>. The <code>email</code> and <code>provider</code> JSON keys are absent (omitted, not null) - confirmed by JSON parse in the unit test and by string-absence in the curl body.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>With Gateway auth enabled, the endpoint requires the Gateway token (401 without it); 200 with it - consistent with other endpoints.</td>
+<td>401 without token; 200 with token</td>
+<td>Auth-on, no token: live curl <code>401 Unauthorized {"error":"missing or invalid token"}</code>. Auth-on, with <code>Authorization: Bearer</code>: <code>200 {"signedIn":true,...}</code>. The endpoint path <code>/account/status</code> is NOT on <code>AuthMiddleware.PublicPaths</code>, so it inherits the same host-wide gate as the other endpoints; the test exercises the production <code>AuthMiddleware.Run</code> directly.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>The response NEVER includes the access or refresh token (only the boolean + identity).</td>
+<td>No JWT, no refresh token, no token field in body</td>
+<td>In the signed-in body, the seeded access JWT and the plaintext refresh marker (<code>QA-REFRESH-PLAINTEXT-MARKER-638</code>) are both absent; the substring "token" does not appear in the body. Confirmed structurally: the <code>AccountStatusResponse</code> record carries only <code>signedIn</code>/<code>email</code>/<code>provider</code> - it has NO token field, so a token cannot be serialized (security rule DT-05).</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Unit tests cover signed-in, not-signed-in, and (auth enabled) the unauthorized path.</td>
+<td>Tests present and genuinely asserting each state</td>
+<td>5 HTTP wire tests in <code>AccountStatusEndpointTests.cs</code>, all passing: signed-in (200 + identity + no token), not-signed-in (200 + no identity keys), no-credential-service (200 signedIn:false), auth-enabled-unauthorized (401), auth-enabled-authorized (200 + identity). Read line-by-line - the assertions genuinely check status codes, the signedIn boolean, identity values, key absence, and token absence.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Independent live-curl evidence (raw wire)</h2>
+<pre>=== AC1 + AC4 signed-in (auth off) ===
+HTTP/1.1 200 OK
+{"signedIn":true,"email":"qa-verifier@example.com","provider":"github"}
+  (access JWT absent; refresh marker QA-REFRESH-PLAINTEXT-MARKER-638 absent; "token" absent from body)
+
+=== AC2 signed-out (no credential) ===
+HTTP/1.1 200 OK
+{"signedIn":false}
+  (no email key, no provider key)
+
+=== AC3 unauthorized (auth on, no token) ===
+HTTP/1.1 401 Unauthorized
+{"error":"missing or invalid token"}
+
+=== AC3 authorized (auth on, with Bearer token) ===
+HTTP/1.1 200 OK
+{"signedIn":true,"email":"qa-verifier@example.com","provider":"github"}</pre>
+
+<h2>Local-only computation (no cloud/network call)</h2>
+<p>Confirmed in code: <code>DevThrottleAccountService.IsLoggedIn()</code> validates the cached token's
+signature/expiry locally; <code>GetIdentity()</code> decodes claims locally via <code>JwtIdentityReader</code>.
+The only network seam (the refresher) is never invoked on the status path. The endpoint comment and
+<code>GatewayHost</code> wiring both state "no cloud call" and the code bears this out.</p>
+
+<h2>Scope and out-of-scope</h2>
+<ul>
+<li>In scope, present: <code>CcDirector.Gateway/Api/AccountStatusEndpoint.cs</code> (new),
+<code>CcDirector.Gateway/GatewayHost.cs</code> (10-line wiring), <code>CcDirector.Gateway.Tests/Account/AccountStatusEndpointTests.cs</code> (new). Only these two projects (plus proof files) changed.</li>
+<li>Out of scope, correctly NOT done: no Director-side gate change (issue #641); no sign-in/refresh logic.</li>
+</ul>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>Full <code>CcDirector.Gateway.Tests</code> suite: 921 passed, 1 skipped, 0 failed.</li>
+<li>Pre-existing <code>VaultGatewayIntegrationTests.cs</code> is unchanged from <code>main</code> and passed locally; not regressed by this PR (red on CI main only, per the known unrelated issue).</li>
+<li><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Honors security rule DT-05 (no token in response); no architecture/security-profile drift.</li>
+</ul>
+
+<h2 class="verdict">VERIFIED - all 5 acceptance criteria met. Issue #638 PASSES QA.</h2>
+</body>
+</html>
