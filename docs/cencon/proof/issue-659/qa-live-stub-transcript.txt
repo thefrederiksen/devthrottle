@@ -1,0 +1,19 @@
+=== Issue #659 independent QA harness (live stub) ===
+base=http://127.0.0.1:9659 root=C:\Users\soren_slq752\AppData\Local\Temp\qa659-root-3cf15e4dd683422b87f3a75fd9faa781
+[CRIT1] GET /auth/me prefill = True   (expected True)
+[CRIT2] after PATCH false, re-read /auth/me = False   (expected False)
+[CRIT4] config.json mirror IsEnabled() = False   (expected False)
+[CRIT4] C:\Users\soren_slq752\AppData\Local\Temp\qa659-root-3cf15e4dd683422b87f3a75fd9faa781\config\config.json:
+{
+  "telemetry": {
+    "enabled": false
+  }
+}
+[CRIT3] after PATCH true, re-read /auth/me = True   (expected True, never flips false)
+[CRIT4] dead-endpoint write swallowed: serverWritten=False (expected False); mirror now=False (expected False)
+=== Captured requests at the stub (proves on-wire shape) ===
+  GET /api/v1/auth/me  Authorization=Bearer qa-stand-in-access-token-DO-NOT-LOG  Body=<none>
+  PATCH /api/v1/account/telemetry  Authorization=Bearer qa-stand-in-access-token-DO-NOT-LOG  Body={"enabled":false}
+  GET /api/v1/auth/me  Authorization=Bearer qa-stand-in-access-token-DO-NOT-LOG  Body=<none>
+  PATCH /api/v1/account/telemetry  Authorization=Bearer qa-stand-in-access-token-DO-NOT-LOG  Body={"enabled":true}
+  GET /api/v1/auth/me  Authorization=Bearer qa-stand-in-access-token-DO-NOT-LOG  Body=<none>

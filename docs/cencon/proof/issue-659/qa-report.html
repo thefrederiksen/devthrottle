@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #659 - QA Agent independent verification</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:24px; }
+  h2 { color:#fff; font-size:18px; margin-top:32px; border-bottom:1px solid #3C3C3C; padding-bottom:6px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background:#252526; color:#CCCCCC; }
+  pre { padding:12px; border-radius:4px; overflow:auto; border:1px solid #3C3C3C; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .note { color:#888; font-size:13px; }
+  img { max-width:780px; border:1px solid #3C3C3C; border-radius:4px; margin-top:12px; }
+</style>
+</head>
+<body>
+<h1>Issue #659 - QA Agent independent verification</h1>
+<p>Independent QA verification of the installer Privacy step (three plain-English one-liners plus one
+default-on per-account telemetry toggle). The QA Agent did not trust the Developer Agent's report or
+screenshots: it reviewed the actual source on the pull request branch, ran the unit tests itself, and
+exercised the <strong>real</strong> production HTTP client and the <strong>real</strong> local
+<code>config.json</code> mirror against a live local stub server it stood up itself.</p>
+
+<h2>How this was verified independently</h2>
+<ul>
+  <li><strong>Source review on the PR branch</strong> (<code>issue-659-privacy-step</code>): the
+      Privacy step XAML was checked line by line against the spec (the three exact one-liners and the
+      exact checkbox text "Share anonymous usage information to help improve CC Director", with
+      <code>IsChecked="True"</code> as the default). The pre-fill / hint logic in the code-behind and
+      the best-effort, never-blocking apply wiring in <code>MainWindow</code> were read in full.</li>
+  <li><strong>Unit tests run by QA</strong> (not reused from the developer): <code>AccountTelemetryClientTests</code>
+      passed 9/9; <code>TelemetryChoiceApplierTests</code> passed 8/8.</li>
+  <li><strong>Live-stub round trip run by QA</strong>: a self-built console harness pointed the real
+      <code>AccountTelemetryClient</code> at a live <code>HttpListener</code> stub via
+      <code>DEVTHROTTLE_API_URL</code>, with <code>CC_DIRECTOR_ROOT</code> isolating
+      <code>config.json</code> to a throwaway temp directory. It captured every request on the wire and
+      read back the local mirror. Transcript: <code>qa-live-stub-transcript.txt</code> in this folder.</li>
+  <li><strong>Token-never-logged audit</strong>: a search across the changed source confirmed no log
+      statement writes the access-token value; the token is held in memory only and is never placed on
+      the sign-in result.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual (QA's own evidence)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Result</th><th>QA evidence</th></tr>
+  <tr>
+    <td>1</td>
+    <td>After Sign in, the Privacy step shows the three one-liners and a single checkbox, pre-filled
+        from <code>GET /auth/me</code> (defaults ON when unreachable).</td>
+    <td class="pass">PASS</td>
+    <td>PrivacyStep.xaml contains the three exact one-liners and the exact checkbox text with
+        <code>IsChecked="True"</code>. QA live stub: <code>GET /auth/me</code> prefill = True. Unit tests
+        <code>ReadPrefillAsync_ServerUnreachable_DefaultsOn</code> and
+        <code>ReadPrefillAsync_NoToken_DefaultsOnAndMakesNoCall</code> prove the default-ON behavior.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Unchecking + Next sends <code>PATCH /api/v1/account/telemetry {"enabled":false}</code>;
+        re-reading <code>/auth/me</code> shows <code>telemetry_enabled = false</code>.</td>
+    <td class="pass">PASS</td>
+    <td>QA live stub captured <code>PATCH /api/v1/account/telemetry  Body={"enabled":false}</code> with
+        the Bearer header, and the subsequent <code>GET /auth/me</code> returned False.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Leaving it checked does not flip the server flag to false (stays default ON).</td>
+    <td class="pass">PASS</td>
+    <td>QA live stub: apply(true) sent <code>{"enabled":true}</code> (never false); re-read returned
+        True. Unit test <code>ApplyChoiceAsync_CheckedAndToken_PatchesTrueAndMirrorsTrue</code>.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>A failed telemetry call does not block the install (logged, wizard continues); the local
+        <code>config.json</code> mirror reflects the chosen value either way.</td>
+    <td class="pass">PASS</td>
+    <td>QA live stub: a write against a dead endpoint was swallowed (no throw, serverWritten=False) and
+        the local <code>config.json</code> mirror was still written
+        (<code>telemetry.enabled = false</code>). In the wizard the apply runs detached via
+        <code>Task.Run</code> and navigation to Install proceeds immediately. Unit test
+        <code>ApplyChoiceAsync_ServerWriteFails_DoesNotThrowAndStillMirrors</code>.</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>The Bearer token is never written to the installer log.</td>
+    <td class="pass">PASS</td>
+    <td>Source audit: no log statement writes the token value in AccountTelemetryClient,
+        TelemetryChoiceApplier, SignInRunner, or SignInStep. The token is published in memory only and
+        is never carried on <code>SignInResult</code>.</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Next proceeds to Install regardless of the toggle value (a choice, not a gate).</td>
+    <td class="pass">PASS</td>
+    <td><code>MainWindow.NextButton_Click</code> fires <code>ApplyPrivacyChoiceBestEffort</code> detached
+        and then immediately calls <code>ShowStep(next)</code>; Next is never gated on the Privacy step.</td>
+  </tr>
+</table>
+
+<h2>Production limitation (Expected vs Actual)</h2>
+<p class="note">The real production sign-in is not live, and a development stand-in token is not a real
+Supabase JWT, so the production consent endpoint returns 401. <strong>Expected:</strong> against a real
+account, the same call shape writes the per-account server flag. <strong>Actual (accepted):</strong>
+the call shape (method, URL, Bearer header, body) and the local <code>config.json</code> mirror were
+verified against a local stub implementing the devthrottle_internal#59 contract; production
+verification is deferred until real sign-in is live. This is the documented, accepted limitation in the
+issue and does not fail the issue.</p>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>No adjacent behavior broke: the change is additive (a new wizard step and a new HTTP client); the
+      installer step rail grows from six to seven and the Privacy step never gates navigation.</li>
+  <li>Security rule (no token in logs) is honored; the new tests cover the call shape, the default-ON
+      fallback, the best-effort swallow, and the local mirror.</li>
+</ul>
+
+<p class="pass">VERIFIED - all acceptance criteria met.</p>
+</body>
+</html>
