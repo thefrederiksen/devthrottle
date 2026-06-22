@@ -64,7 +64,7 @@ Alpha features are **off by default**. To see them, open **Settings** in the des
 
 Currently behind the alpha flag:
 
-- **Other coding agents** -- running sessions with Pi, OpenAI Codex, Gemini CLI, or opencode instead of Claude Code
+- **Other coding agents** -- running sessions with OpenAI Codex, Gemini CLI, opencode, Cursor, **Grok Build** (the xAI Grok CLI), GitHub Copilot, or Pi instead of Claude Code
 - **Session handover** -- handing one session's context to another
 - **FIFO voice mode** -- stepping through every session that needs your input
 - **GitHub remote sessions** -- running tasks on GitHub-hosted runners
