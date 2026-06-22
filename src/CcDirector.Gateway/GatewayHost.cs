@@ -626,6 +626,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // forwarding inline. The flush loop is started just below in StartAsync.
         TelemetryRelayEndpoint.Map(_app, _telemetryQueue);
 
+        // Gateway Centralization Phase 1 (issue #631): the inbound Director-STARTUP telemetry endpoint.
+        // A Director POSTs a startup event here on launch (Director-side firing is issue #632); the
+        // Gateway RECORDS it (a log line carrying director_id + app_version) so the startup is observable
+        // Gateway-side, then BEST-EFFORT forwards it to the cloud ONLY when a startup endpoint is
+        // configured (env DEVTHROTTLE_STARTUP_TELEMETRY_URL). The backend has no startup endpoint yet
+        // (flagged dependency), so with no URL configured the event is recorded locally and the caller
+        // still gets a 202 - no error. Forwarding reuses the SAME durable retry queue as the login relay
+        // (issues #628 / #629), adding no new forwarder. Inherits the host-wide token middleware above.
+        DirectorStartupTelemetryEndpoint.Map(_app, _telemetryQueue);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure

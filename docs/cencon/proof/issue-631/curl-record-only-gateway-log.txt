@@ -1,0 +1,3 @@
+=== Gateway-side record lines produced by the literal curl (record-only path) ===
+2026-06-22 07:18:10.809 [DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=dir-curl-recordonly, app_version=631.0.7
+2026-06-22 07:18:10.809 [DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded

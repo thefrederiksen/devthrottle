@@ -1,0 +1,9 @@
+2026-06-22T11:14:26.4477947Z  [harness] stub cloud startup endpoint listening at http://127.0.0.1:52619/api/v1/telemetry/director-startup
+2026-06-22T11:14:27.0366674Z  [harness] Gateway (record-only (no cloud URL)) started on http://127.0.0.1:52620 (queueFile=D:\ReposFred\devthrottle-wt-631\docs\cencon\proof\issue-631\telemetry-queue-record-only.json, retry=2s)
+2026-06-22T11:14:27.0367032Z  [harness] PHASE A: no DEVTHROTTLE_STARTUP_TELEMETRY_URL set -> record-only path
+2026-06-22T11:14:27.2954598Z  [harness]   POST /telemetry/director-startup -> 202 Accepted
+2026-06-22T11:14:28.0382595Z  [harness] Gateway (forward (cloud URL set)) started on http://127.0.0.1:52623 (queueFile=D:\ReposFred\devthrottle-wt-631\docs\cencon\proof\issue-631\telemetry-queue-forward.json, retry=2s)
+2026-06-22T11:14:28.0382980Z  [harness] PHASE B: DEVTHROTTLE_STARTUP_TELEMETRY_URL=http://127.0.0.1:52619/api/v1/telemetry/director-startup -> forward path
+2026-06-22T11:14:28.2314257Z  [harness]   POST /telemetry/director-startup -> 202 Accepted
+2026-06-22T11:14:30.0581022Z  [harness] PHASE B: stub received 1 forwarded event(s); director_id=dir-forward-631, app_version=631.9.9
+2026-06-22T11:14:30.0589102Z  [harness] wrote stub request log -> D:\ReposFred\devthrottle-wt-631\docs\cencon\proof\issue-631\stub-requests.log

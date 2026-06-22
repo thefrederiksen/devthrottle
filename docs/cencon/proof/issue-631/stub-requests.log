@@ -1,0 +1,2 @@
+# Stub cloud startup endpoint - forwarded director-startup requests received (proof of delivery)
+2026-06-22T11:14:30.0526301Z  body={"director_id":"dir-forward-631","machine_name":"WORKSTATION-B","app_version":"631.9.9"}

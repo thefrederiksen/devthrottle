@@ -1,0 +1,16 @@
+=== AC1 + AC4: literal curl to /telemetry/director-startup (NO DEVTHROTTLE_STARTUP_TELEMETRY_URL configured) ===
+
+# Command:
+# curl -sS -i -X POST http://127.0.0.1:7912/telemetry/director-startup -H "Content-Type: application/json" --data-binary @curl-body.json
+
+# Request body (curl-body.json):
+{"director_id":"dir-curl-recordonly","machine_name":"WORKSTATION-CURL","app_version":"631.0.7"}
+
+
+# Response:
+HTTP/1.1 202 Accepted
+Content-Length: 0
+Date: Mon, 22 Jun 2026 11:18:10 GMT
+Server: Kestrel
+
+
