@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #638: GET /account/status on the Gateway</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1000px; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: .7rem; overflow-x: auto; }
+  .pass { color: #0a6b0a; font-weight: bold; }
+  .note { background: #fff8e1; border: 1px solid #e0d28a; padding: .6rem; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #638</h1>
+<p><strong>Title:</strong> [Gateway] GET /account/status (is the Gateway signed in, and who as)</p>
+<p><strong>Branch:</strong> issue-638-account-status &nbsp; | &nbsp; <strong>Affected containers:</strong> CcDirector.Gateway, CcDirector.Gateway.Tests</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>New endpoint <code>GET /account/status</code> on the Gateway
+      (<code>src/CcDirector.Gateway/Api/AccountStatusEndpoint.cs</code>), returning
+      <code>{ "signedIn": bool, "email"?: string, "provider"?: string }</code>.</li>
+  <li>The status is computed <strong>entirely locally</strong> from the Gateway-hosted credential service
+      (issue #636, <code>GatewayHost.Account</code> = the reused <code>DevThrottleAccountService</code>):
+      <code>IsLoggedIn()</code> for the boolean and <code>GetIdentity()</code> (backed by
+      <code>JwtIdentityReader</code>) for the email/provider. There is no cloud or network call.</li>
+  <li>Wired into <code>GatewayHost.StartAsync</code> after the telemetry endpoints, so it inherits the
+      existing host-wide Gateway token middleware (<code>AuthMiddleware</code>) exactly like the other
+      Gateway endpoints.</li>
+  <li>The response carries <strong>no token field</strong> - the response record has only the boolean +
+      identity, so the access/refresh token can never be returned (security rule DT-05). The identity
+      fields are <em>omitted</em> (not emitted as null) when not signed in.</li>
+  <li>Unit tests: <code>src/CcDirector.Gateway.Tests/Account/AccountStatusEndpointTests.cs</code>
+      (5 tests) cover signed-in, not-signed-in, no-credential-service, auth-enabled unauthorized (401),
+      and auth-enabled authorized (200).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proven)</th><th>Evidence</th></tr>
+  <tr>
+    <td>1</td>
+    <td>200 with signedIn:true and decoded email/provider when the Gateway holds a valid (seeded) credential</td>
+    <td>200; <code>{"signedIn":true,"email":...,"provider":...}</code></td>
+    <td class="pass">PASS - <code>{"signedIn":true,"email":"gateway-user@example.com","provider":"github"}</code></td>
+    <td><code>ac1-signedin-with-token.txt</code>, <code>ac1b-signedin-no-auth.txt</code></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>200 with signedIn:false and NO identity fields when the Gateway has no credential</td>
+    <td>200; <code>{"signedIn":false}</code> only</td>
+    <td class="pass">PASS - <code>{"signedIn":false}</code> (no email/provider keys)</td>
+    <td><code>ac2-signedout.txt</code></td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>With Gateway auth enabled, the endpoint requires the token (401 without it), consistent with other endpoints</td>
+    <td>401 without token; 200 with token</td>
+    <td class="pass">PASS - 401 <code>{"error":"missing or invalid token"}</code> without the token; 200 with it</td>
+    <td><code>ac3-unauthorized-no-token.txt</code>, <code>ac1-signedin-with-token.txt</code></td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>The response never includes the access or refresh token (only boolean + identity)</td>
+    <td>No JWT, no refresh token in the body</td>
+    <td class="pass">PASS - refresh marker absent; no JWT-shaped string present</td>
+    <td><code>ac4-no-token-check.txt</code></td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Unit tests cover signed-in, not-signed-in, and the unauthorized path</td>
+    <td>All tests pass</td>
+    <td class="pass">PASS - 5 passed, 0 failed</td>
+    <td><code>unit-test-output.txt</code></td>
+  </tr>
+</table>
+
+<h2>Live curl evidence (against a running GatewayHost)</h2>
+<p>The proof Gateway was a throwaway harness that news up the real <code>GatewayHost</code> (the same
+<code>AccountStatusEndpoint.Map(_app, Account)</code> wiring and the same host-wide
+<code>AuthMiddleware</code>) with a seeded in-memory credential, so every state below is the production
+pipeline - not a stand-in.</p>
+
+<h3>Criterion 1 + 3 + 4 (auth enabled, with token)</h3>
+<pre>$ curl -i -H "Authorization: Bearer &lt;gateway-token&gt;" http://127.0.0.1:7981/account/status
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"signedIn":true,"email":"gateway-user@example.com","provider":"github"}</pre>
+
+<h3>Criterion 3 (auth enabled, no token -> 401)</h3>
+<pre>$ curl -i http://127.0.0.1:7981/account/status
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"error":"missing or invalid token"}</pre>
+
+<h3>Criterion 2 (no credential -> signedIn:false, no identity fields)</h3>
+<pre>$ curl -i http://127.0.0.1:7982/account/status
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"signedIn":false}</pre>
+
+<h3>Criterion 4 (no token in the body)</h3>
+<pre>Body: {"signedIn":true,"email":"gateway-user@example.com","provider":"github"}
+PASS: no refresh token in body
+PASS: no JWT/access-token in body</pre>
+
+<h2>Unit tests</h2>
+<pre>Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5 - CcDirector.Gateway.Tests.dll</pre>
+
+<h2>CenCon impact</h2>
+<p class="note">No architecture drift: one read-only Gateway endpoint over the existing #636 credential
+service. No security-profile change; the change honors DT-05 (tokens never logged or returned). No
+<code>docs/cencon/</code> files needed updating.</p>
+
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln -> Build succeeded. 0 Warning(s) 0 Error(s)</pre>
+
+<p><strong>I believe this is finished.</strong> All five acceptance criteria are met and proven both by
+live curl against a running GatewayHost and by passing unit tests, the full solution builds clean with
+zero warnings, and the change is scoped to CcDirector.Gateway + CcDirector.Gateway.Tests only (the
+Director-side consumption / gate and any sign-in/refresh logic are out of scope, separate issues).</p>
+</body>
+</html>

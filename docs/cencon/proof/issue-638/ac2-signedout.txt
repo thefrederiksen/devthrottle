@@ -1,0 +1,8 @@
+=== AC2: GET /account/status with NO credential -> expect 200 signedIn:false, no identity fields ===
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Mon, 22 Jun 2026 15:19:13 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"signedIn":false}
