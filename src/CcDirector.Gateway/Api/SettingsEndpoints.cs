@@ -26,6 +26,8 @@ namespace CcDirector.Gateway.Api;
 ///   PUT  /gateway/autostart       body { "enabled": bool } -> { supported, enabled }
 ///   GET  /gateway/transcription-mode -> { mode } ("byo" | "devthrottle") (issue #497)
 ///   PUT  /gateway/transcription-mode body { "mode": "byo"|"devthrottle" } -> { mode }
+///   GET  /gateway/telemetry-consent  -> { enabled } (fleet-wide richer-usage consent, default ON, issue #649)
+///   PUT  /gateway/telemetry-consent  body { "enabled": bool } -> { enabled }
 /// </summary>
 internal static class SettingsEndpoints
 {
@@ -64,6 +66,10 @@ internal static class SettingsEndpoints
                 // Issue #531 follow-up: when on, every wingman summary is saved (terminal + response)
                 // as training data for improving the wingman.
                 wingmanTrainingCapture = Core.Configuration.WingmanTrainingCaptureConfig.Get(),
+                // Issue #649: the fleet-wide richer-usage-telemetry consent (opt-out). Default ON.
+                // Gates ONLY the richer usage telemetry; the always-on login/startup events are
+                // never gated by it.
+                telemetryConsent = Core.Configuration.TelemetryConsentConfig.Get(),
             });
         });
 
@@ -176,6 +182,12 @@ internal static class SettingsEndpoints
                 return Results.BadRequest(new { error = "invalid JSON" });
             }
         });
+
+        // The fleet-wide richer-usage-telemetry consent (issue #649). Lives in its own endpoint class
+        // (TelemetryConsentEndpoint) so it can be unit-tested in isolation, but it is part of the one
+        // Gateway settings surface and is mapped here alongside the other settings routes. Default ON;
+        // gates only the richer usage telemetry - the always-on login/startup events are never gated.
+        TelemetryConsentEndpoint.Map(app);
 
         // Network addressing mode (issue #457): "tailscale" (advertise the Tailscale Serve
         // front door) or "lan" (advertise the machine's real LAN IP). Stored as the top-level

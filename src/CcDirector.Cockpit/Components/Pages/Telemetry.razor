@@ -1,0 +1,110 @@
+@page "/telemetry"
+@using CcDirector.Gateway.Contracts
+@inject CcDirector.Cockpit.Services.GatewayClient Gateway
+
+@* Gateway Centralization Phase 3 (issue #649): the fleet-wide richer-usage-telemetry consent (opt-out)
+   surface on the Cockpit (the Gateway's web dashboard). The consent setting lives on the Gateway - one
+   setting governs the whole fleet - so it belongs here. This page is a pure CLIENT of the Gateway
+   telemetry-consent endpoints: it READS the value from GET /gateway/telemetry-consent (#649, default ON)
+   and CHANGES it via PUT /gateway/telemetry-consent. The toggle gates ONLY the richer usage telemetry;
+   the always-on login/startup auth-floor events keep flowing regardless. Styled to match the Cockpit
+   page conventions (the dark VS Code palette used by Account.razor). *@
+
+<PageTitle>Telemetry - DevThrottle</PageTitle>
+
+<div style="padding:24px; color:#ccc; font-family:'Segoe UI',sans-serif; max-width:780px;">
+    <h1 style="color:#fff; font-size:22px; font-weight:600; margin:0 0 4px;">Usage Telemetry</h1>
+    <div style="color:#888; font-size:12px; margin-bottom:16px;">
+        One fleet-wide setting, managed on the Gateway. It controls the richer, anonymous usage telemetry
+        across every Director. The always-on sign-in and startup events are not affected by it.
+    </div>
+
+    @if (_error is not null)
+    {
+        <div style="background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:12px; border-radius:6px;">
+            Could not load the telemetry setting from the Gateway: @_error
+        </div>
+    }
+    else if (_consent is null)
+    {
+        <p style="color:#888;">Loading...</p>
+    }
+    else
+    {
+        <div style="background:#252526; border-radius:8px; padding:18px;">
+            <div style="display:flex; align-items:center;">
+                <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:@(_consent.Enabled ? "#22C55E" : "#888"); margin-right:8px;"></span>
+                <span style="color:@(_consent.Enabled ? "#22C55E" : "#ccc"); font-size:13px; font-weight:600;">
+                    Richer usage telemetry is @(_consent.Enabled ? "ON" : "OFF")
+                </span>
+            </div>
+            <div style="color:#aaa; font-size:13px; line-height:1.5; margin-top:10px;">
+                When on, Directors report anonymous usage events (event names and timestamps only - never
+                your code, prompts, or credentials). When off, those events stop fleet-wide. Sign-in and
+                Director-startup events always flow so the account keeps working.
+            </div>
+
+            <div style="margin-top:16px;">
+                <button @onclick="ToggleAsync" disabled="@_busy"
+                        style="height:30px; padding:0 16px; background:@(_busy ? "#004E82" : "#007ACC"); color:@(_busy ? "#6699BB" : "#fff"); border:none; border-radius:4px; cursor:@(_busy ? "default" : "pointer"); font-size:13px;">
+                    @(_busy ? "Saving..." : (_consent.Enabled ? "Turn telemetry off" : "Turn telemetry on"))
+                </button>
+                <span style="color:#888; font-size:12px; margin-left:12px;">Applies to the whole fleet immediately.</span>
+            </div>
+        </div>
+
+        @if (_saved)
+        {
+            <div style="margin-top:16px; background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:10px 12px; border-radius:6px; font-size:13px;">
+                Saved. The fleet-wide telemetry setting is now @(_consent.Enabled ? "ON" : "OFF").
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private TelemetryConsentDto? _consent;
+    private string? _error;
+    private bool _busy;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _error = null;
+            _consent = await Gateway.GetTelemetryConsentAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (_busy || _consent is null)
+            return;
+
+        _busy = true;
+        _saved = false;
+        try
+        {
+            _consent = await Gateway.SetTelemetryConsentAsync(!_consent.Enabled);
+            _saved = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
