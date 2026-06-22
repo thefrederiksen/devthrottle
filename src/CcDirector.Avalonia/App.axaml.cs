@@ -89,27 +89,21 @@ public partial class App : Application
             SandboxMode = desktop.Args?.Contains("--sandbox", StringComparer.OrdinalIgnoreCase) == true;
             LoadConfiguration();
 
-            // Run all heavy initialization on background thread, then apply the account startup gate
-            // (issue #580) and swap to the gate screen or the main window.
+            // Run all heavy initialization on background thread, then boot straight to the main window.
             global::Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
             {
                 await Task.Run(() => InitializeServices(splash));
 
-                // Account startup gate (issue #580): after the splash and before the main window
-                // becomes usable, decide whether this install may run. The decision is a fast local
-                // check (no network call). When no credential has ever been stored, block and show
-                // the gate screen instead of the main window.
+                // Account startup gate (issue #580, interim unblock issue #664): the account is moving
+                // onto the Gateway, so the Director no longer gates its own startup on a local
+                // DevThrottle credential. The gate decision is always Start now (a missing credential
+                // does NOT block), so the Director boots straight to the main window with no sign-in
+                // prompt and never opens the browser loopback sign-in. The Gateway-verified gate is
+                // issue #641; the full account-surface removal is issue #651.
                 var gate = AccountGate
                     ?? throw new InvalidOperationException("AccountGate was not initialized during InitializeServices.");
-                if (gate.Decide() == GateDecision.Block)
-                {
-                    var gateScreen = new AccountGateScreen();
-                    desktop.MainWindow = gateScreen;
-                    gateScreen.Show();
-                    splash.Close();
-                    FileLog.Write("[CcDirector] Startup blocked by account gate: no DevThrottle credential on this install -> gate screen shown, main window not reached");
-                    return;
-                }
+                var decision = gate.Decide();
+                FileLog.Write($"[CcDirector] Account startup gate decided {decision} (interim: local credential no longer gates startup, issue #664); showing the main window");
 
                 ShowMainWindow(desktop, gate);
                 splash.Close();
@@ -122,17 +116,21 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Creates and shows the main window in place of the current window (the splash at startup, or
-    /// the account gate screen after a first-run login, issue #581), with no restart. The caller is
-    /// responsible for closing the previous window. Starts the background session validation and the
-    /// update service exactly as the normal startup path does. Must be called on the UI thread.
+    /// Creates and shows the main window in place of the current window (the splash at startup), with
+    /// no restart. The caller is responsible for closing the previous window. Starts the background
+    /// session validation and the update service exactly as the normal startup path does. Must be
+    /// called on the UI thread.
+    ///
+    /// The first-run consent step is NOT a startup gate any more (issue #664): with the account moving
+    /// onto the Gateway, nothing in startup blocks the main window. The consent dialog is therefore not
+    /// shown here, so it never blocks the Director booting straight to the main window.
     /// </summary>
     private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, AccountGatePolicy gate)
     {
         var mainWindow = new MainWindow();
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
-        FileLog.Write("[CcDirector] Main window shown (account gate passed); starting background session validation next");
+        FileLog.Write("[CcDirector] Main window shown; starting background session validation next");
 
         // The online session validation/refresh runs in the background AFTER the window is shown, so
         // it never delays the window appearing (issue #580). When offline it is a no-op and the
@@ -140,44 +138,6 @@ public partial class App : Application
         _ = gate.StartBackgroundValidation();
 
         StartUpdateService(mainWindow);
-
-        // First-run consent step: the first time on this install, explain in plain language what
-        // DevThrottle does and does not collect and let the person set the usage-sharing choice,
-        // before they start using the Director. This is the single chokepoint for both startup paths
-        // (a brand-new account sign-in and an existing credential upgrading into this version), so the
-        // step is shown exactly once regardless of which path reached the main window.
-        ShowFirstRunConsentIfNeeded(mainWindow);
-    }
-
-    /// <summary>
-    /// Shows the first-run consent step (<see cref="FirstRunConsentDialog"/>) modally over the main
-    /// window when it has not yet been acknowledged on this install (<see cref="FirstRunConsent"/>).
-    /// It is posted to run AFTER the main window is shown, so it never delays the window appearing
-    /// (CodingStyle: responsive UI), and is modal so the explanation is acknowledged once. When the
-    /// consent has already been acknowledged this is a no-op. Must be called on the UI thread.
-    /// </summary>
-    private void ShowFirstRunConsentIfNeeded(Window owner)
-    {
-        if (FirstRunConsent.HasAcknowledged())
-        {
-            FileLog.Write("[CcDirector] First-run consent already acknowledged on this install; not showing the consent step");
-            return;
-        }
-
-        global::Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
-        {
-            try
-            {
-                FileLog.Write("[CcDirector] First-run consent not yet acknowledged; showing the consent step over the main window");
-                var consent = new FirstRunConsentDialog();
-                await consent.ShowDialog(owner);
-                FileLog.Write("[CcDirector] First-run consent step closed");
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[CcDirector] First-run consent step FAILED: {ex.Message}");
-            }
-        });
     }
 
     /// <summary>

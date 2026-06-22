@@ -11,7 +11,6 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
-using CcDirector.Core.Account;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Onboarding;
@@ -45,7 +44,6 @@ public partial class SettingsDialog : Window
     private string _loadedGatewayAdvertised = "";
     private string _loadedGatewayToken = "";
     private bool _loadedAlpha;
-    private bool _loadedTelemetryEnabled;
 
     // The user-defined ordered agent list (issue #489) bound to the CRUD list. The baseline
     // snapshot lets Save detect whether the list changed at all.
@@ -77,16 +75,11 @@ public partial class SettingsDialog : Window
         {
             var (screenshots, url, advertised, token) = await Task.Run(ReadConfigSnapshot);
 
-            // Read the account identity and the persisted telemetry flag off the UI thread (the
-            // identity decode touches the encrypted credential store; the flag reads config.json).
-            var (identity, telemetryEnabled) = await Task.Run(ReadAccountSnapshot);
-
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
             _loadedAlpha = AlphaMode.IsEnabled;
-            _loadedTelemetryEnabled = telemetryEnabled;
 
             ScreenshotsDirBox.Text = screenshots;
             GatewayUrlBox.Text = url;
@@ -94,8 +87,9 @@ public partial class SettingsDialog : Window
             GatewayTokenBox.Text = token;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
 
-            ShowAccountIdentity(identity);
-            TelemetryEnabledCheck.IsChecked = telemetryEnabled;
+            // Read-only Account tab (issue #664): the account is managed by the Gateway, so show the
+            // configured Gateway URL (or an explicit "not configured" state) instead of a local sign-in.
+            ShowGatewayManaged(url);
 
             LoadAgentEntries();
 
@@ -129,30 +123,17 @@ public partial class SettingsDialog : Window
     }
 
     /// <summary>
-    /// Read the account snapshot off the UI thread: the signed-in identity from the cached credential
-    /// (issue #582 AC1) and the persisted usage-telemetry flag (AC3). The identity is null when no
-    /// credential is stored or the cached token carries no email claim.
+    /// Show the read-only "managed by your Gateway" state on the Account tab (issue #664): the configured
+    /// Gateway URL when one is set, or an explicit "not configured" state otherwise. This is a static
+    /// read-only display - the account is managed by the Gateway, so there is no local sign-in here. It
+    /// does NOT call the Gateway (the <c>/account/status</c> endpoint, issue #638, is not built yet); it
+    /// reflects only the configured Gateway URL from config.json.
     /// </summary>
-    private static (AccountIdentity? Identity, bool TelemetryEnabled) ReadAccountSnapshot()
+    private void ShowGatewayManaged(string gatewayUrl)
     {
-        var account = (global::Avalonia.Application.Current as App)?.AccountService;
-        var identity = account?.GetIdentity();
-        var telemetryEnabled = TelemetrySettings.IsEnabled();
-        return (identity, telemetryEnabled);
-    }
-
-    /// <summary>Show the signed-in email and provider, or an explicit unavailable state when no identity is present.</summary>
-    private void ShowAccountIdentity(AccountIdentity? identity)
-    {
-        if (identity is null)
-        {
-            AccountEmailText.Text = "Not available";
-            AccountProviderText.Text = "Not available";
-            return;
-        }
-
-        AccountEmailText.Text = identity.Email;
-        AccountProviderText.Text = identity.Provider;
+        GatewayManagedUrlText.Text = string.IsNullOrWhiteSpace(gatewayUrl)
+            ? "Not configured (set the Gateway URL on the Gateway tab)"
+            : gatewayUrl;
     }
 
     // ----------------------------------------------------------------------------------------
@@ -486,17 +467,12 @@ public partial class SettingsDialog : Window
             var alpha = AlphaFeaturesCheck.IsChecked == true;
             var alphaChanged = alpha != _loadedAlpha;
 
-            // The usage-telemetry opt-out toggle (issue #582). Persisted to config.json under
-            // telemetry.enabled so it reads back the same after a restart.
-            var telemetryEnabled = TelemetryEnabledCheck.IsChecked == true;
-            var telemetryChanged = telemetryEnabled != _loadedTelemetryEnabled;
-
             // The user-defined agent list (issue #489) persists as the ordered agent.entries array.
             // Snapshot it on the UI thread; the disk write runs off it.
             var agentsChanged = SnapshotAgents() != _loadedAgentsSnapshot;
             var agentEntries = agentsChanged ? BuildEntriesFromRows() : null;
 
-            if (patch.Count == 0 && !alphaChanged && !telemetryChanged && !agentsChanged)
+            if (patch.Count == 0 && !alphaChanged && !agentsChanged)
             {
                 // Nothing changed - "Save and Close" just closes, same as Cancel.
                 FileLog.Write("[SettingsDialog] BtnSave_Click: no changes; closing");
@@ -516,11 +492,7 @@ public partial class SettingsDialog : Window
             if (alphaChanged)
                 await Task.Run(() => AlphaMode.SetEnabled(alpha));
 
-            // Persist the usage-telemetry flag (issue #582) off the UI thread.
-            if (telemetryChanged)
-                await Task.Run(() => TelemetrySettings.SetEnabled(telemetryEnabled));
-
-            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, agentsChanged={agentsChanged}, alphaChanged={alphaChanged}, telemetryChanged={telemetryChanged}");
+            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, agentsChanged={agentsChanged}, alphaChanged={alphaChanged}");
 
             // Re-register with the gateway live so a URL/endpoint/token change takes effect now.
             if (gatewayChanged && _reapplyGateway is not null)
@@ -542,7 +514,6 @@ public partial class SettingsDialog : Window
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
             _loadedAlpha = alpha;
-            _loadedTelemetryEnabled = telemetryEnabled;
             _loadedAgentsSnapshot = SnapshotAgents();
 
             // Saved cleanly - closing the dialog is the user's confirmation it worked.
@@ -950,84 +921,6 @@ public partial class SettingsDialog : Window
     {
         FileLog.Write("[SettingsDialog] BtnClose_Click: closing");
         Close();
-    }
-
-    /// <summary>
-    /// Log out of the DevThrottle account (issue #582 AC2): clear the saved credential through the
-    /// credential service (issue #583, which also records a logout event), then return the Director to
-    /// the account gate (issue #580) so the next start shows the gate too. Confirms first, since
-    /// logging out clears the saved sign-in on this computer.
-    /// </summary>
-    private async void BtnLogOut_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[SettingsDialog] BtnLogOut_Click");
-        try
-        {
-            var app = global::Avalonia.Application.Current as App;
-            var account = app?.AccountService;
-            if (account is null)
-            {
-                ShowAccountStatus("Log out is not available: the account service is not initialized.", error: true);
-                return;
-            }
-
-            // Logging out is a full sign-out: it stops every running session (like Quit, but returning
-            // to the sign-in screen), so warn with the exact count before doing anything destructive.
-            var sessionCount = app?.SessionManager?.ListSessions().Count ?? 0;
-            var sessionWarning = sessionCount switch
-            {
-                0 => "",
-                1 => " This will stop the 1 session running right now.",
-                _ => $" This will stop all {sessionCount} sessions running right now.",
-            };
-
-            var confirm = new ConfirmDialog(
-                "Log out?",
-                $"Logging out clears the saved DevThrottle sign-in on this computer and returns you to the sign-in screen.{sessionWarning} You will need to sign in again to use the Director.",
-                confirmLabel: "Log out");
-            if (await confirm.ShowDialog<bool>(this) != true)
-            {
-                FileLog.Write("[SettingsDialog] BtnLogOut_Click: cancelled");
-                return;
-            }
-
-            LogOutButton.IsEnabled = false;
-
-            // Stop all running sessions first (off the UI thread), then clear the credential. A
-            // logged-out account must not leave agent sessions running in the background.
-            if (app?.SessionManager is not null)
-            {
-                FileLog.Write($"[SettingsDialog] BtnLogOut_Click: stopping {sessionCount} running session(s) before sign-out");
-                await Task.Run(() => app!.SessionManager.KillAllSessionsAsync());
-            }
-
-            await Task.Run(account.Logout);
-            FileLog.Write("[SettingsDialog] BtnLogOut_Click: sessions stopped and credential cleared; returning to the account gate");
-
-            // Hand the window swap to App, which holds shutdown across it. We close this Settings
-            // dialog and the main window inside App.ReturnToGateAfterLogout AFTER the gate is shown, so
-            // there is never a moment with zero windows that would trip the last-window-close shutdown.
-            var owner = Owner as Window;
-            if (owner is not null)
-                app!.ReturnToGateAfterLogout(owner, settingsDialog: this);
-            else
-                Close();
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[SettingsDialog] BtnLogOut_Click FAILED: {ex.Message}");
-            ShowAccountStatus("Could not log out. Please try again.", error: true);
-            LogOutButton.IsEnabled = true;
-        }
-    }
-
-    private void ShowAccountStatus(string text, bool error)
-    {
-        AccountStatusText.Text = text;
-        AccountStatusText.IsVisible = true;
-        AccountStatusText.Foreground = error
-            ? global::Avalonia.Media.Brushes.IndianRed
-            : global::Avalonia.Media.Brushes.MediumSeaGreen;
     }
 
     /// <summary>

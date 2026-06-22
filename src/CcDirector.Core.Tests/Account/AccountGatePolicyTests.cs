@@ -40,13 +40,15 @@ public sealed class AccountGatePolicyTests : IDisposable
         public override DateTimeOffset GetUtcNow() => _now;
     }
 
-    // Acceptance criterion: a clean profile with no stored credential blocks (the gate screen path).
+    // Acceptance criterion (issue #664): a clean profile with no stored credential now boots straight to
+    // the main window. The account is moving onto the Gateway, so a missing local credential decides
+    // Start, not Block - there is no Director-owned sign-in gate at startup any more.
     [Fact]
-    public void Decide_NoStoredCredential_ReturnsBlock()
+    public void Decide_NoStoredCredential_ReturnsStart()
     {
         var policy = new AccountGatePolicy(MakeService(new InMemoryTokenStore()));
 
-        Assert.Equal(GateDecision.Block, policy.Decide());
+        Assert.Equal(GateDecision.Start, policy.Decide());
     }
 
     // Acceptance criterion: a valid cached credential starts to the main window (online or offline).
@@ -72,15 +74,18 @@ public sealed class AccountGatePolicyTests : IDisposable
         Assert.Equal(GateDecision.Start, policy.Decide());
     }
 
-    // A tampered token is treated as not logged in -> Block (no usable credential).
+    // A tampered token is treated as not logged in, but as of issue #664 even an unusable local
+    // credential no longer blocks startup - the gate decides Start so the Director boots to the main
+    // window (the Gateway-verified gate is issue #641). The tampered token is still recorded as not
+    // logged in by IsLoggedIn; it simply does not gate the window.
     [Fact]
-    public void Decide_TamperedCredential_ReturnsBlock()
+    public void Decide_TamperedCredential_ReturnsStart()
     {
         var store = new InMemoryTokenStore();
         store.Save(new DevThrottleTokens(TestJwt.Tamper(TestJwt.Create(_now.AddHours(1))), "refresh"));
         var policy = new AccountGatePolicy(MakeService(store));
 
-        Assert.Equal(GateDecision.Block, policy.Decide());
+        Assert.Equal(GateDecision.Start, policy.Decide());
     }
 
     // The background validation refreshes an expired credential when a refresher returns a renewed

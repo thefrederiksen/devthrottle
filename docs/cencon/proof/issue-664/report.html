@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #664 - Developer Agent proof: Unblock Director startup (interim Gateway-account)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #ffffff; font-size: 22px; border-bottom: 2px solid #007acc; padding-bottom: 8px; }
+  h2 { color: #ffffff; font-size: 17px; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3c3c3c; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252526; color: #ffffff; }
+  code { background: #252526; padding: 1px 5px; border-radius: 3px; color: #9cdcfe; font-size: 13px; }
+  .pass { color: #22c55e; font-weight: bold; }
+  .img { border: 1px solid #3c3c3c; max-width: 100%; margin: 8px 0; }
+  .note { color: #888888; font-size: 13px; }
+  ul { margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #664 - Unblock Director startup: boot without the Director's own DevThrottle login gate (interim)</h1>
+
+<p><strong>Branch:</strong> <code>issue-664-unblock-startup-gate</code><br/>
+<strong>Role:</strong> Developer Agent (CenCon Development Method)<br/>
+<strong>Outcome:</strong> <span class="pass">Ready for QA</span></p>
+
+<h2>What was implemented</h2>
+<p>The DevThrottle account is moving onto the Gateway. The Director still gated its own startup on a
+local DevThrottle credential (<code>AccountGatePolicy.Decide()</code> returned <code>Block</code> when no
+credential existed), and the App then showed <code>AccountGateScreen</code> which forced the browser
+loopback sign-in before the main window opened. With that sign-in half-migrated and broken, the Director
+could not start. This interim change makes the Director boot straight to the main window with no
+Director-owned login gate, and replaces the Settings -&gt; Account controls with a read-only
+"managed by your Gateway" panel.</p>
+
+<ul>
+  <li><code>src/CcDirector.Core/Account/AccountGatePolicy.cs</code> - <code>Decide()</code> now always returns
+      <code>GateDecision.Start</code>. A missing or unusable local credential decides Start, not Block. The
+      cached logged-in check is still read and logged for diagnostics but never blocks the window. The
+      <code>Block</code> value and the method are kept in place for the sequenced epics (#641 Gateway-verified
+      gate, #651 full removal).</li>
+  <li><code>src/CcDirector.Avalonia/App.axaml.cs</code> - removed the startup <code>Block</code> branch that
+      showed <code>AccountGateScreen</code> and forced the browser loopback sign-in; the App now always shows
+      the main window. Removed the first-run consent step from the startup path
+      (<code>ShowFirstRunConsentIfNeeded</code> / <code>FirstRunConsentDialog</code> are no longer invoked at
+      startup), so nothing blocks the main window.</li>
+  <li><code>src/CcDirector.Avalonia/SettingsDialog.axaml</code> + <code>.axaml.cs</code> - the Account tab's
+      sign-in identity card, Log out button, account status line, and usage-telemetry toggle are replaced by
+      a single static read-only card: "Your account is managed by your Gateway", showing the configured
+      Gateway URL from <code>config.json</code> (or "Not configured"). No control invokes the broken
+      sign-in / logout / consent flow. It does NOT call <code>/account/status</code> (#638, not built yet).</li>
+  <li><code>src/CcDirector.Core.Tests/Account/AccountGatePolicyTests.cs</code> - the missing-credential and
+      tampered-credential tests now assert <code>Start</code> (renamed to
+      <code>Decide_NoStoredCredential_ReturnsStart</code> and <code>Decide_TamperedCredential_ReturnsStart</code>).
+      The valid/expired Start tests and the background-validation tests are unchanged.</li>
+</ul>
+
+<p class="note">Underlying account/credential types (<code>AccountGateScreen</code>,
+<code>FirstRunConsentDialog</code>, <code>FirstRunLoginCoordinator</code>, <code>LoopbackLoginListener</code>,
+the credential service) are left present and compiling but are no longer a startup gate. Their full deletion
+is the later issue #651, per the issue's scope (prefer neutralizing over mass-deletion).</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Status</th></tr>
+  <tr>
+    <td>1</td>
+    <td>A Director with NO local DevThrottle credential boots to the MAIN WINDOW with no sign-in prompt and opens no browser sign-in.</td>
+    <td>Main window shown; no gate screen; no browser sign-in.</td>
+    <td>Launched slot-14 Director with the credential blob absent (<code>devthrottle-credential.bin</code> does not exist). Log: <code>loggedIn=False, decision=Start</code> then <code>Main window shown</code>. Screenshot shows the "CC DIRECTOR / All systems go / New Session" main window. No <code>AccountGateScreen</code>, no <code>Startup blocked</code> line.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>No startup path opens a devthrottle.com browser sign-in, and the first-run consent dialog does not block startup.</td>
+    <td>No loopback sign-in; no consent dialog at startup.</td>
+    <td>Block branch removed (gate screen unreachable at startup); <code>ShowMainWindow</code> no longer calls the consent step. Director log for a clean launch contains no <code>FirstRunConsent</code>, no loopback, no sign-in lines.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Settings -&gt; Account shows a read-only "managed by your Gateway" panel with no controls invoking the broken flow.</td>
+    <td>Static read-only card with the configured gateway URL.</td>
+    <td>Screenshot of the Account tab shows the read-only card "Your account is managed by your Gateway ... There is nothing to configure here." with the configured Gateway URL and no sign-in/identity/logout/telemetry controls.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><code>dotnet build cc-director.sln</code> is clean (no dead-reference warnings).</td>
+    <td>Build succeeded, 0 warnings, 0 errors.</td>
+    <td>See <code>build-clean.log</code>: <em>Build succeeded. 0 Warning(s) 0 Error(s).</em></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Account/gate tests updated: a missing-credential install decides Start not Block; existing suites pass.</td>
+    <td>Updated tests pass; full Account and Core suites green.</td>
+    <td>See <code>tests-passing.log</code>: Account suite 83/83 passed. Full Core suite 2320 passed / 6 skipped (environment-gated). Avalonia suite 82/82 passed.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshots</h2>
+<p><strong>Main window reached with no local credential and no sign-in prompt:</strong></p>
+<img class="img" src="main-window-no-credential.png" alt="Main window, no credential" />
+<p><strong>Settings -&gt; Account read-only "managed by your Gateway" panel:</strong></p>
+<img class="img" src="settings-account-managed-by-gateway.png" alt="Account tab managed by Gateway" />
+
+<h2>Startup log excerpt (slot-14 Director, no credential)</h2>
+<pre style="background:#252526;padding:12px;border:1px solid #3c3c3c;font-size:12px;overflow:auto;">
+[WindowsProtectedTokenStore] Load: blobPath=...\devthrottle-credential.bin, exists=False
+[AccountGatePolicy] Decide: loggedIn=False, decision=Start (interim: local credential no longer gates startup, issue #664)
+[CcDirector] Account startup gate decided Start (interim: local credential no longer gates startup, issue #664); showing the main window
+[CcDirector] Main window shown; starting background session validation next
+</pre>
+
+<h2>CenCon impact</h2>
+<p>This change narrows the startup behaviour (removes a Director-owned gate) but does not add new
+architecture and does not weaken any security posture: credential storage is unchanged, telemetry Bearer
+handling is untouched (that is #642), and no account types are deleted (that is #651). No
+<code>docs/cencon/</code> architecture or security drift. No blocking security rule (DT-xx) is affected.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">All five acceptance criteria are met with proof above. I believe this is finished.</p>
+
+</body>
+</html>
