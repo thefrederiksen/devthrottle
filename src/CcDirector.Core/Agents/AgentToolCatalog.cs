@@ -77,6 +77,16 @@ public static class AgentToolCatalog
     /// </summary>
     public const string CursorForceArg = "--force";
 
+    /// <summary>The name of the GitHub Copilot opt-in permission-bypass preset (issue #625).</summary>
+    public const string CopilotAutomaticPresetName = "Automatic (yolo)";
+
+    /// <summary>
+    /// The exact GitHub Copilot flag the automatic preset adds (and the standard preset omits).
+    /// Copilot's permission-bypass equivalent is <c>--allow-all</c> (alias <c>--yolo</c>), which
+    /// expands to <c>--allow-all-tools --allow-all-paths --allow-all-urls</c> (verified live, issue #625).
+    /// </summary>
+    public const string CopilotAllowAllArg = "--allow-all";
+
     private static readonly IReadOnlyList<AgentToolCatalogEntry> CatalogEntries = BuildCatalog();
 
     /// <summary>The known agent tools, in display order, with their recommended defaults.</summary>
@@ -152,7 +162,19 @@ public static class AgentToolCatalog
 
         var grok = StandardOnly(AgentKind.Grok, "Grok");
 
-        return new[] { claude, pi, codex, gemini, openCode, cursor, grok };
+        // GitHub Copilot (issue #625): Standard (interactive approval, no extra flags) is the
+        // default; "Automatic (yolo)" is the opt-in permission-bypass preset that adds --allow-all.
+        var copilot = new AgentToolCatalogEntry(
+            AgentKind.Copilot,
+            "GitHub Copilot",
+            new[]
+            {
+                new AgentCommandPreset(StandardPresetName, ""),
+                new AgentCommandPreset(CopilotAutomaticPresetName, CopilotAllowAllArg),
+            },
+            "");
+
+        return new[] { claude, pi, codex, gemini, openCode, cursor, grok, copilot };
     }
 
     private static AgentToolCatalogEntry StandardOnly(AgentKind tool, string displayName) =>

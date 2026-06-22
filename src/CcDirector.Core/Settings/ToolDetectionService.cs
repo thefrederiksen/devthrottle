@@ -54,6 +54,7 @@ public sealed class ToolDetectionService
         AgentKind.OpenCode,
         AgentKind.Cursor,
         AgentKind.Grok,
+        AgentKind.Copilot,
     };
 
     /// <summary>Detect the effective executable for Claude Code, Pi, Codex, Gemini, OpenCode, or Cursor.</summary>
@@ -200,6 +201,7 @@ public sealed class ToolDetectionService
         AgentKind.OpenCode => options.OpenCodePath,
         AgentKind.Cursor => options.CursorPath,
         AgentKind.Grok => options.GrokPath,
+        AgentKind.Copilot => options.CopilotPath,
         _ => throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.")
     };
 
@@ -230,6 +232,9 @@ public sealed class ToolDetectionService
             case AgentKind.Grok:
                 options.GrokPath = path;
                 break;
+            case AgentKind.Copilot:
+                options.CopilotPath = path;
+                break;
             default:
                 throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.");
         }
@@ -244,6 +249,7 @@ public sealed class ToolDetectionService
         AgentKind.OpenCode => "OpenCode",
         AgentKind.Cursor => "Cursor",
         AgentKind.Grok => "Grok",
+        AgentKind.Copilot => "GitHub Copilot",
         _ => tool.ToString()
     };
 
@@ -309,6 +315,13 @@ public sealed class ToolDetectionService
                 ".grok", "bin", "grok.exe");
             yield return "grok";
         }
+        else if (tool == AgentKind.Copilot)
+        {
+            // npm global install drops copilot.cmd in %APPDATA%\npm; the bare "copilot" is the
+            // PATH fallback (Homebrew/WinGet/gh.io installs put it on PATH directly).
+            yield return DefaultNpmCliPath("copilot");
+            yield return "copilot";
+        }
     }
 
     private static string ValidationKey(AgentKind tool) => tool switch
@@ -319,6 +332,7 @@ public sealed class ToolDetectionService
         AgentKind.Gemini => "gemini",
         AgentKind.OpenCode => "opencode",
         AgentKind.Cursor => "cursor",
+        AgentKind.Copilot => "copilot",
         _ => tool.ToString().ToLowerInvariant(),
     };
 

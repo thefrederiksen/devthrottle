@@ -388,6 +388,7 @@ internal static class AgentsEndpoint
         (AgentKind.OpenCode, "OpenCode"),
         (AgentKind.Cursor, "Cursor"),
         (AgentKind.Grok, "Grok"),
+        (AgentKind.Copilot, "GitHub Copilot"),
         (AgentKind.RawCli, "Custom"),
     };
 

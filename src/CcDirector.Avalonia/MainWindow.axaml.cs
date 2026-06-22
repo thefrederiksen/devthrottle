@@ -1208,6 +1208,7 @@ public partial class MainWindow : Window
         AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
         AgentKind.Cursor => new CursorAgent(_sessionManager.Options),
         AgentKind.Grok => new GrokAgent(_sessionManager.Options),
+        AgentKind.Copilot => new CopilotAgent(_sessionManager.Options),
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
@@ -1236,6 +1237,7 @@ public partial class MainWindow : Window
             AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
             AgentKind.Cursor => new CursorAgent(perLaunch),
             AgentKind.Grok => new GrokAgent(perLaunch),
+            AgentKind.Copilot => new CopilotAgent(perLaunch),
             _ => new ClaudeAgent(perLaunch)
         };
     }
@@ -1260,6 +1262,8 @@ public partial class MainWindow : Window
             CursorPath = source.CursorPath,
             CursorApiKey = source.CursorApiKey,
             GrokPath = source.GrokPath,
+            CopilotPath = source.CopilotPath,
+            CopilotGitHubToken = source.CopilotGitHubToken,
             ChatSessionRepoPath = source.ChatSessionRepoPath,
             TtsVoice = source.TtsVoice,
             TtsModel = source.TtsModel,
@@ -1277,6 +1281,7 @@ public partial class MainWindow : Window
             case AgentKind.OpenCode: copy.OpenCodePath = path; break;
             case AgentKind.Cursor: copy.CursorPath = path; break;
             case AgentKind.Grok: copy.GrokPath = path; break;
+            case AgentKind.Copilot: copy.CopilotPath = path; break;
             default: copy.ClaudePath = path; break;
         }
 
@@ -2861,6 +2866,19 @@ public partial class MainWindow : Window
                 cursorArgs = $"{cursorArgs} {AgentToolCatalog.CursorForceArg}".Trim();
             }
             agentArgs = cursorArgs.Length > 0 ? cursorArgs : null;
+        }
+        else if (agentKind == AgentKind.Copilot)
+        {
+            // Copilot's permission-bypass equivalent is --allow-all (issue #625, AC9). The bypass
+            // checkbox is a per-session opt-in on top of the entry's preset; if the preset already
+            // carries --allow-all (the "Automatic (yolo)" preset), don't add it twice.
+            var copilotArgs = entryArgs;
+            if (dialog.BypassPermissions
+                && !copilotArgs.Contains(AgentToolCatalog.CopilotAllowAllArg, StringComparison.Ordinal))
+            {
+                copilotArgs = $"{copilotArgs} {AgentToolCatalog.CopilotAllowAllArg}".Trim();
+            }
+            agentArgs = copilotArgs.Length > 0 ? copilotArgs : null;
         }
         else
         {

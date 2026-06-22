@@ -61,6 +61,27 @@ public class AgentOptions
     public string GrokPath { get; set; } = "grok";
 
     /// <summary>
+    /// Path to the GitHub Copilot CLI (<c>copilot.cmd</c> from <c>@github/copilot</c>).
+    /// The npm global install drops <c>copilot</c>, <c>copilot.cmd</c>, and <c>copilot.ps1</c> in
+    /// <c>%APPDATA%\npm</c>; the launchable shim for a process spawner is <c>copilot.cmd</c> (the
+    /// <c>.ps1</c> cannot be spawned directly), so the default resolves the npm-global
+    /// <c>copilot.cmd</c>. Users can override in config.json if copilot is installed elsewhere
+    /// (Homebrew, WinGet, the gh.io/copilot-install script) (issue #625).
+    /// </summary>
+    public string CopilotPath { get; set; } = DefaultNpmCliPath("copilot");
+
+    /// <summary>
+    /// GitHub Copilot authentication token, injected into a Copilot session's environment when set
+    /// (issue #625). Loaded from config.json "agent.copilot_github_token" first. The effective
+    /// token resolves with the precedence Copilot itself honors:
+    /// <c>COPILOT_GITHUB_TOKEN</c> &gt; <c>GH_TOKEN</c> &gt; <c>GITHUB_TOKEN</c> (see
+    /// <see cref="ResolveCopilotToken"/>). Null/empty means Director injects nothing and the user
+    /// completes interactive auth (<c>copilot login</c> / the <c>/login</c> slash command) inside
+    /// the session tab. Never logged.
+    /// </summary>
+    public string? CopilotGitHubToken { get; set; }
+
+    /// <summary>
     /// Cursor authentication key, injected into a Cursor session's environment as
     /// <c>CURSOR_API_KEY</c> when set (issue #517, assumption A5). Loaded from
     /// config.json "agent.cursor_api_key" first, then falls back to the
@@ -165,6 +186,28 @@ public class AgentOptions
             return CursorApiKey.Trim();
         var env = Environment.GetEnvironmentVariable("CURSOR_API_KEY");
         return string.IsNullOrWhiteSpace(env) ? null : env.Trim();
+    }
+
+    /// <summary>
+    /// Resolve the effective GitHub Copilot token (issue #625). Explicit config wins, then the
+    /// environment variables in the precedence Copilot itself honors:
+    /// <c>COPILOT_GITHUB_TOKEN</c> &gt; <c>GH_TOKEN</c> &gt; <c>GITHUB_TOKEN</c>. Returns null when
+    /// none is set, in which case Director injects nothing and the user completes interactive auth.
+    /// The token value is never logged.
+    /// </summary>
+    public string? ResolveCopilotToken()
+    {
+        if (!string.IsNullOrWhiteSpace(CopilotGitHubToken))
+            return CopilotGitHubToken.Trim();
+
+        foreach (var name in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return null;
     }
 
     private static string DefaultNpmCliPath(string binName)

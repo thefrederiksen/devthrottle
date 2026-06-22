@@ -1,0 +1,12 @@
+{"type":"session.mcp_servers_loaded","id":"evt-1","parentId":null,"timestamp":"2026-06-22T01:00:00.000Z","sessionId":"11111111-2222-3333-4444-555555555555"}
+{"type":"session.tools_updated","id":"evt-2","parentId":null,"timestamp":"2026-06-22T01:00:00.100Z"}
+{"type":"session.skills_loaded","id":"evt-3","parentId":null,"timestamp":"2026-06-22T01:00:00.200Z"}
+{"type":"user.message","id":"evt-4","parentId":null,"timestamp":"2026-06-22T01:00:01.000Z","text":"What is 2 plus 2?"}
+{"type":"assistant.turn_start","id":"evt-5","parentId":"evt-4","timestamp":"2026-06-22T01:00:01.100Z"}
+{"type":"assistant.reasoning","id":"evt-6","parentId":"evt-5","timestamp":"2026-06-22T01:00:01.200Z","text":"The user is asking a simple arithmetic question."}
+{"type":"assistant.message_start","id":"evt-7","parentId":"evt-5","timestamp":"2026-06-22T01:00:01.300Z"}
+{"type":"assistant.message_delta","id":"evt-8","parentId":"evt-7","timestamp":"2026-06-22T01:00:01.400Z","delta":"2 plus 2 "}
+{"type":"assistant.message_delta","id":"evt-9","parentId":"evt-7","timestamp":"2026-06-22T01:00:01.500Z","delta":"equals 4."}
+{"type":"assistant.message","id":"evt-10","parentId":"evt-7","timestamp":"2026-06-22T01:00:01.600Z","text":"2 plus 2 equals 4."}
+{"type":"assistant.turn_end","id":"evt-11","parentId":"evt-5","timestamp":"2026-06-22T01:00:01.700Z"}
+{"type":"result","id":"evt-12","parentId":null,"timestamp":"2026-06-22T01:00:01.800Z","status":"success"}

@@ -1,0 +1,69 @@
+Control API evidence captured live from the test Director (loopback, ports 7892-7894) on 2026-06-22.
+Test Director: own git worktree D:\ReposFred\devthrottle-wt-625, isolated slot 14
+(cc-director14.exe), launched via the cc-director14-launch scheduled task (CLAUDE.md rule 0b).
+
+=================================================================================
+AC5 - Detection: copilot found on PATH (resolves copilot.cmd, NOT copilot.ps1)
+=================================================================================
+POST /settings/agents/detect  body: { "Type": "Copilot" }
+->
+{
+  "type": "Copilot",
+  "detectable": true,
+  "found": true,
+  "configuredPath": "C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd",
+  "resolvedPath":  "C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd",
+  "source": "configured path",
+  "message": "Found GitHub Copilot at C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd."
+}
+(Note: PowerShell Get-Command copilot resolves copilot.ps1, the trap the issue warned about;
+the Director default DefaultNpmCliPath("copilot") targets the launchable copilot.cmd. Verified.)
+
+=================================================================================
+AC6 - Selectable: "GitHub Copilot" appears in the agent catalog with both presets
+=================================================================================
+GET /settings/agents/catalog -> the Copilot type entry:
+{
+  "type": "Copilot",
+  "displayName": "GitHub Copilot",
+  "detectable": true,
+  "supportsModelSelection": false,
+  "modelFlag": "--model",
+  "presets": [
+    { "name": "Standard",          "arguments": "" },
+    { "name": "Automatic (yolo)",  "arguments": "--allow-all" }
+  ],
+  "models": []
+}
+(This catalog feeds the New Session / Agent editor type dropdown; AgentEditorDialog.TypeOptions
+and AgentsEndpoint.TypeOptions both now include AgentKind.Copilot -> "GitHub Copilot".)
+
+=================================================================================
+AC9 - --allow-all honored: the yolo preset resolves into the launch command line
+=================================================================================
+POST /settings/agents/command-line
+  body: { "Type":"Copilot", "PresetId":"Automatic (yolo)", "ExecutablePath":"copilot.cmd", "LaunchMode":"Guided" }
+->
+{
+  "type": "Copilot",
+  "executable": "copilot.cmd",
+  "arguments": "--allow-all",
+  "commandLine": "copilot.cmd --allow-all"
+}
+
+=================================================================================
+AC7/AC8/AC10/AC11/AC14 - Live session created and driven (POST /sessions, agent=Copilot)
+=================================================================================
+POST /sessions  body: { "RepoPath":"D:\\ReposFred\\devthrottle-wt-625", "Agent":"Copilot" }
+-> session created, "status":"Running", "agent":"Copilot",
+   "driverCapabilities": [ "PreassignedSessionId", "Interrupt" ]
+
+- AC14 (capability honesty): the LIVE session reports exactly PreassignedSessionId + Interrupt -
+  the two verified verbs the CopilotDriver advertises; no fabricated Cancel/History/TranscriptRead.
+- AC10 (auth pass-through): the session started straight to the Copilot banner/trust prompt with
+  NO interactive /login - the resolved GitHub token (COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN)
+  authenticated it. (See the SessionManager log line "Injected COPILOT_GITHUB_TOKEN ...".)
+- AC11 (session-id preassignment): CopilotAgent.BuildLaunchSpec emits --session-id <minted-uuid>
+  for a new session (unit-tested); the CopilotDriver JSONL parser also re-captures the echoed id
+  (TryCaptureSessionId, unit-tested against the committed fixture).
+- AC7/AC8: see copilot-session-buffer.txt (banner + the "COPILOT-IN-DIRECTOR-OK" response).

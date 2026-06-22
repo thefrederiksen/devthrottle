@@ -85,6 +85,7 @@ public partial class AgentEditorDialog : Window
         new AgentTypeOption(AgentKind.OpenCode, "OpenCode"),
         new AgentTypeOption(AgentKind.Cursor, "Cursor"),
         new AgentTypeOption(AgentKind.Grok, "Grok"),
+        new AgentTypeOption(AgentKind.Copilot, "GitHub Copilot"),
         new AgentTypeOption(AgentKind.RawCli, "Custom"),
     };
 
