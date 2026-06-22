@@ -1,0 +1,2 @@
+2026-06-22 07:33:19.229 [DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=qa-forward-777, app_version=99.5.0
+2026-06-22 07:33:19.229 [DirectorStartupTelemetryEndpoint] forwarding configured -> enqueue for http://127.0.0.1:54929/api/v1/telemetry/director-startup

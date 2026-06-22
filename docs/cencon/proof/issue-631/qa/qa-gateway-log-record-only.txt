@@ -1,0 +1,2 @@
+2026-06-22 07:31:50.021 [DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=qa-record-only-001, app_version=42.0.1
+2026-06-22 07:31:50.021 [DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded

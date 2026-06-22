@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 631 (Director-startup telemetry endpoint)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2d6cdf; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef3fc; }
+  .pass { color: #0a7d27; font-weight: bold; }
+  .fail { color: #c00; font-weight: bold; }
+  code, pre { background: #f4f4f4; padding: .1rem .35rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { padding: .6rem; overflow-x: auto; white-space: pre-wrap; }
+  .verdict { background: #e6f6ea; border: 1px solid #0a7d27; padding: 1rem; border-radius: 6px; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #631</h1>
+<p><strong>Title:</strong> [Gateway] Director-startup telemetry endpoint (record + best-effort cloud-forward)<br>
+<strong>Pull request:</strong> #663 (branch <code>issue-631-director-startup-telemetry</code>)<br>
+<strong>Verified by:</strong> QA Agent (independent verification - own worktree, own build, own live curl)<br>
+<strong>Date:</strong> 2026-06-22</p>
+
+<h2>Method</h2>
+<p>Independent verification per the CenCon QA Agent role. The QA Agent built the solution from its own
+worktree of the pull-request branch, booted the <strong>real production <code>GatewayHost</code></strong>
+in a standalone QA harness (referencing the production <code>CcDirector.Gateway</code> project, not the
+developer's harness), and exercised every acceptance criterion with literal <code>curl</code>. Evidence
+below is the QA Agent's own, not the developer's.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA evidence)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td><code>POST /telemetry/director-startup</code> returns 202 Accepted for a valid body.</td>
+<td>HTTP 202.</td>
+<td>QA curl to record-only gateway and to forward gateway both returned <code>HTTP_STATUS=202</code> for body
+<code>{"director_id":"qa-record-only-001",...}</code> and <code>{"director_id":"qa-forward-777",...}</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Event recorded Gateway-side - a record/log line shows director_id + app_version.</td>
+<td>Log line carrying both fields.</td>
+<td>Gateway log:<br>
+<pre>[DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=qa-record-only-001, app_version=42.0.1</pre></td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>With <code>DEVTHROTTLE_STARTUP_TELEMETRY_URL</code> set to a local stub, the event is forwarded to the stub.</td>
+<td>Stub request log shows the forwarded POST.</td>
+<td>QA-controlled stub log:<br>
+<pre>STUB-RECEIVED POST /api/v1/telemetry/director-startup BODY={"director_id":"qa-forward-777","machine_name":"QA-FWD-BOX","app_version":"99.5.0"}</pre>
+Gateway log also shows: <code>forwarding configured -&gt; enqueue for http://127.0.0.1:.../api/v1/telemetry/director-startup</code>. Body forwarded unchanged.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>With no startup cloud URL configured, endpoint still returns 202 and records locally, with a log line stating no cloud startup endpoint is configured (no error).</td>
+<td>202 + "no cloud startup endpoint configured" log line; nothing forwarded.</td>
+<td>Env var unset (gateway printed <code>CONFIGURED_STARTUP_URL=(unset)</code>). Curl returned 202. Gateway log:<br>
+<pre>[DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded</pre>
+QA stub log was 0 bytes - nothing forwarded. No error.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Unit tests cover the record-only path (no cloud URL) and the configured-forward path.</td>
+<td>Tests genuinely assert both paths.</td>
+<td><code>DirectorStartupTelemetryEndpointTests</code>: 5/5 pass. QA read them:
+<br>- <code>NoCloudUrl_RecordsLocallyAndDoesNotForward</code> asserts 202, the "no cloud startup endpoint configured" log line, the director_id+app_version record line, and an EMPTY captured queue.
+<br>- <code>WithCloudUrl_ForwardsExactlyOnceWithBody</code> asserts a single forwarded POST to the stub with director_id/app_version/machine_name intact.
+<br>Plus <code>WithValidBody_Returns202</code> and two <code>ResolveTargetUrl</code> tests.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li><strong>Full Gateway test suite:</strong> 898 passed, 1 skipped (pre-existing dictation realtime skip), 0 failed.</li>
+<li><strong>Solution build:</strong> <code>dotnet build cc-director.sln</code> - Build succeeded, 0 warnings, 0 errors.</li>
+<li><strong>Scope:</strong> changes limited to <code>CcDirector.Gateway</code> (new endpoint + 10-line wiring reusing the existing <code>TelemetryRetryQueue</code>) and <code>CcDirector.Gateway.Tests</code>, plus <code>docs/cencon</code> manifest + proof. No adjacent production code touched.</li>
+<li><strong>CenCon / security lens:</strong> no new authentication surface (startup is unauthenticated to cloud per Phase 1, inherits host token middleware), no PII handling, reuses the existing durable forwarder, and <code>architecture_manifest.yaml</code> updated for the new component. No blocking DT rule violations.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. Independent QA evidence (own build, own live curl against the real GatewayHost, own stub). PASS.</div>
+
+</body>
+</html>
