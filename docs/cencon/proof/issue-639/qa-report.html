@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #639 (Gateway forwards telemetry with its own account token)</title>
+<style>
+ body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+ h1 { border-bottom: 3px solid #2c5aa0; padding-bottom: .4rem; }
+ h2 { margin-top: 2rem; color: #2c5aa0; }
+ table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+ th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+ th { background: #f0f4fa; }
+ .pass { color: #157347; font-weight: bold; }
+ .verdict { background: #e6f4ea; border: 2px solid #157347; padding: 1rem; margin: 1.5rem 0; font-size: 1.1rem; }
+ code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+ pre { background: #f4f4f4; padding: .8rem; border-radius: 5px; overflow-x: auto; }
+ .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #639</h1>
+<p class="meta">
+ Title: [Gateway] Forward telemetry with the Gateway's own account token<br>
+ PR: #673 (branch <code>issue-639-gateway-telemetry-token</code>)<br>
+ Verified independently by the QA Agent in an isolated worktree (<code>dt-639</code>) on the PR branch.<br>
+ Method: own build, own xUnit verification harness with QA-distinctive tokens (NOT the developer's
+ fixtures), exercising both telemetry endpoints over real HTTP plus direct inspection of the real
+ Gateway log.
+</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. PASS.</div>
+
+<h2>Independent verification harness</h2>
+<p>
+ The QA Agent wrote and ran its OWN xUnit test class (<code>QaIndependent639Tests</code>) using
+ distinctive tokens <code>QA-GATEWAY-TOKEN-ZZZ-639-DISTINCT-DO-NOT-LOG</code> and
+ <code>QA-DIRECTOR-LEFTOVER-BEARER-ZZZ-639-MUST-NOT-LEAK</code> so the evidence cannot be confused
+ with the developer's constants. It boots the real <code>TelemetryRelayEndpoint</code> and the real
+ <code>DirectorStartupTelemetryEndpoint</code> over the real <code>TelemetryRetryQueue</code> wired
+ with a Gateway token source, plus a local stub cloud backend it controls, and posts over real HTTP.
+ (The harness was a QA evidence fixture and was removed after the run to keep the tree clean; the
+ result is recorded below.)
+</p>
+<pre>Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5  (QaIndependent639Tests)</pre>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Tokenless inbound POST is forwarded carrying the Gateway's account token.</td>
+<td>Stub receives <code>Bearer &lt;Gateway token&gt;</code>, not a Director token.</td>
+<td>QA stub recorded <code>Bearer QA-GATEWAY-TOKEN-ZZZ-639...</code> for a tokenless
+ <code>POST /telemetry/login</code>. (QaIndependent: Login_TokenlessAndDirectorBearer...)</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>When the Gateway is NOT signed in, a posted event is queued (not forwarded), then flushed in
+ order after sign-in.</td>
+<td>Nothing reaches the stub while signed out; after seeding the token all events arrive in FIFO
+ order with the Gateway token.</td>
+<td>3 events posted while signed out: stub stayed EMPTY after a 700ms wait (queue depth held). After
+ setting SignedIn, all 3 arrived in order [0,1,2], each with <code>Bearer QA-GATEWAY-TOKEN...</code>.
+ (QaIndependent: Login_NotSignedIn_QueuesThenFlushesInOrderAfterSignIn)</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>An inbound Director Bearer is ignored in favour of the Gateway's token; no Director token leaks.</td>
+<td>Stub receives the Gateway token; the distinctive Director token never appears.</td>
+<td>Posted <code>POST /telemetry/login</code> with <code>Bearer QA-DIRECTOR-LEFTOVER-BEARER-ZZZ...</code>;
+ stub recorded the Gateway token and the Director token appeared nowhere. Same proven on the
+ director-startup endpoint. (QaIndependent: Login_... and DirectorStartup_...)</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>The Gateway's token is never written to the log.</td>
+<td>After a real forward (through both the deferred not-signed-in pass and the signed-in pass), the
+ token value appears in no new log line.</td>
+<td>Read the real Gateway log (<code>director-*.log</code>) before/after a real
+ forward of the QA token. Neither <code>QA-GATEWAY-TOKEN...</code> nor
+ <code>QA-DIRECTOR-...</code> appeared in any new line.
+ (QaIndependent: GatewayToken_NeverAppearsInTheRealLog)</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Unit tests cover forward-with-gateway-token, queue-when-not-signed-in + flush-after-sign-in, and
+ inbound-bearer-ignored.</td>
+<td>Tests exist and genuinely assert these behaviours.</td>
+<td>Read and ran the developer's <code>Issue639GatewayTelemetryTokenTests</code> (8 tests, all pass):
+ explicit assertions <code>ReceivedAuth[0] == "Bearer GATEWAY..."</code>, FIFO sequence assertions
+ after sign-in, and <code>DoesNotContain(... DirectorToken)</code>. The pre-existing
+ <code>TelemetryRelayEndpointTests</code> was updated to assert the inbound bearer is now ignored
+ (<code>Assert.Null(fwd.Authorization)</code>). Plus the 5 independent QA tests above.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Both endpoints (login relay AND director-startup)</h2>
+<p>
+ QA proved the gateway-token behaviour applies to BOTH <code>/telemetry/login</code> AND
+ <code>/telemetry/director-startup</code> end to end (own tests
+ <code>DirectorStartup_TokenlessAndDirectorBearer_ForwardGatewayToken</code> and
+ <code>DirectorStartup_NotSignedIn_QueuesThenFlushesAfterSignIn</code>). The shared
+ <code>TelemetryRetryQueue.TryForwardAsync</code> attaches the Gateway token for every queued event
+ regardless of which endpoint enqueued it.
+</p>
+
+<h2>Scope check</h2>
+<ul>
+<li>Production code changed: <code>CcDirector.Gateway</code> (relay, startup endpoint, retry queue,
+ new token-source abstraction + adapter, host wiring) and one small ADDITIVE accessor
+ <code>GetAccessTokenForForwarding()</code> in <code>CcDirector.Core</code> (the Gateway-hosted
+ credential service lives in Core). No existing Core method changed (diff is additive-only).</li>
+<li>OUT-of-scope items confirmed NOT done: no Director-side Bearer removal (#642 - inbound bearer is
+ made optional/ignored, the Director still sends it); no sign-in / refresh logic.</li>
+</ul>
+
+<h2>Regression and build</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code>: <strong>Build succeeded. 0 Warning(s), 0 Error(s).</strong></li>
+<li>Developer's issue-639 tests: <strong>8/8 pass.</strong></li>
+<li>Full <code>CcDirector.Gateway.Tests</code> suite: <strong>929 pass, 1 skip, 0 fail</strong> on a clean
+ re-run.</li>
+<li><code>CcDirector.Core.Tests</code> (Account filter): <strong>90/90 pass.</strong></li>
+<li>Note on flaky log-timing tests: one full-suite pass showed 3 transient failures
+ (<code>Forward_NeverWritesTheGatewayTokenToTheLog</code>,
+ <code>PostLogin_NeverWritesAccessTokenToTheGatewayLog</code>,
+ <code>PostDirectorStartup_NoCloudUrl_RecordsLocallyAndDoesNotForward</code>). All three pass in
+ isolation and on a re-run. The failing assertion was the "logging is wired" precondition
+ (<code>Assert.Contains(newLines, ... [marker])</code>), NOT the security assertion - the
+ token-never-logged check never failed. The cause is the process-wide async FileLog writer racing
+ the per-test baseline window under parallel load, a pre-existing test-infrastructure
+ characteristic that exists on <code>main</code> for the two pre-existing tests. Not a #639 defect.</li>
+</ul>
+
+<p class="meta">Independent QA verification complete. All acceptance criteria met with QA-produced proof.</p>
+</body>
+</html>
