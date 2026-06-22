@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #672: Grok Build is a first-class supported agent</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2EA44F; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f3f6f4; }
+  code, pre { background: #f5f5f5; border: 1px solid #e2e2e2; border-radius: 4px; }
+  code { padding: .1rem .3rem; }
+  pre { padding: .8rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  .note { background: #fff8e6; border: 1px solid #f0d28a; padding: .6rem .8rem; border-radius: 4px; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof Report - Issue #672</h1>
+<p><strong>Title:</strong> Confirm Grok Build (Grok CLI) is a first-class supported agent + document it</p>
+<p><strong>Branch:</strong> <code>issue-672-grok-verify</code> &nbsp;|&nbsp; <strong>Repo:</strong> thefrederiksen/devthrottle</p>
+<p><strong>Nature:</strong> Verification-first. The Grok integration already existed; this run confirmed it end-to-end, fixed the one real gap (documentation), and committed proof.</p>
+
+<h2>Summary</h2>
+<p>
+Grok Build (the xAI Grok CLI, <code>grok</code> binary) is already wired into cc-director as a
+first-class agent: <code>GrokAgent</code>, <code>GrokSlashCommands</code>, the
+<code>AgentKind.Grok</code> enum value, the tool catalog
+(<code>AgentToolCatalog</code>), tool detection (<code>ToolDetectionService</code>), the driver
+mapping (<code>AgentDrivers</code>), the agent-editor option
+(<code>AgentEditorDialog</code>), and the Control API session-create path
+(<code>POST /sessions</code> with <code>agent: "Grok"</code>). All six acceptance criteria are met.
+The single real gap found was documentation: the public docs' supported-agents list omitted Grok
+Build. That line was updated. No source-code change was required to make Grok work.
+</p>
+
+<h2>Acceptance Criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+  <tr>
+    <td>1. A Grok Build session starts via cc-director and completes a real task end-to-end.</td>
+    <td class="pass">PASS</td>
+    <td>A test Director (slot 15, framework build cc-director15.exe) was launched on loopback port 7895.
+        <code>POST /sessions {repoPath, agent:"Grok", prePrompt:"Reply with exactly this text and nothing else: GROK_SESSION_OK_672"}</code>
+        created a real Grok Build Beta v0.2.56 session. The seeded prompt was dispatched once Grok was ready;
+        Grok ran a turn ("Thought for 0.3s", "Turn completed in 4.5s") and produced the exact output
+        <code>GROK_SESSION_OK_672</code> in the embedded terminal.
+        See <code>grok-session-transcript.txt</code> (decoded) and <code>grok-session-buffer-raw.json</code> (raw).</td>
+  </tr>
+  <tr>
+    <td>2. Grok's slash commands are present and behave correctly in a Grok session.</td>
+    <td class="pass">PASS</td>
+    <td><code>GrokSlashCommands.All</code> carries the interactive slash menu live-captured from Grok Build Beta v0.2.56
+        (/new, /home, /fork, /find, /compact, /copy, /feedback, /quit) and is wired into the driver via
+        <code>AgentDrivers.For(AgentKind.Grok) = new GenericDriver(k, GrokSlashCommands.All)</code>.
+        The unit test <code>SlashCommandProviderDriverTests.GetCommands_GrokSession_ReturnsInteractiveSlashCommands_NotCliSubcommands</code> passes.
+        The live session transcript shows the real Grok TUI surfacing its menu (New worktree / Resume session / Quit, the /model picker).</td>
+  </tr>
+  <tr>
+    <td>3. Grok Build shows up in tool detection and the agent tool catalog, and is selectable in the agent editor.</td>
+    <td class="pass">PASS</td>
+    <td>Live <code>GET /settings/agents/catalog</code> returns a Grok entry (displayName "Grok", detectable true, Standard preset) -
+        see <code>catalog-response.json</code>. Live <code>POST /settings/agents/detect {"type":"Grok"}</code> returns
+        <code>found:true</code> at <code>C:\Users\soren\.grok\bin\grok.EXE</code> (source PATH) - see <code>grok-detect-response.json</code>.
+        The agent editor lists Grok via <code>new AgentTypeOption(AgentKind.Grok, "Grok")</code> in
+        <code>AgentEditorDialog.axaml.cs</code>. Tests <code>AgentToolCatalogTests</code> and
+        <code>ToolDetectionWizardModelTests.AcceptSelected_GrokAndCursor_DoesNotThrow_AndAddsBothEntries</code> pass.</td>
+  </tr>
+  <tr>
+    <td>4. Any gap found is fixed, with the relevant tests green.</td>
+    <td class="pass">PASS</td>
+    <td>Only gap = documentation (criterion 5). No code gap found. Full <code>CcDirector.Core.Tests</code> suite:
+        <strong>2327 passed, 0 failed, 6 skipped</strong>, including all Grok catalog/detection/slash-command tests.</td>
+  </tr>
+  <tr>
+    <td>5. Docs/README list Grok Build as a supported agent.</td>
+    <td class="pass">PASS (fix applied)</td>
+    <td><code>docs/public/getting-started/01-introduction.md</code> "Other coding agents" line previously read
+        "Pi, OpenAI Codex, Gemini CLI, or opencode" and omitted Grok. It now reads
+        "OpenAI Codex, Gemini CLI, opencode, Cursor, <strong>Grok Build</strong> (the xAI Grok CLI), GitHub Copilot, or Pi",
+        matching the agents the codebase actually supports.</td>
+  </tr>
+  <tr>
+    <td>6. If everything already works, close as verified with proof attached.</td>
+    <td class="pass">PASS</td>
+    <td>Everything worked except the docs omission, which was a one-line fix. This report + the live proof artifacts
+        are the verification record.</td>
+  </tr>
+</table>
+
+<h2>Live session transcript (decoded, key lines)</h2>
+<pre>  Grok Build Beta  0.2.56
+  ...
+  #1 Reply with exactly this text and nothing else: GROK_SESSION_OK_672
+  > Reply with exactly this text and nothing else: GROK_SESSION_OK_672
+  Thinking... The user wants me to reply with exactly the text "GROK_SESSION_OK_672" and nothing else.
+  Thought for 0.3s   GROK_SESSION_OK_672
+  Turn completed in 4.5s.</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. <code>docs/cencon/architecture_manifest.yaml</code> already references Grok.
+No <code>security_profile.yaml</code> rule (DT-01..DT-NN) is touched. The only code change is a documentation line.</p>
+
+<h2>Proof files (this directory)</h2>
+<ul class="files">
+  <li><code>report.html</code> - this report</li>
+  <li><code>grok-session-transcript.txt</code> - decoded embedded-terminal transcript of the live Grok session</li>
+  <li><code>grok-session-buffer-raw.json</code> - raw Control API buffer (contains the GROK_SESSION_OK_672 response)</li>
+  <li><code>catalog-response.json</code> - live GET /settings/agents/catalog (Grok entry)</li>
+  <li><code>grok-detect-response.json</code> - live POST /settings/agents/detect for Grok (found at the installed path)</li>
+</ul>
+
+<h2>Build &amp; test</h2>
+<ul>
+  <li>Full solution build (<code>dotnet build cc-director.sln</code>): <span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span></li>
+  <li>Slot build (<code>local-build-avalonia.ps1 -Slot 15</code>): cc-director15.exe produced</li>
+  <li><code>CcDirector.Core.Tests</code>: 2327 passed, 0 failed, 6 skipped</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong> Grok Build is a first-class, end-to-end supported agent in
+cc-director, proven live, and the documentation now lists it as a supported agent.</p>
+
+</body>
+</html>

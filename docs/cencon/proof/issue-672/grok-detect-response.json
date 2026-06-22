@@ -1,0 +1,1 @@
+{"type":"Grok","detectable":true,"found":true,"configuredPath":"grok","resolvedPath":"C:\\Users\\soren\\.grok\\bin\\grok.EXE","source":"PATH","message":"Found Grok at C:\\Users\\soren\\.grok\\bin\\grok.EXE."}
