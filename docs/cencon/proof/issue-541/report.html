@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #541 - Developer Agent Proof Report</title>
+<style>
+  body{font-family:Segoe UI,system-ui,Arial,sans-serif;max-width:1000px;margin:0 auto;padding:28px;
+       color:#1c2230;background:#fff;line-height:1.5}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;border-bottom:2px solid #e2e6ee;padding-bottom:5px}
+  h3{font-size:15px;margin:18px 0 6px}
+  .sub{color:#5a6478;margin:0 0 18px}
+  code,pre{font-family:Consolas,ui-monospace,monospace}
+  pre{background:#0b1020;color:#d7e0f5;padding:14px 16px;border-radius:8px;overflow:auto;font-size:12.5px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid #d6dae4;padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#f2f5fb}
+  .pass{color:#1f7a47;font-weight:700}
+  .ok{color:#1f7a47}
+  img{max-width:100%;border:1px solid #d6dae4;border-radius:8px;margin:8px 0}
+  .badge{display:inline-block;background:#1f7a47;color:#fff;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700}
+  .note{background:#f7f9fd;border:1px solid #dde3ee;border-radius:8px;padding:12px 14px;margin:10px 0}
+</style>
+</head>
+<body>
+
+<h1>Issue #541 - Whisper.net local transcription as the default</h1>
+<p class="sub">Developer Agent proof report &middot; CenCon Development Method &middot;
+branch <code>issue-541-local-whisper-default</code></p>
+
+<p><span class="badge">I BELIEVE THIS IS FINISHED</span></p>
+
+<h2>What was implemented</h2>
+<p>Local Whisper.net in-process transcription is now the <b>default</b> transcription mode, so the
+wingman voice screen works offline and out of the box with <b>no API key</b>. OpenAI remains an
+opt-in bring-your-own-key mode, and DevThrottle is rendered as a disabled "Coming soon" card that
+can never be selected (enforced both client-side and server-side).</p>
+
+<table>
+  <tr><th>Area</th><th>Change</th></tr>
+  <tr><td><code>CcDirector.Core/Configuration/TranscriptionMode.cs</code></td>
+      <td>Added <code>TranscriptionMode.Local</code> (config string <code>"local"</code>);
+          <code>Parse()</code> accepts <code>"local"</code> and now defaults to <code>Local</code>
+          when null/empty; the no-fallback error lists all three allowed values.</td></tr>
+  <tr><td><code>CcDirector.Core/Configuration/TranscriptionModeConfig.cs</code></td>
+      <td><code>Default</code> changed from <code>Byo</code> to <code>Local</code>; messages updated.</td></tr>
+  <tr><td><code>CcDirector.Core/Configuration/TranscriptionEndpoint.cs</code></td>
+      <td><code>BaseUrl</code>/<code>KeyName</code> are now nullable; added <code>IsLocal</code>
+          flag and <code>LocalModel</code> (<code>ggml-base.en</code>); resolver has a Local case
+          (no URL, no key, batch transport).</td></tr>
+  <tr><td><code>CcDirector.Core/Voice/Services/WhisperLocalStreamingService.cs</code></td>
+      <td>Added <code>EnsureModelAsync()</code> (reuse-or-download once) and
+          <code>TranscribeWavAsync(byte[])</code> - in-process WAV transcription via Whisper.net.</td></tr>
+  <tr><td><code>CcDirector.Gateway/Api/TranscriptionRoutingEndpoint.cs</code></td>
+      <td>Local mode returns HTTP 200 <code>{mode:"local"}</code> with no key gate; the 404-no-key
+          path now applies to remote modes only.</td></tr>
+  <tr><td><code>CcDirector.Gateway/Api/GatewayWingmanVoiceEndpoint.cs</code></td>
+      <td><code>/wingman/transcribe</code> and <code>/wingman/utterance/{id}/complete</code> branch on
+          mode: Local transcribes in-process (no key check); remote modes keep the OpenAI upload path.</td></tr>
+  <tr><td><code>CcDirector.Gateway/Api/TranscriptionTestEndpoint.cs</code></td>
+      <td>Local mode returns a documented 409 ("local mode - no key required; the local model
+          transcribes in-process") - the smoke test only validates a stored key.</td></tr>
+  <tr><td><code>CcDirector.Gateway/Api/SettingsEndpoints.cs</code></td>
+      <td>PUT <code>/gateway/transcription-mode</code> rejects <code>devthrottle</code> (coming soon)
+          server-side with a 400.</td></tr>
+  <tr><td><code>CcDirector.Cockpit/wwwroot/pages/settings.html</code></td>
+      <td>Three cards: Local (first, pre-selected, no key field), OpenAI (second, opt-in, shows key
+          field when selected), DevThrottle (third, disabled, "Coming soon" badge, unselectable).</td></tr>
+  <tr><td>Tests</td>
+      <td>Updated <code>TranscriptionModeTests</code> + <code>TranscriptionModeConfigTests</code>
+          (Core.Tests) and added Local-mode 200 tests to
+          <code>TranscriptionRoutingEndpointTests</code> (Gateway.Tests).</td></tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>1</td><td><code>Parse("local")</code></td><td><code>Local</code></td><td><code>Local</code> (unit test)</td><td class="pass">PASS</td></tr>
+  <tr><td>2</td><td><code>Parse(null)</code></td><td><code>Local</code> (was Byo)</td><td><code>Local</code> (unit test)</td><td class="pass">PASS</td></tr>
+  <tr><td>3</td><td><code>Parse("byo")</code></td><td><code>Byo</code></td><td><code>Byo</code> (regression unit test)</td><td class="pass">PASS</td></tr>
+  <tr><td>4</td><td>GET /transcription/routing, no mode, no keys</td><td>200 <code>{mode:"local"}</code></td><td>200 <code>{"mode":"local","transport":"batch","model":"ggml-base.en"}</code> (curl + unit test)</td><td class="pass">PASS</td></tr>
+  <tr><td>5</td><td>byo + valid key</td><td>200 byo + baseUrl + key</td><td>unit test <code>Routing_ByoMode_ComposesOpenAiPair</code></td><td class="pass">PASS</td></tr>
+  <tr><td>6</td><td>byo + NO key</td><td>404</td><td>404 <code>{error,mode:"byo"}</code> with marker header (curl + unit test)</td><td class="pass">PASS</td></tr>
+  <tr><td>7</td><td>POST /wingman/transcribe (WAV, no key)</td><td><code>{transcript:"&lt;non-empty&gt;"}</code></td><td><code>{"transcript":"Hello, this is a local transcription test for issue 541."}</code></td><td class="pass">PASS</td></tr>
+  <tr><td>8</td><td>POST /wingman/utterance/{id}/complete (local, no key)</td><td><code>{transcript}</code></td><td><code>{"transcript":"Hello, this is a local transcription test for issue 541."}</code></td><td class="pass">PASS</td></tr>
+  <tr><td>9</td><td>Three cards, Local first/pre-selected</td><td>Local, OpenAI, DevThrottle order</td><td>see screenshot - Local pre-selected</td><td class="pass">PASS</td></tr>
+  <tr><td>10</td><td>DevThrottle disabled "Coming soon", unselectable, no key field, never saved active</td><td>disabled card + badge; click does nothing; server 400</td><td>radio <code>disabled:true</code>, click keeps <code>checked:false</code>; PUT devthrottle -> 400</td><td class="pass">PASS</td></tr>
+  <tr><td>11</td><td>Local hides key field; OpenAI shows it</td><td>panel toggles per mode</td><td>Local: no key field; OpenAI: "OpenAI API key" input shown (screenshots)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof 1 - Cockpit Settings, Transcription tab (Local pre-selected, DevThrottle "Coming soon")</h2>
+<p>Local (Whisper.net) is the first card and pre-selected (blue radio, highlighted border), with no
+API key field. OpenAI is second. DevThrottle is third, greyed out with a "COMING SOON" badge and a
+disabled radio.</p>
+<img src="settings-transcription-tab.png" alt="Settings Transcription tab, Local pre-selected">
+
+<h3>Selecting OpenAI shows the key field; DevThrottle stays disabled</h3>
+<img src="settings-openai-selected.png" alt="OpenAI selected shows the API key input field">
+
+<h2>Proof 2 &amp; 3 - Gateway curl responses (default mode = local, EMPTY vault / no keys)</h2>
+<p>Captured against the real Gateway endpoints booted in-process with an empty vault and no
+<code>transcription_mode</code> configured (so the default resolves to <code>local</code>). Full
+capture in <code>curl-proofs.txt</code>.</p>
+<pre>
+[1] GET /transcription/routing  (no keys configured)
+HTTP/1.1 200 OK
+X-Transcription-Routing: 1
+{"mode":"local","transport":"batch","model":"ggml-base.en"}
+
+[2] POST /wingman/transcribe  (16kHz mono WAV, no keys)
+HTTP/1.1 200 OK
+{"transcript":"Hello, this is a local transcription test for issue 541."}
+
+[3] POST /wingman/utterance/{id}/complete  (chunked, local, no keys)
+{"transcript":"Hello, this is a local transcription test for issue 541."}
+</pre>
+<div class="note">The transcript is returned with <b>no key in the vault</b>. The remote path would
+return HTTP 503 ("no key configured") - getting the correct text instead proves the in-process
+Whisper.net path executed. The test clip (<code>testclip.wav</code>, 16&nbsp;kHz mono) is committed
+alongside this report. The <code>ggml-base.en.bin</code> model was already present, so
+<code>EnsureModelAsync()</code> reused it (the one-time auto-download path is exercised only when the
+file is absent).</div>
+
+<h2>Tests</h2>
+<pre>
+CcDirector.Core.Tests   (Transcription + OpenAiKeyResolver + Whisper filter):  84 passed, 0 failed
+CcDirector.Gateway.Tests (full suite):                                        851 passed, 1 skipped, 0 failed
+dotnet build cc-director.sln:                                                  Build succeeded. 0 Warning(s) 0 Error(s)
+</pre>
+<p>Issue506RoutingProofTests and Issue513TransportRoutingProofTests remain green (they set their
+mode explicitly and are unaffected by the default change).</p>
+
+<h2>CenCon impact</h2>
+<p><b>No architecture or security drift.</b> Local mode is an internal capability that removes the
+external dependency for the default path (no remote call, no credential) and adds none - the
+Whisper.net library was already a dependency. The security-critical invariant (the bring-your-own
+OpenAI key is never paired with the devthrottle.com URL) is preserved by the single pure resolver;
+local mode carries no key at all, which is strictly safer. No blocking security rule
+(DT-01..DT-NN) is touched.</p>
+
+</body>
+</html>

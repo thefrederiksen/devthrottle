@@ -42,12 +42,29 @@ internal static class TranscriptionRoutingEndpoint
             var mode = TranscriptionModeConfig.Get();
             var endpoint = TranscriptionEndpointResolver.Resolve(mode);
 
-            var key = vault.Get(endpoint.KeyName);
+            // Local mode (issue #541): in-process Whisper.net, no key and no remote endpoint. Local
+            // is ALWAYS available (the model is auto-downloaded on first use), so it NEVER hits the
+            // key gate below - it returns 200 { mode: "local" } with no baseUrl/key. The 404-no-key
+            // path is for the remote modes (byo, devthrottle) only.
+            if (endpoint.IsLocal)
+            {
+                FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode=local (in-process), transport={endpoint.Transport.ToConfigString()}, model={endpoint.Model}");
+                return Results.Json(new
+                {
+                    mode = endpoint.Mode.ToConfigString(),
+                    transport = endpoint.Transport.ToConfigString(),
+                    model = endpoint.Model,
+                });
+            }
+
+            // Remote modes carry a vault key name; RequireKeyName is non-null for byo/devthrottle.
+            var keyName = endpoint.RequireKeyName();
+            var key = vault.Get(keyName);
             if (string.IsNullOrWhiteSpace(key))
             {
                 // No silent default: the Gateway reachable but the key for this mode is not set yet.
                 // The Director reports transcription unavailable for the mode (never a baked-in URL).
-                FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, no key for {endpoint.KeyName}");
+                FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, no key for {keyName}");
                 return Results.NotFound(new { error = "no key set for the current transcription mode", mode = endpoint.Mode.ToConfigString() });
             }
 

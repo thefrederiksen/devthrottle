@@ -51,31 +51,44 @@ public static class TranscriptionTransportExtensions
 }
 
 /// <summary>
-/// The resolved transcription target for a <see cref="TranscriptionMode"/> (issue #497): which
+/// The resolved transcription target for a <see cref="TranscriptionMode"/> (issue #497, #541): which
 /// base URL the OpenAI-compatible transcription client points at, which vault key name holds the
 /// credential it presents, which transport the pipeline must use, and which model. Pure, immutable,
 /// unit-tested - this is the single place that decides routing, so the security-critical rule
 /// ("the bring-your-own OpenAI key is NEVER sent to devthrottle.com") is provable in one spot.
+///
+/// Local mode (issue #541) is the exception: it runs Whisper.net in-process with no remote endpoint
+/// and no credential, so <see cref="BaseUrl"/> and <see cref="KeyName"/> are null and
+/// <see cref="IsLocal"/> is true. Callers must branch on <see cref="IsLocal"/> before reaching for
+/// the URL or key (there is none to fetch).
 /// </summary>
 public sealed record TranscriptionEndpoint
 {
-    /// <summary>The OpenAI-compatible base URL, e.g. <c>https://api.openai.com/v1</c>.</summary>
-    public required string BaseUrl { get; init; }
+    /// <summary>
+    /// The OpenAI-compatible base URL, e.g. <c>https://api.openai.com/v1</c>. Null in
+    /// <see cref="TranscriptionMode.Local"/> mode (in-process, no remote endpoint - issue #541).
+    /// </summary>
+    public string? BaseUrl { get; init; }
 
-    /// <summary>The vault key name that holds the credential for this mode.</summary>
-    public required string KeyName { get; init; }
+    /// <summary>
+    /// The vault key name that holds the credential for this mode. Null in
+    /// <see cref="TranscriptionMode.Local"/> mode (in-process, no key required - issue #541).
+    /// </summary>
+    public string? KeyName { get; init; }
 
     /// <summary>
     /// The transport the dictation pipeline must use for this mode (issue #513). Part of the routing
     /// target so the pipeline never opens a wire the provider does not offer - DevThrottle/Groq is
-    /// batch-only, BYO/OpenAI is realtime. Pinned in the same pure spot that pins the URL and model.
+    /// batch-only, BYO/OpenAI is realtime, and local Whisper.net is batch (record then transcribe).
+    /// Pinned in the same pure spot that pins the URL and model.
     /// </summary>
     public required TranscriptionTransport Transport { get; init; }
 
     /// <summary>
-    /// The transcription model this mode uses - provider-correct (issue #513): <c>gpt-4o-transcribe</c>
-    /// for BYO/OpenAI, <c>whisper-large-v3</c> for DevThrottle/Groq (the proxy returns 404
-    /// model_not_found for gpt-4o-transcribe). Part of the routing target so the Gateway serves the
+    /// The transcription model this mode uses - provider-correct (issue #513, #541):
+    /// <c>gpt-4o-transcribe</c> for BYO/OpenAI, <c>whisper-large-v3</c> for DevThrottle/Groq (the
+    /// proxy returns 404 model_not_found for gpt-4o-transcribe), and the local ggml model name for
+    /// <see cref="TranscriptionMode.Local"/>. Part of the routing target so the Gateway serves the
     /// full pair in one call (issue #506) - the same pure spot that pins the URL also pins the model.
     /// </summary>
     public required string Model { get; init; }
@@ -85,6 +98,30 @@ public sealed record TranscriptionEndpoint
 
     /// <summary>True when this endpoint targets DevThrottle's managed proxy.</summary>
     public bool IsDevThrottle => Mode == TranscriptionMode.DevThrottle;
+
+    /// <summary>
+    /// True when transcription runs locally in-process (Whisper.net, issue #541): no remote call,
+    /// no API key, no base URL. Callers must check this before using <see cref="BaseUrl"/> /
+    /// <see cref="KeyName"/>, which are null in this mode.
+    /// </summary>
+    public bool IsLocal => Mode == TranscriptionMode.Local;
+
+    /// <summary>
+    /// The vault key name for a remote mode, guaranteed non-null. Throws in local mode (which has
+    /// no key) - call only after checking <see cref="IsLocal"/> is false. This avoids the
+    /// null-forgiving operator at call sites (CodingStyle: <c>!</c> is forbidden).
+    /// </summary>
+    public string RequireKeyName() => KeyName
+        ?? throw new InvalidOperationException(
+            $"transcription mode {Mode.ToConfigString()} has no vault key name (it is in-process)");
+
+    /// <summary>
+    /// The remote base URL for a remote mode, guaranteed non-null. Throws in local mode (which has
+    /// no remote endpoint) - call only after checking <see cref="IsLocal"/> is false.
+    /// </summary>
+    public string RequireBaseUrl() => BaseUrl
+        ?? throw new InvalidOperationException(
+            $"transcription mode {Mode.ToConfigString()} has no base URL (it is in-process)");
 }
 
 /// <summary>
@@ -122,9 +159,28 @@ public static class TranscriptionEndpointResolver
     /// </summary>
     public const string DevThrottleModel = "whisper-large-v3";
 
+    /// <summary>
+    /// The local Whisper.net model name (issue #541). The base English ggml model that
+    /// <c>WhisperLocalStreamingService.DownloadModelAsync(GgmlType.Base)</c> auto-downloads on first
+    /// local use. Carried in the routing target so the Gateway names the model in the local-mode
+    /// response, the same way it names the provider model for the remote modes.
+    /// </summary>
+    public const string LocalModel = "ggml-base.en";
+
     /// <summary>Resolve the routing target for <paramref name="mode"/> (URL + key + transport + model).</summary>
     public static TranscriptionEndpoint Resolve(TranscriptionMode mode) => mode switch
     {
+        // Local (issue #541): in-process Whisper.net. No base URL, no vault key - the model runs on
+        // this machine. Batch transport (record then transcribe), which is what the voice screen
+        // already does. IsLocal is what callers branch on; BaseUrl/KeyName are deliberately null.
+        TranscriptionMode.Local => new TranscriptionEndpoint
+        {
+            BaseUrl = null,
+            KeyName = null,
+            Transport = TranscriptionTransport.Batch,
+            Model = LocalModel,
+            Mode = TranscriptionMode.Local,
+        },
         TranscriptionMode.Byo => new TranscriptionEndpoint
         {
             BaseUrl = OpenAiBaseUrl,
