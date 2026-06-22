@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #631 - Director-startup telemetry endpoint - Developer Proof</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 0 0 64px; color: #1b1f24; background: #f6f8fa; }
+  header { background: #0d1b2a; color: #fff; padding: 28px 40px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header .sub { color: #9fb3c8; font-size: 14px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { background: #fff; border: 1px solid #d7dee6; border-radius: 8px; margin: 24px 0; padding: 20px 24px; }
+  h2 { font-size: 18px; margin: 0 0 12px; border-bottom: 2px solid #eef1f4; padding-bottom: 8px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid #e1e7ee; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #0a7d33; font-weight: 700; }
+  .fail { color: #b31d28; font-weight: 700; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+  .pill.pass { background: #def7e5; color: #0a7d33; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1b2a; color: #d7e3ee; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+  .files li { margin: 4px 0; }
+  .note { background: #fff8e6; border: 1px solid #f0d999; border-radius: 6px; padding: 10px 14px; font-size: 13px; }
+  .verdict { font-size: 16px; font-weight: 700; color: #0a7d33; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Issue #631 - Director-startup telemetry endpoint (record + best-effort cloud-forward)</h1>
+  <div class="sub">Gateway Centralization Phase 1 &middot; Containers: CcDirector.Gateway, CcDirector.Gateway.Tests &middot; Developer Agent proof</div>
+</header>
+<main>
+
+<section>
+  <h2>What was implemented</h2>
+  <p>
+    A new Gateway endpoint <code>POST /telemetry/director-startup</code> accepting
+    <code>{ "director_id": "...", "machine_name": "...", "app_version": "..." }</code>. It always
+    <strong>records the event Gateway-side</strong> (a log line carrying <code>director_id</code> +
+    <code>app_version</code>) so a Director startup is observable on the Gateway, then
+    <strong>best-effort forwards it to the cloud only when a startup endpoint is configured</strong>
+    via the <code>DEVTHROTTLE_STARTUP_TELEMETRY_URL</code> environment variable. The backend has no
+    Director-startup endpoint yet (a flagged dependency), so forwarding is gated on configuration:
+    with no URL set, the event is recorded locally, a "no cloud startup endpoint configured" line is
+    logged, and the caller still gets <code>202 Accepted</code> - no error. When a URL IS configured,
+    the event is enqueued into the <strong>same durable retry queue the login relay uses</strong>
+    (issues #628 / #629), so delivery, retry-with-backoff, FIFO flush, the bound, and restart survival
+    are reused - this endpoint adds no new forwarder. Unlike the login relay, a startup event carries
+    no inbound Bearer (Phase 1 startup is unauthenticated to the cloud per the provisional contract).
+  </p>
+  <h3>Changes</h3>
+  <ul>
+    <li><code>src/CcDirector.Gateway/Api/DirectorStartupTelemetryEndpoint.cs</code> - NEW. Maps
+        <code>POST /telemetry/director-startup</code>; resolves the optional startup URL (no default);
+        records the event; conditionally enqueues into the shared <code>TelemetryRetryQueue</code>;
+        returns 202 on both paths. A malformed body still records (with <code>(none)</code>
+        placeholders) and still returns 202 - the inbound event is best-effort observability, never a
+        validation gate on the 202.</li>
+    <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - wires the new endpoint, reusing the
+        existing <code>_telemetryQueue</code> (no new construction).</li>
+    <li><code>src/CcDirector.Gateway.Tests/DirectorStartupTelemetryEndpointTests.cs</code> - NEW.
+        5 tests covering the record-only path, the configured-forward path, the 202-for-valid-body
+        criterion, and <code>ResolveTargetUrl</code> (no-env -> null, with-env -> override).</li>
+    <li><code>docs/cencon/architecture_manifest.yaml</code> - lists the new endpoint component next to
+        its sibling <code>TelemetryRelayEndpoint</code> (keeps the CenCon container inventory current).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <p>Proven against the <strong>real production <code>GatewayHost</code></strong> over real HTTP, with a
+     local stub cloud startup endpoint, plus a <strong>literal <code>curl</code></strong> against the
+     Gateway dev console host. Summary: <span class="pill pass">ALL ACCEPTANCE CRITERIA: PASS</span></p>
+
+  <table>
+    <tr><th style="width:7%">AC</th><th style="width:34%">Expected</th><th style="width:44%">Actual (observed)</th><th style="width:15%">Result</th></tr>
+    <tr>
+      <td><strong>1</strong></td>
+      <td><code>POST /telemetry/director-startup</code> returns <strong>202 Accepted</strong> for a valid body.</td>
+      <td>A literal <code>curl -i -X POST .../telemetry/director-startup</code> with body
+          <code>{director_id, machine_name, app_version}</code> returned
+          <strong>HTTP/1.1 202 Accepted</strong>. The harness POST against the real <code>GatewayHost</code>
+          also returned 202. See <code>curl-record-only.txt</code>, <code>harness.log</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>2</strong></td>
+      <td>The event is recorded Gateway-side (a record/log line shows <code>director_id</code> + <code>app_version</code>).</td>
+      <td>The Gateway log shows
+          <code>[DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=dir-curl-recordonly, app_version=631.0.7</code>
+          for the curl, and matching lines for both harness runs
+          (<code>dir-record-only-631 / 631.0.1</code> and <code>dir-forward-631 / 631.9.9</code>). See
+          <code>curl-record-only-gateway-log.txt</code>, <code>gateway-startup-log-lines.txt</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>3</strong></td>
+      <td>With <code>DEVTHROTTLE_STARTUP_TELEMETRY_URL</code> set to a local stub, the event is forwarded
+          to the stub (stub request log shown).</td>
+      <td>With the env var pointed at the stub, the harness posted one startup event and the stub
+          received <strong>exactly one</strong> POST to <code>/api/v1/telemetry/director-startup</code>
+          carrying the body unchanged
+          (<code>director_id=dir-forward-631, app_version=631.9.9</code>). See
+          <code>stub-requests.log</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>4</strong></td>
+      <td>With no startup cloud URL configured, the endpoint still returns 202 and records locally, with
+          a log line stating no cloud startup endpoint is configured (no error).</td>
+      <td>With the env var unset, the curl and the harness POST both returned <strong>202</strong>; the
+          Gateway log carries
+          <code>[DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded</code>;
+          and <strong>nothing was forwarded</strong> (stub received 0; persisted queue depth = 0 -
+          nothing enqueued). See <code>curl-record-only*.txt</code>, <code>results.json</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td><strong>5</strong></td>
+      <td>Unit tests cover the record-only path (no cloud URL) and the configured-forward path.</td>
+      <td>5 new tests pass:
+          <code>PostDirectorStartup_NoCloudUrl_RecordsLocallyAndDoesNotForward</code> (asserts 202, the
+          record line, the not-configured line, and zero forwards) and
+          <code>PostDirectorStartup_WithCloudUrl_ForwardsExactlyOnceWithBody</code> (asserts the single
+          forwarded POST with the body intact), plus
+          <code>PostDirectorStartup_WithValidBody_Returns202</code> and the two
+          <code>ResolveTargetUrl</code> tests. The whole 22-test telemetry suite (these + the #628 relay
+          and #629 queue tests) passes - no regression. See <code>unit-test-output.txt</code>.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Live-run evidence</h2>
+  <h3>Literal curl - record-only path (no cloud URL), returns 202</h3>
+  <pre>HTTP/1.1 202 Accepted
+Content-Length: 0
+Server: Kestrel</pre>
+  <h3>Gateway-side record lines (the literal curl)</h3>
+  <pre>[DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=dir-curl-recordonly, app_version=631.0.7
+[DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded</pre>
+  <h3>Configured-forward path - the stub received the forwarded POST</h3>
+  <pre># Stub cloud startup endpoint - forwarded director-startup requests received (proof of delivery)
+body={"director_id":"dir-forward-631","machine_name":"WORKSTATION-B","app_version":"631.9.9"}</pre>
+  <p class="note">The harness boots the real production <code>GatewayHost</code> (the same class the tray
+     app hosts) over real HTTP. It runs PHASE A with the env var unset (record-only) then PHASE B with the
+     env var set to the stub (forward), and prints <strong>ALL ACCEPTANCE CRITERIA: PASS</strong>. The
+     literal curl run was done separately against the Gateway dev console host on a fixed port.</p>
+</section>
+
+<section>
+  <h2>CenCon impact</h2>
+  <p>No architecture or security-posture drift. This endpoint is structurally parallel to the already-documented
+     <code>TelemetryRelayEndpoint</code> (issue #628) in the same container; it adds no new egress class
+     (it reuses the #629 queue as the forwarder) and no new credential surface (a startup event carries no
+     Bearer). No blocking security rule (DT-*) is affected. The new endpoint component is added to
+     <code>docs/cencon/architecture_manifest.yaml</code> beside its sibling so the container inventory stays
+     accurate. Forwarding is gated on an explicit operator configuration, consistent with the issue's flagged
+     backend dependency.</p>
+</section>
+
+<section>
+  <h2>Proof artifacts (this directory)</h2>
+  <ul class="files">
+    <li><code>report.html</code> - this report</li>
+    <li><code>curl-record-only.txt</code> - the literal curl request + the <code>202 Accepted</code> response (AC1, AC4)</li>
+    <li><code>curl-record-only-gateway-log.txt</code> - the Gateway record line + the not-configured line from the curl (AC2, AC4)</li>
+    <li><code>gateway-startup-log-lines.txt</code> - the live Gateway log's director-startup lines, both paths (AC2)</li>
+    <li><code>stub-requests.log</code> - the stub cloud endpoint's received forwarded POST (AC3)</li>
+    <li><code>harness.log</code> - the full live-run transcript (real GatewayHost, real HTTP, both phases)</li>
+    <li><code>results.json</code> - machine-readable per-criterion results (allPass=true)</li>
+    <li><code>unit-test-output.txt</code> - the 5 passing director-startup unit tests</li>
+    <li><code>_proof-harness/Program.cs</code> + <code>_proof-harness/Issue631Proof.csproj</code> - the reproducible proof harness source</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Verdict</h2>
+  <p class="verdict">I believe this is finished. All five acceptance criteria are met and proven against the
+     real <code>GatewayHost</code> (and a literal curl), the configured-forward and record-only paths both
+     behave as specified, the full solution builds with 0 warnings / 0 errors, and the unit tests pass with
+     no regression to the existing telemetry suite.</p>
+</section>
+
+</main>
+</body>
+</html>

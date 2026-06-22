@@ -1,0 +1,33 @@
+{
+  "allPass": true,
+  "stubUrl": "http://127.0.0.1:52619/api/v1/telemetry/director-startup",
+  "retrySeconds": 2,
+  "results": [
+    {
+      "ac": "AC1 - POST /telemetry/director-startup returns 202 for a valid body",
+      "pass": true,
+      "detail": "returned 202 Accepted for body {director_id, machine_name, app_version}"
+    },
+    {
+      "ac": "AC4 - no cloud URL: still 202, recorded locally, not forwarded (no error)",
+      "pass": true,
+      "detail": "202 with no URL; stub received 0 (expect 0); queue depth=0 (expect 0 - nothing enqueued)"
+    },
+    {
+      "ac": "AC3 - with a startup URL configured, the event is forwarded to the stub",
+      "pass": true,
+      "detail": "202 to caller; stub received 1 POST (director_id=dir-forward-631, app_version=631.9.9); body forwarded unchanged"
+    },
+    {
+      "ac": "AC2 - the event is recorded Gateway-side (record line: director_id \u002B app_version)",
+      "pass": true,
+      "detail": "record-only run logged director_id=dir-record-only-631 app_version=631.0.1 = True; forward run logged director_id=dir-forward-631 app_version=631.9.9 = True"
+    },
+    {
+      "ac": "AC4 (log) - record-only run logs that no cloud startup endpoint is configured",
+      "pass": true,
+      "detail": "\u0022no cloud startup endpoint configured\u0022 line present = True"
+    }
+  ],
+  "stubLog": "D:\\ReposFred\\devthrottle-wt-631\\docs\\cencon\\proof\\issue-631\\stub-requests.log"
+}

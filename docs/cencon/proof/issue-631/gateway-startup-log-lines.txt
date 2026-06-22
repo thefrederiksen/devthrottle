@@ -1,0 +1,4 @@
+2026-06-22 07:14:27.288 [DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=dir-record-only-631, app_version=631.0.1
+2026-06-22 07:14:27.288 [DirectorStartupTelemetryEndpoint] no cloud startup endpoint configured (DEVTHROTTLE_STARTUP_TELEMETRY_URL unset); recorded locally only, not forwarded
+2026-06-22 07:14:28.228 [DirectorStartupTelemetryEndpoint] director-startup recorded: director_id=dir-forward-631, app_version=631.9.9
+2026-06-22 07:14:28.228 [DirectorStartupTelemetryEndpoint] forwarding configured -> enqueue for http://127.0.0.1:52619/api/v1/telemetry/director-startup
