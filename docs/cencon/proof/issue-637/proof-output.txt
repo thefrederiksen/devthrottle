@@ -1,0 +1,29 @@
+=== Issue #637 proof: Gateway browser loopback sign-in, end to end against tools/devthrottle-dev-signin ===
+dev sign-in URL: http://127.0.0.1:8765/signin
+
+[AC1] With no stored credential, the Gateway reports signed-in:
+      IsSignedIn() = False   EXPECTED: False (so the tray prompts + shows 'Sign in to DevThrottle')
+
+[AC2] Running the browser loopback sign-in against the dev sign-in tool...
+[browser] opened system browser at: http://127.0.0.1:8765/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A57115%2Fdevthrottle-login-callback%2F
+[browser] user chose 'Continue with email' -> GET http://127.0.0.1:8765/complete (follows the 302 to the loopback callback)
+[browser] loopback callback responded 200 (the listener captured the credential)
+      sign-in succeeded = True   EXPECTED: True
+      IsSignedIn() = True   EXPECTED: True
+      identity email = gateway.dev@example.com, provider = email   EXPECTED: gateway.dev@example.com / email
+      credential blob written = True   EXPECTED: True
+
+[AC3] Subsequent launch with a stored credential (fresh service over the same store):
+      IsSignedIn() = True   EXPECTED: True (so the tray does NOT prompt and the browser is NOT opened)
+
+[AC4] Cancelled sign-in on a fresh, no-credential Gateway leaves it un-signed-in and retryable:
+      cancelled sign-in succeeded = False   EXPECTED: False
+      failure reason (user-safe) = "Sign-in was cancelled."
+      IsSignedIn() = False   EXPECTED: False
+      IsSignInRunning (guard released, retryable) = False   EXPECTED: False (a new attempt can start)
+      no crash = True
+
+[SECURITY] Token never written in plaintext to the credential blob (DT-05):
+      access token present as plaintext in blob = False   EXPECTED: False (encrypted at rest)
+
+RESULT: ALL ACCEPTANCE CRITERIA PASS

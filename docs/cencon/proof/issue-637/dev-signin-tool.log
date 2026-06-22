@@ -1,0 +1,6 @@
+[dev-signin] Listening on http://127.0.0.1:8765/signin
+[dev-signin] Point the Director at it:  DEVTHROTTLE_SIGNIN_URL=http://127.0.0.1:8765/signin
+[dev-signin] Signing secret: <default dev secret>
+[dev-signin] Ctrl+C to stop.
+[dev-signin] GET /complete
+[dev-signin] Completing sign-in (provider=email, email=gateway.dev@example.com) -> redirecting to loopback callback

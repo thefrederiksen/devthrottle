@@ -106,6 +106,16 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Core.Account.DevThrottleAccountService? Account { get; }
 
+    /// <summary>
+    /// Issue #637 (Gateway Centralization Phase 2): the browser loopback sign-in flow relocated onto
+    /// the Gateway. Built over <see cref="Account"/>, it opens the system browser at the configured
+    /// sign-in address, captures the credential the sign-in completion hands back on the loopback
+    /// callback, and stores it through the credential service. Null on a host with no credential
+    /// service (a non-Windows host, where <see cref="Account"/> is null) - the tray then has nothing
+    /// to prompt and stays inert. Tokens are never logged.
+    /// </summary>
+    public Account.GatewaySignInService? SignIn { get; }
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
@@ -293,6 +303,15 @@ public sealed class GatewayHost : IAsyncDisposable
             Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows();
         else
             FileLog.Write("[GatewayHost] DevThrottle credential service not built: operating-system credential store is Windows-only for now");
+
+        // The browser loopback sign-in flow relocated onto the Gateway (issue #637). It is built over
+        // the credential service, so it exists only when that service does - on a host with no
+        // credential service (a non-Windows host) there is nothing to sign in to and the tray stays
+        // inert. The reused Core coordinator opens the browser and captures the loopback hand-back.
+        if (Account is not null)
+            SignIn = new Account.GatewaySignInService(Account);
+        else
+            FileLog.Write("[GatewayHost] DevThrottle sign-in flow not built: no credential service on this host");
     }
 
     /// <summary>
