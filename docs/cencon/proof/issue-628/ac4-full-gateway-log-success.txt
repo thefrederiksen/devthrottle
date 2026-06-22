@@ -1,0 +1,40 @@
+2026-06-22 05:36:58.284 [Program] CC Director Gateway (dev console host) starting, log: D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\logs\director\director-2026-06-22-61996.log
+2026-06-22 05:36:58.330 [GatewayWorker] ExecuteAsync: port=9629
+2026-06-22 05:36:58.441 [GatewayAuth] Generated new token at D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\config\director\gateway-token.txt
+2026-06-22 05:36:58.456 [GatewayHost] brain tool: ClaudeCode, model: opus
+2026-06-22 05:36:58.460 [WorkListStore] Load: no store file at D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\worklists.json; starting empty
+2026-06-22 05:36:58.460 [CronJobStore] Load: no store file at D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\cronjobs.json; starting empty
+2026-06-22 05:36:58.460 [CronRunHistoryStore] Load: no store file at D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\cronruns.json; starting empty
+2026-06-22 05:36:58.606 [GatewayHost] StartAsync: port=9629
+2026-06-22 05:36:58.608 [KeyVault] SetIfAbsent: OPENAI_API_KEY seeded (length=164)
+2026-06-22 05:36:58.608 [GatewayHost] seeded vault OPENAI_API_KEY from the user environment (one-time bootstrap)
+2026-06-22 05:36:58.608 [TailscaleServeProvisioner] Start: gatewayPort=9629
+2026-06-22 05:36:58.609 [DirectorRegistry] Start: watching D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\config\director\instances
+2026-06-22 05:36:58.610 [LauncherRegistry] Sweep timer started (30s interval)
+2026-06-22 05:36:58.611 [AdvertisedEndpointMonitor] Start: probing advertised endpoints every 15s
+2026-06-22 05:36:58.611 [GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)
+2026-06-22 05:36:58.612 [TurnEndWatcher] Start: reconcile=15s for non-pushing Directors
+2026-06-22 05:36:58.645 [WorkListEndpoints] mapped /lists routes
+2026-06-22 05:36:58.646 [CronJobEndpoints] mapped /cron/jobs routes
+2026-06-22 05:36:58.646 [CronRunEndpoints] mapped /cron/jobs/{id}/run + /runs routes
+2026-06-22 05:36:58.646 [WorkListRunnerEndpoints] mapped /lists/{name}/run route
+2026-06-22 05:36:58.647 [CockpitProxy] fallback proxy -> http://127.0.0.1:7470
+2026-06-22 05:36:58.650 [TailscaleServeProvisioner] mapped --https=443 -> http://localhost:9629 (gateway)
+2026-06-22 05:36:58.661 [GatewayHost] listening on http://127.0.0.1:9629 (version 0.9.13+644846aea79dc018021c02dc3deda77a0cf6b97b)
+2026-06-22 05:36:58.661 [GatewayHost] cron sweep started: every 60s
+2026-06-22 05:36:58.676 [TailscaleServeProvisioner] --https=7470 already absent (legacy cockpit (one-URL: served via the front door))
+2026-06-22 05:36:58.704 [TailscaleServeProvisioner] Reconcile: removing orphan --https=7880 (no live local Director)
+2026-06-22 05:36:58.735 [TailscaleServeProvisioner] removed --https=7880 (orphan)
+2026-06-22 05:36:58.786 [CockpitSupervisor] enabled but Cockpit exe not found at D:/ReposFred/devthrottle-wt-628/docs/cencon/proof/issue-628/gw-root-success\cockpit\devthrottle-cockpit.exe; not launching
+2026-06-22 05:36:58.786 [GatewayWorker] running on http://127.0.0.1:9629
+2026-06-22 05:37:08.504 [TelemetryRelayEndpoint] POST /telemetry/login -> forwarding to http://127.0.0.1:9628/api/v1/telemetry/login (bearerPresent=True)
+2026-06-22 05:37:08.548 [TelemetryRelayEndpoint] forward OK: http://127.0.0.1:9628/api/v1/telemetry/login -> 200
+2026-06-22 05:37:08.549 [GatewayHost] POST /telemetry/login -> 202 (47ms) client=127.0.0.1 host=127.0.0.1:9629
+2026-06-22 05:37:58.644 [TailscaleServeProvisioner] FrontDoorWatch: 443 front door missing or wrong backend (observed: http://localhost:7878, expected: http://localhost:9629) - re-asserting (issue #200)
+2026-06-22 05:37:58.669 [TailscaleServeProvisioner] mapped --https=443 -> http://localhost:9629 (gateway (front-door watch))
+2026-06-22 05:38:58.648 [TailscaleServeProvisioner] FrontDoorWatch: 443 front door missing or wrong backend (observed: http://localhost:9631, expected: http://localhost:9629) - re-asserting (issue #200)
+2026-06-22 05:38:58.676 [TailscaleServeProvisioner] mapped --https=443 -> http://localhost:9629 (gateway (front-door watch))
+2026-06-22 05:39:58.650 [TailscaleServeProvisioner] FrontDoorWatch: 443 front door missing or wrong backend (observed: http://localhost:9631, expected: http://localhost:9629) - re-asserting (issue #200)
+2026-06-22 05:39:58.675 [TailscaleServeProvisioner] mapped --https=443 -> http://localhost:9629 (gateway (front-door watch))
+2026-06-22 05:40:58.637 [TailscaleServeProvisioner] FrontDoorWatch: 443 front door missing or wrong backend (observed: http://localhost:9631, expected: http://localhost:9629) - re-asserting (issue #200)
+2026-06-22 05:40:58.664 [TailscaleServeProvisioner] mapped --https=443 -> http://localhost:9629 (gateway (front-door watch))
