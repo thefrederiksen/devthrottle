@@ -1,0 +1,8 @@
+Director startup log excerpt (slot-6 test Director, build 8f2cad8). Shows the startup gate decided Start and the main window was shown (no account gate). Timestamps trimmed; no token, no username.
+
+11:11:37.850 [AccountGatePolicy] Decide: evaluating startup gate (local check, no network call)
+11:11:37.850 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+11:11:37.851 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+11:11:37.851 [AccountGatePolicy] Decide: loggedIn=False, decision=Start (interim: local credential no longer gates startup, issue #664)
+11:11:37.851 [CcDirector] Account startup gate decided Start (interim: local credential no longer gates startup, issue #664); showing the main window
+11:11:38.313 [CcDirector] Main window shown; starting background session validation next

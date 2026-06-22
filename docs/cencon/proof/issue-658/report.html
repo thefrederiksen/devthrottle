@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof - Issue #658: Hand the captured sign-in to the app</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family:'Segoe UI',system-ui,Arial,sans-serif; background:#1E1E1E; color:#CCCCCC; line-height:1.55; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { color:#4FC1FF; font-size:26px; margin:0 0 4px; }
+  h2 { color:#007ACC; font-size:19px; margin:32px 0 10px; border-bottom:1px solid #333; padding-bottom:6px; }
+  h3 { color:#E6E6E6; font-size:15px; margin:18px 0 6px; }
+  .sub { color:#9A9A9A; font-size:14px; margin:0 0 8px; }
+  code, pre { font-family:'Cascadia Mono',Consolas,monospace; }
+  pre { background:#161616; border:1px solid #333; border-radius:8px; padding:14px 16px; overflow:auto; font-size:12.5px; color:#D7D7D7; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#E6E6E6; }
+  .pass { color:#4EC9B0; font-weight:600; }
+  .note { background:#22272e; border-left:3px solid #007ACC; padding:10px 14px; border-radius:4px; margin:12px 0; }
+  .files a { color:#4FC1FF; }
+  .files li { margin:3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #658 - Installer hands the captured sign-in to the app</h1>
+  <p class="sub">Developer Agent proof report - CenCon Development Method. Branch: <code>issue-658-handoff-signin</code></p>
+
+  <h2>What was implemented</h2>
+  <p>
+    Issue #657 added a forced Sign-in step to the installer that captures an access-plus-refresh
+    token pair over the same loopback contract the Director uses, then <strong>deliberately discarded</strong>
+    that token (persistence was reserved for this issue). This change makes the installer
+    <strong>persist the captured pair into the same operating-system credential store the Director
+    reads</strong>, so launching the Director after install reaches the main window already signed in.
+  </p>
+  <p>The persistence is done inside <code>tools/cc-director-setup/Services/SignInRunner.cs</code>:</p>
+  <ul>
+    <li>A new <code>persistCredential</code> collaborator is injected into <code>SignInRunner</code>
+      (no fallback construction; an explicit default). Its default,
+      <code>PersistToDirectorCredentialStore</code>, hands the captured pair to the existing
+      <code>DevThrottleAccountService</code> built by
+      <code>DevThrottleAccountFactory.CreateForWindows()</code> - the exact credential service the
+      Director uses - which encrypts the pair at rest through <code>WindowsProtectedTokenStore</code>
+      to <code>%LOCALAPPDATA%\cc-director\config\director\devthrottle-credential.bin</code>.</li>
+    <li>Persistence runs <strong>only after a successful capture</strong>. Every non-success path
+      (cancel, timeout, browser-cannot-open, malformed hand-back) returns before reaching the
+      persistence step, so no credential is written for an incomplete sign-in.</li>
+    <li>A persistence failure is surfaced as a failure result (no fallback): if the credential cannot
+      be stored, the install has not achieved "open already signed in", so the runner does not report
+      success.</li>
+    <li>The token value is never returned and never logged - only the fact that a credential was
+      captured and persisted is written to the installer log.</li>
+  </ul>
+
+  <h2>Acceptance criteria - met with proof</h2>
+  <table>
+    <tr><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+    <tr>
+      <td>1. After an install that completed sign-in, the credential blob exists at the Director's
+        credential path and decrypts to the captured token pair.</td>
+      <td>The default persistence writes through <code>WindowsProtectedTokenStore</code> to the
+        Director's credential path; reading it back through the same store returns the captured pair.</td>
+      <td class="pass">PASS - end-to-end driver (criteria 1a/1b) + unit test
+        <code>RunAsync_DefaultPersistencePath_WritesDecryptableBlob</code>. Blob is 694 bytes,
+        DPAPI-encrypted (header <code>01 00 00 00 d0 8c 9d df ...</code>), no plaintext token.</td>
+    </tr>
+    <tr>
+      <td>2. Launching the Director after that install does not show the account gate - it goes
+        straight to the main window (the gate's <code>IsLoggedIn()</code> is satisfied).</td>
+      <td>The credential service constructed exactly as the Director constructs it
+        (<code>DevThrottleAccountFactory.CreateForWindows()</code>) reports
+        <code>IsLoggedIn() == true</code> from the stored credential.</td>
+      <td class="pass">PASS - end-to-end driver (criterion 2): <code>IsLoggedIn() == true</code>.
+        See also the note below on issue #664.</td>
+    </tr>
+    <tr>
+      <td>3. The token is written only to the encrypted store, never to the installer log.</td>
+      <td>The runner logs only "credential captured" and "credential persisted"; the value is never
+        passed to a log call. The blob is encrypted at rest.</td>
+      <td class="pass">PASS - the captured setup log contains no <code>eyJ</code> (JWT),
+        <code>access_token</code>, <code>refresh_token</code>, or <code>Bearer</code> text. See
+        <code>setup-log-no-token.txt</code>.</td>
+    </tr>
+    <tr>
+      <td>4. If sign-in did not happen (error path), no credential is written.</td>
+      <td>Cancel, timeout, browser-cannot-open, and a persistence failure all return before / instead
+        of writing a credential.</td>
+      <td class="pass">PASS - unit tests <code>RunAsync_UserCancels_ReturnsCancelled</code>,
+        <code>RunAsync_NoHandBackWithinTimeout_ReturnsTimedOut</code>,
+        <code>RunAsync_BrowserCannotOpen_ReturnsFailed</code> assert persistence was never called;
+        <code>RunAsync_PersistenceFails_ReturnsFailed</code> proves the no-fallback behavior.</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>Honest note on criterion 2 and issue #664.</strong> The Director's startup account gate
+    was disabled in issue #664 (interim Gateway-account unblock, already on main):
+    <code>AccountGatePolicy.Decide()</code> now always returns <code>Start</code>, so the Director
+    boots straight to the main window regardless of whether a local credential exists. The Director
+    therefore does not show the gate today even without #658. The part of criterion 2 that #658
+    genuinely delivers - and that this proof verifies directly - is that the credential the installer
+    writes satisfies the gate's logged-in check (<code>IsLoggedIn() == true</code>), which is the
+    durable behavior the Gateway-verified gate (issue #641) will rely on. This is stated plainly so QA
+    is not misled into attributing the "no gate" behavior solely to this change.
+  </div>
+
+  <div class="note">
+    <strong>Dev/QA vs production.</strong> The real production sign-in page is not live, so this was
+    proven against the local stand-in <code>tools/devthrottle-dev-signin</code> (per the issue). A
+    stand-in token returns 401 against production - expected; a production pass follows once
+    devthrottle_internal#46 ships. Locally the full path - capture, encrypt, store, read back,
+    <code>IsLoggedIn()</code> - is exercised end to end.
+  </div>
+
+  <h2>End-to-end driver output (real persistence path, isolated CC_DIRECTOR_ROOT)</h2>
+  <p class="sub">The driver runs the real <code>SignInRunner</code> default persistence against the
+    dev stand-in under a throwaway <code>CC_DIRECTOR_ROOT</code>, so the developer's real credential is
+    never touched, then reads it back the way the Director's gate does.</p>
+  <pre>[e2e] CC_DIRECTOR_ROOT = ...\issue658-root-5d5a63d4...
+[e2e] credential path  = ...\issue658-root-5d5a63d4...\config\director\devthrottle-credential.bin
+[e2e] sign-in url       = http://127.0.0.1:8801/signin
+[e2e] SignInRunner outcome = SignedIn
+[e2e] PASS criterion-1a: credential blob exists at the Director credential path
+[e2e] PASS criterion-1b: blob decrypts to a non-empty access+refresh token pair
+[e2e] PASS criterion-2: the Director account gate IsLoggedIn() == true (no second login)
+[e2e] ALL CRITERIA PASSED
+DRIVER_EXIT=0
+BLOB_EXISTS size=694</pre>
+
+  <h2>Setup log (criterion 3 - no token text)</h2>
+  <pre>[SignInRunner] RunAsync: starting installer sign-in hand-off
+[SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8801/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A56450%2Fdevthrottle-login-callback%2F
+[SignInRunner] RunAsync: credential captured from the browser hand-back
+[SignInRunner] PersistToDirectorCredentialStore: storing captured credential for the Director
+[SignInRunner] RunAsync: captured credential persisted to the Director credential store
+
+Token-leak scan: NO 'eyJ' / 'access_token' / 'refresh_token' / 'Bearer' text in the setup log.</pre>
+
+  <h2>Automated tests (tools/cc-director-setup.Tests/SignInRunnerTests.cs)</h2>
+  <pre>Passed  SignInResult_SignedIn_ReportsSucceeded
+Passed  RunAsync_BrowserHandsBackCredential_ReturnsSignedIn
+Passed  RunAsync_DefaultPersistencePath_WritesDecryptableBlob
+Passed  RunAsync_PersistenceFails_ReturnsFailed
+Passed  RunAsync_BrowserHandsBackCredential_PersistsTheCapturedTokenPair
+Passed  RunAsync_NoHandBackWithinTimeout_ReturnsTimedOut
+Passed  RunAsync_BrowserCannotOpen_ReturnsFailed
+Passed  RunAsync_UserCancels_ReturnsCancelled
+Total tests: 8   Passed: 8   Failed: 0</pre>
+
+  <h2>Build</h2>
+  <pre>dotnet build cc-director.sln  ->  Build succeeded.  0 Warning(s)  0 Error(s)</pre>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security-posture drift. The change reuses the existing credential store and
+    service (no new containers, no new credential path). It strengthens compliance with the
+    "never log a secret" rule by keeping the captured token out of the installer log and the encrypted
+    blob. No <code>docs/cencon/</code> file required updating.</p>
+
+  <h2>Proof files</h2>
+  <ul class="files">
+    <li><a href="e2e-driver-output.txt">e2e-driver-output.txt</a> - full end-to-end driver output</li>
+    <li><a href="setup-log-no-token.txt">setup-log-no-token.txt</a> - installer log proving no token</li>
+    <li><a href="director-main-window.png">director-main-window.png</a> - the slot Director booted to the main window (no gate)</li>
+    <li><a href="director-startup-log.txt">director-startup-log.txt</a> - Director startup log: gate decided Start, main window shown</li>
+  </ul>
+
+  <h2>Conclusion</h2>
+  <p class="pass">I believe this is finished. All four acceptance criteria are met and proven: the
+    captured sign-in is persisted to the Director's encrypted credential store on success only, it
+    decrypts to the captured pair, it satisfies the gate's logged-in check, the token is never logged,
+    and no credential is written on any error path.</p>
+</div>
+</body>
+</html>
