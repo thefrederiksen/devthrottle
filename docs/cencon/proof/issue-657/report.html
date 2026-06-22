@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proof - Issue #657: Forced Sign-in step after Checks</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, Arial, sans-serif; background: #1E1E1E; color: #E6E6E6; margin: 0; padding: 32px; line-height: 1.55; }
+    h1 { color: #4FC1FF; font-size: 26px; margin: 0 0 4px; }
+    h2 { color: #4FC1FF; font-size: 19px; margin: 32px 0 10px; border-bottom: 1px solid #333; padding-bottom: 6px; }
+    h3 { color: #CCCCCC; font-size: 15px; margin: 20px 0 6px; }
+    .sub { color: #9A9A9A; margin: 0 0 16px; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+    th { background: #252526; color: #CCCCCC; }
+    .pass { color: #22C55E; font-weight: 600; }
+    .note { color: #F59E0B; }
+    code, pre { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 13px; }
+    pre { background: #161616; border: 1px solid #333; border-radius: 6px; padding: 14px; overflow-x: auto; color: #C8C8C8; }
+    img { max-width: 720px; width: 100%; border: 1px solid #333; border-radius: 6px; display: block; margin: 8px 0 4px; }
+    .cap { color: #9A9A9A; font-size: 13px; margin: 0 0 18px; }
+    .finished { background: #1B3A2A; color: #22C55E; border-radius: 6px; padding: 14px 16px; font-weight: 600; margin-top: 28px; }
+  </style>
+</head>
+<body>
+  <h1>Issue #657 - Forced Sign-in step after Checks (one button, browser loopback)</h1>
+  <p class="sub">Part of the Installer first-run epic (#661): Welcome &rarr; Checks &rarr; <strong>Sign in</strong> &rarr; Privacy &rarr; Install &rarr; Done. Developer Agent proof. Branch <code>issue-657-installer-signin-step</code>.</p>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li>A new forced <strong>Sign-in</strong> step in the WPF setup wizard, inserted <strong>after the prerequisite Checks</strong>. The wizard is now Welcome (1), Prerequisites (2), <strong>Sign in (3)</strong>, Skills (4), Install (5), Complete (6).</li>
+    <li>The step shows a single <strong>&quot;Sign in to DevThrottle&quot;</strong> button. Clicking it opens the system browser at <code>&lt;signin-url&gt;?redirect_uri=&lt;loopback&gt;</code> and listens on that loopback for the credential hand-back.</li>
+    <li>It <strong>reuses the exact account loopback contract the Director uses</strong>: <code>CcDirector.Core.Account.LoopbackLoginListener</code> for the loopback callback and <code>FirstRunLoginCoordinator.BuildSignInUrl</code> for the sign-in URL. The installer now references <code>CcDirector.Core</code>.</li>
+    <li>A busy <strong>&quot;waiting for sign-in...&quot;</strong> state with a <strong>Cancel</strong> action and a <strong>timeout</strong> (default 5 minutes), so an abandoned sign-in is never a dead end - both Cancel and timeout return to a retryable state.</li>
+    <li><strong>Forced gate:</strong> <code>Next</code> is disabled on the Sign-in step until a sign-in completes. There is no skip. A completed sign-in stays completed if the user navigates Back and forward again.</li>
+    <li>The captured access token is <strong>never written to the installer log</strong>, and is <strong>not</strong> persisted (persisting it for the app to reuse is the separate issue #658, explicitly out of scope here).</li>
+  </ul>
+
+  <h3>Files changed</h3>
+  <pre>tools/cc-director-setup/CcDirectorSetup.csproj          (reference CcDirector.Core)
+tools/cc-director-setup/Services/SignInRunner.cs        (new - loopback sign-in orchestration)
+tools/cc-director-setup/Steps/SignInStep.xaml           (new - the one-button step UI)
+tools/cc-director-setup/Steps/SignInStep.xaml.cs        (new - waiting/cancel/timeout/success states)
+tools/cc-director-setup/MainWindow.xaml                 (new step 3 + renumbered sidebar to 6 steps)
+tools/cc-director-setup/MainWindow.xaml.cs              (insert Sign-in after Checks; gate Next)
+tools/cc-director-setup.Tests/                          (new test project - SignInRunner tests)</pre>
+
+  <h2>Acceptance criteria &rarr; proof</h2>
+  <table>
+    <tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+    <tr><td>After Checks the wizard shows a Sign-in step with a single &quot;Sign in to DevThrottle&quot; button; Next disabled until sign-in completes.</td><td class="pass">PASS</td><td>Screenshot 01: button present, Next dimmed/disabled. Sidebar order Welcome &rarr; Prerequisites &rarr; Sign in.</td></tr>
+    <tr><td>Clicking opens the browser at <code>&lt;signin-url&gt;?redirect_uri=&lt;loopback&gt;</code>; completing (against the dev stand-in) captures the hand-back and enables Next.</td><td class="pass">PASS</td><td>Screenshot 02: green &quot;Signed in&quot; banner, Next enabled. Log line 5 shows the exact sign-in URL with the loopback <code>redirect_uri</code>. Driven against the live <code>tools/devthrottle-dev-signin</code>.</td></tr>
+    <tr><td>Cancel returns to a retryable state with a clear message; an abandoned sign-in times out and is retryable (no hang, no crash).</td><td class="pass">PASS</td><td>Screenshot 03: &quot;Sign-in was cancelled...&quot; with the button re-enabled. Timeout path covered by unit test <code>RunAsync_NoHandBackWithinTimeout_ReturnsTimedOut</code> (same code path).</td></tr>
+    <tr><td>The wizard cannot proceed to Install without a completed sign-in.</td><td class="pass">PASS</td><td>Next stays disabled until <code>SignInCompleted</code> fires (MainWindow gates Next on <code>SignInStep.IsSignedIn</code>); Screenshots 01 and 03 show Next disabled, 02 shows it enabled only after success.</td></tr>
+    <tr><td>The access token is never written to the installer log.</td><td class="pass">PASS</td><td>04-installer-log-no-token.txt: a scan of the whole installer log finds no <code>access_token</code> / <code>refresh_token</code> / JWT value; the hand-back is logged only as &quot;credential captured&quot;.</td></tr>
+  </table>
+
+  <h2>Screenshots (the real shipping <code>SignInStep</code> control)</h2>
+  <p class="sub">Captured by a throwaway WPF proof harness that hosts the real installer <code>SignInStep</code> + <code>SignInRunner</code> and drives them against the live dev sign-in stand-in via the real <code>LoopbackLoginListener</code> - the exact production code, without running the installer's install logic (so the machine's existing install is never touched).</p>
+
+  <h3>1. Forced Sign-in step - Next disabled</h3>
+  <img src="01-signin-step-next-disabled.png" alt="Sign-in step, Next disabled" />
+  <p class="cap">One &quot;Sign in to DevThrottle&quot; button, &quot;A browser opens to sign in.&quot; hint, and a dimmed (disabled) Next. <code>IsSignedIn=False</code>.</p>
+
+  <h3>2. After the browser hand-back - Next enabled</h3>
+  <img src="02-signin-completed-next-enabled.png" alt="Signed in, Next enabled" />
+  <p class="cap">Green &quot;Signed in. Click Next to continue.&quot; banner; Next is now bright/enabled. <code>IsSignedIn=True</code>, <code>SignInCompleted</code> raised. The hand-back came from the dev stand-in over the real loopback callback.</p>
+
+  <h3>3. Cancel - returns to a retryable state</h3>
+  <img src="03-cancel-returns-retryable.png" alt="Cancel returns retryable" />
+  <p class="cap">&quot;Sign-in was cancelled. Click &#39;Sign in to DevThrottle&#39; to try again.&quot;; the button is re-enabled and Next stays disabled. No hang, no crash.</p>
+
+  <h2>Installer log - no token (acceptance criterion)</h2>
+  <pre>[SignInRunner] RunAsync: starting installer sign-in hand-off
+[SignInRunner] RunAsync: sign-in url=http://127.0.0.1:8765/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A55198%2Fdevthrottle-login-callback%2F
+[SignInRunner] RunAsync: credential captured from the browser hand-back
+...
+Token-leak scan over the WHOLE log file (access_token | refresh_token | JWT 'eyJ' prefix):
+RESULT: no token value found in the installer log (PASS)</pre>
+  <p class="cap">Full excerpt: 04-installer-log-no-token.txt</p>
+
+  <h2>Tests</h2>
+  <p>New project <code>tools/cc-director-setup.Tests</code> - all 5 tests pass (build clean, zero warnings):</p>
+  <pre>RunAsync_BrowserHandsBackCredential_ReturnsSignedIn   Passed
+RunAsync_UserCancels_ReturnsCancelled                 Passed
+RunAsync_NoHandBackWithinTimeout_ReturnsTimedOut      Passed
+RunAsync_BrowserCannotOpen_ReturnsFailed              Passed
+SignInResult_SignedIn_ReportsSucceeded                Passed
+Total: 5  Passed: 5</pre>
+  <p>The success test drives a real <code>LoopbackLoginListener</code> end to end (no backend), the same contract the dev stand-in and the production backend use.</p>
+
+  <h2>Build</h2>
+  <p>The setup projects are not part of <code>cc-director.sln</code> (the installer is built via its own path). Verified:</p>
+  <ul>
+    <li><code>dotnet build tools/cc-director-setup/CcDirectorSetup.csproj</code> - succeeds, 0 warnings.</li>
+    <li><code>tools/cc-director-setup/build.ps1</code> - single-file <code>win-x64</code> publish succeeds (cc-director-setup.exe).</li>
+    <li><code>dotnet test tools/cc-director-setup.Tests</code> - 5/5 pass.</li>
+    <li><code>dotnet build cc-director.sln</code> - succeeds (confirms the shared <code>CcDirector.Core</code> change does not break the rest of the product).</li>
+  </ul>
+
+  <h2>CenCon impact</h2>
+  <p><strong>No architecture or security drift.</strong> The change reuses existing Core account-loopback types; it introduces no new container and no new security posture. It honors the existing loopback trust boundary (loopback-only, 127.0.0.1) and the no-token-in-logs rule. The architecture manifest already documents the setup engine and the account gate; no manifest entry needs to change for a new wizard step that reuses an existing contract.</p>
+  <p class="note">Observation for the epic (not a defect): referencing <code>CcDirector.Core</code> pulls its native dependencies (Whisper.net, SQLite) into the single-file installer, growing the published exe to ~139 MB. This faithfully follows the issue's &quot;reuse the existing mechanism/contract&quot; instruction; a later size-optimization (splitting the loopback types into a lean shared assembly) could be filed separately if the installer size matters.</p>
+
+  <div class="finished">I believe this is finished. All five acceptance criteria are met and proven above.</div>
+</body>
+</html>
