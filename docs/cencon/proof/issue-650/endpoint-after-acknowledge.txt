@@ -1,0 +1,2 @@
+GET /gateway/telemetry-consent (centralized #649 setting) AFTER acknowledge with box UNCHECKED:
+{"enabled":false}

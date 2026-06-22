@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #650 (Gateway first-run consent screen)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1E1E1E; color: #E6E6E6; margin: 0; padding: 32px; }
+  h1 { color: #4FC1FF; }
+  h2 { color: #A9C7DB; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #252526; }
+  .pass { color: #22C55E; font-weight: bold; }
+  .fail { color: #F87171; font-weight: bold; }
+  code, pre { background: #252526; color: #D0D0D0; padding: 2px 6px; border-radius: 4px; font-family: Cascadia Mono, Consolas, monospace; }
+  pre { padding: 12px; overflow-x: auto; }
+  img { max-width: 880px; border: 1px solid #3C3C3C; border-radius: 6px; }
+  .verdict { font-size: 20px; padding: 16px; background: #14331a; border: 1px solid #22C55E; border-radius: 8px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #650</h1>
+<p><strong>Title:</strong> [Gateway] First-run consent screen shown once at Gateway first launch<br>
+<strong>Pull request:</strong> #683 (branch <code>issue-650-gateway-consent</code>)<br>
+<strong>QA Agent (independent verifier):</strong> separate identity from the Developer Agent (SOC 2 separation of duties).<br>
+<strong>Method:</strong> own worktree built from the pull-request branch; clean solution build; the affected test
+suites run; a live verification harness booting a real <code>GatewayHost</code> on an isolated fresh config root, so the
+behavior was reproduced first-hand and not taken from the Developer's report.</p>
+
+<h2>Build and test sweep (my own run)</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code></td><td class="pass">Build succeeded. 0 Warning(s), 0 Error(s)</td></tr>
+<tr><td><code>CcDirector.Gateway.Tests</code> (full suite)</td><td class="pass">949 passed, 0 failed, 1 skipped</td></tr>
+<tr><td><code>CcDirector.Core.Tests</code> (GatewayConsentAck + TelemetryConsentConfig)</td><td class="pass">9 passed, 0 failed</td></tr>
+</table>
+
+<h2>Acceptance criterion 1 - first launch shows the screen, records the acknowledgement, sets the centralized consent</h2>
+<table>
+<tr><th>Item</th><th>Expected</th><th>Actual (live harness, fresh config root)</th><th>Verdict</th></tr>
+<tr><td>Genuine first launch (no <code>config.json</code> on disk)</td><td>Screen should show</td><td><code>ShouldShowConsentOnLaunch()</code> = <strong>True</strong>; <code>config.json exists at start = False</code></td><td class="pass">PASS</td></tr>
+<tr><td>Acknowledge records the gateway flag</td><td>Persisted true</td><td><code>HasAcknowledged()</code> = <strong>True</strong>; on disk <code>gateway_consent.acknowledged = true</code></td><td class="pass">PASS</td></tr>
+<tr><td>Acknowledge sets the centralized consent value</td><td>Persisted</td><td><code>TelemetryConsentConfig.Get()</code> written in the same step as the ack; on disk <code>telemetry_consent</code> set</td><td class="pass">PASS</td></tr>
+</table>
+<p>The harness drives the exact production code the window's "Got it - continue" button runs:
+<code>GatewayConsentSurface.Acknowledge(shareUsage)</code> -&gt; <code>TelemetryConsentConfig.Set(shareUsage)</code> + <code>GatewayConsentAck.MarkAcknowledged()</code>.</p>
+
+<h2>Acceptance criterion 2 - subsequent launch does not re-show</h2>
+<table>
+<tr><th>Item</th><th>Expected</th><th>Actual</th><th>Verdict</th></tr>
+<tr><td>Second launch after acknowledge</td><td>Screen must NOT show</td><td>After acknowledge, <code>ShouldShowConsentOnLaunch()</code> = <strong>False</strong>; the flag is durable (re-read from <code>config.json</code> returns true)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Acceptance criterion 3 - the usage-sharing choice is reflected in the centralized setting (GET /gateway/telemetry-consent)</h2>
+<p>Verified against a REAL running <code>GatewayHost</code> by calling the live <code>GET /gateway/telemetry-consent</code>
+endpoint, for BOTH choices:</p>
+<table>
+<tr><th>Choice on the screen</th><th>Expected GET response</th><th>Actual live response</th><th>Verdict</th></tr>
+<tr><td>Default (before acknowledge)</td><td><code>{"enabled":true}</code></td><td><code>{"enabled":true}</code></td><td class="pass">PASS</td></tr>
+<tr><td>Box UNCHECKED (don't share)</td><td><code>{"enabled":false}</code></td><td><code>{"enabled":false}</code> (config <code>telemetry_consent=false</code>)</td><td class="pass">PASS</td></tr>
+<tr><td>Box CHECKED (share)</td><td><code>{"enabled":true}</code></td><td><code>{"enabled":true}</code> (config <code>telemetry_consent=true</code>)</td><td class="pass">PASS</td></tr>
+</table>
+<p>The GET endpoint reads <code>TelemetryConsentConfig.Get()</code> (the same #649 setting the screen writes) - confirmed by reading
+<code>src/CcDirector.Gateway/Api/TelemetryConsentEndpoint.cs</code>. The choice maps to the gateway's CENTRALIZED consent, not a per-Director one.</p>
+
+<h2>Acceptance criterion 4 - proof of the screen, the persisted acknowledgement, and no re-show</h2>
+<p>The first-run consent screen as rendered by <code>GatewayConsentWindow</code> (matches the verified XAML: DEVTHROTTLE brand,
+three honest privacy lines, the on-by-default fleet-wide usage-sharing checkbox, and "Got it - continue"):</p>
+<img src="consent-first-launch.png" alt="Gateway first-run consent screen">
+<p>The persisted acknowledgement and the no-re-show behavior are proven by criteria 1 and 2 above (live, on a fresh config root).</p>
+
+<h2>Scope and regression sweep</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>In-scope containers only: Core, Gateway, GatewayApp + Gateway.Tests/Core.Tests</td><td class="pass">Confirmed (PR file list)</td></tr>
+<tr><td>Out-of-scope #651 NOT done: per-Director <code>FirstRunConsentDialog</code> + <code>FirstRunConsent.cs</code> still present</td><td class="pass">Confirmed present, untouched</td></tr>
+<tr><td>#649 mechanism reused not rebuilt: <code>TelemetryConsentConfig</code> / <code>TelemetryConsentEndpoint</code> not in the PR diff</td><td class="pass">Confirmed (not modified)</td></tr>
+<tr><td>Gateway acknowledgement is a separate config section from the per-Director consent (no confusion on a co-located machine)</td><td class="pass">Confirmed (distinct keys, tested)</td></tr>
+</table>
+
+<div class="verdict">VERIFIED - all 4 acceptance criteria met. Build clean, full Gateway suite green, both usage-choice branches confirmed live against the real GET /gateway/telemetry-consent endpoint on a genuine first-launch config root.</div>
+</body>
+</html>

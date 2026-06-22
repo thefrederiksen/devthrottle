@@ -1,0 +1,19 @@
+=== FIRST LAUNCH: consent screen shown, then acknowledged (opted OUT) ===
+2026-06-22 18:45:01.461 [GatewayConsentAck] HasAcknowledged: no persisted value -> default false (gateway consent screen not yet shown)
+2026-06-22 18:45:01.461 [GatewayTrayController] ShowConsentIfNeeded: gateway consent not yet acknowledged - showing the consent screen
+2026-06-22 18:45:01.609 [GatewayConsentWindow] Shown: gateway first-run consent screen (account required, what we do/do not collect, optional cloud later)
+2026-06-22 18:45:01.753 [TelemetryConsentConfig] Get: no persisted value -> default ON
+2026-06-22 18:45:02.067 [GatewayConsentWindow] PROOF screenshot saved: D:\ReposFred\devthrottle-wt-650\docs\cencon\proof\issue-650\consent-first-launch.png
+2026-06-22 18:45:39.970 [TelemetryConsentConfig] Get: no persisted value -> default ON
+2026-06-22 18:46:00.232 [GatewayConsentWindow] Continue clicked: persisting centralized usage-sharing choice shareUsage=False and acknowledging gateway consent
+2026-06-22 18:46:00.234 [GatewayConsentSurface] Acknowledge: writing centralized consent shareUsage=False and recording the gateway acknowledgement
+2026-06-22 18:46:00.234 [TelemetryConsentConfig] Set: enabled=False
+2026-06-22 18:46:00.236 [TelemetryConsentConfig] Set: persisted
+2026-06-22 18:46:00.236 [GatewayConsentAck] MarkAcknowledged: persisting acknowledged=true
+2026-06-22 18:46:00.238 [GatewayConsentAck] MarkAcknowledged: persisted
+2026-06-22 18:46:00.238 [GatewayConsentSurface] Acknowledge: centralized consent set and gateway acknowledgement recorded
+2026-06-22 18:46:00.239 [GatewayConsentWindow] Continue: centralized consent persisted and gateway consent acknowledged; closing the screen
+2026-06-22 18:46:14.966 [TelemetryConsentConfig] Get: persisted value enabled=false
+
+=== SECOND LAUNCH: not re-shown ===
+2026-06-22 18:46:28.019 [GatewayTrayController] ShowConsentIfNeeded: gateway consent already acknowledged - not showing
