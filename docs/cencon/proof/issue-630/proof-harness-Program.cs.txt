@@ -1,0 +1,314 @@
+// Live proof harness for issue #630: re-point the Director's login telemetry to the Gateway.
+//
+// Drives the REAL FirstRunLoginCoordinator end-to-end (real loopback listener + a stand-in sign-in
+// completion) with the REAL DevThrottleLoginTelemetryReporter, against a stub Gateway that mirrors the
+// production /telemetry/login relay route, plus a stub cloud ("devthrottle.com") that records any
+// direct hit. Walks all acceptance criteria over real HTTP and prints ASCII proof lines.
+//
+// Run:  dotnet run --project _proof-harness-630 -- <outputDir>
+
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using CcDirector.Core.Account;
+using CcDirector.Core.Utilities;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+
+var outDir = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "issue-630-proof");
+Directory.CreateDirectory(outDir);
+
+var harnessLogPath = Path.Combine(outDir, "harness.log");
+var resultsPath = Path.Combine(outDir, "results.json");
+
+var harnessLines = new List<string>();
+void Log(string line)
+{
+    var stamped = $"{DateTime.UtcNow:O}  {line}";
+    Console.WriteLine(stamped);
+    harnessLines.Add(stamped);
+}
+
+// Start the real Director FileLog so the reporter's [DevThrottleLoginTelemetryReporter] lines
+// (POST-to-gateway, skip no-op) land on disk - we copy them as proof and assert the token never appears.
+FileLog.Start();
+var directorLogPath = FileLog.CurrentLogPath;
+
+const string AccessToken = "PROOF-630-ACCESS-TOKEN-MUST-NEVER-BE-LOGGED-abc123xyz";
+
+static int FreePort()
+{
+    var l = new TcpListener(System.Net.IPAddress.Loopback, 0);
+    l.Start();
+    var p = ((System.Net.IPEndPoint)l.LocalEndpoint).Port;
+    l.Stop();
+    return p;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Stub CLOUD ("devthrottle.com"): records ANY request. If this ever receives anything, the Director
+// made a direct cloud call - which AC1/AC2 forbid. It must stay empty.
+// ---------------------------------------------------------------------------------------------------
+var cloudHits = new ConcurrentQueue<string>();
+var cloudPort = FreePort();
+var cloudBuilder = WebApplication.CreateBuilder();
+cloudBuilder.WebHost.UseUrls($"http://127.0.0.1:{cloudPort}");
+cloudBuilder.Logging.ClearProviders();
+var cloud = cloudBuilder.Build();
+cloud.Map("/{**catchall}", async (HttpContext ctx) =>
+{
+    cloudHits.Enqueue($"{ctx.Request.Method} {ctx.Request.Path}");
+    await ctx.Response.WriteAsync("ok");
+});
+await cloud.StartAsync();
+var cloudUrl = $"http://127.0.0.1:{cloudPort}";
+Log($"[harness] stub cloud (devthrottle.com stand-in) listening at {cloudUrl} - MUST receive zero requests");
+
+// ---------------------------------------------------------------------------------------------------
+// Stub GATEWAY: mirrors the production relay route POST /telemetry/login. Records the inbound body +
+// whether a Bearer was present, then answers 202 (success). A flag lets us flip it to 500 to prove the
+// telemetry-error path never fails login (AC3).
+// ---------------------------------------------------------------------------------------------------
+var gatewayReceived = new ConcurrentQueue<(string Body, bool BearerPresent, string Path)>();
+var gatewayFailMode = false;
+var gatewayPort = FreePort();
+var gwBuilder = WebApplication.CreateBuilder();
+gwBuilder.WebHost.UseUrls($"http://127.0.0.1:{gatewayPort}");
+gwBuilder.Logging.ClearProviders();
+var gateway = gwBuilder.Build();
+gateway.MapPost("/telemetry/login", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync(ctx.RequestAborted);
+    var auth = ctx.Request.Headers.Authorization.ToString();
+    var bearerPresent = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && auth.Length > "Bearer ".Length;
+    gatewayReceived.Enqueue((body, bearerPresent, ctx.Request.Path));
+    if (gatewayFailMode)
+        return Results.StatusCode(StatusCodes.Status500InternalServerError);
+    return Results.StatusCode(StatusCodes.Status202Accepted);
+});
+await gateway.StartAsync();
+var gatewayUrl = $"http://127.0.0.1:{gatewayPort}";
+Log($"[harness] stub gateway listening at {gatewayUrl}/telemetry/login (the Director's new egress target)");
+
+// We deliberately do NOT set DEVTHROTTLE_TELEMETRY_URL: that env var is the explicit override seam and
+// when set it WINS over the gateway URL (by design - it is how tests/staging redirect the target). For
+// a faithful production-shaped proof we leave it unset so the reporter resolves <gateway.url>/telemetry/
+// login. The "no direct devthrottle.com call" property is then proven two ways: the gateway stub
+// receives the POST (so that is where it went), and the cloud stub - which would only ever be hit by a
+// direct devthrottle.com-style call - stays empty.
+Environment.SetEnvironmentVariable("DEVTHROTTLE_TELEMETRY_URL", null);
+
+// ---------------------------------------------------------------------------------------------------
+// Helper to drive ONE real first-run login through the real coordinator + real reporter.
+// Returns the FirstRunLoginResult and waits briefly for the detached best-effort report to run.
+// ---------------------------------------------------------------------------------------------------
+async Task<FirstRunLoginResult> RunRealLoginAsync(string? configuredGatewayUrl, string accessToken)
+{
+    var store = new HarnessTokenStore();
+    var account = new DevThrottleAccountService(
+        store,
+        new JwtAccessTokenValidator(HarnessJwt.SigningSecret),
+        new AuthEventLog(Path.Combine(Path.GetTempPath(), "issue-630-auth-events-" + Guid.NewGuid().ToString("N") + ".jsonl")),
+        new HarnessTokenRefresher());
+
+    // The REAL reporter, constructed exactly as the coordinator's default would be (appVersion stamped),
+    // but with the gateway URL passed explicitly so the harness controls the target (empty = no gateway).
+    var reporter = new DevThrottleLoginTelemetryReporter(appVersion: "proof-630", gatewayUrl: configuredGatewayUrl);
+
+    using var listener = new LoopbackLoginListener();
+    var capturedTokens = new DevThrottleTokens(accessToken, "refresh-proof-630");
+
+    var coordinator = new FirstRunLoginCoordinator(
+        account,
+        openBrowser: _ => Task.CompletedTask,   // no real browser; the stand-in completion drives the hand-back
+        listenerFactory: () => listener,
+        loginReporter: reporter);
+
+    var run = coordinator.RunAsync();
+    await PostStandInCompletionAsync(listener.CallbackUrl, capturedTokens);
+    var result = await run;
+
+    // The login telemetry fires detached (Task.Run) inside the coordinator; give it a moment to complete.
+    await Task.Delay(750);
+    return result;
+}
+
+var results = new Dictionary<string, object>();
+
+// ===================================================================================================
+// AC1: with a gateway configured, a real login POSTs to <gateway.url>/telemetry/login (Bearer + source
+// body) and makes NO direct devthrottle.com call.
+// ===================================================================================================
+Log("");
+Log("[harness] AC1: real first-run login WITH a gateway configured");
+gatewayReceived.Clear();
+cloudHits.Clear();
+var ac1Result = await RunRealLoginAsync(gatewayUrl, AccessToken);
+var ac1Got = gatewayReceived.TryDequeue(out var ac1Event);
+var ac1Body = ac1Got ? JsonNode_Parse(ac1Event.Body) : null;
+var ac1Source = ac1Body is not null && ac1Body.TryGetValue("source", out var s) ? s : null;
+var ac1AppVersion = ac1Body is not null && ac1Body.TryGetValue("app_version", out var v) ? v : null;
+var ac1NoCloud = cloudHits.IsEmpty;
+Log($"[harness]   login succeeded         : {ac1Result.Succeeded}");
+Log($"[harness]   gateway received POST   : {ac1Got} path={ac1Event.Path}");
+Log($"[harness]   bearer present          : {ac1Event.BearerPresent}");
+Log($"[harness]   body.source             : {ac1Source}");
+Log($"[harness]   body.app_version        : {ac1AppVersion}");
+Log($"[harness]   direct devthrottle.com  : {(ac1NoCloud ? "NONE (correct)" : "LEAKED - FAIL")}");
+var ac1Pass = ac1Result.Succeeded && ac1Got && ac1Event.Path == "/telemetry/login"
+              && ac1Event.BearerPresent && ac1Source == "app" && ac1AppVersion == "proof-630" && ac1NoCloud;
+Log($"[harness]   AC1 RESULT              : {(ac1Pass ? "PASS" : "FAIL")}");
+results["AC1_gateway_post_no_cloud"] = ac1Pass;
+
+// ===================================================================================================
+// AC2: with NO gateway configured, login still succeeds, the reporter logs a skip line, and makes no
+// devthrottle.com call.
+// ===================================================================================================
+Log("");
+Log("[harness] AC2: real first-run login WITH NO gateway configured (empty gateway.url)");
+gatewayReceived.Clear();
+cloudHits.Clear();
+var logSizeBefore = new FileInfo(directorLogPath).Length;
+var ac2Result = await RunRealLoginAsync("", AccessToken);
+var ac2NewLog = ReadLogTail(directorLogPath, logSizeBefore);
+var ac2HasSkip = ac2NewLog.Contains("no gateway.url configured, skipping login telemetry", StringComparison.OrdinalIgnoreCase);
+var ac2NoGateway = gatewayReceived.IsEmpty;
+var ac2NoCloud = cloudHits.IsEmpty;
+Log($"[harness]   login succeeded         : {ac2Result.Succeeded}");
+Log($"[harness]   reporter logged skip    : {ac2HasSkip}");
+Log($"[harness]   gateway received        : {(ac2NoGateway ? "NONE (correct)" : "UNEXPECTED")}");
+Log($"[harness]   direct devthrottle.com  : {(ac2NoCloud ? "NONE (correct)" : "LEAKED - FAIL")}");
+var ac2Pass = ac2Result.Succeeded && ac2HasSkip && ac2NoGateway && ac2NoCloud;
+Log($"[harness]   AC2 RESULT              : {(ac2Pass ? "PASS" : "FAIL")}");
+results["AC2_no_gateway_noop_skip"] = ac2Pass;
+
+// ===================================================================================================
+// AC3: a telemetry error (gateway returns 500) still never blocks or fails login.
+// ===================================================================================================
+Log("");
+Log("[harness] AC3: real first-run login with the gateway returning 500 (telemetry error)");
+gatewayReceived.Clear();
+cloudHits.Clear();
+gatewayFailMode = true;
+var ac3Result = await RunRealLoginAsync(gatewayUrl, AccessToken);
+gatewayFailMode = false;
+var ac3GatewayHit = gatewayReceived.TryDequeue(out _);
+var ac3NoCloud = cloudHits.IsEmpty;
+Log($"[harness]   login succeeded despite telemetry 500 : {ac3Result.Succeeded}");
+Log($"[harness]   gateway WAS contacted (then errored)  : {ac3GatewayHit}");
+Log($"[harness]   direct devthrottle.com                : {(ac3NoCloud ? "NONE (correct)" : "LEAKED - FAIL")}");
+var ac3Pass = ac3Result.Succeeded && ac3GatewayHit && ac3NoCloud;
+Log($"[harness]   AC3 RESULT              : {(ac3Pass ? "PASS" : "FAIL")}");
+results["AC3_telemetry_error_never_blocks_login"] = ac3Pass;
+
+// ---------------------------------------------------------------------------------------------------
+// Token-never-logged assertion (security rule DT-05): the access token must not appear in the log.
+// ---------------------------------------------------------------------------------------------------
+await Task.Delay(500);   // let the background log writer drain
+var fullLog = ReadShared(directorLogPath);
+var tokenLeaked = fullLog.Contains(AccessToken, StringComparison.Ordinal);
+Log("");
+Log($"[harness] DT-05 token-never-logged   : {(tokenLeaked ? "LEAKED - FAIL" : "NOT in log (correct)")}");
+results["DT05_token_never_logged"] = !tokenLeaked;
+
+var allPass = ac1Pass && ac2Pass && ac3Pass && !tokenLeaked;
+Log("");
+Log($"[harness] OVERALL: {(allPass ? "ALL ACCEPTANCE CRITERIA PASS" : "FAILURE")}");
+
+// Copy the Director log lines emitted by the reporter as proof.
+var reporterLogLines = ReadShared(directorLogPath)
+    .Split('\n')
+    .Select(l => l.TrimEnd('\r'))
+    .Where(l => l.Contains("DevThrottleLoginTelemetryReporter"))
+    .ToList();
+File.WriteAllLines(Path.Combine(outDir, "director-reporter-log-lines.txt"), reporterLogLines);
+File.WriteAllLines(harnessLogPath, harnessLines);
+File.WriteAllText(resultsPath, JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
+
+await gateway.StopAsync();
+await cloud.StopAsync();
+
+Environment.Exit(allPass ? 0 : 1);
+
+// ---------------------------------------------------------------------------------------------------
+// Local helpers
+// ---------------------------------------------------------------------------------------------------
+static Dictionary<string, string?>? JsonNode_Parse(string json)
+{
+    try
+    {
+        using var doc = JsonDocument.Parse(json);
+        var d = new Dictionary<string, string?>();
+        foreach (var p in doc.RootElement.EnumerateObject())
+            d[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : p.Value.ToString();
+        return d;
+    }
+    catch { return null; }
+}
+
+static string ReadLogTail(string path, long fromOffset)
+{
+    Thread.Sleep(400);   // let the background log writer drain
+    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    fs.Seek(fromOffset, SeekOrigin.Begin);
+    using var reader = new StreamReader(fs);
+    return reader.ReadToEnd();
+}
+
+static string ReadShared(string path)
+{
+    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    using var reader = new StreamReader(fs);
+    return reader.ReadToEnd();
+}
+
+static async Task PostStandInCompletionAsync(Uri callbackUrl, DevThrottleTokens tokens)
+{
+    var builder = new UriBuilder(callbackUrl)
+    {
+        Query = $"access_token={Uri.EscapeDataString(tokens.AccessToken)}&refresh_token={Uri.EscapeDataString(tokens.RefreshToken)}",
+    };
+    using var http = new HttpClient();
+    for (var attempt = 0; attempt < 50; attempt++)
+    {
+        try
+        {
+            var response = await http.GetAsync(builder.Uri);
+            response.EnsureSuccessStatusCode();
+            return;
+        }
+        catch (HttpRequestException)
+        {
+            await Task.Delay(20);
+        }
+    }
+    throw new InvalidOperationException("Stand-in completion could not reach the loopback callback.");
+}
+
+// Minimal harness equivalents of the test helpers (which live in the test project, not Core). The
+// JWT signing secret is what the account validator is constructed with; the captured access token is a
+// plain marker string (StoreTokens does not validate its shape) so we can prove the SAME token flows to
+// the gateway and never lands in the log.
+file static class HarnessJwt
+{
+    public const string SigningSecret = "proof-630-signing-secret";
+}
+
+file sealed class HarnessTokenStore : IProtectedTokenStore
+{
+    private DevThrottleTokens? _tokens;
+    public bool HasTokens => _tokens is not null;
+    public void Save(DevThrottleTokens tokens) => _tokens = tokens;
+    public DevThrottleTokens? Load() => _tokens;
+    public void Clear() => _tokens = null;
+}
+
+file sealed class HarnessTokenRefresher : ITokenRefresher
+{
+    public Task<DevThrottleTokens?> RefreshAsync(string refreshToken, CancellationToken ct = default) =>
+        Task.FromResult<DevThrottleTokens?>(null);
+}

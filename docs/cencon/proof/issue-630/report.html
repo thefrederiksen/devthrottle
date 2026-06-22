@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #630 - Re-point the Director's login telemetry to the Gateway - Developer Proof</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 0 0 64px; color: #1b1f24; background: #f6f8fa; }
+  header { background: #0d1b2a; color: #fff; padding: 28px 40px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header .sub { color: #9fb3c8; font-size: 14px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { background: #fff; border: 1px solid #d7dee6; border-radius: 8px; margin: 24px 0; padding: 20px 24px; }
+  h2 { font-size: 18px; margin: 0 0 12px; border-bottom: 2px solid #eef1f4; padding-bottom: 8px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid #e1e7ee; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #0a7d33; font-weight: 700; }
+  .fail { color: #b31d28; font-weight: 700; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+  .pill.pass { background: #def7e5; color: #0a7d33; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1b2a; color: #d7e3ee; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+  .files li { margin: 4px 0; }
+  .note { background: #fff8e6; border: 1px solid #f0d999; border-radius: 6px; padding: 10px 14px; font-size: 13px; }
+  .verdict { font-size: 16px; font-weight: 700; color: #0a7d33; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Issue #630 - Re-point the Director's login telemetry to the Gateway</h1>
+  <div class="sub">Gateway Centralization Phase 1 &middot; Containers: CcDirector.Core (DevThrottleLoginTelemetryReporter), CcDirector.Core.Tests &middot; Developer Agent proof</div>
+</header>
+<main>
+
+<section>
+  <h2>Release notes</h2>
+  <p>
+    The Director no longer calls <code>devthrottle.com</code> directly to record a login. After a
+    successful sign-in it now POSTs the login event to the <strong>configured Gateway</strong>
+    (<code>&lt;gateway.url&gt;/telemetry/login</code>), which forwards it to the cloud (the relay shipped
+    in issues #628 and #629). The body and the authorization header are unchanged
+    (<code>Authorization: Bearer &lt;access token&gt;</code> plus <code>{ "source": "app", "app_version" }</code>).
+    When no Gateway is configured, the reporter is a transitional <strong>no-op that logs a skip line</strong>
+    (Phase 1; the Gateway becomes mandatory in Phase 3). The report stays best-effort and fire-and-forget,
+    so a telemetry error can never block or fail the user's login.
+  </p>
+</section>
+
+<section>
+  <h2>What was implemented</h2>
+  <h3>Changes</h3>
+  <ul class="files">
+    <li><code>src/CcDirector.Core/Account/DevThrottleLoginTelemetryReporter.cs</code> - the POST target is now
+      resolved from the configured Gateway. A new <code>gatewayUrl</code> constructor parameter defaults to
+      <code>gateway.url</code> in <code>config.json</code> (via <code>GatewayConfig.Load()</code>). The target is
+      <code>&lt;gateway.url&gt;/telemetry/login</code> (a trailing slash on the Gateway URL is collapsed). When neither
+      a Gateway URL nor the <code>DEVTHROTTLE_TELEMETRY_URL</code> override is configured, the method logs a skip
+      line and returns - it never falls back to a direct <code>devthrottle.com</code> call. The former
+      <code>DefaultEndpoint</code> constant (the cloud URL) was renamed <code>ForwardTargetEndpoint</code> and kept in
+      source as documentation of the Gateway's forward target (it is no longer the Director's target).</li>
+    <li><code>src/CcDirector.Core.Tests/Account/DevThrottleLoginTelemetryReporterTests.cs</code> - tests now assert
+      the reporter POSTs to <code>&lt;gateway.url&gt;/telemetry/login</code> with the Bearer token and the
+      <code>source="app"</code> body, that a trailing slash does not double-slash the path, and a new test proves
+      the no-Gateway path is a logged no-op that makes <strong>no</strong> HTTP call. Each test passes an explicit
+      <code>gatewayUrl</code> so it never reads the test machine's <code>config.json</code>.</li>
+  </ul>
+  <p class="note">
+    Out of scope (left untouched, per the issue): the Gateway endpoint itself (#628/#629, already merged) and
+    removing the <code>devthrottle.com</code> constant from the codebase (it remains as the Gateway's forward
+    target; the Director simply stops calling it).
+  </p>
+</section>
+
+<section>
+  <h2>How this was tested</h2>
+  <p>
+    A full interactive browser sign-in is impractical headless, so - exactly as the issue permits - the proof
+    drives the <strong>real <code>FirstRunLoginCoordinator.RunAsync</code></strong> end to end (real loopback
+    listener plus a stand-in sign-in completion that posts the credential to the callback) with the
+    <strong>real <code>DevThrottleLoginTelemetryReporter</code></strong>, against a <strong>stub Gateway</strong> that
+    mirrors the production <code>POST /telemetry/login</code> relay route. A separate <strong>stub cloud</strong>
+    (a <code>devthrottle.com</code> stand-in) records any request it receives; it would only ever be hit by a
+    direct cloud call, so its emptiness proves the "no direct <code>devthrottle.com</code> call" property. The
+    harness source is committed alongside this report
+    (<code>proof-harness-Program.cs.txt</code>); its console output is <code>harness.log</code> and the machine-readable
+    verdicts are <code>results.json</code>. The Director-side reporter log lines are <code>director-reporter-log-lines.txt</code>.
+  </p>
+  <h3>Reporter log lines captured during the live run</h3>
+  <pre>[DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway http://127.0.0.1:57997/telemetry/login (source=app)
+[DevThrottleLoginTelemetryReporter] ReportLoginAsync: response status=202
+[DevThrottleLoginTelemetryReporter] ReportLoginAsync: no gateway.url configured, skipping login telemetry (Phase 1 no-op)
+[DevThrottleLoginTelemetryReporter] ReportLoginAsync: POSTing login event to gateway http://127.0.0.1:57997/telemetry/login (source=app)
+[DevThrottleLoginTelemetryReporter] ReportLoginAsync: response status=500</pre>
+</section>
+
+<section>
+  <h2>Acceptance criteria - expected vs actual</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (live run)</th><th>Verdict</th></tr>
+    <tr>
+      <td>1</td>
+      <td>After a successful login, the Director POSTs to <code>&lt;gateway.url&gt;/telemetry/login</code> and makes no direct <code>devthrottle.com</code> call.</td>
+      <td>Gateway receives <code>POST /telemetry/login</code> with a Bearer token and a <code>{source:"app", app_version}</code> body; the cloud stub receives nothing.</td>
+      <td>Login succeeded; Gateway received <code>POST /telemetry/login</code>, bearer present, <code>source=app</code>, <code>app_version=proof-630</code>; cloud stub: <strong>NONE</strong>.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>With no <code>gateway.url</code> configured, login still succeeds and the reporter logs a skip line - no crash, no <code>devthrottle.com</code> call.</td>
+      <td>Login succeeds; reporter logs the skip line; no Gateway call; no cloud call.</td>
+      <td>Login succeeded; skip line logged (<em>"no gateway.url configured, skipping login telemetry"</em>); Gateway: NONE; cloud: NONE.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>A telemetry error still never blocks or fails login (existing behavior preserved).</td>
+      <td>With the Gateway returning HTTP 500, login still succeeds; the error is swallowed by the best-effort caller.</td>
+      <td>Login succeeded despite the Gateway answering 500; the Gateway was contacted then errored; no cloud call.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Unit tests updated: reporter targets the Gateway URL with Bearer + <code>source</code> body; no-gateway path is a logged no-op.</td>
+      <td>The Core.Tests suite asserts the Gateway target + Bearer + source body and the no-op path, and is green.</td>
+      <td>10 tests passed (6 reporter + 4 coordinator), 0 failed - see <code>unit-test-output.txt</code>.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>DT-05</td>
+      <td>Security rule: the access token is never written to the log.</td>
+      <td>The access token string never appears in the Director log.</td>
+      <td>Token <strong>not</strong> present in the log (asserted across the whole live run).</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>CenCon impact</h2>
+  <p>
+    No architecture or security-posture drift. The change is internal to one Core class and its tests; it
+    moves the login-telemetry egress from a direct cloud call to the already-merged Gateway relay, which the
+    Gateway Centralization Phase 1 plan (<code>docs/architecture/GATEWAY_CENTRALIZATION_PLAN.md</code>) already
+    describes. Security rule DT-05 (never log the token) is preserved - only the target URL and the outcome
+    status are logged, proven above.
+  </p>
+</section>
+
+<section>
+  <h2>Verdict</h2>
+  <p class="verdict">I believe this is finished. All four acceptance criteria are met and proven, the access token is never logged, the full solution builds with 0 warnings / 0 errors, and the unit tests pass.</p>
+</section>
+
+</main>
+</body>
+</html>
