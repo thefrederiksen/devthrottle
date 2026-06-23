@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue 651</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1100px; margin: 24px auto; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #0a7; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #04553a; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f4f2; }
+  .pass { color: #0a7a2f; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+  img { max-width: 760px; border: 1px solid #ddd; margin: 8px 0; }
+  .verdict { background: #e7f7ed; border: 1px solid #0a7; padding: 14px; margin: 20px 0; font-size: 1.1em; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue 651</h1>
+<p><strong>Issue:</strong> [Desktop] Remove the Director's account/consent/sign-in surfaces; show read-only gateway connection<br/>
+<strong>Pull request:</strong> 684 (branch <code>issue-651-remove-director-account-surfaces</code>, head <code>c0b8d7a</code>)<br/>
+<strong>Verification method:</strong> Independent rebuild in an isolated worktree (<code>devthrottle-wt-651</code>) and slot (14), launched against a stub Gateway with an isolated <code>CC_DIRECTOR_ROOT</code> so the user's real configuration was never touched.<br/>
+<strong>QA identity / date:</strong> QA Agent, 2026-06-22.</p>
+
+<div class="verdict"><strong>VERIFIED - all acceptance criteria met.</strong> 5 of 5 acceptance criteria pass. The Gateway regression check passes (no shared Core.Account type the Gateway relies on was broken by the Director-side deletions).</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Settings -&gt; Account shows a read-only gateway connection + identity panel (no logout, no consent toggle), sourced from the gateway.</td>
+  <td>Panel shows gateway URL + signed-in identity from <code>/account/status</code>; informational signed-out / not-connected states; not a gate.</td>
+  <td>Launched against a stub Gateway. Director log shows <code>GatewayAccountStatusClient.GetStatusAsync: GET http://127.0.0.1:8751/account/status -&gt; 200, signedIn=True</code>. Panel rendered "Gateway: http://127.0.0.1:8751" and "Signed in as: qa.tester@devthrottle.com (via Google)". Signed-out stub -&gt; "The Gateway is not signed in to DevThrottle. Sign in from the Cockpit." Stub down -&gt; "Could not reach the Gateway at http://127.0.0.1:8751." No logout button, no consent toggle on the tab; the Director booted straight to the main window in every state ("Booting straight to the main window (account is managed by the Gateway)").</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>FirstRunConsentDialog</code> removed and no longer shown.</td>
+  <td>No remaining reference; file deleted; not shown at startup; build clean.</td>
+  <td>Repo-wide grep for <code>FirstRunConsentDialog</code> returns zero hits (file <code>FirstRunConsentDialog.axaml/.cs</code> deleted in the PR). <code>App.axaml.cs</code> startup explicitly comments "no startup gate and no first-run consent step any more" and boots straight to the main window.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>No Director code path opens a devthrottle.com sign-in; the per-Director "sign in to DevThrottle" surface is gone.</td>
+  <td>No Director sign-in surface; <code>AccountGateScreen</code> removed; the browser-opening login coordinator no longer used by the Director.</td>
+  <td><code>AccountGateScreen</code>, <code>AccountGatePolicy</code>, <code>GateDecision</code>, <code>FirstRunConsent</code> grep to zero references (all deleted). <code>FirstRunLoginCoordinator</code> (the only browser-opening sign-in code) is now referenced ONLY by the Gateway (<code>GatewaySignInService</code>) and its tests - never by Avalonia/App. Remaining <code>devthrottle.com</code> strings in Director code are a Documentation menu link (<code>/docs</code>) and telemetry/transcription endpoint constants - not sign-in surfaces. The Avalonia <code>AccountsDialog</code> manages the local Claude CLI credential (<code>claude login</code>), unrelated to DevThrottle account.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>dotnet build cc-director.sln</code> clean; removed types have no lingering references.</td>
+  <td>Build succeeded, 0 warnings, 0 errors.</td>
+  <td>Built in the worktree: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>. No dead-reference warnings; grep confirmed no lingering references to any removed type.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>A screenshot shows the Director's read-only connection/identity panel.</td>
+  <td>Screenshot of the live panel.</td>
+  <td>Three live screenshots captured below (signed-in, signed-out, not-connected).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression check - the deletions must NOT have broken the Gateway</h2>
+<table>
+<tr><th>Suite / check</th><th>Result</th></tr>
+<tr><td>CcDirector.Gateway.Tests</td><td class="pass">949 passed, 0 failed, 1 skipped</td></tr>
+<tr><td>CcDirector.Core.Tests</td><td class="pass">2354 passed, 0 failed, 6 skipped</td></tr>
+<tr><td>CcDirector.Avalonia.Tests</td><td class="pass">82 passed, 0 failed</td></tr>
+<tr><td>CcDirector.Cockpit.Tests</td><td class="pass">66 passed, 0 failed</td></tr>
+<tr><td>Gateway account/sign-in endpoints still wired</td><td class="pass"><code>GET /account/status</code>, <code>POST /account/logout</code>, <code>GatewaySignInService</code> (reusing kept Core <code>FirstRunLoginCoordinator</code>) all present and mapped in <code>GatewayHost</code>. Kept shared Core.Account types are still genuinely used by the Gateway.</td></tr>
+<tr><td>Full solution build</td><td class="pass"><code>dotnet build cc-director.sln</code>: 0 Warning(s), 0 Error(s)</td></tr>
+</table>
+<p>No GatewayApp.Tests project exists; GatewayApp builds clean as part of the solution build.</p>
+
+<h2>Screenshots</h2>
+<h3>1. Signed-in (stub returns signedIn=true, qa.tester@devthrottle.com / Google)</h3>
+<img src="account-signedin.png" alt="Account panel signed in" />
+<h3>2. Signed-out (stub returns signedIn=false)</h3>
+<img src="account-signedout.png" alt="Account panel signed out" />
+<h3>3. Not connected (stub down)</h3>
+<img src="account-notconnected.png" alt="Account panel gateway not reachable" />
+
+<h2>Conclusion</h2>
+<p class="pass">PASS - all 5 acceptance criteria verified independently; the Gateway side is confirmed not broken by the Director-side removals.</p>
+</body>
+</html>

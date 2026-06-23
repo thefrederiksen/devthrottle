@@ -49,21 +49,6 @@ public partial class App : Application
     public SchedulerService? Scheduler { get; private set; }
     public UpdateService? Updater { get; private set; }
 
-    /// <summary>
-    /// The startup account gate policy (issue #580). Built during service initialization from the
-    /// DevThrottle credential service (issue #583); decides whether the Director may reach a usable
-    /// main window or must block and route the user to log in. Null only before initialization.
-    /// </summary>
-    public AccountGatePolicy? AccountGate { get; private set; }
-
-    /// <summary>
-    /// The DevThrottle credential service (issue #583), the foundation the startup gate (#580) and
-    /// the first-run login hand-off (#581) build on. Built during service initialization; the gate
-    /// screen uses it to store the credential captured by the system-browser sign-in. Null only
-    /// before initialization.
-    /// </summary>
-    public DevThrottleAccountService? AccountService { get; private set; }
-
     public bool SandboxMode { get; private set; }
 
     public override void Initialize()
@@ -94,18 +79,13 @@ public partial class App : Application
             {
                 await Task.Run(() => InitializeServices(splash));
 
-                // Account startup gate (issue #580, interim unblock issue #664): the account is moving
-                // onto the Gateway, so the Director no longer gates its own startup on a local
-                // DevThrottle credential. The gate decision is always Start now (a missing credential
-                // does NOT block), so the Director boots straight to the main window with no sign-in
-                // prompt and never opens the browser loopback sign-in. The Gateway-verified gate is
-                // issue #641; the full account-surface removal is issue #651.
-                var gate = AccountGate
-                    ?? throw new InvalidOperationException("AccountGate was not initialized during InitializeServices.");
-                var decision = gate.Decide();
-                FileLog.Write($"[CcDirector] Account startup gate decided {decision} (interim: local credential no longer gates startup, issue #664); showing the main window");
+                // No account startup gate (issue #651): the account lives entirely on the Gateway now,
+                // so the Director never gates its own startup, never signs in, and never opens a browser
+                // loopback sign-in. It always boots straight to the main window. The read-only Account
+                // panel in Settings reads the Gateway's /account/status for display only.
+                FileLog.Write("[CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)");
 
-                ShowMainWindow(desktop, gate);
+                ShowMainWindow(desktop);
                 splash.Close();
             }, global::Avalonia.Threading.DispatcherPriority.Background);
 
@@ -117,78 +97,21 @@ public partial class App : Application
 
     /// <summary>
     /// Creates and shows the main window in place of the current window (the splash at startup), with
-    /// no restart. The caller is responsible for closing the previous window. Starts the background
-    /// session validation and the update service exactly as the normal startup path does. Must be
-    /// called on the UI thread.
+    /// no restart. The caller is responsible for closing the previous window. Starts the update service.
+    /// Must be called on the UI thread.
     ///
-    /// The first-run consent step is NOT a startup gate any more (issue #664): with the account moving
-    /// onto the Gateway, nothing in startup blocks the main window. The consent dialog is therefore not
-    /// shown here, so it never blocks the Director booting straight to the main window.
+    /// There is no startup gate and no first-run consent step any more (issue #651): the account lives
+    /// entirely on the Gateway, so nothing in startup blocks the main window and the Director boots
+    /// straight to it.
     /// </summary>
-    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, AccountGatePolicy gate)
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop)
     {
         var mainWindow = new MainWindow();
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
-        FileLog.Write("[CcDirector] Main window shown; starting background session validation next");
-
-        // The online session validation/refresh runs in the background AFTER the window is shown, so
-        // it never delays the window appearing (issue #580). When offline it is a no-op and the
-        // Director keeps running on the cached credential.
-        _ = gate.StartBackgroundValidation();
+        FileLog.Write("[CcDirector] Main window shown");
 
         StartUpdateService(mainWindow);
-    }
-
-    /// <summary>
-    /// Clears the startup account gate and shows the main window in its place after a first-run login
-    /// captured and stored a credential (issue #581) - no restart. The gate screen calls this on a
-    /// successful sign-in; it closes the gate screen and brings the Director to a usable main window.
-    /// Throws if called when the gate was never initialized. Must be called on the UI thread.
-    /// </summary>
-    public void ProceedToMainWindowAfterLogin(Window gateScreen)
-    {
-        if (gateScreen is null)
-            throw new ArgumentNullException(nameof(gateScreen));
-        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-            throw new InvalidOperationException("The application lifetime is not a classic desktop lifetime.");
-        var gate = AccountGate
-            ?? throw new InvalidOperationException("AccountGate was not initialized.");
-
-        FileLog.Write("[CcDirector] First-run login complete: clearing the account gate and showing the main window (no restart)");
-        ShowMainWindow(desktop, gate);
-        gateScreen.Close();
-    }
-
-    /// <summary>
-    /// Returns the Director to the account gate after the user logs out of the account area (issue
-    /// #582) - no restart. The credential has already been cleared by the account area through the
-    /// credential service (issue #583), so the gate now decides Block; this swaps the main window for
-    /// a fresh gate screen and closes the previous window. The next start would likewise show the gate
-    /// (issue #580), because the cleared store leaves the install logged out. Must be called on the UI
-    /// thread.
-    /// </summary>
-    public void ReturnToGateAfterLogout(Window currentWindow, Window? settingsDialog = null)
-    {
-        if (currentWindow is null)
-            throw new ArgumentNullException(nameof(currentWindow));
-        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-            throw new InvalidOperationException("The application lifetime is not a classic desktop lifetime.");
-
-        FileLog.Write("[CcDirector] Logout complete: returning to the account gate (no restart)");
-
-        // The main window's OnClosing is wired to shut the whole Director down (it calls OnShutdown ->
-        // Environment.Exit by design), so we must NOT close it to return to the gate. Instead we show
-        // the gate as the new main window and HIDE the old main window (and the Settings dialog). The
-        // process stays alive on the gate; the credential is already cleared, so the gate decides Block
-        // here and would do so again on the next start (issue #580). The hidden main window is torn
-        // down normally when the user later quits the Director from the gate.
-        var gateScreen = new AccountGateScreen();
-        desktop.MainWindow = gateScreen;
-        gateScreen.Show();
-
-        settingsDialog?.Hide();
-        currentWindow.Hide();
     }
 
     private void InitializeServices(SplashScreen splash)
@@ -298,18 +221,12 @@ public partial class App : Application
         WorkspaceStore = new WorkspaceStore();
         log("Workspace store initialized");
 
-        // DevThrottle account startup gate (issue #580), built over the credential service (issue
-        // #583). The credential store is Windows Data Protection today; the macOS Keychain store is
-        // a later drop-in (issue #583), so on non-Windows we fail loud rather than run ungated.
+        // Gateway Centralization Phase 2 migration (issue #642): the Gateway is the single account
+        // authority, so the Director holds NO credential of its own (issue #651: the Director no longer
+        // builds a local credential service or startup gate at all). Delete any stale local credential
+        // blob an older build left behind, with a log line. A failure here only logs (it must never
+        // block startup).
         UpdateSplashStatus(splash, "Checking account...");
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(
-                "The DevThrottle account credential store is Windows-only today (issue #583); the macOS Keychain store is a later drop-in.");
-
-        // Gateway Centralization Phase 2 migration (issue #642): the Gateway is the account authority
-        // now, so the Director must hold NO credential of its own. Delete any stale local credential
-        // blob an older build left behind, with a log line. This runs once per launch before the
-        // account service is built; a failure here only logs (it must never block startup).
         try
         {
             var deleted = DevThrottleCredentialMigration.DeleteStaleDirectorCredential();
@@ -321,11 +238,6 @@ public partial class App : Application
         {
             log($"DevThrottle credential migration FAILED (ignored, the Director holds no credential regardless): {ex.Message}");
         }
-
-        var accountService = DevThrottleAccountFactory.CreateForWindows();
-        AccountService = accountService;
-        AccountGate = new AccountGatePolicy(accountService);
-        log("Account gate initialized");
 
         UpdateSplashStatus(splash, "Starting engine...");
         StartEngine(log);

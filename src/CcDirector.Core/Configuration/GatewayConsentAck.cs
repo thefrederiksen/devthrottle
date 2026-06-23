@@ -7,10 +7,10 @@ namespace CcDirector.Core.Configuration;
 /// <summary>
 /// Records whether the GATEWAY has shown and the user has acknowledged the first-run consent screen -
 /// the short, honest explanation of what DevThrottle does and does not collect, shown once at the
-/// Gateway's first launch alongside the sign-in (Gateway Centralization Phase 3, issue #650). This is
-/// the gateway-side relocation of the per-Director <see cref="Account.FirstRunConsent"/> flag: with the
-/// account centralized on the Gateway, the consent screen is shown once on the Gateway rather than on
-/// every Director, so the acknowledgement is recorded here, on the Gateway, not per-Director.
+/// Gateway's first launch alongside the sign-in (Gateway Centralization Phase 3, issue #650). The
+/// per-Director first-run consent screen has been removed (issue #651): with the account centralized on
+/// the Gateway, the consent screen is shown once on the Gateway rather than on every Director, so the
+/// acknowledgement is recorded here, on the Gateway, not per-Director.
 ///
 /// Persisted in the Gateway's <c>config.json</c> under <c>gateway_consent.acknowledged</c> - the same
 /// store the other Gateway settings use (<see cref="TelemetryConsentConfig"/>, the centralized consent
@@ -18,11 +18,11 @@ namespace CcDirector.Core.Configuration;
 /// shown the screen has not acknowledged it, so the screen is shown until the user confirms it, at
 /// which point this records <c>true</c> and the screen is not shown again on a subsequent launch.
 ///
-/// The key is deliberately distinct from the per-Director <c>consent</c> section
-/// (<see cref="Account.FirstRunConsent"/>): on a co-located dev machine where a Director and the
-/// Gateway share one <c>config.json</c>, the gateway acknowledgement and the per-Director one are
-/// separate facts and must never be confused. (Removing the per-Director screen is the Director
-/// cleanup issue #651; this issue only relocates the screen onto the Gateway.)
+/// The key (<c>gateway_consent</c>) is deliberately distinct from the legacy per-Director <c>consent</c>
+/// section an older build may have left in <c>config.json</c>: on a co-located dev machine where a
+/// Director and the Gateway share one <c>config.json</c>, the gateway acknowledgement and any leftover
+/// per-Director one are separate facts and must never be confused. (The per-Director consent surface
+/// itself was removed in the Director cleanup, issue #651.)
 ///
 /// Reads and writes go through <see cref="CcDirectorConfigService"/> so the non-lossy deep-merge
 /// preserves every other section of <c>config.json</c>.

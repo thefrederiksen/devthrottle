@@ -1,0 +1,31 @@
+=== Issue #651 dead-surface removal proof (run Mon Jun 22 19:17:48 EDT 2026) ===
+
+### AC2/AC3: FirstRunConsentDialog removed (no file, no reference) ###
+-- git ls-files for the dialog (expect NONE):
+-- code references to FirstRunConsentDialog under src/ (expect NONE):
+(none)
+
+### AC3: AccountGateScreen (Director sign-in surface) removed ###
+-- git ls-files for AccountGateScreen (expect NONE):
+-- code references to AccountGateScreen under src/ (expect NONE):
+(none)
+
+### AC3: no Director code path opens a devthrottle.com sign-in ###
+-- devthrottle.com sign-in references in the Director (CcDirector.Avalonia) (expect NONE):
+Binary file src/CcDirector.Avalonia/bin/Debug/net10.0/CcDirector.Core.dll matches
+Binary file src/CcDirector.Avalonia/bin/Debug/net10.0/CcDirector.Core.pdb matches
+
+### Dead Core types removed ###
+-- AccountGatePolicy / GateDecision / FirstRunConsent files (expect NONE):
+-- references to these types anywhere under src/ (expect NONE):
+(none)
+
+### Trap check: shared Gateway types still present and referenced (must EXIST) ###
+-- DevThrottleAccountService referenced by Gateway:
+src/CcDirector.Gateway/Account/GatewayAccountFactory.cs
+src/CcDirector.Gateway/Account/GatewaySignInService.cs
+src/CcDirector.Gateway/Account/GatewayTokenRefreshService.cs
+-- FirstRunLoginCoordinator referenced by Gateway:
+src/CcDirector.Gateway/Account/GatewaySignInService.cs
+src/CcDirector.Gateway/bin/Debug/net10.0/CcDirector.Core.dll
+src/CcDirector.Gateway/bin/Debug/net10.0/CcDirector.Core.pdb

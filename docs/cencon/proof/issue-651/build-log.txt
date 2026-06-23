@@ -1,0 +1,34 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.TrayUi\bin\Debug\net10.0-windows\CcDirector.TrayUi.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcClick -> D:\ReposFred\devthrottle-wt-651\src\CcClick\bin\Debug\net10.0-windows\CcClick.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Cockpit -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Cockpit\bin\Debug\net10.0\devthrottle-cockpit.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Terminal.Avalonia -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Terminal.Avalonia\bin\Debug\net10.0\CcDirector.Terminal.Avalonia.dll
+  CcDirector.CliExplorer -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.CliExplorer\bin\Debug\net10.0-windows\CcDirector.CliExplorer.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-wt-651\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Terminal -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Terminal\bin\Debug\net10.0-windows\CcDirector.Terminal.dll
+  CcDirector.Core.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll
+  CcDirector.Cockpit.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Cockpit.Tests\bin\Debug\net10.0\CcDirector.Cockpit.Tests.dll
+  CcDirector.HostedAgent.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.HostedAgent.Tests\bin\Debug\net10.0\CcDirector.HostedAgent.Tests.dll
+  CcDirector.AgentBrain.Panel -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.AgentBrain.Panel\bin\Debug\net10.0\agent-brain-panel.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Launcher\bin\Debug\net10.0-windows\cc-launcher.dll
+  CcDirector.Avalonia -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Avalonia\bin\Debug\net10.0\cc-director.dll
+  CcDirector.GatewayApp -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.GatewayApp\bin\Debug\net10.0-windows\devthrottle-gateway.dll
+  CcDirector.Gateway.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll
+  CcDirector.Launcher.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Launcher.Tests\bin\Debug\net10.0-windows\CcDirector.Launcher.Tests.dll
+  CcDirector.Avalonia.Tests -> D:\ReposFred\devthrottle-wt-651\src\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.87

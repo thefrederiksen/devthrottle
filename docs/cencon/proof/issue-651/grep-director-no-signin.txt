@@ -1,0 +1,8 @@
+=== Issue #651: Director-source sign-in check (source files only, bin/obj excluded) ===
+
+### AC3: devthrottle.com sign-in / first-run login surface in the Director SOURCE (expect NONE) ###
+(none in Director source)
+
+### Confirm via git-tracked files only (authoritative; never sees bin/obj) ###
+-- tracked Director files mentioning a devthrottle sign-in flow (expect NONE):
+(none in tracked Director files)
