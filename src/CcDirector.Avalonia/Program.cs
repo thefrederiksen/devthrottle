@@ -56,9 +56,44 @@ internal static class Program
             }
         }
 
+        // Self-heal a broken install BEFORE cleanup deletes the ".old" backup we recover from
+        // (issue #242). Two distinct failure modes are handled here:
+        //
+        //  1. A half-completed swap left the install exe missing or zero-length -- restore it
+        //     from the ".old" backup so we can boot at all instead of dying silently.
+        //  2. A previously-applied update produced a build that never came up healthy -- roll
+        //     back to the ".old" backup, pin the bad version, relaunch the restored build, and
+        //     exit so the working version runs.
+        var recoveryNotice = UpdateInstaller.RecoverHalfAppliedSwap();
+
+        var rollbackNotice = UpdateInstaller.TryRollBackFailedUpdate();
+        if (rollbackNotice is not null)
+        {
+            FileLog.Write("[Program] Rolled back a failed update; relaunching the restored build.");
+            MessageBoxW(IntPtr.Zero, rollbackNotice, "CC Director - Update rolled back", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Environment.ProcessPath ?? "",
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[Program] Relaunch after rollback FAILED: {ex.Message}");
+            }
+            FileLog.Stop();
+            return 0;
+        }
+
         // Remove the prior build's leftover ".old" file and prune stale staging
-        // directories before normal startup.
+        // directories before normal startup. (Runs AFTER recovery/rollback above, which
+        // depend on the ".old" backup still being present.)
         UpdateInstaller.CleanupAfterUpdate();
+
+        if (recoveryNotice is not null)
+            MessageBoxW(IntPtr.Zero, recoveryNotice, "CC Director - Update recovered", MB_OK | MB_ICONWARNING | MB_TOPMOST);
 
         // Apply a staged update at startup -- before any session exists, so no
         // running work is ever lost. If one is pending, the relauncher takes over
@@ -73,6 +108,15 @@ internal static class Program
         using var guard = SingleInstanceGuard.TryAcquire();
         if (guard is null)
         {
+            // A second launch must NOT vanish silently -- "clicking does nothing" is exactly the
+            // failure this issue targets (issue #242). Bring the already-running window to the
+            // foreground; only if no window can be raised do we fall back to an explanatory dialog.
+            if (TryRaiseExistingWindow())
+            {
+                FileLog.Write("[Program] Second launch: raised the already-running window and exited.");
+                return 0;
+            }
+
             var exe = Environment.ProcessPath ?? "(unknown)";
             var msg =
                 "CC Director is already running.\n\n" +
@@ -130,11 +174,75 @@ internal static class Program
             .UsePlatformDetect()
             .LogToTrace();
 
+    /// <summary>
+    /// Bring the already-running Director's window to the foreground when a second copy is
+    /// launched (issue #242). Locates the other process by exact image path (a different PID
+    /// running the same exe) and raises its main window via Win32 so a re-launch focuses the
+    /// existing window instead of silently exiting. Returns true when a window was raised.
+    /// Best-effort; never throws.
+    /// </summary>
+    private static bool TryRaiseExistingWindow()
+    {
+        try
+        {
+            var self = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(self))
+                return false;
+
+            var myPid = Environment.ProcessId;
+            using var current = System.Diagnostics.Process.GetCurrentProcess();
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(current.ProcessName))
+            {
+                using (p)
+                {
+                    if (p.Id == myPid)
+                        continue;
+
+                    string? otherPath;
+                    try { otherPath = p.MainModule?.FileName; }
+                    catch { continue; } // access denied / exited between enumeration and read
+
+                    if (otherPath is null
+                        || !string.Equals(Path.GetFullPath(otherPath), Path.GetFullPath(self), StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var hwnd = p.MainWindowHandle;
+                    if (hwnd == IntPtr.Zero)
+                        continue; // window not realized yet (e.g. still on the splash)
+
+                    if (IsIconic(hwnd))
+                        ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
+                    FileLog.Write($"[Program] TryRaiseExistingWindow: raised window of PID {p.Id} ({otherPath})");
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[Program] TryRaiseExistingWindow FAILED: {ex.Message}");
+        }
+        return false;
+    }
+
     private const uint MB_OK = 0x00000000;
     private const uint MB_ICONWARNING = 0x00000030;
     private const uint MB_ICONERROR = 0x00000010;
     private const uint MB_TOPMOST = 0x00040000;
+    private const int SW_RESTORE = 9;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
 }

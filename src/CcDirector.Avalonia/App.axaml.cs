@@ -75,18 +75,33 @@ public partial class App : Application
             LoadConfiguration();
 
             // Run all heavy initialization on background thread, then boot straight to the main window.
+            // The whole path is guarded so a startup failure here surfaces a visible error dialog and a
+            // crash file -- never a stuck splash or a silent vanish (issue #242). Without this guard an
+            // exception in InitializeServices/ShowMainWindow is swallowed by the dispatcher's
+            // UnhandledException handler (Handled=true) and the user sees a frozen splash forever.
             global::Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
             {
-                await Task.Run(() => InitializeServices(splash));
+                try
+                {
+                    await Task.Run(() => InitializeServices(splash));
 
-                // No account startup gate (issue #651): the account lives entirely on the Gateway now,
-                // so the Director never gates its own startup, never signs in, and never opens a browser
-                // loopback sign-in. It always boots straight to the main window. The read-only Account
-                // panel in Settings reads the Gateway's /account/status for display only.
-                FileLog.Write("[CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)");
+                    // No account startup gate (issue #651): the account lives entirely on the Gateway now,
+                    // so the Director never gates its own startup, never signs in, and never opens a browser
+                    // loopback sign-in. It always boots straight to the main window. The read-only Account
+                    // panel in Settings reads the Gateway's /account/status for display only.
+                    FileLog.Write("[CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)");
 
-                ShowMainWindow(desktop);
-                splash.Close();
+                    ShowMainWindow(desktop);
+                    splash.Close();
+
+                    // The build came up healthy: clear any pending post-update health check so a
+                    // successful update is trusted and never rolled back (issue #242).
+                    UpdateInstaller.MarkCurrentBuildHealthy();
+                }
+                catch (Exception ex)
+                {
+                    HandleFatalStartupError(desktop, splash, ex);
+                }
             }, global::Avalonia.Threading.DispatcherPriority.Background);
 
             desktop.ShutdownRequested += (_, _) => OnShutdown(msg => FileLog.Write($"[CcDirector] {msg}"));
@@ -449,6 +464,60 @@ public partial class App : Application
     {
         global::Avalonia.Threading.Dispatcher.UIThread.Post(() => splash.StatusText.Text = text);
     }
+
+    /// <summary>
+    /// Surface a fatal startup error visibly instead of leaving a stuck splash or vanishing
+    /// silently (issue #242). Logs the full exception, writes a findable crash file, closes the
+    /// splash, shows the user a Win32 error dialog with the crash-file path, then shuts down.
+    /// A Win32 MessageBox is used because the Avalonia app is in a broken state and may not be
+    /// able to show its own window. Runs on the UI thread (called from the boot continuation).
+    /// </summary>
+    private static void HandleFatalStartupError(IClassicDesktopStyleApplicationLifetime desktop, SplashScreen splash, Exception ex)
+    {
+        FileLog.Write($"[CcDirector] FATAL startup error: {ex}");
+        var crashPath = WriteStartupCrashFile(ex);
+
+        try { splash.Close(); } catch (Exception closeEx) { FileLog.Write($"[CcDirector] Splash close after fatal error FAILED: {closeEx.Message}"); }
+
+        var logPath = FileLog.CurrentLogPath ?? "(log path unavailable)";
+        MessageBoxW(IntPtr.Zero,
+            "CC Director failed to start:\n\n" +
+            $"{ex.Message}\n\n" +
+            $"Log file:\n{logPath}\n\n" +
+            (crashPath is null ? "" : $"Crash details:\n{crashPath}"),
+            "CC Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+
+        desktop.Shutdown(1);
+    }
+
+    /// <summary>
+    /// Write a startup crash report to the director log directory so a startup failure leaves a
+    /// findable trail even when the UI never came up. Best-effort; returns the path or null.
+    /// </summary>
+    private static string? WriteStartupCrashFile(Exception ex)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "cc-director", "logs", "director");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"crash-startup-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log");
+            File.WriteAllText(path, $"[startup] {DateTime.Now:o}\n\n{ex}\n");
+            return path;
+        }
+        catch
+        {
+            return null; // never let crash-reporting itself throw
+        }
+    }
+
+    private const uint MB_OK = 0x00000000;
+    private const uint MB_ICONERROR = 0x00000010;
+    private const uint MB_TOPMOST = 0x00040000;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     internal void OnShutdown(Action<string> log)
     {
