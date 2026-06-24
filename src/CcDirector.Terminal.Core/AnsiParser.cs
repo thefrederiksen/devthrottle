@@ -75,6 +75,15 @@ public class AnsiParser
     // generation (not our concern here).
     private bool _bracketedPaste;
 
+    // --- Mouse reporting (?1000 / ?1002 / ?1003 tracking, ?1006 SGR coords) ---
+    // A full-screen application that switches to the alternate screen (e.g.
+    // Claude Code) typically also requests mouse reporting so it can scroll its
+    // own view in response to wheel events. The terminal control reads these so
+    // it can forward the wheel to the application instead of scrolling the
+    // (empty by design) local scrollback. See TerminalControl.OnPointerWheelChanged.
+    private bool _mouseReporting;
+    private bool _mouseSgrCoordinates;
+
     // --- Alternate screen buffer (?1049 / ?1047 / ?47) ---
     // Only scroll-region margins need to be saved across the swap; cursor
     // and attrs are handled by the caller via ?1049's implicit save-cursor.
@@ -222,6 +231,27 @@ public class AnsiParser
 
     /// <summary>Whether the cursor is currently visible per DECTCEM (?25).</summary>
     public bool IsCursorVisible => _cursorVisible;
+
+    /// <summary>
+    /// Whether the application is currently using the alternate screen buffer
+    /// (?1049 / ?1047 / ?47). The alternate screen has no scrollback by design,
+    /// so the terminal control suppresses its local scrollbar and forwards the
+    /// wheel to the application while this is true.
+    /// </summary>
+    public bool IsAlternateScreen => _altCells != null;
+
+    /// <summary>
+    /// Whether the application has requested mouse reporting (?1000 normal,
+    /// ?1002 button-event, or ?1003 any-event). When true, wheel events should
+    /// be forwarded to the application as mouse-wheel reports.
+    /// </summary>
+    public bool MouseReportingEnabled => _mouseReporting;
+
+    /// <summary>
+    /// Whether the application requested SGR extended mouse coordinates (?1006).
+    /// Determines the encoding used when forwarding mouse reports.
+    /// </summary>
+    public bool MouseSgrCoordinates => _mouseSgrCoordinates;
 
     /// <summary>
     /// Snapshot of internal parser state, for terminal-capture diagnostics.
@@ -858,7 +888,15 @@ public class AnsiParser
                 case 1048: if (set) SaveCursor(); else RestoreCursor(); break;
                 case 1049: SwitchAltScreen(set, saveCursor: true); break;
                 case 2004: _bracketedPaste = set; break;
-                // 1000-1006 (mouse), 2026 (synchronized update), etc. -- accepted without effect.
+                // Mouse reporting: ?1000 (normal/click), ?1002 (button-event),
+                // ?1003 (any-event) all enable reporting; ?1006 selects SGR
+                // extended coordinates. Tracked so the control can forward the
+                // wheel to the application. ?1005/?1015 (other encodings) and
+                // 2026 (synchronized update) are accepted without effect.
+                case 1000:
+                case 1002:
+                case 1003: _mouseReporting = set; break;
+                case 1006: _mouseSgrCoordinates = set; break;
             }
         }
     }
@@ -1509,6 +1547,9 @@ public class AnsiParser
         _cursorVisible = true;
         _hasSavedCursor = false;
         _altCells = null;
+        _bracketedPaste = false;
+        _mouseReporting = false;
+        _mouseSgrCoordinates = false;
         _committedFrame = null; // drop repaint-diff baseline on RIS (issue #240)
         _g0IsDecSpecial = false;
         _g1IsDecSpecial = false;

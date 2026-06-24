@@ -167,6 +167,13 @@ public class TerminalControl : Control
     /// <summary>Total number of lines in scrollback buffer.</summary>
     public int ScrollbackCount => _scrollback.Count;
 
+    /// <summary>
+    /// True while the running application is on the alternate screen buffer.
+    /// The alternate screen has no scrollback, so the host hides the local
+    /// scrollbar and the wheel is forwarded to the application instead.
+    /// </summary>
+    public bool IsOnAlternateScreen => _parser?.IsAlternateScreen ?? false;
+
     /// <summary>Number of visible rows in the viewport.</summary>
     public int ViewportRows => _rows;
 
@@ -1111,6 +1118,19 @@ public class TerminalControl : Control
     {
         try
         {
+            // When a full-screen application is on the alternate screen and has
+            // requested mouse reporting (e.g. Claude Code), the local scrollback
+            // is empty by design -- the application scrolls its own view. Forward
+            // the wheel to it as mouse-wheel reports instead of scrolling local
+            // history, which would do nothing and leave the user stuck.
+            if (_session != null && _parser != null
+                && _parser.IsAlternateScreen && _parser.MouseReportingEnabled)
+            {
+                ForwardWheelToApplication(e);
+                e.Handled = true;
+                return;
+            }
+
             int lines = e.Delta.Y > 0 ? 3 : -3;
             ScrollOffset = _scrollOffset + lines; // Uses property to trigger event
 
@@ -1124,6 +1144,39 @@ public class TerminalControl : Control
         {
             FileLog.Write($"[TerminalControl] OnPointerWheelChanged FAILED: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Forward a wheel event to the running application as mouse-wheel reports.
+    /// Used when the application is on the alternate screen with mouse reporting
+    /// enabled, so it scrolls its own view (the local scrollback is empty then).
+    /// </summary>
+    private void ForwardWheelToApplication(PointerWheelEventArgs e)
+    {
+        if (_session == null || _parser == null) return;
+
+        var pos = e.GetPosition(this);
+        int col = _cellWidth > 0 ? (int)(pos.X / _cellWidth) + 1 : 1;
+        int row = _cellHeight > 0 ? (int)(pos.Y / _cellHeight) + 1 : 1;
+        col = Math.Max(1, Math.Min(_cols, col));
+        row = Math.Max(1, Math.Min(_rows, row));
+
+        int button = e.Delta.Y > 0 ? MouseReportEncoder.WheelUp : MouseReportEncoder.WheelDown;
+
+        // Send one wheel report per notch. Delta.Y is ~1 per standard wheel
+        // notch; precise trackpads report fractional/larger values, so round up
+        // and cap to keep a single gesture from flooding the application.
+        int notches = (int)Math.Ceiling(Math.Abs(e.Delta.Y));
+        notches = Math.Max(1, Math.Min(notches, 10));
+
+        byte[] report = _parser.MouseSgrCoordinates
+            ? MouseReportEncoder.EncodeSgr(button, col, row)
+            : MouseReportEncoder.EncodeX10(button, col, row);
+
+        for (int i = 0; i < notches; i++)
+            _session.SendInput(report);
+
+        FileLog.Write($"[TerminalControl] ForwardWheelToApplication: button={button}, col={col}, row={row}, notches={notches}, sgr={_parser.MouseSgrCoordinates}");
     }
 
     private void RecalculateGridSize()
