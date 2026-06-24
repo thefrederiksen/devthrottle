@@ -1,0 +1,10 @@
+[AC4] InstallTarget()           = C:\Users\soren\AppData\Local\Temp\claude\D--ReposFred-devthrottle\b606cf1c-5a38-4681-b1cb-f2f8a0ab0122\scratchpad\ac4harness\publish2\Ac4Harness.exe
+[AC4] self (ProcessPath)        = C:\Users\soren\AppData\Local\Temp\claude\D--ReposFred-devthrottle\b606cf1c-5a38-4681-b1cb-f2f8a0ab0122\scratchpad\ac4harness\publish2\Ac4Harness.exe
+[AC4] backup .old created       = 162304 bytes
+[AC4] install exe now missing   = True (the broken half-swap)
+[AC4] NeedsHalfSwapRecovery()   = True
+[AC4] RecoverHalfAppliedSwap()  notice = CC Director detected a half-finished update and restored the previous working version so it could start. The interrupted update will be retried later. See the log for details.
+[AC4] install exe after recover = 162304 bytes (exists=True)
+[AC4] RESULT = PASS - half-applied swap detected, reported, and restored from .old
+
+EXIT CODE: 0
