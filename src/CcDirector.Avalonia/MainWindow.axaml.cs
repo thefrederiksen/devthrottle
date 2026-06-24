@@ -2612,6 +2612,16 @@ public partial class MainWindow : Window
         // scrollback list while the parser was growing it concurrently.
         var snap = TerminalHost.GetScrollSnapshot();
 
+        // On the alternate screen (e.g. Claude Code) there is no local scrollback
+        // -- the application owns scrolling and the wheel is forwarded to it. A
+        // visible-but-dead scrollbar reads as "scrolling is broken", so hide it.
+        if (TerminalHost.IsOnAlternateScreen)
+        {
+            TerminalScrollBar.IsVisible = false;
+            return;
+        }
+        TerminalScrollBar.IsVisible = true;
+
         // Avalonia's ScrollBar hides its thumb when Maximum == 0. When there
         // is no scrollback yet we still want a visible thumb filling the
         // entire track ("you're viewing everything"), so floor Maximum at 1.
