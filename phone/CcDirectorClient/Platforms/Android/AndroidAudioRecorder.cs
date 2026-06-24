@@ -3,6 +3,7 @@ using System.Text.Json;
 using Android.Content;
 using Android.Media;
 using CcDirectorClient.Recording;
+using CcDirectorClient.Voice;
 using Microsoft.Maui.Networking;
 using Microsoft.Maui.Storage;
 using Application = Android.App.Application;
@@ -200,35 +201,42 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
     public async Task ProcessUploadQueueAsync()
     {
-        // Do NOT gate on NetworkAccess == Internet. The Gateway is reachable
-        // over Tailscale, which can ride a network that Android reports as
-        // "constrained"/"local" (or even on mobile data with no public
-        // internet). Only skip when there is no network radio at all; otherwise
-        // attempt and let failures fall back to Retry.
-        if (Connectivity.Current.NetworkAccess == NetworkAccess.None) return;
-
-        // A fresh install (or a reinstall that wiped preferences) has no saved
-        // URL. Seed the built-in default so the recording uploads instead of
-        // silently sitting in the queue. The UI keeps the field editable.
-        var server = Preferences.Get("gateway_url", "").Trim();
-        if (string.IsNullOrWhiteSpace(server))
-        {
-            server = RecorderDefaults.GatewayUrl;
-            Preferences.Set("gateway_url", server);
-        }
-        var token = Preferences.Get("gateway_token", "").Trim();
-
         if (!await _uploadGate.WaitAsync(0)) return; // a run is already in progress
         try
         {
-            // Recover any recording that was interrupted mid-capture (app killed,
-            // crashed, or swiped away before StopAsync). Such a manifest has
-            // EndedAt==null but real audio segments on disk; recovery finalizes it
-            // into the normal "Queued" path so it is never stranded and uploads
-            // like any cleanly-stopped recording. This runs on every pass (launch
-            // and the background WorkManager worker) so no interrupted recording is
-            // ever excluded from upload (issue #687).
+            // Recover any recording that was interrupted mid-capture (app killed, crashed, or
+            // swiped away before StopAsync). Such a manifest has EndedAt==null but real audio on
+            // disk; recovery finalizes it into the normal "Queued" path so it is never stranded.
+            //
+            // This runs FIRST and UNCONDITIONALLY - before any network check - because it is a
+            // purely LOCAL on-disk operation. Gating it behind network availability (as the
+            // original #687 pass did) meant an interrupted recording could stay stuck "In Progress"
+            // forever whenever the recovery pass happened to run with no network (e.g. a cold start
+            // before the Tailscale radio is up). Finalizing here means the recording always leaves
+            // the "In Progress" state and joins the queue even offline; its bytes upload as soon as
+            // connectivity returns.
             RecoverOrphanedRecordings();
+
+            // The network-dependent half: pushing bytes to the Gateway and the server->phone
+            // deletion sync. Do NOT gate on NetworkAccess == Internet - the Gateway is reachable
+            // over Tailscale, which Android may report as "constrained"/"local" (or even mobile
+            // data with no public internet). Only skip when there is no network radio at all;
+            // otherwise attempt and let failures fall back to Retry.
+            if (Connectivity.Current.NetworkAccess == NetworkAccess.None)
+            {
+                ClientLog.Write("[Recorder] ProcessUploadQueue: recovery done, no network radio - upload deferred");
+                return;
+            }
+
+            // A fresh install (or a reinstall that wiped preferences) has no saved URL. Seed the
+            // built-in default so the recording uploads instead of silently sitting in the queue.
+            var server = Preferences.Get("gateway_url", "").Trim();
+            if (string.IsNullOrWhiteSpace(server))
+            {
+                server = RecorderDefaults.GatewayUrl;
+                Preferences.Set("gateway_url", server);
+            }
+            var token = Preferences.Get("gateway_token", "").Trim();
 
             foreach (var summary in ListRecordings())
             {
@@ -248,12 +256,18 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
     /// <summary>
     /// Finalize any recording that was interrupted before a clean <see cref="StopAsync"/> -
     /// the app was killed, crashed, or swiped away mid-capture, leaving a manifest with
-    /// <c>EndedAt == null</c> but real audio segments on disk. <see cref="ListRecordings"/>
-    /// reports such a recording with state <c>"Recording"</c>, which the upload gate excludes,
-    /// so without this it would never queue, never upload, never recover - silent data loss.
-    /// Recovery sets <c>EndedAt</c> and <c>State = "Queued"</c> so it enters the normal upload
-    /// path. The currently in-progress recording (if any) is skipped so a live capture is never
-    /// torn out from under itself.
+    /// <c>EndedAt == null</c> but real audio on disk. <see cref="ListRecordings"/> reports such a
+    /// recording with state <c>"Recording"</c>, which the upload gate excludes, so without this it
+    /// would never queue, never upload, never recover - silent data loss.
+    ///
+    /// The interrupting kill also skipped <see cref="FinalizeSegment"/> for the OPEN segment, so its
+    /// .m4a is on disk but absent from the manifest's <c>Chunks</c>. We therefore rebuild Chunks from
+    /// the actual files on disk first (<see cref="RecordingRecovery.ReconstructChunksFromDisk"/>):
+    /// without it, a recording shorter than one segment roll - whose only segment is that open one,
+    /// leaving Chunks empty - would still be invisible to recovery and stranded forever showing
+    /// "In Progress". Recovery then sets <c>EndedAt</c> and <c>State = "Queued"</c> so it enters the
+    /// normal upload path. The currently in-progress recording (if any) is skipped so a live capture
+    /// is never torn out from under itself.
     /// </summary>
     private void RecoverOrphanedRecordings()
     {
@@ -262,19 +276,38 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         lock (_gate)
             activeId = IsRecording ? _manifest?.RecordingId : null;
 
+        int recovered = 0;
         foreach (var summary in ListRecordings())
         {
             if (summary.RecordingId == activeId) continue;
-            if (!RecordingUploadGate.NeedsRecovery(summary.State, summary.SegmentCount > 0)) continue;
+            // Only an interrupted recording is a candidate: state "Recording" means the manifest
+            // has EndedAt==null because no clean StopAsync ever ran.
+            if (summary.State != RecordingUploadGate.Recording) continue;
 
             var m = LoadManifest(summary.RecordingId);
-            if (m is null || m.Chunks.Count == 0) continue; // nothing to recover
-            if (m.EndedAt is not null) continue;             // already finalized
+            if (m is null) continue;
+            if (m.EndedAt is not null) continue; // already finalized (a clean stop raced us)
+
+            // The interrupting kill skipped FinalizeSegment for the OPEN segment, so that .m4a is on
+            // disk but absent from the manifest's Chunks. Rebuild Chunks from the actual files so the
+            // open segment uploads too - and so a recording shorter than one segment roll (whose ONLY
+            // segment is the open one, leaving Chunks empty) is recovered at all instead of being
+            // stranded forever showing "In Progress" and never uploading.
+            var added = RecordingRecovery.ReconstructChunksFromDisk(m, RecordingFolder(summary.RecordingId));
+
+            // Decide on the real audio-on-disk truth (rebuilt above), not on whatever the pre-kill
+            // manifest happened to list. An interrupted recording with no bytes at all is an empty
+            // shell with nothing to save.
+            if (!RecordingUploadGate.NeedsRecovery(summary.State, hasAudioSegments: m.Chunks.Count > 0)) continue;
 
             m.EndedAt = DateTime.UtcNow.ToString("o");
-            m.State = "Queued"; // queued for background upload; never deleted until delivered
+            m.State = RecordingUploadGate.Queued; // queued for background upload; never deleted until delivered
             WriteManifest(summary.RecordingId, m);
+            recovered++;
+            ClientLog.Write($"[Recorder] Recovered interrupted recording {summary.RecordingId}: rebuilt {added} orphan segment(s) from disk, {m.Chunks.Count} total, queued for upload");
         }
+        if (recovered > 0)
+            ClientLog.Write($"[Recorder] RecoverOrphanedRecordings: finalized {recovered} interrupted recording(s)");
         RaiseChanged();
     }
 

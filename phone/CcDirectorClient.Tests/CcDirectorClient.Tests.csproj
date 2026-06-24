@@ -58,6 +58,11 @@
     <!-- The recording upload-gating rules (notes + audio always upload regardless of
          transcription). Dependency-free; the same file the Android recorder uses. -->
     <Compile Include="..\CcDirectorClient\Recording\RecordingUploadGate.cs" Link="Recording\RecordingUploadGate.cs" />
+    <!-- Crash-recovery: rebuild a manifest's segment list from the .m4a files on disk so an
+         interrupted recording (open segment never finalized) still uploads. Dependency-free;
+         the same files the Android recorder uses. -->
+    <Compile Include="..\CcDirectorClient\Recording\LocalManifest.cs" Link="Recording\LocalManifest.cs" />
+    <Compile Include="..\CcDirectorClient\Recording\RecordingRecovery.cs" Link="Recording\RecordingRecovery.cs" />
   </ItemGroup>
 
 </Project>
