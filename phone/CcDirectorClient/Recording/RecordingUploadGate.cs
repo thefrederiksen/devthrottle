@@ -20,6 +20,27 @@ public static class RecordingUploadGate
     public const string Retry = "Retry";
 
     /// <summary>
+    /// The state reported for a recording that was never cleanly stopped (its manifest has
+    /// <c>EndedAt == null</c>). Such a recording is interrupted - the app was killed, crashed,
+    /// or swiped away mid-capture before <c>StopAsync</c> could finalize it - yet it may already
+    /// have captured audio segments on disk.
+    /// </summary>
+    public const string Recording = "Recording";
+
+    /// <summary>
+    /// An interrupted recording needs RECOVERY: it was never cleanly stopped (state is
+    /// <see cref="Recording"/>, i.e. <c>EndedAt == null</c>) but it already has captured audio
+    /// segments on disk. Recovery finalizes it into the normal upload path (sets <c>EndedAt</c>
+    /// and <c>State = "Queued"</c>) so the audio is never stranded just because the app died
+    /// mid-capture. A "Recording" manifest with no segments yet has nothing to recover - it is
+    /// an empty shell and is left for the normal lifecycle to handle.
+    /// </summary>
+    /// <param name="state">The recording's reported upload state.</param>
+    /// <param name="hasAudioSegments">Whether the recording has at least one captured segment on disk.</param>
+    public static bool NeedsRecovery(string state, bool hasAudioSegments)
+        => state == Recording && hasAudioSegments;
+
+    /// <summary>
     /// The recording still has upload work to do, so the background pass must process it.
     /// Either the audio bytes are not all on the server yet (Queued/Retry/Uploading), or the
     /// audio IS uploaded but the complete call - the only thing that delivers the NOTES and

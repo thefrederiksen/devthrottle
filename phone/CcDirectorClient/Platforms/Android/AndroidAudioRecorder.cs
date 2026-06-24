@@ -221,6 +221,15 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         if (!await _uploadGate.WaitAsync(0)) return; // a run is already in progress
         try
         {
+            // Recover any recording that was interrupted mid-capture (app killed,
+            // crashed, or swiped away before StopAsync). Such a manifest has
+            // EndedAt==null but real audio segments on disk; recovery finalizes it
+            // into the normal "Queued" path so it is never stranded and uploads
+            // like any cleanly-stopped recording. This runs on every pass (launch
+            // and the background WorkManager worker) so no interrupted recording is
+            // ever excluded from upload (issue #687).
+            RecoverOrphanedRecordings();
+
             foreach (var summary in ListRecordings())
             {
                 if (!RecordingUploadGate.NeedsUpload(summary.State, summary.Completed)) continue;
@@ -234,6 +243,39 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             await ReconcileServerDeletionsAsync(server, token);
         }
         finally { _uploadGate.Release(); }
+    }
+
+    /// <summary>
+    /// Finalize any recording that was interrupted before a clean <see cref="StopAsync"/> -
+    /// the app was killed, crashed, or swiped away mid-capture, leaving a manifest with
+    /// <c>EndedAt == null</c> but real audio segments on disk. <see cref="ListRecordings"/>
+    /// reports such a recording with state <c>"Recording"</c>, which the upload gate excludes,
+    /// so without this it would never queue, never upload, never recover - silent data loss.
+    /// Recovery sets <c>EndedAt</c> and <c>State = "Queued"</c> so it enters the normal upload
+    /// path. The currently in-progress recording (if any) is skipped so a live capture is never
+    /// torn out from under itself.
+    /// </summary>
+    private void RecoverOrphanedRecordings()
+    {
+        // The live recording, if one is in progress, must not be recovered.
+        string? activeId;
+        lock (_gate)
+            activeId = IsRecording ? _manifest?.RecordingId : null;
+
+        foreach (var summary in ListRecordings())
+        {
+            if (summary.RecordingId == activeId) continue;
+            if (!RecordingUploadGate.NeedsRecovery(summary.State, summary.SegmentCount > 0)) continue;
+
+            var m = LoadManifest(summary.RecordingId);
+            if (m is null || m.Chunks.Count == 0) continue; // nothing to recover
+            if (m.EndedAt is not null) continue;             // already finalized
+
+            m.EndedAt = DateTime.UtcNow.ToString("o");
+            m.State = "Queued"; // queued for background upload; never deleted until delivered
+            WriteManifest(summary.RecordingId, m);
+        }
+        RaiseChanged();
     }
 
     /// <summary>

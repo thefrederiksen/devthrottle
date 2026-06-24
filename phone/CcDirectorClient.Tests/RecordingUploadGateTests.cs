@@ -93,6 +93,51 @@ public sealed class RecordingUploadGateTests
         Assert.True(RecordingUploadGate.IsDeletable("Uploaded", completed: true));
     }
 
+    // ===== NeedsRecovery: rescue interrupted recordings (issue #687) =========
+
+    [Fact]
+    public void NeedsRecovery_InterruptedWithAudio_IsTrue()
+    {
+        // The bug at the heart of #687: a recording the app died mid-capture for is reported
+        // "Recording" (EndedAt==null) but already has audio segments on disk. It must be
+        // recovered into the upload path, NOT left stranded and silently lost.
+        Assert.True(RecordingUploadGate.NeedsRecovery("Recording", hasAudioSegments: true));
+    }
+
+    [Fact]
+    public void NeedsRecovery_InterruptedButEmpty_IsFalse()
+    {
+        // A "Recording" shell with no captured segments yet has nothing to recover - there is
+        // no audio to save, so it is left for the normal lifecycle (it is not silent data loss).
+        Assert.False(RecordingUploadGate.NeedsRecovery("Recording", hasAudioSegments: false));
+    }
+
+    [Theory]
+    [InlineData("Queued")]
+    [InlineData("Uploading")]
+    [InlineData("Uploaded")]
+    [InlineData("Retry")]
+    [InlineData("")]
+    public void NeedsRecovery_AlreadyFinalizedStates_IsFalse(string state)
+    {
+        // Any recording that was cleanly stopped (EndedAt set, so state is a real upload state)
+        // is already in the normal path - recovery must not touch it, even with audio present.
+        Assert.False(RecordingUploadGate.NeedsRecovery(state, hasAudioSegments: true));
+    }
+
+    [Fact]
+    public void Recovery_RecoveredOrphan_IsNotDeletableUntilDelivered()
+    {
+        // The deletion-safety guard for #687 (AC5): once an interrupted recording is recovered
+        // it becomes "Queued". That state is NOT fully delivered and NOT deletable, so the
+        // server->phone deletion sync can never remove recovered audio before it is on the server.
+        Assert.True(RecordingUploadGate.NeedsRecovery("Recording", hasAudioSegments: true));
+        // After recovery the recorder sets State="Queued" with completed=false:
+        Assert.True(RecordingUploadGate.NeedsUpload("Queued", completed: false));
+        Assert.False(RecordingUploadGate.IsFullyDelivered("Queued", completed: false));
+        Assert.False(RecordingUploadGate.IsDeletable("Queued", completed: false));
+    }
+
     // ===== the lifecycle the fix protects ==================================
 
     [Fact]
