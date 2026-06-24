@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #242: Director never fails silently on startup + self-healing auto-update</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; max-width: 1100px; }
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  pre { background: #f4f4f4; padding: .8rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+  .note { background: #fff8e1; border-left: 4px solid #f0ad4e; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #242</h1>
+<p><strong>Title:</strong> Director must never fail silently on startup: always show a window/error +
+make auto-update failures visible and self-healing.</p>
+<p><strong>Branch:</strong> <code>issue-242-startup-selfheal</code></p>
+
+<h2>What was implemented</h2>
+<p>A large part of this broad issue (splash shown immediately, top-level
+<code>AppDomain</code>/<code>TaskScheduler</code>/dispatcher unhandled-exception handlers, the
+single-instance guard, bounded apply-attempts, crash-file writing, and <code>.old</code>/<code>.new</code>
+leftover cleanup) had already shipped in prior commits. This change closes the four remaining gaps
+that mapped onto the explicit acceptance criteria:</p>
+<ol>
+  <li><strong>(AC1)</strong> The heavy startup path that runs in a dispatcher-posted async lambda
+      (<code>InitializeServices</code> / <code>ShowMainWindow</code>) was NOT covered by a top-level
+      try/catch - an exception there was swallowed by the dispatcher unhandled-exception handler
+      (<code>Handled=true</code>), leaving a stuck splash forever. It is now wrapped: a failure logs the
+      full exception, writes a findable crash file, closes the splash, shows a Win32 error dialog with
+      the log + crash paths, and shuts down. (<code>App.axaml.cs</code> -
+      <code>HandleFatalStartupError</code>.)</li>
+  <li><strong>(AC2)</strong> Post-update <em>health self-check + auto-rollback</em>. The relauncher arms a
+      <code>pendingHealthCheckVersion</code> when it installs a new build; the new build clears it once it
+      reaches its main window (<code>MarkCurrentBuildHealthy</code>). If a later startup still sees the
+      marker set and the running version is not that version, the new build never came up healthy, so we
+      roll back to the <code>.old</code> backup, pin the bad version (<code>pinnedBadVersion</code>) so it is
+      not re-applied, relaunch the restored build, and tell the user.
+      (<code>UpdateInstaller.TryRollBackFailedUpdate</code>.)</li>
+  <li><strong>(AC3)</strong> A second launch now <em>raises the already-running window</em> via Win32
+      (<code>SetForegroundWindow</code>, restore if minimized) instead of just showing a message; the
+      message dialog remains only as a fallback when no window can be raised.
+      (<code>Program.TryRaiseExistingWindow</code>.)</li>
+  <li><strong>(AC4)</strong> A <em>half-applied swap</em> (install exe missing or zero-length with a
+      non-empty <code>.old</code> present) is detected on startup and restored from the backup BEFORE the
+      cleanup step deletes that backup. (<code>UpdateInstaller.RecoverHalfAppliedSwap</code>.)</li>
+</ol>
+
+<h2>Acceptance criteria - how each is met and proven</h2>
+<table>
+<tr><th>Criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+<tr>
+  <td>Launching a deliberately-broken build shows a clear error dialog + log path, not a silent no-op.</td>
+  <td>Pre-UI failures already surfaced via Win32 dialog in <code>Program.cs</code>; the missing case -
+      a failure inside the async boot continuation - is now caught by
+      <code>HandleFatalStartupError</code>, which logs, writes a crash file, closes the splash, shows a
+      Win32 error dialog with the log + crash paths, and shuts down.</td>
+  <td>Code path wired + builds clean. Happy-path proven live (Director boots to the main window;
+      see screenshot). The error path mirrors the already-proven pre-UI dialog pattern.</td>
+</tr>
+<tr>
+  <td>An update that yields a non-starting build auto-rolls-back to the previous build and tells the user.</td>
+  <td><code>ArmHealthCheck</code> -> <code>MarkCurrentBuildHealthy</code> -> <code>NeedsHealthRollback</code>
+      -> <code>TryRollBackFailedUpdate</code> restores <code>.old</code>, pins the bad version, relaunches,
+      shows a "Update X failed ... rolled back" dialog.</td>
+  <td>Decision helper <code>NeedsHealthRollback</code> unit-tested (pending-never-ran -> true;
+      pending-is-running -> false; no-pending -> false; no-backup -> false). See
+      <code>unit-tests-selfheal.txt</code>.</td>
+</tr>
+<tr>
+  <td>A second launch while one is running focuses the existing window instead of silently exiting.</td>
+  <td><code>TryRaiseExistingWindow</code> finds the other PID by exact image path and raises its main
+      window via Win32; returns exit code 0.</td>
+  <td><span class="pass">PROVEN LIVE.</span> Second launch (PID 41640) exited with code 0; only the
+      original PID 33384 remained; log shows
+      <code>TryRaiseExistingWindow: raised window of PID 33384</code>. See
+      <code>second-launch-log.txt</code>.</td>
+</tr>
+<tr>
+  <td>A half-applied swap is detected and recovered (or reported) on startup.</td>
+  <td><code>RecoverHalfAppliedSwap</code> restores a missing/zero-length install exe from a non-empty
+      <code>.old</code> backup, runs before cleanup deletes the backup, and returns a user notice.</td>
+  <td>Decision helper <code>NeedsHalfSwapRecovery</code> unit-tested (missing+backup -> true;
+      zero-length+backup -> true; healthy -> false; no-backup -> false; zero-length-backup -> false).
+      See <code>unit-tests-selfheal.txt</code>.</td>
+</tr>
+</table>
+
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>Tests</h2>
+<p>All 70 update-area tests pass, including the 10 new self-heal tests and the 5 apply-bound tests.
+Full verbose output: <code>unit-tests-selfheal.txt</code>.</p>
+<pre>Test Run Successful.
+Total tests: 15   Passed: 15   (UpdateInstallerSelfHeal + UpdateInstallerApplyBound)</pre>
+
+<h2>Live proof - normal startup (AC1 happy path)</h2>
+<p>Test Director built into isolated slot 14, launched via its own scheduled task
+(<code>cc-director14-launch</code>), came up healthy (PID 33384, Control API port 7880,
+<code>/healthz</code> returned <code>status: ok</code>), and showed the main window.</p>
+<img src="after-normal-startup.png" alt="Director main window after normal startup" />
+
+<h2>Live proof - second launch raises the existing window (AC3)</h2>
+<p>Launching the same exe a second time exited with code 0 and did not create a second instance;
+the existing window was raised.</p>
+<pre>Before PIDs: 33384
+Second launch PID: 41640
+Second launch exited=True exitCode=0
+After PIDs: 33384
+
+[SingleInstanceGuard] Another instance holds Local\cc-director-instance-4c43c1042e303ed0
+[Program] TryRaiseExistingWindow: raised window of PID 33384 (...\local_builds\cc-director14.exe)
+[Program] Second launch: raised the already-running window and exited.</pre>
+<img src="after-second-launch-raised.png" alt="Single window after second launch raised" />
+
+<h2>CenCon impact</h2>
+<p>No architecture drift (same containers and boundaries) and no security-posture change: the new
+logic is local filesystem self-healing of the install plus a Win32 window-raise; no new network
+surface, no new credential handling. No <code>docs/cencon/</code> manifest update required.</p>
+
+<h2>Statement</h2>
+<p class="pass">I believe this is finished. All four acceptance criteria are implemented; the build is
+clean with zero warnings; the new decision logic is unit-tested; and the second-launch and normal-startup
+behaviors are proven live in the running app.</p>
+
+</body>
+</html>

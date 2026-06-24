@@ -1,0 +1,15 @@
+﻿2026-06-24 08:25:15.657 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 08:25:15.907 [CcDirector] Main window shown
+2026-06-24 08:49:43.498 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 08:49:43.770 [CcDirector] Main window shown
+2026-06-24 08:23:36.681 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 08:23:36.947 [CcDirector] Main window shown
+2026-06-24 09:41:33.631 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 09:41:33.908 [CcDirector] Main window shown
+2026-06-24 08:33:15.727 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 08:33:15.998 [CcDirector] Main window shown
+2026-06-24 09:42:09.077 [SingleInstanceGuard] Another instance holds Local\cc-director-instance-4c43c1042e303ed0
+2026-06-24 09:42:09.085 [Program] TryRaiseExistingWindow: raised window of PID 33384 (D:\ReposFred\devthrottle-wt-242\local_builds\cc-director14.exe)
+2026-06-24 09:42:09.085 [Program] Second launch: raised the already-running window and exited.
+2026-06-24 08:42:25.904 [CcDirector] Booting straight to the main window (account is managed by the Gateway, issue #651)
+2026-06-24 08:42:26.186 [CcDirector] Main window shown

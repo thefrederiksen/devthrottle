@@ -1,0 +1,27 @@
+﻿Test run for D:\ReposFred\devthrottle-wt-242\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.05]   Discovering: CcDirector.Core.Tests
+[xUnit.net 00:00:00.20]   Discovered:  CcDirector.Core.Tests
+[xUnit.net 00:00:00.20]   Starting:    CcDirector.Core.Tests
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerApplyBoundTests.HasExhausted_BelowMax_False [2 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerApplyBoundTests.HasExhausted_NoAttemptsRecorded_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerApplyBoundTests.UpdaterState_RoundTripsApplyAttemptFields [20 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerApplyBoundTests.HasExhausted_AtMaxForSameVersion_True [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerApplyBoundTests.HasExhausted_AttemptsCountedForDifferentVersion_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHealthRollback_NoPendingCheck_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHalfSwapRecovery_ZeroLengthBackup_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHalfSwapRecovery_HealthyInstall_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHealthRollback_PendingVersionIsRunning_False [< 1 ms]
+[xUnit.net 00:00:00.26]   Finished:    CcDirector.Core.Tests
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHalfSwapRecovery_InstallMissingWithBackup_True [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHalfSwapRecovery_InstallZeroLengthWithBackup_True [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.UpdaterState_RoundTripsSelfHealFields [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHalfSwapRecovery_NoBackup_False [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHealthRollback_PendingVersionNeverBecameRunning_True [< 1 ms]
+  Passed CcDirector.Core.Tests.Update.UpdateInstallerSelfHealTests.NeedsHealthRollback_NoBackupToRollBackTo_False [< 1 ms]
+
+Test Run Successful.
+Total tests: 15
+     Passed: 15
+ Total time: 0.5445 Seconds

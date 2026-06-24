@@ -1,0 +1,7 @@
+[apply-update] 2026-06-24T10:01:42.9172759-04:00
+
+System.IO.DirectoryNotFoundException: Could not find a part of the path 'Z:\nonexistent-volume\cc-director.exe.new'.
+   at System.IO.FileSystem.CopyFile(String sourceFullPath, String destFullPath, Boolean overwrite)
+   at CcDirector.Core.Update.UpdateInstaller.SwapWindows(String targetExe)
+   at CcDirector.Core.Update.UpdateInstaller.ApplyUpdate(String targetPath, Int32 parentPid)
+   at CcDirector.Avalonia.Program.Main(String[] args)

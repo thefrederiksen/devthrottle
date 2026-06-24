@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #242 (independent verification)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  code { background: #f4f4f4; padding: .1rem .35rem; border-radius: 3px; font-size: .9em; }
+  .pass { color: #0a7d2c; font-weight: bold; }
+  .verdict { background: #e8f7ec; border: 2px solid #0a7d2c; padding: 1rem; margin-top: 2rem; font-size: 1.1rem; }
+  img { max-width: 900px; border: 1px solid #ccc; margin: .5rem 0; display: block; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: .8rem; overflow-x: auto; border-radius: 4px; font-size: .85em; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #242</h1>
+<p class="meta">
+  <strong>Title:</strong> Director must never fail silently on startup: always show a window/error +
+  make auto-update failures visible and self-healing<br>
+  <strong>PR:</strong> #689 &nbsp; <strong>Branch:</strong> <code>issue-242-startup-selfheal</code><br>
+  <strong>Verified by:</strong> QA Agent (independent, fresh context - did not trust the Developer report)<br>
+  <strong>Method:</strong> own git worktree, isolated test slot 14, Director launched via the per-slot
+  scheduled task (CLAUDE.md rule 0b). Every criterion reproduced with the QA Agent's OWN proof.
+</p>
+
+<h2>Build &amp; test gate (own build)</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -> <span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span></li>
+  <li><code>dotnet test CcDirector.Core.Tests</code> -> <span class="pass">2364 passed, 0 failed</span>
+      (6 skipped environment-gated). Update area: <span class="pass">70 passed</span>, including the
+      10 issue-242 self-heal decision tests + apply-bound tests.</li>
+  <li>Slot exe built (<code>cc-director14.exe</code>) and launched; reported a Control API port and a
+      healthy <code>/healthz</code> (version 0.9.13) - normal startup is visible with a window.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Evidence</th><th>Result</th></tr>
+  <tr>
+    <td>AC1</td>
+    <td>A deliberately-broken build shows a clear error dialog + log path, not a silent no-op.</td>
+    <td>Startup-path failure surfaces a visible Win32 error dialog and writes a findable crash file
+        with the exception + log path; process does not vanish silently.</td>
+    <td>Launched the real build down a broken startup path (<code>--apply-update</code> to an invalid
+        target). A visible modal dialog titled <strong>"CC Director - Update failed"</strong> appeared
+        (confirmed by live top-level window enumeration), and a crash file
+        <code>crash-apply-update-20260624-100142-44976.log</code> was written with the full stack trace
+        (<code>DirectoryNotFoundException</code> -> <code>SwapWindows</code> -> <code>ApplyUpdate</code> ->
+        <code>Program.Main</code>). Process exited non-silently. The boot-continuation path adds the same
+        mechanism: <code>App.HandleFatalStartupError</code> closes the splash and shows a dialog with the
+        message + log path + crash path (code-verified, identical mechanism).</td>
+    <td><code>qa-ac1-error-dialog.png</code>, <code>qa-ac1-crash-apply-update.log</code>,
+        <code>qa-ac1-normal-startup-window.png</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC2</td>
+    <td>An update that yields a non-starting build auto-rolls-back to the previous build and tells the user.</td>
+    <td>With a pending post-update health check for a version the running build never became, and a
+        non-empty <code>.old</code> backup, startup rolls back to <code>.old</code>, pins the bad
+        version, shows a "rolled back" dialog, and relaunches the restored build.</td>
+    <td>Armed <code>pendingHealthCheckVersion=0.6.11</code> (running build 0.9.13) with a valid
+        <code>cc-director14.exe.old</code>. On launch, <code>TryRollBackFailedUpdate</code> fired
+        (log: "update 0.6.11 never became healthy (running 0.9.13); rolling back ... and pinning the
+        bad version"), restored the exe from the backup, set <code>pinnedBadVersion: "0.6.11"</code> in
+        <code>updater-state.json</code> and cleared the pending marker, showed the modal
+        <strong>"CC Director - Update rolled back"</strong> dialog, and relaunched the restored build
+        (a new PID started). Verified twice.</td>
+    <td><code>qa-ac2-rollback-dialog.png</code> + live log lines + on-disk <code>updater-state.json</code>
+        showing the pin</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC3</td>
+    <td>A second launch while one is running focuses the existing window instead of silently exiting.</td>
+    <td>The second launch detects the single-instance guard is held, raises the already-running
+        window, and exits 0 - it does not vanish silently and does not start a second instance.</td>
+    <td>With PID 40404 running, launched the same exe again (PID 6388). The second instance
+        <strong>exited with code 0</strong>; only PID 40404 remained. Its own log:
+        <code>[SingleInstanceGuard] Another instance holds ...</code> ->
+        <code>[Program] TryRaiseExistingWindow: raised window of PID 40404</code> ->
+        <code>[Program] Second launch: raised the already-running window and exited.</code></td>
+    <td><code>qa-ac3-second-launch-log.txt</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC4</td>
+    <td>A half-applied swap is detected and recovered (or reported) on startup.</td>
+    <td>An install exe that is missing/zero-length with a non-empty <code>.old</code> present is detected
+        and restored from the backup, with a user-facing notice, before cleanup deletes the backup.</td>
+    <td>Drove the <strong>real production methods</strong>
+        (<code>UpdateInstaller.NeedsHalfSwapRecovery</code> /
+        <code>UpdateInstaller.RecoverHalfAppliedSwap</code>) from a process whose own install exe was made
+        missing (half-applied swap) with a valid <code>.old</code> beside it.
+        <code>NeedsHalfSwapRecovery()</code> = <strong>True</strong>; <code>RecoverHalfAppliedSwap()</code>
+        returned the notice <em>"CC Director detected a half-finished update and restored the previous
+        working version so it could start..."</em> and <strong>restored the install exe from
+        <code>.old</code></strong> (back to its full byte length). Negative live case confirmed: a healthy
+        install + lingering <code>.old</code> does NOT trigger recovery and boots normally (cleanup then
+        removes the stale <code>.old</code>).</td>
+    <td><code>qa-ac4-halfswap-recovery.txt</code> (real-method output, RESULT=PASS, exit 0)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Full Core test suite green (2364 passed); no adjacent breakage observed.</li>
+  <li>Diff is scoped to startup/updater code + tests + proof artifacts (10 files); no auth, network,
+      credential, or PII surface touched - no blocking security rule implicated; no
+      <code>docs/cencon/</code> architecture/security manifest change required.</li>
+  <li>Coding-style adherence: entry-point-only try/catch, enterprise logging on every path, no
+      fallback-programming (failures are reported visibly, never silently degraded).</li>
+  <li>Normal startup confirmed to bring up a window and clear the post-update health check
+      (<code>MarkCurrentBuildHealthy</code>).</li>
+</ul>
+
+<h2>Evidence files (this directory)</h2>
+<p><strong>AC1 dialog (full-screen capture at the moment the error dialog was up):</strong></p>
+<img src="qa-ac1-error-dialog.png" alt="AC1 error dialog">
+<p><strong>AC1 crash file:</strong></p>
+<pre>See qa-ac1-crash-apply-update.log - DirectoryNotFoundException stack trace through
+SwapWindows -> ApplyUpdate -> Program.Main, written to the director log directory.</pre>
+<p><strong>AC3 second-launch log:</strong></p>
+<pre>See qa-ac3-second-launch-log.txt - TryRaiseExistingWindow raised PID 40404 and exited 0.</pre>
+<p><strong>AC4 real-method recovery output:</strong></p>
+<pre>See qa-ac4-halfswap-recovery.txt - NeedsHalfSwapRecovery=True, RecoverHalfAppliedSwap
+returned the user notice and restored the install exe from .old. RESULT=PASS, exit 0.</pre>
+
+<div class="verdict">
+  VERIFIED - all four acceptance criteria met, independently reproduced with QA-owned proof.
+  Build clean, full Core test suite green. No regressions or method violations found.
+</div>
+</body>
+</html>

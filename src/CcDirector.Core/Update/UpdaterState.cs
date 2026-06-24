@@ -56,6 +56,24 @@ public sealed class UpdaterState
     [JsonPropertyName("applyAttemptVersion")]
     public string? ApplyAttemptVersion { get; set; }
 
+    /// <summary>
+    /// Version of a freshly-swapped build that must prove it can come up healthy before the
+    /// update is trusted (issue #242). Set by the relauncher after it installs a new build;
+    /// cleared by that new build once it reaches the main window. If a later startup still
+    /// sees this set, the prior new-build launch never became healthy, so we roll back to the
+    /// <c>.old</c> backup and pin the bad version.
+    /// </summary>
+    [JsonPropertyName("pendingHealthCheckVersion")]
+    public string? PendingHealthCheckVersion { get; set; }
+
+    /// <summary>
+    /// A version that failed its post-update health self-check and was rolled back (issue #242).
+    /// Pinned so the same bad version is not staged or applied again. Cleared only when a
+    /// strictly newer version is offered.
+    /// </summary>
+    [JsonPropertyName("pinnedBadVersion")]
+    public string? PinnedBadVersion { get; set; }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,

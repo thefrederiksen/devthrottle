@@ -50,6 +50,27 @@ public static class UpdateInstaller
         => state.ApplyAttemptVersion == state.StagedVersion && state.ApplyAttempts >= maxAttempts;
 
     /// <summary>
+    /// True when a swap left the install in a broken state that must be recovered from the
+    /// <c>.old</c> backup on startup (issue #242): the install exe is missing or zero-length
+    /// (a half-completed copy/replace) while a non-empty <c>.old</c> backup is present.
+    /// Pure decision, unit-tested.
+    /// </summary>
+    public static bool NeedsHalfSwapRecovery(bool installExists, long installLength, bool oldExists, long oldLength)
+        => (!installExists || installLength == 0) && oldExists && oldLength > 0;
+
+    /// <summary>
+    /// True when a previously-swapped build never proved healthy and must be rolled back to its
+    /// <c>.old</c> backup on this startup (issue #242): a health check is still pending for a
+    /// version, the running build is NOT that version (so the new build failed to come up and
+    /// hand control back), and a non-empty <c>.old</c> backup exists to roll back to.
+    /// Pure decision, unit-tested.
+    /// </summary>
+    public static bool NeedsHealthRollback(string? pendingHealthVersion, string runningVersion, bool oldExists, long oldLength)
+        => !string.IsNullOrEmpty(pendingHealthVersion)
+           && !string.Equals(pendingHealthVersion, runningVersion, StringComparison.Ordinal)
+           && oldExists && oldLength > 0;
+
+    /// <summary>
     /// If a verified, newer update has been staged for THIS install path, launch the
     /// relauncher to apply it and return true (the caller must then exit so the swap can
     /// proceed). Called at startup, before any session exists, so applying an update never
@@ -71,6 +92,18 @@ public static class UpdateInstaller
             // Only ever apply an update that targets the path we are running from.
             if (!PathsEqual(state.InstallTarget, InstallTarget()))
                 return false;
+
+            // Never re-apply a version that already failed its post-update health check and was
+            // rolled back (issue #242). Pinning it here stops a re-stage/re-apply loop of a build
+            // we already know does not start.
+            if (!string.IsNullOrEmpty(state.PinnedBadVersion)
+                && string.Equals(state.PinnedBadVersion, state.StagedVersion, StringComparison.Ordinal))
+            {
+                FileLog.Start();
+                FileLog.Write($"[UpdateInstaller] Staged {state.StagedVersion} is pinned as a failed update; clearing without applying.");
+                ClearStagedState();
+                return false;
+            }
 
             if (!StagedIsNewer(state.StagedVersion))
             {
@@ -157,6 +190,12 @@ public static class UpdateInstaller
 
         WaitForProcessExit(parentPid, TimeSpan.FromSeconds(30));
 
+        // Record which version we are about to install so the freshly-swapped build must
+        // prove it can come up healthy before the update is trusted (issue #242). If that
+        // build fails to reach its main window, a later startup sees this marker still set
+        // (and the running version unchanged) and rolls back to the .old backup.
+        var versionBeingInstalled = UpdaterState.Load().StagedVersion;
+
         if (OperatingSystem.IsWindows())
             SwapWindows(targetPath);
         else if (OperatingSystem.IsMacOS())
@@ -165,8 +204,10 @@ public static class UpdateInstaller
             throw new PlatformNotSupportedException("Auto-update is only supported on Windows and macOS.");
 
         // Clear the staged marker BEFORE relaunching so the freshly-installed build
-        // doesn't see itself as a pending update and loop.
+        // doesn't see itself as a pending update and loop. Arm the post-update health
+        // self-check at the same time (issue #242).
         ClearStagedState();
+        ArmHealthCheck(versionBeingInstalled);
         Relaunch(targetPath);
 
         FileLog.Write("[UpdateInstaller] ApplyUpdate: complete");
@@ -211,6 +252,148 @@ public static class UpdateInstaller
         {
             FileLog.Write($"[UpdateInstaller] CleanupAfterUpdate FAILED: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Recover from a half-completed swap on startup (issue #242). If the install exe is
+    /// missing or zero-length (an interrupted copy/replace) but a non-empty <c>.old</c> backup
+    /// is present, restore the install from the backup so the app can boot instead of dying
+    /// silently. Returns a user-facing notice when a recovery happened, otherwise null.
+    /// MUST run BEFORE <see cref="CleanupAfterUpdate"/> (which deletes the <c>.old</c> backup).
+    /// Best-effort; never throws.
+    /// </summary>
+    public static string? RecoverHalfAppliedSwap()
+    {
+        try
+        {
+            // Windows-only: the .old backup is produced by SwapWindows. On macOS the bundle
+            // swap is a single atomic rename with no zero-length intermediate to recover from.
+            if (!OperatingSystem.IsWindows())
+                return null;
+
+            var target = InstallTarget();
+            var old = target + ".old";
+
+            var installInfo = new FileInfo(target);
+            var oldInfo = new FileInfo(old);
+            var installExists = installInfo.Exists;
+            var installLength = installExists ? installInfo.Length : 0;
+            var oldExists = oldInfo.Exists;
+            var oldLength = oldExists ? oldInfo.Length : 0;
+
+            if (!NeedsHalfSwapRecovery(installExists, installLength, oldExists, oldLength))
+                return null;
+
+            FileLog.Start();
+            FileLog.Write($"[UpdateInstaller] RecoverHalfAppliedSwap: install exe is " +
+                $"{(installExists ? $"zero-length ({installLength} bytes)" : "missing")}; restoring from {old} ({oldLength} bytes).");
+
+            if (installExists) File.Delete(target);
+            File.Copy(old, target);
+            FileLog.Write($"[UpdateInstaller] RecoverHalfAppliedSwap: restored {target} from backup.");
+
+            return "CC Director detected a half-finished update and restored the previous working " +
+                   "version so it could start. The interrupted update will be retried later. " +
+                   "See the log for details.";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] RecoverHalfAppliedSwap FAILED: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Roll back an update that produced a build which never came up healthy (issue #242). If a
+    /// post-update health check is still pending for a version the running build did not become,
+    /// restore the install from the <c>.old</c> backup, pin the bad version so it is not re-applied,
+    /// clear the health marker, and return a "update X failed, rolled back" notice. The caller must
+    /// exit and relaunch the restored build so the rolled-back version runs. Returns null when no
+    /// rollback is needed. MUST run BEFORE <see cref="CleanupAfterUpdate"/>. Best-effort; never throws.
+    /// </summary>
+    public static string? TryRollBackFailedUpdate()
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+                return null;
+
+            var state = UpdaterState.Load();
+            var pending = state.PendingHealthCheckVersion;
+            if (string.IsNullOrEmpty(pending))
+                return null;
+
+            var running = (Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0)).ToString(3);
+            var target = InstallTarget();
+            var old = target + ".old";
+            var oldInfo = new FileInfo(old);
+            var oldExists = oldInfo.Exists;
+            var oldLength = oldExists ? oldInfo.Length : 0;
+
+            if (!NeedsHealthRollback(pending, running, oldExists, oldLength))
+                return null;
+
+            FileLog.Start();
+            FileLog.Write($"[UpdateInstaller] TryRollBackFailedUpdate: update {pending} never became healthy " +
+                $"(running {running}); rolling back to backup {old} ({oldLength} bytes) and pinning the bad version.");
+
+            // Restore the previous build over the failing one.
+            var newPath = target + ".new";
+            if (File.Exists(newPath)) File.Delete(newPath);
+            File.Copy(old, newPath);
+            if (File.Exists(target)) File.Replace(newPath, target, null);
+            else File.Move(newPath, target);
+
+            // Pin the bad version and clear the health marker so we do not loop.
+            state.PinnedBadVersion = pending;
+            state.PendingHealthCheckVersion = null;
+            state.Save();
+
+            FileLog.Write($"[UpdateInstaller] TryRollBackFailedUpdate: restored previous build at {target}; pinned bad version {pending}.");
+            return $"Update {pending} failed to start correctly, so CC Director rolled back to the " +
+                   "previous working version. That update has been blocked from retrying. " +
+                   "See the log for details.";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] TryRollBackFailedUpdate FAILED: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Clear the post-update health-check marker once the current build has reached a healthy,
+    /// interactive state (issue #242). Called from the UI after the main window is shown, so a
+    /// successful update is no longer treated as pending and never rolls back. No-op when nothing
+    /// is pending. Best-effort; never throws.
+    /// </summary>
+    public static void MarkCurrentBuildHealthy()
+    {
+        try
+        {
+            var state = UpdaterState.Load();
+            if (string.IsNullOrEmpty(state.PendingHealthCheckVersion))
+                return;
+
+            FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy: clearing pending health check for {state.PendingHealthCheckVersion}.");
+            state.PendingHealthCheckVersion = null;
+            state.Save();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>Arm the post-update health self-check for a freshly-installed version (issue #242).</summary>
+    private static void ArmHealthCheck(string? version)
+    {
+        if (string.IsNullOrEmpty(version))
+            return;
+        var state = UpdaterState.Load();
+        state.PendingHealthCheckVersion = version;
+        state.Save();
+        FileLog.Write($"[UpdateInstaller] ArmHealthCheck: armed post-update health check for {version}.");
     }
 
     /// <summary>
