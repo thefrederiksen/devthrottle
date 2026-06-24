@@ -69,10 +69,13 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         Assert.Contains("OPENAI_API_KEY", listBody);
         Assert.DoesNotContain("sk-integration-123", listBody);
 
-        // The real resolver a gateway-attached Director uses pulls it over HTTP.
+        // The real resolver a gateway-attached Director uses pulls it over HTTP. Pin BYO transcription
+        // mode: since issue #541 the default mode is Local (in-process, no key), so an unpinned
+        // resolver would short-circuit ResolveAsync to null; this test covers the OpenAI key path.
         var resolver = new OpenAiKeyResolver(
             new AgentOptions(),
-            new GatewayConfig { Url = _gatewayBase, Token = Token });
+            () => new GatewayConfig { Url = _gatewayBase, Token = Token },
+            () => TranscriptionMode.Byo);
         Assert.True(resolver.UsesGateway);
         Assert.Equal("sk-integration-123", await resolver.ResolveAsync());
     }
@@ -84,9 +87,12 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         var del = await _http.DeleteAsync("vault/keys/OPENAI_API_KEY");
         del.EnsureSuccessStatusCode();
 
+        // Pin BYO mode (default is Local since #541, which has no key) so the deleted-key path is
+        // what makes ResolveAsync return null - not the mode having no key in the first place.
         var resolver = new OpenAiKeyResolver(
             new AgentOptions(),
-            new GatewayConfig { Url = _gatewayBase, Token = Token });
+            () => new GatewayConfig { Url = _gatewayBase, Token = Token },
+            () => TranscriptionMode.Byo);
         Assert.Null(await resolver.ResolveAsync());
         Assert.Contains("Cockpit", resolver.UnavailableMessage);
     }
@@ -94,15 +100,20 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Standalone_resolver_uses_local_key_no_gateway()
     {
-        // No gateway configured: the resolver uses the local Settings > Voice key.
+        // No gateway configured: the resolver uses the local Settings > Voice key. Pin BYO mode
+        // (default is Local since #541, which has no key) so the local OpenAI key path is exercised.
         var withKey = new OpenAiKeyResolver(
             new AgentOptions { OpenAiKey = "sk-local-standalone" },
-            new GatewayConfig());
+            () => new GatewayConfig(),
+            () => TranscriptionMode.Byo);
         Assert.False(withKey.UsesGateway);
         Assert.Equal("sk-local-standalone", await withKey.ResolveAsync());
 
         // No local key either: unavailable, pointed at Settings > Transcription (not the Cockpit).
-        var noKey = new OpenAiKeyResolver(new AgentOptions(), new GatewayConfig());
+        var noKey = new OpenAiKeyResolver(
+            new AgentOptions(),
+            () => new GatewayConfig(),
+            () => TranscriptionMode.Byo);
         Assert.Null(await noKey.ResolveAsync());
         Assert.Contains("Settings > Transcription", noKey.UnavailableMessage);
     }
@@ -117,7 +128,9 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         await _http.PutAsJsonAsync("vault/keys/OPENAI_API_KEY", new { value = "sk-late-gateway" });
 
         var mode = new GatewayConfig();                 // standalone at boot
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => mode);
+        // Pin BYO transcription mode (default is Local since #541, which has no key); this test is
+        // about the gateway-config live re-read (standalone -> attached), not the transcription mode.
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => mode, () => TranscriptionMode.Byo);
         Assert.False(resolver.UsesGateway);
         Assert.Null(await resolver.ResolveAsync());
         Assert.Contains("Settings > Transcription", resolver.UnavailableMessage);
