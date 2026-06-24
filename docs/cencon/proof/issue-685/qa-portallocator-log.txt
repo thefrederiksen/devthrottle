@@ -1,0 +1,20 @@
+2026-06-24 08:49:43.519 [PortAllocator] Allocate: directorId=ebf39d12-f16d-4239-ac5a-a579abaad20c
+2026-06-24 08:49:43.523 [PortAllocator] Pruning stale reservation ghost-1b0c6edd-17a5-4aa8-a600-59b90e84276d.port: claimed port 7895 is free to bind
+2026-06-24 08:49:43.524 [PortAllocator] Pruning stale reservation ghost-25ab8086-a580-498b-ba85-5e3095645508.port: claimed port 7888 is free to bind
+2026-06-24 08:49:43.526 [PortAllocator] Pruning stale reservation ghost-2b384d43-284a-4e0c-b15d-5a73670a0f88.port: claimed port 7887 is free to bind
+2026-06-24 08:49:43.527 [PortAllocator] Pruning stale reservation ghost-2b570b58-f12a-4bdb-8512-9fdab2074fcc.port: claimed port 7889 is free to bind
+2026-06-24 08:49:43.528 [PortAllocator] Pruning stale reservation ghost-2ea6f9f9-ba74-41a2-b46c-55c206eaa68d.port: claimed port 7897 is free to bind
+2026-06-24 08:49:43.528 [PortAllocator] Pruning stale reservation ghost-3f08a9c9-598d-49fe-a3d6-738463b76f0a.port: claimed port 7892 is free to bind
+2026-06-24 08:49:43.529 [PortAllocator] Pruning stale reservation ghost-46bfb504-dbac-48f3-ab9f-e9af686636dd.port: claimed port 7883 is free to bind
+2026-06-24 08:49:43.530 [PortAllocator] Pruning stale reservation ghost-4919cbd5-a70e-437b-862e-c1aaf1be738f.port: claimed port 7890 is free to bind
+2026-06-24 08:49:43.531 [PortAllocator] Pruning stale reservation ghost-5423617d-a2a9-4b06-9499-2b3a096dbf04.port: claimed port 7891 is free to bind
+2026-06-24 08:49:43.532 [PortAllocator] Pruning stale reservation ghost-55c06bf8-d6a6-4d8e-ba7c-13669c27b830.port: claimed port 7884 is free to bind
+2026-06-24 08:49:43.533 [PortAllocator] Pruning stale reservation ghost-5716cfd6-74a9-4324-a063-41b0eaf7d220.port: claimed port 7893 is free to bind
+2026-06-24 08:49:43.533 [PortAllocator] Pruning stale reservation ghost-81412557-cc38-4207-9605-b816408a8450.port: claimed port 7898 is free to bind
+2026-06-24 08:49:43.534 [PortAllocator] Pruning stale reservation ghost-9bde323f-7aa4-4f6e-9556-bd25225286ae.port: claimed port 7885 is free to bind
+2026-06-24 08:49:43.535 [PortAllocator] Pruning stale reservation ghost-b0b6ca07-2502-4f05-9579-452266fbbc01.port: claimed port 7881 is free to bind
+2026-06-24 08:49:43.536 [PortAllocator] Pruning stale reservation ghost-b8223184-57cd-42f4-a1da-4697a9c39a18.port: claimed port 7880 is free to bind
+2026-06-24 08:49:43.537 [PortAllocator] Pruning stale reservation ghost-c62da759-50e5-42b5-b3da-f1b13a9afa4d.port: claimed port 7886 is free to bind
+2026-06-24 08:49:43.537 [PortAllocator] Pruning stale reservation ghost-ee00bfeb-764b-4c4a-896f-3d77b9d14d30.port: claimed port 7896 is free to bind
+2026-06-24 08:49:43.538 [PortAllocator] Pruning stale reservation ghost-f7577058-840b-4d91-9b5b-91d52acbb713.port: claimed port 7894 is free to bind
+2026-06-24 08:49:43.539 [PortAllocator] Allocated port 7880

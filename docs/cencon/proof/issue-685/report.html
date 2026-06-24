@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #685: PortAllocator stale reservation pruning</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1c1c1c; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #007acc; padding-bottom: .3rem; }
+  h2 { color: #007acc; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; overflow-x: auto; border-radius: 4px; font-size: .85rem; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #685</h1>
+<p><strong>Title:</strong> PortAllocator burns a port slot per ungraceful shutdown; stale .port files
+exhaust 7879..7898 and disable the Control API</p>
+<p><strong>Branch:</strong> <code>issue-685-portallocator-stale-reservations</code></p>
+<p><strong>File changed:</strong> <code>src/CcDirector.ControlApi/PortAllocator.cs</code> +
+<code>src/CcDirector.Gateway.Tests/PortAllocatorTests.cs</code> (new)</p>
+
+<h2>What was implemented</h2>
+<p>
+A <code>.port</code> reservation file is only deleted on a graceful <code>Release</code>. Every
+hard-kill, crash, or reboot left one behind. <code>ReadPortsInUseByOtherDirectors</code> trusted
+every file on disk, so ghost reservations accumulated until the whole <code>7879..7898</code> range
+looked busy even when every TCP port was actually free - and a starting Director threw
+"All ports in range 7879..7898 are busy", bringing up no Control API (Remote, Gateway, and phone
+access all off).
+</p>
+<p>The fix, in <code>PortAllocator.cs</code>:</p>
+<ul>
+  <li>The per-file decision logic was extracted into an internal, testable method
+      <code>CollectLivePortReservations(directory, except, isPortFree)</code> that takes the
+      port-liveness predicate by injection (so tests do not touch real OS ports or the real user's
+      reservation directory). <code>ReadPortsInUseByOtherDirectors</code> is now a thin wrapper that
+      passes the real <code>IsPortFree</code>.</li>
+  <li>A reservation is counted as "used by others" <strong>only when its claimed port is genuinely
+      NOT bindable</strong>. A live Director holds its port, so a port that is free to bind proves the
+      reservation is a ghost from an ungraceful exit.</li>
+  <li>Ghost reservations (claimed port free to bind) and malformed files are <strong>pruned</strong>
+      (deleted) in passing, so the directory cannot fill up with ghosts and exhaust the range over
+      time. Pruning is best-effort and logged; a transient delete failure does not abort the scan.</li>
+  <li>A narrow per-file guard logs and skips a reservation file that another starting Director deleted
+      mid-scan, instead of aborting the whole allocation.</li>
+</ul>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr>
+    <td>With ~19 stale <code>.port</code> files (dead GUIDs) and all OS ports free, a starting
+        Director allocates a port and brings up the Control API.</td>
+    <td class="pass">PASS</td>
+    <td>19 ghost <code>.port</code> files were pre-seeded (one per bindable port in the range). The
+        test Director allocated port <strong>7880</strong> and Kestrel bound it. See log and the live
+        <code>GET /healthz -&gt; HTTP 200</code> below, and the screenshot showing
+        <code>SOREN_NORTH:7880</code> / "All systems go".</td>
+  </tr>
+  <tr>
+    <td>A <code>.port</code> file whose claimed port is actually free to bind is not counted as
+        "used by others".</td>
+    <td class="pass">PASS</td>
+    <td>18 of the 19 ghosts (all on free ports) were pruned and not counted; allocation succeeded.
+        Unit test <code>CollectLivePortReservations_StaleReservationOnFreePort_NotCountedAndFilePruned</code>.</td>
+  </tr>
+  <tr>
+    <td>Stale <code>.port</code> files are pruned so the range cannot be exhausted by ghosts over
+        time.</td>
+    <td class="pass">PASS</td>
+    <td>The Director log shows 18 <code>Pruning stale reservation ...: claimed port N is free to
+        bind</code> lines, and the files are gone from disk afterward. The one remaining ghost
+        (<code>7879</code>) was correctly KEPT because port 7879 was bound at scan time (a real
+        Director was holding it) - proving the live-reservation half of the fix and that a live
+        Director's file is never disturbed.</td>
+  </tr>
+  <tr>
+    <td>Regression test: stale reservation -&gt; allocation succeeds; live reservation (port not
+        bindable) -&gt; still respected.</td>
+    <td class="pass">PASS</td>
+    <td>6 new xUnit tests in <code>PortAllocatorTests.cs</code>, all passing
+        (<code>Passed: 6, Failed: 0</code>).</td>
+  </tr>
+</table>
+
+<h2>Live proof - Director log (PID 5712)</h2>
+<p>Pre-fix this Director would have thrown "All ports ... are busy" and started with no Control API.
+With the fix it pruned the ghosts and allocated cleanly:</p>
+<pre>2026-06-24 08:42:25.925 [PortAllocator] Allocate: directorId=ebf39d12-...
+2026-06-24 08:42:25.929 [PortAllocator] Pruning stale reservation issue685-ghost-...: claimed port 7896 is free to bind
+2026-06-24 08:42:25.930 [PortAllocator] Pruning stale reservation issue685-ghost-...: claimed port 7898 is free to bind
+   ... (18 ghost reservations pruned in total) ...
+2026-06-24 08:42:25.944 [PortAllocator] Pruning stale reservation issue685-ghost-...: claimed port 7894 is free to bind
+2026-06-24 08:42:25.946 [PortAllocator] Allocated port 7880
+2026-06-24 08:42:25.987 [ControlApiHost] Kestrel listening on http://127.0.0.1:7880 (loopback only; remote access via Tailscale Serve)</pre>
+<p>Full excerpt: <code>director-log-portallocator.txt</code>.</p>
+
+<h2>Live proof - Control API reachable</h2>
+<pre>GET http://127.0.0.1:7880/healthz -> HTTP 200
+{"status":"ok","directors":1,"sessions":0,"version":"0.9.13",
+ "directorId":"ebf39d12-f16d-4239-ac5a-a579abaad20c","machineName":"SOREN_NORTH"}</pre>
+<p>Full response: <code>healthz-response.txt</code>.</p>
+
+<h2>Visual proof - running test Director</h2>
+<p>Top-right shows the Control API address <code>SOREN_NORTH:7880</code> the Director allocated despite
+the ghost-flooded reservation range; status reads "All systems go" and "Gateway connected".</p>
+<img src="director-window.png" alt="Test Director running with Control API on port 7880">
+
+<h2>Build &amp; tests</h2>
+<pre>dotnet build cc-director.sln   -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (PortAllocatorTests) -> Passed! Failed: 0, Passed: 6, Skipped: 0</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a bug fix to existing port-allocation logic in the Control API container; it does
+not change architecture or security posture.</p>
+
+<div class="note">
+<p><strong>I believe this is finished.</strong> The build is clean (0 warnings/0 errors), 6 regression
+tests pass, and a live test Director proved the field failure self-heals: a range flooded with 19
+ghost reservations no longer blocks allocation - the ghosts on free ports are pruned, the one
+reservation whose port was genuinely bound is respected and the real Director's file is left
+untouched, and the Control API comes up and answers HTTP 200.</p>
+</div>
+
+</body>
+</html>
