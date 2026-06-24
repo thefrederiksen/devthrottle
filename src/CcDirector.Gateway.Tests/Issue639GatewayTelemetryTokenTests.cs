@@ -215,18 +215,40 @@ public sealed class Issue639GatewayTelemetryTokenTests
         {
             await queue.DisposeAsync();
             Cleanup(path);
-            await Task.Delay(500); // let the background writer flush our lines
         }
 
-        var newLines = new List<string>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-            {
-                var lines = ReadAllLinesShared(f);
-                var start = baseline.TryGetValue(f, out var n) ? n : 0;
-                for (var i = start; i < lines.Count; i++)
-                    newLines.Add(lines[i]);
-            }
+        // The shared FileLog writer flushes on a background thread, so poll (up to a generous
+        // deadline) for our line to land on disk rather than sleeping a fixed interval. The old
+        // fixed Task.Delay(500) raced the writer under load and made this test flaky in CI (it
+        // passed at 507 ms in one run and failed in another).
+        List<string> CollectNewLines()
+        {
+            var collected = new List<string>();
+            if (Directory.Exists(logDir))
+                foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
+                {
+                    var lines = ReadAllLinesShared(f);
+                    var start = baseline.TryGetValue(f, out var n) ? n : 0;
+                    for (var i = start; i < lines.Count; i++)
+                        collected.Add(lines[i]);
+                }
+            return collected;
+        }
+
+        static bool HasQueueMarker(List<string> lines)
+        {
+            foreach (var l in lines)
+                if (l.Contains("[TelemetryRetryQueue]")) return true;
+            return false;
+        }
+
+        var newLines = CollectNewLines();
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!HasQueueMarker(newLines) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+            newLines = CollectNewLines();
+        }
 
         // The queue logged on this path (proves logging is wired)...
         Assert.Contains(newLines, l => l.Contains("[TelemetryRetryQueue]"));
