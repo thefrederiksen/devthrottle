@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 685 - PortAllocator stale reservations</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f3f0fb; }
+  .pass { color: #0a7c2f; font-weight: bold; }
+  .verdict { background: #e8f6ec; border: 2px solid #0a7c2f; padding: 1rem; margin-top: 2rem; font-size: 1.1rem; }
+  code, pre { font-family: Consolas, monospace; background: #f5f5f5; padding: .1rem .3rem; }
+  pre { padding: .7rem; overflow-x: auto; border: 1px solid #ddd; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue 685</h1>
+<p><strong>Title:</strong> PortAllocator burns a port slot per ungraceful shutdown; stale .port files exhaust 7879..7898 and disable the Control API</p>
+<p><strong>Pull request:</strong> 686 &nbsp; <strong>Branch:</strong> issue-685-portallocator-stale-reservations</p>
+<p><strong>QA method:</strong> Independent verification (separate context, own git worktree, own isolated slot 14 built from the PR branch, launched via the per-slot scheduled task per CLAUDE.md rule 0b). The Developer Agent report and screenshots were treated as context only, not proof.</p>
+
+<h2>Test environment built independently</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>Slot 14 exe published from the PR branch worktree: <code>D:\ReposFred\devthrottle-wt-685\local_builds\cc-director14.exe</code>.</li>
+  <li>Director launched via scheduled task <code>cc-director14-launch</code>; PID 24964, Control API self-allocated port 7880.</li>
+</ul>
+
+<h2>Field condition reproduced</h2>
+<p>The real reservation directory <code>%LOCALAPPDATA%\cc-director\config\director\ports\</code> was seeded to reproduce the reported failure:</p>
+<ul>
+  <li><strong>18 ghost .port files</strong> (dead/random GUIDs) each claiming a port that was genuinely free to bind (7880, 7881, 7883-7898).</li>
+  <li><strong>1 live reservation</strong> (GUID 59e99e10..., port 7879) belonging to the user's real running Director, where port 7879 is genuinely bound. (Port 7882 is a Windows excluded-port reservation, matching the field report.)</li>
+</ul>
+<p>This is the field scenario (19 reservation files, the whole bindable range claimed by ghosts) plus the harder live-reservation case running side by side, so both halves of the fix are exercised in one run.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>With many stale .port files (dead GUIDs) and the OS ports free, a starting Director allocates a port and brings up the Control API.</td>
+  <td>Director starts, Control API answers.</td>
+  <td>Director allocated port 7880; <code>GET /healthz</code> returned HTTP 200 with directorId ebf39d12 (see qa-healthz.txt).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>A .port file whose claimed port is actually free to bind is not counted as "used by others".</td>
+  <td>Ghost reservations on free ports are skipped during the scan.</td>
+  <td>Director log shows all 18 ghosts skipped/pruned with reason "claimed port N is free to bind"; allocation then succeeded (qa-portallocator-log.txt).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Stale .port files are pruned so the range cannot be exhausted by ghosts over time.</td>
+  <td>Ghost files are deleted from disk on the next allocation.</td>
+  <td>Directory went from 19 files to 2 (the live 7879 reservation + the new 7880 reservation); all 18 ghost files were deleted.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>A live reservation (port not bindable) is still respected and its file kept.</td>
+  <td>The real Director's 7879 reservation is left untouched.</td>
+  <td>File 59e99e10...port -> 7879 remained on disk after the new Director started; the log never lists it for pruning.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Regression test covers stale->allocation succeeds and live->respected.</td>
+  <td>Dedicated unit tests exist and pass.</td>
+  <td>6 PortAllocatorTests pass (stale-pruned, live-kept, 19-stale field case, malformed-pruned, own-reservation-ignored, mixed live+stale).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<ul>
+  <li>Full <code>CcDirector.Gateway.Tests</code> suite: 955 passed, 1 skipped (unrelated realtime dictation), 0 failed.</li>
+  <li>Whole-solution build clean (0 warnings, 0 errors).</li>
+  <li>Change is localized to <code>src/CcDirector.ControlApi/PortAllocator.cs</code> plus new tests; no architecture or security-profile change, so no <code>docs/cencon/</code> drift. No blocking DT security rule affected.</li>
+</ul>
+
+<h2>Evidence files</h2>
+<ul>
+  <li><code>qa-portallocator-log.txt</code> - PortAllocator log: 18 ghost prunes + "Allocated port 7880".</li>
+  <li><code>qa-healthz.txt</code> - Control API GET /healthz HTTP 200 response.</li>
+  <li><code>qa-director-screen.png</code> - the running slot-14 Director window with the Control API connection panel populated.</li>
+</ul>
+<img src="qa-director-screen.png" alt="Running Director window">
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Issue 685 PASSES QA.</div>
+</body>
+</html>
