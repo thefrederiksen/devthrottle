@@ -1,0 +1,2 @@
+GET http://127.0.0.1:7880/healthz -> HTTP 200
+{"status":"ok","directors":1,"sessions":0,"version":"0.9.13","serverTime":"2026-06-24T12:43:00.6910235Z","directorId":"ebf39d12-f16d-4239-ac5a-a579abaad20c","machineName":"SOREN_NORTH"}

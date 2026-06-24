@@ -1,0 +1,22 @@
+2026-06-24 08:42:25.897 [ControlApiHost] StartAsync: directorId=ebf39d12-f16d-4239-ac5a-a579abaad20c, ephemeral=False
+2026-06-24 08:42:25.925 [PortAllocator] Allocate: directorId=ebf39d12-f16d-4239-ac5a-a579abaad20c
+2026-06-24 08:42:25.929 [PortAllocator] Pruning stale reservation issue685-ghost-05c0348fef284e6c9f653b0af6e2e71b.port: claimed port 7896 is free to bind
+2026-06-24 08:42:25.930 [PortAllocator] Pruning stale reservation issue685-ghost-18fa288fc35b4d0bbda3861adef6b909.port: claimed port 7898 is free to bind
+2026-06-24 08:42:25.931 [PortAllocator] Pruning stale reservation issue685-ghost-31818144ad44450c8068a0e7d996b04d.port: claimed port 7897 is free to bind
+2026-06-24 08:42:25.933 [PortAllocator] Pruning stale reservation issue685-ghost-50891c84ced84a9e9222eed748c54e3b.port: claimed port 7888 is free to bind
+2026-06-24 08:42:25.934 [PortAllocator] Pruning stale reservation issue685-ghost-552b6498367c4beeac48b7b7f2bb130d.port: claimed port 7895 is free to bind
+2026-06-24 08:42:25.935 [PortAllocator] Pruning stale reservation issue685-ghost-62e968ea67a842c685e0061cad718072.port: claimed port 7880 is free to bind
+2026-06-24 08:42:25.936 [PortAllocator] Pruning stale reservation issue685-ghost-7e7d25c892eb4656967e4026c6c257d6.port: claimed port 7885 is free to bind
+2026-06-24 08:42:25.937 [PortAllocator] Pruning stale reservation issue685-ghost-88786b9a19e84aae92c0122aba4cf95f.port: claimed port 7884 is free to bind
+2026-06-24 08:42:25.937 [PortAllocator] Pruning stale reservation issue685-ghost-8d0d13b08291432a8803a45d358cdb2f.port: claimed port 7892 is free to bind
+2026-06-24 08:42:25.938 [PortAllocator] Pruning stale reservation issue685-ghost-a3e658b3a14349d9a9c057608de43f29.port: claimed port 7891 is free to bind
+2026-06-24 08:42:25.939 [PortAllocator] Pruning stale reservation issue685-ghost-aa63d8b649d04547a2d4db3fb6038938.port: claimed port 7890 is free to bind
+2026-06-24 08:42:25.940 [PortAllocator] Pruning stale reservation issue685-ghost-ab28bd00925d4631b78f7031b5bdfda2.port: claimed port 7881 is free to bind
+2026-06-24 08:42:25.941 [PortAllocator] Pruning stale reservation issue685-ghost-bb1587e92a74479eba5d00fa34e1ad16.port: claimed port 7893 is free to bind
+2026-06-24 08:42:25.942 [PortAllocator] Pruning stale reservation issue685-ghost-c184250a9b154a4892f07ed8b0e8913e.port: claimed port 7887 is free to bind
+2026-06-24 08:42:25.942 [PortAllocator] Pruning stale reservation issue685-ghost-d1bc60ef586c44349843535b735cabac.port: claimed port 7883 is free to bind
+2026-06-24 08:42:25.943 [PortAllocator] Pruning stale reservation issue685-ghost-e3a01d7a10c84341a380973efff0936f.port: claimed port 7889 is free to bind
+2026-06-24 08:42:25.944 [PortAllocator] Pruning stale reservation issue685-ghost-f43024a4b7ab40628585fe7984d23e60.port: claimed port 7886 is free to bind
+2026-06-24 08:42:25.944 [PortAllocator] Pruning stale reservation issue685-ghost-f5c0c3f9a89445cb94a47f5faec13b64.port: claimed port 7894 is free to bind
+2026-06-24 08:42:25.946 [PortAllocator] Allocated port 7880
+2026-06-24 08:42:25.987 [ControlApiHost] Kestrel listening on http://127.0.0.1:7880 (loopback only; remote access via Tailscale Serve)
