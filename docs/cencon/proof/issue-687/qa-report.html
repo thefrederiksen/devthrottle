@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #687 (Recorder reconcile and upload ALL local recordings)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f3effd; }
+  .pass { color: #137333; font-weight: bold; }
+  .fail { color: #c5221f; font-weight: bold; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .92em; }
+  .verdict { background: #e6f4ea; border: 2px solid #137333; padding: 1rem; border-radius: 6px; font-size: 1.1rem; font-weight: bold; color: #137333; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .7rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #687</h1>
+<p><strong>Title:</strong> [Recorder] On restart, reconcile and upload ALL local recordings in the background (some recordings never sync)</p>
+<p><strong>PR:</strong> #688 &nbsp;|&nbsp; <strong>Branch:</strong> <code>issue-687-recorder-reconcile-all</code> &nbsp;|&nbsp; <strong>Branch HEAD:</strong> <code>3f3ed8f</code></p>
+<p><strong>QA Agent (independent verification):</strong> 2026-06-24 &nbsp;|&nbsp; verified in an isolated worktree, fresh build, no reuse of the developer's binary.</p>
+
+<div class="note">
+<strong>Nature of this change (verification method).</strong> This is a phone-only change to the two Android MAUI apps
+(<code>phone/CcRecorder</code> shipping recorder + <code>phone/CcDirectorClient</code>, which share the recorder code path).
+There is no desktop CC Director, no Control API, and no test-Director slot to drive - the recorder runs on a physical Android
+device against a paired Gateway. Per the QA skill, the proof target is therefore (a) the headless pure-logic unit tests for the
+recovery decision the issue explicitly asks to cover, and (b) a clean <code>net10.0-android</code> build of both shipping apps,
+plus a line-by-line independent code verification of each acceptance criterion. The three device-runtime scenarios in the issue's
+"Verification" list require a physical device with a paired Gateway and are out of scope for this headless QA loop.
+</div>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Recover orphaned recordings on launch (<code>EndedAt==null</code> with audio is finalized to <code>Queued</code>).</td>
+<td>Interrupted recordings enter the normal upload path; none excluded because they were interrupted.</td>
+<td><code>RecordingUploadGate.NeedsRecovery(state, hasAudioSegments)</code> returns true only for <code>"Recording"</code> + audio present.
+<code>AndroidAudioRecorder.RecoverOrphanedRecordings()</code> runs first in every <code>ProcessUploadQueueAsync</code> pass, loads the manifest,
+sets <code>EndedAt = UtcNow</code> and <code>State = "Queued"</code>, skips the live recording via <code>activeId</code>. Present and identical in both apps.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Reconcile-everything pass on launch is not UI-dependent.</td>
+<td>A full reconcile + WorkManager enqueue runs at app start regardless of which page is shown.</td>
+<td><code>App.CreateWindow</code> calls <code>ReconcileOnStartup(IAudioRecorder)</code> off the UI thread (<code>Task.Run</code>),
+calling <code>EnqueueBackgroundUpload()</code> + <code>ProcessUploadQueueAsync()</code> before the page is built. Present in
+<code>CcRecorder/App.xaml.cs</code> and <code>CcDirectorClient/App.xaml.cs</code>. No longer dependent on <code>MainPage.OnAppearing</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Background worker can run over Tailscale.</td>
+<td>WorkManager network constraint reconciled with the in-app Tailscale-aware logic; not blocked on a "not Connected" network.</td>
+<td><code>UploadScheduler.NetworkConstraints()</code> changed from <code>NetworkType.Connected</code> to <code>NetworkType.NotRequired</code>;
+the in-app <code>NetworkAccess == None</code> check + per-attempt failure to Retry govern reachability. Identical (modulo namespace) in both apps.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Survive reboot / force-stop.</td>
+<td>Pending recordings drain after reboot without manual intervention.</td>
+<td>New <code>BootReceiver</code> with <code>[IntentFilter(BOOT_COMPLETED)]</code> re-arms <code>EnsurePeriodic</code> + <code>EnqueueNow</code>;
+<code>RECEIVE_BOOT_COMPLETED</code> permission added to both <code>AndroidManifest.xml</code>. Identical (modulo namespace) in both apps.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>No data loss / no false deletion.</td>
+<td>Deletion sync still only deletes fully-delivered recordings; recovered orphans never deleted before confirmed delivery.</td>
+<td>Deletion sync (<code>IsDeletable</code>) unchanged. A recovered orphan becomes <code>"Queued"</code>, which is
+<code>NeedsUpload==true</code>, <code>IsFullyDelivered==false</code>, <code>IsDeletable==false</code> - proven by the unit test
+<code>Recovery_RecoveredOrphan_IsNotDeletableUntilDelivered</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Independent test + build evidence</h2>
+<table>
+<tr><th>Check</th><th>Command</th><th>Result</th></tr>
+<tr><td>Recovery decision unit tests (the coverage the issue asks for)</td>
+<td><code>dotnet test ...CcDirectorClient.Tests --filter RecordingUploadGateTests</code></td>
+<td class="pass">27 / 27 passed (incl. 5 new NeedsRecovery tests)</td></tr>
+<tr><td>CcRecorder Android build (shipping recorder)</td>
+<td><code>dotnet build phone/CcRecorder -f net10.0-android</code></td>
+<td class="pass">Build succeeded - 0 Error(s) (only pre-existing NU1608 package-version warnings)</td></tr>
+<tr><td>CcDirectorClient Android build (shared recorder path)</td>
+<td><code>dotnet build phone/CcDirectorClient -f net10.0-android</code></td>
+<td class="pass">Build succeeded - 0 Error(s)</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>The full test project shows 5 failing tests, all in <code>ConductorStateTests</code> (session-conductor / voice queue logic).
+This PR does <strong>not</strong> touch any ConductorState code (changed files are limited to the recorder upload gate, the Android
+recorder/scheduler/boot-receiver/manifest, and <code>App.xaml.cs</code>). The same 5 ConductorStateTests failures reproduce on
+<code>main</code> at <code>3d764ae</code> (5 failed / 2 passed) - so they are <strong>pre-existing</strong> and unrelated to this change,
+not a regression introduced here. No recorder-adjacent behavior is broken.</p>
+
+<h2>Method / CenCon checks</h2>
+<ul>
+<li>The pure-logic gate (<code>RecordingUploadGate</code>) stays MAUI/Android-free and is unit-tested, as the issue requires.</li>
+<li>Fix mirrored into both shipping apps (the issue's "mirror into CcDirectorClient" note) - recovery, scheduler constraint, boot receiver, manifest permission, and launch reconcile all present in both.</li>
+<li>No security/architecture surface changed (no Control API, no network exposure added beyond relaxing a local WorkManager constraint); no DT blocking rule implicated; no <code>docs/cencon/</code> architecture update required.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. Recommendation: PASS (flow:done), squash-merge PR #688.</div>
+
+</body>
+</html>

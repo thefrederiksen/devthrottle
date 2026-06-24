@@ -12,4 +12,7 @@
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- Issue #687: re-arm the background upload workers after a device reboot so
+	     pending recordings drain without the user opening the app. -->
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #687 - Recorder reconcile and upload ALL local recordings</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1b1f24; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccd2da; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #eef3fa; }
+  code { background: #f3f5f8; padding: .1rem .3rem; border-radius: 3px; font-size: .88rem; }
+  pre { background: #f3f5f8; padding: .8rem; border-radius: 5px; overflow-x: auto; font-size: .82rem; }
+  .pass { color: #1f7a3d; font-weight: 600; }
+  .note { background: #fff8e6; border-left: 4px solid #e8b339; padding: .6rem .8rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #687</h1>
+<p><strong>[Recorder] On restart, reconcile and upload ALL local recordings in the background
+(some recordings never sync)</strong></p>
+<p>Branch: <code>issue-687-recorder-reconcile-all</code></p>
+
+<h2>What was implemented</h2>
+<p>The CC Recorder phone app now reconciles and uploads <em>every</em> local recording on each
+app start and keeps draining reliably in the background while closed. Five concrete gaps from the
+issue are closed, mirrored into both phone projects (<code>phone/CcRecorder</code> - the shipping
+recorder - and <code>phone/CcDirectorClient</code> - the combined client, which shares the same
+recorder code path).</p>
+
+<ol>
+  <li><strong>Recover orphaned recordings on launch (AC1).</strong> New pure decision
+      <code>RecordingUploadGate.NeedsRecovery(state, hasAudioSegments)</code> identifies an
+      interrupted recording (state <code>"Recording"</code>, i.e. <code>EndedAt == null</code>, but
+      with captured segments on disk). New
+      <code>AndroidAudioRecorder.RecoverOrphanedRecordings()</code> finalizes each such recording
+      (<code>EndedAt</code> set, <code>State = "Queued"</code>) so it enters the normal upload path.
+      It runs at the start of every <code>ProcessUploadQueueAsync</code> pass (launch and the
+      background worker) and skips the live in-progress recording so a current capture is never torn
+      out from under itself.</li>
+  <li><strong>Reconcile-everything pass on launch is not UI-dependent (AC2).</strong> The launch
+      reconcile (<code>ProcessUploadQueueAsync</code> + <code>EnqueueBackgroundUpload</code>) was
+      moved into <code>App.CreateWindow</code> (both apps), so it fires at app start regardless of
+      which page/shell screen is shown - no longer only in <code>MainPage.OnAppearing</code>.</li>
+  <li><strong>Background worker can run over Tailscale (AC3).</strong>
+      <code>UploadScheduler</code>'s WorkManager constraint changed from
+      <code>NetworkType.Connected</code> to <code>NetworkType.NotRequired</code>, so a Tailscale /
+      VPN-only / constrained network that Android does not classify as "Connected" no longer blocks
+      the periodic and one-time workers from starting. Reachability is governed by the in-app
+      <code>NetworkAccess == None</code> check plus per-attempt failure&rarr;Retry, the same
+      Tailscale-aware logic the foreground path already uses.</li>
+  <li><strong>Survive reboot / force-stop (AC4).</strong> New <code>BootReceiver</code>
+      (<code>BroadcastReceiver</code> on <code>BOOT_COMPLETED</code>) re-arms
+      <code>EnsurePeriodic</code> + <code>EnqueueNow</code> after a reboot, plus the
+      <code>RECEIVE_BOOT_COMPLETED</code> permission in both <code>AndroidManifest.xml</code>.</li>
+  <li><strong>No data loss / no false deletion (AC5).</strong> The server&rarr;phone deletion sync
+      is unchanged - it still only deletes <code>IsDeletable</code> (fully-delivered) recordings.
+      A recovered orphan becomes <code>"Queued"</code> (not fully delivered, not deletable), so it
+      can never be deleted before confirmed delivery. Pinned by a unit test.</li>
+</ol>
+
+<h2>Acceptance criteria - met</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How met</th><th>Verification</th></tr>
+  <tr><td>1</td><td>Recover orphaned recordings on launch</td>
+      <td><code>NeedsRecovery</code> + <code>RecoverOrphanedRecordings()</code>, run on every pass</td>
+      <td>Unit tests <code>NeedsRecovery_*</code> pass; recorder build clean</td></tr>
+  <tr><td>2</td><td>Launch reconcile not UI-dependent</td>
+      <td>Reconcile moved into <code>App.CreateWindow</code> (both apps)</td>
+      <td>Code: <code>App.xaml.cs</code> calls <code>ReconcileOnStartup</code></td></tr>
+  <tr><td>3</td><td>Background worker runs over Tailscale</td>
+      <td><code>UploadScheduler</code> constraint &rarr; <code>NetworkType.NotRequired</code></td>
+      <td>Code: <code>UploadScheduler.NetworkConstraints()</code></td></tr>
+  <tr><td>4</td><td>Survive reboot / force-stop</td>
+      <td><code>BootReceiver</code> + <code>RECEIVE_BOOT_COMPLETED</code></td>
+      <td>Code: <code>BootReceiver.cs</code>, both manifests</td></tr>
+  <tr><td>5</td><td>No data loss / no false deletion</td>
+      <td>Deletion sync unchanged (gated on <code>IsDeletable</code>); recovered orphan is
+          <code>"Queued"</code> (not deletable)</td>
+      <td>Unit test <code>Recovery_RecoveredOrphan_IsNotDeletableUntilDelivered</code></td></tr>
+</table>
+
+<h2>Proof: unit tests (the orphan-recovery decision)</h2>
+<p>The issue asks for coverage of the orphaned / "Recording" &rarr; needs-recovery decision in
+<code>RecordingUploadGateTests</code> (the dependency-free, off-device test). Five tests added; all
+27 gate tests pass.</p>
+<pre>
+Passed RecordingUploadGateTests.NeedsRecovery_InterruptedWithAudio_IsTrue
+Passed RecordingUploadGateTests.NeedsRecovery_InterruptedButEmpty_IsFalse
+Passed RecordingUploadGateTests.NeedsRecovery_AlreadyFinalizedStates_IsFalse (x5: Queued/Uploading/Uploaded/Retry/"")
+Passed RecordingUploadGateTests.Recovery_RecoveredOrphan_IsNotDeletableUntilDelivered
+...
+Total tests: 27   Passed: 27   Failed: 0
+</pre>
+<p>Command: <code>dotnet test phone/CcDirectorClient.Tests/CcDirectorClient.Tests.csproj
+--filter "FullyQualifiedName~RecordingUploadGateTests"</code>. Full captured output:
+<code>docs/cencon/proof/issue-687/test-output.txt</code>.</p>
+
+<h2>Proof: clean Android build (both shipping apps)</h2>
+<p>Both phone projects compile clean on the real MAUI/Android target framework
+(<code>net10.0-android</code>) - so the Android-side recovery, <code>BootReceiver</code>,
+<code>UploadScheduler</code>, and <code>App.xaml.cs</code> changes all build:</p>
+<pre>
+dotnet build phone/CcRecorder/CcRecorder.csproj          -f net10.0-android   ->  0 Error(s)
+dotnet build phone/CcDirectorClient/CcDirectorClient.csproj -f net10.0-android ->  Build succeeded.  0 Error(s)
+</pre>
+<p>(Warnings present are all pre-existing - NU1608 AndroidX version constraints, and CA1416 / CS8602
+/ CS0618 in files this change does not touch. The phone projects do not set
+<code>TreatWarningsAsErrors</code>.)</p>
+
+<div class="note">
+<strong>Why no desktop test-Director slot screenshot.</strong> This is a phone-only change: the
+recorder runs on an Android device, not on a desktop CC Director. There is no desktop Control API
+surface to drive for it. Proof is therefore the headless pure-logic unit tests (the orphan-recovery
+decision the issue explicitly asks to cover) plus a clean <code>net10.0-android</code> build of both
+shipping apps. The three device-runtime scenarios in the issue's Verification section
+(force-kill mid-recording, Tailscale-only drain, reboot drain) require a physical Android device with
+a paired Gateway and are for QA to exercise on-device; the code paths that satisfy them are in place
+and build clean.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The phone recorder is not a desktop container in
+<code>architecture_manifest.yaml</code>; no new secrets, no new network surface (same Gateway upload
+path). <code>RECEIVE_BOOT_COMPLETED</code> is a normal-protection-level Android permission. No
+<code>docs/cencon/</code> file needed updating.</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>phone/CcRecorder/Recording/RecordingUploadGate.cs</code> - add <code>Recording</code>
+      constant + <code>NeedsRecovery</code></li>
+  <li><code>phone/CcDirectorClient/Recording/RecordingUploadGate.cs</code> - same (mirror)</li>
+  <li><code>phone/CcRecorder/Platforms/Android/AndroidAudioRecorder.cs</code> -
+      <code>RecoverOrphanedRecordings()</code> + call it on every pass</li>
+  <li><code>phone/CcDirectorClient/Platforms/Android/AndroidAudioRecorder.cs</code> - same (mirror)</li>
+  <li><code>phone/CcRecorder/Platforms/Android/UploadScheduler.cs</code> - relax network constraint</li>
+  <li><code>phone/CcDirectorClient/Platforms/Android/UploadScheduler.cs</code> - same (mirror)</li>
+  <li><code>phone/CcRecorder/Platforms/Android/BootReceiver.cs</code> - new</li>
+  <li><code>phone/CcDirectorClient/Platforms/Android/BootReceiver.cs</code> - new</li>
+  <li><code>phone/CcRecorder/Platforms/Android/AndroidManifest.xml</code> - add
+      <code>RECEIVE_BOOT_COMPLETED</code></li>
+  <li><code>phone/CcDirectorClient/Platforms/Android/AndroidManifest.xml</code> - same</li>
+  <li><code>phone/CcRecorder/App.xaml.cs</code> - launch-time reconcile (not UI-dependent)</li>
+  <li><code>phone/CcDirectorClient/App.xaml.cs</code> - same (mirror)</li>
+  <li><code>phone/CcDirectorClient.Tests/RecordingUploadGateTests.cs</code> - 5 new recovery tests</li>
+</ul>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All five acceptance criteria are implemented in both
+shipping phone apps, the orphan-recovery decision is unit-tested (27/27 gate tests pass), and both
+<code>net10.0-android</code> projects build with 0 errors.</p>
+
+</body>
+</html>
