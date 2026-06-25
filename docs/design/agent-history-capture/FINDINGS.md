@@ -184,10 +184,13 @@ floor.
    reliable end to end launch regression test was added (it captures through a pipe
    rather than a pseudo console so it is not affected by the nested terminal capture
    problem).
-2. No alternate screen state in the Control API. The parser tracks IsAlternateScreen
-   but no Control API response exposes it. The only way an external caller can detect
-   full screen mode today is to pull the raw buffer and scan for ESC [ ? 1049 h. The
-   harness and the runtime both need this exposed.
+2. No alternate screen state in the Control API. RESOLVED 2026-06-25. The parser
+   tracked IsAlternateScreen internally but no Control API response exposed it.
+   Session now exposes a live IsAlternateScreen property (read from the server-side
+   parser under its lock), and SessionDto carries an IsAlternateScreen boolean
+   populated by the Director's session mapping, so GET /sessions and GET
+   /sessions/{id} report whether each session is currently in full screen mode. A
+   caller can classify the terminal mode directly instead of scanning the raw buffer.
 3. Concurrent uncommitted work in the main tree. The main working tree currently
    holds uncommitted changes to AnsiParser.cs and a new
    docs/SupportedAgentsTerminalModes.md that overlap this effort and partly conflict
@@ -227,8 +230,8 @@ Prerequisites the harness depends on:
 - The npm shim launch bug (item 7.1) is resolved; the Codex default path is fixed
   and a launch regression test guards the .cmd launch form. Once a fresh Director is
   built from this branch, all four npm based agents launch.
-- Expose IsAlternateScreen (or a raw buffer scan helper) through the Control API for
-  mode classification (item 7.2).
+- Expose IsAlternateScreen through the Control API for mode classification (item
+  7.2): done. SessionDto.IsAlternateScreen now reports the live full screen state.
 - A reliable input injection and turn completion wait, and a clear trigger, through
   the Control API.
 
@@ -257,7 +260,7 @@ Per agent short plan:
    decisive one.
 3. npm shim launch bug: resolved (Codex default path fixed; launch regression test
    added). Rebuild the Director from this branch to pick it up.
-4. Expose IsAlternateScreen through the Control API.
+4. Expose IsAlternateScreen through the Control API: done (SessionDto.IsAlternateScreen).
 5. Confirm the recommended scope: build transcript providers only for full screen
    agents, and use the existing terminal capture for normal buffer agents (the
    terminal fallback principle).

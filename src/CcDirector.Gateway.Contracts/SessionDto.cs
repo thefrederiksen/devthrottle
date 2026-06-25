@@ -55,6 +55,15 @@ public sealed class SessionDto
     /// <summary>Total bytes the terminal buffer has accumulated since session start. Use as a cursor in /buffer?since=. </summary>
     public long TotalBufferBytes { get; set; }
 
+    /// <summary>
+    /// True when the agent currently has the terminal in the alternate screen buffer
+    /// (full screen mode). While true, local scrollback is empty and terminal history
+    /// capture does not work, so classify the session as full screen and use a transcript
+    /// provider or screen reconstruction rather than the scrollback. Reflects the live
+    /// terminal state at query time; it flips as the agent enters and leaves full screen.
+    /// </summary>
+    public bool IsAlternateScreen { get; set; }
+
     /// <summary>Optional friendly name for the session.</summary>
     public string? Name { get; set; }
 

@@ -2828,6 +2828,7 @@ internal static class ControlEndpoints
             AssessedState = s.AssessedStateAnnotation,
             CreatedAt = s.CreatedAt.UtcDateTime,
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
+            IsAlternateScreen = s.IsAlternateScreen,
             BackendType = s.BackendType.ToString(),
             DriverCapabilities = CapabilityNames(s),
             Name = s.CustomName,

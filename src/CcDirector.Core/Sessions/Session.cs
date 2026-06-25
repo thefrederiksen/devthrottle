@@ -1112,6 +1112,24 @@ public sealed class Session : IDisposable
     public string[] SnapshotScreenRows() => SnapshotScreenRowsWithCursor().Rows;
 
     /// <summary>
+    /// True when the agent currently has the terminal in the alternate screen buffer
+    /// (full screen mode, the <c>ESC[?1049h</c> sequence). While this is true the local
+    /// scrollback is intentionally empty and terminal-based history capture does not work,
+    /// so a consumer should classify the session as full screen and rely on a transcript
+    /// provider (or screen reconstruction) instead of the scrollback. Reflects the live
+    /// parser state at the moment of the call; it flips as the agent enters and leaves the
+    /// alternate screen. False for Embedded sessions that have no server-side parser.
+    /// </summary>
+    public bool IsAlternateScreen
+    {
+        get
+        {
+            lock (_htmlParserLock)
+                return _htmlParser?.IsAlternateScreen ?? false;
+        }
+    }
+
+    /// <summary>
     /// Like <see cref="SnapshotScreenRows"/> but also returns the live cursor cell
     /// (0-based grid row/col). The grid text and the cursor are captured under the
     /// same lock so they describe the same frame. This lets callers tell text the
