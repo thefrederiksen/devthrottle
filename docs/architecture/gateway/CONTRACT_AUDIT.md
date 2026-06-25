@@ -152,7 +152,7 @@ Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 |---|---|---|---|---|
 | 87 | GET | /dictate.html | Fact | Embedded dictation UI page (UI convenience). |
 | 88 | GET | /dictate-worklet.js | Fact | Embedded audio worklet asset. |
-| 89 | GET | /dictate-client.js | Fact | Embedded client script asset. |
+| 89 | GET | /dictation-overlay.js | Fact | Shared Dictate overlay script (one file, also served by the Cockpit). |
 | 90 | GET | /dictate/recovered | Fact | Recovered-dictation pickup list (stored state). |
 | 91 | POST | /dictate/recovered/{id}/dismiss | Verb | Removes a recovered-dictation entry. |
 | 92 | GET (WS) | /dictate | VIOLATION | Audio capture is raw I/O (stays), but the same socket transcribes via the OpenAI Realtime API + dictionary cleanup - target doc section 8 places transcribe/clean above the line. **Migrates: Phase 5** (capture leg stays on the Director). |

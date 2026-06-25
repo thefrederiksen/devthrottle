@@ -683,7 +683,7 @@ containers:
           - Web/session-view.html
           - Web/login.html
           - Web/dictate.html
-          - Web/dictate-client.js
+          - Web/dictation-overlay.js  # shared Dictate overlay, linked from the Cockpit wwwroot (one file both surfaces serve)
           - Web/dictate-worklet.js
 
   - id: gateway

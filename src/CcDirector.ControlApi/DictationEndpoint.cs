@@ -58,7 +58,7 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class DictationEndpoint
 {
-    // The browser captures at this fixed format (see dictate-client.js: the
+    // The browser captures at this fixed format (see dictation-overlay.js: the
     // AudioContext is opened at 24 kHz and the pcm16-writer worklet emits mono
     // 16-bit PCM). The server wraps the accumulated PCM in a WAV header using
     // exactly this format before the single batch transcription.
@@ -80,9 +80,11 @@ internal static class DictationEndpoint
             return Results.Content(js, "application/javascript; charset=utf-8");
         });
 
-        app.MapGet("/dictate-client.js", () =>
+        app.MapGet("/dictation-overlay.js", () =>
         {
-            var js = EmbeddedResources.Load("dictate-client.js");
+            // The shared Dictate overlay (same file the Cockpit serves), embedded as a linked
+            // resource. Replaces the old per-Director dictate-client.js.
+            var js = EmbeddedResources.Load("dictation-overlay.js");
             return Results.Content(js, "application/javascript; charset=utf-8");
         });
 
