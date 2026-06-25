@@ -98,6 +98,13 @@
       "description": "Open a session on the local Director from the command line.",
       "smoke": null,
       "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+    },
+    {
+      "name": "cc-fleet-selftest",
+      "category": "Fleet",
+      "description": "End-to-end smoke test of fleet session messaging.",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
     }
   ]
 }

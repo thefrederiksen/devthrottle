@@ -786,6 +786,23 @@ OPTIONS:
 Prints the new session's short id and full GUID; the session then appears in `cc-sessions`. A
 non-existent repository path exits non-zero with a clear error.
 
+### cc-fleet-selftest
+
+Prove fleet session messaging works end to end on this machine (issue #722). Spawns two throwaway
+sessions, lists them, sends to one, asks the other (a deterministic marker responder), tears them
+down, and prints PASS/FAIL.
+
+```
+USAGE: cc-fleet-selftest [OPTIONS]
+
+OPTIONS:
+  --timeout-ms INTEGER  How long the ask step waits for the responder (default 25000)
+  --version -v
+```
+
+Exits 0 when every check passes, non-zero (with the failing step named) otherwise. Leaves no
+throwaway sessions behind. Useful as a post-deploy health check for the intercommunication feature.
+
 ---
 
 ## cc-reddit
