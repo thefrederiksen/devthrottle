@@ -4,6 +4,7 @@ using CcDirector.Core.Codex;
 using CcDirector.Core.Pi;
 using CcDirector.Core.Grok;
 using CcDirector.Core.Copilot;
+using CcDirector.Core.OpenCode;
 using CcDirector.Core.Sessions;
 
 namespace CcDirector.Core.History;
@@ -22,6 +23,8 @@ namespace CcDirector.Core.History;
 /// - Grok: the newest chat_history.jsonl for the session's repo (<see cref="GrokSessionLocator"/>).
 /// - Copilot: the newest session in its SQLite store whose cwd matches the session's repo
 ///   (<see cref="CopilotHistoryReader"/>); resolved by repo, not a single transcript file.
+/// - OpenCode: the newest session in its SQLite store whose directory matches the session's repo
+///   (<see cref="OpenCodeHistoryReader"/>); resolved by repo, not a single transcript file.
 ///
 /// Other agents return <see cref="ConversationHistory.Empty"/> until their providers land.
 /// </summary>
@@ -31,7 +34,7 @@ public static class SessionHistoryReader
     public static bool IsSupported(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi or AgentKind.Grok or AgentKind.Copilot;
+        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi or AgentKind.Grok or AgentKind.Copilot or AgentKind.OpenCode;
     }
 
     /// <summary>
@@ -53,6 +56,8 @@ public static class SessionHistoryReader
             // Copilot has no per-session transcript file; the readable source is its SQLite store.
             // Return the store path (when present) so a caller can stat it to detect changes.
             AgentKind.Copilot => CopilotHistoryReader.DefaultDatabasePath,
+            // OpenCode likewise has no per-session file; its readable source is its SQLite store.
+            AgentKind.OpenCode => OpenCodeHistoryReader.DefaultDatabasePath,
             _ => null,
         };
     }
@@ -74,6 +79,8 @@ public static class SessionHistoryReader
             // Copilot resolves the conversation from its SQLite store by repo (the path above is
             // the store file, used only as the change-detection / existence signal).
             AgentKind.Copilot => CopilotHistoryReader.Read(session.RepoPath),
+            // OpenCode likewise resolves the conversation from its SQLite store by repo.
+            AgentKind.OpenCode => OpenCodeHistoryReader.Read(session.RepoPath),
             _ => ConversationHistory.Empty,
         };
     }
