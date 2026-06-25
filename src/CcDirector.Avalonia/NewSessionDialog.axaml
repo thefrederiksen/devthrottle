@@ -60,6 +60,106 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Vertical">
+                    <!-- Named sessions (issue #508): a reusable item = repository + agent + name
+                         (optionally a colour and extra arguments). The list shows saved items,
+                         each launchable in one click; the save row stores the current selection.
+                         An item whose saved agent is no longer registered is shown as unavailable
+                         and is not launchable. -->
+                    <Border x:Name="NamedSessionPanel" Background="#2D2D30"
+                            BorderBrush="#3C3C3C" BorderThickness="1" CornerRadius="6"
+                            Padding="12,10" Margin="0,0,0,12">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Named sessions" Foreground="#AAAAAA"
+                                       FontSize="11" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                            <!-- Empty-state hint when nothing is saved yet -->
+                            <TextBlock x:Name="NoNamedSessionsHint"
+                                       Text="No named sessions yet. Pick a repository and agent below, type a name, and click Save."
+                                       Foreground="#888888" FontSize="12" FontStyle="Italic"
+                                       TextWrapping="Wrap" Margin="0,0,0,8"
+                                       IsVisible="False" />
+
+                            <!-- Saved items: one row each, with Launch and Delete. -->
+                            <ItemsControl x:Name="NamedSessionList" Margin="0,0,0,8">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Colour indicator bar -->
+                                            <Border Grid.Column="0" Width="4" Height="16"
+                                                    CornerRadius="2" Margin="0,0,8,0"
+                                                    VerticalAlignment="Center"
+                                                    Background="{Binding ColorBrush}"
+                                                    IsVisible="{Binding HasColor}" />
+
+                                            <!-- Name + repository/agent detail -->
+                                            <StackPanel Grid.Column="1" Orientation="Vertical"
+                                                        VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                                           FontSize="13" Foreground="#CCCCCC"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Detail}" FontSize="11"
+                                                           Foreground="#888888"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+
+                                            <!-- Launch (disabled + relabelled when the agent is gone) -->
+                                            <Button Grid.Column="2" Content="{Binding LaunchLabel}"
+                                                    Click="BtnLaunchNamedSession_Click"
+                                                    Tag="{Binding Slug}"
+                                                    IsEnabled="{Binding IsAvailable}"
+                                                    Height="26" Padding="12,0" Margin="8,0,0,0"
+                                                    Background="#007ACC" Foreground="White"
+                                                    BorderThickness="0" Cursor="Hand"
+                                                    ToolTip.Tip="{Binding LaunchTooltip}" />
+
+                                            <!-- Delete -->
+                                            <Button Grid.Column="3" Content="X"
+                                                    Click="BtnDeleteNamedSession_Click"
+                                                    Tag="{Binding Slug}"
+                                                    Width="24" Height="26" Margin="6,0,0,0"
+                                                    Background="Transparent" Foreground="#CC4444"
+                                                    BorderThickness="0" Cursor="Hand"
+                                                    FontWeight="Bold"
+                                                    ToolTip.Tip="Delete this named session" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Save the current selection (repo + agent + name) as a named session. -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Save as:" Foreground="#CCCCCC"
+                                           FontSize="13" VerticalAlignment="Center"
+                                           Margin="0,0,12,0" />
+                                <TextBox x:Name="NamedSessionNameBox" Grid.Column="1"
+                                         Background="#1E1E1E" Foreground="#CCCCCC"
+                                         BorderBrush="#3C3C3C" Padding="6,4"
+                                         VerticalContentAlignment="Center"
+                                         Watermark="Name for this repository + agent"
+                                         TextChanged="NamedSessionNameBox_TextChanged"
+                                         ToolTip.Tip="Saves the selected repository and agent under this name" />
+                                <Button x:Name="BtnSaveNamedSession" Grid.Column="2"
+                                        Content="Save" Width="80" Height="28" Margin="8,0,0,0"
+                                        Click="BtnSaveNamedSession_Click"
+                                        Background="#3C3C3C" Foreground="#CCCCCC"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip.Tip="Save the current repository + agent as a named session" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Create-mode toggle (issue #254): "Single session" (the Type dropdown
                          applies) vs "Group" (a preset that creates several tied, typed sessions
                          at once). Exactly one of the Type dropdown / Group panel is shown below,

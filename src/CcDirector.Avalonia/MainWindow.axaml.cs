@@ -2997,6 +2997,18 @@ public partial class MainWindow : Window
                 SaveSessionToHistory(vm);
             }
         }
+        else if (dialog.SelectedNamedSession is { } named)
+        {
+            // Named session (issue #508): the name (and optional colour) were chosen when the item
+            // was saved, so apply them directly and skip the rename prompt - launching is one click.
+            FileLog.Write($"[MainWindow] ShowNewSessionDialog: named session launch - name={named.Name}, color={named.Color ?? "(none)"}");
+            vm.Session.CustomName = named.Name;
+            if (!string.IsNullOrWhiteSpace(named.Color))
+                vm.Session.CustomColor = named.Color;
+            vm.NotifyDisplayChanged();
+            SaveSessionToHistory(vm);
+            _ = CaptureStartupTextAsync(vm.Session);
+        }
         else
         {
             // New session: show rename dialog, create history entry, capture startup text
