@@ -2,8 +2,9 @@
  * cc-director in-page dictation client.
  *
  * One-shot dictation overlay any page in the Director can drop in.
- * Captures PCM16 via Web Audio + AudioWorklet, streams to the /dictate
- * WebSocket, calls back with the cleaned transcript.
+ * Captures PCM16 via Web Audio + AudioWorklet, sends it to the /dictate
+ * WebSocket, and calls back with the cleaned transcript. Whole-clip BATCH:
+ * no live partials - text appears only when the segment is transcribed.
  *
  * Usage:
  *   window.ccDictate.start({
@@ -16,9 +17,8 @@
  * fires and the overlay disposes itself. Cancel button before stop or
  * close-by-Escape calls onCancel.
  *
- * Reuses /dictate-worklet.js, /dictate, server-side AudioBuffer + provider +
- * cleanup. No duplication of dictation logic; this file is purely the UI
- * overlay + WebSocket plumbing.
+ * Reuses /dictate-worklet.js and the /dictate batch pipeline. No duplication of
+ * dictation logic; this file is purely the UI overlay + WebSocket plumbing.
  */
 (function () {
   if (window.ccDictate) return;
@@ -171,7 +171,7 @@
           <div class="bar"></div><div class="bar"></div><div class="bar"></div>
           <div class="bar"></div><div class="bar"></div><div class="bar"></div>
         </div>
-        <div class="ccd-transcript" data-empty="(your words will appear here)">(your words will appear here)</div>
+        <div class="ccd-transcript" data-empty="Speak naturally - your words are turned into text when you pause or finish, not while you talk (it is more accurate that way). Press Pause any time to see what you have said so far.">Speak naturally - your words are turned into text when you pause or finish, not while you talk (it is more accurate that way). Press Pause any time to see what you have said so far.</div>
         <div class="ccd-foot">
           <div class="ccd-hint">Starting microphone...</div>
           <button type="button" class="ccd-btn ccd-btn-cancel">Cancel</button>
@@ -383,7 +383,7 @@
         stopBtn.disabled = true;
         stopBtn.textContent = 'Wait...';
         pauseBtn.disabled = true;
-        hintEl.textContent = 'Running cleanup pass through gpt-4.1-nano...';
+        hintEl.textContent = 'Transcribing the whole recording...';
       } else if (s === 'error') {
         labelEl.textContent = 'error';
         labelEl.classList.add('error');
@@ -526,13 +526,9 @@
             if (capture) capture.markReady(sendFrame);
             if (stage === 'recording') setRecordingHint();
             break;
-          case 'partial':
-            currentPartial = msg.text || '';
-            renderTranscript();
-            break;
-          case 'state':
-            // informational; not surfaced in the minimal overlay
-            break;
+          // Whole-clip batch: the server emits NO 'partial' frames - text appears
+          // only in the single 'final' after 'transcribing'. There is no live
+          // preview by design (transcribing the whole clip at once is more accurate).
           case 'transcribing':
             setStage('transcribing');
             break;

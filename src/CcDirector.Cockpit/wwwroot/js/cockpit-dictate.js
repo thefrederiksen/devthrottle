@@ -7,11 +7,11 @@
 // Send (drop into the composer AND submit).
 //
 // Audio is captured as 24 kHz mono PCM16 via the vendored pcm16-writer AudioWorklet and
-// streamed over a WebSocket to the OWNING DIRECTOR's /dictate endpoint (the same server
-// pipeline the desktop dialog uses: OpenAI realtime + shared dictionary + verbatim
-// cleanup). The worklet is loaded SAME-ORIGIN from the cockpit (a cross-origin worklet
-// module would be blocked); the dictate socket is cross-origin to the Director, exactly
-// like the cockpit terminal stream.
+// sent over a WebSocket to the OWNING DIRECTOR's /dictate endpoint (the same server
+// pipeline the desktop dialog uses: whole-clip BATCH transcription + shared dictionary
+// corrector, NO realtime/streaming and no live partials by design). The worklet is loaded
+// SAME-ORIGIN from the cockpit (a cross-origin worklet module would be blocked); the
+// dictate socket is cross-origin to the Director, exactly like the cockpit terminal stream.
 //
 // Capture-first: frames recorded before the server says 'started' are buffered in order
 // and flushed the instant it is, so the opening words are never clipped by connect latency.
@@ -119,7 +119,7 @@ window.cockpitDictate = (function () {
         </div>
         <div class="cd-eq">${wells}</div>
         <div class="cd-hint"></div>
-        <textarea class="cd-transcript" readonly placeholder="(your words will appear here)"></textarea>
+        <textarea class="cd-transcript" readonly placeholder="Speak naturally - your words are turned into text when you pause or finish, not while you talk (it is more accurate that way). Press Pause any time to see what you have said so far."></textarea>
         <div class="cd-foot">
           <button type="button" class="cd-btn cd-cancel">Cancel</button>
           <button type="button" class="cd-btn cd-retry">Retry</button>
@@ -422,7 +422,9 @@ window.cockpitDictate = (function () {
         switch (m.type) {
           case 'ready': ws.send(JSON.stringify({ type: 'start', profile })); break;
           case 'started': if (capture) capture.markReady(sendFrame); break;
-          case 'partial': currentPartial = m.text || ''; renderTranscript(); break;
+          // Whole-clip batch: the server emits NO 'partial' frames - text appears
+          // only in the single 'final' after 'transcribing'. There is no live
+          // preview by design (it is more accurate to transcribe the whole clip).
           case 'transcribing': setStage('transcribing'); break;
           case 'final': {
             const cleaned = (m.cleaned || m.raw || '');

@@ -10,27 +10,34 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Avalonia.Voice;
 
 /// <summary>
-/// Modal dialog for desktop dictation, migrated to whole-audio batch (issue #589).
+/// Modal dialog for desktop dictation. Whole-audio batch (issue #589) with a
+/// Pause checkpoint restored on top of it. See the canonical contract in
+/// docs/architecture/dictation/DICTATION_UX_SPEC.md.
 ///
-/// The microphone captures the whole turn locally; NO text appears while the user
-/// is speaking (there is no live partial preview and no realtime streaming socket).
-/// When the user commits, the dialog enters the TRANSCRIBING state and sends the
-/// whole clip ONCE through the shared <see cref="BatchDictationRecorder"/> batch pipeline,
-/// which transcribes via the user-selected method and applies the dictionary
-/// corrector only. The transcript appears only after transcription completes.
+/// The microphone captures the whole segment locally; NO text appears while the
+/// user is speaking (there is no live partial preview and no realtime streaming
+/// socket). Text is produced only at a CHECKPOINT - Pause, Insert, or Send - by
+/// sending the whole captured segment ONCE through the shared
+/// <see cref="BatchDictationRecorder"/> batch pipeline, which transcribes via the
+/// user-selected method and applies the dictionary corrector only.
+///
+/// Pause is a checkpoint, not an ending: it transcribes the current segment,
+/// appends it to the accumulated transcript, and shows it (editable) without
+/// ending the turn. Resume is disabled while that transcription runs ("you cannot
+/// resume until it has been transcribed"); afterwards Resume starts a fresh
+/// segment that appends to the (possibly edited) text. The visible transcript is
+/// the accumulation of every transcribed segment.
 ///
 /// Commit actions:
 ///
 ///   Cancel - close, no text. An interrupted/cancelled turn produces no transcript.
-///   Insert - stop, transcribe the whole clip once, close with
+///   Insert - transcribe the current segment (if recording), append, close with
 ///            <see cref="ResultText"/> populated and <see cref="ShouldSubmit"/>
 ///            FALSE so the caller inserts the text at the caret without auto-submit.
 ///   Send   - same as Insert but closes with <see cref="ShouldSubmit"/> TRUE so the
 ///            caller auto-submits the prompt.
-///   Review - stop, transcribe the whole clip once, then show the final text in the
-///            dialog (editable) for review. From review, Insert/Send commit the
-///            reviewed text WITHOUT re-recording (whole-audio batch is a single
-///            capture, so there is no pause/resume segmenting).
+///   Pause  - transcribe the current segment, append, stay in the dialog showing
+///            PAUSED (editable); Resume to keep talking, or Insert/Send to commit.
 ///
 /// All audio capture and transcription happen in-process via
 /// <see cref="BatchDictationRecorder"/>. No browser, no localhost WebSocket
@@ -38,7 +45,7 @@ namespace CcDirector.Avalonia.Voice;
 /// </summary>
 public partial class SpeakDialog : Window
 {
-    private enum Stage { Recording, Transcribing, Review, Failed }
+    private enum Stage { Recording, Transcribing, Paused, Failed }
 
     private readonly AgentOptions _options;
     private readonly Border[] _bars;
@@ -49,19 +56,23 @@ public partial class SpeakDialog : Window
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _eqTimer;
 
-    // Recording-time accumulator. _t0 is the start of capture; the displayed
-    // elapsed time is (now - _t0) while recording, then frozen.
+    // Recording-time accumulator. _t0 is the start of the CURRENT segment's
+    // capture; _elapsedBeforeSegment holds the total capture time of all prior
+    // segments. The displayed elapsed time is
+    // _elapsedBeforeSegment + (now - _t0) while recording, then frozen.
     private DateTime _t0;
+    private TimeSpan _elapsedBeforeSegment = TimeSpan.Zero;
 
     // The dialog opens straight into recording: capture starts immediately
     // (capture-first; no network connect precedes capture in the batch flow).
     private Stage _stage = Stage.Recording;
     private BatchDictationRecorder? _service;
 
-    // The final, dictionary-corrected transcript produced by the single batch
-    // transcription. Populated only after transcription completes - never during
-    // recording (no live preview).
-    private string _finalText = "";
+    // The accumulated, dictionary-corrected transcript across every checkpointed
+    // segment so far. Grows on each Pause / commit-from-recording. Never populated
+    // during recording (no live preview). While PAUSED the user may edit the box,
+    // and Resume re-seeds this from the box so edits are preserved, not rewritten.
+    private string _accumulatedText = "";
 
     // WaveIn device number the current recorder captures from. Defaults to
     // the Windows default mic; overridden by the persisted choice on open and by
@@ -101,7 +112,7 @@ public partial class SpeakDialog : Window
         // Window-level Enter = Send (insert transcript + auto-submit). Lets the
         // user complete the whole dictation flow with the keyboard only.
         // Escape = Cancel. Registered on the TUNNEL phase so the window decides
-        // BEFORE the editable review TextBox: while reviewing in the focused box
+        // BEFORE the editable paused TextBox: while reviewing in the focused box
         // we let Enter tunnel through to insert a newline instead of sending.
         AddHandler(KeyDownEvent, SpeakDialog_KeyDown, RoutingStrategies.Tunnel);
     }
@@ -114,7 +125,7 @@ public partial class SpeakDialog : Window
         {
             // While reviewing edits in the focused transcript box, Enter inserts
             // a newline (let it tunnel to the TextBox) rather than sending.
-            if (_stage == Stage.Review && TranscriptText.IsFocused)
+            if (_stage == Stage.Paused && TranscriptText.IsFocused)
                 return;
 
             // Only fire when Send is actually actionable. During Transcribing
@@ -224,16 +235,17 @@ public partial class SpeakDialog : Window
 
     /// <summary>
     /// Switch the live capture to a different device. Tears down the current
-    /// service and starts a fresh one on the new device. The whole-audio capture
-    /// restarts on the new device (the abandoned device's buffered audio is
-    /// discarded - mixing two devices' audio into one clip is not meaningful).
+    /// service and starts a fresh one on the new device. The current segment's
+    /// audio is discarded (mixing two devices' audio into one clip is not
+    /// meaningful), but the already-accumulated transcript from earlier segments
+    /// is kept. The new segment's capture restarts the segment timer.
     /// </summary>
     private async Task ChangeDeviceAsync(int deviceNumber)
     {
         _selectedDeviceNumber = deviceNumber;
         FileLog.Write($"[SpeakDialog] ChangeDevice: {deviceNumber} ({MicDevices.DescribeDevice(deviceNumber)})");
         await DisposeServiceAsync();
-        // Fresh device = fresh capture and fresh timer.
+        // Fresh device = fresh segment capture and fresh segment timer origin.
         _t0 = DateTime.UtcNow;
         await StartNewServiceAsync();
         SwitchToRecording();
@@ -254,7 +266,7 @@ public partial class SpeakDialog : Window
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
         PrimaryButton.IsVisible = false;
         StopButton.IsVisible = false;
-        ReviewButton.IsVisible = false;
+        PauseButton.IsVisible = false;
         MicSelector.IsEnabled = false;
         CancelButton.Content = "Close";
         // Park the bars: nothing is being captured, the meter must not dance.
@@ -285,8 +297,10 @@ public partial class SpeakDialog : Window
         // Ticks only while audio is being captured (Recording). Frozen in every
         // other stage, most importantly Failed: a timer counting up next to an
         // ERROR label reads as "still recording" when nothing is (issue #189).
+        // Shows the TOTAL capture across all segments so the user sees how long
+        // they have dictated, not just the current segment.
         if (_stage != Stage.Recording) return;
-        var elapsed = DateTime.UtcNow - _t0;
+        var elapsed = _elapsedBeforeSegment + (DateTime.UtcNow - _t0);
         var s = (int)elapsed.TotalSeconds;
         var tenths = elapsed.Milliseconds / 100;
         TimerLabel.Text = $"{s / 60}:{(s % 60):D2}.{tenths}";
@@ -337,8 +351,9 @@ public partial class SpeakDialog : Window
 
     /// <summary>
     /// Fired by the service the instant the microphone actually starts capturing.
-    /// Re-anchors the elapsed-time origin so the displayed timer tracks REAL
-    /// capture, not the dialog-open-to-capture setup.
+    /// Re-anchors the current segment's elapsed-time origin so the displayed timer
+    /// tracks REAL capture, not the dialog-open-to-capture (or resume) setup. The
+    /// prior segments' time is preserved in <see cref="_elapsedBeforeSegment"/>.
     /// </summary>
     private void OnServiceCaptureStarted()
     {
@@ -351,41 +366,46 @@ public partial class SpeakDialog : Window
 
     private async void PrimaryButton_Click(object? sender, RoutedEventArgs e)
     {
-        // Send: transcribe the whole clip (if still recording), close with ShouldSubmit=true.
+        // Send: transcribe the current segment (if recording) and append, then
+        // close with ShouldSubmit=true.
         if (_stage == Stage.Recording)
         {
-            await TranscribeAndCloseAsync(submitOnClose: true);
+            await FinalizeFromRecordingAsync(submitOnClose: true);
         }
-        else if (_stage == Stage.Review)
+        else if (_stage == Stage.Paused)
         {
-            // Use the (possibly edited) reviewed text so the user's corrections are sent.
-            CommitReviewedText(submitOnClose: true);
+            // Use the (possibly edited) text from the box so the user's
+            // corrections are what gets sent.
+            CommitPausedText(submitOnClose: true);
         }
     }
 
     private async void StopButton_Click(object? sender, RoutedEventArgs e)
     {
-        // Insert: transcribe the whole clip (if still recording), close with
-        // ShouldSubmit=false. The caller inserts the text at the caret without
-        // auto-submitting so the user can review/edit in the prompt before sending.
+        // Insert: transcribe the current segment (if recording) and append, then
+        // close with ShouldSubmit=false. The caller inserts the text at the caret
+        // without auto-submitting so the user can review/edit in the prompt.
         if (_stage == Stage.Recording)
         {
-            await TranscribeAndCloseAsync(submitOnClose: false);
+            await FinalizeFromRecordingAsync(submitOnClose: false);
         }
-        else if (_stage == Stage.Review)
+        else if (_stage == Stage.Paused)
         {
-            CommitReviewedText(submitOnClose: false);
+            CommitPausedText(submitOnClose: false);
         }
     }
 
-    private async void ReviewButton_Click(object? sender, RoutedEventArgs e)
+    private async void PauseButton_Click(object? sender, RoutedEventArgs e)
     {
-        // Review: transcribe the whole clip once, then show the final text in the
-        // dialog (editable) for review before committing. Only meaningful while
-        // recording; in Review it is hidden.
+        // Pause (while recording) is the checkpoint; Resume (while paused) starts
+        // a fresh segment. The button is disabled while transcribing.
         if (_stage == Stage.Recording)
         {
-            await TranscribeForReviewAsync();
+            await PauseAsync();
+        }
+        else if (_stage == Stage.Paused)
+        {
+            await ResumeAsync();
         }
     }
 
@@ -398,53 +418,98 @@ public partial class SpeakDialog : Window
     }
 
     /// <summary>
-    /// Stop the mic, transcribe the whole captured clip ONCE through the shared
-    /// batch pipeline, and close the dialog with the result. Used by Send and Insert
-    /// directly from recording (no review step).
+    /// Stop the mic, transcribe the current segment ONCE through the shared batch
+    /// pipeline, append it to the accumulated transcript, and close the dialog with
+    /// the result. Used by Send and Insert directly from recording.
     /// </summary>
-    private async Task TranscribeAndCloseAsync(bool submitOnClose)
+    private async Task FinalizeFromRecordingAsync(bool submitOnClose)
     {
         SwitchToTranscribing();
         try
         {
-            var text = await TranscribeWholeClipAsync();
-            ResultText = string.IsNullOrWhiteSpace(text) ? null : text;
+            var segment = await TranscribeSegmentAsync();
+            _accumulatedText = DictationText.Join(_accumulatedText, segment);
+            ResultText = string.IsNullOrWhiteSpace(_accumulatedText) ? null : _accumulatedText;
             ShouldSubmit = submitOnClose && ResultText is not null;
             Close();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] TranscribeAndClose FAILED: {ex.Message}");
+            FileLog.Write($"[SpeakDialog] FinalizeFromRecording FAILED: {ex.Message}");
             SwitchToFailed(ex.Message);
         }
     }
 
     /// <summary>
-    /// Stop the mic, transcribe the whole captured clip ONCE, then show the final
-    /// text in the dialog for review (Send / Insert commit it without re-recording).
+    /// Checkpoint while recording: freeze the timer, transcribe the current segment
+    /// ONCE, append it to the accumulated transcript, and stay in the dialog showing
+    /// PAUSED (editable). Resume starts a fresh segment; Insert/Send commit. Resume
+    /// is disabled for the duration of the transcription.
     /// </summary>
-    private async Task TranscribeForReviewAsync()
+    private async Task PauseAsync()
     {
+        FileLog.Write("[SpeakDialog] PauseAsync");
+        // Freeze the segment time first so the displayed elapsed time stops at the
+        // moment the user clicked Pause, not when transcription finishes, and so
+        // the next segment adds onto this total.
+        _elapsedBeforeSegment += DateTime.UtcNow - _t0;
         SwitchToTranscribing();
         try
         {
-            var text = await TranscribeWholeClipAsync();
-            _finalText = text;
-            SwitchToReview();
+            var segment = await TranscribeSegmentAsync();
+            _accumulatedText = DictationText.Join(_accumulatedText, segment);
+            SwitchToPaused();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] TranscribeForReview FAILED: {ex.Message}");
-            SwitchToFailed(ex.Message);
+            FileLog.Write($"[SpeakDialog] PauseAsync FAILED: {ex.Message}");
+            SwitchToFailed("Pause failed: " + ex.Message);
         }
     }
 
     /// <summary>
-    /// Run the single batch transcription on the whole captured clip. The service
-    /// is consumed (stopped) here, so the dialog cannot transcribe twice. Returns
-    /// the dictionary-corrected transcript.
+    /// Resume from PAUSED: re-seed the accumulator from the (possibly edited) box so
+    /// the user's corrections survive, then start a fresh recording segment that
+    /// will append onto it.
     /// </summary>
-    private async Task<string> TranscribeWholeClipAsync()
+    private async Task ResumeAsync()
+    {
+        FileLog.Write("[SpeakDialog] ResumeAsync");
+
+        // Re-seed the accumulator from the (possibly edited) text box so new
+        // speech appends onto the edited text rather than the pre-edit transcript.
+        _accumulatedText = TranscriptText.Text ?? "";
+
+        // Anchor the new segment's origin BEFORE capture starts; OnServiceCaptureStarted
+        // re-anchors it to the real capture instant once the mic is live.
+        _t0 = DateTime.UtcNow;
+
+        try
+        {
+            await StartNewServiceAsync();
+            SwitchToRecording();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SpeakDialog] ResumeAsync FAILED: {ex.Message}");
+            // NOT SwitchToFailed: the accumulated text is still good. Fall back to
+            // Paused so Send/Insert keep working and Resume can be retried. The
+            // error must NOT go into the text box - in the Paused stage the box
+            // content IS what Send submits, so writing the error there would send
+            // the error message as the prompt.
+            SwitchToPaused();
+            StatusLabel.Text = "ERROR - could not resume";
+            StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+            LevelHint.Text = "Could not resume - your text is kept. Try Resume again, or Send what you have.";
+        }
+    }
+
+    /// <summary>
+    /// Run the single batch transcription on the current segment's captured clip.
+    /// The service is consumed (stopped) and disposed here, so a segment cannot be
+    /// transcribed twice. Returns the dictionary-corrected transcript for the segment.
+    /// </summary>
+    private async Task<string> TranscribeSegmentAsync()
     {
         var svc = _service;
         if (svc is null)
@@ -452,12 +517,12 @@ public partial class SpeakDialog : Window
 
         var result = await svc.TranscribeAsync();
         await DisposeServiceAsync();
-        FileLog.Write($"[SpeakDialog] transcribed: corrected={result.DictionaryWordsCorrected} words, len={result.CleanedTranscript.Length}");
+        FileLog.Write($"[SpeakDialog] segment transcribed: corrected={result.DictionaryWordsCorrected} words, len={result.CleanedTranscript.Length}");
         return result.CleanedTranscript;
     }
 
-    /// <summary>Close with the (possibly edited) reviewed text.</summary>
-    private void CommitReviewedText(bool submitOnClose)
+    /// <summary>Close with the (possibly edited) text currently in the box.</summary>
+    private void CommitPausedText(bool submitOnClose)
     {
         var reviewed = TranscriptText.Text;
         ResultText = string.IsNullOrWhiteSpace(reviewed) ? null : reviewed;
@@ -471,38 +536,43 @@ public partial class SpeakDialog : Window
         StatusLabel.Text = "TRANSCRIBING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
-        // No text appears here: the whole clip has been sent and the final
-        // transcript is not available until transcription completes.
-        TranscriptText.Text = "";
+        // Show the text accumulated from prior segments (if any) while the current
+        // segment transcribes; the new segment's text is not available until the
+        // batch call completes. Read-only - no editing mid-transcription.
+        TranscriptText.Text = _accumulatedText;
+        TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
         TranscriptText.IsReadOnly = true;
         PrimaryButton.IsEnabled = false;
         StopButton.IsEnabled = false;
-        ReviewButton.IsEnabled = false;
+        // Resume stays disabled here: "you cannot resume until it has been transcribed".
+        PauseButton.IsEnabled = false;
         MicSelector.IsEnabled = false;
-        LevelHint.Text = "Transcribing the whole recording...";
+        LevelHint.Text = "Transcribing what you have said so far...";
         for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 34.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
     }
 
-    private void SwitchToReview()
+    private void SwitchToPaused()
     {
-        _stage = Stage.Review;
-        StatusLabel.Text = "REVIEW";
+        _stage = Stage.Paused;
+        StatusLabel.Text = "PAUSED - reviewing";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
-        TranscriptText.Text = _finalText;
+        TranscriptText.Text = _accumulatedText;
         TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
-        // Editable for review: let the user fix mis-heard words before committing.
+        // Editable for review: let the user fix mis-heard words before committing
+        // or resuming. Park the caret at the end so appended typing / Resume
+        // continues naturally.
         TranscriptText.IsReadOnly = false;
         TranscriptText.CaretIndex = TranscriptText.Text?.Length ?? 0;
         TranscriptText.Focus();
-        // Review is a single capture; there is no Resume. Hide the Review button
-        // and keep the commit actions (Insert/Send) for the reviewed text.
-        ReviewButton.IsVisible = false;
+        // Pause becomes Resume; commit actions stay available.
+        PauseButton.Content = "Resume";
+        PauseButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
         StopButton.IsEnabled = true;
-        MicSelector.IsEnabled = false;
-        // Park the equalizer bars at a low resting height while reviewing.
+        MicSelector.IsEnabled = true;
+        // Park the equalizer bars at a low resting height while paused.
         for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 8.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
         LevelHint.Text = "";
@@ -515,12 +585,13 @@ public partial class SpeakDialog : Window
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
         // Read-only and empty while recording: NO live preview. The transcript
-        // box stays blank (its watermark shows through) until transcription
-        // completes after the user stops.
+        // box stays blank (its explanatory watermark shows through) until the next
+        // checkpoint. Prior-segment text is restored only at the next Pause/commit.
         TranscriptText.Text = "";
         TranscriptText.IsReadOnly = true;
-        ReviewButton.IsVisible = true;
-        ReviewButton.IsEnabled = true;
+        // Restore the two-bar Pause glyph (it may currently read "Resume").
+        PauseButton.Content = BuildPauseIcon();
+        PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
         MicSelector.IsEnabled = true;
@@ -528,5 +599,26 @@ public partial class SpeakDialog : Window
         // Fresh segment: re-evaluate loudness from scratch.
         _recentPeakRms = 0.0;
         LevelHint.Text = "";
+    }
+
+    /// <summary>
+    /// Two-bar pause glyph as Avalonia shapes. Avoids the Unicode pause symbol per
+    /// the project-wide no-Unicode rule. Matches the markup-built glyph in
+    /// SpeakDialog.axaml so the button looks identical whether the content came
+    /// from XAML (initial) or from here (after a Resume).
+    /// </summary>
+    private static Control BuildPauseIcon()
+    {
+        var fill = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+        var sp = new StackPanel
+        {
+            Orientation = global::Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+            Spacing = 5,
+        };
+        sp.Children.Add(new global::Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 14, Fill = fill });
+        sp.Children.Add(new global::Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 14, Fill = fill });
+        return sp;
     }
 }

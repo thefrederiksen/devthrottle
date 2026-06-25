@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Utilities;
 
@@ -221,29 +220,11 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
     /// <summary>
     /// Wrap raw PCM bytes in a minimal RIFF WAV container. Transcription APIs
     /// require a properly-formed audio file; raw PCM without a header is rejected.
+    /// Delegates to the shared <see cref="Audio.PcmWav"/> so the byte layout lives
+    /// in exactly one place.
     /// </summary>
     private byte[] WrapPcmInWav(byte[] pcm)
-    {
-        int byteRate = _pcmSampleRate * _pcmChannels * _pcmBitsPerSample / 8;
-        int blockAlign = _pcmChannels * _pcmBitsPerSample / 8;
-        using var ms = new MemoryStream(44 + pcm.Length);
-        using var bw = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
-        bw.Write(Encoding.ASCII.GetBytes("RIFF"));
-        bw.Write(36 + pcm.Length);
-        bw.Write(Encoding.ASCII.GetBytes("WAVE"));
-        bw.Write(Encoding.ASCII.GetBytes("fmt "));
-        bw.Write(16);
-        bw.Write((short)1);
-        bw.Write((short)_pcmChannels);
-        bw.Write(_pcmSampleRate);
-        bw.Write(byteRate);
-        bw.Write((short)blockAlign);
-        bw.Write((short)_pcmBitsPerSample);
-        bw.Write(Encoding.ASCII.GetBytes("data"));
-        bw.Write(pcm.Length);
-        bw.Write(pcm, 0, pcm.Length);
-        return ms.ToArray();
-    }
+        => Audio.PcmWav.Wrap(pcm, _pcmSampleRate, _pcmChannels, _pcmBitsPerSample);
 
     private static string ResolveApiKey(string? explicitKey)
     {

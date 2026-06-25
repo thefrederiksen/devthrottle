@@ -1413,48 +1413,43 @@ public partial class TalkPage : ContentPage
             return;
         }
 
-        SpeakDictationResult dictation;
-        try
-        {
-            dictation = await SpeakIntoTextboxDialog.PromptAsync(Navigation, _recorder);
-        }
-        catch (Exception ex)
-        {
-            WingmanStatusLabel.Text = "";
-            await DisplayAlert("Dictation error", ex.Message, "OK");
-            return;
-        }
-
-        if (dictation.Action == SpeakAction.Cancel || dictation.Audio is null)
-        {
-            WingmanStatusLabel.Text = "";
-            return;
-        }
-
         var gate = OfflineGuard.Check(DeviceOnline, "transcribe your dictation");
         if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
 
+        // Transcription now happens INSIDE the dialog (so it can show the editable
+        // transcript and support the Pause checkpoint); the host only wires in HOW to
+        // transcribe one captured segment. The dialog returns the final text.
+        var session = _selected;
+        var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+        Func<UtteranceAudio, CancellationToken, Task<string>> transcribe = async (audio, ct) =>
+            (await client.TranscribeUtteranceAsync(
+                session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime, ct)).Text;
+
+        SpeakDictationResult dictation;
         try
         {
-            WingmanStatusLabel.Text = "Transcribing...";
-            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            var t = await client.TranscribeUtteranceAsync(
-                _selected.TailnetEndpoint, _selected.SessionId,
-                dictation.Audio.Bytes, dictation.Audio.Mime);
-
-            var existing = WingmanInput.Text ?? "";
-            WingmanInput.Text = string.IsNullOrWhiteSpace(existing)
-                ? t.Text : (existing.TrimEnd() + " " + t.Text);
-            WingmanStatusLabel.Text = "";
-
-            if (dictation.Action == SpeakAction.Send)
-                OnWingmanSendClicked(this, EventArgs.Empty);
+            dictation = await SpeakIntoTextboxDialog.PromptAsync(Navigation, _recorder, transcribe);
         }
         catch (Exception ex)
         {
             WingmanStatusLabel.Text = "";
             await DisplayAlert("Dictation error", ex.Message, "OK");
+            return;
         }
+
+        if (dictation.Action == SpeakAction.Cancel || string.IsNullOrWhiteSpace(dictation.Text))
+        {
+            WingmanStatusLabel.Text = "";
+            return;
+        }
+
+        var existing = WingmanInput.Text ?? "";
+        WingmanInput.Text = string.IsNullOrWhiteSpace(existing)
+            ? dictation.Text : (existing.TrimEnd() + " " + dictation.Text);
+        WingmanStatusLabel.Text = "";
+
+        if (dictation.Action == SpeakAction.Send)
+            OnWingmanSendClicked(this, EventArgs.Empty);
     }
 
     private async void OnWingmanSendClicked(object? sender, EventArgs e)
@@ -1548,48 +1543,43 @@ public partial class TalkPage : ContentPage
             return;
         }
 
-        SpeakDictationResult dictation;
-        try
-        {
-            dictation = await SpeakIntoTextboxDialog.PromptAsync(Navigation, _recorder);
-        }
-        catch (Exception ex)
-        {
-            TerminalStatusLabel.Text = "";
-            await DisplayAlert("Dictation error", ex.Message, "OK");
-            return;
-        }
-
-        if (dictation.Action == SpeakAction.Cancel || dictation.Audio is null)
-        {
-            TerminalStatusLabel.Text = "";
-            return;
-        }
-
         var gate = OfflineGuard.Check(DeviceOnline, "transcribe your dictation");
         if (!gate.Allowed) { TerminalStatusLabel.Text = gate.Message; return; }
 
+        // Transcription happens INSIDE the dialog (editable transcript + Pause checkpoint);
+        // the host only wires in HOW to transcribe one captured segment. The dialog returns
+        // the final text.
+        var session = _selected;
+        var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+        Func<UtteranceAudio, CancellationToken, Task<string>> transcribe = async (audio, ct) =>
+            (await client.TranscribeUtteranceAsync(
+                session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime, ct)).Text;
+
+        SpeakDictationResult dictation;
         try
         {
-            TerminalStatusLabel.Text = "Transcribing...";
-            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            var t = await client.TranscribeUtteranceAsync(
-                _selected.TailnetEndpoint, _selected.SessionId,
-                dictation.Audio.Bytes, dictation.Audio.Mime);
-
-            var existing = TerminalInput.Text ?? "";
-            TerminalInput.Text = string.IsNullOrWhiteSpace(existing)
-                ? t.Text : (existing.TrimEnd() + " " + t.Text);
-            TerminalStatusLabel.Text = "";
-
-            if (dictation.Action == SpeakAction.Send)
-                OnTerminalSendClicked(this, EventArgs.Empty);
+            dictation = await SpeakIntoTextboxDialog.PromptAsync(Navigation, _recorder, transcribe);
         }
         catch (Exception ex)
         {
             TerminalStatusLabel.Text = "";
             await DisplayAlert("Dictation error", ex.Message, "OK");
+            return;
         }
+
+        if (dictation.Action == SpeakAction.Cancel || string.IsNullOrWhiteSpace(dictation.Text))
+        {
+            TerminalStatusLabel.Text = "";
+            return;
+        }
+
+        var existing = TerminalInput.Text ?? "";
+        TerminalInput.Text = string.IsNullOrWhiteSpace(existing)
+            ? dictation.Text : (existing.TrimEnd() + " " + dictation.Text);
+        TerminalStatusLabel.Text = "";
+
+        if (dictation.Action == SpeakAction.Send)
+            OnTerminalSendClicked(this, EventArgs.Empty);
     }
 
     private async void OnTerminalEnterClicked(object? sender, EventArgs e)

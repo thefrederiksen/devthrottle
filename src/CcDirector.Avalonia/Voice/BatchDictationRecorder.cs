@@ -1,4 +1,4 @@
-using System.Text;
+using CcDirector.Core.Audio;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Transcription;
@@ -275,33 +275,14 @@ public sealed record DictationResult(string RawTranscript, string CleanedTranscr
 /// <summary>
 /// Minimal RIFF/WAV container writer for raw PCM16. The desktop mic delivers raw
 /// PCM that the transcription API cannot accept without a header, so the whole
-/// captured clip is wrapped here before the single batch upload.
+/// captured clip is wrapped before the single batch upload. Delegates to the
+/// shared <see cref="PcmWav"/> so the byte layout lives in exactly one place.
 /// </summary>
 internal static class WavWriter
 {
     public static byte[] WrapPcm16(byte[]? pcm, int sampleRate, int channels, int bitsPerSample)
     {
         if (pcm is null) throw new ArgumentNullException(nameof(pcm));
-
-        int byteRate = sampleRate * channels * bitsPerSample / 8;
-        int blockAlign = channels * bitsPerSample / 8;
-        using var ms = new MemoryStream(44 + pcm.Length);
-        using var bw = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
-        bw.Write(Encoding.ASCII.GetBytes("RIFF"));
-        bw.Write(36 + pcm.Length);
-        bw.Write(Encoding.ASCII.GetBytes("WAVE"));
-        bw.Write(Encoding.ASCII.GetBytes("fmt "));
-        bw.Write(16);
-        bw.Write((short)1); // PCM
-        bw.Write((short)channels);
-        bw.Write(sampleRate);
-        bw.Write(byteRate);
-        bw.Write((short)blockAlign);
-        bw.Write((short)bitsPerSample);
-        bw.Write(Encoding.ASCII.GetBytes("data"));
-        bw.Write(pcm.Length);
-        bw.Write(pcm, 0, pcm.Length);
-        bw.Flush();
-        return ms.ToArray();
+        return PcmWav.Wrap(pcm, sampleRate, channels, bitsPerSample);
     }
 }
