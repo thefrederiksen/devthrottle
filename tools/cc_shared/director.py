@@ -63,7 +63,7 @@ def _extract_error(body: str) -> Optional[str]:
     return None
 
 
-def _request(method: str, path: str, body: Optional[dict] = None) -> Any:
+def _request(method: str, path: str, body: Optional[dict] = None, timeout: float = 30) -> Any:
     url = f"{director_base_url()}/{path.lstrip('/')}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -75,7 +75,7 @@ def _request(method: str, path: str, body: Optional[dict] = None) -> Any:
         req.add_header("Authorization", f"Bearer {token}")
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as err:
@@ -95,8 +95,8 @@ def get_json(path: str) -> Any:
     return _request("GET", path)
 
 
-def post_json(path: str, body: dict) -> Any:
-    return _request("POST", path, body)
+def post_json(path: str, body: dict, timeout: float = 30) -> Any:
+    return _request("POST", path, body, timeout=timeout)
 
 
 def field(dto: Dict[str, Any], *keys: str, default: str = "") -> str:

@@ -741,6 +741,28 @@ run the integration tests on your branch
 
 An ambiguous id prefix or name is refused with the list of candidates (no message is sent).
 
+### cc-ask
+
+Ask one session a question and print its answer (the round-trip `cc-send` cannot do - issue #717).
+The question is delivered framed (like `cc-send`); the tool waits for the target to finish its turn
+and prints the captured answer.
+
+```
+USAGE: cc-ask [OPTIONS] TARGET QUESTION
+
+ARGUMENTS:
+  TARGET    Session id, id prefix, or name - a single session (not 'all') [required]
+  QUESTION  The question to ask [required]
+
+OPTIONS:
+  --timeout-ms INTEGER  How long to wait for the answer (default 120000)
+  --version -v
+```
+
+If the target does not answer within the timeout, `cc-ask` prints a clear timeout message and exits
+non-zero; an unknown or unreachable target exits non-zero with a clear error. `cc-ask all` is not
+supported (ask is single-target).
+
 ---
 
 ## cc-reddit

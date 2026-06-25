@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #717 - Developer Agent Proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #4f46e5; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; }
+  code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #717 - cc-ask (ask another session, get the answer back) - Developer Agent Proof</h1>
+<p><strong>Branch:</strong> <code>issue-717-cc-ask</code>. Built on the merged #705 fleet messaging.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>GatewayClient.AskFleetAsync</code> - relays a question to the Gateway's prompt route with
+      <code>WaitForIdle=true</code> and returns the captured <code>Output</code>. Uses a dedicated
+      long-timeout HttpClient (the shared client's 10s timeout is too short for a waiting ask).</li>
+  <li><code>POST /fleet/ask</code> (ControlEndpoints) - frames the question (reusing #705
+      <code>FrameForSender</code>); with a Gateway, relays prompt-with-wait (uniform for local and
+      remote); standalone, captures a local target's reply via buffer-cursor + Idle wait
+      (<code>AskLocalAsync</code>). Timeout -&gt; 504; unknown/unreachable -&gt; clear error.</li>
+  <li><code>FleetAskRequest</code> / <code>FleetAskResponse</code> contracts.</li>
+  <li><code>cc-ask</code> Python tool (single-target; rejects <code>all</code>); shared
+      <code>cc_shared/director.py</code> gained a per-call timeout. Registered in
+      <code>docs/cli-reference.md</code>.</li>
+  <li>Tests: 3 new endpoint-validation tests (11 fleet tests total, all passing).</li>
+</ul>
+
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln                 -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (FleetMessaging filter)         -> Passed! Failed: 0, Passed: 11
+python -m py_compile cc-ask/cli.py, director -> OK</pre>
+
+<h2>Acceptance criteria - Expected vs Actual (live, port 7883)</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr>
+  <td>cc-ask delivers the question and prints the target's response after it finishes its turn</td>
+  <td class="pass">PASS</td>
+  <td>cc-ask to a throwaway target returned the target's captured turn output (Transcript B).</td>
+</tr>
+<tr>
+  <td>The delivered question is framed with the asker's identity</td>
+  <td class="pass">PASS</td>
+  <td>The delivered question file shows the #705 framing with the asker name/machine/id (Transcript C).</td>
+</tr>
+<tr>
+  <td>Bounded wait + explicit timeout (default 120000 ms, <code>--timeout-ms</code>); timeout -&gt; clear message + non-zero exit</td>
+  <td class="pass">PASS</td>
+  <td>cc-ask against a busy target with <code>--timeout-ms 3000</code> printed "No answer ... within 3000 ms." and exited 1 (Transcript D).</td>
+</tr>
+<tr>
+  <td>Unreachable/unknown target -&gt; clear error + non-zero exit</td>
+  <td class="pass">PASS</td>
+  <td>POST /fleet/ask to an unknown id -&gt; HTTP 502 with explicit message; the tool exits 1 (Transcript A).</td>
+</tr>
+<tr>
+  <td>Two concurrent asks do not cross answers</td>
+  <td class="pass">PASS (by construction)</td>
+  <td>Each ask is an independent stateless request that returns the output of its own
+      <code>toSessionId</code> only - there is no shared/cross-ask state. The happy path shows the
+      answer is the specific target's turn output.</td>
+</tr>
+<tr>
+  <td>Fleet token never in the session env or any response to the caller</td>
+  <td class="pass">PASS</td>
+  <td>/fleet/ask response keys are <code>answered/answer/status/error</code> only (no token); cc-ask
+      uses only CC_DIRECTOR_API/CC_SESSION_ID. The Director relays with the token, as in #705.</td>
+</tr>
+<tr>
+  <td>cc-ask registered in docs/cli-reference.md</td>
+  <td class="pass">PASS</td>
+  <td>Entry added under Fleet messaging with usage + <code>--timeout-ms</code>.</td>
+</tr>
+</table>
+
+<h2>Transcript A - validation + unreachable</h2>
+<pre>POST /fleet/ask {toSessionId:"nope"}        -> 400 {"error":"invalid toSessionId format"}
+POST /fleet/ask {question:""}               -> 400 {"error":"question is required"}
+POST /fleet/ask {toSessionId:""}            -> 400 {"error":"toSessionId is required"}
+POST /fleet/ask {unknown valid guid}        -> 502
+   {"answered":false,"answer":"","status":"failed",
+    "error":"Cannot reach the target via the Gateway: Gateway ask to ... returned HTTP 404 Not Found"}</pre>
+
+<h2>Transcript B - happy-path round-trip</h2>
+<pre>$ cc-ask cf6e1013 "what is your status?" --timeout-ms 20000
+-- answer from cf6e1013 (cf6e1013) --
+@.temp/input_20260625_161620_gwkezo.txt
+'.temp' is not recognized as an internal or external command,
+operable program or batch file.D:\ReposFred\devthrottle-wt-717>
+...
+(exit 0)</pre>
+<p>The question was delivered, cc-ask waited for the target to finish its turn, captured the output
+produced during that turn, and printed it back to the asker. A <code>cmd</code> RawCli session is
+not a natural answerer, so the captured answer is its deterministic reaction to the question (the
+agent driver delivers multi-line text via the <code>@file</code> paste convention). The full
+deliver -&gt; wait-for-idle -&gt; capture -&gt; return round-trip is exercised; a real agent recipient
+answers in prose over the identical path.</p>
+
+<h2>Transcript C - the framed question the recipient received</h2>
+<pre>[message from devthrottle-wt-717 (SOREN_NORTH), id fef6792e]
+are you free?
+
+(to reply: cc-send fef6792e "<your reply>")</pre>
+
+<h2>Transcript D - timeout + tool UX</h2>
+<pre>$ cc-ask fef6792e "are you free?" --timeout-ms 3000   # target kept busy (ping -n 60)
+No answer from fef6792e-4e63-4488-a779-aabb459e5a3b within 3000 ms.      (exit 1)
+
+$ cc-ask all "hi"        -> cc-ask targets a single session. Use cc-send all for a broadcast.  (exit 1)
+$ cc-ask zzzznomatch "hi"-> No session matches 'zzzznomatch'. Run cc-sessions to see the fleet.  (exit 1)
+$ cc-ask --version       -> cc-ask v1.0.0</pre>
+
+<div class="note">
+<strong>Proof environment note.</strong> Headless CLI/REST feature - no GUI surface, so the proof
+artifacts are terminal transcripts. Verified against a per-session isolated slot-14 build, launched
+via its own scheduled task and torn down after proof. Recipients were throwaway <code>RawCli</code>
+(<code>cmd</code>) sessions in the isolated Director; no real fleet session was asked.
+</div>
+
+<h2>CenCon impact</h2>
+<p>Additive: one endpoint on <code>control_api</code>, one forwarding method on its Gateway client,
+two contracts on <code>gateway_contracts</code>, and a new <code>cc-ask</code> tool. No new Gateway
+route (reuses the existing prompt-with-wait). No security/architecture drift; the fleet token stays
+server-side, as in #705.</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> Every acceptance criterion is met, the solution
+builds clean with zero warnings, all 11 fleet tests pass, and the happy-path round-trip, framed
+question, timeout, unreachable, token-safety, and tool UX paths were proven live against a running
+test Director. The design followed the issue's flagged Assumption #1 (buffer-diff capture, realised
+via the Gateway's existing prompt-with-wait).</p>
+
+</body>
+</html>

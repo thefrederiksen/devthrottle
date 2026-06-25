@@ -1,0 +1,22 @@
+[project]
+name = "cc-ask"
+version = "1.0.0"
+description = "Ask another cc-director session a question and get its answer back"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-ask = "cc_ask.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_ask"]
+package-dir = {"cc_ask" = "src"}

@@ -119,4 +119,26 @@ public sealed class FleetMessagingEndpointTests : IAsyncLifetime
         var resp = await _client.PostAsJsonAsync("fleet/broadcast", new FleetBroadcastRequest { Text = "" });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
+
+    [Fact]
+    public async Task Fleet_ask_missing_target_returns_400()
+    {
+        var resp = await _client.PostAsJsonAsync("fleet/ask", new FleetAskRequest { ToSessionId = "", Question = "q?" });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fleet_ask_bad_guid_returns_400()
+    {
+        var resp = await _client.PostAsJsonAsync("fleet/ask", new FleetAskRequest { ToSessionId = "not-a-guid", Question = "q?" });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fleet_ask_empty_question_returns_400()
+    {
+        var resp = await _client.PostAsJsonAsync("fleet/ask",
+            new FleetAskRequest { ToSessionId = Guid.NewGuid().ToString(), Question = "" });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
 }

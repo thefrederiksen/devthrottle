@@ -49,3 +49,41 @@ public sealed class FleetSendResponse
     /// <summary>Error message when Accepted is false.</summary>
     public string? Error { get; set; }
 }
+
+/// <summary>
+/// Body of POST /fleet/ask on the Director (issue #717). A session asks a question to one target
+/// session anywhere in the fleet and waits for the target's answer (its turn output). The Director
+/// relays to the Gateway, which holds the response open until the target returns to Idle or the
+/// timeout elapses; standalone, the Director captures a local target's reply itself.
+/// </summary>
+public sealed class FleetAskRequest
+{
+    /// <summary>Target session GUID anywhere in the fleet.</summary>
+    public string ToSessionId { get; set; } = "";
+
+    /// <summary>The question text.</summary>
+    public string Question { get; set; } = "";
+
+    /// <summary>The calling session's own GUID (its CC_SESSION_ID); stamps the sender header on the
+    /// delivered question. The display name is resolved by the Director, never trusted from the body.</summary>
+    public string? FromSessionId { get; set; }
+
+    /// <summary>How long to wait for the target's answer, in milliseconds. Default 120000 (2 min).</summary>
+    public int TimeoutMs { get; set; } = 120_000;
+}
+
+/// <summary>Response from POST /fleet/ask.</summary>
+public sealed class FleetAskResponse
+{
+    /// <summary>True when the target produced an answer within the timeout.</summary>
+    public bool Answered { get; set; }
+
+    /// <summary>The target's answer (its turn output), when Answered is true.</summary>
+    public string Answer { get; set; } = "";
+
+    /// <summary>Outcome of the wait: idle (answered) | timeout | failed | not_found.</summary>
+    public string Status { get; set; } = "";
+
+    /// <summary>Error or timeout message when Answered is false.</summary>
+    public string? Error { get; set; }
+}
