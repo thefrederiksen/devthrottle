@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: Gemini (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: Gemini (history capture)</h1>
+<p>Implementation plan for the Gemini CLI - the exception case. PLAN (not yet built);
+        source for the Gemini GitHub issue.</p>
+<p>Status: planned. Terminal-derived (Gemini provides NO usable transcript).</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal mode</td>
+<td>Normal buffer (measured) - the terminal scrollback DOES contain the conversation as text</td>
+</tr>
+<tr>
+<td>Store</td>
+<td>None usable. <code>~/.gemini/tmp/&lt;cwd-hash&gt;/logs.json</code> records USER PROMPTS ONLY - never assistant responses</td>
+</tr>
+<tr>
+<td>Telemetry</td>
+<td>OTLP, but measured to log prompts only (there is a <code>--telemetry-log-prompts</code>, no log-responses) - does not help</td>
+</tr>
+<tr>
+<td>Fidelity</td>
+<td>LOW - unstructured text only; no role separation, no tool structure</td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>N/A (no transcript). Source is the session's own terminal buffer</td>
+</tr>
+<tr>
+<td>Launch wiring</td>
+<td>None</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why Gemini is different</h2>
+<p>Every other agent either writes a structured transcript (Claude, Codex, Pi, Grok,
+        Copilot, OpenCode) or, failing that, at least lets us read structure. Gemini does
+        neither: it persists only the user's prompts (no model responses) and exposes no
+        response-logging telemetry. So there is nothing to parse into structured turns.</p>
+<p>The saving grace: Gemini runs in the NORMAL terminal buffer, so the full conversation is
+        already present as text in the session's terminal scrollback - which the user can already
+        read in the existing Terminal tab.</p>
+<hr/>
+<h2>3. The plan (honest, best-effort)</h2>
+<p>Because there is no transcript, the History tab cannot show structured turns for Gemini.
+        The plan is a deliberately minimal, clearly-labeled fallback:</p>
+<ul>
+<li>Take the session's terminal buffer (<code>CircularTerminalBuffer.DumpAll</code>), clean the ANSI
+        with <code>AnsiCleaner</code>, and present it in the History tab as a single, unstructured
+        "terminal transcript" block, labeled "raw terminal text - Gemini provides no structured
+        transcript."</li>
+<li>Represent it in the canonical model minimally: one <code>ConversationMessage</code> carrying the
+        cleaned text (or special-case the History tab to render Gemini's cleaned scrollback
+        verbatim).</li>
+</ul>
+<p>What we explicitly do NOT do:</p>
+<ul>
+<li>We do not fake structure by parsing Gemini's TUI markers into turns (fragile, breaks on
+        every UI change).</li>
+<li>We do not claim tool fidelity - Gemini gives us none.</li>
+</ul>
+<p>This is the floor (the universal "screen text" path) applied to Gemini specifically.</p>
+<hr/>
+<h2>4. Decision to confirm</h2>
+<p>Given the Terminal tab already shows Gemini's conversation, the History tab's added value
+        for Gemini is marginal. Two reasonable options:</p>
+<ul>
+<li>(A) Implement the minimal terminal-text History (above) so the tab is consistent across
+        all agents (it always shows <em>something</em>).</li>
+<li>(B) Defer: for Gemini, the History tab shows a notice ("Gemini has no structured
+        transcript - use the Terminal tab"), and we invest the effort elsewhere.</li>
+</ul>
+<p>Recommendation: (A) for consistency, but it is low priority relative to the structured
+        drivers. The issue should call out this trade-off.</p>
+<hr/>
+<h2>5. Implementation steps (option A)</h2>
+<ol>
+<li><code>GeminiTerminalHistory</code> - clean the session buffer into a single canonical text block.</li>
+<li><code>SessionHistoryReader</code>: add the Gemini branch (terminal text, not a file).</li>
+<li>The History tab renders it as one block with the "raw / unstructured" label.</li>
+<li>Tests: cleaned-buffer-to-text.</li>
+</ol>
+<hr/>
+<h2>6. Capabilities and limitations</h2>
+<p>Captured: the conversation TEXT (whatever is in the terminal scrollback).
+        Not captured: role separation, tool calls/results, anything that scrolled out of the
+        buffer's ring, structured turns.</p>
+<hr/>
+<h2>7. QA and acceptance (HTML QA report must show)</h2>
+<ol>
+<li>Launch a Gemini session through the Director.</li>
+<li>Send a couple of prompts.</li>
+<li>Open the History tab; confirm the conversation TEXT is visible (not structured turns).</li>
+<li>Screenshot and produce the HTML QA report.
+        Acceptance (option A): the History tab shows Gemini's conversation text, clearly labeled
+        as raw/unstructured - consistent presence across all agents, with honest fidelity.</li>
+</ol>
+<hr/>
+<h2>8. Open questions / risks</h2>
+<ul>
+<li>Whether to ship option A or B (consistency vs effort) - flagged for the issue.</li>
+<li>The terminal ring is bounded (2 MB); very long Gemini sessions lose the earliest text.</li>
+<li>If Gemini later adds a transcript or response-logging telemetry, swap to a real reader.</li>
+</ul>
+</article>
+</body>
+</html>

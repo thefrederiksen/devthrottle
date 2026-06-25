@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: Codex (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: Codex (history capture)</h1>
+<p>Implementation plan for capturing a Codex CLI session's conversation history into the
+        canonical model and surfacing it in the History tab. This is a PLAN (not yet built);
+        it is the source for the Codex GitHub issue.</p>
+<p>Status: planned. Template for the JSONL-file driver shape (Codex, Pi, Grok).</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal mode</td>
+<td>Normal buffer (measured) - so the terminal scrollback also has the text, but the rollout file gives structured, full fidelity, so we prefer it</td>
+</tr>
+<tr>
+<td>Store</td>
+<td><code>~/.codex/sessions/&lt;yyyy&gt;/&lt;mm&gt;/&lt;dd&gt;/rollout-&lt;timestamp&gt;-&lt;uuid&gt;.jsonl</code></td>
+</tr>
+<tr>
+<td>Format</td>
+<td>JSON lines; <code>type</code> in { session_meta, response_item, event_msg, turn_context }</td>
+</tr>
+<tr>
+<td>Fidelity</td>
+<td>FULL - user + assistant messages, tool calls + outputs, reasoning</td>
+</tr>
+<tr>
+<td>Pointer mechanism</td>
+<td>Newest rollout whose <code>session_meta.cwd</code> matches the session repo and timestamp &gt;= launch (no Claude-style hooks)</td>
+</tr>
+<tr>
+<td>Launch wiring</td>
+<td>None required (file is written automatically). Optional: Codex <code>notify</code> program as a future authoritative pointer</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why a transcript driver</h2>
+<p>Codex renders in the normal terminal buffer, so unlike Claude its scrollback is not
+        empty - but the scrollback is raw text, not structured. Codex also writes its own
+        complete session log ("rollout") as JSON lines, which gives us structured user /
+        assistant / tool turns directly. We read that file and map it into the same canonical
+        <code>ConversationHistory</code> every other driver produces, so the History tab renders Codex
+        identically to Claude.</p>
+<hr/>
+<h2>3. The store and its format</h2>
+<p>A rollout file is JSON lines. The relevant line types:</p>
+<ul>
+<li><code>session_meta</code> - one per file; payload carries the session id, cwd, and start time.
+        This is how we match a rollout to a Director session (by cwd) and order by start.</li>
+<li><code>response_item</code> - the structured conversation:
+        <ul>
+<li><code>payload.type = "message"</code> with <code>role</code> user/assistant and content items
+        <code>input_text</code> / <code>output_text</code>.</li>
+<li><code>payload.type = "function_call"</code> - a tool call (name + arguments).</li>
+<li><code>payload.type = "function_call_output"</code> - the tool result.</li>
+<li><code>payload.type = "reasoning"</code> - the model's reasoning (may be redacted/empty).</li>
+</ul>
+</li>
+<li><code>event_msg</code> - a parallel, already-cleaned stream (<code>user_message</code>, <code>agent_message</code>)
+        useful as a fallback when a <code>response_item</code> is hard to render.</li>
+<li><code>turn_context</code> - bookkeeping; skipped.</li>
+</ul>
+<p>We parse <code>response_item</code> as the primary source (it has the tool structure) and ignore
+        <code>event_msg</code>/<code>turn_context</code> for the first cut.</p>
+<hr/>
+<h2>4. The plan</h2>
+<h3>4a. Pointer - find the current rollout</h3>
+<p>Codex has no hook that pushes the active session to us (Claude is special there). The
+        rollout file path is not known at launch. Resolution strategy:</p>
+<ol>
+<li>When the History view asks for a Codex session's transcript, scan
+        <code>~/.codex/sessions</code> for <code>rollout-*.jsonl</code> files.</li>
+<li>Keep those whose <code>session_meta.cwd</code> equals the Director session's repo path and whose
+        start time is at or after the session's launch time.</li>
+<li>Pick the newest. Cache the resolved path on the session so we do not re-scan every
+        poll; re-scan only if the cached file disappears.</li>
+</ol>
+<p>This mirrors the existing <code>/claude-transcripts</code> newest-for-cwd fallback, generalized.
+        Edge cases to handle: a <code>/new</code> or context reset inside Codex may start a new rollout -
+        the newest-for-cwd rule naturally follows it. (Future: wire Codex's <code>notify</code> config to
+        POST the active rollout to a Control API endpoint, giving an authoritative pointer like
+        Claude's hook.)</p>
+<h3>4b. Reader - rollout JSONL to canonical</h3>
+<p>Add <code>CodexTranscriptReader.Read(path)</code> (in <code>Core/Codex/</code> or <code>Core/History/Providers/</code>),
+        mirroring <code>ClaudeTranscriptReader</code>: open with <code>FileShare.ReadWrite</code> (Codex appends
+        live), tolerate a truncated final line, and map each line:</p>
+<table>
+<thead>
+<tr>
+<th>Codex line</th>
+<th>Canonical</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>response_item / message (role=user, input_text)</td>
+<td>ConversationMessage(User) + Text</td>
+</tr>
+<tr>
+<td>response_item / message (role=assistant, output_text)</td>
+<td>ConversationMessage(Assistant) + Text</td>
+</tr>
+<tr>
+<td>response_item / function_call</td>
+<td>ConversationPart(ToolUse) with name + arguments</td>
+</tr>
+<tr>
+<td>response_item / function_call_output</td>
+<td>ConversationPart(ToolResult) paired by call id</td>
+</tr>
+<tr>
+<td>response_item / reasoning</td>
+<td>ConversationPart(Thinking) (skip if empty)</td>
+</tr>
+<tr>
+<td>session_meta, turn_context, event_msg</td>
+<td>skipped</td>
+</tr>
+</tbody>
+</table>
+<h3>4c. Wiring</h3>
+<p>Extend <code>SessionHistoryReader</code> so that for <code>AgentKind.Codex</code> it resolves the rollout
+        path (4a) and reads it with <code>CodexTranscriptReader</code> (4b). No launch-path change is
+        needed (no hooks). The History tab and the facade then work unchanged - the canonical
+        output is identical to Claude's.</p>
+<hr/>
+<h2>5. Implementation steps</h2>
+<ol>
+<li><code>CodexRolloutLocator</code> - newest-rollout-for-cwd resolution + per-session cache.</li>
+<li><code>CodexTranscriptReader.Read(path)</code> -&gt; <code>ConversationHistory</code> (the mapping in 4b).</li>
+<li><code>SessionHistoryReader</code>: add the Codex branch (resolve + read).</li>
+<li>Unit tests: a fixture rollout (message/function_call/function_call_output/reasoning
+        <ul>
+<li>a truncated line) asserting the canonical mapping; a locator test (newest-for-cwd,
+        ignores other cwds and older files); and a real-transcript smoke against a local
+        rollout (not committed).</li>
+</ul>
+</li>
+<li>No UI change - the History tab already renders any <code>ConversationHistory</code>.</li>
+</ol>
+<hr/>
+<h2>6. Capabilities and limitations</h2>
+<p>Captured: user prompts, assistant replies, tool calls (name + arguments) paired with
+        their outputs, reasoning when present, timestamps.</p>
+<p>Limitations:</p>
+<ul>
+<li>Pointer is heuristic (newest-for-cwd), not authoritative like Claude's hook. Risk if
+        two Codex sessions run in the same repo at once - mitigate by also matching the
+        session start time window, and revisit with the <code>notify</code> hook later.</li>
+<li>Reasoning may be redacted/empty (like Claude thinking).</li>
+<li>In-Codex context reset (<code>/new</code>) starts a new rollout; the newest-for-cwd rule follows
+        it but we should confirm the behavior in QA.</li>
+</ul>
+<hr/>
+<h2>7. QA and acceptance (the HTML QA report must show)</h2>
+<ol>
+<li>Launch a Codex session through the Director in a known repo.</li>
+<li>Send two prompts; the second must force a tool call (e.g. read a file).</li>
+<li>Open the History tab; confirm the canonical thread shows: the two user prompts, the
+        assistant replies, and the tool call + result, in order.</li>
+<li>Verify continuity after an in-Codex context reset (the thread follows the new
+        rollout).</li>
+<li>Screenshot the History tab and produce the HTML QA report (screenshots + the
+        asserted checks), the same format as the Claude proof.</li>
+</ol>
+<p>Acceptance: the History tab renders a Codex conversation identical in shape to Claude's,
+        sourced from the rollout file, with the tool call/result paired.</p>
+<hr/>
+<h2>8. Open questions / risks</h2>
+<ul>
+<li>Exact <code>session_meta</code> field names for cwd and start time - confirm against a real
+        rollout during implementation.</li>
+<li>Whether to prefer <code>response_item</code> vs <code>event_msg</code> for assistant text (structure vs
+        pre-cleaned) - default to <code>response_item</code>.</li>
+<li>Multi-session-same-repo disambiguation (see limitations).</li>
+</ul>
+</article>
+</body>
+</html>

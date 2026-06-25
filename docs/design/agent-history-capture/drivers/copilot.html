@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: GitHub Copilot (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: GitHub Copilot (history capture)</h1>
+<p>Implementation plan for capturing a GitHub Copilot CLI session's conversation history
+        into the canonical model and surfacing it in the History tab. PLAN (not yet built);
+        source for the Copilot GitHub issue.</p>
+<p>Status: planned. SQLite driver (same shape as OpenCode). Copilot runs FULL screen.</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal mode</td>
+<td>Full screen / alternate screen (measured) - transcript required</td>
+</tr>
+<tr>
+<td>Store</td>
+<td><code>~/.copilot/session-store.db</code> (SQLite, with -wal / -shm)</td>
+</tr>
+<tr>
+<td>Tables</td>
+<td><code>sessions(id, cwd, repository, updated_at)</code>, <code>turns(session_id, turn_index, user_message, assistant_response, timestamp)</code>, <code>forge_trajectory_events(...)</code> for tool calls</td>
+</tr>
+<tr>
+<td>Fidelity</td>
+<td>FULL - the <code>turns</code> table already splits user and assistant text per turn</td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>Newest <code>sessions</code> row whose <code>cwd</code> matches the repo (<code>ORDER BY updated_at DESC</code>)</td>
+</tr>
+<tr>
+<td>Launch wiring</td>
+<td>None required</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why a transcript driver</h2>
+<p>Copilot runs full screen, so its terminal scrollback is empty. Copilot stores its
+        sessions in a local SQLite database with a clean <code>turns</code> table - each row already has
+        <code>user_message</code> and <code>assistant_response</code> - so it is one of the easiest to map. Tool calls
+        live in <code>forge_trajectory_events</code>, linked by turn index.</p>
+<hr/>
+<h2>3. Reading the store safely</h2>
+<p>The database is written by a live Copilot process (a <code>-wal</code> file is present). To read it
+        without contending with the writer, COPY <code>session-store.db</code> plus its <code>-wal</code> and <code>-shm</code>
+        sidecars to a temp file and open the copy read-only (the exact pattern we used while
+        surveying the stores). Never open the live file for writing.</p>
+<hr/>
+<h2>4. The plan</h2>
+<h3>4a. Pointer - find the current Copilot session</h3>
+<p>Query <code>sessions WHERE cwd = &lt;repo&gt; ORDER BY updated_at DESC LIMIT 1</code> to get the active
+        session id; cache it per Director session.</p>
+<h3>4b. Reader - turns to canonical</h3>
+<p>Add <code>CopilotHistoryReader.Read(repo)</code>:</p>
+<ul>
+<li>For the resolved session, <code>SELECT ... FROM turns WHERE session_id = ? ORDER BY turn_index</code>.</li>
+<li>Each turn becomes a <code>ConversationMessage(User)</code> (from <code>user_message</code>) followed by a
+        <code>ConversationMessage(Assistant)</code> (from <code>assistant_response</code>).</li>
+<li>For each turn, attach matching <code>forge_trajectory_events</code> (by <code>turn_index</code>) as
+        <code>ConversationPart(ToolUse)</code> / <code>ConversationPart(ToolResult)</code> (command / output).</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Copilot data</th>
+<th>Canonical</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>turns.user_message</td>
+<td>ConversationMessage(User) + Text</td>
+</tr>
+<tr>
+<td>turns.assistant_response</td>
+<td>ConversationMessage(Assistant) + Text</td>
+</tr>
+<tr>
+<td>forge_trajectory_events (tool call)</td>
+<td>ConversationPart(ToolUse)</td>
+</tr>
+<tr>
+<td>forge_trajectory_events (output)</td>
+<td>ConversationPart(ToolResult)</td>
+</tr>
+</tbody>
+</table>
+<h3>4c. Wiring</h3>
+<p>Extend <code>SessionHistoryReader</code> with a Copilot branch (copy db, resolve session, read).
+        Introduce a small shared SQLite-read helper (copy + open read-only) reused by OpenCode.</p>
+<hr/>
+<h2>5. Implementation steps</h2>
+<ol>
+<li><code>SqliteSnapshotReader</code> - copy db + wal + shm to temp, open read-only (shared with OpenCode).</li>
+<li><code>CopilotHistoryReader.Read(repo)</code> -&gt; <code>ConversationHistory</code> (mapping in 4b).</li>
+<li><code>SessionHistoryReader</code>: add the Copilot branch.</li>
+<li>Tests: build a small SQLite fixture (sessions + turns + a tool event) programmatically
+        and assert the canonical mapping; a newest-session-for-cwd test; a real-db smoke.</li>
+<li>No UI change.</li>
+</ol>
+<hr/>
+<h2>6. Capabilities and limitations</h2>
+<p>Captured: user prompts, assistant replies (clean, pre-split), tool calls + outputs, timestamps.
+        Limitations:</p>
+<ul>
+<li>Requires copying the DB on each change (cheap - the db is small); detect change via the
+        db file size/mtime, like the transcript readers.</li>
+<li><code>forge_trajectory_events</code> schema details to confirm (event types, command/output fields).</li>
+<li>Pointer heuristic (newest session for cwd).</li>
+</ul>
+<hr/>
+<h2>7. QA and acceptance (HTML QA report must show)</h2>
+<ol>
+<li>Launch a Copilot session through the Director (requires GitHub auth - inject the token
+        or log in inside the tab).</li>
+<li>Send two prompts; the second forces a tool call.</li>
+<li>Open the History tab; confirm the canonical thread shows prompts, replies, and the tool
+        call + output, in order.</li>
+<li>Screenshot and produce the HTML QA report.
+        Acceptance: a full-screen Copilot session shows a complete, structured conversation in the
+        History tab, sourced from the SQLite store.</li>
+</ol>
+<hr/>
+<h2>8. Open questions / risks</h2>
+<ul>
+<li><code>forge_trajectory_events</code> exact schema and the turn linkage.</li>
+<li>GitHub auth for QA (token injection vs interactive login).</li>
+<li>Whether <code>turns</code> can hold streaming/partial rows mid-turn.</li>
+</ul>
+</article>
+</body>
+</html>
