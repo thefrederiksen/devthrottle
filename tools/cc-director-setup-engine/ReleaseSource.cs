@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -20,14 +21,29 @@ public sealed class ReleaseSource
     private const string Repo = "devthrottle";
     private const string ManifestAssetName = "release-manifest.json";
 
-    private readonly HttpClient _http;
+    /// <summary>Total attempts at the release fetch (1 initial + retries) before giving up on a rate limit.</summary>
+    private const int MaxAttempts = 4;
 
-    public ReleaseSource(HttpClient? http = null)
+    /// <summary>Backoff floor when GitHub gives no reset hint, doubled per attempt.</summary>
+    private static readonly TimeSpan BaseBackoff = TimeSpan.FromSeconds(2);
+
+    /// <summary>Upper bound on any single wait, so a far-future reset hint never stalls the install.</summary>
+    private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
+
+    private readonly HttpClient _http;
+    private readonly ReleaseInfoCache _cache;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+
+    public ReleaseSource(HttpClient? http = null, ReleaseInfoCache? cache = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         if (!_http.DefaultRequestHeaders.UserAgent.Any())
             _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director-setup");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _cache = cache ?? new ReleaseInfoCache();
+        // The delay seam lets tests assert the backoff happened without actually waiting.
+        _delay = delay ?? Task.Delay;
     }
 
     public static ResolvedRelease LoadLocalManifest(string path)
@@ -60,12 +76,82 @@ public sealed class ReleaseSource
         return new ResolvedRelease(manifest, urls);
     }
 
+    /// <summary>
+    /// Fetch the GitHub latest release, hardened against the shared-network-address
+    /// rate limit that dead-ended first-run installs (issue #266):
+    ///   - sends a conditional request (If-None-Match) when a cached entity tag exists;
+    ///     a 304 Not Modified serves the cached body and does NOT consume the rate-limit
+    ///     budget;
+    ///   - on a 403/429 rate-limit response, retries with bounded backoff that honours
+    ///     GitHub's reset hint (Retry-After or X-RateLimit-Reset) within a sane cap, then
+    ///     raises a classified <see cref="GitHubRateLimitException"/> rather than a raw
+    ///     "status code does not indicate success: 403".
+    /// </summary>
+    /// <exception cref="GitHubRateLimitException">The fetch was rate-limited and retries were exhausted.</exception>
     public async Task<ResolvedRelease> FetchLatestAsync(CancellationToken ct)
     {
         var url = $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
-        var resp = await _http.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var cached = _cache.Read();
+        DateTimeOffset? lastResetHint = null;
+
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (cached is { } c)
+                request.Headers.TryAddWithoutValidation("If-None-Match", c.ETag);
+
+            using var resp = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            // 304: the release has not changed since we cached it - serve the cached body.
+            // GitHub does not charge a 304 against the rate-limit budget.
+            if (resp.StatusCode == HttpStatusCode.NotModified)
+            {
+                if (cached is not { } hit)
+                    throw new InvalidOperationException(
+                        "GitHub returned 304 Not Modified but no cached release info is available.");
+                EngineLog.Write("[ReleaseSource] FetchLatest: 304 Not Modified, serving cached release info");
+                return await BuildResolvedReleaseAsync(hit.Body, ct);
+            }
+
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                var etag = resp.Headers.ETag?.ToString();
+                if (!string.IsNullOrEmpty(etag))
+                    _cache.Write(etag, body);
+                return await BuildResolvedReleaseAsync(body, ct);
+            }
+
+            if (IsRateLimited(resp))
+            {
+                lastResetHint = ReadResetHint(resp);
+                if (attempt >= MaxAttempts)
+                    break;
+
+                var wait = ComputeBackoff(attempt, lastResetHint);
+                EngineLog.Write(
+                    $"[ReleaseSource] FetchLatest: 403 rate-limit, retry {attempt}/{MaxAttempts - 1} after {wait.TotalSeconds:0}s");
+                await _delay(wait, ct);
+                continue;
+            }
+
+            // Any other non-success is a real, non-rate-limit failure - surface it as before.
+            resp.EnsureSuccessStatusCode();
+        }
+
+        var hint = lastResetHint is { } r
+            ? $" GitHub says the limit resets at {r.UtcDateTime:u}."
+            : "";
+        EngineLog.Write(
+            $"[ReleaseSource] FetchLatest: rate-limit retries exhausted after {MaxAttempts} attempts.{hint}");
+        throw new GitHubRateLimitException(
+            "GitHub rate limit exceeded while fetching release info." + hint, MaxAttempts, lastResetHint);
+    }
+
+    /// <summary>Parse a release JSON body into the resolved release (asset URLs + manifest).</summary>
+    private async Task<ResolvedRelease> BuildResolvedReleaseAsync(string releaseJson, CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(releaseJson);
         var root = doc.RootElement;
 
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -88,6 +174,68 @@ public sealed class ReleaseSource
         var manifestJson = await _http.GetStringAsync(manifestUrl, ct);
         var manifest = ReleaseManifest.Parse(manifestJson);
         return new ResolvedRelease(manifest, urls);
+    }
+
+    /// <summary>
+    /// True when the response is GitHub's rate-limit signal: a 403 or 429 carrying an
+    /// exhausted X-RateLimit-Remaining (primary limit) or a Retry-After (secondary limit).
+    /// A 403 that is NOT a rate limit (e.g. a private repo without auth) is left to the
+    /// normal EnsureSuccessStatusCode path.
+    /// </summary>
+    private static bool IsRateLimited(HttpResponseMessage resp)
+    {
+        if (resp.StatusCode != HttpStatusCode.Forbidden &&
+            resp.StatusCode != HttpStatusCode.TooManyRequests)
+            return false;
+
+        if (resp.Headers.Contains("Retry-After"))
+            return true;
+
+        if (resp.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining) &&
+            int.TryParse(remaining.FirstOrDefault(), out var left) && left <= 0)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// The reset moment GitHub advertised, from Retry-After (delta seconds or HTTP date)
+    /// or the X-RateLimit-Reset epoch-seconds header. Null when neither is present.
+    /// </summary>
+    private static DateTimeOffset? ReadResetHint(HttpResponseMessage resp)
+    {
+        var retryAfter = resp.Headers.RetryAfter;
+        if (retryAfter is not null)
+        {
+            if (retryAfter.Delta is { } delta)
+                return DateTimeOffset.UtcNow + delta;
+            if (retryAfter.Date is { } date)
+                return date;
+        }
+
+        if (resp.Headers.TryGetValues("X-RateLimit-Reset", out var values) &&
+            long.TryParse(values.FirstOrDefault(), out var epochSeconds))
+            return DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+
+        return null;
+    }
+
+    /// <summary>
+    /// How long to wait before the next attempt: the time until GitHub's reset hint when
+    /// one was given, otherwise exponential backoff from <see cref="BaseBackoff"/>. Always
+    /// clamped to [0, <see cref="MaxBackoff"/>] so a stale or far-future hint never stalls.
+    /// </summary>
+    private static TimeSpan ComputeBackoff(int attempt, DateTimeOffset? resetHint)
+    {
+        if (resetHint is { } reset)
+        {
+            var untilReset = reset - DateTimeOffset.UtcNow;
+            if (untilReset < TimeSpan.Zero) untilReset = TimeSpan.Zero;
+            return untilReset > MaxBackoff ? MaxBackoff : untilReset;
+        }
+
+        var exponential = TimeSpan.FromTicks(BaseBackoff.Ticks * (1L << (attempt - 1)));
+        return exponential > MaxBackoff ? MaxBackoff : exponential;
     }
 
     /// <summary>

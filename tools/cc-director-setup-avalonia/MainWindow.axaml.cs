@@ -2,6 +2,7 @@ using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using CcDirector.Setup.Engine;
 using CcDirectorSetup.Models;
 using CcDirectorSetup.Services;
 using CcDirectorSetup.Steps;
@@ -212,6 +213,14 @@ public partial class MainWindow : Window
         {
             prep = _cachedPrep ?? await _runner.PrepareAsync();
             _cachedPrep = prep;
+        }
+        catch (GitHubRateLimitException ex)
+        {
+            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED (rate limit): {ex.Message}");
+            _installStep?.SetStatus(ex.UserMessage());
+            NextButton.Content = "Retry";
+            NextButton.IsEnabled = true;
+            return;
         }
         catch (Exception ex)
         {
