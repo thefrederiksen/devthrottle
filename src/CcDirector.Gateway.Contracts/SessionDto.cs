@@ -64,6 +64,20 @@ public sealed class SessionDto
     /// </summary>
     public bool IsAlternateScreen { get; set; }
 
+    /// <summary>
+    /// Claude's current session id, reported by the Claude SessionStart hook and updated across
+    /// /clear and compaction (Claude mints a new id on each). Null for non-Claude sessions or
+    /// before the first hook fires.
+    /// </summary>
+    public string? ClaudeSessionId { get; set; }
+
+    /// <summary>
+    /// Absolute path to Claude's current transcript .jsonl, reported by the SessionStart hook.
+    /// Authoritative across /clear and compaction. Null for non-Claude sessions or before the
+    /// first hook fires.
+    /// </summary>
+    public string? ClaudeTranscriptPath { get; set; }
+
     /// <summary>Optional friendly name for the session.</summary>
     public string? Name { get; set; }
 
