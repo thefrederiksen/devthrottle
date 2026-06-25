@@ -1766,6 +1766,24 @@ public partial class MainWindow : Window
             }
         };
 
+        // Save this live session as a reusable named session (issue #508): captures its repository,
+        // agent and current name so it can be relaunched in one click from the New Session dialog's
+        // Named Sessions tab. Saving from a running session means the repo and agent are real and
+        // verified - the preset is valid the moment it is created.
+        var saveNamed = new MenuItem { Header = "Save as named session" };
+        saveNamed.Click += async (_, _) =>
+        {
+            try
+            {
+                await SaveSessionAsNamedAsync(vm);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] Save as named session FAILED: {ex.Message}");
+                ShowNotification("Could not save the named session");
+            }
+        };
+
         var separator1 = new Separator();
 
         var openJsonl = new MenuItem { Header = "Open .jsonl in Explorer" };
@@ -1808,6 +1826,7 @@ public partial class MainWindow : Window
         menu.Items.Add(rename);
         menu.Items.Add(relink);
         menu.Items.Add(copyId);
+        menu.Items.Add(saveNamed);
         menu.Items.Add(separator1);
         menu.Items.Add(openJsonl);
         menu.Items.Add(separator2);
@@ -1821,6 +1840,77 @@ public partial class MainWindow : Window
         menu.Items.Add(close);
 
         menu.Open(button);
+    }
+
+    /// <summary>
+    /// Save a live session as a named session (issue #508): name = the session's own name, plus its
+    /// repository, its agent (resolved from <see cref="Session.AgentKind"/> back to a registered
+    /// agent-entry id), and its colour. Confirms before overwriting an existing preset of the same
+    /// name. The preset then appears on the New Session dialog's Named Sessions tab for one-click
+    /// relaunch. Throws on failure; the caller (the menu Click handler) reports it.
+    /// </summary>
+    private async Task SaveSessionAsNamedAsync(SessionViewModel vm)
+    {
+        FileLog.Write($"[MainWindow] SaveSessionAsNamedAsync: session={vm.Session.Id}");
+
+        var name = (vm.DisplayName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            ShowNotification("Rename the session first, then save it as a named session.");
+            return;
+        }
+
+        var repoPath = vm.Session.RepoPath;
+        if (string.IsNullOrWhiteSpace(repoPath))
+        {
+            ShowNotification("This session has no repository path to save.");
+            return;
+        }
+
+        var store = new NamedSessionStore();
+        var slug = NamedSessionStore.ToSlug(name);
+
+        // A preset with this name already exists - confirm before overwriting it.
+        if (store.Exists(slug))
+        {
+            var overwrite = await MessageBox.ShowConfirmAsync(this,
+                "Named session exists",
+                $"A named session called \"{name}\" already exists. Overwrite it?",
+                "Overwrite", "Cancel");
+            if (!overwrite)
+            {
+                FileLog.Write("[MainWindow] SaveSessionAsNamedAsync: user declined overwrite");
+                return;
+            }
+        }
+
+        // Resolve the session's agent kind back to a registered agent-entry id so the preset
+        // relaunches with the same agent. No matching entry -> empty id (the preset shows
+        // "Unavailable" until the agent is re-registered), which is the designed failure direction.
+        var agentId = AgentEntryStore.ReadCurrentEntries()
+            .FirstOrDefault(en => en.Enabled && en.Type == vm.Session.AgentKind)?.Id ?? "";
+
+        var now = DateTimeOffset.UtcNow;
+        var existing = store.Load(slug);
+        var definition = new NamedSessionDefinition
+        {
+            Name = name,
+            RepoPath = repoPath,
+            AgentId = agentId,
+            Color = vm.Session.CustomColor,
+            CreatedAt = existing?.CreatedAt ?? now,
+            UpdatedAt = now,
+        };
+
+        if (store.Save(definition))
+        {
+            FileLog.Write($"[MainWindow] SaveSessionAsNamedAsync: saved \"{name}\" slug={slug} repo={repoPath} agent={agentId}");
+            ShowNotification($"Saved \"{name}\" as a named session");
+        }
+        else
+        {
+            ShowNotification("Could not save the named session");
+        }
     }
 
     private void ToggleSessionHold(SessionViewModel vm)
