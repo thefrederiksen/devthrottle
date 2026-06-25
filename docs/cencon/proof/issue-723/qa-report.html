@@ -1,0 +1,15 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #723 - QA</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:880px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #15803d;padding-bottom:8px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}</style></head><body>
+<h1>Issue #723 - fleet-comms skill - QA Independent Verification</h1>
+<p><strong>Verdict: VERIFIED.</strong> Fresh detached checkout (28b1826), independent build + tests.</p>
+<table>
+<tr><th>Criterion</th><th>Result</th></tr>
+<tr><td>SKILL.md exists documenting the tools</td><td class="pass">PASS - valid frontmatter (name/description/triggers), covers cc-sessions/whoami/send/ask/spawn/selftest</td></tr>
+<tr><td>SkillInstaller list includes fleet-comms; test asserts it</td><td class="pass">PASS - SkillNames = cc-director, fleet-comms; SkillNames_IncludesFleetComms green</td></tr>
+<tr><td>Install lands skill + manifest; uninstall removes (post-merge)</td><td class="pass">PASS by construction - flows the existing install/manifest path; live landing post-merge per flagged assumption</td></tr>
+<tr><td>Guard prevents half-wiring</td><td class="pass">PASS - negative check: hiding the SKILL.md turned the guard RED; reverted</td></tr>
+</table>
+<pre>independent build 0/0
+FleetCommsSkillShipTests -> 2/2 (positive); 1 FAIL when SKILL.md hidden (negative), reverted clean</pre>
+<p>Standalone QA; merge performed per the human's authorization to run this chain merge-as-we-go.</p>
+</body></html>
