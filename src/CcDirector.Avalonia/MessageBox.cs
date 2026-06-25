@@ -69,4 +69,83 @@ public static class MessageBox
 
         return dialog.ShowDialog(owner);
     }
+
+    /// <summary>
+    /// Show a modal confirmation dialog with Yes / No buttons and return the user's choice
+    /// (true = Yes). Used for destructive or overwrite confirmations such as replacing an
+    /// existing named session.
+    /// </summary>
+    public static async Task<bool> ShowConfirmAsync(Window owner, string title, string message,
+        string confirmText = "Yes", string cancelText = "No")
+    {
+        FileLog.Write($"[MessageBox] ShowConfirmAsync: title={title}");
+
+        var messageText = new TextBlock
+        {
+            Text = message,
+            Foreground = TextForeground,
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 460,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+
+        var confirmButton = new Button
+        {
+            Content = confirmText,
+            Width = 80,
+            Height = 28,
+            Background = ButtonBackground,
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            IsDefault = true
+        };
+
+        var cancelButton = new Button
+        {
+            Content = cancelText,
+            Width = 80,
+            Height = 28,
+            Background = new SolidColorBrush(Color.Parse("#3C3C3C")),
+            Foreground = TextForeground,
+            BorderThickness = new Thickness(0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Margin = new Thickness(8, 0, 0, 0),
+            IsCancel = true
+        };
+
+        var buttonRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { confirmButton, cancelButton }
+        };
+
+        var dialog = new Window
+        {
+            Title = title,
+            Background = WindowBackground,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(20),
+                Children =
+                {
+                    messageText,
+                    buttonRow
+                }
+            }
+        };
+
+        var confirmed = false;
+        confirmButton.Click += (_, _) => { confirmed = true; dialog.Close(); };
+        cancelButton.Click += (_, _) => { confirmed = false; dialog.Close(); };
+
+        await dialog.ShowDialog(owner);
+        return confirmed;
+    }
 }

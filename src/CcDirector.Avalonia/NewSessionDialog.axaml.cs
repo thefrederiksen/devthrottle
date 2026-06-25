@@ -392,6 +392,73 @@ public sealed class AgentEntryOption
     public bool IsSelected { get; set; }
 }
 
+/// <summary>
+/// Display-ready row for one saved named session (issue #508) in the New Session dialog's
+/// "Named sessions" list. Wraps a <see cref="NamedSessionDefinition"/> and resolves, at build
+/// time, whether its saved agent id still maps to a registered agent entry - an unavailable item
+/// is shown greyed with a disabled, relabelled Launch button rather than silently launching a
+/// different agent.
+/// </summary>
+public sealed class NamedSessionViewModel
+{
+    private readonly NamedSessionDefinition _definition;
+    private readonly AgentEntry? _agent;
+
+    public NamedSessionViewModel(NamedSessionDefinition definition, AgentEntry? agent)
+    {
+        _definition = definition ?? throw new ArgumentNullException(nameof(definition));
+        _agent = agent;
+    }
+
+    /// <summary>The underlying saved definition this row launches.</summary>
+    public NamedSessionDefinition Definition => _definition;
+
+    /// <summary>The resolved registered agent entry, or null when the saved agent is gone.</summary>
+    public AgentEntry? Agent => _agent;
+
+    public string Name => _definition.Name;
+    public string Slug => NamedSessionStore.ToSlug(_definition.Name);
+
+    /// <summary>True when the saved agent id still maps to a registered agent entry.</summary>
+    public bool IsAvailable => _agent is not null;
+
+    public bool HasColor => !string.IsNullOrWhiteSpace(_definition.Color);
+
+    public ISolidColorBrush? ColorBrush
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_definition.Color)) return null;
+            try
+            {
+                return new SolidColorBrush(Color.Parse(_definition.Color));
+            }
+            catch { return null; }
+        }
+    }
+
+    /// <summary>Repository folder name + agent name (or an unavailable note) under the title.</summary>
+    public string Detail
+    {
+        get
+        {
+            var repoName = string.IsNullOrEmpty(_definition.RepoPath)
+                ? "(no repository)"
+                : Path.GetFileName(_definition.RepoPath.TrimEnd('\\', '/'));
+            var agentName = _agent is not null
+                ? _agent.DisplayName
+                : "agent no longer available";
+            return $"{repoName} - {agentName}";
+        }
+    }
+
+    public string LaunchLabel => IsAvailable ? "Launch" : "Unavailable";
+
+    public string LaunchTooltip => IsAvailable
+        ? $"Start a session in {_definition.RepoPath} with {_agent?.DisplayName}"
+        : "The agent saved for this named session is no longer registered. Edit your agents in Settings or delete this item.";
+}
+
 public partial class NewSessionDialog : Window
 {
     private static readonly ISolidColorBrush ResumeButtonBrush = new SolidColorBrush(Color.Parse("#22C55E"));
@@ -402,6 +469,10 @@ public partial class NewSessionDialog : Window
 
     private readonly RepositoryRegistry? _registry;
     private readonly SessionHistoryStore? _historyStore;
+
+    /// <summary>Persistence for named sessions (issue #508): individual files, create/list/delete.</summary>
+    private readonly NamedSessionStore _namedSessionStore = new();
+
     private List<SessionHistoryViewModel>? _allSessions;
     private List<RepositoryConfig>? _allRepos;
     private List<HandoverViewModel>? _allHandovers;
@@ -413,6 +484,14 @@ public partial class NewSessionDialog : Window
     public string? SelectedPath { get; private set; }
     public string? SelectedResumeSessionId { get; private set; }
     public string? SelectedHandoverPath { get; private set; }
+
+    /// <summary>
+    /// Non-null when the user launched a saved named session (issue #508). The caller (MainWindow)
+    /// reads it to apply the saved name and colour and to skip the rename dialog. The dialog also
+    /// sets <see cref="SelectedPath"/> and selects the saved agent entry so the normal launch path
+    /// resolves the right repository and agent.
+    /// </summary>
+    public NamedSessionDefinition? SelectedNamedSession { get; private set; }
 
     /// <summary>
     /// When <see cref="SelectedAgentKind"/> is <see cref="AgentKind.RawCli"/>, the
@@ -572,6 +651,10 @@ public partial class NewSessionDialog : Window
             GroupCombo.SelectedIndex = 0;
         FileLog.Write($"[NewSessionDialog] Loaded {SessionGroupDefinition.BuiltIn.Count} group definitions");
 
+        // Named sessions (issue #508): show the saved items and reflect them against the
+        // currently registered agents so a removed agent reads as unavailable.
+        RefreshNamedSessions();
+
         Loaded += async (_, _) =>
         {
             Dispatcher.UIThread.Post(() => RepoSearchBox.Focus());
@@ -679,6 +762,201 @@ public partial class NewSessionDialog : Window
         UpdateActionButton();
     }
 
+    /// <summary>
+    /// Reload the named-session list (issue #508) from disk and bind it, resolving each saved
+    /// agent id against the currently registered agent entries so a removed agent shows as
+    /// unavailable. Keeps the on-screen list matching the files on disk after a save or delete.
+    /// </summary>
+    private void RefreshNamedSessions()
+    {
+        FileLog.Write("[NewSessionDialog] RefreshNamedSessions");
+
+        var definitions = _namedSessionStore.LoadAll();
+        var agentsById = _agentOptions
+            .Select(o => o.Entry)
+            .ToDictionary(entry => entry.Id, entry => entry, StringComparer.Ordinal);
+
+        var rows = definitions
+            .Select(definition =>
+            {
+                agentsById.TryGetValue(definition.AgentId, out var agent);
+                return new NamedSessionViewModel(definition, agent);
+            })
+            .ToList();
+
+        NamedSessionList.ItemsSource = rows;
+        NoNamedSessionsHint.IsVisible = rows.Count == 0;
+
+        FileLog.Write($"[NewSessionDialog] RefreshNamedSessions: {rows.Count} named sessions, {rows.Count(r => !r.IsAvailable)} unavailable");
+    }
+
+    private void NamedSessionNameBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        UpdateSaveNamedSessionButton();
+    }
+
+    /// <summary>
+    /// Enable the Save button only when there is both a name and a selected repository and agent -
+    /// a named session is meaningless without all three.
+    /// </summary>
+    private void UpdateSaveNamedSessionButton()
+    {
+        if (BtnSaveNamedSession is null)
+            return;
+
+        var hasName = !string.IsNullOrWhiteSpace(NamedSessionNameBox?.Text);
+        var hasPath = !string.IsNullOrWhiteSpace(PathInput?.Text);
+        var hasAgent = SelectedAgentEntry is not null;
+        BtnSaveNamedSession.IsEnabled = hasName && hasPath && hasAgent;
+    }
+
+    private async void BtnSaveNamedSession_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var name = NamedSessionNameBox?.Text?.Trim() ?? string.Empty;
+            var repoPath = PathInput?.Text?.Trim() ?? string.Empty;
+            var agent = SelectedAgentEntry;
+
+            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click: name={name}, repo={repoPath}, agent={(agent?.DisplayName ?? "(none)")}");
+
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(repoPath) || agent is null)
+            {
+                FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: missing name, repository, or agent; aborting");
+                await MessageBox.ShowAsync(this,
+                    "Cannot save named session",
+                    "Pick a repository, choose an agent, and type a name before saving.");
+                return;
+            }
+
+            // Overwrite an existing name only after the user confirms (matches Save Workspace),
+            // so a saved name is never silently duplicated on disk.
+            var slug = NamedSessionStore.ToSlug(name);
+            if (_namedSessionStore.Exists(slug))
+            {
+                var overwrite = await MessageBox.ShowConfirmAsync(this,
+                    "Named session exists",
+                    $"A named session called \"{name}\" already exists. Overwrite it?",
+                    "Overwrite", "Cancel");
+                if (!overwrite)
+                {
+                    FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: user declined overwrite");
+                    return;
+                }
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var existing = _namedSessionStore.Load(slug);
+            var definition = new NamedSessionDefinition
+            {
+                Name = name,
+                RepoPath = repoPath,
+                AgentId = agent.Id,
+                CreatedAt = existing?.CreatedAt ?? now,
+                UpdatedAt = now,
+            };
+
+            if (!_namedSessionStore.Save(definition))
+            {
+                FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: store reported save failure");
+                await MessageBox.ShowAsync(this,
+                    "Could not save named session",
+                    "CC Director could not write the named session file. See the Director log for details.");
+                return;
+            }
+
+            NamedSessionNameBox!.Text = string.Empty;
+            RefreshNamedSessions();
+            UpdateSaveNamedSessionButton();
+            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click: saved named session {slug}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click FAILED: {ex.Message}");
+            await MessageBox.ShowAsync(this, "Error", "Could not save the named session. Please try again.");
+        }
+    }
+
+    private async void BtnDeleteNamedSession_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not Button btn || btn.Tag is not string slug)
+                return;
+
+            FileLog.Write($"[NewSessionDialog] BtnDeleteNamedSession_Click: slug={slug}");
+
+            var deleted = _namedSessionStore.Delete(slug);
+            if (!deleted)
+            {
+                FileLog.Write($"[NewSessionDialog] BtnDeleteNamedSession_Click: nothing deleted for slug={slug}");
+                return;
+            }
+
+            RefreshNamedSessions();
+            FileLog.Write($"[NewSessionDialog] BtnDeleteNamedSession_Click: deleted named session {slug}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] BtnDeleteNamedSession_Click FAILED: {ex.Message}");
+            await MessageBox.ShowAsync(this, "Error", "Could not delete the named session. Please try again.");
+        }
+    }
+
+    /// <summary>
+    /// Launch a saved named session (issue #508): select its agent and repository, expose the
+    /// saved definition so MainWindow applies the saved name/colour, and close the dialog so the
+    /// normal launch path starts the session.
+    /// </summary>
+    private async void BtnLaunchNamedSession_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not Button btn || btn.Tag is not string slug)
+                return;
+
+            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: slug={slug}");
+
+            var definition = _namedSessionStore.Load(slug);
+            if (definition is null)
+            {
+                FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: no definition for slug={slug}");
+                return;
+            }
+
+            var option = _agentOptions.FirstOrDefault(o => o.Entry.Id == definition.AgentId);
+            if (option is null)
+            {
+                FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: agent {definition.AgentId} not registered; refusing to launch");
+                await MessageBox.ShowAsync(this,
+                    "Agent not available",
+                    $"The agent saved for \"{definition.Name}\" is no longer registered.\n\n"
+                    + "Add it back in Settings > Agents, or delete this named session.");
+                return;
+            }
+
+            // Select the saved agent in the picker so the existing launch path reads it.
+            foreach (var entryOption in _agentOptions)
+                entryOption.IsSelected = ReferenceEquals(entryOption, option);
+            AgentEntryList.ItemsSource = null;
+            AgentEntryList.ItemsSource = _agentOptions;
+            ApplyAgentSelection();
+
+            SelectedPath = definition.RepoPath;
+            PathInput.Text = definition.RepoPath;
+            SelectedResumeSessionId = null;
+            SelectedNamedSession = definition;
+
+            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: launching {slug} repo={definition.RepoPath}, agent={option.Entry.DisplayName}");
+            Close(true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click FAILED: {ex.Message}");
+            await MessageBox.ShowAsync(this, "Error", "Could not launch the named session. Please try again.");
+        }
+    }
+
     private async Task LoadSessionHistoryAsync()
     {
         FileLog.Write("[NewSessionDialog] LoadSessionHistoryAsync: starting");
@@ -750,6 +1028,10 @@ public partial class NewSessionDialog : Window
         // below it (BtnAction etc.) exist; bail until the UI is fully built (issue #259).
         if (BtnAction is null || MainTabs is null || BtnCopyHandover is null)
             return;
+
+        // Keep the "Save as named session" button (issue #508) in step with the current
+        // repository/agent selection alongside the main action button.
+        UpdateSaveNamedSessionButton();
 
         BtnCopyHandover.IsVisible = MainTabs.SelectedIndex == 2 && HandoverList.SelectedItem != null;
 
