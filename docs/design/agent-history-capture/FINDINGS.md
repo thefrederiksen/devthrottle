@@ -170,13 +170,20 @@ floor.
 
 ## 7. Side findings (each worth a tracked work item)
 
-1. npm shim agent launch bug. In the current build the Control API cannot launch
-   agents whose launcher is a npm command shim. Gemini, Copilot, Pi, and OpenCode
-   shims fail with a quoting error ("'...gemini.cmd' is not recognized"). Codex is
-   worse: the default path points at a npm codex.cmd that does not exist on this
-   machine, while the real Codex is a standalone executable. This blocks launching
-   those agents through the Director and is therefore a prerequisite for harnessing
-   them.
+1. npm shim agent launch bug. RESOLVED 2026-06-25. The original observation (the
+   live Director failed to launch the npm command shims) turned out to be only
+   partly a code bug. An end to end launch test proved the committed launcher form
+   (cmd.exe /s /c ""<path>"") correctly launches a .cmd shim for both space free and
+   spaced paths, so Gemini, Copilot, Pi, and OpenCode launch fine from the committed
+   code. The live failures were a stale local build that predated the launcher fix
+   (commit 99cdf4a). The one genuine bug in the committed code was the Codex default
+   executable path: it hard coded the npm codex.cmd, which does not exist for
+   standalone installer users, so Codex sessions failed with "not recognized". Fixed
+   on this branch by defaulting CodexPath to the bare name "codex" so PATH resolution
+   finds the standalone exe or the npm shim, matching opencode, grok, and cursor. A
+   reliable end to end launch regression test was added (it captures through a pipe
+   rather than a pseudo console so it is not affected by the nested terminal capture
+   problem).
 2. No alternate screen state in the Control API. The parser tracks IsAlternateScreen
    but no Control API response exposes it. The only way an external caller can detect
    full screen mode today is to pull the raw buffer and scan for ESC [ ? 1049 h. The
@@ -217,8 +224,9 @@ Per agent, in a disposable real Director session, the harness will:
 
 Prerequisites the harness depends on:
 
-- Fix the npm shim launch bug (item 7.1), otherwise Codex, Gemini, Copilot, and Pi
-  cannot be launched and therefore cannot be harnessed.
+- The npm shim launch bug (item 7.1) is resolved; the Codex default path is fixed
+  and a launch regression test guards the .cmd launch form. Once a fresh Director is
+  built from this branch, all four npm based agents launch.
 - Expose IsAlternateScreen (or a raw buffer scan helper) through the Control API for
   mode classification (item 7.2).
 - A reliable input injection and turn completion wait, and a clear trigger, through
@@ -247,7 +255,8 @@ Per agent short plan:
    (OpenCode does enter the alternate screen).
 2. Measure the modes of Gemini, Pi, Codex, and Copilot empirically. Gemini is the
    decisive one.
-3. Fix the npm shim launch bug first; it gates harnessing four agents.
+3. npm shim launch bug: resolved (Codex default path fixed; launch regression test
+   added). Rebuild the Director from this branch to pick it up.
 4. Expose IsAlternateScreen through the Control API.
 5. Confirm the recommended scope: build transcript providers only for full screen
    agents, and use the existing terminal capture for normal buffer agents (the
