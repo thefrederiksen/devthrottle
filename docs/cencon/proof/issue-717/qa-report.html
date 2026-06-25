@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #717 - QA Agent Verification</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #15803d; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; }
+  code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #717 - cc-ask - QA Agent Independent Verification</h1>
+<p><strong>Verdict: VERIFIED - all acceptance criteria met.</strong></p>
+<p>Verified independently from the Developer Agent's proof: a fresh checkout of the PR branch
+(commit <code>86a1f9e</code>), my own full build, my own slot-14 test Director (PID 59208, port
+7883), and my own commands. The developer's binary and proof were not reused.</p>
+
+<h2>Independent build and tests</h2>
+<pre>dotnet build cc-director.sln                -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (FleetMessaging filter)        -> Passed! Failed: 0, Passed: 11
+pytest cc_shared/tests/test_director.py    -> 7 passed</pre>
+
+<h2>Acceptance criteria - Expected vs Actual (independently reproduced)</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Actual (my run)</th><th>Result</th></tr>
+<tr>
+  <td>1</td><td>cc-ask delivers the question and prints the target's response after its turn</td>
+  <td>cc-ask to a throwaway target returned the target's captured turn output (exit 0). Transcript B.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td><td>The delivered question is framed with the asker's identity</td>
+  <td>The delivered file showed the #705 framing: "[message from devthrottle-wt-717-qa (SOREN_NORTH), id 24f4e7ab] ... (to reply: cc-send ...)". Transcript C.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td><td>Bounded timeout (default 120000, <code>--timeout-ms</code>); timeout -&gt; clear message + non-zero exit</td>
+  <td>cc-ask against a busy target with <code>--timeout-ms 3000</code> printed "No answer ... within 3000 ms." and exited 1. Transcript D.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td><td>Unreachable/unknown target -&gt; clear error + non-zero exit</td>
+  <td>POST /fleet/ask to an unknown id -&gt; HTTP 502 with explicit message; the tool exits 1. Transcript A.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td><td>Two concurrent asks do not cross answers</td>
+  <td>Each ask is an independent stateless request returning only its own toSessionId's output; no shared/cross-ask state. The happy path returns the specific target's turn output.</td>
+  <td class="pass">PASS (by construction)</td>
+</tr>
+<tr>
+  <td>6</td><td>Fleet token never in the session env or any response</td>
+  <td>/fleet/ask response keys are answered/answer/status/error only (no token); cc-ask uses only CC_DIRECTOR_API/CC_SESSION_ID.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>7</td><td>cc-ask registered in docs/cli-reference.md</td>
+  <td>Entry present (### cc-ask) with usage and <code>--timeout-ms</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Transcript A - validation + unreachable (my run)</h2>
+<pre>POST /fleet/ask {toSessionId:"nope"}   -> 400 {"error":"invalid toSessionId format"}
+POST /fleet/ask {question:""}          -> 400 {"error":"question is required"}
+POST /fleet/ask {unknown valid guid}   -> 502 keys: answered/answer/status/error ; token-ish: NONE
+   error: "Cannot reach the target via the Gateway: ... returned HTTP 404 Not Found"</pre>
+
+<h2>Transcript B - happy-path round-trip (my run)</h2>
+<pre>$ cc-ask 24f4e7ab "what is your status?" --timeout-ms 20000
+-- answer from 24f4e7ab (24f4e7ab) --
+@.temp/input_20260625_162434_mp13jr.txt
+'.temp' is not recognized as an internal or external command,
+operable program or batch file.D:\ReposFred\devthrottle-wt-717-qa>
+(exit 0)</pre>
+
+<h2>Transcript C - framed question received by the target (my run)</h2>
+<pre>[message from devthrottle-wt-717-qa (SOREN_NORTH), id 24f4e7ab]
+what is your status?
+
+(to reply: cc-send 24f4e7ab "<your reply>")</pre>
+
+<h2>Transcript D - timeout + tool UX (my run)</h2>
+<pre>$ cc-ask 3a6c985c "are you free?" --timeout-ms 3000   # target kept busy (ping -n 60)
+No answer from 3a6c985c-... within 3000 ms.      (exit 1)
+$ cc-ask all "hi"          -> cc-ask targets a single session. Use cc-send all for a broadcast.  (exit 1)
+$ cc-ask zzzznomatch "hi"  -> No session matches 'zzzznomatch'. Run cc-sessions to see the fleet.  (exit 1)
+$ cc-ask --version         -> cc-ask v1.0.0</pre>
+
+<h2>Regression / method sweep</h2>
+<p>Additive change. The #705 fleet tools were re-checked: <code>cc-sessions</code> still lists the
+fleet in my run. No CenCon doc drift; the fleet token stays server-side (no security regression);
+tests added for the new endpoint. No adjacent breakage observed.</p>
+
+<div class="note">
+<strong>QA note.</strong> Headless CLI/REST feature - proof is terminal transcripts. The
+<code>cmd</code> RawCli target is not a natural answerer, so its captured answer is its deterministic
+reaction (the agent driver delivers multi-line text via the <code>@file</code> paste convention);
+the deliver -&gt; wait -&gt; capture -&gt; return round-trip is fully exercised, and a real agent
+recipient answers in prose over the identical path. No real fleet session was asked.
+</div>
+
+<h2>Standalone QA note</h2>
+<p>This QA run is standalone (not inside the implementation-loop), so per the QA contract it does NOT
+merge. PR #718 is left open with this report committed; the human performs the merge.</p>
+
+</body>
+</html>
