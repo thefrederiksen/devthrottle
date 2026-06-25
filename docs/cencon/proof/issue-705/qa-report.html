@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #705 - QA Agent Verification</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #15803d; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; }
+  code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #705 - QA Agent Independent Verification</h1>
+<p><strong>Verdict: VERIFIED - all acceptance criteria met.</strong></p>
+<p>Verified independently from the Developer Agent's proof: a fresh checkout of the PR branch
+(commit <code>376b2ad</code>), my own full build, my own slot-14 test Director
+(<code>cc-director14.exe</code>, PID 24064, port 7883), and my own commands and proof. The
+developer's binary and screenshots were not reused.</p>
+
+<h2>Independent build and tests</h2>
+<pre>dotnet build cc-director.sln                -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (FleetMessaging filter)        -> Passed! Failed: 0, Passed: 8
+pytest cc_shared/tests/test_director.py    -> 7 passed</pre>
+
+<h2>Acceptance criteria - Expected vs Actual (independently reproduced)</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my run)</th><th>Result</th></tr>
+<tr>
+  <td>C1</td><td>cc-sessions lists every session in the fleet</td>
+  <td>Table of fleet sessions</td>
+  <td>cc-sessions printed the live fleet across SOREN and SOREN_NORTH; caller marked (you)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>C2</td><td>cc-send delivers a framed message; recipient sees sender + reply</td>
+  <td>Framed message in recipient input</td>
+  <td>Delivered to my throwaway session; exact framed content below, sender stamped by the Director</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>C3</td><td>cc-send all reaches every other session</td>
+  <td>Broadcast to all but the sender</td>
+  <td>Endpoint validates (empty text -&gt; 400); sender-exclusion present in code (lines 343/365);
+      unit-tested; reuses the same Gateway fanout relay proven in C1/C5. Live fleet-wide firing was
+      intentionally NOT performed - it would inject a test message into the user's real working
+      sessions (the correct safety boundary).</td>
+  <td class="pass">PASS (by construction; see note)</td>
+</tr>
+<tr>
+  <td>C4</td><td>Fleet token never in agent env or any response to a session</td>
+  <td>No token exposed</td>
+  <td>Spawn env injects only CC_SESSION_ID / CC_DIRECTOR_API / CC_DIRECTOR_ID / CC_FLEET_TOOLS
+      (the only *_TOKEN is the unrelated Copilot agent key). /fleet/sessions carries no token field.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>C5</td><td>Unreachable target -&gt; clear error, no fallback</td>
+  <td>Explicit error, no silent drop</td>
+  <td>POST /fleet/send to an unknown id -&gt; HTTP 502 with explicit message (relayed through the real Gateway)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>C6</td><td>No-Gateway Director still serves cc-sessions and same-Director cc-send</td>
+  <td>Local listing + local delivery work</td>
+  <td>Same-Director cc-send proven live: the framed delivery (C2) went through the LOCAL delivery
+      branch (target owned by my Director, no Gateway hop). Local listing uses the same
+      sessionManager.ListSessions() the existing GET /sessions already relies on. This proof machine
+      is Gateway-attached, so the standalone listing path was verified by code, not shown live.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Evidence - C1 cc-sessions (my run)</h2>
+<pre>| ID       | NAME            | MACHINE     | REPOSITORY      | STATUS         |
+| e9f5b922 | devthrottle     | SOREN       | devthrottle     | WaitingForInput|
+| 4ae5e6e6 | (unnamed)       | SOREN_NORTH | devthrottle-... | WaitingForInput|
+| 6bc8aa9d | devthrottle ... | SOREN_NORTH | devthrottle     | Working        |
+| 00405192 | devthrottle ... | SOREN_NORTH | devthrottle     | Working        |
+| 25b2ae1b | cc-consult ...  | SOREN_NORTH | cc-consult      | WaitingForInput|</pre>
+
+<h2>Evidence - C2/C6 framed delivery (my run)</h2>
+<pre>$ cc-send cf1272c5 "QA-VERIFY-705 independent check"
+Delivered to cf1272c5 (cf1272c5) (1 session(s)).
+
+Delivered into the recipient session's input:
+  [message from devthrottle-wt-705-qa (SOREN_NORTH), id cf1272c5]
+  QA-VERIFY-705 independent check
+
+  (to reply: cc-send cf1272c5 "<your reply>")</pre>
+
+<h2>Evidence - C4 / C5 (my run)</h2>
+<pre>C5: POST /fleet/send {unknown id} ->
+   {"accepted":false,"deliveredCount":0,
+    "error":"Cannot reach the target via the Gateway: ... returned HTTP 404 Not Found"}   [HTTP 502]
+Validation: bad guid -> 400; empty text -> 400; broadcast empty -> 400.
+
+C4: SessionManager env -> CC_DIRECTOR_API, CC_DIRECTOR_ID, CC_FLEET_TOOLS (+ CC_SESSION_ID).
+    No gateway URL / fleet token injected. /fleet/sessions token-ish keys: NONE.</pre>
+
+<h2>Regression / method sweep</h2>
+<p>The change is additive (new endpoints, new tools, one provider parameter, one env note). Existing
+<code>/sessions</code>, <code>/healthz</code>, and session creation continued to work in my run.
+No CenCon doc drift; no blocking security rule touched - the change reduces exposure by keeping the
+fleet token server-side. Tests added for the new logic. No adjacent breakage observed.</p>
+
+<div class="note">
+<strong>QA note on C3 (broadcast).</strong> Verified by construction rather than by a live fleet-wide
+send: firing <code>cc-send all</code> on this Gateway-attached proof machine would have injected a
+test message into the user's real working sessions, which QA must not do. The broadcast code path
+(target list from the fleet, sender excluded, framed, relayed via the Gateway fanout) is the same
+relay proven live in C1 and C5, and is covered by the endpoint validation test. Recommendation: a
+controlled standalone Director with two throwaway sessions is the right place to exercise the live
+broadcast at scale before relying on it.
+</div>
+
+<h2>Standalone QA note</h2>
+<p>This QA run is standalone (not inside the implementation-loop), so per the QA contract it does NOT
+merge. PR #715 is left open with this report committed; the human performs the merge.</p>
+
+</body>
+</html>
