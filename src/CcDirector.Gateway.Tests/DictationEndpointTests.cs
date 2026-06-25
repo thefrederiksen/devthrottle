@@ -132,25 +132,20 @@ public sealed class DictationEndpointTests : IAsyncLifetime
         Assert.Contains("pcm16-writer", body);
     }
 
-    // This end-to-end test needs a LIVE OpenAI Realtime streaming speech-to-text
-    // provider (reachable WebSocket + a valid OPENAI_API_KEY) AND ffmpeg on PATH to
-    // decode the Phase 0 clip; the continuous integration runner has none of these, so
-    // it cannot run there. Even where the dependency IS present it asserts
-    // partialsObserved >= 1, which races the live provider's nondeterministic
-    // mid-stream partial emission - the Realtime API does not guarantee a partial
-    // transcript arrives before the final within the deadline (observed CI/local
-    // failure "expected at least 1 partial transcript, got 0"). So it is statically
-    // quarantined, naming the missing dependency and the race, matching the existing
-    // convention. The dictate WebSocket protocol, served assets, and 400-on-non-upgrade
-    // behavior are covered deterministically by DictatePage_is_served,
-    // NonWebSocketGet_to_dictate_returns_400, and WorkletScript_is_served in this same
-    // file; the realtime provider's connect/retry and protocol parsing are covered
-    // offline by OpenAiRealtimeProviderConnectTests and OpenAiRealtimeProtocolTests; the
-    // capture-first pipeline is covered by DictationPipelineTests. The only thing not
-    // run on CI is the single live full-stack transcription, which requires the
-    // environment-gated provider.
-    [Fact(Skip = "Requires a live OpenAI Realtime streaming speech-to-text provider (reachable WebSocket + OPENAI_API_KEY) and ffmpeg on PATH, absent on CI runners; also races the live provider's nondeterministic partial-transcript emission (the partialsObserved >= 1 assertion). Protocol/asset/connect coverage runs deterministically elsewhere (see comment).")]
-    public async Task FullPipeline_transcribes_phase0_clip2_with_realtime_provider()
+    // End-to-end whole-clip batch transcription over /dictate. Needs a reachable
+    // OpenAI-compatible transcription endpoint (a valid OPENAI_API_KEY) AND ffmpeg
+    // on PATH to decode the Phase 0 clip to PCM16. The CI runner has neither, so the
+    // test self-skips (returns early) when either is absent - the same gating
+    // convention the rest of this suite uses - and passes trivially there. It is no
+    // longer statically quarantined: whole-clip batch is deterministic (there is no
+    // realtime partial race), so when the dependencies are present it runs and pins
+    // the real user-visible property - a clean final transcript with the company
+    // terms intact. The protocol, served assets, and 400-on-non-upgrade behaviour are
+    // covered deterministically by DictatePage_is_served,
+    // NonWebSocketGet_to_dictate_returns_400, and WorkletScript_is_served; the shared
+    // batch pipeline is covered offline by BatchTranscriptionPipeline tests.
+    [Fact]
+    public async Task FullPipeline_transcribes_phase0_clip2_with_whole_clip_batch()
     {
         var audioPath = FindClip2Mp3();
         if (audioPath is null) return;
@@ -173,8 +168,7 @@ public sealed class DictationEndpointTests : IAsyncLifetime
             profile = "default",
         });
 
-        // Drain frames until we receive 'started'. The server may emit
-        // a 'state' frame ahead of it.
+        // Drain frames until we receive 'started'.
         bool started = false;
         for (int i = 0; i < 5 && !started; i++)
         {
@@ -193,22 +187,20 @@ public sealed class DictationEndpointTests : IAsyncLifetime
 
         await SendJsonAsync(ws, new { type = "stop" });
 
+        // Whole-clip batch: NO partial frames - text appears only in the single
+        // 'final' after 'transcribing'. The transcript is the whole clip in one shot.
         JsonElement? final = null;
-        var partialsObserved = 0;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         while (!deadline.IsCancellationRequested)
         {
             var frame = await ReceiveJsonAsync(ws, deadline.Token);
             var type = frame.GetProperty("type").GetString();
             if (type == "final") { final = frame; break; }
-            if (type == "partial") partialsObserved++;
+            if (type == "partial") Assert.Fail("whole-clip batch must not emit partial frames");
             if (type == "error") Assert.Fail("server error: " + frame.GetProperty("message").GetString());
         }
 
         Assert.True(final.HasValue, "did not receive final frame within deadline");
-        // Streaming mode should produce real partial transcripts mid-stream,
-        // not just one final, so we expect at least one partial frame.
-        Assert.True(partialsObserved >= 1, $"expected at least 1 partial transcript, got {partialsObserved}");
 
         var cleaned = final!.Value.GetProperty("cleaned").GetString() ?? "";
         var lower = cleaned.ToLowerInvariant();

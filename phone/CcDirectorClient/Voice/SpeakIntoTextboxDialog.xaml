@@ -7,54 +7,114 @@
              Shell.NavBarIsVisible="False"
              Title="Speak">
 
-    <!-- Speak-into-textbox dictation dialog (Mode B). Used wherever the user is on a
-         regular text-input screen and taps a Speak button next to a text field. Like
-         Mode A it shows bouncing bars over a dimmed backdrop, but it also shows a
-         running timer (this is a sit-down dictation, not a glance / driving one)
-         and replaces the binary SUBMIT/CANCEL with three explicit outcomes:
+    <!-- Speak-into-textbox dictation dialog (Mode B), the phone twin of the desktop
+         SpeakDialog and the web overlay - same canonical contract,
+         docs/architecture/dictation/DICTATION_UX_SPEC.md, just smaller and with no
+         microphone selector (the phone uses the OS default mic).
+
+         Whole-clip BATCH: no text appears while talking. Text is produced only at a
+         checkpoint - Pause, Insert or Send - by transcribing the captured segment once.
 
            Cancel -> throw away, leave the text box alone.
-           Insert -> drop the cleaned transcript into the text box; let the user edit.
+           Pause  -> stop, transcribe what was said so far, show it (editable); Resume
+                     starts a fresh segment that appends. Disabled while transcribing.
+           Insert -> transcribe the final segment, drop the whole transcript into the
+                     text box; let the user edit. No auto-send.
            Send   -> insert + auto-send, saving the extra tap.
 
-         No transcript text is shown - the textbox itself shows the result after
-         Insert/Send, so a second on-dialog readout would just duplicate it. -->
+         The transcript IS shown here (editable while paused) so the user can fix a
+         mis-heard word before committing. -->
     <Grid>
         <Border HorizontalOptions="Center" VerticalOptions="Center"
                 BackgroundColor="#0B1020"
                 Stroke="#2A3550" StrokeThickness="1"
                 StrokeShape="RoundRectangle 18"
-                Padding="20,22" WidthRequest="360">
+                Padding="20,22" WidthRequest="380">
 
-            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="20">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="16">
 
-                <!-- Timer top-right. Subdued so it never competes with the bars
-                     or the action buttons; it is for orientation, not the main read. -->
-                <Label Grid.Row="0" x:Name="TimerLabel"
-                       Text="0:00"
-                       FontFamily="Consolas"
-                       FontSize="14"
-                       TextColor="#8A93A6"
-                       HorizontalOptions="End" />
+                <!-- Status (left) + timer (right). Status names the stage the way the
+                     desktop/web do; timer is the running total across segments. -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+                    <Label Grid.Column="0" x:Name="StatusLabel"
+                           Text="RECORDING"
+                           FontFamily="Consolas"
+                           FontSize="16" FontAttributes="Bold"
+                           TextColor="#F44747"
+                           VerticalOptions="Center" />
+                    <Label Grid.Column="2" x:Name="TimerLabel"
+                           Text="0:00"
+                           FontFamily="Consolas"
+                           FontSize="14"
+                           TextColor="#8A93A6"
+                           HorizontalOptions="End"
+                           VerticalOptions="Center" />
+                </Grid>
 
                 <voice:BouncingBarsView Grid.Row="1" x:Name="Bars"
                                         HorizontalOptions="Center" />
 
-                <!-- Three actions, equal-width so the row is balanced. Cancel is
-                     muted red, Insert is teal (neutral / "drop it in"), Send is
-                     bright green to highlight the most committed action. -->
-                <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                <!-- Transcript. Empty + read-only while recording (the placeholder
+                     explains the batch model); editable while paused so the user can
+                     fix mis-heard words. AutoSize grows it with the text up to its cap. -->
+                <Editor Grid.Row="2" x:Name="TranscriptEditor"
+                        IsReadOnly="True"
+                        AutoSize="TextChanges"
+                        MinimumHeightRequest="96"
+                        MaximumHeightRequest="220"
+                        BackgroundColor="#11182B"
+                        TextColor="#E6EAF2"
+                        FontSize="14"
+                        Placeholder="Your words appear when you pause or finish - press Pause to see them so far."
+                        PlaceholderColor="#6A7488" />
+
+                <!-- One-line hint / error row. Reserved height so the layout never jumps. -->
+                <Label Grid.Row="3" x:Name="HintLabel"
+                       Text=""
+                       FontFamily="Consolas"
+                       FontSize="12"
+                       TextColor="#DCDCAA"
+                       MinimumHeightRequest="16"
+                       HorizontalOptions="Center" />
+
+                <!-- Actions. Left group: Cancel, Pause/Resume. Right group: Insert, Send.
+                     Pause is the two-bar glyph (two BoxViews - no Unicode), flipping to a
+                     "RESUME" label while paused; it is a Border with a tap gesture because
+                     a MAUI Button cannot host the custom glyph. -->
+                <Grid Grid.Row="4" ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
                     <Button Grid.Column="0" x:Name="CancelButton" Text="CANCEL"
                             BackgroundColor="#3A2230" TextColor="#E6EAF2"
                             HeightRequest="56" CornerRadius="12"
                             FontSize="15" FontAttributes="Bold"
                             Clicked="OnCancelClicked" />
-                    <Button Grid.Column="1" x:Name="InsertButton" Text="INSERT"
+
+                    <Border Grid.Column="1" x:Name="PauseButton"
+                            BackgroundColor="#2D2D30"
+                            Stroke="Transparent"
+                            StrokeShape="RoundRectangle 12"
+                            HeightRequest="56">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnPauseTapped" />
+                        </Border.GestureRecognizers>
+                        <Grid HorizontalOptions="Center" VerticalOptions="Center">
+                            <HorizontalStackLayout x:Name="PauseGlyph" Spacing="5"
+                                                   HorizontalOptions="Center" VerticalOptions="Center">
+                                <BoxView WidthRequest="4" HeightRequest="16" Color="#CCCCCC" />
+                                <BoxView WidthRequest="4" HeightRequest="16" Color="#CCCCCC" />
+                            </HorizontalStackLayout>
+                            <Label x:Name="ResumeLabel" Text="RESUME"
+                                   TextColor="#CCCCCC" FontSize="15" FontAttributes="Bold"
+                                   IsVisible="False"
+                                   HorizontalOptions="Center" VerticalOptions="Center" />
+                        </Grid>
+                    </Border>
+
+                    <Button Grid.Column="2" x:Name="InsertButton" Text="INSERT"
                             BackgroundColor="#0E7C6B" TextColor="White"
                             HeightRequest="56" CornerRadius="12"
                             FontSize="15" FontAttributes="Bold"
                             Clicked="OnInsertClicked" />
-                    <Button Grid.Column="2" x:Name="SendButton" Text="SEND"
+                    <Button Grid.Column="3" x:Name="SendButton" Text="SEND"
                             BackgroundColor="#5FD08A" TextColor="#06210F"
                             HeightRequest="56" CornerRadius="12"
                             FontSize="15" FontAttributes="Bold"

@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-22"  # issue #651: removed the Director's account/consent/sign-in surfaces (AccountGateScreen, FirstRunConsentDialog, AccountGatePolicy/GateDecision); Director Settings -> Account is now a read-only Gateway connection + identity panel sourced from GET /account/status via the new GatewayAccountStatusClient
+last_updated: "2026-06-25"  # dictation UX unification: /dictate is now whole-clip BATCH for every mode via the shared BatchTranscriptionPipeline (DictationEndpoint no longer uses the OpenAI Realtime provider/live preview/partial frames); added shared Core.Audio.PcmWav (one PCM->WAV wrapper); desktop SpeakDialog and the phone SpeakIntoTextboxDialog gained a Pause/Resume checkpoint over batch. See docs/architecture/dictation/DICTATION_UX_SPEC.md
 
 # C4 Level 1: System Context
 context:
@@ -464,6 +464,9 @@ containers:
       - name: BatchTranscriptionPipeline
         description: The ONE shared batch transcription entry point every surface calls (issue #587, gap G1/G4/G5) - takes a complete (already-gated) audio blob plus the resolved method, runs ONE whole-audio batch /audio/transcriptions request to the resolved base URL with the resolved key/model, then applies ONLY the validated dictionary corrector (model proposes find/replace, deterministic engine validates/applies). No streaming/partial path and no free-text language-model cleanup; reports exactly which dictionary terms changed and returns byte-identical text when none match
         file: Transcription/BatchTranscriptionPipeline.cs
+      - name: PcmWav
+        description: The ONE shared raw-PCM-to-RIFF/WAV wrapper. Every batch surface that captures raw PCM (the desktop mic BatchDictationRecorder, the browser DictationEndpoint, the in-session OpenAiTranscriptionProvider) wraps its clip here before the single batch upload, so the WAV byte layout lives in exactly one place instead of three copies
+        file: Audio/PcmWav.cs
       - name: VoiceUtteranceService
         description: Resumable phone voice upload - SHA256-checked chunked parts, gated on complete (issue #586) so an empty capture fails loud and a missing/zero-byte segment returns "incomplete" naming the indices (no partial transcription); a complete set is reassembled, transcribed once, cleaned, logged, then deleted (transient)
         file: Voice/VoiceUtteranceService.cs
@@ -640,7 +643,7 @@ containers:
         description: Client for Director->Gateway register/heartbeat/unregister with exponential backoff (no-op if no gateway configured); also drives the two-way verify handshake (#223/#224) and surfaces the Gateway's verdict (HTTP callback + the stream-leg result) on the GatewayConnectionMonitor
         file: GatewayClient.cs
       - name: DictationEndpoint
-        description: WebSocket handler for /dictate streaming speech-to-text via the OpenAI Realtime API. Only an explicit stop frame finalizes/transcribes; an early or dropped connection discards its partial audio and never transcribes it (the recover-truncated-stream path and the /dictate/recovered pickup were removed by the audio completeness gate, issue #586)
+        description: WebSocket handler for /dictate whole-clip BATCH speech-to-text (the web twin of the desktop BatchDictationRecorder). The browser ships PCM16 (24 kHz mono) over the socket; on an explicit stop frame the server wraps the whole captured clip in one WAV (Core.Audio.PcmWav) and transcribes it ONCE through the shared BatchTranscriptionPipeline for EVERY mode - no realtime provider, no live preview, no partial/state frames (the OpenAI Realtime path is no longer used for dictation; surfaces share whole-clip quality). Pause/Resume is client-side (one connection per segment, the client accumulates). Only an explicit stop finalizes/transcribes; an early or dropped connection discards its partial audio and never transcribes it (audio completeness gate, issue #586). See docs/architecture/dictation/DICTATION_UX_SPEC.md
         file: DictationEndpoint.cs
       - name: DispatchEndpoint
         description: POST /dispatch verb (issue 329) - mechanical dispatch of ONE already-approved communication-queue item by id through the Engine's CommunicationDispatcher; unapproved items are refused and nothing sends

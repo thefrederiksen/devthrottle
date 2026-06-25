@@ -111,14 +111,16 @@
 
             <!-- Transcript area. Whole-audio batch (issue #589): NO live preview,
                  so the box stays blank while recording (its watermark shows
-                 through) and only fills in after transcription completes. It is
-                 read-only while recording and transcribing, and editable in the
-                 REVIEW stage so the user can fix mis-heard words before
-                 committing. AllowAutoHide="False" keeps the scrollbar pinned on
+                 through) and only fills in when the user reaches a checkpoint -
+                 Pause, Insert, or Send. It is read-only while recording and
+                 transcribing, and editable in the PAUSED stage so the user can
+                 fix mis-heard words before committing or resuming. The watermark
+                 explains the batch model so the empty box does not read as
+                 broken. AllowAutoHide="False" keeps the scrollbar pinned on
                  overflow instead of Avalonia's collapsing overlay bar. -->
             <TextBox x:Name="TranscriptText"
                      Grid.Row="2"
-                     Watermark="(your words will appear here)"
+                     Watermark="Speak naturally - your words are turned into text when you pause or finish, not while you talk (it is more accurate that way). Press Pause any time to see what you have said so far."
                      IsReadOnly="True"
                      AcceptsReturn="True"
                      TextWrapping="Wrap"
@@ -136,10 +138,10 @@
         </Grid>
 
         <!-- Action bar. Split into two groups: recording controls / back-out
-             on the LEFT (Cancel, Review) and commit actions on the RIGHT
-             (Insert, Send). The distance keeps Review away from Send to avoid
+             on the LEFT (Cancel, Pause/Resume) and commit actions on the RIGHT
+             (Insert, Send). The distance keeps Pause away from Send to avoid
              mis-clicks. State signalling comes from the StatusLabel + equalizer
-             color (Recording->Transcribing->Review), so we don't carry a
+             color (Recording->Transcribing->Paused), so we don't carry a
              separate hint TextBlock down here. -->
         <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,16,0,0">
             <!-- Left group: control the recording / back out -->
@@ -154,17 +156,29 @@
                         Foreground="#CCCCCC"
                         HorizontalContentAlignment="Center"
                         Click="CancelButton_Click" />
-                <!-- Review: stop, transcribe the whole clip once, then show the
-                     final text in-dialog (editable) for review before committing.
-                     There is no Pause/Resume - whole-audio batch is a single
-                     capture. -->
-                <Button x:Name="ReviewButton"
-                        Content="Review"
+                <!-- Pause / Resume: a batch checkpoint. Pause stops the mic,
+                     transcribes the current segment, appends it to the
+                     transcript, and shows it (editable) without ending the turn;
+                     it is disabled while transcribing ("you cannot resume until
+                     it has been transcribed"). Resume starts a fresh segment that
+                     appends to the (possibly edited) text. Neutral chrome, the
+                     two-bar pause glyph built from Rectangles to avoid Unicode;
+                     PauseButton.Content is rebuilt in code (BuildPauseIcon /
+                     "Resume" text) as the state changes. -->
+                <Button x:Name="PauseButton"
                         Width="100" Height="32"
                         Background="#2D2D30"
                         Foreground="#CCCCCC"
                         HorizontalContentAlignment="Center"
-                        Click="ReviewButton_Click" />
+                        Click="PauseButton_Click">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="5">
+                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
+                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- Right group: commit -->
