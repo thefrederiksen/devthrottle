@@ -24,10 +24,16 @@ public class AgentOptions
     public string PiPath { get; set; } = DefaultNpmCliPath("pi");
 
     /// <summary>
-    /// Path to the OpenAI Codex CLI (<c>codex.cmd</c> from <c>@openai/codex</c>).
-    /// Defaults to the standard npm global install location on Windows.
+    /// Path to the OpenAI Codex CLI. Codex ships two ways: the standalone installer drops a
+    /// native <c>codex.exe</c> under <c>%LOCALAPPDATA%\Programs\OpenAI\Codex\bin</c> and adds it
+    /// to PATH, while the npm package <c>@openai/codex</c> drops <c>codex.cmd</c> in the npm global
+    /// directory (also on PATH). Both put <c>codex</c> on PATH, so the default is the bare command
+    /// name and ExecutableResolver finds whichever is installed - exactly like opencode, grok, and
+    /// cursor. The previous default hard-coded the npm <c>codex.cmd</c> path, which does not exist
+    /// for standalone-installer users, so Codex sessions failed to launch. Users can override in
+    /// config.json if codex is installed off PATH.
     /// </summary>
-    public string CodexPath { get; set; } = DefaultNpmCliPath("codex");
+    public string CodexPath { get; set; } = "codex";
 
     /// <summary>
     /// Path to the Google Gemini CLI (<c>gemini.cmd</c> from <c>@google/gemini-cli</c>).

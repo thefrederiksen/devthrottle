@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: Cursor (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: Cursor (history capture)</h1>
+<p>Plan for the Cursor CLI agent (<code>cursor-agent</code>, marketed as "Agent"). This driver is
+        DEFERRED. The reason is not a missing transcript - it is that Cursor's command line agent
+        has no native Windows build, so a Windows Director cannot host it the way it hosts every
+        other agent. This document records what was measured on 2026-06-25 and the exact condition
+        under which the driver becomes worth building.</p>
+<p>Status: DEFERRED - no native Windows build. Measured, not guessed.</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent kind</td>
+<td><code>Cursor</code> (<code>AgentKind.Cursor = 6</code>), launched by cc-director as <code>cursor-agent</code></td>
+</tr>
+<tr>
+<td>Native Windows build</td>
+<td>NONE. The official installer (<code>https://cursor.com/install</code>) is a bash script that accepts only <code>uname -s</code> of <code>Linux*</code> or <code>Darwin*</code> and exits on anything else. <code>https://cursor.com/install.ps1</code> is not an installer - it returns the Cursor marketing homepage (text/html, ~800 KB).</td>
+</tr>
+<tr>
+<td>How it runs on Windows</td>
+<td>Only under WSL (or Linux/macOS). Installed and probed in WSL Ubuntu; version <code>2026.06.24-00-45-58-9f61de7</code>.</td>
+</tr>
+<tr>
+<td>Terminal mode</td>
+<td>NOT measured. Cannot be classified on Windows because the agent does not run as a native Windows process; would have to be measured inside WSL.</td>
+</tr>
+<tr>
+<td>Store</td>
+<td>NOT captured. After install (unauthenticated) only <code>~/.cursor/cli-config.json</code> and the versioned binary under <code>~/.local/share/cursor-agent/</code> exist. The chat/session store is created only after a real authenticated session, which was not run (see below).</td>
+</tr>
+<tr>
+<td>Session model</td>
+<td>Chats with ids: <code>--resume [chatId]</code>, <code>--continue</code>. Headless mode exists: <code>-p/--print</code> with `--output-format text</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td><code>cursor-agent status</code> reported "Not logged in"; no <code>CURSOR_API_KEY</code> in the machine credentials file. A real session needs an interactive <code>cursor-agent login</code> device flow or an API key.</td>
+</tr>
+<tr>
+<td>Pointer / launch wiring</td>
+<td>N/A while deferred.</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why this driver is deferred</h2>
+<p>Every other supported agent (Claude, Codex, Pi, Grok, Copilot, OpenCode, Gemini) runs as a
+        native Windows process that cc-director launches directly, and writes its history to a
+        store under the Windows user profile that a Windows reader can open. Cursor's CLI does
+        neither on Windows:</p>
+<ol>
+<li>There is no native Windows <code>cursor-agent</code>. The vendor ships Linux and macOS only.</li>
+<li>Under WSL it works, but then the agent process lives in the Linux VM and its history is
+        written to the WSL filesystem (for example <code>\\wsl$\Ubuntu\home\&lt;user&gt;\...</code>), not the
+        Windows profile. A Windows Director would have to reach across the WSL boundary both to
+        LAUNCH it (shell through <code>wsl.exe</code>) and to READ its store - a fundamentally different
+        integration shape from every other driver.</li>
+</ol>
+<p>So unlike Gemini (which is a fidelity problem - it runs natively but provides no usable
+        transcript), Cursor is a HOSTING problem: there is nothing native to host on Windows. That
+        makes a history driver premature - there is no Windows session to show history for yet.</p>
+<hr/>
+<h2>3. What was measured (2026-06-25)</h2>
+<ul>
+<li>Installer is Linux/macOS only; <code>install.ps1</code> is not a real script (marketing page).</li>
+<li>Installed in WSL Ubuntu: <code>cursor-agent</code> version <code>2026.06.24-00-45-58-9f61de7</code>,
+        symlinked at <code>~/.local/bin/cursor-agent</code>, binary under
+        <code>~/.local/share/cursor-agent/versions/&lt;version&gt;/</code>.</li>
+<li>Config written on first run: <code>~/.cursor/cli-config.json</code> (editor/display/permissions/
+        approvalMode/sandbox settings; no session path).</li>
+<li>CLI surface relevant to a future driver: <code>--resume [chatId]</code>, <code>--continue</code> (so chats are
+        persisted and addressable by id); <code>-p --output-format json|stream-json</code> (a clean headless
+        event stream we could capture directly, like Codex's <code>exec</code> JSON); <code>--trust</code>,
+        <code>--force</code>/<code>--yolo</code> (non-interactive); <code>--api-key</code>/<code>CURSOR_API_KEY</code> (headless auth).</li>
+<li><code>cursor-agent status</code> = "Not logged in"; the chat store directory was therefore never
+        created and its location/format remain UNKNOWN.</li>
+</ul>
+<hr/>
+<h2>4. Condition to un-defer (what would make this worth building)</h2>
+<p>Either of these flips Cursor from "deferred" to "build it like the others":</p>
+<ul>
+<li>A native Windows <code>cursor-agent</code> ships (vendor adds a Windows target), so cc-director can
+        launch it directly and it writes a store under the Windows profile. Then do the standard
+        forensic survey: authenticate, run a session that forces a tool call, locate the chat
+        store, classify the terminal mode, and write <code>CursorSessionLocator</code> + <code>CursorTranscriptReader</code>
+<ul>
+<li>the <code>SessionHistoryReader</code> branch + tests, exactly like Codex/Pi.</li>
+</ul>
+</li>
+<li>OR cc-director decides to support WSL-hosted agents generally (launch via <code>wsl.exe</code>, read
+        stores across <code>\\wsl$</code>). That is a broader platform decision, not a per-driver one, and
+        should be its own design - the Cursor history driver would then ride on top of it.</li>
+</ul>
+<p>A likely shortcut once un-deferred: Cursor's <code>-p --output-format stream-json</code> headless mode
+        emits a structured event stream (similar to Codex <code>exec</code>), so the reader may be able to map
+        that stream directly into <code>ConversationHistory</code> rather than reverse-engineering an on-disk
+        chat file.</p>
+<hr/>
+<h2>5. Scope while deferred</h2>
+<ul>
+<li>No code. <code>SessionHistoryReader</code> does NOT add an <code>AgentKind.Cursor</code> branch, so a Cursor
+        session (if one is ever launched, e.g. via RawCli/WSL) falls through to the existing
+        "History is not available for this agent yet" notice - the honest, correct behavior.</li>
+<li>This document plus its GitHub issue are the deliverable: the decision and its measured
+        basis are recorded so the next person does not re-derive them.</li>
+</ul>
+<hr/>
+<h2>6. References</h2>
+<ul>
+<li><code>docs/design/agent-history-capture/FINDINGS.md</code> (Cursor listed "not installed - deferred").</li>
+<li><code>docs/design/agent-history-capture/drivers/IMPLEMENTATION-LOOP.md</code> (the driver template,
+        for when Cursor is un-deferred).</li>
+<li>Sibling drivers as the build template once a native Windows agent exists: <code>codex.md</code>,
+        <code>pi.md</code>.</li>
+</ul>
+</article>
+</body>
+</html>

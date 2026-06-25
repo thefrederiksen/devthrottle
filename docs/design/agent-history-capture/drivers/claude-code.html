@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Driver: Claude Code — history capture</title>
+<style>
+  :root{
+    --ink:#243b53; --head:#102a43; --muted:#627d98; --line:#d9e2ec; --bg:#f0f4f8; --card:#ffffff;
+    --teal:#0f766e; --teal-bg:#effcf6; --teal-br:#27ab83;
+    --amber:#b44d12; --amber-bg:#fffaeb; --amber-br:#f0b429;
+    --neutral:#334e68; --neutral-bg:#eef2f7; --neutral-br:#9fb3c8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;}
+  .wrap{max-width:1040px;margin:32px auto;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;box-shadow:0 6px 24px rgba(16,42,67,.08);overflow:hidden;}
+  header{padding:34px 40px 26px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#fbfdff, #f4f8fc);}
+  header h1{font-family:Georgia,"Times New Roman",serif;color:var(--head);margin:0 0 6px;font-size:30px;letter-spacing:.2px;}
+  header .sub{color:var(--muted);font-size:15px;margin:0;}
+  .meta{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;}
+  .pill{font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--neutral);}
+  .pill.ok{border-color:var(--teal-br);background:var(--teal-bg);color:var(--teal);}
+  main{padding:14px 40px 40px;}
+  h2{font-family:Georgia,serif;color:var(--head);font-size:21px;margin:34px 0 10px;}
+  h3{color:var(--head);font-size:16px;margin:22px 0 6px;}
+  p{margin:10px 0;}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;}
+  code{background:#f3f6f9;border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:#0b3a53;}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:14px 0 4px;}
+  .card{border-radius:11px;padding:16px 18px;border:1px solid var(--line);}
+  .card h4{margin:0 0 6px;font-size:15px;}
+  .card.amber{background:var(--amber-bg);border-color:var(--amber-br);}
+  .card.amber h4{color:var(--amber);}
+  .card.teal{background:var(--teal-bg);border-color:var(--teal-br);}
+  .card.teal h4{color:var(--teal);}
+  .card .tag{font-size:11px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;opacity:.8;}
+  .diagram{margin:10px 0 6px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fbfdff;}
+  .diagram svg{width:100%;height:auto;display:block;}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin:10px 2px 0;font-size:13px;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .sw{width:22px;height:0;border-top:3px solid #000;display:inline-block;border-radius:2px;}
+  .sw.teal{border-color:var(--teal);} .sw.amber{border-color:var(--amber);} .sw.gray{border-color:var(--neutral);}
+  pre.json{background:#0b2236;color:#d7e3ee;border-radius:9px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5;}
+  pre.json .k{color:#7fd1c4;} pre.json .v{color:#f0c879;}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+  th{background:#f4f8fc;color:var(--head);font-weight:600;}
+  tr:nth-child(even) td{background:#fbfdff;}
+  /* timeline */
+  .tl{margin:12px 0;border-left:3px solid var(--amber-br);padding-left:0;}
+  .tl .row{display:grid;grid-template-columns:54px 1fr 1fr;gap:0;border-bottom:1px solid var(--line);}
+  .tl .row:last-child{border-bottom:none;}
+  .tl .t{font-weight:700;color:var(--amber);padding:10px 8px;background:var(--amber-bg);}
+  .tl .c1,.tl .c2{padding:10px 12px;}
+  .tl .c1{border-right:1px solid var(--line);}
+  .tl .hl{background:#fff3c4;}
+  .tl .head{font-weight:700;color:var(--head);background:#f4f8fc;}
+  .note{background:#f7fbff;border:1px solid var(--line);border-left:4px solid var(--teal-br);
+    border-radius:8px;padding:12px 16px;margin:14px 0;}
+  footer{padding:18px 40px 30px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Driver: Claude Code &mdash; history capture</h1>
+  <p class="sub">How cc-director captures a full Claude Code conversation and turns it into the canonical model.</p>
+  <div class="meta">
+    <span class="pill">branch&nbsp;feat/agent-history-capture</span>
+    <span class="pill">first of a per-driver set</span>
+    <span class="pill ok">verified live</span>
+  </div>
+</header>
+<main>
+
+  <h2>The core idea: two decoupled paths</h2>
+  <p>Claude Code runs as a <strong>full-screen terminal application</strong> (it switches to the
+  alternate screen, <code>ESC[?1049h</code>), so the terminal scrollback is empty &mdash; we cannot
+  scrape it. But Claude writes its <strong>own</strong> complete conversation log to disk as JSON lines.
+  Capturing history therefore splits into two separate, decoupled jobs:</p>
+
+  <div class="cards">
+    <div class="card amber">
+      <div class="tag">Pointer path &middot; control</div>
+      <h4>The hooks</h4>
+      <p style="margin:6px 0 0">Tiny, event-driven. Answers only: <em>which</em> transcript file is the
+      live conversation right now? This is the part that survives <code>/clear</code> and compaction.</p>
+    </div>
+    <div class="card teal">
+      <div class="tag">Content path &middot; data</div>
+      <h4>The transcript reader</h4>
+      <p style="margin:6px 0 0">Reads the file the pointer names and normalizes it. Answers: <em>what</em>
+      was actually said &mdash; user, assistant, tool calls, tool results.</p>
+    </div>
+  </div>
+  <div class="note"><strong>Key idea:</strong> the hooks never carry the conversation. They carry only a
+  <em>pointer</em> to where it lives. The conversation itself stays in Claude&rsquo;s own
+  <code>.jsonl</code>, which we read directly. That is what makes it robust.</div>
+
+  <h2>Architecture</h2>
+  <div class="diagram">
+  <svg viewBox="0 0 940 760" role="img" aria-label="Claude Code history capture data flow">
+    <defs>
+      <marker id="mTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#0f766e"/></marker>
+      <marker id="mAmber" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#b44d12"/></marker>
+      <marker id="mGray" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#627d98"/></marker>
+    </defs>
+    <style>
+      .box{rx:10;}
+      .bN{fill:#eef2f7;stroke:#9fb3c8;stroke-width:1.5;}
+      .bT{fill:#effcf6;stroke:#27ab83;stroke-width:1.5;}
+      .bA{fill:#fffaeb;stroke:#f0b429;stroke-width:1.5;}
+      .bP{fill:#fff3c4;stroke:#b44d12;stroke-width:2.5;}
+      .tt{font:600 14px -apple-system,Segoe UI,Roboto,sans-serif;fill:#102a43;}
+      .ts{font:12px -apple-system,Segoe UI,Roboto,sans-serif;fill:#627d98;}
+      .tm{font:12px ui-monospace,Consolas,monospace;fill:#334e68;}
+      .tp{font:800 13px -apple-system,Segoe UI,Roboto,sans-serif;fill:#b44d12;letter-spacing:.5px;}
+      .aT{stroke:#0f766e;stroke-width:2;fill:none;marker-end:url(#mTeal);}
+      .aA{stroke:#b44d12;stroke-width:2;fill:none;marker-end:url(#mAmber);}
+      .aG{stroke:#627d98;stroke-width:1.8;fill:none;marker-end:url(#mGray);}
+      .al{font:12px -apple-system,Segoe UI,Roboto,sans-serif;fill:#52606d;}
+    </style>
+
+    <!-- Director -->
+    <rect class="box bN" x="200" y="18" width="540" height="66"/>
+    <text class="tt" x="470" y="42" text-anchor="middle">CC Director &mdash; launches the Claude session</text>
+    <text class="tm" x="470" y="62" text-anchor="middle">claude --session-id &lt;uuid&gt;  --settings "hooks-settings.json"</text>
+    <text class="ts" x="470" y="78" text-anchor="middle">injects env into the child:  CC_SESSION_ID,  CC_DIRECTOR_API</text>
+
+    <!-- claude -->
+    <rect class="box bN" x="380" y="120" width="180" height="56"/>
+    <text class="tt" x="470" y="146" text-anchor="middle">claude.exe</text>
+    <text class="ts" x="470" y="164" text-anchor="middle">full-screen TUI</text>
+
+    <!-- transcript jsonl (teal) -->
+    <rect class="box bT" x="40" y="250" width="300" height="80"/>
+    <text class="tt" x="190" y="274" text-anchor="middle">Claude&rsquo;s own transcript</text>
+    <text class="tm" x="190" y="294" text-anchor="middle">~/.claude/projects/.../&lt;id&gt;.jsonl</text>
+    <text class="ts" x="190" y="316" text-anchor="middle">user &middot; assistant &middot; tool_use &middot; tool_result</text>
+
+    <!-- hook script (amber) -->
+    <rect class="box bA" x="600" y="250" width="320" height="80"/>
+    <text class="tt" x="760" y="274" text-anchor="middle">report-session.ps1</text>
+    <text class="tm" x="760" y="294" text-anchor="middle">stdin &rarr; { session_id, transcript_path, source }</text>
+    <text class="tm" x="760" y="314" text-anchor="middle">env &nbsp;&rarr; CC_DIRECTOR_API, CC_SESSION_ID</text>
+
+    <!-- control api (amber) -->
+    <rect class="box bA" x="600" y="378" width="320" height="58"/>
+    <text class="tt" x="760" y="402" text-anchor="middle">Control API</text>
+    <text class="tm" x="760" y="422" text-anchor="middle">POST /sessions/{id}/claude-hook</text>
+
+    <!-- pointer (emphasis) -->
+    <rect class="box bP" x="360" y="476" width="250" height="66"/>
+    <text class="tp" x="485" y="502" text-anchor="middle">THE POINTER</text>
+    <text class="tm" x="485" y="524" text-anchor="middle">Session.ClaudeTranscriptPath</text>
+
+    <!-- reader (teal) -->
+    <rect class="box bT" x="40" y="480" width="290" height="58"/>
+    <text class="tt" x="185" y="504" text-anchor="middle">ClaudeTranscriptReader</text>
+    <text class="tm" x="185" y="524" text-anchor="middle">.Read( pointer )</text>
+
+    <!-- history (teal) -->
+    <rect class="box bT" x="40" y="596" width="560" height="62"/>
+    <text class="tt" x="320" y="620" text-anchor="middle">ConversationHistory &nbsp;(canonical, agent-agnostic)</text>
+    <text class="tm" x="320" y="642" text-anchor="middle">Role  +  Parts[ Text | Thinking | ToolUse | ToolResult ]</text>
+
+    <!-- consumers -->
+    <rect class="box bN" x="40" y="694" width="560" height="46"/>
+    <text class="tt" x="320" y="722" text-anchor="middle">Consumers &mdash; Wingman briefing &middot; session save &middot; ...</text>
+
+    <!-- arrows -->
+    <line class="aG" x1="470" y1="84"  x2="470" y2="118"/>
+    <text class="al" x="478" y="104">spawn (ConPTY)</text>
+
+    <line class="aT" x1="410" y1="176" x2="252" y2="250"/>
+    <text class="al" x="300" y="208" text-anchor="middle">writes</text>
+
+    <line class="aA" x1="528" y1="176" x2="700" y2="250"/>
+    <text class="al" x="648" y="206" text-anchor="middle">SessionStart fires</text>
+
+    <line class="aA" x1="760" y1="330" x2="760" y2="378"/>
+    <text class="al" x="772" y="358">POST</text>
+
+    <line class="aA" x1="650" y1="436" x2="568" y2="478"/>
+    <text class="al" x="648" y="462" text-anchor="end">updates pointer</text>
+
+    <line class="aA" x1="360" y1="509" x2="334" y2="509"/>
+    <text class="al" x="347" y="472" text-anchor="middle">names live file</text>
+
+    <line class="aT" x1="190" y1="330" x2="186" y2="480"/>
+    <text class="al" x="198" y="408">read on demand</text>
+
+    <line class="aT" x1="186" y1="538" x2="300" y2="596"/>
+    <line class="aT" x1="320" y1="658" x2="320" y2="694"/>
+  </svg>
+  </div>
+  <div class="legend">
+    <span><i class="sw amber"></i> Pointer path (control / events) &mdash; which file is live</span>
+    <span><i class="sw teal"></i> Content path (data) &mdash; what was said</span>
+    <span><i class="sw gray"></i> launch / process</span>
+  </div>
+
+  <h2>What a &ldquo;hook&rdquo; is &mdash; and the problem it solves</h2>
+  <p>A Claude Code <strong>hook</strong> is simply <em>a command Claude runs by itself when a lifecycle
+  event happens</em>. We register ours in a settings file and pass it with <code>--settings</code>,
+  which <strong>merges</strong> with the user&rsquo;s own hooks (Claude Code issue&nbsp;#11392) &mdash; so it
+  never disables their hooks.</p>
+
+  <h3>The pointer problem (why this exists)</h3>
+  <p>When cc-director launches a session it <strong>preassigns</strong> the id with <code>--session-id</code>,
+  so it knows the <em>first</em> file. But on <strong><code>/clear</code></strong> and on
+  <strong>auto-compaction</strong>, Claude silently starts a <em>new</em> session id and a <em>new</em>
+  <code>.jsonl</code> file. Without a signal, cc-director would keep reading the old, frozen file forever.
+  The <code>SessionStart</code> hook fires at exactly those switch moments.</p>
+
+  <table>
+    <tr><th>SessionStart source</th><th>fires when</th></tr>
+    <tr><td><code>startup</code></td><td>a fresh session begins</td></tr>
+    <tr><td><code>resume</code></td><td>a session is resumed</td></tr>
+    <tr><td><code>clear</code></td><td>the user runs <code>/clear</code></td></tr>
+    <tr><td><code>compact</code></td><td>the context auto-compacts (or <code>/compact</code>)</td></tr>
+  </table>
+
+  <h3>What the hook receives (on stdin)</h3>
+  <pre class="json">{
+  <span class="k">"session_id"</span>:      <span class="v">"bfaa74c9-3e87-4d16-8c23-3dbfc572e9c3"</span>,
+  <span class="k">"transcript_path"</span>: <span class="v">"C:/Users/soren/.claude/projects/.../bfaa74c9-....jsonl"</span>,
+  <span class="k">"hook_event_name"</span>: <span class="v">"SessionStart"</span>,
+  <span class="k">"source"</span>:          <span class="v">"clear"</span>,
+  <span class="k">"cwd"</span>:             <span class="v">"D:/ReposFred/devthrottle"</span>
+}</pre>
+  <p>Our script <code>report-session.ps1</code> does only four things: read that JSON; read
+  <code>CC_DIRECTOR_API</code> + <code>CC_SESSION_ID</code> from the injected environment;
+  <code>POST</code> <code>{ claudeSessionId, transcriptPath, source }</code> to
+  <code>/sessions/{id}/claude-hook</code>; then swallow every error and exit&nbsp;0 (a hook must never
+  block or break the session). The endpoint calls <code>Session.UpdateClaudeSessionPointer(&hellip;)</code>,
+  setting <code>Session.ClaudeTranscriptPath</code> &mdash; that field <em>is</em> the pointer.</p>
+
+  <h2>The <code>/clear</code> moment, in time</h2>
+  <div class="tl">
+    <div class="row head"><div class="t">time</div><div class="c1">claude / user</div><div class="c2">cc-director</div></div>
+    <div class="row"><div class="t">t0</div><div class="c1">(session requested)</div><div class="c2">preassign id A; launch with <code>--settings</code>; inject env</div></div>
+    <div class="row"><div class="t">t1</div><div class="c1">claude boots, writes <code>&lt;A&gt;.jsonl</code></div><div class="c2">&mdash;</div></div>
+    <div class="row"><div class="t">t2</div><div class="c1">SessionStart(<code>startup</code>) fires</div><div class="c2">POST claude-hook &rarr; <strong>pointer := &lt;A&gt;.jsonl</strong></div></div>
+    <div class="row"><div class="t">t3</div><div class="c1">turns happen; appends to <code>&lt;A&gt;.jsonl</code></div><div class="c2">read <code>&lt;A&gt;.jsonl</code> &rarr; history</div></div>
+    <div class="row hl"><div class="t">t4</div><div class="c1"><strong>user runs /clear</strong></div><div class="c2">&mdash;</div></div>
+    <div class="row hl"><div class="t">t5</div><div class="c1">claude starts <strong>NEW id B</strong>, writes <code>&lt;B&gt;.jsonl</code></div><div class="c2">&mdash;</div></div>
+    <div class="row hl"><div class="t">t6</div><div class="c1">SessionStart(<code>clear</code>) fires</div><div class="c2">POST claude-hook &rarr; <strong>pointer := &lt;B&gt;.jsonl</strong> (followed the switch)</div></div>
+    <div class="row"><div class="t">t7</div><div class="c1">more turns; appends to <code>&lt;B&gt;.jsonl</code></div><div class="c2">read <code>&lt;B&gt;.jsonl</code> &rarr; history</div></div>
+  </div>
+  <div class="note">Without the t6 hook, cc-director would still be reading <code>&lt;A&gt;.jsonl</code> at t7 and
+  be permanently stale. <strong>Verified live:</strong> a real <code>/clear</code> moved the pointer from
+  <code>5af19963&hellip;</code> to <code>bfaa74c9&hellip;</code> &mdash; both the id and the transcript path.</div>
+
+  <h2>What this driver can &amp; can&rsquo;t give us</h2>
+  <table>
+    <tr><th>Captured</th><th>Notes</th></tr>
+    <tr><td>User prompts</td><td>full text</td></tr>
+    <tr><td>Assistant replies</td><td>full text</td></tr>
+    <tr><td>Tool calls</td><td>tool name + input JSON, paired by id to their results</td></tr>
+    <tr><td>Tool results</td><td>full result text, linked to the call by id</td></tr>
+    <tr><td>Timestamps</td><td>per message, when present</td></tr>
+    <tr><td>Across <code>/clear</code> &amp; compaction</td><td>the pointer follows the new file</td></tr>
+  </table>
+  <table>
+    <tr><th>Limitation</th><th>Why</th></tr>
+    <tr><td>Thinking text usually empty</td><td>Claude stores thinking signature-only (no plain text); we skip empty thinking parts</td></tr>
+    <tr><td>Subagent sidechains skipped</td><td>nested Task-tool threads, not the main conversation; could be included later</td></tr>
+    <tr><td>Claude-specific</td><td>this driver reads only Claude&rsquo;s format; each agent has its own driver</td></tr>
+    <tr><td>Turn-level freshness</td><td>today the pointer refreshes at session boundaries; a future <code>Stop</code> hook would signal turn-end for instant re-reads</td></tr>
+  </table>
+
+  <h2>Where each piece lives</h2>
+  <table>
+    <tr><th>Piece</th><th>Location</th></tr>
+    <tr><td>Writes hook script + settings</td><td><code>src/CcDirector.Core/Claude/ClaudeHookInstaller.cs</code></td></tr>
+    <tr><td>Generated hook script</td><td><code>%LOCALAPPDATA%\cc-director\claude-hooks\report-session.ps1</code></td></tr>
+    <tr><td>Generated settings (<code>--settings</code>)</td><td><code>%LOCALAPPDATA%\cc-director\claude-hooks\hooks-settings.json</code></td></tr>
+    <tr><td>Injects <code>--settings</code> + env at launch</td><td><code>src/CcDirector.Core/Sessions/SessionManager.cs</code></td></tr>
+    <tr><td>Hook receiver endpoint</td><td><code>POST /sessions/{id}/claude-hook</code> in <code>ControlEndpoints.cs</code></td></tr>
+    <tr><td>The pointer</td><td><code>Session.ClaudeSessionId</code>, <code>Session.ClaudeTranscriptPath</code>, <code>Session.UpdateClaudeSessionPointer()</code></td></tr>
+    <tr><td>Exposed on the API</td><td><code>SessionDto.ClaudeSessionId</code>, <code>SessionDto.ClaudeTranscriptPath</code></td></tr>
+    <tr><td>Transcript reader</td><td><code>src/CcDirector.Core/Claude/ClaudeTranscriptReader.cs</code></td></tr>
+    <tr><td>Canonical model</td><td><code>src/CcDirector.Core/History/ConversationHistory.cs</code></td></tr>
+  </table>
+
+</main>
+<footer>
+  cc-director &middot; agent history-capture &middot; Claude Code driver &middot; generated from
+  docs/design/agent-history-capture/drivers/claude-code.md
+</footer>
+</div>
+</body>
+</html>

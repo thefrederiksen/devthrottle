@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
+             x:Class="CcDirector.Avalonia.Controls.HistoryView"
+             Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- header -->
+        <Border Grid.Row="0" Background="#252526" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1" Padding="12,8">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="Conversation history" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock x:Name="CountText" Text="" Foreground="#888888" FontSize="12" VerticalAlignment="Center" />
+                <Border Background="#1B3A2A" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                    <TextBlock Text="live" Foreground="#57C77D" FontSize="10" />
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- thread -->
+        <ScrollViewer x:Name="Scroller" Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="10">
+            <ItemsControl x:Name="Items">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="controls:HistoryMessageVm">
+                        <Border Background="{Binding CardBrush}" BorderBrush="#3C3C3C" BorderThickness="1"
+                                CornerRadius="8" Padding="12,9" Margin="0,0,0,8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Speaker}" Foreground="{Binding HeaderBrush}"
+                                           FontSize="11" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Body}" Foreground="#D4D4D4" FontSize="13"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- empty state -->
+        <TextBlock x:Name="EmptyText" Grid.Row="1" Text="No messages yet."
+                   Foreground="#777777" FontSize="13"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+    </Grid>
+</UserControl>

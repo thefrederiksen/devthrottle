@@ -179,6 +179,29 @@ public sealed class Session : IDisposable
     /// <summary>The session_id reported by Claude hooks, used for routing.</summary>
     public string? ClaudeSessionId { get; internal set; }
 
+    /// <summary>
+    /// The absolute path to the current Claude transcript .jsonl, as reported by the Claude
+    /// SessionStart hook. Authoritative across /clear and compaction (Claude mints a new id
+    /// and file on each), where deriving the path from a stale <see cref="ClaudeSessionId"/>
+    /// would be wrong. Null until the first hook fires.
+    /// </summary>
+    public string? ClaudeTranscriptPath { get; private set; }
+
+    /// <summary>
+    /// Update the live Claude session pointer from a SessionStart hook. Claude mints a NEW
+    /// session id (and transcript file) on /clear and on auto-compaction; the hook reports the
+    /// current id and transcript path so the Director keeps tracking the right transcript
+    /// instead of the stale one it preassigned at launch.
+    /// </summary>
+    public void UpdateClaudeSessionPointer(string? claudeSessionId, string? transcriptPath, string? source)
+    {
+        if (!string.IsNullOrWhiteSpace(claudeSessionId))
+            ClaudeSessionId = claudeSessionId;
+        if (!string.IsNullOrWhiteSpace(transcriptPath))
+            ClaudeTranscriptPath = transcriptPath;
+        FileLog.Write($"[Session] UpdateClaudeSessionPointer: sid={Id} source={source ?? "(none)"} claudeId={claudeSessionId ?? "(none)"} transcript={transcriptPath ?? "(none)"}");
+    }
+
     /// <summary>Cached metadata from Claude's sessions-index.json.</summary>
     public ClaudeSessionMetadata? ClaudeMetadata { get; private set; }
 
@@ -1110,6 +1133,24 @@ public sealed class Session : IDisposable
     /// byte stream cannot. Returns an empty array when there is no grid (Embedded mode).
     /// </summary>
     public string[] SnapshotScreenRows() => SnapshotScreenRowsWithCursor().Rows;
+
+    /// <summary>
+    /// True when the agent currently has the terminal in the alternate screen buffer
+    /// (full screen mode, the <c>ESC[?1049h</c> sequence). While this is true the local
+    /// scrollback is intentionally empty and terminal-based history capture does not work,
+    /// so a consumer should classify the session as full screen and rely on a transcript
+    /// provider (or screen reconstruction) instead of the scrollback. Reflects the live
+    /// parser state at the moment of the call; it flips as the agent enters and leaves the
+    /// alternate screen. False for Embedded sessions that have no server-side parser.
+    /// </summary>
+    public bool IsAlternateScreen
+    {
+        get
+        {
+            lock (_htmlParserLock)
+                return _htmlParser?.IsAlternateScreen ?? false;
+        }
+    }
 
     /// <summary>
     /// Like <see cref="SnapshotScreenRows"/> but also returns the live cursor cell

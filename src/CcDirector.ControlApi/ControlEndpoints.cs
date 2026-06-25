@@ -2083,6 +2083,40 @@ internal static class ControlEndpoints
             return Results.Json(new { accepted = true, oldAgentSessionId = oldId, newAgentSessionId = newId });
         });
 
+        // A Claude SessionStart hook (matchers startup/resume/clear/compact) reports the CURRENT
+        // Claude session id + transcript path here. This is the authoritative, push-based pointer
+        // update that keeps the Director tracking the right transcript across /clear and
+        // auto-compaction, instead of the best-effort relink scan above. The hook script swallows
+        // all errors, so this endpoint just records what it is given and returns 200.
+        app.MapPost("/sessions/{sid}/claude-hook", async (string sid, HttpContext httpCtx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            ClaudeHookRequest? req;
+            try
+            {
+                req = await httpCtx.Request.ReadFromJsonAsync<ClaudeHookRequest>();
+            }
+            catch
+            {
+                return Results.BadRequest(new { error = "invalid json body" });
+            }
+
+            FileLog.Write($"[ControlEndpoints] POST claude-hook: sid={guid} event={req?.HookEvent} source={req?.Source} claudeId={req?.ClaudeSessionId} transcript={req?.TranscriptPath}");
+            session.UpdateClaudeSessionPointer(req?.ClaudeSessionId, req?.TranscriptPath, req?.Source);
+
+            // Keep the SessionManager's claude-id routing map in sync with the new id.
+            if (!string.IsNullOrWhiteSpace(req?.ClaudeSessionId))
+                sessionManager.RelinkClaudeSession(guid, req!.ClaudeSessionId!);
+
+            return Results.Json(new { received = true });
+        });
+
         // Resize the session's PTY grid so a remote terminal (the Cockpit) can use the full
         // window width. Session.Resize no-ops on an unchanged size, so a chatty client can't
         // hammer the PTY (the Wingman repaint-loop invariant).
@@ -3100,6 +3134,9 @@ internal static class ControlEndpoints
             AssessedState = s.AssessedStateAnnotation,
             CreatedAt = s.CreatedAt.UtcDateTime,
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
+            IsAlternateScreen = s.IsAlternateScreen,
+            ClaudeSessionId = s.ClaudeSessionId,
+            ClaudeTranscriptPath = s.ClaudeTranscriptPath,
             BackendType = s.BackendType.ToString(),
             DriverCapabilities = CapabilityNames(s),
             Name = s.CustomName,

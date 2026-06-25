@@ -266,6 +266,21 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // For Claude, install the session-pointer hooks and pass them via --settings so the
+            // Director learns the current Claude session id + transcript path across /clear and
+            // auto-compaction (Claude mints a new id + transcript file on each). --settings MERGES
+            // with the user's own hooks - it never replaces them - and the hook files read
+            // CC_SESSION_ID / CC_DIRECTOR_API from the environment injected above.
+            if (agent.Kind == AgentKind.ClaudeCode)
+            {
+                var hookSettings = CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
+                if (!string.IsNullOrEmpty(hookSettings))
+                {
+                    args = $"{args} --settings \"{hookSettings}\"".Trim();
+                    _log?.Invoke("Installed Claude session-pointer hooks (--settings).");
+                }
+            }
+
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
             // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from

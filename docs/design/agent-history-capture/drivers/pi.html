@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: Pi (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: Pi (history capture)</h1>
+<p>Implementation plan for capturing a Pi CLI session's conversation history into the
+        canonical model and surfacing it in the History tab. PLAN (not yet built); source for
+        the Pi GitHub issue.</p>
+<p>Status: planned. JSONL-file driver (same shape as Codex).</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal mode</td>
+<td>Normal buffer (measured)</td>
+</tr>
+<tr>
+<td>Store</td>
+<td><code>~/.pi/&lt;timestamp&gt;_&lt;session-id&gt;.jsonl</code></td>
+</tr>
+<tr>
+<td>Format</td>
+<td>JSON lines; <code>type</code> in { session, model_change, thinking_level_change, message }</td>
+</tr>
+<tr>
+<td>Fidelity</td>
+<td>FULL - user + assistant messages, tool results, id/parentId tree</td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>Newest <code>~/.pi/*.jsonl</code> whose <code>session</code> line cwd matches the repo and which is at/after launch (no hooks)</td>
+</tr>
+<tr>
+<td>Launch wiring</td>
+<td>None required. Pi also offers live event capture (see open questions) as a future authoritative source</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why a transcript driver</h2>
+<p>Pi renders in the normal terminal buffer, but it also writes a clean per-session event
+        log as JSON lines - this is the "event capture" Pi provides. Reading that log gives us
+        structured user / assistant / tool turns directly, which we map into the same canonical
+        <code>ConversationHistory</code> as every other driver.</p>
+<hr/>
+<h2>3. The store and its format</h2>
+<p>Each line is a JSON object with a <code>type</code>:</p>
+<ul>
+<li><code>session</code> - one per file; carries <code>id</code>, <code>cwd</code>, <code>timestamp</code>. Used to match a file to a
+        Director session (by cwd) and to order files.</li>
+<li><code>model_change</code>, <code>thinking_level_change</code> - bookkeeping; skipped.</li>
+<li><code>message</code> - the conversation. <code>message.role</code> is user / assistant / toolResult, and
+        <code>message.message</code> carries the content (text, thinking, tool result). Each entry has an
+        <code>id</code> and <code>parentId</code> (a tree, like Claude's parentUuid).</li>
+</ul>
+<hr/>
+<h2>4. The plan</h2>
+<h3>4a. Pointer - find the current Pi session file</h3>
+<p>Pi has no hook that pushes the active session to us. Resolve on demand: scan <code>~/.pi</code>
+        for <code>*.jsonl</code>, keep those whose <code>session</code> line <code>cwd</code> equals the Director session repo
+        and whose timestamp is at/after the session launch, pick the newest, and cache the path
+        on the session (re-scan only if it disappears). Same newest-for-cwd rule as Codex.</p>
+<h3>4b. Reader - Pi JSONL to canonical</h3>
+<p>Add <code>PiTranscriptReader.Read(path)</code> mirroring <code>ClaudeTranscriptReader</code> (FileShare.ReadWrite,
+        tolerate a truncated final line):</p>
+<table>
+<thead>
+<tr>
+<th>Pi line</th>
+<th>Canonical</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>message role=user (text)</td>
+<td>ConversationMessage(User) + Text</td>
+</tr>
+<tr>
+<td>message role=assistant (text / thinking)</td>
+<td>ConversationMessage(Assistant) + Text / Thinking</td>
+</tr>
+<tr>
+<td>message role=assistant (tool use in content)</td>
+<td>ConversationPart(ToolUse) with name + input</td>
+</tr>
+<tr>
+<td>message role=toolResult</td>
+<td>ConversationMessage(User) + ToolResult, paired by id</td>
+</tr>
+<tr>
+<td>session, model_change, thinking_level_change</td>
+<td>skipped</td>
+</tr>
+</tbody>
+</table>
+<h3>4c. Wiring</h3>
+<p>Extend <code>SessionHistoryReader</code> with a Pi branch (resolve path, read). No launch change.</p>
+<hr/>
+<h2>5. Implementation steps</h2>
+<ol>
+<li><code>PiSessionLocator</code> - newest-for-cwd resolution + per-session cache.</li>
+<li><code>PiTranscriptReader.Read(path)</code> -&gt; <code>ConversationHistory</code> (mapping in 4b).</li>
+<li><code>SessionHistoryReader</code>: add the Pi branch.</li>
+<li>Tests: a fixture file (session + message user/assistant/toolResult + thinking +
+        truncated line) asserting the canonical mapping; a locator test (newest-for-cwd); a
+        real-file smoke (not committed).</li>
+<li>No UI change.</li>
+</ol>
+<hr/>
+<h2>6. Capabilities and limitations</h2>
+<p>Captured: user prompts, assistant replies, thinking, tool uses + results, timestamps.
+        Limitations: pointer heuristic (newest-for-cwd); exact <code>message.message</code> content shape
+        must be confirmed against a real file; tree (parentId) is read linearly for the first cut.</p>
+<hr/>
+<h2>7. QA and acceptance (HTML QA report must show)</h2>
+<ol>
+<li>Launch a Pi session through the Director in a known repo.</li>
+<li>Send two prompts; the second forces a tool call.</li>
+<li>Open the History tab; confirm the canonical thread shows the prompts, replies, and the
+        tool call + result, in order.</li>
+<li>Screenshot the History tab and produce the HTML QA report (same format as the Claude proof).
+        Acceptance: the History tab renders a Pi conversation identical in shape to Claude's.</li>
+</ol>
+<hr/>
+<h2>8. Open questions / risks</h2>
+<ul>
+<li>Exact <code>message.message</code> content schema (text / thinking / tool) - confirm on a real file.</li>
+<li>Pi's live event-capture mechanism as a future authoritative pointer (vs newest-for-cwd).</li>
+<li>toolResult-to-call pairing key.</li>
+</ul>
+</article>
+</body>
+</html>

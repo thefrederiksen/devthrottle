@@ -810,6 +810,13 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="WingmanTabButton_Click" />
+                            <Button x:Name="HistoryTabButton"
+                                    Content="History"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    Padding="12,4"
+                                    FontSize="12"
+                                    Click="HistoryTabButton_Click" />
                             <!-- Separator between fixed tabs and document tabs -->
                             <Border x:Name="DocTabSeparator"
                                     Width="1" Height="16"
@@ -1065,6 +1072,10 @@
                             </Border>
                             <controls:CleanView x:Name="CleanView" />
                         </DockPanel>
+                    </Panel>
+
+                    <Panel x:Name="HistoryPanel" IsVisible="False">
+                        <controls:HistoryView x:Name="HistoryView" />
                     </Panel>
 
                     <!-- Document viewer panel (dynamic content swapped per tab) -->

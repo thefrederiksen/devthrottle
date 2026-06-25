@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Driver plan: Grok (history capture)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Driver plan: Grok (history capture)</h1>
+<p>Implementation plan for capturing a Grok (Grok Build) CLI session's conversation history
+        into the canonical model and surfacing it in the History tab. PLAN (not yet built);
+        source for the Grok GitHub issue.</p>
+<p>Status: planned. JSONL-file driver; Grok runs FULL screen so the transcript is the only path.</p>
+<hr/>
+<h2>1. Snapshot</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal mode</td>
+<td>Full screen / alternate screen (measured) - terminal scrollback is empty, so a transcript is required</td>
+</tr>
+<tr>
+<td>Store</td>
+<td><code>~/.grok/sessions/&lt;encoded-cwd&gt;/&lt;session-id&gt;/chat_history.jsonl</code> (plus events.jsonl, summary.json)</td>
+</tr>
+<tr>
+<td>Format</td>
+<td>JSON lines; entries: system / user / reasoning / assistant (content, tool_calls, model_id) / tool_result</td>
+</tr>
+<tr>
+<td>Fidelity</td>
+<td>FULL</td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>Encode the repo path the way Grok does, find <code>sessions/&lt;encoded-cwd&gt;/</code>, pick the newest <code>&lt;session-id&gt;</code> subdir</td>
+</tr>
+<tr>
+<td>Launch wiring</td>
+<td>None required</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. Why a transcript driver</h2>
+<p>Grok runs full screen (it emits the alternate-screen sequence), so the terminal
+        scrollback is empty - we cannot scrape it. Grok writes its full conversation to
+        <code>chat_history.jsonl</code> per session, organized under a directory whose name is the
+        URL-encoded working directory. That file is the source of truth.</p>
+<hr/>
+<h2>3. The store and its format</h2>
+<p>Layout: <code>~/.grok/sessions/&lt;url-encoded cwd&gt;/&lt;session-id&gt;/</code> contains <code>chat_history.jsonl</code>
+        (the conversation), plus <code>events.jsonl</code>, <code>summary.json</code>, etc. (ignored for the first cut).</p>
+<p><code>chat_history.jsonl</code> line roles:</p>
+<ul>
+<li><code>system</code> - the system prompt (skipped or shown collapsed).</li>
+<li><code>user</code> - the user prompt (content text, plus an injected user_info block).</li>
+<li><code>reasoning</code> - the model's reasoning (encrypted/redacted content; treated like thinking).</li>
+<li><code>assistant</code> - the reply: <code>content</code> text plus <code>tool_calls</code> (and <code>model_id</code>).</li>
+<li><code>tool_result</code> - the tool output, linked to the call by id.</li>
+</ul>
+<hr/>
+<h2>4. The plan</h2>
+<h3>4a. Pointer - find the current Grok session</h3>
+<p>Resolve on demand: encode the Director session repo path exactly as Grok encodes the
+        directory name (URL-encoding of the absolute path - confirm the exact scheme), locate
+        <code>~/.grok/sessions/&lt;encoded-cwd&gt;/</code>, pick the newest <code>&lt;session-id&gt;</code> subdir (by mtime) at/after
+        launch, and read its <code>chat_history.jsonl</code>. Cache the resolved path; re-scan if it disappears.</p>
+<h3>4b. Reader - chat_history.jsonl to canonical</h3>
+<p>Add <code>GrokTranscriptReader.Read(path)</code> (FileShare.ReadWrite, tolerate truncation):</p>
+<table>
+<thead>
+<tr>
+<th>Grok line</th>
+<th>Canonical</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>user (content text)</td>
+<td>ConversationMessage(User) + Text</td>
+</tr>
+<tr>
+<td>assistant (content)</td>
+<td>ConversationMessage(Assistant) + Text</td>
+</tr>
+<tr>
+<td>assistant (tool_calls)</td>
+<td>ConversationPart(ToolUse) per call (name + arguments)</td>
+</tr>
+<tr>
+<td>tool_result</td>
+<td>ConversationPart(ToolResult) paired by call id</td>
+</tr>
+<tr>
+<td>reasoning</td>
+<td>ConversationPart(Thinking) (skip if encrypted/empty)</td>
+</tr>
+<tr>
+<td>system</td>
+<td>skipped (first cut)</td>
+</tr>
+</tbody>
+</table>
+<h3>4c. Wiring</h3>
+<p>Extend <code>SessionHistoryReader</code> with a Grok branch (encode cwd, resolve newest session, read).</p>
+<hr/>
+<h2>5. Implementation steps</h2>
+<ol>
+<li><code>GrokSessionLocator</code> - cwd-encoding + newest-session-dir resolution + cache.</li>
+<li><code>GrokTranscriptReader.Read(path)</code> -&gt; <code>ConversationHistory</code> (mapping in 4b).</li>
+<li><code>SessionHistoryReader</code>: add the Grok branch.</li>
+<li>Tests: a fixture chat_history.jsonl (system/user/reasoning/assistant+tool_calls/tool_result
+        <ul>
+<li>truncated line); a locator test (the cwd-encoding round-trips, newest dir wins); a real-file smoke.</li>
+</ul>
+</li>
+<li>No UI change.</li>
+</ol>
+<hr/>
+<h2>6. Capabilities and limitations</h2>
+<p>Captured: user prompts, assistant replies, tool calls + results, timestamps; reasoning
+        when not encrypted.
+        Limitations:</p>
+<ul>
+<li>The cwd-encoding must match Grok's exactly - the main risk; verify against a real
+        sessions dir.</li>
+<li>Reasoning content is often encrypted/redacted (shown as empty thinking).</li>
+<li>Pointer heuristic (newest session dir for cwd).</li>
+</ul>
+<hr/>
+<h2>7. QA and acceptance (HTML QA report must show)</h2>
+<ol>
+<li>Launch a Grok session through the Director in a known repo.</li>
+<li>Send two prompts; the second forces a tool call.</li>
+<li>Open the History tab; confirm the canonical thread shows prompts, replies, tool
+        call + result, in order.</li>
+<li>Screenshot and produce the HTML QA report.
+        Acceptance: a full-screen Grok session - whose terminal scrollback is empty - still shows
+        a complete, structured conversation in the History tab.</li>
+</ol>
+<hr/>
+<h2>8. Open questions / risks</h2>
+<ul>
+<li>Exact directory-name encoding Grok uses for the cwd (URL-encode of the absolute path?).</li>
+<li><code>tool_calls</code> structure (name/arguments fields) and the call-to-result pairing key.</li>
+<li>Whether to surface <code>summary.json</code> as a header.</li>
+</ul>
+</article>
+</body>
+</html>
