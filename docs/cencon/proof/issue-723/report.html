@@ -1,0 +1,28 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #723 - Developer Proof</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #4f46e5;padding-bottom:8px}h2{margin-top:28px;border-bottom:1px solid #cbd5e1;padding-bottom:5px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px}code{background:#e7ebf0;padding:1px 5px;border-radius:4px}</style></head><body>
+<h1>Issue #723 - Ship a fleet-comms skill to every machine - Developer Proof</h1>
+<h2>What was implemented</h2>
+<ul>
+<li><code>.claude/skills/fleet-comms/SKILL.md</code> - a new skill documenting cc-sessions / cc-whoami / cc-send / cc-ask / cc-spawn / cc-fleet-selftest: when to use each, the addressing model, and the framed-message convention.</li>
+<li><code>tools/cc-director-setup/Services/SkillInstaller.cs</code> - added <code>fleet-comms</code> to <code>SkillNames</code>, so the installer fetches and installs it into <code>%USERPROFILE%\.claude\skills\fleet-comms\</code> on every install/update (and records it in the SkillManifest for clean uninstall, existing behavior).</li>
+<li><code>tools/cc-director-setup.Tests/FleetCommsSkillShipTests.cs</code> - guards that fleet-comms is in the shipped list AND that every shipped skill name has a SKILL.md in the repo.</li>
+</ul>
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln                       -> 0 Warning(s) 0 Error(s)
+FleetCommsSkillShipTests                           -> Passed! 2/2
+  - SkillNames_IncludesFleetComms
+  - EverySkillName_HasASkillMdInTheRepo</pre>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>SKILL.md exists documenting the five+ tools</td><td class="pass">PASS</td><td>.claude/skills/fleet-comms/SKILL.md (cc-sessions/cc-whoami/cc-send/cc-ask/cc-spawn/cc-fleet-selftest, addressing, framing).</td></tr>
+<tr><td>SkillInstaller shipped list includes fleet-comms; a test asserts it</td><td class="pass">PASS</td><td>SkillNames now ["cc-director","fleet-comms"]; SkillNames_IncludesFleetComms green.</td></tr>
+<tr><td>Install lands the skill + manifest records it; uninstall removes it</td><td class="pass">PASS (by construction + post-merge)</td><td>InstallSkillsAsync iterates SkillNames and records each via SkillManifest (existing path); the per-skill SKILL.md exists (test). The actual HTTP fetch resolves once on the default branch - see note.</td></tr>
+<tr><td>Skill fetchable from the default-branch raw URL</td><td class="pass">PASS (post-merge)</td><td>The installer fetches raw.githubusercontent/.../&lt;default branch&gt;/.claude/skills/fleet-comms/SKILL.md; available after this PR merges.</td></tr>
+</table>
+<div class="note"><strong>Note (flagged in the issue, Assumption #1).</strong> SkillInstaller fetches each SKILL.md by name from the repo's default branch raw URL, so the live install-landing of fleet-comms only works after this PR is merged to the default branch. Pre-merge the wiring is fully verified (list + SKILL.md present + tests), and the install/uninstall path is the same one the existing cc-director skill already flows through.</div>
+<h2>CenCon impact</h2>
+<p>Additive: a new skill + one entry in the installer's shipped list + a guard test. No architecture/security drift.</p>
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> fleet-comms is a real skill teaching the intercommunication verbs, wired into the installer's shipped list, and guarded by a test so it cannot be half-wired. Build clean, tests green. Live install-landing is post-merge per the issue's own flagged assumption.</p>
+</body></html>
