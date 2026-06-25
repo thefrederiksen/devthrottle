@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Configuration;
@@ -98,15 +99,40 @@ public static class AgentEntryStore
     };
 
     /// <summary>
+    /// Probe that decides whether a tool is actually installed on this machine during first-run
+    /// seeding. Given the tool, the running <see cref="AgentOptions"/>, and the candidate path (the
+    /// legacy <c>*_path</c> key when set, otherwise the tool's default location), it returns the
+    /// RESOLVED executable path when the tool is found, or <c>null</c> when it is not installed so
+    /// the seed skips it. Production resolves via <see cref="ToolDetectionService"/>.
+    /// </summary>
+    internal delegate string? InstalledToolProbe(AgentKind tool, AgentOptions options, string candidatePath);
+
+    /// <summary>Production probe: resolve the executable via <see cref="ToolDetectionService"/>.</summary>
+    private static string? DefaultDetect(AgentKind tool, AgentOptions options, string candidatePath)
+    {
+        var result = new ToolDetectionService().DetectTool(tool, options, candidatePath);
+        return result.Found ? result.ResolvedPath : null;
+    }
+
+    /// <summary>
     /// Load the ordered agent entries. When <c>agent.entries</c> is missing (first load after the
-    /// model change), seed the list from the legacy <c>*_path</c> keys in the order
-    /// Claude, Pi, Codex, Gemini, OpenCode and write it back, so the migration is one-time and
+    /// model change), seed the list from the installed tools - probed via the legacy
+    /// <c>*_path</c> keys / default locations - and write it back, so the migration is one-time and
     /// non-destructive. When present, read and return the entries in array order.
     /// </summary>
     public static List<AgentEntry> LoadEntries(AgentOptions options)
+        => LoadEntries(options, DefaultDetect);
+
+    /// <summary>
+    /// Overload that takes an explicit installed-tool probe so first-run seeding can be exercised
+    /// deterministically without depending on the host machine's installed tools. Production calls
+    /// the public overload, which supplies <see cref="DefaultDetect"/>.
+    /// </summary>
+    internal static List<AgentEntry> LoadEntries(AgentOptions options, InstalledToolProbe detector)
     {
         FileLog.Write("[AgentEntryStore] LoadEntries");
         if (options is null) throw new ArgumentNullException(nameof(options));
+        if (detector is null) throw new ArgumentNullException(nameof(detector));
 
         var root = CcDirectorConfigService.ReadRaw();
         var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
@@ -117,8 +143,8 @@ public static class AgentEntryStore
             return loaded;
         }
 
-        var seeded = SeedFromLegacy(options);
-        FileLog.Write($"[AgentEntryStore] LoadEntries: no agent.entries; seeding {seeded.Count} from legacy *_path keys");
+        var seeded = SeedFromLegacy(options, detector);
+        FileLog.Write($"[AgentEntryStore] LoadEntries: no agent.entries; seeding {seeded.Count} detected tools");
         SaveEntries(seeded);
         return seeded;
     }
@@ -167,8 +193,17 @@ public static class AgentEntryStore
         CcDirectorConfigService.MergePatch(patch);
     }
 
-    /// <summary>Seed entries from the legacy per-type <c>*_path</c> keys (migration source).</summary>
-    private static List<AgentEntry> SeedFromLegacy(AgentOptions options)
+    /// <summary>
+    /// Seed entries from the legacy per-type <c>*_path</c> keys (migration source), but ONLY for the
+    /// tools actually installed on this machine. Each candidate path (the legacy <c>*_path</c> key
+    /// when set, otherwise the tool's default location) is probed with the
+    /// <see cref="ExecutableDetector"/>; a tool that does not resolve to a real executable is
+    /// skipped, so a fresh machine is never pre-populated with agents it never installed. The
+    /// detector's RESOLVED path is recorded, so each seeded entry is immediately launchable. Tools
+    /// missed here (installed later, or off PATH) can still be added via the Detection wizard or the
+    /// Add Agent button.
+    /// </summary>
+    private static List<AgentEntry> SeedFromLegacy(AgentOptions options, InstalledToolProbe detector)
     {
         var root = CcDirectorConfigService.ReadRaw();
         var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
@@ -176,7 +211,7 @@ public static class AgentEntryStore
         string LegacyPath(AgentKind tool)
         {
             // Prefer the persisted *_path key; fall back to the running options' default path
-            // so a never-saved-but-defaulted tool still seeds a usable entry.
+            // so a never-saved-but-defaulted tool still has a candidate path to probe.
             var snake = LegacyPathKey(tool);
             var pascal = LegacyPathPascalKey(tool);
             if (agent?[snake] is JsonValue sv && sv.TryGetValue<string>(out var s) && s.Length > 0) return s;
@@ -187,18 +222,26 @@ public static class AgentEntryStore
         var seeded = new List<AgentEntry>();
         foreach (var tool in SeedOrder)
         {
+            var resolvedPath = detector(tool, options, LegacyPath(tool));
+            if (resolvedPath is null)
+            {
+                FileLog.Write($"[AgentEntryStore] SeedFromLegacy: skipping {tool} - not detected on this machine");
+                continue;
+            }
+
             var toolConfig = AgentToolConfig.Load(tool);
             seeded.Add(new AgentEntry
             {
                 DisplayName = ToolDisplayName(tool),
                 Type = tool,
                 Enabled = toolConfig.Enabled,
-                ExecutablePath = LegacyPath(tool),
+                ExecutablePath = resolvedPath,
                 PresetId = toolConfig.PresetName,
                 DefaultModel = toolConfig.DefaultModel,
                 ArgsOverride = toolConfig.ArgsOverride,
                 LaunchMode = toolConfig.LaunchMode,
             });
+            FileLog.Write($"[AgentEntryStore] SeedFromLegacy: seeded {tool} at {resolvedPath}");
         }
 
         return seeded;

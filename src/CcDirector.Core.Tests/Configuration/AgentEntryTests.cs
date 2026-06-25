@@ -18,6 +18,13 @@ public sealed class AgentEntryTests : IDisposable
     private readonly string _root;
     private readonly string? _prevRoot;
 
+    // First-run seeding only adds tools the probe reports as installed. The real probe scans the
+    // host machine, which is non-deterministic in CI, so seeding tests pass an explicit probe:
+    // AllFound reports EVERY candidate as installed at its candidate path; skip-behavior tests pass
+    // a probe that returns null for the tools they want treated as not installed.
+    private static readonly AgentEntryStore.InstalledToolProbe AllFound =
+        (_, _, candidatePath) => candidatePath;
+
     public AgentEntryTests()
     {
         _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
@@ -56,7 +63,7 @@ public sealed class AgentEntryTests : IDisposable
         }
         """);
 
-        var entries = AgentEntryStore.LoadEntries(new AgentOptions());
+        var entries = AgentEntryStore.LoadEntries(new AgentOptions(), AllFound);
 
         Assert.Equal(8, entries.Count);
         Assert.Equal(
@@ -84,13 +91,74 @@ public sealed class AgentEntryTests : IDisposable
         // AC1: after seeding, agent.entries exists and the legacy keys are NOT deleted.
         SeedConfig("""{ "agent": { "claude_path": "claude" } }""");
 
-        AgentEntryStore.LoadEntries(new AgentOptions());
+        AgentEntryStore.LoadEntries(new AgentOptions(), AllFound);
 
         var root = CcDirectorConfigService.ReadRaw();
-        var agent = (JsonObject?)root["agent"];
-        Assert.NotNull(agent);
-        Assert.NotNull(agent!["entries"] as JsonArray);
+        var agent = Assert.IsType<JsonObject>(root["agent"]);
+        Assert.IsType<JsonArray>(agent["entries"]);
         Assert.Equal("claude", (string?)agent["claude_path"]); // legacy key retained for rollback safety
+    }
+
+    [Fact]
+    public void LoadEntries_NoEntries_SeedsOnlyDetectedTools()
+    {
+        // Only tools the detector reports as installed are seeded; an undetected tool is skipped
+        // entirely (a fresh machine is not pre-populated with agents it never installed).
+        SeedConfig("""
+        {
+          "agent": {
+            "claude_path": "C:/tools/claude.cmd",
+            "codex_path": "C:/tools/codex.cmd"
+          }
+        }
+        """);
+
+        // Detect only Claude Code and Codex; report every other tool as not installed.
+        AgentEntryStore.InstalledToolProbe probe = (tool, _, candidatePath) =>
+            tool is AgentKind.ClaudeCode or AgentKind.Codex ? candidatePath : null;
+
+        var entries = AgentEntryStore.LoadEntries(new AgentOptions(), probe);
+
+        Assert.Equal(
+            new[] { AgentKind.ClaudeCode, AgentKind.Codex },
+            entries.Select(e => e.Type).ToArray());
+        Assert.Equal("C:/tools/claude.cmd", entries[0].ExecutablePath);
+        Assert.Equal("C:/tools/codex.cmd", entries[1].ExecutablePath);
+        Assert.DoesNotContain(entries, e => e.Type == AgentKind.Pi);
+    }
+
+    [Fact]
+    public void LoadEntries_NoEntries_RecordsDetectorResolvedPath()
+    {
+        // The seeded entry carries the detector's RESOLVED path (where the tool actually is), not
+        // the unverified candidate path - so a seeded entry is immediately launchable.
+        SeedConfig("""{ "agent": { "claude_path": "claude" } }""");
+
+        AgentEntryStore.InstalledToolProbe probe = (tool, _, _) =>
+            tool == AgentKind.ClaudeCode ? "C:/resolved/claude.cmd" : null;
+
+        var entries = AgentEntryStore.LoadEntries(new AgentOptions(), probe);
+
+        Assert.Single(entries);
+        Assert.Equal(AgentKind.ClaudeCode, entries[0].Type);
+        Assert.Equal("C:/resolved/claude.cmd", entries[0].ExecutablePath);
+    }
+
+    [Fact]
+    public void LoadEntries_NoEntries_NoToolsDetected_SeedsEmptyList()
+    {
+        // When nothing is installed, the seed adds no entries and writes an empty entries array,
+        // so the first-run detection wizard still has the chance to populate the list.
+        SeedConfig("""{ "agent": { "claude_path": "claude" } }""");
+
+        AgentEntryStore.InstalledToolProbe probe = (_, _, _) => null;
+
+        var entries = AgentEntryStore.LoadEntries(new AgentOptions(), probe);
+
+        Assert.Empty(entries);
+        var agent = Assert.IsType<JsonObject>(CcDirectorConfigService.ReadRaw()["agent"]);
+        var entriesArray = Assert.IsType<JsonArray>(agent["entries"]);
+        Assert.Empty(entriesArray);
     }
 
     [Fact]
