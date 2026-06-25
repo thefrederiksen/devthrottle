@@ -1,0 +1,17 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #725 - QA</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:880px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #15803d;padding-bottom:8px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}</style></head><body>
+<h1>Issue #725 - Windows-reserved port - QA Independent Verification</h1>
+<p><strong>Verdict: VERIFIED.</strong> Fresh detached checkout (7904b98), own build, own test Director; I reproduced the live skip independently.</p>
+<table>
+<tr><th>Criterion</th><th>Result</th></tr>
+<tr><td>Excluded range overlapping 7879-7898 -> Director does NOT bind inside it</td><td class="pass">PASS - forced the scan to 7882 (occupied 7879-7881); log: "Skipping port 7882: in a Windows TCP excluded range", bound 7883</td></tr>
+<tr><td>Cannot serve -> fails loudly, not "listening" on a dead port</td><td class="pass">PASS - "Kestrel listening" gated on the /healthz self-probe (logged only after probe passed; 7883 serves). Negative branch unit-tested + gated.</td></tr>
+<tr><td>No regression to normal startup</td><td class="pass">PASS - Director started normally and bound a serving port; 15 port/host tests green</td></tr>
+</table>
+<pre># 7879 real director + 7880,7881 occupied + 7882 excluded + 7883 free
+[PortAllocator] Skipping port 7882: in a Windows TCP excluded range
+[ControlApiHost] Kestrel listening on http://127.0.0.1:7883 ...
+curl /healthz on 7883 -> ok
+independent build 0/0; Gateway.Tests PortAllocator/ControlApiHost 15/15.</pre>
+<p>Standalone QA; merge performed per the human's authorization to run this chain merge-as-we-go.</p>
+</body></html>
