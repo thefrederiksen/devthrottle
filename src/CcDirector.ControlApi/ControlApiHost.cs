@@ -35,6 +35,10 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly string _version;
     private readonly Func<Task> _requestShutdownAsync;
     private readonly bool _useEphemeralPort;
+    // Set at StartAsync when the fixed range [7879..7898] is genuinely exhausted and the production
+    // loopback path falls back to an ephemeral loopback port (issue #697). Distinct from
+    // _useEphemeralPort (the test/LAN seam): a fallback host still self-provisions Tailscale Serve.
+    private bool _fellBackToEphemeral;
     // Not readonly: LAN addressing mode (issue #457) auto-enables auth at StartAsync, because
     // binding the Control API to the LAN without auth would expose it to the whole network.
     private bool _authEnabled;
@@ -100,6 +104,21 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// captured at start time. Null (default) uses the real detection ladder.
     /// </summary>
     internal Func<CcDirector.Core.Network.TailnetEndpointResolution>? TailnetEndpointResolverOverride { get; set; }
+
+    /// <summary>
+    /// Issue #697 test seam: override the production fixed-range port allocation. Returns the port
+    /// to bind on loopback, or null to simulate a genuinely exhausted range (so the host exercises
+    /// the ephemeral fallback). Null (default) uses the real <see cref="PortAllocator"/>. Only
+    /// consulted on the production loopback path; ignored for ephemeral/LAN hosts.
+    /// </summary>
+    internal Func<string, int?>? PortAllocationOverride { get; set; }
+
+    /// <summary>
+    /// Issue #697 test seam: when true, skip Tailscale Serve self-provisioning at start so a unit
+    /// test exercising the production fallback path does not mutate the host machine's real serve
+    /// table. Defaults to false (production self-provisions, per issue #197).
+    /// </summary>
+    internal bool SuppressServeProvisioning { get; set; }
 
     /// <summary>
     /// The one home of this Director's Gateway-connection truth (issues #223/#224).
@@ -231,12 +250,30 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         else
         {
-            Port = PortAllocator.Allocate(DirectorId);
             // Loopback ONLY. The raw port is never exposed on the LAN or the Tailscale
             // interface; the sole remote path is Tailscale Serve (HTTPS), which the
             // Gateway's TailscaleServeProvisioner maps as https://<host>:<port> ->
             // http://localhost:<port>. This kills the plain-HTTP-on-raw-port surface.
-            builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, Port));
+            int? allocated = PortAllocationOverride is not null
+                ? PortAllocationOverride(DirectorId)
+                : (PortAllocator.TryAllocate(DirectorId, out var p) ? p : (int?)null);
+
+            if (allocated is int fixedPort)
+            {
+                Port = fixedPort;
+                builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, fixedPort));
+            }
+            else
+            {
+                // Issue #697: the fixed range [7879..7898] is genuinely full. Rather than disable
+                // the Control API (Remote/Gateway access off, no REST surface), fall back to an
+                // ephemeral loopback port. The actual port is read back after Kestrel starts and is
+                // advertised through the same channels (instances/{guid}.json, Gateway registration,
+                // Tailscale Serve), so remote access keeps working - just on a non-fixed port.
+                _fellBackToEphemeral = true;
+                FileLog.Write($"[ControlApiHost] Fixed range {PortAllocator.PortRangeStart}..{PortAllocator.PortRangeEnd} exhausted; falling back to an ephemeral loopback port");
+                builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, 0));
+            }
         }
 
         builder.Logging.ClearProviders();
@@ -367,8 +404,9 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         await _app.StartAsync();
 
-        if (_useEphemeralPort)
+        if (_useEphemeralPort || _fellBackToEphemeral)
         {
+            // The OS assigned the port (Listen(..., 0)); read it back from Kestrel's bound address.
             Port = ReadAssignedPort(_app)
                 ?? throw new InvalidOperationException("Kestrel started but did not expose a bound address.");
         }
@@ -390,8 +428,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         // agents) are reached through the Gateway and must not churn the serve table
         // (the #179 lesson). Issue #457: LAN addressing mode has no Serve front door at all -
         // the Director is reached directly on its LAN IP - so it never provisions a mapping.
-        if (!_useEphemeralPort && addressingMode != Core.Configuration.AddressingMode.Lan)
+        if (!_useEphemeralPort && addressingMode != Core.Configuration.AddressingMode.Lan && !SuppressServeProvisioning)
         {
+            // A fallback host (issue #697) is still a production loopback host, so it self-provisions
+            // Serve on whatever port it bound -- including an ephemeral fallback port -- which is how
+            // remote access keeps working when the fixed range is full.
             _serveProvisioner = new TailscaleServeSelfProvisioner(Port);
             _serveProvisioner.Start();
         }

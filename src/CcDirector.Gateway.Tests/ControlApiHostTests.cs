@@ -402,3 +402,73 @@ public sealed class DirectorSessionIdentityFieldsTests : IAsyncLifetime
         }
     }
 }
+
+/// <summary>
+/// Issue #697: when the fixed Control-API range [7879..7898] is genuinely exhausted, the production
+/// loopback host falls back to an ephemeral loopback port instead of disabling the Control API. It
+/// stays listening (no startup error, so the desktop "Control API down / free a port" notice never
+/// fires) and answers normally. Isolation: CC_DIRECTOR_ROOT points config/registration at a temp
+/// root; the PortAllocationOverride seam forces "exhausted" WITHOUT touching real OS ports; and
+/// SuppressServeProvisioning keeps the test from mutating the host machine's real Tailscale serve table.
+/// </summary>
+[Collection("DirectorRoot")]
+public sealed class ControlApiHostEphemeralFallbackTests : IDisposable
+{
+    private readonly string _root;
+    private readonly string? _prevRoot;
+
+    public ControlApiHostEphemeralFallbackTests()
+    {
+        _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        _root = Path.Combine(Path.GetTempPath(), "ccd-697-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_root);
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
+        try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public async Task StartAsync_FixedRangeExhausted_FallsBackToEphemeralPortAndStaysListening()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(
+            sm, "1.0.0-test", () => Task.CompletedTask,
+            useEphemeralPort: false,                          // production loopback path (not the test ephemeral seam)
+            directorId: Guid.NewGuid().ToString(),            // isolate the registration file
+            instancesDirectory: Path.Combine(_root, "instances"))
+        {
+            PortAllocationOverride = _ => null,               // simulate a genuinely exhausted fixed range
+            SuppressServeProvisioning = true,                 // do not mutate the real Tailscale serve table
+        };
+
+        try
+        {
+            var port = await host.StartAsync();
+
+            // Bound a port OUTSIDE the fixed range, and Port reflects the OS-assigned value.
+            Assert.True(port < PortAllocator.PortRangeStart || port > PortAllocator.PortRangeEnd,
+                $"fallback must bind a port outside [{PortAllocator.PortRangeStart}..{PortAllocator.PortRangeEnd}], got {port}");
+            Assert.Equal(port, host.Port);
+
+            // A successful fallback is NOT a failure: no startup error -> the "Control API down" notice never fires.
+            Assert.True(host.IsListening);
+            Assert.Null(host.StartupError);
+
+            // The Control API actually answers on the ephemeral port.
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", DirectorAuth.LoadOrCreateToken());
+            var resp = await client.GetAsync("sessions");
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+        }
+    }
+}

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #697 - Ephemeral-port fallback for the Control API - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1e1e1e; line-height: 1.5; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #007ACC; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #007ACC; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; vertical-align: top; font-size: 13.5px; }
+  th { background: #f0f6fc; }
+  .pass { color: #0e8a16; font-weight: 600; }
+  .tag { background: #eef; border: 1px solid #ccd; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  .done { background: #0e8a16; color: #fff; padding: 8px 12px; border-radius: 6px; display: inline-block; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Issue #697 - Fall back to an ephemeral loopback port when the 7879-7898 range is exhausted</h1>
+<p>
+  <span class="tag">CcDirector.ControlApi</span>
+  <span class="tag">enhancement</span>
+  Branch <code>issue-697-ephemeral-fallback</code>
+</p>
+
+<h2>What was implemented</h2>
+<p>
+  When the fixed Control-API port range (7879-7898) is genuinely exhausted, the production loopback
+  host now binds an <strong>ephemeral loopback port</strong> instead of disabling the Control API.
+  The actual bound port is read back after Kestrel starts and is advertised through the existing
+  channels (instances registration, Gateway registration, Tailscale Serve), so local <em>and</em>
+  remote access keep working - just on a non-fixed port. A successful fallback is not a failure, so
+  the desktop "Control API down / free a port" notification never fires; a genuine bind failure
+  still reports exactly as before.
+</p>
+
+<h2>Changes</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.ControlApi/PortAllocator.cs</code></td>
+      <td>Added non-throwing <code>TryAllocate(directorId, out int port)</code> that returns
+          <code>false</code> on genuine exhaustion. <code>Allocate</code> now delegates to it and
+          throws (existing API preserved).</td></tr>
+  <tr><td><code>src/CcDirector.ControlApi/ControlApiHost.cs</code></td>
+      <td>Production loopback path uses <code>TryAllocate</code>; on exhaustion sets
+          <code>_fellBackToEphemeral</code>, logs, and binds <code>Loopback:0</code>. Port read back
+          post-start when the host fell back. Two internal test seams added
+          (<code>PortAllocationOverride</code>, <code>SuppressServeProvisioning</code>). Serve
+          provisioning still runs for a fallback host (it is a production loopback host).</td></tr>
+  <tr><td><code>src/CcDirector.Gateway.Tests/ControlApiHostTests.cs</code></td>
+      <td>New isolated test
+          <code>StartAsync_FixedRangeExhausted_FallsBackToEphemeralPortAndStaysListening</code>.</td></tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>AC</th><th>Expected</th><th>Actual (proof)</th><th></th></tr>
+  <tr>
+    <td><b>AC1</b> - fallback keeps the API up</td>
+    <td>Range full -&gt; Director binds a port outside 7879-7898; <code>GET /sessions</code> -&gt; 200.</td>
+    <td>Live: <code>Kestrel listening on http://127.0.0.1:53559</code> (53559 is outside the range);
+        <code>GET /sessions -&gt; HTTP 200 body=[]</code>. Also covered by the unit test.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC2</b> - remote path uses the ephemeral port</td>
+    <td>Serve self-provisions on the ephemeral port; Gateway registration advertises it.</td>
+    <td>Live: <code>TailscaleServeSelfProvisioner Start: port=53559</code> and
+        <code>mapped --https=53559 -&gt; http://localhost:53559</code>;
+        <code>POST /directors/register: endpoint=...:53559</code> then
+        <code>Registered: status=201</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC3</b> - no false "down" on success</td>
+    <td>Successful fallback shows no startup error / "free a port" notice.</td>
+    <td>Live log contains no <code>Control API DOWN</code> / <code>ReportStartupFailure</code> /
+        "free a port" line. Unit test asserts <code>IsListening==true</code> and
+        <code>StartupError==null</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC4</b> - true failure still reported</td>
+    <td>If even the ephemeral bind fails, the Director still surfaces a Control-API-down error.</td>
+    <td>The fallback is inserted <em>before</em> the existing throw path; a failed
+        <code>StartAsync</code> still bubbles to <code>App.axaml.cs</code> -&gt;
+        <code>ReportStartupFailure</code> (unchanged). Covered by the still-green existing test
+        <code>ReportStartupFailure_SetsErrorAndRaisesEvent</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC5</b> - fallback covered by a test</td>
+    <td>A test drives "range exhausted" and asserts an ephemeral port (∉ range).</td>
+    <td><code>StartAsync_FixedRangeExhausted_FallsBackToEphemeralPortAndStaysListening</code> -
+        green. Forces exhaustion via the <code>PortAllocationOverride</code> seam (no real OS ports
+        touched), asserts the bound port is outside the range, the host is listening, no error, and
+        <code>GET /sessions</code> returns 200 over real HTTP.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC6</b> - zero-warning build + green suite</td>
+    <td><code>dotnet build</code> warning-free; <code>dotnet test</code> green.</td>
+    <td>Full-solution build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.
+        ControlApiHost + PortAllocator + SessionStateServices suites: <code>Passed! 21/21</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Live proof - Director log (release build v0.9.14, all 20 fixed ports occupied)</h2>
+<p>
+  All 20 ports in 7879-7898 were held (19 by a test holder + 7896 by the running daily-driver), then
+  a Director was launched. Its log:
+</p>
+<pre>
+[PortAllocator] TryAllocate: directorId=038fd716-beb8-4c47-8c3f-68217c5e102e
+[ControlApiHost] Fixed range 7879..7898 exhausted; falling back to an ephemeral loopback port
+[ControlApiHost] Kestrel listening on http://127.0.0.1:53559 (loopback only; remote access via Tailscale Serve)
+[TailscaleServeSelfProvisioner] Start: port=53559
+[TailscaleServeSelfProvisioner] mapped --https=53559 -> http://localhost:53559
+[GatewayClient] POST /directors/register: endpoint=https://sorenlaptop.taildb08ed.ts.net:53559
+[GatewayClient] Registered: status=201, endpoint=https://sorenlaptop.taildb08ed.ts.net:53559
+
+# REST check against the ephemeral port:
+GET http://127.0.0.1:53559/sessions  ->  HTTP 200   body: []
+</pre>
+
+<h2>Test result</h2>
+<pre>
+dotnet test ... --filter "ControlApiHost|PortAllocator|SessionStateServices"
+Passed!  - Failed: 0, Passed: 21, Skipped: 0, Total: 21  - CcDirector.Gateway.Tests.dll (net10.0)
+</pre>
+
+<h2>CenCon impact</h2>
+<p>
+  <strong>No architecture or security drift.</strong> The Director keeps the same loopback-only +
+  Tailscale Serve posture; the only difference on genuine exhaustion is that the bound port is
+  OS-assigned instead of from the fixed range. The raw port remains loopback-only and is never
+  exposed on the LAN or the Tailscale interface, so no <code>security_profile.yaml</code> rule is
+  affected and no <code>docs/cencon/</code> document needs updating.
+</p>
+
+<h2>Status</h2>
+<p><span class="done">I believe this is finished.</span></p>
+
+</body>
+</html>
