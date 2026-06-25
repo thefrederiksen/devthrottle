@@ -13,10 +13,10 @@ Status: planned. JSONL-file driver (same shape as Codex).
 | Property | Value |
 | --- | --- |
 | Terminal mode | Normal buffer (measured) |
-| Store | `~/.pi/<timestamp>_<session-id>.jsonl` |
+| Store | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl` (verified against real data; Pi groups session files under a sanitized per-cwd directory) |
 | Format | JSON lines; `type` in { session, model_change, thinking_level_change, message } |
 | Fidelity | FULL - user + assistant messages, tool results, id/parentId tree |
-| Pointer | Newest `~/.pi/*.jsonl` whose `session` line cwd matches the repo and which is at/after launch (no hooks) |
+| Pointer | Newest `~/.pi/agent/sessions/**/*.jsonl` whose `session` line cwd matches the repo and which is at/after launch (no hooks). The per-cwd directory name is a lossy sanitization, so we match on the authoritative `cwd` inside the `session` record, not the directory name |
 | Launch wiring | None required. Pi also offers live event capture (see open questions) as a future authoritative source |
 
 ---

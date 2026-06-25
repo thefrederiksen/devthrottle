@@ -1,6 +1,7 @@
 using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Codex;
+using CcDirector.Core.Pi;
 using CcDirector.Core.Sessions;
 
 namespace CcDirector.Core.History;
@@ -15,6 +16,7 @@ namespace CcDirector.Core.History;
 ///   kept current across /clear by the SessionStart hook), falling back to deriving the path from
 ///   the session id.
 /// - Codex: the newest rollout for the session's repo (<see cref="CodexRolloutLocator"/>).
+/// - Pi: the newest session file for the session's repo (<see cref="PiSessionLocator"/>).
 ///
 /// Other agents return <see cref="ConversationHistory.Empty"/> until their providers land.
 /// </summary>
@@ -24,7 +26,7 @@ public static class SessionHistoryReader
     public static bool IsSupported(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex;
+        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi;
     }
 
     /// <summary>
@@ -41,6 +43,7 @@ public static class SessionHistoryReader
         {
             AgentKind.ClaudeCode => ResolveClaude(session),
             AgentKind.Codex => CodexRolloutLocator.Resolve(session.Id, session.RepoPath),
+            AgentKind.Pi => PiSessionLocator.Resolve(session.Id, session.RepoPath),
             _ => null,
         };
     }
@@ -57,6 +60,7 @@ public static class SessionHistoryReader
         {
             AgentKind.ClaudeCode => ClaudeTranscriptReader.Read(path),
             AgentKind.Codex => CodexTranscriptReader.Read(path),
+            AgentKind.Pi => PiTranscriptReader.Read(path),
             _ => ConversationHistory.Empty,
         };
     }
