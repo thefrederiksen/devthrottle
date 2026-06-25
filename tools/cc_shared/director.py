@@ -99,6 +99,10 @@ def post_json(path: str, body: dict, timeout: float = 30) -> Any:
     return _request("POST", path, body, timeout=timeout)
 
 
+def patch_json(path: str, body: dict, timeout: float = 30) -> Any:
+    return _request("PATCH", path, body, timeout=timeout)
+
+
 def field(dto: Dict[str, Any], *keys: str, default: str = "") -> str:
     """Read the first present key from a session DTO, tolerating camelCase or PascalCase."""
     for key in keys:

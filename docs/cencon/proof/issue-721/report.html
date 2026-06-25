@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Issue #721 - Developer Agent Proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #4f46e5; padding-bottom: 8px; } h2 { margin-top: 28px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; } th,td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; } th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; } code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style></head><body>
+<h1>Issue #721 - cc-spawn - Developer Agent Proof</h1>
+<p><strong>Branch:</strong> <code>issue-721-cc-spawn</code>. A command-line way to open a session on the
+local Director and then message/ask it.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>tools/cc-spawn/</code> - new tool: <code>cc-spawn &lt;repo&gt; [--agent --prompt --name --type --command --command-args]</code>
+      POSTs <code>NewSessionRequest</code> to <code>$CC_DIRECTOR_API/sessions</code>, prints the new
+      session's short id + full GUID. <code>--name</code> applies a follow-up rename (PATCH).</li>
+  <li><code>cc_shared/director.py</code> - added <code>patch_json</code> (for the rename).</li>
+  <li>Shipped + self-verified: added to <code>tools/registry.json</code> (ship:true),
+      <code>src/CcDirector.Core/Tools/tools-manifest.json</code>, <code>docs/cli-reference.md</code>,
+      and the <code>FleetToolsShipGuardTests</code> guard array.</li>
+</ul>
+
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln              -> Build succeeded. 0 Warning(s) 0 Error(s)
+FleetToolsShipGuardTests (incl cc-spawn)  -> Passed! Failed: 0, Passed: 2
+ship-selection -> cc-spawn shipped: True
+json valid; py_compile OK</pre>
+
+<h2>Acceptance criteria - Expected vs Actual (live, port 7881)</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>cc-spawn creates a session that appears in cc-sessions</td><td class="pass">PASS</td><td>Created e0ffbeda; it shows in cc-sessions as "spawn-proof". Transcript A.</td></tr>
+<tr><td>--agent and --prompt are passed through</td><td class="pass">PASS</td><td>--agent RawCli --command cmd produced a cmd session; --prompt "echo SPAWNPROMPT123" was dispatched and executed (Transcript B).</td></tr>
+<tr><td>Non-existent repo -> clear error + non-zero exit</td><td class="pass">PASS</td><td>"Error: repoPath does not exist: ..." exit 1. Transcript A.</td></tr>
+<tr><td>Shipped (registry), in Core manifest, in cli-reference, guard covers it</td><td class="pass">PASS</td><td>ship-selection includes cc-spawn; guard test (with cc-spawn) green; cli-reference entry added.</td></tr>
+<tr><td>Clean build + existing tests pass</td><td class="pass">PASS</td><td>0/0; guard tests green.</td></tr>
+</table>
+
+<h2>Transcript A - create + list + error (my run)</h2>
+<pre>$ cc-spawn D:/ReposFred/devthrottle-wt-721 --agent RawCli --command cmd --name "spawn-proof"
+Opened session e0ffbeda (spawn-proof).
+id: e0ffbeda-0930-4e69-8df2-e7faef187ce8
+Message it:  cc-send e0ffbeda "<message>"   |   Ask it:  cc-ask e0ffbeda "<question>"
+
+$ cc-sessions
+| e0ffbeda | spawn-proof   | SOREN_NORTH | devthrottle-wt... | WaitingForInput |
+
+$ cc-spawn D:/no/such/repo/here
+Error: repoPath does not exist: D:/no/such/repo/here     (exit 1)</pre>
+
+<h2>Transcript B - --prompt passthrough (my run)</h2>
+<pre>$ cc-spawn D:/ReposFred/devthrottle-wt-721 --agent RawCli --command cmd --prompt "echo SPAWNPROMPT123"
+Opened session d3689692 ...
+# after the prePrompt readiness window, the target session's buffer:
+D:\ReposFred\devthrottle-wt-721>echo SPAWNPROMPT123
+SPAWNPROMPT123</pre>
+
+<h2>CenCon impact</h2>
+<p>Additive: a new <code>cc-spawn</code> tool (+ a <code>patch_json</code> helper), shipped via the
+registry and verified by the doctor, reusing <code>POST /sessions</code> (unchanged). No
+architecture/security drift.</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> cc-spawn opens a session from the command line
+with agent/prompt/name passthrough, fails clearly on a bad repo, and is shipped + self-verified +
+guarded. Build clean, tests green, proven live against a running Director.</p>
+</body></html>

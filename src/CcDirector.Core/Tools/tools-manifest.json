@@ -91,6 +91,13 @@
       "description": "Ask another session a question and get its answer back.",
       "smoke": null,
       "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+    },
+    {
+      "name": "cc-spawn",
+      "category": "Fleet",
+      "description": "Open a session on the local Director from the command line.",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
     }
   ]
 }

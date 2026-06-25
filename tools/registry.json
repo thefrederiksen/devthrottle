@@ -329,6 +329,15 @@
       "requirements": []
     },
     {
+      "name": "cc-spawn",
+      "category": "fleet",
+      "type": "python",
+      "description": "Open a session on the local Director from the command line",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
       "name": "cc-posthog",
       "category": "data-utilities",
       "type": "python",

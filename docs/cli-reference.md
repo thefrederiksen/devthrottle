@@ -763,6 +763,29 @@ If the target does not answer within the timeout, `cc-ask` prints a clear timeou
 non-zero; an unknown or unreachable target exits non-zero with a clear error. `cc-ask all` is not
 supported (ask is single-target).
 
+### cc-spawn
+
+Open a session on the local Director from the command line, then message or ask it (issue #721).
+
+```
+USAGE: cc-spawn [OPTIONS] REPO
+
+ARGUMENTS:
+  REPO  Absolute path to the repository / working directory for the session [required]
+
+OPTIONS:
+  --agent TEXT          Agent CLI: ClaudeCode (default), Pi, Codex, Gemini, OpenCode, Grok, Copilot, RawCli
+  --prompt TEXT         First prompt to send once the session is ready
+  --name TEXT           Custom display name for the session
+  --type TEXT           Session type: Developer, Implementation, Discuss, Product, QA, Support
+  --command TEXT        For --agent RawCli: the executable to run (e.g. cmd, pwsh)
+  --command-args TEXT   For --agent RawCli: arguments for the command
+  --version -v
+```
+
+Prints the new session's short id and full GUID; the session then appears in `cc-sessions`. A
+non-existent repository path exits non-zero with a clear error.
+
 ---
 
 ## cc-reddit
