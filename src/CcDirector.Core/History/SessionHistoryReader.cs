@@ -5,6 +5,7 @@ using CcDirector.Core.Pi;
 using CcDirector.Core.Grok;
 using CcDirector.Core.Copilot;
 using CcDirector.Core.OpenCode;
+using CcDirector.Core.Gemini;
 using CcDirector.Core.Sessions;
 
 namespace CcDirector.Core.History;
@@ -25,6 +26,8 @@ namespace CcDirector.Core.History;
 ///   (<see cref="CopilotHistoryReader"/>); resolved by repo, not a single transcript file.
 /// - OpenCode: the newest session in its SQLite store whose directory matches the session's repo
 ///   (<see cref="OpenCodeHistoryReader"/>); resolved by repo, not a single transcript file.
+/// - Gemini: the exception - it persists no usable transcript, so its conversation is read from
+///   the session's own terminal buffer (<see cref="GeminiTerminalHistory"/>); there is no path.
 ///
 /// Other agents return <see cref="ConversationHistory.Empty"/> until their providers land.
 /// </summary>
@@ -34,7 +37,7 @@ public static class SessionHistoryReader
     public static bool IsSupported(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi or AgentKind.Grok or AgentKind.Copilot or AgentKind.OpenCode;
+        return session.AgentKind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi or AgentKind.Grok or AgentKind.Copilot or AgentKind.OpenCode or AgentKind.Gemini;
     }
 
     /// <summary>
@@ -58,6 +61,9 @@ public static class SessionHistoryReader
             AgentKind.Copilot => CopilotHistoryReader.DefaultDatabasePath,
             // OpenCode likewise has no per-session file; its readable source is its SQLite store.
             AgentKind.OpenCode => OpenCodeHistoryReader.DefaultDatabasePath,
+            // Gemini has no transcript file at all; its conversation lives only in the session's
+            // terminal buffer (read directly in Read). There is no path to stat - null is honest.
+            AgentKind.Gemini => null,
             _ => null,
         };
     }
@@ -65,6 +71,12 @@ public static class SessionHistoryReader
     public static ConversationHistory Read(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
+
+        // Gemini is the exception: it has no transcript file, so there is no path to resolve.
+        // Its only readable source is the session's own terminal buffer, where the conversation
+        // is present as plain text. Build the (single, unstructured) history straight from it.
+        if (session.AgentKind == AgentKind.Gemini)
+            return GeminiTerminalHistory.FromBuffer(session.Buffer);
 
         var path = ResolveTranscriptPath(session);
         if (path is null)

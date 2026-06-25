@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Gemini;
 using CcDirector.Core.History;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -37,6 +38,10 @@ public partial class HistoryView : UserControl
     private static readonly IBrush UserCard = new SolidColorBrush(Color.FromRgb(0x23, 0x2A, 0x38));
     private static readonly IBrush AssistantCard = new SolidColorBrush(Color.FromRgb(0x23, 0x28, 0x26));
     private static readonly IBrush ToolCard = new SolidColorBrush(Color.FromRgb(0x2A, 0x27, 0x1B));
+
+    // Cap for the Gemini raw-terminal-text block (it has no structured turns to truncate per-card).
+    // Keep the recent tail; an uncapped multi-hundred-KB body in one wrapping TextBlock janks the UI.
+    private const int GeminiBodyMaxChars = 24_000;
 
     private readonly ObservableCollection<HistoryMessageVm> _messages = new();
     private DispatcherTimer? _timer;
@@ -82,6 +87,15 @@ public partial class HistoryView : UserControl
 
         try
         {
+            // Gemini is the exception: it has no transcript file, so the file-based path below
+            // never applies. Its conversation lives only in the session's terminal buffer, so
+            // poll the buffer here and re-render the single cleaned-text block when it grows.
+            if (session.AgentKind == AgentKind.Gemini)
+            {
+                await RefreshGeminiAsync(session);
+                return;
+            }
+
             var path = SessionHistoryReader.ResolveTranscriptPath(session);
             if (path is null || !File.Exists(path))
             {
@@ -123,6 +137,70 @@ public partial class HistoryView : UserControl
         {
             FileLog.Write($"[HistoryView] RefreshAsync failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Gemini-only refresh. Gemini has no transcript file, so the conversation is read from the
+    /// session's terminal buffer and rendered as a single, clearly-labeled raw-text block. The
+    /// buffer's monotonic byte count is the change signal, so we only re-render when it grows.
+    /// </summary>
+    private async Task RefreshGeminiAsync(Session session)
+    {
+        var buffer = session.Buffer;
+        if (buffer is null)
+        {
+            _messages.Clear();
+            CountText.Text = "";
+            EmptyText.IsVisible = true;
+            EmptyText.Text = "Waiting for the conversation to start...";
+            _lastSignature = "";
+            return;
+        }
+
+        var signature = "gemini|" + buffer.TotalBytesWritten;
+        if (signature == _lastSignature)
+            return;
+        _lastSignature = signature;
+
+        var history = await Task.Run(() => SessionHistoryReader.Read(session));
+        var fullBody = history.Messages.Count == 0
+            ? ""
+            : string.Join("\n", history.Messages
+                .SelectMany(m => m.Parts)
+                .Where(p => p.Kind == ConversationPartKind.Text)
+                .Select(p => p.Text));
+
+        // Cap the rendered body to its recent tail. Only the recent scrollback is useful, and the
+        // raw Gemini buffer can reach the circular buffer's full size (~2 MB); a string that large in
+        // a single non-virtualized, wrapping TextBlock would be re-measured on the UI thread on every
+        // buffer-growth tick and jank the History pane (the structured path caps each card the same way).
+        var body = fullBody.Length <= GeminiBodyMaxChars
+            ? fullBody
+            : "... [earlier terminal output trimmed]\n" + fullBody.Substring(fullBody.Length - GeminiBodyMaxChars);
+        FileLog.Write($"[HistoryView] gemini refresh: bytes={buffer.TotalBytesWritten} bodyLen={body.Length} (full={fullBody.Length})");
+
+        var atBottom = IsNearBottom();
+        _messages.Clear();
+        if (body.Length == 0)
+        {
+            CountText.Text = "";
+            EmptyText.IsVisible = true;
+            EmptyText.Text = "Waiting for the conversation to start...";
+            return;
+        }
+
+        _messages.Add(new HistoryMessageVm
+        {
+            Speaker = GeminiTerminalHistory.Label,
+            Body = body,
+            HeaderBrush = ToolHeader,
+            CardBrush = ToolCard,
+        });
+        CountText.Text = "raw terminal text";
+        EmptyText.IsVisible = false;
+
+        if (atBottom)
+            ScrollToEndDeferred();
     }
 
     private static List<HistoryMessageVm> Map(ConversationHistory history)
