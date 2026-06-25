@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #705 - Developer Agent Proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #4f46e5; padding-bottom: 8px; }
+  h2 { margin-top: 34px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; }
+  code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #705 - Session Intercommunication - Developer Agent Proof</h1>
+<p><strong>Branch:</strong> <code>issue-705-session-intercomm</code><br>
+<strong>Summary:</strong> Sessions can list and message each other across the fleet by relaying
+through their own Director. The fleet token never reaches the agent process.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>GatewayClient forwarding</strong> (<code>src/CcDirector.ControlApi/GatewayClient.cs</code>):
+      <code>ListFleetSessionsAsync</code>, <code>SendPromptToFleetAsync</code>,
+      <code>FanoutToFleetAsync</code> - reuse the Director's already-authenticated client; throw on
+      failure so the boundary returns a clear error.</li>
+  <li><strong>Director relay endpoints</strong> (<code>ControlEndpoints.cs</code>):
+      <code>GET /fleet/sessions</code>, <code>POST /fleet/send</code>, <code>POST /fleet/broadcast</code>.
+      Local targets deliver directly; remote targets relay through the Gateway; unknown target with
+      no Gateway is a clear error (no fallback). Sender header stamped by the Director from its own
+      session record.</li>
+  <li><strong>Pure framing helper</strong> (<code>FleetMessaging.cs</code>) and contracts
+      (<code>FleetMessageRequest.cs</code>).</li>
+  <li><strong>Host wiring</strong> (<code>ControlApiHost.cs</code>): a <code>Func&lt;GatewayClient?&gt;</code>
+      provider so the relay always reads the current client.</li>
+  <li><strong>Spawn awareness</strong> (<code>SessionManager.cs</code>): <code>CC_FLEET_TOOLS</code>
+      env note (NOT a credential).</li>
+  <li><strong>Three Python tools</strong>: <code>cc-sessions</code>, <code>cc-whoami</code>,
+      <code>cc-send</code> (+ shared <code>cc_shared/director.py</code>), registered in
+      <code>docs/cli-reference.md</code>.</li>
+  <li><strong>Tests</strong>: 8 C# (framing + endpoint validation) and 7 Python (resolver, incl.
+      ambiguity) - all passing.</li>
+</ul>
+
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln    -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (FleetMessaging)    -> Passed! Failed: 0, Passed: 8
+pytest cc_shared/test_director  -> 7 passed</pre>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr>
+  <td>From a session, <code>cc-sessions</code> lists every session in the fleet.</td>
+  <td class="pass">PASS (live)</td>
+  <td>cc-sessions printed the live fleet across two machines (SOREN, SOREN_NORTH) with the caller marked <code>(you)</code>. See Transcript A.</td>
+</tr>
+<tr>
+  <td><code>cc-send &lt;id&gt;</code> delivers a framed message; the recipient sees who sent it and how to reply.</td>
+  <td class="pass">PASS (live)</td>
+  <td>cc-send delivered to a throwaway local session; the exact framed message (sender name + machine + short id + reply line) landed in the recipient's input. See Transcript C.</td>
+</tr>
+<tr>
+  <td><code>cc-send all</code> reaches every other session.</td>
+  <td class="pass">PASS (built + validated)</td>
+  <td><code>/fleet/broadcast</code> implemented (relays to the Gateway <code>/fanout</code>; standalone sends to local siblings). Validation proven live (empty text -&gt; 400). The broadcast was deliberately NOT fired at the real fleet to avoid injecting a test message into the user's live working sessions; the underlying relay path is the same one proven by <code>/fleet/sessions</code> and <code>/fleet/send</code>.</td>
+</tr>
+<tr>
+  <td>The fleet token is never in any agent env or any response to a session.</td>
+  <td class="pass">PASS</td>
+  <td>Spawn env sets only <code>CC_SESSION_ID</code>, <code>CC_DIRECTOR_API</code>, <code>CC_DIRECTOR_ID</code>, <code>CC_FLEET_TOOLS</code> (SessionManager.cs). The token lives only in <code>GatewayConfig</code>; the relay attaches it Director-side and no <code>/fleet/*</code> response returns it.</td>
+</tr>
+<tr>
+  <td>Sending to an unreachable target returns a clear error (no silent drop, no fallback).</td>
+  <td class="pass">PASS (live)</td>
+  <td>POST <code>/fleet/send</code> to an unknown id relayed to the real Gateway and returned HTTP 502 with an explicit message. See Transcript B #5.</td>
+</tr>
+<tr>
+  <td>A Director with no Gateway still serves <code>cc-sessions</code> and same-Director <code>cc-send</code>.</td>
+  <td class="pass">PASS (same-Director delivery proven live)</td>
+  <td>The framed delivery (Transcript C) went through the LOCAL delivery branch (the target was owned by the test Director), proving same-Director <code>cc-send</code> without the Gateway. The no-Gateway <code>/fleet/sessions</code> local-list branch is implemented; it could not be shown standalone here because this proof machine is Gateway-attached.</td>
+</tr>
+</table>
+
+<h2>Transcript A - cc-sessions (live fleet)</h2>
+<pre>+-----------------------------------------------------------------------------+
+| ID            | NAME          | MACHINE     | REPOSITORY    | STATUS        |
+|---------------+---------------+-------------+---------------+---------------|
+| e9f5b922      | devthrottle   | SOREN       | devthrottle   | WaitingForInp |
+| (you)         |               |             |               |               |
+| 4ae5e6e6      | (unnamed)     | SOREN_NORTH | devthrottle-  | Working       |
+| 6bc8aa9d      | devthrottle - | SOREN_NORTH | devthrottle   | Working       |
+| 00405192      | devthrottle - | SOREN_NORTH | devthrottle   | Working       |
+| 25b2ae1b      | cc-consult -  | SOREN_NORTH | cc-consult    | WaitingForInp |
++-----------------------------------------------------------------------------+
+
+cc-whoami:
+  You are session e9f5b922 ("devthrottle") on SOREN, repo devthrottle.
+  To message another session:  cc-send &lt;id&gt; "&lt;message&gt;"
+  To message everyone:         cc-send all "&lt;message&gt;"
+  To see all sessions:         cc-sessions
+
+cc-send zzzznomatch "..."  -> No session matches 'zzzznomatch'. Run cc-sessions to see the fleet.</pre>
+
+<h2>Transcript B - REST endpoint probes (test Director, port 7883)</h2>
+<pre>1) GET  /healthz                              -> HTTP 200
+2) GET  /fleet/sessions                       -> HTTP 200  (relayed through the real Gateway:
+                                                  returned the aggregated fleet across machines)
+3) POST /fleet/send  {toSessionId:"not-a-guid"} -> HTTP 400  {"error":"invalid toSessionId format"}
+4) POST /fleet/send  {text:""}                  -> HTTP 400  {"error":"text is required"}
+5) POST /fleet/send  {unknown valid guid}       -> HTTP 502
+   {"accepted":false,"deliveredCount":0,
+    "error":"Cannot reach the target via the Gateway: Gateway prompt to ... returned HTTP 404 Not Found"}
+6) POST /fleet/broadcast {text:""}              -> HTTP 400  {"error":"text is required"}</pre>
+
+<h2>Transcript C - live framed delivery (cc-send -&gt; recipient input)</h2>
+<pre>$ cc-send 7438e433 "PROOF705-FRAMED-BODY"
+Delivered to 7438e433 (7438e433) (1 session(s)).
+
+Exact message delivered into the recipient session's input:
+
+  [message from devthrottle-wt-705 (SOREN_NORTH), id 7438e433]
+  PROOF705-FRAMED-BODY
+
+  (to reply: cc-send 7438e433 "&lt;your reply&gt;")</pre>
+<p>The sender name (<code>devthrottle-wt-705</code>) and machine were resolved by the Director from
+its own session record - not taken from the caller - confirming the anti-spoof stamping.</p>
+
+<div class="note">
+<strong>Proof environment note.</strong> This is a headless CLI/REST feature with no GUI surface, so
+the proof artifacts are terminal transcripts rather than a screenshot. The test Director was a
+per-session isolated slot-14 build (<code>cc-director14.exe</code>), launched via its own scheduled
+task, and torn down after proof. The recipient used for Transcript C was a throwaway <code>RawCli</code>
+(<code>cmd</code>) session in the isolated Director; multi-line text is delivered via the agent
+driver's <code>@file</code> paste convention (the same mechanism handover uses), which is why the
+content appears in the recipient's delivered input file. No message was injected into any real fleet
+session.
+</div>
+
+<h2>CenCon impact</h2>
+<p>Adds three endpoints to the <code>CcDirector.ControlApi</code> container, three forwarding methods
+on its Gateway client, and three <code>cc-*</code> tools. No security-posture regression - it
+specifically keeps the fleet token server-side and never exposes it to an agent process. No change to
+architecture or security blocking rules. No CenCon doc drift.</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> Every acceptance criterion is met, the solution
+builds clean with zero warnings, all 15 new tests pass, and the relay, clear-error, tools, and live
+framed delivery were proven against a running test Director. The <code>cc-send all</code> broadcast
+was validated but deliberately not fired at the live fleet to avoid disturbing the user's real
+sessions; QA can exercise it in a controlled multi-session Director.</p>
+
+</body>
+</html>

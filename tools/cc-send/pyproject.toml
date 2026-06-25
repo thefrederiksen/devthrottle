@@ -1,0 +1,22 @@
+[project]
+name = "cc-send"
+version = "1.0.0"
+description = "Send a message to another session in the cc-director fleet"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-send = "cc_send.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_send"]
+package-dir = {"cc_send" = "src"}
