@@ -413,9 +413,27 @@ public sealed class ControlApiHost : IAsyncDisposable
             Port = ReadAssignedPort(_app)
                 ?? throw new InvalidOperationException("Kestrel started but did not expose a bound address.");
         }
-        FileLog.Write(addressingMode == Core.Configuration.AddressingMode.Lan
-            ? $"[ControlApiHost] Kestrel listening on http://0.0.0.0:{Port} (LAN addressing mode; reachable on this machine's LAN IP)"
-            : $"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
+
+        // Issue #725: confirm the Control API actually ANSWERS on the bound port before claiming we
+        // are listening. A Windows-excluded / http.sys-reserved port lets the bind appear to succeed
+        // while the System process shadows the socket and 404s every request - the Director then
+        // "looks up" but is silently dead. The PortAllocator now skips excluded ranges, so this is a
+        // belt-and-braces guard: if the self-probe fails we say so LOUDLY (never a misleading
+        // "listening" line) and release the reservation so a restart picks a different port.
+        if (await SelfProbeControlApiAsync(Port))
+        {
+            FileLog.Write(addressingMode == Core.Configuration.AddressingMode.Lan
+                ? $"[ControlApiHost] Kestrel listening on http://0.0.0.0:{Port} (LAN addressing mode; reachable on this machine's LAN IP)"
+                : $"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
+        }
+        else
+        {
+            FileLog.Write($"[ControlApiHost] SELF-PROBE FAILED: bound port {Port} does NOT answer its own /healthz. " +
+                "The port is shadowed or reserved (a Windows TCP excluded range or an http.sys reservation), so the " +
+                "Control API is unreachable on it. Releasing the reservation so a restart picks another port. " +
+                "Diagnose with: netsh int ipv4 show excludedportrange protocol=tcp");
+            try { PortAllocator.Release(DirectorId); } catch { /* best-effort */ }
+        }
 
         // Let the SessionManager stamp CC_DIRECTOR_API / CC_DIRECTOR_ID into every session
         // it spawns from now on, so agents inside a session can call this Control API
@@ -663,6 +681,30 @@ public sealed class ControlApiHost : IAsyncDisposable
             if (Uri.TryCreate(addr, UriKind.Absolute, out var uri))
                 return uri.Port;
         return null;
+    }
+
+    /// <summary>
+    /// Issue #725: prove the Control API actually serves on the just-bound port by calling its own
+    /// <c>/healthz</c> over loopback. Returns true only when /healthz answers 2xx AND the body
+    /// identifies THIS Director (its <see cref="DirectorId"/>), so a foreign service shadowing the
+    /// port - the symptom of a Windows-reserved port - cannot pass the check. Bounded and best
+    /// effort: any failure means "not serving" and returns false (never throws into startup).
+    /// </summary>
+    private async Task<bool> SelfProbeControlApiAsync(int port)
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            using var resp = await http.GetAsync($"http://127.0.0.1:{port}/healthz");
+            if (!resp.IsSuccessStatusCode) return false;
+            var body = await resp.Content.ReadAsStringAsync();
+            return body.Contains(DirectorId, StringComparison.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ControlApiHost] SelfProbeControlApiAsync({port}) failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>Stop Kestrel and delete the registration file. Safe to call multiple times.</summary>

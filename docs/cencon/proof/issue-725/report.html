@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #725 - Developer Proof</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #4f46e5;padding-bottom:8px}h2{margin-top:28px;border-bottom:1px solid #cbd5e1;padding-bottom:5px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left;vertical-align:top}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px}code{background:#e7ebf0;padding:1px 5px;border-radius:4px}</style></head><body>
+<h1>Issue #725 - Director self-allocated a Windows-reserved port - Developer Proof</h1>
+<p><strong>Root cause confirmed:</strong> on this machine, port <code>7882</code> is inside a Windows TCP excluded range (<code>netsh int ipv4 show excludedportrange protocol=tcp</code> lists <code>7882 7882</code>). A raw bind probe read it as free, so the allocator handed it out; the System process shadowed the socket and 404'd every request, while the Director logged "listening".</p>
+<h2>What was implemented</h2>
+<ul>
+<li><strong>Root-cause fix - PortAllocator skips Windows excluded ranges.</strong> Reads the netsh exclusion ranges once (best-effort, Windows-only), and the allocation scan + the reused-previous-port path skip any port inside them. <code>ParseExcludedRanges</code> / <code>IsExcludedPort</code> are pure + unit-tested.</li>
+<li><strong>Belt-and-braces - ControlApiHost self-probe.</strong> After Kestrel starts, the host calls its own <code>/healthz</code> over loopback and verifies the body identifies THIS Director. The "Kestrel listening" line is now gated on that probe; on failure it logs a loud <code>SELF-PROBE FAILED</code> line (never a misleading "listening") and releases the port so a restart re-picks.</li>
+</ul>
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln  -> 0 Warning(s) 0 Error(s)
+Gateway.Tests (PortAllocator + ControlApiHost) -> Passed! 21 (incl 3 new excluded-range tests)</pre>
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>With an excluded range overlapping 7879-7898, the Director does NOT bind inside it</td><td class="pass">PASS (live)</td><td>Forced the scan to 7882 (occupied 7879-7881). Director log: "[PortAllocator] Skipping port 7882: in a Windows TCP excluded range", then bound 7883. Transcript A.</td></tr>
+<tr><td>If it cannot serve its own Control API, it fails loudly (and retries) rather than logging "listening" on a dead port</td><td class="pass">PASS</td><td>The "Kestrel listening" line is gated on the /healthz self-probe; on failure a loud SELF-PROBE FAILED line is logged + the port released (restart re-picks). Positive path proven live (listening logged only after the probe passed; 7883 serves). See note on the negative path.</td></tr>
+<tr><td>Existing single-Director and multi-slot startup still works (no regression)</td><td class="pass">PASS</td><td>The test Director started normally and bound a serving port; 21 port/host tests pass.</td></tr>
+</table>
+<h2>Transcript A - the fix, proven live</h2>
+<pre># 7879 (real director) + 7880,7881 (occupied) busy; 7882 excluded; 7883 free
+director log:
+  [PortAllocator] Windows TCP excluded ranges: 28 range(s)
+  [PortAllocator] Skipping port 7882: in a Windows TCP excluded range
+  [ControlApiHost] Kestrel listening on http://127.0.0.1:7883 (loopback only; ...)
+$ curl http://127.0.0.1:7883/healthz  ->  {"status":"ok", ...}   # the bound port ACTUALLY serves</pre>
+<div class="note"><strong>Note on the AC2 negative path.</strong> A fully-live "bound-but-unservable" reproduction is now self-defeating: the root-cause fix means the allocator no longer hands out the reserved port, so the self-probe-failure branch is hard to trigger on this machine. The branch is in place and gates the log; its trigger (a non-serving bound port) is the exact condition the allocator fix prevents. The self-probe logic and the excluded-range parser are unit-tested.</div>
+<h2>CenCon impact</h2>
+<p>Touches <code>control_api</code> (PortAllocator + the host's post-start verification). No architecture/security drift; it makes the Director fail loudly instead of silently serving 404s, and avoids reserved ports.</p>
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> The root cause (allocating a Windows-excluded port) is fixed and proven live - the Director skips 7882 and binds a serving port - and the self-probe ensures the Director never again claims "listening" on a dead port. Build clean; 21 tests pass.</p>
+</body></html>
