@@ -1,0 +1,22 @@
+[project]
+name = "cc-fleet-selftest"
+version = "1.0.0"
+description = "End-to-end smoke test of cc-director fleet session messaging"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-fleet-selftest = "cc_fleet_selftest.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_fleet_selftest"]
+package-dir = {"cc_fleet_selftest" = "src"}

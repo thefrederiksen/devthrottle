@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #722 - Developer Proof</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #4f46e5;padding-bottom:8px}h2{margin-top:28px;border-bottom:1px solid #cbd5e1;padding-bottom:5px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}code{background:#e7ebf0;padding:1px 5px;border-radius:4px}</style></head><body>
+<h1>Issue #722 - cc-fleet-selftest - Developer Proof</h1>
+<p>An on-demand end-to-end smoke test of fleet session messaging: spawn two throwaway sessions, list, send, ask, tear down, PASS/FAIL.</p>
+<h2>What was implemented</h2>
+<ul>
+<li><code>tools/cc-fleet-selftest/</code> - spawns a deterministic "responder" (cmd with a custom prompt marker <code>FLEETPONG</code>) + a recipient via <code>POST /sessions</code>, then exercises <code>GET /fleet/sessions</code>, <code>POST /fleet/send</code>, <code>POST /fleet/ask</code> (the machinery the cc-* tools wrap), asserts each, tears the sessions down (<code>DELETE /sessions/{id}</code>), prints PASS/FAIL, exits 0/non-zero.</li>
+<li><code>cc_shared/director.py</code> - added <code>delete()</code>.</li>
+<li>Shipped + verified: <code>tools/registry.json</code> (ship:true), Core <code>tools-manifest.json</code>, <code>docs/cli-reference.md</code>, and the <code>FleetToolsShipGuardTests</code> guard array.</li>
+</ul>
+<h2>Build and tests</h2>
+<pre>dotnet build cc-director.sln           -> 0 Warning(s) 0 Error(s)
+FleetToolsShipGuardTests (incl selftest) -> Passed! 2/2
+ship-selection -> cc-fleet-selftest shipped: True; json valid; py_compile OK</pre>
+<h2>Acceptance criteria - live (port 7881)</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>Green run: spawn 2, list, send, ask, teardown, PASS, exit 0</td><td class="pass">PASS</td><td>5/5 checks, exit 0. Transcript A.</td></tr>
+<tr><td>cc-ask returns the responder's known marker (deterministic)</td><td class="pass">PASS</td><td>"cc-ask returns the answer - marker found" (FLEETPONG).</td></tr>
+<tr><td>Forced failure (Director down) -> clear FAIL + non-zero exit</td><td class="pass">PASS</td><td>Transcript B: clear connection error, exit 1.</td></tr>
+<tr><td>No throwaway sessions left behind</td><td class="pass">PASS</td><td>Self-test cleanup check passed; cc-sessions shows 0 selftest sessions afterward.</td></tr>
+<tr><td>Shipped + Core manifest + cli-reference + guard covers it</td><td class="pass">PASS</td><td>ship-selection True; guard green.</td></tr>
+</table>
+<h2>Transcript A - green run</h2>
+<pre>$ cc-fleet-selftest
+  PASS  spawn two sessions  - responder=a08e0cc5 recipient=15a168a3
+  PASS  cc-sessions lists both
+  PASS  cc-send delivers
+  PASS  cc-ask returns the answer  - marker found
+  PASS  throwaway sessions cleaned up
+PASS - fleet messaging self-test: 5/5 checks passed.   (exit 0)
+# cc-sessions afterward: 0 selftest sessions remain</pre>
+<h2>Transcript B - forced failure (Director down)</h2>
+<pre>$ CC_DIRECTOR_API=http://127.0.0.1:59999 cc-fleet-selftest --timeout-ms 4000
+  FAIL  fleet messaging reachable  - Cannot reach the Director at http://127.0.0.1:59999: [WinError 10061] ...
+FAIL - fleet messaging self-test: 0/2 checks passed.   (exit 1)</pre>
+<h2>CenCon impact</h2>
+<p>Additive: a new <code>cc-fleet-selftest</code> tool (+ a <code>delete</code> helper), shipped + doctor-verified, reusing existing <code>/sessions</code> and <code>/fleet/*</code> endpoints. No drift.</p>
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> The self-test verifies the whole intercommunication loop deterministically, fails clearly when the Director is down, leaves no sessions behind, and is shipped + guarded. Build clean; proven live. Per the issue's flagged assumption, the deterministic answer comes from a marker-prompt cmd responder (no LLM).</p>
+</body></html>
