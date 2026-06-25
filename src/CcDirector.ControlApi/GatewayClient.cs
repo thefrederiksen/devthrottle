@@ -171,6 +171,84 @@ public sealed class GatewayClient : IDisposable
         }
     }
 
+    // ===== Fleet relay (issue #705) =====
+    // A session can only reach its OWN Director (it is given CC_DIRECTOR_API, never the
+    // Gateway URL or the fleet token). These three methods let the Director relay a session's
+    // request on to the Gateway using the authenticated _http it already holds, so the fleet
+    // token stays server-side and never enters an agent process. They THROW on failure (no
+    // best-effort null like GetLatestTurnBriefAsync): the /fleet/* endpoints are the boundary
+    // that turns a failure into a clear error, per the no-fallback rule.
+
+    /// <summary>
+    /// Relay the Gateway's aggregated fleet session list (GET /sessions) so a session can
+    /// discover every other session across the fleet. Throws when the Gateway is disabled or
+    /// the call fails.
+    /// </summary>
+    public async Task<List<SessionDto>> ListFleetSessionsAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot list the fleet.");
+
+        FileLog.Write("[GatewayClient] ListFleetSessionsAsync: GET /sessions");
+        using var resp = await _http.GetAsync("sessions", ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Gateway GET /sessions returned HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+        var list = await resp.Content.ReadFromJsonAsync<List<SessionDto>>(ct);
+        if (list is null)
+            throw new InvalidOperationException("Gateway GET /sessions returned an unparsable body.");
+
+        FileLog.Write($"[GatewayClient] ListFleetSessionsAsync: {list.Count} session(s)");
+        return list;
+    }
+
+    /// <summary>
+    /// Relay a single message to a session anywhere in the fleet via the Gateway's
+    /// POST /sessions/{sid}/prompt. Fire-and-forget (WaitForIdle=false). Throws when the
+    /// Gateway is disabled or the call fails.
+    /// </summary>
+    public async Task<PromptResponse> SendPromptToFleetAsync(string toSessionId, string text, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot reach a remote session.");
+        if (string.IsNullOrWhiteSpace(toSessionId))
+            throw new ArgumentException("Target session id is required", nameof(toSessionId));
+
+        FileLog.Write($"[GatewayClient] SendPromptToFleetAsync: POST /sessions/{toSessionId}/prompt");
+        var body = new PromptRequest { Text = text, AppendEnter = true, WaitForIdle = false };
+        using var resp = await _http.PostAsJsonAsync($"sessions/{toSessionId}/prompt", body, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Gateway prompt to {toSessionId} returned HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+        var parsed = await resp.Content.ReadFromJsonAsync<PromptResponse>(ct);
+        if (parsed is null)
+            throw new InvalidOperationException("Gateway prompt returned an unparsable body.");
+        return parsed;
+    }
+
+    /// <summary>
+    /// Relay a broadcast to many sessions via the Gateway's POST /fanout. Fire-and-forget
+    /// (WaitForIdle=false). Throws when the Gateway is disabled or the call fails.
+    /// </summary>
+    public async Task<FanoutResponse> FanoutToFleetAsync(List<string> sessionIds, string text, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot broadcast to the fleet.");
+        if (sessionIds is null || sessionIds.Count == 0)
+            throw new ArgumentException("At least one target session id is required", nameof(sessionIds));
+
+        FileLog.Write($"[GatewayClient] FanoutToFleetAsync: POST /fanout to {sessionIds.Count} session(s)");
+        var body = new FanoutRequest { SessionIds = sessionIds, Text = text, AppendEnter = true, WaitForIdle = false };
+        using var resp = await _http.PostAsJsonAsync("fanout", body, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Gateway fanout returned HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+        var parsed = await resp.Content.ReadFromJsonAsync<FanoutResponse>(ct);
+        if (parsed is null)
+            throw new InvalidOperationException("Gateway fanout returned an unparsable body.");
+        return parsed;
+    }
+
     /// <summary>
     /// Start the registration lifecycle. Fire-and-forget: the first register attempt
     /// runs in the background so a slow or unreachable Gateway never blocks Director

@@ -367,7 +367,10 @@ public sealed class ControlApiHost : IAsyncDisposable
             resolveTailnetEndpoint = () => identityResolver.ResolveEndpoint(Port, gatewayConfig.TailnetEndpoint);
         }
 
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor, resolveTailnetEndpoint);
+        // The fleet-relay endpoints (issue #705) read the _gatewayClient FIELD lazily via this
+        // provider, so they always use the current client even after a settings-change rebuild
+        // (the field is replaced, not this lambda). The client is built later in this method.
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor, resolveTailnetEndpoint, () => _gatewayClient);
         // Dictation key resolution: the Gateway vault when attached to a Gateway, the local
         // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
         // Pass GatewayConfig.Load (not the snapshot above) so the resolver re-reads config.json

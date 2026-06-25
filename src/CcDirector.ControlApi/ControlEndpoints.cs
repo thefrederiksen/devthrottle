@@ -26,7 +26,7 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null, GatewayConnectionMonitor? gatewayMonitor = null, Func<TailnetEndpointResolution>? resolveTailnetEndpoint = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null, GatewayConnectionMonitor? gatewayMonitor = null, Func<TailnetEndpointResolution>? resolveTailnetEndpoint = null, Func<GatewayClient?>? gatewayClientProvider = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
         // URL of the Gateway this Director is registered with, for the "Gateway" nav
@@ -212,6 +212,173 @@ internal static class ControlEndpoints
                 return Results.NotFound(new { error = "session not found" });
 
             return Results.Json(MapWithIdentity(session, turnSummaryCache));
+        });
+
+        // ===== REST: Fleet messaging (issue #705) =====
+        // A session can only reach its OWN Director (CC_DIRECTOR_API); it never holds the Gateway
+        // URL or the fleet token. These endpoints let a session list and message other sessions
+        // across the fleet by relaying through this Director, which forwards to the Gateway using
+        // the token it already holds. The cc-sessions / cc-send / cc-whoami tools wrap these.
+
+        // Resolve the sender's display name from THIS Director's own session record (never trusted
+        // from the request body) and build the framed message the recipient sees.
+        string FrameForSender(string? fromSessionId, string text)
+        {
+            string? fromName = null;
+            if (!string.IsNullOrWhiteSpace(fromSessionId) && Guid.TryParse(fromSessionId, out var fromGuid))
+            {
+                var sender = sessionManager.GetSession(fromGuid);
+                if (sender is not null)
+                    fromName = string.IsNullOrWhiteSpace(sender.CustomName)
+                        ? Path.GetFileName(sender.RepoPath.TrimEnd('\\', '/'))
+                        : sender.CustomName;
+            }
+            return FleetMessaging.BuildFramedMessage(fromSessionId, fromName, Environment.MachineName, text);
+        }
+
+        // GET /fleet/sessions - the fleet directory. With a Gateway, relay its aggregated list;
+        // standalone, serve this Director's own sessions (the no-Gateway acceptance criterion).
+        app.MapGet("/fleet/sessions", async (CancellationToken ct) =>
+        {
+            var gw = gatewayClientProvider?.Invoke();
+            if (gw is { IsEnabled: true })
+            {
+                try
+                {
+                    var fleet = await gw.ListFleetSessionsAsync(ct);
+                    return Results.Json(fleet);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[ControlEndpoints] /fleet/sessions relay FAILED: {ex.Message}");
+                    return Results.Json(new { error = $"Cannot reach the Gateway: {ex.Message}" },
+                        statusCode: StatusCodes.Status502BadGateway);
+                }
+            }
+
+            var local = sessionManager.ListSessions()
+                .Where(s => s.ActivityState != ActivityState.Exited)
+                .Select(s => MapWithIdentity(s, turnSummaryCache))
+                .ToList();
+            return Results.Json(local);
+        });
+
+        // POST /fleet/send - deliver one message. A local target is delivered directly (works with
+        // or without a Gateway); a remote target is relayed through the Gateway. An unknown target
+        // with no Gateway is a clear error (no silent drop, no fallback).
+        app.MapPost("/fleet/send", async (FleetSendRequest req, CancellationToken ct) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.ToSessionId))
+                return Results.BadRequest(new { error = "toSessionId is required" });
+            if (string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new { error = "text is required" });
+            if (!Guid.TryParse(req.ToSessionId, out var toGuid))
+                return Results.BadRequest(new { error = "invalid toSessionId format" });
+
+            var framed = FrameForSender(req.FromSessionId, req.Text);
+
+            var local = sessionManager.GetSession(toGuid);
+            if (local is not null)
+            {
+                try
+                {
+                    await local.SendTextAsync(framed);
+                    return Results.Json(new FleetSendResponse { Accepted = true, DeliveredCount = 1 });
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[ControlEndpoints] /fleet/send local deliver to {toGuid} FAILED: {ex.Message}");
+                    return Results.Json(new FleetSendResponse { Accepted = false, Error = ex.Message },
+                        statusCode: StatusCodes.Status500InternalServerError);
+                }
+            }
+
+            var gw = gatewayClientProvider?.Invoke();
+            if (gw is not { IsEnabled: true })
+                return Results.Json(new FleetSendResponse
+                {
+                    Accepted = false,
+                    Error = "Session not found on this Director and no Gateway is configured.",
+                }, statusCode: StatusCodes.Status404NotFound);
+
+            try
+            {
+                var resp = await gw.SendPromptToFleetAsync(req.ToSessionId, framed, ct);
+                return Results.Json(new FleetSendResponse
+                {
+                    Accepted = resp.Accepted,
+                    DeliveredCount = resp.Accepted ? 1 : 0,
+                    Error = resp.Error,
+                });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /fleet/send relay to {toGuid} FAILED: {ex.Message}");
+                return Results.Json(new FleetSendResponse
+                {
+                    Accepted = false,
+                    Error = $"Cannot reach the target via the Gateway: {ex.Message}",
+                }, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+
+        // POST /fleet/broadcast - send to every other session in the fleet. With a Gateway, fan out
+        // via the Gateway; standalone, send to this Director's own sessions (except the sender).
+        app.MapPost("/fleet/broadcast", async (FleetBroadcastRequest req, CancellationToken ct) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new { error = "text is required" });
+
+            var framed = FrameForSender(req.FromSessionId, req.Text);
+
+            var gw = gatewayClientProvider?.Invoke();
+            if (gw is { IsEnabled: true })
+            {
+                try
+                {
+                    var fleet = await gw.ListFleetSessionsAsync(ct);
+                    var targets = fleet
+                        .Select(s => s.SessionId)
+                        .Where(idStr => !string.IsNullOrWhiteSpace(idStr)
+                            && !string.Equals(idStr, req.FromSessionId, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    if (targets.Count == 0)
+                        return Results.Json(new FleetSendResponse { Accepted = true, DeliveredCount = 0 });
+
+                    var resp = await gw.FanoutToFleetAsync(targets, framed, ct);
+                    var delivered = resp.Results.Count(r => r.Error is null);
+                    return Results.Json(new FleetSendResponse { Accepted = true, DeliveredCount = delivered });
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[ControlEndpoints] /fleet/broadcast relay FAILED: {ex.Message}");
+                    return Results.Json(new FleetSendResponse
+                    {
+                        Accepted = false,
+                        Error = $"Cannot reach the Gateway: {ex.Message}",
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                }
+            }
+
+            var locals = sessionManager.ListSessions()
+                .Where(s => s.ActivityState != ActivityState.Exited)
+                .Where(s => !string.Equals(s.Id.ToString(), req.FromSessionId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var count = 0;
+            foreach (var s in locals)
+            {
+                // Best effort per target: one failing session must not abort the rest of a broadcast.
+                try
+                {
+                    await s.SendTextAsync(framed);
+                    count++;
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[ControlEndpoints] /fleet/broadcast local deliver to {s.Id} FAILED: {ex.Message}");
+                }
+            }
+            return Results.Json(new FleetSendResponse { Accepted = true, DeliveredCount = count });
         });
 
         // Ask the wingman about this session. Two behaviors, both on the strong model:

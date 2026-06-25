@@ -682,6 +682,67 @@ OPTIONS:
 
 ---
 
+## Fleet messaging (cc-sessions, cc-whoami, cc-send)
+
+Session-to-session messaging across the fleet (issue #705). These tools run INSIDE a
+cc-director session and talk only to that session's own Director (via `CC_DIRECTOR_API`);
+the Director relays to the Gateway, so the tools never need the Gateway URL or the fleet
+token. Address another session by a short id prefix or by name; `all` broadcasts.
+
+### cc-sessions
+
+List every session running across the fleet.
+
+```
+USAGE: cc-sessions [OPTIONS]
+
+OPTIONS:
+  --json  -j  Output raw JSON
+  --version -v
+```
+
+Output columns: short id, name, machine, repository, status (your own session is marked
+`(you)`).
+
+### cc-whoami
+
+Show this session's own id, name, machine, and repository, plus how to message others.
+
+```
+USAGE: cc-whoami [OPTIONS]
+
+OPTIONS:
+  --version -v
+```
+
+### cc-send
+
+Send a message to another session, or to every session with `all`.
+
+```
+USAGE: cc-send [OPTIONS] TARGET MESSAGE
+
+ARGUMENTS:
+  TARGET   Session id, id prefix, or name - or 'all' to broadcast [required]
+  MESSAGE  The message text to send [required]
+
+OPTIONS:
+  --version -v
+```
+
+The recipient sees a framed message that names the sender and how to reply:
+
+```
+[message from feature-work (machine-A), id 4c810000]
+run the integration tests on your branch
+
+(to reply: cc-send 4c810000 "<your reply>")
+```
+
+An ambiguous id prefix or name is refused with the list of candidates (no message is sent).
+
+---
+
 ## cc-reddit
 
 Reddit CLI via browser automation.

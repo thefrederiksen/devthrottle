@@ -1,0 +1,22 @@
+[project]
+name = "cc-whoami"
+version = "1.0.0"
+description = "Show this cc-director session's own fleet identity"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-whoami = "cc_whoami.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_whoami"]
+package-dir = {"cc_whoami" = "src"}
