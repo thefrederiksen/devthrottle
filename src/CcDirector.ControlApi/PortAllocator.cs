@@ -24,10 +24,25 @@ public static class PortAllocator
     public static string PortStateDirectory { get; } =
         Path.Combine(CcStorage.Config(), "director", "ports");
 
-    /// <summary>Allocate a stable port for the given Director ID. Throws if range is exhausted.</summary>
+    /// <summary>Allocate a stable port for the given Director ID. Throws if the range is exhausted.</summary>
     public static int Allocate(string directorId)
     {
-        FileLog.Write($"[PortAllocator] Allocate: directorId={directorId}");
+        if (TryAllocate(directorId, out var port))
+            return port;
+
+        throw new InvalidOperationException(
+            $"All ports in range {PortRangeStart}..{PortRangeEnd} are busy. " +
+            "Either close some Director instances or extend PortAllocator.PortRangeEnd.");
+    }
+
+    /// <summary>
+    /// Try to allocate a stable port for the given Director ID. Returns false (without throwing)
+    /// when the fixed range is genuinely exhausted, so the caller can degrade gracefully -- e.g.
+    /// the Control API falls back to an ephemeral loopback port instead of going dark (issue #697).
+    /// </summary>
+    public static bool TryAllocate(string directorId, out int port)
+    {
+        FileLog.Write($"[PortAllocator] TryAllocate: directorId={directorId}");
         Directory.CreateDirectory(PortStateDirectory);
 
         // 1) Try the previously-used port for this director
@@ -42,7 +57,8 @@ public static class PortAllocator
                     if (IsPortFree(prev))
                     {
                         FileLog.Write($"[PortAllocator] Reusing previous port {prev}");
-                        return prev;
+                        port = prev;
+                        return true;
                     }
                     FileLog.Write($"[PortAllocator] Previous port {prev} busy, picking new");
                 }
@@ -65,12 +81,13 @@ public static class PortAllocator
             catch (Exception ex) { FileLog.Write($"[PortAllocator] persist failed: {ex.Message}"); }
 
             FileLog.Write($"[PortAllocator] Allocated port {p}");
-            return p;
+            port = p;
+            return true;
         }
 
-        throw new InvalidOperationException(
-            $"All ports in range {PortRangeStart}..{PortRangeEnd} are busy. " +
-            "Either close some Director instances or extend PortAllocator.PortRangeEnd.");
+        FileLog.Write($"[PortAllocator] Range {PortRangeStart}..{PortRangeEnd} exhausted");
+        port = 0;
+        return false;
     }
 
     /// <summary>Release the persisted port file for the given Director ID.</summary>
