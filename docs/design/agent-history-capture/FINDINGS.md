@@ -82,7 +82,7 @@ shim launch bug in section 7 blocked launching them through the Director):
 | Codex | Full screen by default (alternate_screen auto) | Confirm empirically in the harness |
 | Copilot | Full screen (alternate screen constants in the package) | Confirm empirically |
 | Pi | Normal terminal buffer | Confirm empirically |
-| Gemini | Normal terminal buffer (no alternate screen switch in source) | Confirm empirically. This is the linchpin (see section 6) |
+| Gemini | Normal terminal buffer (no alternate screen switch in source) | MEASURED 2026-06-25 on a slot-5 Director built from this branch: the new isAlternateScreen field reported False, the raw stream contained no ESC[?1049h (only bracketed paste ?2004h), and the full UI rendered in the normal buffer (71 KB captured). Confirmed normal buffer. The linchpin resolves favorably (see section 6). |
 
 Conflict to resolve: the in tree document docs/SupportedAgentsTerminalModes.md lists
 OpenCode as a normal terminal buffer application based on a static search of the
@@ -157,7 +157,11 @@ floor.
   path. The linchpin is Gemini, the one agent with no usable transcript. If the
   harness confirms Gemini is a normal terminal buffer application, the terminal path
   covers it and the gap closes. If Gemini is actually full screen, it is the single
-  hard problem and only the screen reconstruction floor can serve it.
+  hard problem and only the screen reconstruction floor can serve it. MEASURED
+  2026-06-25: Gemini is a normal terminal buffer application (confirmed by the new
+  isAlternateScreen field and a raw byte scan on a slot-5 Director from this branch),
+  so the existing terminal capture covers it and the all or nothing gap closes - no
+  supported agent is left without a working path.
 - Session pointer must be event driven where possible. For Claude the SessionStart
   hook pushes the current session identifier and transcript path on every clear and
   compaction, which solves the long standing problem of tracking the right session
@@ -256,8 +260,8 @@ Per agent short plan:
 
 1. Reconcile the OpenCode classification against the empirical evidence here
    (OpenCode does enter the alternate screen).
-2. Measure the modes of Gemini, Pi, Codex, and Copilot empirically. Gemini is the
-   decisive one.
+2. Measure the modes of Pi, Codex, and Copilot empirically. Gemini: DONE - confirmed
+   normal terminal buffer (the decisive one), so the gap closes.
 3. npm shim launch bug: resolved (Codex default path fixed; launch regression test
    added). Rebuild the Director from this branch to pick it up.
 4. Expose IsAlternateScreen through the Control API: done (SessionDto.IsAlternateScreen).
