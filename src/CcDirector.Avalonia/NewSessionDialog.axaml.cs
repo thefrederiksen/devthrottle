@@ -393,11 +393,11 @@ public sealed class AgentEntryOption
 }
 
 /// <summary>
-/// Display-ready row for one saved named session (issue #508) in the New Session dialog's
-/// "Named sessions" list. Wraps a <see cref="NamedSessionDefinition"/> and resolves, at build
-/// time, whether its saved agent id still maps to a registered agent entry - an unavailable item
-/// is shown greyed with a disabled, relabelled Launch button rather than silently launching a
-/// different agent.
+/// Display-ready row for one saved named session (issue #508) in the dialog's Named Sessions list.
+/// Wraps a <see cref="NamedSessionDefinition"/> and resolves, at build time, whether it can still
+/// launch: its saved agent must still map to a registered agent entry AND its saved repository
+/// folder must still exist. An unavailable item (missing agent or missing repository) is shown
+/// greyed with a disabled, relabelled "Unavailable" button rather than launching into an error.
 /// </summary>
 public sealed class NamedSessionViewModel
 {
@@ -419,8 +419,17 @@ public sealed class NamedSessionViewModel
     public string Name => _definition.Name;
     public string Slug => NamedSessionStore.ToSlug(_definition.Name);
 
-    /// <summary>True when the saved agent id still maps to a registered agent entry.</summary>
-    public bool IsAvailable => _agent is not null;
+    /// <summary>True when the saved repository folder still exists on disk.</summary>
+    public bool RepoExists =>
+        !string.IsNullOrWhiteSpace(_definition.RepoPath) && Directory.Exists(_definition.RepoPath);
+
+    /// <summary>
+    /// True only when the named session can actually launch: its saved agent is still registered
+    /// AND its saved repository folder still exists. A missing agent or a deleted/moved repository
+    /// is detected up front - the row is greyed and the Launch button reads "Unavailable" - instead
+    /// of failing with an error at launch time.
+    /// </summary>
+    public bool IsAvailable => _agent is not null && RepoExists;
 
     public bool HasColor => !string.IsNullOrWhiteSpace(_definition.Color);
 
@@ -437,17 +446,20 @@ public sealed class NamedSessionViewModel
         }
     }
 
-    /// <summary>Repository folder name + agent name (or an unavailable note) under the title.</summary>
+    /// <summary>Repository folder name + agent name, annotated when either is missing.</summary>
     public string Detail
     {
         get
         {
-            var repoName = string.IsNullOrEmpty(_definition.RepoPath)
-                ? "(no repository)"
-                : Path.GetFileName(_definition.RepoPath.TrimEnd('\\', '/'));
-            var agentName = _agent is not null
-                ? _agent.DisplayName
-                : "agent no longer available";
+            string repoName;
+            if (string.IsNullOrEmpty(_definition.RepoPath))
+                repoName = "(no repository)";
+            else
+            {
+                var name = Path.GetFileName(_definition.RepoPath.TrimEnd('\\', '/'));
+                repoName = RepoExists ? name : $"{name} (folder not found)";
+            }
+            var agentName = _agent is not null ? _agent.DisplayName : "agent no longer available";
             return $"{repoName} - {agentName}";
         }
     }
@@ -456,7 +468,20 @@ public sealed class NamedSessionViewModel
 
     public string LaunchTooltip => IsAvailable
         ? $"Start a session in {_definition.RepoPath} with {_agent?.DisplayName}"
-        : "The agent saved for this named session is no longer registered. Edit your agents in Settings or delete this item.";
+        : UnavailableReason;
+
+    /// <summary>Why this named session cannot launch, naming the missing repository and/or agent.</summary>
+    private string UnavailableReason
+    {
+        get
+        {
+            if (!RepoExists && _agent is null)
+                return $"Cannot launch: the repository folder is missing ({_definition.RepoPath}) and the saved agent is no longer registered. Recreate it from the New Session tab, or delete this item.";
+            if (!RepoExists)
+                return $"Cannot launch: the repository folder is missing ({_definition.RepoPath}). Recreate it from the New Session tab, or delete this item.";
+            return "Cannot launch: the saved agent is no longer registered. Recreate it from the New Session tab, or delete this item.";
+        }
+    }
 }
 
 public partial class NewSessionDialog : Window
@@ -512,7 +537,6 @@ public partial class NewSessionDialog : Window
     /// </summary>
     public RemoteSessionConfig? RemoteConfig { get; private set; }
 
-    private const int GitHubTabIndex = 3;
     public bool BypassPermissions => BypassPermissionsCheckBox.IsChecked == true;
     public bool EnableRemoteControl => false;
     public bool WingmanEnabled => WingmanCheckBox?.IsChecked == true;
@@ -793,93 +817,6 @@ public partial class NewSessionDialog : Window
         FileLog.Write($"[NewSessionDialog] RefreshNamedSessions: {rows.Count} named sessions, {rows.Count(r => !r.IsAvailable)} unavailable");
     }
 
-    private void NamedSessionNameBox_TextChanged(object? sender, TextChangedEventArgs e)
-    {
-        UpdateSaveNamedSessionButton();
-    }
-
-    /// <summary>
-    /// Enable the Save button only when there is both a name and a selected repository and agent -
-    /// a named session is meaningless without all three.
-    /// </summary>
-    private void UpdateSaveNamedSessionButton()
-    {
-        if (BtnSaveNamedSession is null)
-            return;
-
-        var hasName = !string.IsNullOrWhiteSpace(NamedSessionNameBox?.Text);
-        var hasPath = !string.IsNullOrWhiteSpace(PathInput?.Text);
-        var hasAgent = SelectedAgentEntry is not null;
-        BtnSaveNamedSession.IsEnabled = hasName && hasPath && hasAgent;
-    }
-
-    private async void BtnSaveNamedSession_Click(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var name = NamedSessionNameBox?.Text?.Trim() ?? string.Empty;
-            var repoPath = PathInput?.Text?.Trim() ?? string.Empty;
-            var agent = SelectedAgentEntry;
-
-            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click: name={name}, repo={repoPath}, agent={(agent?.DisplayName ?? "(none)")}");
-
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(repoPath) || agent is null)
-            {
-                FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: missing name, repository, or agent; aborting");
-                await MessageBox.ShowAsync(this,
-                    "Cannot save named session",
-                    "Pick a repository, choose an agent, and type a name before saving.");
-                return;
-            }
-
-            // Overwrite an existing name only after the user confirms (matches Save Workspace),
-            // so a saved name is never silently duplicated on disk.
-            var slug = NamedSessionStore.ToSlug(name);
-            if (_namedSessionStore.Exists(slug))
-            {
-                var overwrite = await MessageBox.ShowConfirmAsync(this,
-                    "Named session exists",
-                    $"A named session called \"{name}\" already exists. Overwrite it?",
-                    "Overwrite", "Cancel");
-                if (!overwrite)
-                {
-                    FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: user declined overwrite");
-                    return;
-                }
-            }
-
-            var now = DateTimeOffset.UtcNow;
-            var existing = _namedSessionStore.Load(slug);
-            var definition = new NamedSessionDefinition
-            {
-                Name = name,
-                RepoPath = repoPath,
-                AgentId = agent.Id,
-                CreatedAt = existing?.CreatedAt ?? now,
-                UpdatedAt = now,
-            };
-
-            if (!_namedSessionStore.Save(definition))
-            {
-                FileLog.Write("[NewSessionDialog] BtnSaveNamedSession_Click: store reported save failure");
-                await MessageBox.ShowAsync(this,
-                    "Could not save named session",
-                    "CC Director could not write the named session file. See the Director log for details.");
-                return;
-            }
-
-            NamedSessionNameBox!.Text = string.Empty;
-            RefreshNamedSessions();
-            UpdateSaveNamedSessionButton();
-            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click: saved named session {slug}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[NewSessionDialog] BtnSaveNamedSession_Click FAILED: {ex.Message}");
-            await MessageBox.ShowAsync(this, "Error", "Could not save the named session. Please try again.");
-        }
-    }
-
     private async void BtnDeleteNamedSession_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -924,6 +861,20 @@ public partial class NewSessionDialog : Window
             if (definition is null)
             {
                 FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: no definition for slug={slug}");
+                return;
+            }
+
+            // Defence in depth (the row's Launch button is already disabled when unavailable):
+            // refuse a launch whose repository folder no longer exists, naming the missing path,
+            // instead of failing later with "Repository path not found".
+            if (string.IsNullOrWhiteSpace(definition.RepoPath) || !Directory.Exists(definition.RepoPath))
+            {
+                FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: repo missing ({definition.RepoPath}); refusing to launch");
+                await MessageBox.ShowAsync(this,
+                    "Repository not found",
+                    $"The repository folder saved for \"{definition.Name}\" no longer exists:\n\n"
+                    + $"{definition.RepoPath}\n\n"
+                    + "Recreate the named session from the New Session tab, or delete this item.");
                 return;
             }
 
@@ -1019,7 +970,7 @@ public partial class NewSessionDialog : Window
         if (e.Source != MainTabs)
             return;
 
-        if (MainTabs.SelectedIndex == 2 && !_handoversLoaded)
+        if (MainTabs.SelectedItem == HandoversTab && !_handoversLoaded)
             await LoadHandoversAsync();
 
         UpdateActionButton();
@@ -1032,13 +983,9 @@ public partial class NewSessionDialog : Window
         if (BtnAction is null || MainTabs is null || BtnCopyHandover is null)
             return;
 
-        // Keep the "Save as named session" button (issue #508) in step with the current
-        // repository/agent selection alongside the main action button.
-        UpdateSaveNamedSessionButton();
+        BtnCopyHandover.IsVisible = MainTabs.SelectedItem == HandoversTab && HandoverList.SelectedItem != null;
 
-        BtnCopyHandover.IsVisible = MainTabs.SelectedIndex == 2 && HandoverList.SelectedItem != null;
-
-        if (MainTabs.SelectedIndex == 0)
+        if (MainTabs.SelectedItem == NewSessionTab)
         {
             // In Group mode the button reflects how many sessions get created (issue #259).
             var group = SelectedGroupDefinition;
@@ -1054,7 +1001,7 @@ public partial class NewSessionDialog : Window
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
         }
-        else if (MainTabs.SelectedIndex == 1)
+        else if (MainTabs.SelectedItem == ResumeTab)
         {
             BtnAction.Content = "Resume Selected";
             var isEnabled = SessionList.SelectedItem != null;
@@ -1062,13 +1009,22 @@ public partial class NewSessionDialog : Window
             BtnAction.Background = isEnabled ? ResumeButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
         }
-        else if (MainTabs.SelectedIndex == GitHubTabIndex)
+        else if (MainTabs.SelectedItem == GitHubTab)
         {
             BtnAction.Content = "Start Remote";
             var isEnabled = IsGitHubTabValid();
             BtnAction.IsEnabled = isEnabled;
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
+        }
+        else if (MainTabs.SelectedItem == NamedSessionsTab)
+        {
+            // Named Sessions has its own per-row Launch buttons; the shared bottom action does not
+            // apply here, so it stays disabled while this tab is active (issue #508).
+            BtnAction.Content = "Start Session";
+            BtnAction.IsEnabled = false;
+            BtnAction.Background = DisabledButtonBrush;
+            BtnAction.Foreground = DisabledTextBrush;
         }
         else
         {
@@ -1356,7 +1312,7 @@ public partial class NewSessionDialog : Window
 
     private void BtnAction_Click(object? sender, RoutedEventArgs e)
     {
-        if (MainTabs.SelectedIndex == 0)
+        if (MainTabs.SelectedItem == NewSessionTab)
         {
             SelectedPath = PathInput.Text;
             SelectedResumeSessionId = null;
@@ -1387,7 +1343,7 @@ public partial class NewSessionDialog : Window
             FileLog.Write($"[NewSessionDialog] BtnAction_Click: Starting new session at {SelectedPath}, agent={SelectedAgentKind}, customCmd={SelectedCustomCommand ?? "(none)"}");
             Close(true);
         }
-        else if (MainTabs.SelectedIndex == 1)
+        else if (MainTabs.SelectedItem == ResumeTab)
         {
             if (SessionList.SelectedItem is not SessionHistoryViewModel vm)
             {
@@ -1401,7 +1357,7 @@ public partial class NewSessionDialog : Window
             FileLog.Write($"[NewSessionDialog] BtnAction_Click: Resuming session claude={vm.ClaudeSessionId}, path={vm.ProjectPath}");
             Close(true);
         }
-        else if (MainTabs.SelectedIndex == GitHubTabIndex)
+        else if (MainTabs.SelectedItem == GitHubTab)
         {
             var config = BuildRemoteConfig();
             if (config is null)
