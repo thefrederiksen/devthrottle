@@ -1,0 +1,22 @@
+[project]
+name = "cc-spawn"
+version = "1.0.0"
+description = "Open a session on the local cc-director from the command line"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-spawn = "cc_spawn.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_spawn"]
+package-dir = {"cc_spawn" = "src"}

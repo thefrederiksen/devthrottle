@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Issue #721 - QA Verification</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #15803d; padding-bottom: 8px; } h2 { margin-top: 26px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; } th,td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; } th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; } code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; }
+</style></head><body>
+<h1>Issue #721 - cc-spawn - QA Independent Verification</h1>
+<p><strong>Verdict: VERIFIED - all acceptance criteria met.</strong> Verified from a fresh detached
+checkout of the PR branch (commit <code>6f10f7e</code>), my own build, my own test Director.</p>
+
+<h2>Criteria - Expected vs Actual (my run)</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Result</th></tr>
+<tr><td>1</td><td>cc-spawn creates a session that appears in cc-sessions</td><td class="pass">PASS - created e452e0e6 (qa-spawn); shows in cc-sessions.</td></tr>
+<tr><td>2</td><td>--agent and --prompt passed through</td><td class="pass">PASS - RawCli cmd session; --prompt "echo QASPAWNPROMPT" dispatched + executed.</td></tr>
+<tr><td>3</td><td>Non-existent repo -> clear error + non-zero exit</td><td class="pass">PASS - "Error: repoPath does not exist: ..." exit 1.</td></tr>
+<tr><td>4</td><td>Shipped (registry) + Core manifest + cli-reference + guard covers it</td><td class="pass">PASS - guard test (incl cc-spawn) green; entries present.</td></tr>
+<tr><td>5</td><td>Clean build + existing tests pass</td><td class="pass">PASS - independent build 0/0; guard tests green.</td></tr>
+</table>
+
+<h2>Transcript (my run, port 7884)</h2>
+<pre>$ cc-spawn D:/ReposFred/devthrottle-wt-721-qa --agent RawCli --command cmd --name "qa-spawn"
+Opened session e452e0e6 (qa-spawn).   (exit 0)
+$ cc-sessions   -> | e452e0e6 | qa-spawn | SOREN_NORTH | devthrottle-wt... | WaitingForInput |
+$ cc-spawn D:/nope/qa   -> Error: repoPath does not exist: D:/nope/qa   (exit 1)
+$ cc-spawn ... --prompt "echo QASPAWNPROMPT"  -> after readiness window, target buffer:
+   D:\...\devthrottle-wt-721-qa>echo QASPAWNPROMPT
+   QASPAWNPROMPT</pre>
+
+<div class="note">
+<strong>Environment note (NOT a #721 defect).</strong> My first launch self-allocated Control API
+port 7882, but that port is held by the Windows System process (PID 4 - an http.sys / excluded-port
+reservation), so every request 404'd ("no such endpoint") even though the Director logged "Kestrel
+listening on 7882". I diagnosed this as a port-allocation collision (the feature itself worked on a
+clean port in the dev run), relaunched onto port 7884, and all criteria passed. This is a flaky spot
+in the Director's port allocator / the agent-session-isolation harness (it can pick a Windows-reserved
+port) and is worth a separate follow-up - it is independent of cc-spawn.
+</div>
+
+<h2>Standalone QA note</h2>
+<p>Standalone QA does not merge. PR #724 is left open with developer + QA proof committed; the human merges.</p>
+</body></html>

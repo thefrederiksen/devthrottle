@@ -14,7 +14,7 @@ namespace CcDirector.Core.Tests;
 /// </summary>
 public sealed class FleetToolsShipGuardTests
 {
-    private static readonly string[] FleetTools = { "cc-sessions", "cc-whoami", "cc-send", "cc-ask" };
+    private static readonly string[] FleetTools = { "cc-sessions", "cc-whoami", "cc-send", "cc-ask", "cc-spawn" };
 
     [Fact]
     public void FleetTools_AreShippablePythonInRegistry()
