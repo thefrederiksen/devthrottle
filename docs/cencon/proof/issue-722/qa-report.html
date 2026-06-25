@@ -1,0 +1,17 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Issue #722 - QA</title>
+<style>body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:880px;margin:0 auto;padding:24px;color:#1f2933;line-height:1.55}h1{border-bottom:2px solid #15803d;padding-bottom:8px}pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px}table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left}th{background:#1f2937;color:#fff}.pass{color:#15803d;font-weight:700}</style></head><body>
+<h1>Issue #722 - cc-fleet-selftest - QA Independent Verification</h1>
+<p><strong>Verdict: VERIFIED.</strong> Fresh detached checkout (da9444c), own build, own test Director.</p>
+<table>
+<tr><th>Criterion</th><th>Result</th></tr>
+<tr><td>Green run: spawn 2 -> list -> send -> ask -> teardown, PASS, exit 0</td><td class="pass">PASS - 5/5, exit 0</td></tr>
+<tr><td>cc-ask returns the responder's marker (deterministic)</td><td class="pass">PASS - "marker found" (FLEETPONG)</td></tr>
+<tr><td>Forced failure (Director down) -> FAIL + non-zero exit</td><td class="pass">PASS - FAIL, exit 1</td></tr>
+<tr><td>No throwaway sessions left behind</td><td class="pass">PASS - cleanup check passed</td></tr>
+<tr><td>Shipped + Core manifest + cli-reference + guard</td><td class="pass">PASS - guard green</td></tr>
+</table>
+<pre>$ cc-fleet-selftest  ->  PASS spawn/list/send/ask(marker found)/cleanup  5/5  (exit 0)
+$ CC_DIRECTOR_API=...:59999 cc-fleet-selftest  ->  FAIL 0/2  (exit 1)
+independent build 0/0; FleetToolsShipGuardTests 2/2.</pre>
+<p>Standalone QA does not merge by itself; merge performed per the human's authorization to run this chain merge-as-we-go.</p>
+</body></html>
