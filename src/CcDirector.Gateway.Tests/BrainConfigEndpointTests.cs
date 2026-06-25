@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json.Nodes;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Storage;
 using CcDirector.Gateway;
@@ -43,6 +44,25 @@ public sealed class BrainConfigEndpointTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // Seed a deterministic registered agent into the isolated config so the brain block's agent
+        // list does not depend on whether Claude (or any tool) is actually installed on this host or
+        // the CI runner. First-run seeding only adds DETECTED tools (fix(agents): seed only detected
+        // tools on first run), so on a tool-less runner the list would otherwise be empty and these
+        // tests - which exercise the brain endpoint's agent surfacing and round-trip, not tool
+        // detection - would fail. Writing agent.entries up front makes LoadEntries read it rather than
+        // probe the host. This is also why the failure only showed on CI: a developer machine with
+        // Claude installed seeds a Claude entry and the tests pass, masking the host dependency.
+        AgentEntryStore.SaveEntries(new[]
+        {
+            new AgentEntry
+            {
+                DisplayName = "Claude Code",
+                Type = AgentKind.ClaudeCode,
+                Enabled = true,
+                ExecutablePath = "claude",
+            },
+        });
+
         _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token-12345", authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
