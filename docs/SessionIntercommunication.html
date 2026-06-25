@@ -12,11 +12,8 @@
     --bg: #eef1f5;
     --card: #ffffff;
     --gateway: #4f46e5;
-    --gateway-soft: #eef2ff;
     --director: #0d9488;
-    --director-soft: #ecfdfa;
     --session: #b45309;
-    --session-soft: #fff7ed;
     --code-bg: #0f172a;
     --code-ink: #e2e8f0;
     --good: #15803d;
@@ -24,22 +21,17 @@
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
+    margin: 0; background: var(--bg); color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.6;
-    font-size: 16px;
+    line-height: 1.6; font-size: 16px;
   }
   .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px 80px; }
   header.hero {
     background: linear-gradient(135deg, #4338ca 0%, #0d9488 100%);
-    color: #fff;
-    padding: 56px 24px 48px;
-    text-align: center;
+    color: #fff; padding: 56px 24px 48px; text-align: center;
   }
   header.hero h1 { margin: 0 0 10px; font-size: 34px; letter-spacing: -0.5px; }
-  header.hero p { margin: 0 auto; max-width: 640px; font-size: 18px; opacity: 0.95; }
+  header.hero p { margin: 0 auto; max-width: 660px; font-size: 18px; opacity: 0.95; }
   .status-pill {
     display: inline-block; margin-top: 18px; padding: 5px 14px; border-radius: 999px;
     background: rgba(255,255,255,0.18); font-size: 13px; letter-spacing: 0.4px;
@@ -55,7 +47,6 @@
     font-size: 17px; margin-right: 10px; vertical-align: 2px;
   }
   h3 { font-size: 18px; margin: 30px 0 4px; color: var(--ink); }
-  p { color: var(--ink); }
   .lead { color: var(--muted); font-size: 17px; }
   code {
     background: #e7ebf0; padding: 1px 6px; border-radius: 4px;
@@ -72,19 +63,15 @@
     padding: 24px; margin: 22px 0; box-shadow: 0 1px 3px rgba(15,23,42,0.05);
   }
   .fig svg { width: 100%; height: auto; display: block; }
-  .fig figcaption {
-    margin-top: 14px; text-align: center; color: var(--muted);
-    font-size: 14px; font-style: italic;
-  }
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 22px 0; }
+  .fig figcaption { margin-top: 14px; text-align: center; color: var(--muted); font-size: 14px; font-style: italic; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 22px 0; }
   .id-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
   .id-card .tag {
     display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
     text-transform: uppercase; padding: 3px 9px; border-radius: 6px; margin-bottom: 10px;
   }
   .id-card.canonical .tag { background: #e0e7ff; color: var(--gateway); }
-  .id-card.address .tag { background: var(--session-soft); color: var(--session); }
-  .id-card.label .tag { background: var(--director-soft); color: var(--director); }
+  .id-card.label .tag { background: #fef3c7; color: var(--session); }
   .id-card h4 { margin: 0 0 8px; font-size: 16px; }
   .id-card p { margin: 0; font-size: 14px; color: var(--muted); }
   .id-card .ex { display: block; margin-top: 10px; font-family: Consolas, monospace; font-size: 13px; color: var(--ink); }
@@ -94,6 +81,8 @@
   }
   .callout strong { color: var(--good); }
   .callout .rule { font-size: 17px; font-weight: 600; margin: 8px 0 0; }
+  .callout.info { background: #eef2ff; border-color: #c7d2fe; border-left-color: var(--gateway); }
+  .callout.info strong { color: var(--gateway); }
   table { width: 100%; border-collapse: collapse; margin: 22px 0; font-size: 14.5px; background: var(--card); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { background: #1f2937; color: #fff; font-weight: 600; }
@@ -112,387 +101,313 @@
   .legend { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; margin-top: 6px; font-size: 13px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 7px; }
   .swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
-  @media (max-width: 720px) {
-    .cards, .scope { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 720px) { .cards, .scope { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 
 <header class="hero">
   <h1>Session Intercommunication</h1>
-  <p>How one running session talks to another, anywhere in the fleet, through the Gateway.</p>
-  <div class="status-pill">Design / Proposed</div>
+  <p>How one running session talks to another, anywhere in the fleet, by relaying through its own Director.</p>
+  <div class="status-pill">Design / Proposed - specification for issue #705</div>
 </header>
 
 <div class="wrap">
 
   <h2><span class="num">1</span>What this feature is</h2>
   <p class="lead">Today a session (one running Claude Code or other agent inside a terminal) is an
-  island. It can drive its own machine, but it cannot talk to another session, and certainly not to
-  a session running under a different Director on a different machine.</p>
-  <p>This feature gives every session a simple, human-friendly way to:</p>
+  island. It can drive its own machine, but it has no easy, documented way to talk to another
+  session, especially one running under a different Director on a different machine.</p>
+  <p>This feature gives every session a simple way to:</p>
   <ul>
     <li>See every other session currently running anywhere in the fleet.</li>
     <li>Send a text message to one of them.</li>
     <li>Send the same message to all of them at once.</li>
     <li>Know who a message came from, so it can reply.</li>
   </ul>
-  <p>The point is that an agent can coordinate with another agent the way a person would lean over
-  and say "hey, session 3, run the tests while I write the docs." A human can also tell one agent
-  "go ask session 7 about the database schema," and the agent has a real way to do it.</p>
   <p>The idea was inspired by an agent-to-agent demo built on a peer-to-peer networking library. We
-  do not need the peer-to-peer part, because every Director already connects to a central Gateway,
-  and the Gateway is already a message router. We add a small, clear layer on top of machinery that
-  already exists. Section 7 compares the two approaches.</p>
+  do not need the peer-to-peer part: every Director already connects to a central Gateway, and the
+  Gateway is already a message router. We add a thin layer on top of machinery that already exists.
+  Section 9 compares the two approaches.</p>
 
-  <h2><span class="num">2</span>The three identifiers</h2>
-  <p>Every session can be referred to three ways. Keeping them separate is the heart of the design.</p>
+  <h2><span class="num">2</span>What already works today</h2>
+  <p>This feature is deliberately small, because most of it already exists. A session is spawned with
+  just three values: its own identifier (<code>CC_SESSION_ID</code>), its own Director's address
+  (<code>CC_DIRECTOR_API</code>), and its own Director's identifier (<code>CC_DIRECTOR_ID</code>). It
+  is given nothing about the Gateway or any other Director.</p>
+
+  <table>
+    <thead><tr><th>Can a session...</th><th>Today</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Talk to its own Director</td><td class="yes">Yes, already</td><td>It has <code>CC_DIRECTOR_API</code>; same-Director messaging works now with no new code</td></tr>
+      <tr><td>Reach the Gateway directly</td><td class="no">No</td><td>It has neither the Gateway address nor the fleet token</td></tr>
+      <tr><td>Reach another Director</td><td class="no">No</td><td>It knows only its own Director</td></tr>
+    </tbody>
+  </table>
+
+  <p>So the only real gap is crossing the Director boundary, and the transport for that already exists
+  at the Gateway. This feature opens a safe path to it and makes the capability obvious to the agent.</p>
+
+  <h2><span class="num">3</span>The two identifiers</h2>
+  <p>A session is referred to two ways. There are no Gateway-assigned numbers in this design (that was
+  considered and deferred).</p>
 
   <div class="cards">
     <div class="id-card canonical">
       <span class="tag">Canonical identity</span>
       <h4>Session identifier</h4>
-      <p>A GUID created by the Director. Never changes, globally unique, used only for internal
-      routing. A human never sees it.</p>
-      <span class="ex">7f3a1c20-...</span>
-    </div>
-    <div class="id-card address">
-      <span class="tag">Human address</span>
-      <h4>Session number</h4>
-      <p>A small integer handed out by the Gateway, unique across the whole fleet. This is what a
-      person says and an agent types. Reusable when a session closes.</p>
-      <span class="ex">7</span>
+      <p>A GUID created by the Director. Never changes, globally unique, used for all routing. For
+      everyday use, type a short unique prefix as the handle; an ambiguous prefix is refused with the
+      candidate list.</p>
+      <span class="ex">7f3a1c20-...  (handle: 7f3a)</span>
     </div>
     <div class="id-card label">
       <span class="tag">Human label</span>
       <h4>Session name</h4>
-      <p>Optional free text (the existing custom name). Defaults to the repository folder. For
-      context only; not unique, so never the primary address.</p>
+      <p>Optional free text (the existing custom name). Defaults to the repository folder. A
+      convenience, not the canonical address: it is resolved to an identifier first, and an ambiguous
+      name is refused.</p>
       <span class="ex">"feature-work"</span>
     </div>
   </div>
 
-  <div class="callout">
-    <strong>The golden rule that makes reuse safe</strong>
-    <p class="rule">Address by NUMBER or NAME. The Gateway resolves it to a GUID at the moment of
-    sending. From then on the message travels by GUID only.</p>
-    <p style="margin:10px 0 0; font-size:14.5px; color:var(--muted);">Because the message is bound
-    to a GUID the instant it is sent, a number that gets recycled a second later can never cause an
-    already-sent message to reach the wrong session.</p>
-  </div>
-
-  <h2><span class="num">3</span>The big picture</h2>
-  <p>The fleet is hub and spoke. The Gateway is the hub. Each Director is a spoke. Sessions live
-  inside Directors.</p>
+  <h2><span class="num">4</span>The big picture</h2>
+  <p>The fleet is hub and spoke: the Gateway is the hub, each Director is a spoke, sessions live
+  inside Directors. The key point of this design is that a session never talks to the Gateway itself.
+  It talks only to its own Director, and the Director relays.</p>
 
   <figure class="fig">
-    <svg viewBox="0 0 920 560" role="img" aria-label="Fleet topology diagram">
+    <svg viewBox="0 0 920 580" role="img" aria-label="Relay topology diagram">
       <defs>
-        <marker id="arrowDown" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
-          <path d="M1,1 L9,5 L1,9 Z" fill="#64748b"/>
-        </marker>
-        <marker id="arrowUp" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
-          <path d="M1,1 L9,5 L1,9 Z" fill="#0d9488"/>
-        </marker>
+        <marker id="up" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M1,1 L9,5 L1,9 Z" fill="#0d9488"/></marker>
+        <marker id="in" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M1,1 L9,5 L1,9 Z" fill="#b45309"/></marker>
       </defs>
 
       <!-- Gateway -->
-      <rect x="300" y="24" width="320" height="150" rx="14" fill="#eef2ff" stroke="#4f46e5" stroke-width="2.5"/>
-      <text x="460" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#4f46e5">GATEWAY</text>
-      <text x="460" y="76" text-anchor="middle" font-size="13" fill="#6366f1">the hub / router</text>
-      <text x="330" y="104" font-size="13.5" fill="#3730a3">- Knows every Director</text>
-      <text x="330" y="126" font-size="13.5" fill="#3730a3">- Hands out session numbers</text>
-      <text x="330" y="148" font-size="13.5" fill="#3730a3">- Maps number to GUID, then routes</text>
+      <rect x="320" y="24" width="280" height="104" rx="14" fill="#eef2ff" stroke="#4f46e5" stroke-width="2.5"/>
+      <text x="460" y="58" text-anchor="middle" font-size="20" font-weight="700" fill="#4f46e5">GATEWAY</text>
+      <text x="460" y="80" text-anchor="middle" font-size="13" fill="#6366f1">the hub / router</text>
+      <text x="460" y="104" text-anchor="middle" font-size="12.5" fill="#3730a3">routes to the Director that owns the target</text>
 
-      <!-- connecting lines: Gateway down to directors -->
-      <line x1="385" y1="174" x2="230" y2="316" stroke="#64748b" stroke-width="2" marker-end="url(#arrowDown)"/>
-      <line x1="535" y1="174" x2="690" y2="316" stroke="#64748b" stroke-width="2" marker-end="url(#arrowDown)"/>
-      <!-- up lines -->
-      <line x1="205" y1="316" x2="360" y2="176" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrowUp)"/>
-      <line x1="715" y1="316" x2="560" y2="176" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrowUp)"/>
-
-      <text x="252" y="232" font-size="12" fill="#0d9488" transform="rotate(-42 252 232)">heartbeat + doorbell (up)</text>
-      <text x="300" y="268" font-size="12" fill="#475569" transform="rotate(42 300 268)">dials back in (down)</text>
-      <text x="620" y="232" font-size="12" fill="#0d9488" transform="rotate(42 620 232)">heartbeat + doorbell (up)</text>
-      <text x="585" y="268" font-size="12" fill="#475569" transform="rotate(-42 585 268)">dials back in (down)</text>
+      <!-- up arrows: directors relay to gateway -->
+      <line x1="250" y1="300" x2="380" y2="130" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#up)"/>
+      <line x1="670" y1="300" x2="540" y2="130" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#up)"/>
+      <text x="232" y="230" font-size="12" fill="#0f766e" transform="rotate(-52 232 230)">relays with the fleet token</text>
+      <text x="650" y="230" font-size="12" fill="#0f766e" transform="rotate(52 650 230)">relays with the fleet token</text>
 
       <!-- Director A -->
-      <rect x="60" y="320" width="330" height="210" rx="14" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
-      <text x="84" y="352" font-size="17" font-weight="700" fill="#0f766e">DIRECTOR A</text>
-      <text x="84" y="372" font-size="12.5" fill="#0d9488">machine-A</text>
-      <rect x="84" y="388" width="125" height="56" rx="9" fill="#fff7ed" stroke="#b45309" stroke-width="1.8"/>
-      <text x="146" y="412" text-anchor="middle" font-size="14" font-weight="700" fill="#b45309">#3</text>
-      <text x="146" y="430" text-anchor="middle" font-size="11.5" fill="#92400e">planner</text>
-      <rect x="240" y="388" width="125" height="56" rx="9" fill="#fff7ed" stroke="#b45309" stroke-width="1.8"/>
-      <text x="302" y="412" text-anchor="middle" font-size="14" font-weight="700" fill="#b45309">#4</text>
-      <text x="302" y="430" text-anchor="middle" font-size="11.5" fill="#92400e">feature-work</text>
-      <text x="84" y="478" font-size="12" fill="#0f766e">sessions live inside the Director</text>
-      <text x="84" y="500" font-size="12" fill="#0f766e">Control web service, port 7879</text>
+      <rect x="60" y="300" width="360" height="250" rx="14" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
+      <text x="84" y="332" font-size="17" font-weight="700" fill="#0f766e">DIRECTOR A</text>
+      <text x="84" y="352" font-size="12.5" fill="#0d9488">machine-A  -  holds the fleet token</text>
+      <rect x="170" y="436" width="220" height="86" rx="10" fill="#fff7ed" stroke="#b45309" stroke-width="2"/>
+      <text x="280" y="466" text-anchor="middle" font-size="13.5" font-weight="700" fill="#b45309">session 4c81</text>
+      <text x="280" y="486" text-anchor="middle" font-size="11.5" fill="#92400e">"feature-work"</text>
+      <text x="280" y="506" text-anchor="middle" font-size="11" fill="#9a3412">calls its OWN Director only</text>
+      <line x1="280" y1="436" x2="280" y2="372" stroke="#b45309" stroke-width="2" marker-end="url(#in)"/>
+      <text x="292" y="410" font-size="11.5" fill="#9a3412">CC_DIRECTOR_API</text>
 
       <!-- Director B -->
-      <rect x="530" y="320" width="330" height="210" rx="14" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
-      <text x="554" y="352" font-size="17" font-weight="700" fill="#0f766e">DIRECTOR B</text>
-      <text x="554" y="372" font-size="12.5" fill="#0d9488">machine-B</text>
-      <rect x="554" y="388" width="125" height="56" rx="9" fill="#fff7ed" stroke="#b45309" stroke-width="1.8"/>
-      <text x="616" y="412" text-anchor="middle" font-size="14" font-weight="700" fill="#b45309">#7</text>
-      <text x="616" y="430" text-anchor="middle" font-size="11.5" fill="#92400e">docs</text>
-      <rect x="710" y="388" width="125" height="56" rx="9" fill="#fff7ed" stroke="#b45309" stroke-width="1.8"/>
-      <text x="772" y="412" text-anchor="middle" font-size="14" font-weight="700" fill="#b45309">#8</text>
-      <text x="772" y="430" text-anchor="middle" font-size="11.5" fill="#92400e">qa</text>
-      <text x="554" y="478" font-size="12" fill="#0f766e">sessions live inside the Director</text>
-      <text x="554" y="500" font-size="12" fill="#0f766e">Control web service, port 7879</text>
+      <rect x="500" y="300" width="360" height="250" rx="14" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
+      <text x="524" y="332" font-size="17" font-weight="700" fill="#0f766e">DIRECTOR B</text>
+      <text x="524" y="352" font-size="12.5" fill="#0d9488">machine-B  -  holds the fleet token</text>
+      <rect x="610" y="436" width="220" height="86" rx="10" fill="#fff7ed" stroke="#b45309" stroke-width="2"/>
+      <text x="720" y="466" text-anchor="middle" font-size="13.5" font-weight="700" fill="#b45309">session 9b2f</text>
+      <text x="720" y="486" text-anchor="middle" font-size="11.5" fill="#92400e">"docs"</text>
+      <text x="720" y="506" text-anchor="middle" font-size="11" fill="#9a3412">receives the message</text>
     </svg>
-    <figcaption>Hub and spoke. The Gateway never holds an open socket; the two web services call
-    each other over the private Tailscale network.</figcaption>
+    <figcaption>A session reaches only its own Director. The Director, which already holds the fleet
+    token, relays to the Gateway. The token never enters the agent process.</figcaption>
     <div class="legend">
       <span><span class="swatch" style="background:#4f46e5"></span> Gateway (hub)</span>
-      <span><span class="swatch" style="background:#0d9488"></span> Director (spoke)</span>
-      <span><span class="swatch" style="background:#b45309"></span> Session</span>
+      <span><span class="swatch" style="background:#0d9488"></span> Director (holds token)</span>
+      <span><span class="swatch" style="background:#b45309"></span> Session (agent)</span>
     </div>
   </figure>
 
-  <p><strong>Important wiring fact:</strong> a Director does not hold a permanent open socket to the
-  Gateway. There are two web services that call each other over Tailscale. Going up, the Director
-  sends a heartbeat every 15 seconds (with a snapshot of all its sessions) and rings a doorbell on
-  every session change. Going down, when the Gateway needs to act on a session it makes a fresh
-  call back into that Director's own web service. This means the Gateway can already reach any
-  online session on any machine. We are reusing the channel that already drives prompts and
-  handovers today, not inventing one.</p>
+  <div class="callout info">
+    <strong>The security principle</strong>
+    <p class="rule">The agent process is never given the Gateway address or the fleet token.</p>
+    <p style="margin:10px 0 0; font-size:14.5px; color:var(--muted);">Those live only in the Director
+    (<code>GatewayConfig</code>), and only the Director uses them. A session asks its own Director to
+    send; the Director forwards with the token it already holds. An agent runs model-driven, partly
+    untrusted code, so handing it a credential that can drive every session in the fleet would be a
+    leak risk. Relaying through the Director avoids that entirely, and needs no new credential at
+    spawn.</p>
+  </div>
 
-  <h2><span class="num">4</span>How a session gets its number</h2>
-  <p>The Gateway is the only component that can see the whole fleet, so it is the only one that can
-  hand out numbers unique across the fleet. It already receives everything it needs.</p>
+  <h2><span class="num">5</span>End-to-end flow of one message</h2>
+  <p>The complete path of "a session on machine A messages a session on machine B."</p>
 
   <figure class="fig">
-    <svg viewBox="0 0 900 470" role="img" aria-label="Number assignment sequence diagram">
+    <svg viewBox="0 0 760 700" role="img" aria-label="End to end relay flow diagram">
       <defs>
-        <marker id="seqArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-          <path d="M1,1 L9,5 L1,9 Z" fill="#475569"/>
-        </marker>
+        <marker id="flow" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 Z" fill="#475569"/></marker>
       </defs>
-      <!-- lane headers -->
-      <rect x="90" y="20" width="220" height="44" rx="9" fill="#ecfdfa" stroke="#0d9488" stroke-width="2"/>
-      <text x="200" y="48" text-anchor="middle" font-size="15" font-weight="700" fill="#0f766e">DIRECTOR A</text>
-      <rect x="590" y="20" width="220" height="44" rx="9" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
-      <text x="700" y="48" text-anchor="middle" font-size="15" font-weight="700" fill="#4f46e5">GATEWAY</text>
-      <!-- lifelines -->
-      <line x1="200" y1="64" x2="200" y2="450" stroke="#cbd5e1" stroke-width="2"/>
-      <line x1="700" y1="64" x2="700" y2="450" stroke="#cbd5e1" stroke-width="2"/>
 
-      <!-- step 1: self on director -->
-      <rect x="120" y="92" width="160" height="34" rx="7" fill="#fff7ed" stroke="#b45309" stroke-width="1.5"/>
-      <text x="200" y="114" text-anchor="middle" font-size="12.5" fill="#92400e">create session -&gt; gets GUID</text>
+      <!-- 1 Session A -->
+      <rect x="180" y="20" width="400" height="74" rx="12" fill="#fff7ed" stroke="#b45309" stroke-width="2.5"/>
+      <text x="200" y="48" font-size="15" font-weight="700" fill="#b45309">Session 4c81  (machine-A)</text>
+      <text x="200" y="72" font-size="13" font-family="Consolas, monospace" fill="#7c2d12">runs:  cc-send 9b2f "run the tests"</text>
 
-      <!-- step 2: doorbell -->
-      <line x1="200" y1="158" x2="690" y2="158" stroke="#475569" stroke-width="2" marker-end="url(#seqArrow)"/>
-      <text x="445" y="150" text-anchor="middle" font-size="12.5" fill="#334155">doorbell: "session-created" (fast path)</text>
+      <line x1="380" y1="94" x2="380" y2="132" stroke="#475569" stroke-width="2.5" marker-end="url(#flow)"/>
+      <text x="392" y="118" font-size="12" fill="#475569">POST $CC_DIRECTOR_API/fleet/send  (own Director only)</text>
 
-      <!-- step 3: heartbeat -->
-      <line x1="200" y1="206" x2="690" y2="206" stroke="#475569" stroke-width="2" marker-end="url(#seqArrow)"/>
-      <text x="445" y="198" text-anchor="middle" font-size="12.5" fill="#334155">heartbeat every 15s: lists all sessions</text>
+      <!-- 2 Director A -->
+      <rect x="150" y="140" width="460" height="92" rx="12" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
+      <text x="170" y="168" font-size="15" font-weight="700" fill="#0f766e">Director A  (holds the fleet token)</text>
+      <text x="170" y="192" font-size="13" fill="#115e59">step 1 - stamp the sender identity (this session)</text>
+      <text x="170" y="214" font-size="13" fill="#115e59">step 2 - forward to the Gateway with the token it already holds</text>
 
-      <!-- step 4: self on gateway -->
-      <rect x="560" y="232" width="280" height="50" rx="7" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
-      <text x="700" y="252" text-anchor="middle" font-size="12.5" fill="#3730a3">assign the lowest free number</text>
-      <text x="700" y="270" text-anchor="middle" font-size="12.5" fill="#3730a3">record: GUID 7f3a... = number 7</text>
+      <line x1="380" y1="232" x2="380" y2="270" stroke="#475569" stroke-width="2.5" marker-end="url(#flow)"/>
+      <text x="392" y="256" font-size="12" fill="#475569">POST /sessions/9b2f.../prompt   (token attached)</text>
 
-      <!-- step 5: response back -->
-      <line x1="700" y1="318" x2="210" y2="318" stroke="#475569" stroke-width="2" marker-end="url(#seqArrow)"/>
-      <text x="455" y="310" text-anchor="middle" font-size="12.5" fill="#334155">heartbeat response carries the numbers</text>
+      <!-- 3 Gateway -->
+      <rect x="180" y="278" width="400" height="74" rx="12" fill="#eef2ff" stroke="#4f46e5" stroke-width="2.5"/>
+      <text x="200" y="306" font-size="15" font-weight="700" fill="#4f46e5">Gateway</text>
+      <text x="200" y="330" font-size="13" fill="#3730a3">find which Director owns 9b2f...  ->  Director B</text>
 
-      <!-- step 6: self on director -->
-      <rect x="120" y="344" width="160" height="34" rx="7" fill="#fff7ed" stroke="#b45309" stroke-width="1.5"/>
-      <text x="200" y="366" text-anchor="middle" font-size="12.5" fill="#92400e">shows "#7" in the UI</text>
+      <line x1="380" y1="352" x2="380" y2="390" stroke="#475569" stroke-width="2.5" marker-end="url(#flow)"/>
+      <text x="392" y="376" font-size="12" fill="#475569">Gateway dials Director B</text>
 
-      <text x="450" y="425" text-anchor="middle" font-size="12.5" font-style="italic" fill="#64748b">On close, number 7 returns to the free pool and may be reused later (lowest first).</text>
+      <!-- 4 Director B -->
+      <rect x="180" y="398" width="400" height="64" rx="12" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
+      <text x="200" y="426" font-size="15" font-weight="700" fill="#0f766e">Director B  (machine-B)</text>
+      <text x="200" y="448" font-size="13" fill="#115e59">deliver into the target session as a prompt</text>
+
+      <line x1="380" y1="462" x2="380" y2="500" stroke="#475569" stroke-width="2.5" marker-end="url(#flow)"/>
+
+      <!-- 5 target session -->
+      <rect x="180" y="508" width="400" height="120" rx="12" fill="#fff7ed" stroke="#b45309" stroke-width="2.5"/>
+      <text x="200" y="536" font-size="15" font-weight="700" fill="#b45309">Session 9b2f  (machine-B) sees:</text>
+      <text x="200" y="562" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">[message from "feature-work" (machine-A), id 4c81]</text>
+      <text x="200" y="582" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">run the tests</text>
+      <text x="200" y="608" font-size="12.5" font-family="Consolas, monospace" fill="#9a3412">(to reply: cc-send 4c81 "...")</text>
     </svg>
-    <figcaption>The number is assigned from data the Gateway already receives. No new reporting
-    plumbing is required.</figcaption>
+    <figcaption>Every hop except the Director relay and the sender framing already exists. The Gateway
+    already routes prompts by identifier; we add the small relay and the framing.</figcaption>
   </figure>
 
-  <p><strong>If the Gateway is down:</strong> nothing breaks locally. The Director still creates and
-  runs the session; it just has no fleet number yet. The number arrives within about 15 seconds of
-  the Gateway returning. This is fine, because the number only matters for cross-session messaging,
-  which needs the Gateway anyway.</p>
-
-  <h2><span class="num">5</span>What a session can do (the methods)</h2>
-  <p>Capabilities ship as small command-line tools on the path, so any agent in any session can call
-  them directly. The Gateway route each one rides on is noted for implementers.</p>
+  <h2><span class="num">6</span>What a session can do (the methods)</h2>
+  <p>Capabilities ship as small command-line tools on the path. Each one calls the session's own
+  Director (<code>CC_DIRECTOR_API</code>); the Director relays to the Gateway as needed.</p>
 
   <h3>List the fleet &mdash; <code>cc-sessions</code></h3>
-  <pre><code>NUMBER  NAME           MACHINE     REPOSITORY     STATUS
-3       planner        machine-A   devthrottle    idle
-4       feature-work   machine-A   devthrottle    working
-7       docs           machine-B   mindzieWeb     idle
-8       qa             machine-B   cc-director    working</code></pre>
-  <p>How an agent discovers who exists, and how a name turns into a number. Rides the existing fleet
-  aggregator (<code>GET /sessions</code>); we add the number column.</p>
+  <pre><code>ID      NAME           MACHINE     REPOSITORY     STATUS
+4c81    feature-work   machine-A   devthrottle    working
+9b2f    docs           machine-B   mindzieWeb     idle
+a1d7    qa             machine-B   cc-director    working</code></pre>
+  <p>Calls <code>GET $CC_DIRECTOR_API/fleet/sessions</code>, which the Director satisfies by
+  forwarding to the Gateway's existing fleet aggregator. A Director with no Gateway returns just its
+  own sessions.</p>
 
   <h3>Find out who you are &mdash; <code>cc-whoami</code></h3>
-  <pre><code>You are session #4 ("feature-work") on machine-A, repo devthrottle.
-To message another session:  cc-send &lt;number&gt; "&lt;message&gt;"
+  <pre><code>You are session 4c81 ("feature-work") on machine-A, repo devthrottle.
+To message another session:  cc-send &lt;id&gt; "&lt;message&gt;"
 To see all sessions:         cc-sessions</code></pre>
-  <p>Each session also gets its own number at startup in an environment variable
-  (<code>CC_SESSION_NUMBER</code>) plus a one-line reminder, so the agent knows the capability exists
-  without being told.</p>
 
   <h3>Send to one session &mdash; <code>cc-send</code></h3>
-  <pre><code>cc-send 7 "Can you run the integration tests on your branch?"
+  <pre><code>cc-send 9b2f "Can you run the integration tests on your branch?"
 cc-send docs "Please update the API page when you get a chance."</code></pre>
-  <p>Address by number (preferred) or name. If a name matches more than one session, the tool refuses
-  and lists the candidates. Rides the existing prompt route
-  (<code>POST /sessions/{guid}/prompt</code>), which already finds the owning Director.</p>
+  <p>Address by short identifier (preferred) or name; an ambiguous prefix or name is refused with the
+  candidate list. Calls <code>POST $CC_DIRECTOR_API/fleet/send</code>, relayed to the Gateway's
+  existing prompt route.</p>
 
   <h3>Send to everyone &mdash; <code>cc-send all</code></h3>
   <pre><code>cc-send all "Heads up: I am about to merge to main in 5 minutes."</code></pre>
-  <p>Same message to every other session in the fleet. Rides the existing broadcast route
-  (<code>POST /fanout</code>).</p>
+  <p>Calls <code>POST $CC_DIRECTOR_API/fleet/broadcast</code>, relayed to the Gateway's existing
+  broadcast route.</p>
 
   <h3>What a received message looks like</h3>
-  <pre><code>[message from session #4 "feature-work" (machine-A)]
+  <pre><code>[message from "feature-work" (machine-A), id 4c81]
 Can you run the integration tests on your branch?
 
-(to reply: cc-send 4 "&lt;your reply&gt;")</code></pre>
-  <p>The sender header is what turns one-way text injection into a real conversation: the recipient
-  always knows who to reply to.</p>
+(to reply: cc-send 4c81 "&lt;your reply&gt;")</code></pre>
+  <p>The sender identity is stamped by the relaying Director from the calling session's own
+  identifier; it is not trusted from the request body. Delivery is best effort: if the target cannot
+  be reached, the sender gets a clear error. There is no store-and-forward queue in this version.</p>
 
-  <h3>Delivery timing</h3>
-  <p>A message is delivered by typing it into the target session as a prompt, the same way a handover
-  works today. If the target is idle, it lands immediately. If the target is busy (mid-turn), it
-  goes into that session's existing prompt queue and lands the moment the agent finishes its turn,
-  so an agent in the middle of thinking is never corrupted.</p>
+  <h2><span class="num">7</span>The one genuinely new capability: ask and reply</h2>
+  <div class="callout">
+    <strong>Deferred to the next increment</strong>
+    <p style="margin:8px 0 0; font-size:15px;">Everything above is one-way: you send a message and it
+    lands. The existing prompt mechanism cannot return the other agent's answer to you. That
+    request-and-response loop ("ask the session that has repo B loaded what its schema is, and get the
+    answer back") is the one capability genuinely missing and genuinely valuable. It needs a
+    reply-capture design (read the target's output after the question using the existing output-buffer
+    cursor, or a structured reply convention), so it is scoped as a separate increment after one-way
+    messaging lands. Called out here so the direction is clear; not part of the first version.</p>
+  </div>
 
-  <h2><span class="num">6</span>End-to-end flow of one message</h2>
-  <p>The complete path of "session 4 on machine A messages session 7 on machine B."</p>
-
-  <figure class="fig">
-    <svg viewBox="0 0 760 640" role="img" aria-label="End to end message flow diagram">
-      <defs>
-        <marker id="flowArrow" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto">
-          <path d="M2,2 L10,6 L2,10 Z" fill="#475569"/>
-        </marker>
-      </defs>
-
-      <!-- Stage 1: Session 4 -->
-      <rect x="180" y="20" width="400" height="78" rx="12" fill="#fff7ed" stroke="#b45309" stroke-width="2.5"/>
-      <text x="200" y="48" font-size="15" font-weight="700" fill="#b45309">Session #4  (machine-A)</text>
-      <text x="200" y="74" font-size="13.5" font-family="Consolas, monospace" fill="#7c2d12">runs:  cc-send 7 "run the tests"</text>
-
-      <line x1="380" y1="98" x2="380" y2="138" stroke="#475569" stroke-width="2.5" marker-end="url(#flowArrow)"/>
-      <text x="392" y="124" font-size="12" fill="#475569">HTTP { from: 4, to: 7, text }</text>
-
-      <!-- Stage 2: Gateway -->
-      <rect x="120" y="146" width="520" height="150" rx="12" fill="#eef2ff" stroke="#4f46e5" stroke-width="2.5"/>
-      <text x="140" y="174" font-size="16" font-weight="700" fill="#4f46e5">GATEWAY</text>
-      <text x="140" y="200" font-size="13" fill="#3730a3">step 1 - resolve number 7  -&gt;  GUID 7f3a...</text>
-      <text x="140" y="222" font-size="13" fill="#3730a3">step 2 - resolve sender 4  -&gt;  "feature-work"</text>
-      <text x="140" y="244" font-size="13" fill="#3730a3">step 3 - find which Director owns 7f3a...  -&gt;  Director B</text>
-      <text x="140" y="266" font-size="13" fill="#3730a3">step 4 - wrap the text with the sender header</text>
-
-      <line x1="380" y1="296" x2="380" y2="336" stroke="#475569" stroke-width="2.5" marker-end="url(#flowArrow)"/>
-      <text x="392" y="312" font-size="12" fill="#475569">HTTP POST /sessions/7f3a.../prompt</text>
-      <text x="392" y="328" font-size="12" fill="#475569">(Gateway dials Director B)</text>
-
-      <!-- Stage 3: Director B -->
-      <rect x="180" y="344" width="400" height="104" rx="12" fill="#ecfdfa" stroke="#0d9488" stroke-width="2.5"/>
-      <text x="200" y="372" font-size="15" font-weight="700" fill="#0f766e">Director B  (machine-B)</text>
-      <text x="200" y="398" font-size="13" fill="#115e59">is session 7 idle?</text>
-      <text x="220" y="420" font-size="13" fill="#115e59">yes  -&gt;  type the message in now</text>
-      <text x="220" y="440" font-size="13" fill="#115e59">no   -&gt;  add to session 7's prompt queue</text>
-
-      <line x1="380" y1="448" x2="380" y2="488" stroke="#475569" stroke-width="2.5" marker-end="url(#flowArrow)"/>
-
-      <!-- Stage 4: Session 7 -->
-      <rect x="180" y="496" width="400" height="124" rx="12" fill="#fff7ed" stroke="#b45309" stroke-width="2.5"/>
-      <text x="200" y="524" font-size="15" font-weight="700" fill="#b45309">Session #7  (machine-B) sees:</text>
-      <text x="200" y="550" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">[message from session #4 "feature-work" (machine-A)]</text>
-      <text x="200" y="570" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">run the tests</text>
-      <text x="200" y="596" font-size="12.5" font-family="Consolas, monospace" fill="#9a3412">(to reply: cc-send 4 "...")</text>
-    </svg>
-    <figcaption>Every step except number assignment and the sender wrapping already exists today.
-    The new work is the number map, the small set of tools, and the message framing.</figcaption>
-  </figure>
-
-  <h2><span class="num">7</span>Comparison with the peer-to-peer library</h2>
-  <p>The video built agent-to-agent communication on a peer-to-peer networking library: each agent
-  dials another by a public key, with a gossip swarm for discovery and broadcast. Checking it
-  capability by capability, our centralized approach gives agents the same powers; the differences
-  are all in the plumbing, and our plumbing is simpler because we already have a hub and a private
-  network.</p>
+  <h2><span class="num">8</span>Comparison with the peer-to-peer library</h2>
+  <p>The video built agent-to-agent communication on a peer-to-peer library (dial by public key,
+  gossip swarm for discovery and broadcast). Capability by capability, our centralized approach gives
+  agents the same powers; the differences are all in the plumbing, and ours is simpler because we
+  already have a hub and a private network.</p>
 
   <table>
     <thead>
-      <tr><th>Capability</th><th>Peer-to-peer library (video)</th><th>Our Gateway approach</th><th>Same for the agent?</th></tr>
+      <tr><th>Capability</th><th>Peer-to-peer library (video)</th><th>Our approach (relay through the Director)</th><th>Same for the agent?</th></tr>
     </thead>
     <tbody>
-      <tr><td>Address another agent</td><td>By public key (long, opaque)</td><td>By session number (small), then GUID</td><td class="yes">Ours is friendlier</td></tr>
-      <tr><td>Discover who exists</td><td>Join a gossip swarm on a topic</td><td><code>cc-sessions</code> asks the Gateway</td><td class="yes">Yes</td></tr>
-      <tr><td>Send a direct message</td><td>Direct connection or gossip</td><td><code>cc-send</code> routed prompt</td><td class="yes">Yes</td></tr>
-      <tr><td>Broadcast to many</td><td>Gossip publish to a topic</td><td><code>cc-send all</code> (fanout)</td><td class="yes">Yes</td></tr>
-      <tr><td>Know who a message is from</td><td>Carried in the payload</td><td>Sender header on every message</td><td class="yes">Yes</td></tr>
-      <tr><td>Reply to a sender</td><td>Dial the sender back</td><td><code>cc-send &lt;their number&gt;</code></td><td class="yes">Yes</td></tr>
-      <tr><td>Transfer large files</td><td>Built-in resumable blobs</td><td>Not in version 1 (endpoints exist to build on)</td><td class="no">Not yet</td></tr>
-      <tr><td>Shared synced state</td><td>Built-in synced documents</td><td>Not in version 1 (no demand yet)</td><td class="no">Not yet</td></tr>
+      <tr><td>Address another agent</td><td>By public key (long, opaque)</td><td>By identifier (short prefix), or name</td><td class="yes">Comparable</td></tr>
+      <tr><td>Discover who exists</td><td>Join a gossip swarm</td><td><code>cc-sessions</code>, relayed to the directory</td><td class="yes">Yes</td></tr>
+      <tr><td>Send a direct message</td><td>Direct connection or gossip</td><td><code>cc-send</code>, relayed to the prompt route</td><td class="yes">Yes</td></tr>
+      <tr><td>Broadcast to many</td><td>Gossip publish to a topic</td><td><code>cc-send all</code>, relayed to broadcast</td><td class="yes">Yes</td></tr>
+      <tr><td>Know who a message is from</td><td>Carried in the payload</td><td>Stamped by the relaying Director</td><td class="yes">Yes</td></tr>
+      <tr><td>Reply to a sender</td><td>Dial the sender back</td><td><code>cc-send</code> to the sender's id (one-way today)</td><td class="no">One-way now</td></tr>
+      <tr><td>Ask and get an answer back</td><td>Open a stream and read it</td><td>Separate increment (section 7)</td><td class="no">Not yet</td></tr>
+      <tr><td>Transfer large files</td><td>Built-in resumable transfer</td><td>Not in this version</td><td class="no">Not yet</td></tr>
+      <tr><td>Shared synced state</td><td>Built-in synced documents</td><td>Not in this version</td><td class="no">Not yet</td></tr>
       <tr><td>Network topology</td><td>Peer-to-peer mesh</td><td>Hub and spoke (Gateway)</td><td>Different plumbing, same result</td></tr>
       <tr><td>Through firewalls / routers</td><td>Hole punching + relay fallback</td><td>Tailscale already does this</td><td class="yes">Solved either way</td></tr>
-      <tr><td>Works if the hub is down</td><td>No hub, not applicable</td><td>Messaging pauses; local sessions fine</td><td>Acceptable tradeoff</td></tr>
-      <tr><td>Delivery if target offline</td><td>Best effort</td><td>Best effort in v1; mailbox fast-follow</td><td class="yes">Same in v1</td></tr>
+      <tr><td>Credential handling</td><td>Each agent holds its own key</td><td>Agent never holds the fleet token; Director relays</td><td class="yes">Ours is safer</td></tr>
     </tbody>
   </table>
 
-  <p><strong>Why we deliberately skip the peer-to-peer parts:</strong> the library exists because the
-  video has no central coordinator and must solve discovery, addressing, and firewall traversal from
-  scratch. We already have a coordinator (the Gateway) and a private network that gets through
-  firewalls (Tailscale). The hard parts of the mesh approach are exactly what Tailscale and the
-  Gateway already handle for us. The easy, valuable part (an agent can list peers and message them)
-  is what we build. The two genuine extras the library has, large file transfer and synced
-  documents, are noted as possible follow-ups; the same Gateway routing would carry them.</p>
+  <p>Why we skip the peer-to-peer parts: the library exists because the video has no central
+  coordinator and must solve discovery, addressing, and firewall traversal from scratch. We already
+  have a coordinator (the Gateway) and a private network that gets through firewalls (Tailscale). The
+  hard parts of the mesh are exactly what Tailscale and the Gateway already handle for us. The easy,
+  valuable part (an agent can list peers and message them) is what we build.</p>
 
-  <h2><span class="num">8</span>Scope</h2>
+  <h2><span class="num">9</span>Scope</h2>
   <div class="scope">
     <div class="box v1">
-      <h4>In version 1</h4>
+      <h4>In this version</h4>
       <ul>
-        <li>Gateway assigns and reuses fleet-unique session numbers, bound to GUID at send time.</li>
+        <li>Director-side relay endpoints: list the fleet, send to one, broadcast to all.</li>
+        <li>The fleet token stays on the Director, never exposed to a session.</li>
         <li><code>cc-sessions</code>, <code>cc-whoami</code>, <code>cc-send</code> (to one and to all).</li>
-        <li>Sender header framing on every delivered message.</li>
-        <li>Busy-aware delivery using the existing prompt queue.</li>
-        <li>Each session learns its own number at startup and how to message others.</li>
-        <li>Session number shown in the desktop user interface next to each session.</li>
+        <li>Sender framing on every delivered message, stamped by the Director.</li>
+        <li>A one-line reminder at spawn so each session knows the capability exists.</li>
+        <li>Addressing by identifier (short prefix) or name.</li>
       </ul>
     </div>
     <div class="box later">
       <h4>Deliberately deferred</h4>
       <ul>
-        <li>Durable mailbox: hold a message for a briefly-offline session and deliver on return.</li>
-        <li>Ask-and-wait: send a question and block for a structured reply.</li>
-        <li>Named groups: address a named subset instead of just "all."</li>
-        <li>Large file transfer and synced shared state, if a real need appears.</li>
+        <li>Ask and reply: send a question and get the answer back (the next increment).</li>
+        <li>Gateway-assigned session numbers and a reuse scheme (not needed).</li>
+        <li>A durable mailbox / store-and-forward for an offline target.</li>
+        <li>Named groups beyond "all".</li>
+        <li>Large file transfer and synced shared state.</li>
       </ul>
     </div>
   </div>
 
-  <h2><span class="num">9</span>Key files this design builds on</h2>
+  <h2><span class="num">10</span>Key files this design builds on</h2>
   <p>These already exist and are reused rather than replaced.</p>
   <ul class="filelist">
-    <li><code>src/CcDirector.Core/Sessions/Session.cs</code> &mdash; the session model and
-      <code>SendTextAsync</code> (how a message is typed into a session).</li>
-    <li><code>src/CcDirector.Core/Sessions/SessionManager.cs</code> &mdash; the per-Director session
-      registry, keyed by GUID.</li>
-    <li><code>src/CcDirector.ControlApi/ControlEndpoints.cs</code> &mdash; the Director's own web
-      service: the prompt route that delivers text, and the per-session prompt queue.</li>
-    <li><code>src/CcDirector.ControlApi/GatewayClient.cs</code> &mdash; the Director-to-Gateway client.
-      The heartbeat already carries the per-session snapshot the Gateway needs to assign numbers.</li>
-    <li><code>src/CcDirector.Gateway/Api/GatewayEndpoints.cs</code> &mdash; the Gateway routes: fleet
-      aggregator, prompt proxy, broadcast (fanout), and the resolver that finds a session's owning
-      Director.</li>
-    <li><code>src/CcDirector.Gateway/Discovery/DirectorRegistry.cs</code> &mdash; the live Director
-      list and the natural home for the new session-number map and free pool.</li>
-    <li><code>src/CcDirector.Gateway/Discovery/DirectorEndpointClient.cs</code> &mdash; the
-      Gateway-to-Director client used to dial a specific session.</li>
-    <li><code>src/CcDirector.Gateway.Contracts/</code> &mdash; shared data shapes; new message and
-      directory shapes go here.</li>
+    <li><code>src/CcDirector.Core/Sessions/SessionManager.cs</code> &mdash; builds the session
+      environment at spawn; the place for the one-line awareness note. No new credential is injected.</li>
+    <li><code>src/CcDirector.ControlApi/ControlEndpoints.cs</code> &mdash; the Director's web service;
+      the new <code>/fleet/*</code> relay endpoints go here, beside the existing prompt route.</li>
+    <li><code>src/CcDirector.ControlApi/GatewayClient.cs</code> &mdash; the Director's authenticated
+      client to the Gateway. Reused to forward relayed messages.</li>
+    <li><code>src/CcDirector.Core/Configuration/GatewayConfig.cs</code> &mdash; where the Gateway
+      address and fleet token live. They stay here, server-side, never handed to a session.</li>
+    <li><code>src/CcDirector.Gateway/Api/GatewayEndpoints.cs</code> &mdash; the Gateway routes reused
+      as-is: the fleet session aggregator, the prompt route, and the broadcast route.</li>
   </ul>
 
 </div>
