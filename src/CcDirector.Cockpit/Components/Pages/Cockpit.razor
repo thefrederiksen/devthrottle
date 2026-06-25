@@ -1451,8 +1451,8 @@
         await mod.InvokeVoidAsync("insertAtCursor", _composerEl, text);
     }
 
-    // Speak: opens the desktop-parity Dictate dialog (cockpit-dictate.js), the browser twin
-    // of the Avalonia SpeakDialog. It streams the mic to the owning Director's /dictate
+    // Speak: opens the shared Dictate dialog (dictation-overlay.js via the cockpitDictate shim),
+    // the browser twin of the Avalonia SpeakDialog. It sends the mic to the owning Director's /dictate
     // pipeline (OpenAI + shared dictionary + verbatim cleanup) inside a modal with a mic
     // selector, live equalizer, editable transcript, and Cancel / Pause / Insert / Send.
     // It returns the cleaned text via OnDictateInsert (drop into composer) or OnDictateSend

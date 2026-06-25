@@ -16,7 +16,9 @@
     <script src="lib/xterm.js"></script>
     @* No canvas addon: the DOM renderer uses native ClearType, matching the desktop
        terminal's text rendering (see cockpit-terminal.js header). *@
-    <script src="js/cockpit-dictate.js"></script>
+    @* Shared Dictate overlay - the ONE web dictation dialog, also embedded into the
+       Director's Control API. Defines window.dictationOverlay + a cockpitDictate shim. *@
+    <script src="js/dictation-overlay.js"></script>
     @* Wingman Voice tab tap-to-listen (issue #531): browser speech synthesis for the summary. *@
     <script src="js/cockpit-voice.js"></script>
     @* Tool-page helpers (issue #183): native confirm/alert, clipboard, segmented audio playback. *@

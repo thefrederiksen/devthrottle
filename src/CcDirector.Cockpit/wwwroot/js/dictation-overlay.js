@@ -1,26 +1,42 @@
-// Cockpit Dictate dialog: a desktop-parity modal for the cockpit's Speak button.
+// Shared Dictate overlay - the ONE web dictation dialog used by BOTH the Blazor
+// Cockpit and the Director's plain HTML session view. It is the browser twin of the
+// desktop SpeakDialog (src/CcDirector.Avalonia/Voice/SpeakDialog.axaml) and the phone
+// SpeakIntoTextboxDialog, and obeys the same canonical contract,
+// docs/architecture/dictation/DICTATION_UX_SPEC.md.
 //
-// This is the browser twin of the desktop SpeakDialog (src/CcDirector.Avalonia/Voice/
-// SpeakDialog.axaml). It overlays a modal with a mic selector, a RECORDING/TRANSCRIBING/
-// PAUSED status + timer, a live equalizer, an editable transcript, and the same four
-// actions: Cancel, Pause/Resume, Insert (drop text into the composer, do not send) and
-// Send (drop into the composer AND submit).
+// One source of truth: this file physically lives in the Cockpit wwwroot and is ALSO
+// embedded into the Director's Control API (a linked EmbeddedResource served at
+// /dictation-overlay.js), so the two surfaces can never drift apart again. The older
+// cockpit-dictate.js and dictate-client.js were merged into this file.
 //
-// Audio is captured as 24 kHz mono PCM16 via the vendored pcm16-writer AudioWorklet and
-// sent over a WebSocket to the OWNING DIRECTOR's /dictate endpoint (the same server
-// pipeline the desktop dialog uses: whole-clip BATCH transcription + shared dictionary
-// corrector, NO realtime/streaming and no live partials by design). The worklet is loaded
-// SAME-ORIGIN from the cockpit (a cross-origin worklet module would be blocked); the
-// dictate socket is cross-origin to the Director, exactly like the cockpit terminal stream.
+// Whole-clip BATCH: audio is captured as 24 kHz mono PCM16 via the vendored
+// pcm16-writer AudioWorklet and sent over a WebSocket to the owning Director's /dictate
+// endpoint. NO text appears while talking - there is no realtime/streaming and no live
+// partials by design (transcribing the whole clip at once is more accurate). Pause stops,
+// transcribes what was said so far, shows it (editable), and Resume appends a fresh
+// segment. The server is single-shot per connection, so a Pause finalizes the current
+// segment and a Resume opens a brand new one; cleaned text is accumulated client-side,
+// mirroring the desktop dialog.
 //
 // Capture-first: frames recorded before the server says 'started' are buffered in order
 // and flushed the instant it is, so the opening words are never clipped by connect latency.
 //
-// Blazor callbacks (DotNetObjectReference<Cockpit>):
-//   OnDictateInsert(text)  - Insert pressed: put cleaned text in the composer, no submit.
-//   OnDictateSend(text)    - Send pressed: put cleaned text in the composer and submit.
-//   OnDictateCancel()      - Cancel/closed with no text.
-window.cockpitDictate = (function () {
+// Public API (one entry, two host adapters):
+//
+//   window.dictationOverlay.start({
+//     wsUrl,                 // optional; defaults to same-origin ws(s)://<host>/dictate
+//     workletUrl,            // optional; defaults to /dictate-worklet.js
+//     profile,               // optional; defaults to 'default'
+//     dotNetRef,             // optional Blazor DotNetObjectReference<...>; when present the
+//                            //   overlay calls OnDictateInsert(text)/OnDictateSend(text)/
+//                            //   OnDictateCancel() on it
+//     onInsert, onSend, onCancel,  // plain-JS callbacks (used when dotNetRef is absent);
+//                            //   onSend defaults to onInsert when omitted
+//   });
+//
+// Backward-compatible shim: window.cockpitDictate.start(ref, wsUrl, workletUrl, profile)
+// is preserved so existing Blazor call sites need no change.
+window.dictationOverlay = (function () {
   // Capture-first frame router (pure/synchronous): buffer frames until the server is ready,
   // then flush in capture order and stream live thereafter.
   //
@@ -28,7 +44,7 @@ window.cockpitDictate = (function () {
   // mid-stream drop can be retried by replaying the whole segment's audio onto a fresh
   // socket (capture-first), instead of discarding the words spoken before the drop. The
   // retained log is independent of 'pending' (which empties on markReady), so it survives
-  // the live-streaming phase. 'capturedBytes' lets the dialog apply the same recoverable-
+  // the live-sending phase. 'capturedBytes' lets the dialog apply the same recoverable-
   // audio floor the server uses (MinRecoverableAudioBytes = 24000) to decide whether a
   // drop is worth a Retry or is a sub-floor clip that should just cancel.
   function createCaptureBuffer() {
@@ -50,7 +66,7 @@ window.cockpitDictate = (function () {
   }
 
   function injectStyles() {
-    if (document.getElementById('cockpit-dictate-styles')) return;
+    if (document.getElementById('dictation-overlay-styles')) return;
     const css = `
       .cd-overlay { position: fixed; inset: 0; z-index: 99999; background: rgba(0,0,0,0.65);
         display: flex; align-items: center; justify-content: center;
@@ -97,7 +113,7 @@ window.cockpitDictate = (function () {
       .cd-pause-glyph i { width: 4px; height: 14px; background: #CCC; display: block; border-radius: 1px; }
     `;
     const style = document.createElement('style');
-    style.id = 'cockpit-dictate-styles';
+    style.id = 'dictation-overlay-styles';
     style.textContent = css;
     document.head.appendChild(style);
   }
@@ -132,12 +148,40 @@ window.cockpitDictate = (function () {
     return overlay;
   }
 
-  async function start(ref, wsUrl, workletUrl, profile) {
-    workletUrl = workletUrl || '/js/dictate-worklet.js';
-    profile = profile || 'default';
+  // Resolve the three outcome callbacks from the options object. A Blazor host passes a
+  // DotNetObjectReference (dotNetRef) and we invoke its OnDictate* methods; a plain-JS host
+  // passes onInsert/onSend/onCancel directly. onSend falls back to onInsert when omitted.
+  function resolveCallbacks(opts) {
+    if (opts.dotNetRef) {
+      const ref = opts.dotNetRef;
+      return {
+        onInsert: (text) => notifyDotNet(ref, 'OnDictateInsert', text),
+        onSend: (text) => notifyDotNet(ref, 'OnDictateSend', text),
+        onCancel: () => notifyDotNet(ref, 'OnDictateCancel'),
+      };
+    }
+    const onInsert = opts.onInsert || function () {};
+    return {
+      onInsert,
+      onSend: opts.onSend || onInsert,
+      onCancel: opts.onCancel || function () {},
+    };
+  }
+
+  function defaultWsUrl() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return proto + '//' + location.host + '/dictate';
+  }
+
+  async function start(opts) {
+    opts = opts || {};
+    const profile = opts.profile || 'default';
+    const workletUrl = opts.workletUrl || '/dictate-worklet.js';
+    const wsUrl = opts.wsUrl || defaultWsUrl();
+    const { onInsert, onSend, onCancel } = resolveCallbacks(opts);
 
     if (!window.AudioWorkletNode || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      notify(ref, 'OnDictateCancel');
+      onCancel();
       alert('Dictation needs microphone + AudioWorklet support over HTTPS (or localhost).');
       return;
     }
@@ -167,15 +211,14 @@ window.cockpitDictate = (function () {
     let finalIntent = 'pause';         // what to do when 'final' arrives: pause | insert | send
     let finalizing = false;            // guards the tail-drain window so finalize can't re-enter
     let accumulatedText = '';          // cleaned text from finalized segments
-    let currentPartial = '';
     let selectedDeviceId = '';         // '' = system default
     let done = false;
 
     // Issue #226: failure-UX + retry-with-preserved-audio.
     // 24 kHz mono PCM16 = 48000 bytes/sec, so 24000 bytes is half a second. This MUST match
-    // DictationEndpoint.MinRecoverableAudioBytes: below it a drop carried nothing worth saving,
-    // so we treat it as a clean cancel (no Retry, no red error); at/above it the audio is worth
-    // recovering, so we offer Retry that replays the buffered frames.
+    // DictationEndpoint's recoverable-audio floor: below it a drop carried nothing worth
+    // saving, so we treat it as a clean cancel (no Retry, no red error); at/above it the audio
+    // is worth recovering, so we offer Retry that replays the buffered frames.
     const MIN_RECOVERABLE_AUDIO_BYTES = 24000;
     // The last typed {type:error} cause the Director sent (e.g. "no API key" / provider failure).
     // Surfaced on the close instead of a bare code/reason so the user sees the real cause.
@@ -184,13 +227,12 @@ window.cockpitDictate = (function () {
     // captured before the drop onto a fresh socket. Null when there is nothing to replay.
     let replayFrames = null;
 
-    // Trailing-audio drain window (web parity with the desktop DictationPipeline no-loss stop).
-    // The worklet posts a PCM frame every ~5ms via postMessage; those become queued main-thread
-    // tasks that ws.send each frame. Sending 'stop' synchronously on the click would (a) race
-    // ahead of already-queued-but-unsent frames and (b) miss the input-latency tail that has not
-    // reached the worklet yet - the server commits on 'stop', so both are lost. Keeping capture
-    // live for DRAIN_MS and sending 'stop' from a setTimeout guarantees every queued frame has
-    // flushed (the timer fires after them) and captures the trailing audio.
+    // Trailing-audio drain window (web parity with the desktop no-loss stop). The worklet posts
+    // a PCM frame every ~5ms via postMessage; those become queued main-thread tasks that ws.send
+    // each frame. Sending 'stop' synchronously on the click would (a) race ahead of
+    // already-queued-but-unsent frames and (b) miss the input-latency tail that has not reached
+    // the worklet yet - the server finalizes on 'stop', so both are lost. Keeping capture live
+    // for DRAIN_MS and sending 'stop' from a setTimeout guarantees every queued frame has flushed.
     const DRAIN_MS = 250;
     let t0 = performance.now();
     let elapsedBeforeMs = 0;
@@ -205,7 +247,7 @@ window.cockpitDictate = (function () {
     }
 
     function renderTranscript() {
-      transcriptEl.value = joinText(accumulatedText, currentPartial);
+      transcriptEl.value = accumulatedText;
     }
 
     // ---------- stage transitions ----------
@@ -234,7 +276,7 @@ window.cockpitDictate = (function () {
         pauseBtn.disabled = true; insertBtn.disabled = true; sendBtn.disabled = true;
         micSel.disabled = true;
         bars.forEach(b => { b.classList.add('amber'); b.style.height = '34px'; });
-        hintEl.textContent = '';
+        hintEl.textContent = 'Transcribing the whole recording...';
       } else if (s === 'paused') {
         statusEl.textContent = 'PAUSED - reviewing';
         pauseBtn.textContent = 'Resume'; pauseBtn.disabled = false;
@@ -261,13 +303,9 @@ window.cockpitDictate = (function () {
     // REAL cause (the Director's typed {type:error} if one arrived, else the WS close code/reason)
     // and, if enough audio was captured to be worth recovering, offer Retry that replays it.
     function describeDrop(ev) {
-      // Prefer the Director's typed cause - it names the human reason (no API key, provider
-      // failure) far better than a transport close code can.
       if (lastServerError) return 'Dictation dropped: ' + lastServerError;
       const code = ev && typeof ev.code === 'number' ? ev.code : 0;
       const reason = ev && ev.reason ? String(ev.reason) : '';
-      // Read the close code/reason instead of the old bare 'Connection closed.'. 1005 = no status
-      // frame (the common abnormal-drop case): say so plainly rather than printing a bare "1005".
       if (code === 1005 && !reason) return 'Dictation dropped (connection closed without a status).';
       return reason
         ? 'Dictation dropped (code ' + code + ': ' + reason + ').'
@@ -277,25 +315,21 @@ window.cockpitDictate = (function () {
     function handleMidStreamDrop(ev) {
       const captured = capture ? capture.capturedBytes : 0;
       if (captured < MIN_RECOVERABLE_AUDIO_BYTES) {
-        // Sub-floor clip: nothing worth recovering. Treat it as a clean cancel - no red ERROR,
-        // no Retry, just close the dialog the same way the Cancel button would.
+        // Sub-floor clip: nothing worth recovering. Treat it as a clean cancel.
         teardownAll();
-        notify(ref, 'OnDictateCancel');
+        onCancel();
         return;
       }
       // Snapshot the frames captured this segment so Retry can replay them onto a fresh socket
-      // even after teardownSegment nulls 'capture'. ws.onclose already fired, so the socket is
-      // gone; tear the rest of the segment down but keep the dialog open showing the cause.
+      // even after teardownSegment nulls 'capture'.
       replayFrames = capture.frames.slice();
       showError(describeDrop(ev));
       teardownSegment();
-      // Explicit 'inline-block' (not '') - the .cd-retry rule defaults to display:none, so an
-      // empty inline value would fall back to that and keep the button hidden.
       retryBtn.style.display = 'inline-block';
     }
 
     // Retry: reopen the socket and replay the buffered audio (capture-first), so the words
-    // spoken before the drop survive. Mirrors the #189 desktop preserve-audio standard.
+    // spoken before the drop survive.
     async function retryWithPreservedAudio() {
       if (!replayFrames || !replayFrames.length) return;
       const frames = replayFrames;
@@ -303,15 +337,12 @@ window.cockpitDictate = (function () {
       retryBtn.style.display = 'none';
       cancelBtn.textContent = 'Cancel';
       lastServerError = '';
-      currentPartial = '';
-      // Fresh capture buffer seeded with the dropped segment's frames: they flush in capture
-      // order the instant the new socket says 'started', then live capture continues.
       capture = createCaptureBuffer();
       for (const f of frames) capture.push(f, sendFrame);
       finalizing = false;
       setStage('starting');
-      const ok = await bootCapture();   // bring the mic back up for continued live capture
-      if (!ok) return;                  // bootCapture showed its own error
+      const ok = await bootCapture();
+      if (!ok) return;
       openSocket();
     }
 
@@ -375,10 +406,9 @@ window.cockpitDictate = (function () {
       const next = micSel.value;
       if (next === selectedDeviceId) return;
       selectedDeviceId = next;
-      // Switch device: keep accumulated text (re-seed from the edit box), drop the
-      // in-flight partial, and start a fresh segment on the new device.
+      // Switch device: keep accumulated text (re-seed from the edit box) and start a fresh
+      // segment on the new device.
       accumulatedText = transcriptEl.value || '';
-      currentPartial = '';
       teardownSegment();
       elapsedBeforeMs = 0;
       await startSegment();
@@ -422,17 +452,15 @@ window.cockpitDictate = (function () {
         switch (m.type) {
           case 'ready': ws.send(JSON.stringify({ type: 'start', profile })); break;
           case 'started': if (capture) capture.markReady(sendFrame); break;
-          // Whole-clip batch: the server emits NO 'partial' frames - text appears
-          // only in the single 'final' after 'transcribing'. There is no live
-          // preview by design (it is more accurate to transcribe the whole clip).
+          // Whole-clip batch: the server emits NO 'partial' frames - text appears only in the
+          // single 'final' after 'transcribing'. There is no live preview by design.
           case 'transcribing': setStage('transcribing'); break;
           case 'final': {
             const cleaned = (m.cleaned || m.raw || '');
             accumulatedText = joinText(accumulatedText, cleaned);
-            currentPartial = '';
             if (finalIntent === 'pause') { teardownSegment(); setStage('paused'); }
-            else if (finalIntent === 'insert') finishWith('OnDictateInsert');
-            else if (finalIntent === 'send') finishWith('OnDictateSend');
+            else if (finalIntent === 'insert') finishWith(onInsert);
+            else if (finalIntent === 'send') finishWith(onSend);
             break;
           }
           case 'error': {
@@ -448,10 +476,8 @@ window.cockpitDictate = (function () {
       };
       // Issue #268: the dictate socket is SAME-ORIGIN to the Gateway, which reverse-proxies to
       // the owning Director. So a failure to open it almost always means the Gateway could not
-      // reach the owning Director (offline / unreachable) - not a bare "WebSocket failed". The
-      // browser cannot read the proxy's 503 body off a failed upgrade, so we name the most likely
-      // cause (Director unreachable via the Gateway) instead of a generic error. 'wasReady' tells
-      // a never-opened upgrade (proxy/Director could not be reached) apart from a mid-stream drop.
+      // reach the owning Director (offline / unreachable) - not a bare "WebSocket failed".
+      // 'wasReady' tells a never-opened upgrade apart from a mid-stream drop.
       let wasReady = false;
       ws.onerror = () => {
         if (stage === 'transcribing') return;
@@ -459,16 +485,6 @@ window.cockpitDictate = (function () {
           ? 'Dictation connection failed mid-stream.'
           : 'Could not reach the owning Director through the Gateway (it may be offline or unreachable).');
       };
-      // Include 'starting': a socket that opens then closes before 'ready'/'started' (e.g. the
-      // Gateway proxy returns 503 because the owning Director is offline, or the Director rejects
-      // the /dictate upgrade) would otherwise leave the dialog stuck on STARTING with no error and
-      // no callback - keeping the C# Speak button disabled forever.
-      // Issue #226: onclose now reads the close EVENT so a mid-recording drop surfaces the real
-      // cause - the WS close code/reason, or the Director's typed {type:error} if one arrived just
-      // before the close - instead of the old bare 'Connection closed.'. A drop that captured
-      // recoverable audio offers Retry (replays the buffered frames); a sub-floor clip cancels
-      // cleanly. The 'finalizing' guard means a close during the normal stop/transcribe handshake
-      // is not treated as a drop.
       ws.onclose = (ev) => {
         if (done || stage === 'paused') return;
         if (stage === 'starting') {
@@ -479,8 +495,6 @@ window.cockpitDictate = (function () {
           handleMidStreamDrop(ev);
         }
       };
-      // Mark the upgrade as having actually completed (101 + server 'ready'): from here a failure
-      // is a mid-stream drop, before here it is a could-not-reach.
       ws.addEventListener('open', () => { wasReady = true; });
     }
 
@@ -498,7 +512,7 @@ window.cockpitDictate = (function () {
 
     // Recording -> drain the trailing audio -> stop -> wait for 'final', then dispatch by
     // finalIntent. We keep the mic graph live for DRAIN_MS so the last words actually reach the
-    // server before it commits (see DRAIN_MS note above). Controls are frozen during the window
+    // server before it finalizes (see DRAIN_MS note above). Controls are frozen during the window
     // (and 'finalizing' guards re-entry) so a second click cannot stack another stop.
     function finalizeFromRecording(intent) {
       if (finalizing) return;
@@ -509,10 +523,10 @@ window.cockpitDictate = (function () {
       setTimeout(sendStop, DRAIN_MS);
     }
 
-    function finishWith(method) {
+    function finishWith(callback) {
       const text = (transcriptEl.value || accumulatedText || '').trim();
       teardownAll();
-      notify(ref, method, text);
+      callback(text);
     }
 
     // ---------- teardown ----------
@@ -539,20 +553,20 @@ window.cockpitDictate = (function () {
     cancelBtn.addEventListener('click', () => {
       try { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'abort' })); } catch (e) {}
       teardownAll();
-      notify(ref, 'OnDictateCancel');
+      onCancel();
     });
     retryBtn.addEventListener('click', () => { retryWithPreservedAudio(); });
     pauseBtn.addEventListener('click', () => {
-      if (stage === 'recording') { elapsedBeforeMs += performance.now() - t0; currentPartial = ''; pauseBtn.disabled = true; finalizeFromRecording('pause'); }
-      else if (stage === 'paused') { accumulatedText = transcriptEl.value || ''; currentPartial = ''; pauseBtn.disabled = true; elapsedBeforeMs = 0; startSegment(); }
+      if (stage === 'recording') { elapsedBeforeMs += performance.now() - t0; pauseBtn.disabled = true; finalizeFromRecording('pause'); }
+      else if (stage === 'paused') { accumulatedText = transcriptEl.value || ''; pauseBtn.disabled = true; elapsedBeforeMs = 0; startSegment(); }
     });
     insertBtn.addEventListener('click', () => {
       if (stage === 'recording') finalizeFromRecording('insert');
-      else if (stage === 'paused') finishWith('OnDictateInsert');
+      else if (stage === 'paused') finishWith(onInsert);
     });
     sendBtn.addEventListener('click', () => {
       if (stage === 'recording') finalizeFromRecording('send');
-      else if (stage === 'paused') finishWith('OnDictateSend');
+      else if (stage === 'paused') finishWith(onSend);
     });
 
     function onKeyDown(e) {
@@ -566,21 +580,28 @@ window.cockpitDictate = (function () {
     document.addEventListener('keydown', onKeyDown);
 
     // Boot the mic/socket without blocking the promise this function returns. The dialog is
-    // fully event-driven from here (button clicks + WS messages + DotNet callbacks), so the
-    // Blazor JS-interop call that invoked start() should complete the moment the UI is wired -
-    // NOT stay open until getUserMedia resolves. Holding it open meant a hung/denied mic (no
-    // device, or a user ignoring the permission prompt) tripped Blazor's 60s interop timeout,
-    // which surfaced a bogus "dictation unavailable: A task was canceled" error on a dialog
-    // that was actually fine. bootCapture handles its own failures (showError), so a rejection
-    // here is already accounted for; swallow any stray rejection so it isn't logged as unhandled.
+    // fully event-driven from here (button clicks + WS messages + host callbacks), so a Blazor
+    // JS-interop call that invoked start() completes the moment the UI is wired - NOT staying
+    // open until getUserMedia resolves (a hung/denied mic would otherwise trip Blazor's 60s
+    // interop timeout). bootCapture handles its own failures (showError); swallow any stray
+    // rejection here so it is not logged as unhandled.
     startSegment().catch(() => {});
   }
 
-  function notify(ref, method, arg) {
+  function notifyDotNet(ref, method, arg) {
     if (!ref) return;
     try { arg === undefined ? ref.invokeMethodAsync(method) : ref.invokeMethodAsync(method, arg); }
     catch (e) { /* circuit gone */ }
   }
 
-  return { start };
+  return { start: start, _createCaptureBuffer: createCaptureBuffer };
 })();
+
+// Backward-compatible shim for existing Blazor call sites:
+//   cockpitDictate.start(dotNetRef, wsUrl, workletUrl, profile)
+// maps onto the unified options API so BriefPane.razor / Cockpit.razor need no change.
+window.cockpitDictate = {
+  start: function (ref, wsUrl, workletUrl, profile) {
+    return window.dictationOverlay.start({ dotNetRef: ref, wsUrl: wsUrl, workletUrl: workletUrl, profile: profile });
+  },
+};

@@ -1369,7 +1369,7 @@
   </div>
 </form>
 
-<script src="/dictate-client.js"></script>
+<script src="/dictation-overlay.js"></script>
 <script src="/xterm.js"></script>
 <script src="/xterm-addon-canvas.js"></script>
 
@@ -2533,13 +2533,18 @@
     if (typeof autosizePrompt === 'function') autosizePrompt();
   }
   document.getElementById('speakBtn')?.addEventListener('click', () => {
-    if (!window.ccDictate) return;
-    window.ccDictate.start({
-      onResult: (cleanedText) => {
-        const inp = document.getElementById('prompt');
-        if (!inp) return;
-        insertAtCaret(inp, cleanedText);
-      },
+    if (!window.dictationOverlay) return;
+    // Insert drops the transcript at the caret; Send does the same and then submits the
+    // composer (clicks the existing Send button) so it auto-sends, matching the desktop/web spec.
+    const dropIn = (cleanedText) => {
+      const inp = document.getElementById('prompt');
+      if (!inp) return;
+      insertAtCaret(inp, cleanedText);
+    };
+    window.dictationOverlay.start({
+      onInsert: dropIn,
+      onSend: (cleanedText) => { dropIn(cleanedText); document.getElementById('sendBtn')?.click(); },
+      onCancel: () => {},
     });
   });
 

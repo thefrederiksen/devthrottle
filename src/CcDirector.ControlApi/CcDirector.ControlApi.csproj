@@ -27,7 +27,10 @@
     <EmbeddedResource Include="Web\session-view.html" />
     <EmbeddedResource Include="Web\dictate.html" />
     <EmbeddedResource Include="Web\dictate-worklet.js" />
-    <EmbeddedResource Include="Web\dictate-client.js" />
+    <!-- The shared Dictate overlay lives once in the Cockpit wwwroot and is embedded here
+         (linked) so the Director and the Cockpit serve the SAME file - they can never drift.
+         Served at /dictation-overlay.js by DictationEndpoint. -->
+    <EmbeddedResource Include="..\CcDirector.Cockpit\wwwroot\js\dictation-overlay.js" Link="Web\dictation-overlay.js" />
     <EmbeddedResource Include="Web\xterm.js" />
     <EmbeddedResource Include="Web\xterm.css" />
     <EmbeddedResource Include="Web\xterm-addon-canvas.js" />

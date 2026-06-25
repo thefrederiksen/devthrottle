@@ -132,6 +132,25 @@ public sealed class DictationEndpointTests : IAsyncLifetime
         Assert.Contains("pcm16-writer", body);
     }
 
+    [Fact]
+    public async Task OverlayScript_is_served_from_the_linked_shared_file()
+    {
+        // The shared Dictate overlay lives once in the Cockpit wwwroot and is embedded into the
+        // Control API as a LINKED resource. This proves the cross-project link embedded and is
+        // served at /dictation-overlay.js (the file both the Director and the Cockpit use).
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}/") };
+        var resp = await http.GetAsync("dictation-overlay.js");
+        Assert.True(resp.IsSuccessStatusCode);
+        Assert.Equal("application/javascript", resp.Content.Headers.ContentType?.MediaType);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("window.dictationOverlay", body);
+        Assert.Contains("window.cockpitDictate", body); // the Blazor compat shim travels with it
+
+        // The old per-Director overlay is gone (merged into the shared file).
+        var legacy = await http.GetAsync("dictate-client.js");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, legacy.StatusCode);
+    }
+
     // End-to-end whole-clip batch transcription over /dictate. Needs a reachable
     // OpenAI-compatible transcription endpoint (a valid OPENAI_API_KEY) AND ffmpeg
     // on PATH to decode the Phase 0 clip to PCM16. The CI runner has neither, so the
