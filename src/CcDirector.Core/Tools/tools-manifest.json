@@ -63,6 +63,34 @@
       "description": "Trusted-event browser automation via Playwright CDP with named, isolated connections.",
       "smoke": { "args": ["list"], "expectContains": null },
       "note": null
+    },
+    {
+      "name": "cc-sessions",
+      "category": "Fleet",
+      "description": "List every session running across the fleet.",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+    },
+    {
+      "name": "cc-whoami",
+      "category": "Fleet",
+      "description": "Show this session's own fleet identity.",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+    },
+    {
+      "name": "cc-send",
+      "category": "Fleet",
+      "description": "Send a message to another session in the fleet (or all of them).",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+    },
+    {
+      "name": "cc-ask",
+      "category": "Fleet",
+      "description": "Ask another session a question and get its answer back.",
+      "smoke": null,
+      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
     }
   ]
 }

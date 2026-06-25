@@ -293,6 +293,42 @@
       "requirements": []
     },
     {
+      "name": "cc-sessions",
+      "category": "fleet",
+      "type": "python",
+      "description": "List every session running across the fleet",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
+      "name": "cc-whoami",
+      "category": "fleet",
+      "type": "python",
+      "description": "Show this session's own fleet identity",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
+      "name": "cc-send",
+      "category": "fleet",
+      "type": "python",
+      "description": "Send a message to another session in the fleet (or all of them)",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
+      "name": "cc-ask",
+      "category": "fleet",
+      "type": "python",
+      "description": "Ask another session a question and get its answer back",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
       "name": "cc-posthog",
       "category": "data-utilities",
       "type": "python",
