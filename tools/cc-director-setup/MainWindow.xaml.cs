@@ -410,6 +410,14 @@ public partial class MainWindow : Window
         {
             prep = await runner.PrepareAsync();
         }
+        catch (GitHubRateLimitException ex)
+        {
+            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED (rate limit): {ex.Message}");
+            _installStep?.SetStatus(ex.UserMessage());
+            NextButton.Content = "Retry";
+            NextButton.IsEnabled = true;
+            return;
+        }
         catch (Exception ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex.Message}");
