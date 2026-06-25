@@ -381,6 +381,111 @@ internal static class ControlEndpoints
             return Results.Json(new FleetSendResponse { Accepted = true, DeliveredCount = count });
         });
 
+        // Capture a LOCAL target's answer when there is no Gateway to do the wait for us (issue #717):
+        // record the target's buffer cursor, deliver the framed question, wait for it to return to
+        // Idle (or time out), then read the cleaned output produced since the cursor as the answer.
+        async Task<(string answer, string status)> AskLocalAsync(Session target, string framed, int timeoutMs, CancellationToken ct)
+        {
+            var cursor = target.Buffer?.TotalBytesWritten ?? 0;
+            await target.SendTextAsync(framed);
+
+            // Give the target a moment to leave Idle, then wait for it to settle back to Idle.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await Task.Delay(300, ct);
+            while (sw.ElapsedMilliseconds < timeoutMs && target.ActivityState != ActivityState.Idle)
+                await Task.Delay(250, ct);
+
+            var timedOut = target.ActivityState != ActivityState.Idle;
+            var answer = "";
+            if (target.Buffer is not null)
+            {
+                var (data, _) = target.Buffer.GetWrittenSince(cursor);
+                answer = AnsiCleaner.Clean(data);
+            }
+            return (answer, timedOut ? "timeout" : "idle");
+        }
+
+        // POST /fleet/ask - ask one session a question and return its answer. With a Gateway, relay
+        // to the Gateway's prompt-with-wait (uniform for local and remote targets); standalone, only
+        // a local target can be asked. A timeout returns 504; unreachable/unknown returns a clear error.
+        app.MapPost("/fleet/ask", async (FleetAskRequest req, CancellationToken ct) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.ToSessionId))
+                return Results.BadRequest(new { error = "toSessionId is required" });
+            if (string.IsNullOrWhiteSpace(req.Question))
+                return Results.BadRequest(new { error = "question is required" });
+            if (!Guid.TryParse(req.ToSessionId, out var toGuid))
+                return Results.BadRequest(new { error = "invalid toSessionId format" });
+
+            var timeoutMs = req.TimeoutMs > 0 ? req.TimeoutMs : 120_000;
+            var framed = FrameForSender(req.FromSessionId, req.Question);
+
+            var gw = gatewayClientProvider?.Invoke();
+            if (gw is { IsEnabled: true })
+            {
+                try
+                {
+                    var resp = await gw.AskFleetAsync(req.ToSessionId, framed, timeoutMs, ct);
+                    if (!resp.Accepted)
+                        return Results.Json(new FleetAskResponse
+                        {
+                            Answered = false, Status = "failed",
+                            Error = resp.Error ?? "The target rejected the question.",
+                        }, statusCode: StatusCodes.Status502BadGateway);
+                    if (string.Equals(resp.WaitStatus, "timeout", StringComparison.OrdinalIgnoreCase))
+                        return Results.Json(new FleetAskResponse
+                        {
+                            Answered = false, Status = "timeout",
+                            Error = $"No answer from {req.ToSessionId} within {timeoutMs} ms.",
+                        }, statusCode: StatusCodes.Status504GatewayTimeout);
+                    return Results.Json(new FleetAskResponse
+                    {
+                        Answered = true,
+                        Status = resp.WaitStatus ?? "idle",
+                        Answer = resp.Output ?? "",
+                    });
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[ControlEndpoints] /fleet/ask relay to {toGuid} FAILED: {ex.Message}");
+                    return Results.Json(new FleetAskResponse
+                    {
+                        Answered = false, Status = "failed",
+                        Error = $"Cannot reach the target via the Gateway: {ex.Message}",
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                }
+            }
+
+            // Standalone: only a local target can be asked (no Gateway to reach a remote one).
+            var local = sessionManager.GetSession(toGuid);
+            if (local is null)
+                return Results.Json(new FleetAskResponse
+                {
+                    Answered = false, Status = "not_found",
+                    Error = "Session not found on this Director and no Gateway is configured.",
+                }, statusCode: StatusCodes.Status404NotFound);
+
+            try
+            {
+                var (answer, status) = await AskLocalAsync(local, framed, timeoutMs, ct);
+                if (status == "timeout")
+                    return Results.Json(new FleetAskResponse
+                    {
+                        Answered = false, Status = "timeout",
+                        Error = $"No answer from {req.ToSessionId} within {timeoutMs} ms.",
+                    }, statusCode: StatusCodes.Status504GatewayTimeout);
+                return Results.Json(new FleetAskResponse { Answered = true, Status = status, Answer = answer });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /fleet/ask local to {toGuid} FAILED: {ex.Message}");
+                return Results.Json(new FleetAskResponse
+                {
+                    Answered = false, Status = "failed", Error = ex.Message,
+                }, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
         // Ask the wingman about this session. Two behaviors, both on the strong model:
         //   mode=explain -> terse "what's happening" briefing over pre-built context.
         //   free-text question -> the "Ask the Wingman" channel: a read-only full-power

@@ -227,6 +227,42 @@ public sealed class GatewayClient : IDisposable
     }
 
     /// <summary>
+    /// Ask a question to a session anywhere in the fleet and wait for its answer (issue #717), via
+    /// the Gateway's POST /sessions/{sid}/prompt with WaitForIdle=true. The Gateway holds the
+    /// response open until the target returns to Idle (or the timeout), then returns the captured
+    /// output as <see cref="PromptResponse.Output"/> with <see cref="PromptResponse.WaitStatus"/>.
+    /// Uses a DEDICATED HttpClient: the shared <c>_http</c> has a 10s timeout, but an ask may
+    /// legitimately wait up to <paramref name="timeoutMs"/>. Throws when the Gateway is disabled or
+    /// the call fails.
+    /// </summary>
+    public async Task<PromptResponse> AskFleetAsync(string toSessionId, string text, int timeoutMs, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot reach a remote session.");
+        if (string.IsNullOrWhiteSpace(toSessionId))
+            throw new ArgumentException("Target session id is required", nameof(toSessionId));
+
+        FileLog.Write($"[GatewayClient] AskFleetAsync: POST /sessions/{toSessionId}/prompt (wait <= {timeoutMs}ms)");
+        using var http = new HttpClient
+        {
+            BaseAddress = new Uri(_config.Url.TrimEnd('/') + "/"),
+            Timeout = TimeSpan.FromMilliseconds(timeoutMs + 15_000),
+        };
+        if (!string.IsNullOrEmpty(_config.Token))
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.Token);
+
+        var body = new PromptRequest { Text = text, AppendEnter = true, WaitForIdle = true, TimeoutMs = timeoutMs };
+        using var resp = await http.PostAsJsonAsync($"sessions/{toSessionId}/prompt", body, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Gateway ask to {toSessionId} returned HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+        var parsed = await resp.Content.ReadFromJsonAsync<PromptResponse>(ct);
+        if (parsed is null)
+            throw new InvalidOperationException("Gateway ask returned an unparsable body.");
+        return parsed;
+    }
+
+    /// <summary>
     /// Relay a broadcast to many sessions via the Gateway's POST /fanout. Fire-and-forget
     /// (WaitForIdle=false). Throws when the Gateway is disabled or the call fails.
     /// </summary>
