@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #697 - QA Verification</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; color: #1e1e1e; line-height: 1.5; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #0e8a16; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 26px; color: #0e8a16; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; vertical-align: top; font-size: 13.5px; }
+  th { background: #eef7ee; }
+  .pass { color: #0e8a16; font-weight: 600; }
+  .verified { background: #0e8a16; color: #fff; padding: 8px 12px; border-radius: 6px; display: inline-block; font-weight: 600; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #697 - QA Verification (independent)</h1>
+<p>
+  Verified independently of the Developer artifacts: fresh checkout of branch
+  <code>issue-697-ephemeral-fallback</code> (HEAD <code>61aca559</code>), own full-solution build,
+  own test run, and own running Director (slot 7, release build) - no dev binary or dev screenshot reused.
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual (QA)</h2>
+<table>
+  <tr><th>AC</th><th>Expected</th><th>Actual (my evidence)</th><th></th></tr>
+  <tr>
+    <td><b>AC1</b> - fallback keeps the API up</td>
+    <td>Range full -&gt; bind a port outside 7879-7898; <code>GET /sessions</code> -&gt; 200.</td>
+    <td>QA Director (all 20 ports held) logged <code>Kestrel listening on http://127.0.0.1:56064</code>
+        (56064 ∉ range); <code>GET http://127.0.0.1:56064/sessions -&gt; HTTP 200 body=[]</code>; UI
+        header shows <code>SORENLAPTOP:56064</code>. Also: host integration test green.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC2</b> - remote path uses the ephemeral port</td>
+    <td>Serve self-provisions on the ephemeral port; Gateway registration advertises it.</td>
+    <td>Log: <code>mapped --https=56064 -&gt; http://localhost:56064</code> and
+        <code>Registered: status=201, endpoint=...:56064</code>. UI: <b>GATEWAY CONNECTED - two-way
+        verified</b>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC3</b> - no false "down" on success</td>
+    <td>No startup error / "free a port" notice on a successful fallback.</td>
+    <td>No <code>Control API DOWN</code> / <code>ReportStartupFailure</code> in the log. UI shows
+        <b>All systems go</b> (not the degraded Control-API indicator).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC4</b> - true failure still reported</td>
+    <td>If even the ephemeral bind fails, a Control-API-down error still surfaces.</td>
+    <td>review-code lens: the fallback is inserted before the existing throw path, which is
+        unchanged; the existing <code>ReportStartupFailure_SetsErrorAndRaisesEvent</code> test is
+        green in my run.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC5</b> - covered by a test</td>
+    <td>A test drives "range exhausted" and asserts an ephemeral port.</td>
+    <td>My independent run: <code>StartAsync_FixedRangeExhausted_FallsBackToEphemeralPortAndStaysListening</code>
+        green (18/18 in the ControlApiHost + PortAllocator filter).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><b>AC6</b> - zero-warning build + green suite</td>
+    <td>Warning-free build; green tests.</td>
+    <td>My full-solution build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>. Tests 18/18.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>QA Director log (slot 7, my build of the PR branch, all 20 ports occupied)</h2>
+<pre>
+[ControlApiHost] Fixed range 7879..7898 exhausted; falling back to an ephemeral loopback port
+[ControlApiHost] Kestrel listening on http://127.0.0.1:56064 (loopback only; remote access via Tailscale Serve)
+[TailscaleServeSelfProvisioner] mapped --https=56064 -> http://localhost:56064
+[GatewayClient] POST /directors/register: endpoint=https://sorenlaptop.taildb08ed.ts.net:56064
+[GatewayClient] Registered: status=201, endpoint=https://sorenlaptop.taildb08ed.ts.net:56064
+
+GET http://127.0.0.1:56064/sessions  ->  HTTP 200   body: []
+</pre>
+
+<h2>Running app (ephemeral port 56064, Gateway connected)</h2>
+<img src="qa-app.png" alt="CC Director on ephemeral port 56064, All systems go, Gateway connected" />
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Negative sweep: the app's main screen renders normally - "All systems go, 9 of 9 tools passing", Gateway connected; nothing adjacent broken.</li>
+  <li>review-code lens: new + existing tests present and green; no <code>docs/cencon/</code> architecture/security drift (same loopback-only + Tailscale Serve posture); no blocking DT rule affected (the raw port stays loopback-only).</li>
+</ul>
+
+<h2>Verdict</h2>
+<p><span class="verified">VERIFIED - all acceptance criteria met.</span></p>
+
+</body>
+</html>
