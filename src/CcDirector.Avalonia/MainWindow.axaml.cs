@@ -1175,6 +1175,7 @@ public partial class MainWindow : Window
                     TerminalHost.Detach();
                     GitChangesView.Detach();
                     CleanView.Detach();
+            HistoryView.Detach();
                     _activeSession = null;
 
                     SetSessionHeaderVisible(false);
@@ -1438,6 +1439,7 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
+            HistoryView.Detach();
         }
 
         _activeSession = vm;
@@ -1459,6 +1461,7 @@ public partial class MainWindow : Window
             ApplyVoiceWingmanTabVisibility();
             GitChangesView.Detach();
             CleanView.Detach();
+            HistoryView.Detach();
             return;
         }
 
@@ -1942,7 +1945,9 @@ public partial class MainWindow : Window
             {
                 UpdateSessionHeader();
                 CleanView.Detach();
+            HistoryView.Detach();
                 CleanView.Attach(vm.Session);
+            HistoryView.Attach(vm.Session);
             }
 
             ShowNotification($"Session relinked to {dialog.SelectedSessionId[..8]}...");
@@ -2045,6 +2050,7 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
+            HistoryView.Detach();
             _activeSession = null;
 
             SetSessionHeaderVisible(false);
@@ -3359,6 +3365,12 @@ public partial class MainWindow : Window
         SwitchLeftTab("Wingman");
     }
 
+    private void HistoryTabButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!HistoryTabButton.IsVisible) return;
+        SwitchLeftTab("History");
+    }
+
     // The wingman annotation banner is a passive viewer of the structured briefing the
     // ProactiveExplainService stores on the session at each turn-end. No Opus calls are
     // made from this tab; updates arrive via Session.OnCachedExplainChanged.
@@ -4171,6 +4183,7 @@ public partial class MainWindow : Window
         SourceControlPanel.IsVisible = tab == "SourceControl";
         VoicePanel.IsVisible = tab == "Voice";
         WingmanPanel.IsVisible = tab == "Wingman";
+        HistoryPanel.IsVisible = tab == "History";
         DocumentPanel.IsVisible = isDocTab;
 
         // The shared prompt bar belongs to the terminal-style tabs. The Voice and
@@ -5451,6 +5464,7 @@ public partial class MainWindow : Window
                     TerminalHost.Detach();
                     GitChangesView.Detach();
                     CleanView.Detach();
+            HistoryView.Detach();
                     _activeSession = null;
                 }
 
@@ -5490,6 +5504,7 @@ public partial class MainWindow : Window
                     TerminalHost.Detach();
                     GitChangesView.Detach();
                     CleanView.Detach();
+            HistoryView.Detach();
                     _activeSession = null;
                 }
 
