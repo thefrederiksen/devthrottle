@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #719 - Developer Agent Proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #4f46e5; padding-bottom: 8px; }
+  h2 { margin-top: 30px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; }
+  code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #719 - Ship and self-verify the fleet-messaging tools - Developer Agent Proof</h1>
+<p><strong>Branch:</strong> <code>issue-719-ship-fleet-tools</code>. Deployment-config change: makes
+<code>cc-sessions</code>, <code>cc-whoami</code>, <code>cc-send</code>, <code>cc-ask</code> actually
+ship to every machine and be self-verified by the in-app doctor. No runtime UI - proof is the
+manifests, the build selection, and the guard test.</p>
+
+<h2>What was changed</h2>
+<ul>
+  <li><code>tools/registry.json</code> - added the four tools as <code>"type":"python","ship":true</code>
+      so the Python bundle builds them and the installer puts them on PATH.</li>
+  <li><code>src/CcDirector.Core/Tools/tools-manifest.json</code> - added the four (category Fleet,
+      presence + <code>--version</code>, <code>smoke:null</code> with a note that they require a
+      session env), so the in-app doctor verifies them.</li>
+  <li><code>src/CcDirector.Core.Tests/FleetToolsShipGuardTests.cs</code> - a guard that fails if any
+      of the four is missing from EITHER manifest, so they cannot silently half-ship again.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>Four tools are ship:true python in registry.json</td><td class="pass">PASS</td><td>Entries added; guard test asserts it.</td></tr>
+<tr><td>Build ship-selection includes all four</td><td class="pass">PASS</td><td>The exact filter from build-python-bundle.ps1 selected: cc-sessions, cc-whoami, cc-send, cc-ask (14 shipped python tools total). Transcript below.</td></tr>
+<tr><td>Four tools in the Core health-check manifest (presence + --version, smoke null + note)</td><td class="pass">PASS</td><td>Entries added; guard test asserts it via ToolCatalogService.</td></tr>
+<tr><td>A unit test fails if any of the four is missing from either manifest</td><td class="pass">PASS</td><td>FleetToolsShipGuardTests (2 facts) - both green. Each uses Assert.True(contains, ...) so a missing entry fails by construction.</td></tr>
+<tr><td>Clean solution build + existing tool-catalog tests still pass</td><td class="pass">PASS</td><td>dotnet build: 0/0. 27 tests pass (guard + ToolCatalogService + ToolInventory).</td></tr>
+</table>
+
+<h2>Transcript - build ship-selection (the exact build filter)</h2>
+<pre>$r = Get-Content tools/registry.json -Raw | ConvertFrom-Json
+$py = @($r.tools | Where-Object { $_.type -eq "python" -and $_.ship -eq $true -and $_.name -ne "cc-director-setup" })
+shipped python tool count: 14
+fleet tools selected: cc-sessions, cc-whoami, cc-send, cc-ask</pre>
+
+<h2>Transcript - build + tests</h2>
+<pre>python -c "json.load(registry); json.load(core-manifest)"   -> both valid
+dotnet test (FleetToolsShipGuard + ToolCatalog + ToolInventory) -> Passed! Failed: 0, Passed: 27
+dotnet build cc-director.sln                                 -> Build succeeded. 0 Warning(s) 0 Error(s)</pre>
+
+<h2>CenCon impact</h2>
+<p>Touches <code>core_services</code> (the embedded health-check manifest + a new test) and the
+build/deploy config <code>tools/registry.json</code>. No architecture/security drift - it makes an
+already-built feature reachable in the installed product and adds a regression guard. No installer
+code change was needed (the registry flows automatically into the bundle and installer, confirmed by
+the ship-selection transcript).</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this issue is finished.</strong> The four fleet tools are now ship:true in the
+registry (so they build into the bundle and land on PATH on every install/update), present in the
+Core doctor manifest (so they are self-verified), and guarded by a test so the two hand-synced lists
+cannot drift for these tools. Build is clean and all 27 tool tests pass. Note for QA: this is
+deployment config; the conclusive checks are the ship-selection transcript, the guard test, and the
+manifest contents - there is no running-app surface for this change.</p>
+
+</body>
+</html>

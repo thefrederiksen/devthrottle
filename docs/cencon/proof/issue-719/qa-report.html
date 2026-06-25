@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Issue #719 - QA Verification</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; color: #1f2933; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #15803d; padding-bottom: 8px; } h2 { margin-top: 28px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; } th,td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; } th { background: #1f2937; color: #fff; }
+  .pass { color: #15803d; font-weight: 700; } code { background: #e7ebf0; padding: 1px 5px; border-radius: 4px; }
+</style></head><body>
+<h1>Issue #719 - QA Agent Independent Verification</h1>
+<p><strong>Verdict: VERIFIED - all acceptance criteria met.</strong> Verified from a fresh detached
+checkout of the PR branch (commit <code>6d64800</code>), independent build and test runs.</p>
+
+<h2>Criteria - Expected vs Actual (my run)</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>Four tools ship:true python in registry.json</td><td class="pass">PASS</td><td>Independent ship-selection (the build's exact filter) returned: cc-sessions, cc-whoami, cc-send, cc-ask.</td></tr>
+<tr><td>Build ship-selection includes all four</td><td class="pass">PASS</td><td>Same transcript.</td></tr>
+<tr><td>Four tools in the Core health-check manifest</td><td class="pass">PASS</td><td>FleetTools_ArePresentInCoreHealthCheckManifest passes.</td></tr>
+<tr><td>Guard fails if any of the four is missing from either manifest</td><td class="pass">PASS</td><td>NEGATIVE CHECK: I removed cc-ask from the Core manifest and the guard went RED (1 failed); reverted. The guard genuinely guards.</td></tr>
+<tr><td>Clean build + existing tool-catalog tests pass</td><td class="pass">PASS</td><td>Independent build 0/0; guard + catalog + inventory tests green.</td></tr>
+</table>
+
+<h2>Transcripts (my run)</h2>
+<pre>ship-selection (independent)  -> cc-sessions, cc-whoami, cc-send, cc-ask
+guard test (positive)         -> Passed! Failed: 0, Passed: 2
+guard test (cc-ask removed)   -> Failed! Failed: 1, Passed: 1  (FleetTools_ArePresentInCoreHealthCheckManifest FAIL)
+revert                        -> working tree clean</pre>
+
+<h2>Method / regression</h2>
+<p>Additive deployment-config + a test. No CenCon drift; no security impact (it makes an existing
+feature reachable and adds a regression guard). No running-app surface for this change, so terminal
+transcripts are the proof.</p>
+
+<h2>Standalone QA note</h2>
+<p>Standalone QA does not merge. PR #720 is left open with developer + QA proof committed; the human merges.</p>
+</body></html>
