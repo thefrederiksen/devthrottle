@@ -88,9 +88,9 @@ public partial class HistoryView : UserControl
                 _messages.Clear();
                 CountText.Text = "";
                 EmptyText.IsVisible = true;
-                EmptyText.Text = session.AgentKind == AgentKind.ClaudeCode
+                EmptyText.Text = SessionHistoryReader.IsSupported(session)
                     ? "Waiting for the conversation to start..."
-                    : "History is available for Claude sessions today (more agents soon).";
+                    : "History is not available for this agent yet.";
                 _lastSignature = "";
                 return;
             }
