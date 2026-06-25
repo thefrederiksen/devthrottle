@@ -66,28 +66,32 @@ is a reconstruction problem, not a data loss problem.
 Detection method: launch the agent, capture the raw pseudo terminal byte stream, and
 search for ESC [ ? 1049 h (enter alternate screen).
 
-Measured directly this session:
+All installed agents have now been classified empirically. Claude, Grok, and OpenCode
+were measured earlier (standalone pseudo terminal probes and a real Director); Codex,
+Copilot, Pi, and Gemini were measured 2026-06-25 on a slot-5 Director built from this
+branch, reading the new isAlternateScreen field and corroborating with a raw ESC[?1049h
+scan of the buffer.
 
-| Agent | Full screen? | How measured |
+| Agent | Full screen (alternate screen)? | Evidence |
 | --- | --- | --- |
-| Claude Code | YES | Real Director session, raw buffer emitted ESC [ ? 1049 h plus mouse and bracketed paste modes |
-| Grok | YES | Standalone pseudo terminal probe, ESC [ ? 1049 h at startup |
-| OpenCode | YES | Standalone pseudo terminal probe, ESC [ ? 1049 h plus full mouse and synchronized rendering |
+| Claude Code | YES | Real Director session: ESC[?1049h plus mouse and bracketed paste |
+| Grok | YES | Standalone probe: ESC[?1049h at startup |
+| OpenCode | YES | Standalone probe: ESC[?1049h plus full mouse and synchronized rendering |
+| Copilot | YES | Slot-5 Director: isAlternateScreen=True and ESC[?1049h (rendered a folder-trust dialog inside the alternate screen) |
+| Codex | NO (normal buffer) | Slot-5 Director: isAlternateScreen=False, no ESC[?1049h (uses synchronized-output repaints ?2026 and bracketed paste ?2004). Its successful launch also validated the Codex path fix |
+| Gemini | NO (normal buffer) | Slot-5 Director: isAlternateScreen=False, no ESC[?1049h, full UI rendered inline (71 KB) |
+| Pi | NO (normal buffer) | Slot-5 Director: isAlternateScreen=False, no ESC[?1049h, status and footer rendered inline |
+| Cursor | not installed | deferred |
 
-Not yet measured (could not be launched interactively out of process, and the npm
-shim launch bug in section 7 blocked launching them through the Director):
+So four agents are full screen (Claude, Grok, OpenCode, Copilot) and three are normal
+buffer (Codex, Gemini, Pi).
 
-| Agent | Static claim elsewhere | Action |
-| --- | --- | --- |
-| Codex | Full screen by default (alternate_screen auto) | Confirm empirically in the harness |
-| Copilot | Full screen (alternate screen constants in the package) | Confirm empirically |
-| Pi | Normal terminal buffer | Confirm empirically |
-| Gemini | Normal terminal buffer (no alternate screen switch in source) | MEASURED 2026-06-25 on a slot-5 Director built from this branch: the new isAlternateScreen field reported False, the raw stream contained no ESC[?1049h (only bracketed paste ?2004h), and the full UI rendered in the normal buffer (71 KB captured). Confirmed normal buffer. The linchpin resolves favorably (see section 6). |
-
-Conflict to resolve: the in tree document docs/SupportedAgentsTerminalModes.md lists
-OpenCode as a normal terminal buffer application based on a static search of the
-bundled command. Our empirical capture proves OpenCode does enter the alternate
-screen. Empirical capture wins; the static matrix must be corrected.
+Conflicts with the static in tree document docs/SupportedAgentsTerminalModes.md, which
+classifies from a static search of the bundled command rather than a captured stream:
+it lists OpenCode as normal buffer (empirically it is full screen) and Codex as full
+screen by default (empirically it stayed in the normal buffer). Empirical capture wins;
+the static matrix must be corrected. This is exactly why the test harness classifies
+from a live captured stream instead of from static guesses.
 
 The old assumption in AnsiParser ("Claude Code and most CLIs do not use the
 alt-screen in practice") is wrong as of these measurements.
@@ -246,10 +250,10 @@ Per agent short plan:
 | Claude | Full screen (measured) | JSONL transcript plus SessionStart and Stop hooks for the live pointer; verify across a clear |
 | Grok | Full screen (measured) | chat_history.jsonl per session; verify |
 | OpenCode | Full screen (measured; the in tree doc disputes this) | opencode.db message and part, or run --format json; verify and resolve the conflict |
-| Codex | Full screen (claimed) | rollout jsonl; confirm mode, then verify |
-| Copilot | Full screen (claimed) | session-store.db turns; confirm mode, then verify |
-| Pi | Normal buffer (claimed) | If normal, terminal capture is enough; JSONL provider as a bonus; confirm mode |
-| Gemini | Normal buffer (claimed); linchpin | If normal, terminal capture covers it and the gap closes; if full screen, screen floor only; must measure |
+| Copilot | Full screen (measured) | session-store.db turns table; verify |
+| Codex | Normal buffer (measured) | Terminal capture covers it; rollout jsonl transcript is a bonus that also works |
+| Pi | Normal buffer (measured) | Terminal capture covers it; JSONL transcript is a bonus that also works |
+| Gemini | Normal buffer (measured) | Terminal capture covers it (Gemini has no usable transcript, so terminal is the only path - and it suffices) |
 | Cursor | Not installed | Defer |
 | RawCli | Unknown by nature | Terminal capture or screen floor |
 | Universal screen reconstruction | The mandatory backstop | Validate quality as the floor |
@@ -260,8 +264,10 @@ Per agent short plan:
 
 1. Reconcile the OpenCode classification against the empirical evidence here
    (OpenCode does enter the alternate screen).
-2. Measure the modes of Pi, Codex, and Copilot empirically. Gemini: DONE - confirmed
-   normal terminal buffer (the decisive one), so the gap closes.
+2. Measure agent terminal modes empirically: DONE for all installed agents. Full
+   screen: Claude, Grok, OpenCode, Copilot. Normal buffer: Codex, Gemini, Pi.
+   (Cursor is not installed.) Note two static-doc corrections: OpenCode is full
+   screen (not normal) and Codex is normal buffer (not full screen).
 3. npm shim launch bug: resolved (Codex default path fixed; launch regression test
    added). Rebuild the Director from this branch to pick it up.
 4. Expose IsAlternateScreen through the Control API: done (SessionDto.IsAlternateScreen).
