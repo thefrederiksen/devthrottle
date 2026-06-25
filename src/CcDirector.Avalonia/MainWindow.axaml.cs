@@ -1494,6 +1494,9 @@ public partial class MainWindow : Window
         // Attach clean view (legacy Agent tab)
         CleanView.Attach(vm.Session);
 
+        // Attach history view (canonical conversation thread)
+        HistoryView.Attach(vm.Session);
+
         // Show prompt bar
         PromptBarBorder.IsVisible = true;
 
@@ -1624,6 +1627,7 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         GitChangesView.Detach();
         CleanView.Detach();
+        HistoryView.Detach();
         _activeSession = null;
 
         var snapshots = _sessions.ToList();
@@ -5582,6 +5586,7 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         GitChangesView.Detach();
         CleanView.Detach();
+        HistoryView.Detach();
         _activeSession = null;
 
         // Stop git status polling

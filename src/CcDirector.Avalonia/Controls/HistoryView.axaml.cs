@@ -54,6 +54,7 @@ public partial class HistoryView : UserControl
     {
         Detach();
         _session = session;
+        FileLog.Write($"[HistoryView] Attach: session={session.Id} agent={session.AgentKind} transcript={session.ClaudeTranscriptPath ?? "(null)"}");
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
@@ -103,6 +104,7 @@ public partial class HistoryView : UserControl
 
             var history = await Task.Run(() => SessionHistoryReader.Read(session));
             var vms = Map(history);
+            FileLog.Write($"[HistoryView] refresh: path={path} messages={history.Messages.Count} vms={vms.Count}");
 
             var atBottom = IsNearBottom();
             _messages.Clear();
