@@ -326,6 +326,19 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
         Assert.Equal("--model", (string?)claude["modelFlag"]);
         Assert.NotEmpty(claude["presets"]!.AsArray());
         Assert.NotEmpty(claude["models"]!.AsArray());
+        Assert.Equal("Claude Code", (string?)claude["displayName"]);
+        Assert.Equal("claude", (string?)claude["configKey"]);
+        Assert.Contains(claude["detectionCandidates"]!.AsArray(), c => (string?)c == "claude");
+        Assert.Contains("Claude Code", (string?)claude["installHint"]);
+        Assert.Equal("--version", (string?)claude["validationArguments"]);
+        Assert.Equal(8, (double)claude["validationTimeoutSeconds"]!);
+        Assert.True((bool)claude["supportsConversationHistory"]!);
+        Assert.Equal("TranscriptFile", (string?)claude["historyProvider"]);
+        Assert.Contains(".claude", (string?)claude["historyStoreDescription"]);
+        Assert.True((bool)claude["supportsPreassignedSessionId"]!);
+        Assert.True((bool)claude["supportsStudioMode"]!);
+        Assert.Contains(claude["driverCapabilities"]!.AsArray(), c => (string?)c == "PreassignedSessionId");
+        Assert.Contains(claude["driverCapabilities"]!.AsArray(), c => (string?)c == "ModelSelection");
 
         // A non-model tool reports no model selection and an empty model list.
         var pi = types.First(t => (string?)t!["type"] == "Pi")!.AsObject();

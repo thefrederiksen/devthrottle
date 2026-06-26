@@ -63,9 +63,11 @@ public static class AgentPluginRegistry
 
     private static IReadOnlyList<IAgentPlugin> BuildBuiltIns() =>
         AgentToolCatalog.Entries
-            .Select<AgentToolCatalogEntry, IAgentPlugin>(entry => entry.Tool == AgentKind.Codex
-                ? new CodexAgentPlugin()
-                : new BuiltInAgentPlugin(
+            .Select<AgentToolCatalogEntry, IAgentPlugin>(entry => entry.Tool switch
+            {
+                AgentKind.ClaudeCode => new ClaudeAgentPlugin(),
+                AgentKind.Codex => new CodexAgentPlugin(),
+                _ => new BuiltInAgentPlugin(
                     AgentToolConfig.KeyFor(entry.Tool),
                     AgentToolConfig.KeyFor(entry.Tool),
                     entry,
@@ -74,7 +76,8 @@ public static class AgentPluginRegistry
                     SettingsMetadata(entry.Tool, entry.DisplayName),
                     DetectionMetadata(entry.Tool),
                     ValidationMetadata(entry.Tool),
-                    HistoryMetadata(entry.Tool)))
+                    HistoryMetadata(entry.Tool)),
+            })
             .ToArray();
 
     private static AgentOptions CloneOptions(AgentOptions source) => new()

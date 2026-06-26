@@ -77,6 +77,64 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void ClaudePlugin_ExposesCurrentSettingsSlashCommandsAndHistory()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.ClaudeCode);
+
+        Assert.IsType<ClaudeAgentPlugin>(plugin);
+        Assert.Equal("claude", plugin.Id);
+        Assert.Equal("claude", plugin.ConfigKey);
+        Assert.Equal("Claude Code", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<ClaudeDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Equal(AgentToolCatalog.ClaudeSkipPermissionsArg, plugin.DefaultCommandPreset.Arguments);
+        Assert.Contains(plugin.CommandPresets, preset => preset.Name == AgentToolCatalog.StandardPresetName && preset.Arguments == "");
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "claude");
+        Assert.Equal(AgentHistoryProviderKind.TranscriptFile, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains(".claude", plugin.History.StoreDescription);
+        Assert.True(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.True(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.PreassignedSessionId));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.ClaudeCode, command.DriverKind));
+    }
+
+    [Fact]
+    public void ClaudePlugin_CreatesClaudeAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.ClaudeCode);
+        var options = new AgentOptions
+        {
+            ClaudePath = "claude-custom",
+            DefaultClaudeArgs = "--dangerously-skip-permissions",
+        };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: "--model sonnet",
+            ResumeSessionId: "resume-123",
+            StudioMode: false));
+
+        Assert.IsType<ClaudeAgent>(agent);
+        Assert.Equal("claude-custom", agent.ExecutablePath);
+        Assert.StartsWith("-p --output-format stream-json --verbose --dangerously-skip-permissions --session-id ", newSession.Arguments);
+        Assert.False(string.IsNullOrWhiteSpace(newSession.PreassignedSessionId));
+        Assert.Equal("--model sonnet --resume resume-123", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
     public void CodexPlugin_CreatesCodexAgentThatUsesCodexDriverLaunch()
     {
         var plugin = AgentPluginRegistry.Get(AgentKind.Codex);
