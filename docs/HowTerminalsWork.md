@@ -2,6 +2,8 @@
 
 Educational reference -- no code changes needed.
 
+Related reference: [Supported agents and terminal screen behavior](SupportedAgentsTerminalModes.md).
+
 ---
 
 ## The Big Picture
@@ -191,11 +193,9 @@ by one, and the bottom row becomes empty.
                                           Scrollback: ["first line"]
 ```
 
-## How Claude Code's UI is Built
+## How Claude Code's User Interface is Built
 
-Claude Code doesn't just print text -- it draws a full TUI (Text User
-Interface) using cursor positioning. Here's what the byte stream looks
-like when it draws its welcome screen:
+Claude Code does not just print text -- current versions draw a full screen terminal user interface using cursor positioning and the alternate screen buffer. See [Supported agents and terminal screen behavior](SupportedAgentsTerminalModes.md) for the full agent matrix. Here is what the byte stream looks like when it draws its welcome screen:
 
 ```
   SERIAL BYTE STREAM (simplified):
