@@ -379,6 +379,20 @@ public sealed class DirectorClient
     }
 
     /// <summary>
+    /// The session's parsed, agent-agnostic conversation history (<c>GET /sessions/{sid}/history</c>):
+    /// user / assistant / tool parts for every supported CLI (the Director reuses Core's
+    /// SessionHistoryReader). The History tab polls this live. Returns null on 404 - an old Director
+    /// without the endpoint, or a session it no longer knows; the tab then shows its empty state.
+    /// </summary>
+    public async Task<SessionHistoryDto?> GetSessionHistoryAsync(string sid, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync($"sessions/{sid}/history", ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<SessionHistoryDto>(cancellationToken: ct);
+    }
+
+    /// <summary>
     /// The last lines of the session's CURRENT SCREEN - the Brief's live "what is Claude
     /// doing right now" peek while a session works. Reads the server-side parsed grid
     /// (<c>GET /buffer/html</c>, on every Director build) rather than the linear cleaned

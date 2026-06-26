@@ -1,0 +1,36 @@
+﻿{
+    "sessionId":  "1e7105d7-cb54-445b-90cd-e1b2bf55098e",
+    "directorId":  "",
+    "agent":  "ClaudeCode",
+    "isSupported":  true,
+    "isRawText":  false,
+    "historyState":  "NeedsYou",
+    "messages":  [
+                     {
+                         "role":  "User",
+                         "parts":  [
+                                       {
+                                           "kind":  "Text",
+                                           "text":  "@.temp/input_20260626_051612_u1iwig.txt",
+                                           "toolName":  null,
+                                           "toolId":  null
+                                       }
+                                   ],
+                         "timestamp":  "2026-06-26T09:16:12.714+00:00"
+                     },
+                     {
+                         "role":  "Assistant",
+                         "parts":  [
+                                       {
+                                           "kind":  "Text",
+                                           "text":  "## History Demo\n\nHere are the **key** points:\n\n- first item\n- second item\n\n```csharp\nvar x = 1;\nConsole.WriteLine(x);\n```\n\nThe file is C:\\Repos\\app\\Program.cs and the docs are at https://example.com/docs",
+                                           "toolName":  null,
+                                           "toolId":  null
+                                       }
+                                   ],
+                         "timestamp":  "2026-06-26T09:16:15.508+00:00"
+                     }
+                 ],
+    "status":  "ok",
+    "error":  null
+}
