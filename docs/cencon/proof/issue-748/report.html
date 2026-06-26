@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 748 - Agent plugin contract proof</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 32px; color: #1f2937; line-height: 1.45; }
+    h1, h2 { color: #111827; }
+    code, pre { font-family: Consolas, "Courier New", monospace; }
+    pre { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 12px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f9fafb; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue #748 - Agent Plugins: Strengthen Plugin Contract</h1>
+  <p><strong>Status:</strong> <span class="pass">I believe this is finished.</span></p>
+  <p><strong>Worktree:</strong> D:\ReposFred\devthrottle-agent-plugins</p>
+  <p><strong>Branch:</strong> agent-plugin-rollout</p>
+  <p><strong>Issue:</strong> #748</p>
+
+  <h2>Implemented</h2>
+  <ul>
+    <li>Added plugin-owned metadata records for settings, detection candidates, validation probes, launch capabilities, launch spec building, and history provider declarations.</li>
+    <li>Expanded <code>IAgentPlugin</code> so Settings and Control API consumers can obtain the required metadata from plugins.</li>
+    <li>Updated <code>CodexAgentPlugin</code> as the concrete reference plugin for the expanded contract.</li>
+    <li>Updated the built-in compatibility adapter so Claude Code, Pi, Gemini, OpenCode, Cursor, Grok, and Copilot continue working while exposing the same contract.</li>
+    <li>Moved <code>ToolDetectionService</code> supported tools, display names, path get/set, validation keys, validation args/timeouts, and detection candidates to plugin metadata.</li>
+    <li>Extended <code>GET /settings/agents/catalog</code> with non-breaking plugin metadata fields for config key, detection, validation, launch, and history.</li>
+  </ul>
+
+  <h2>Acceptance Criteria</h2>
+  <table>
+    <thead>
+      <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Plugin contract exposes settings metadata, config key, detection candidates, validation/version probe metadata, launch factory/spec builder, and history/transcript metadata.</td>
+        <td class="pass">PASS</td>
+        <td><code>IAgentPlugin</code> now exposes <code>Settings</code>, <code>Detection</code>, <code>Validation</code>, <code>Launch</code>, <code>History</code>, <code>ConfigKey</code>, <code>CreateAgent</code>, and <code>BuildLaunchSpec</code>.</td>
+      </tr>
+      <tr>
+        <td>Codex plugin remains the reference implementation and continues to pass existing tests.</td>
+        <td class="pass">PASS</td>
+        <td><code>CodexAgentPlugin</code> owns concrete metadata; focused plugin tests and full Core tests pass.</td>
+      </tr>
+      <tr>
+        <td>Compatibility adapters keep all non-Codex agents working until they are migrated.</td>
+        <td class="pass">PASS</td>
+        <td><code>BuiltInAgentPlugin</code> wraps the current catalog, drivers, launch factories, and metadata for all non-Codex built-ins.</td>
+      </tr>
+      <tr>
+        <td>Tests prove Settings and Control API can get required metadata from the plugin contract.</td>
+        <td class="pass">PASS</td>
+        <td>Core plugin/settings tests and <code>AgentsEndpointTests.Catalog_returns_types_presets_and_models</code> assert plugin-owned metadata.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Verification Commands</h2>
+  <pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter FullyQualifiedName~AgentPluginRegistryTests</pre>
+  <p class="pass">Passed: 10, Failed: 0, Skipped: 0.</p>
+
+  <pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~ToolDetectionServiceTests|FullyQualifiedName~AgentToolConfigTests"</pre>
+  <p class="pass">Passed: 34, Failed: 0, Skipped: 0.</p>
+
+  <pre>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter FullyQualifiedName~AgentsEndpointTests</pre>
+  <p class="pass">Passed: 18, Failed: 0, Skipped: 0.</p>
+
+  <pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build</pre>
+  <p class="pass">Passed: 2482, Failed: 0, Skipped: 6.</p>
+
+  <pre>dotnet build cc-director.sln</pre>
+  <p class="pass">Build succeeded: 0 warnings, 0 errors.</p>
+
+  <h2>Notes</h2>
+  <p>No UI screenshot is included for this contract-only issue. UI surface migration and screenshot proof are tracked by the follow-up Settings issue #749 and final all-agents QA issue #760.</p>
+</body>
+</html>

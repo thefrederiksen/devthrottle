@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue #750 Proof - Agent Plugin Launch Factories</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; line-height: 1.45; color: #1f2937; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    .pass { color: #047857; font-weight: 600; }
+    .note { color: #4b5563; }
+  </style>
+</head>
+<body>
+  <h1>Issue #750 Proof - Agent Plugin Launch Factories</h1>
+  <p><strong>Status:</strong> <span class="pass">PASS</span></p>
+  <p><strong>Captured:</strong> 2026-06-26T06:24:57.2924425-04:00</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li>Control API handoff and new-session creation now call <code>AgentPluginRegistry.CreateAgent</code> for built-in agents.</li>
+    <li>Desktop launch entry creation now calls <code>AgentPluginRegistry.CreateAgentWithPathOverride</code>.</li>
+    <li><code>SessionManager</code> overloads now resolve built-in agents through plugin factories.</li>
+    <li>Registry-created built-in agents are plugin-backed adapters, so <code>BuildLaunchSpec</code> routes through plugin metadata while preserving the <code>IAgent</code> surface.</li>
+    <li>Raw CLI remains the explicit custom-command special case.</li>
+  </ul>
+
+  <h2>Static Check</h2>
+  <p>Production launch callers no longer directly construct built-in agents. Remaining built-in constructors are contained inside plugin implementations or the registry compatibility factory that feeds the plugin list.</p>
+  <p><code>rg -n "new (ClaudeAgent|CodexAgent|GeminiAgent|OpenCodeAgent|CursorAgent|GrokAgent|CopilotAgent|PiAgent)" src/CcDirector.Core src/CcDirector.ControlApi src/CcDirector.Avalonia -S</code></p>
+
+  <h2>Verification</h2>
+  <ul>
+    <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter FullyQualifiedName~AgentPluginRegistryTests</code> - Passed: 15, Failed: 0.</li>
+    <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~ClaudeAgentDefaultArgsTests|FullyQualifiedName~CopilotAgentTests|FullyQualifiedName~CursorAgentTests|FullyQualifiedName~OpenCodeAgentTests"</code> - Passed: 59, Failed: 0.</li>
+    <li><code>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --no-build --filter FullyQualifiedName~AgentsEndpointTests</code> - Passed: 18, Failed: 0.</li>
+    <li><code>dotnet build cc-director.sln --no-restore</code> - Build succeeded, 0 warnings, 0 errors.</li>
+  </ul>
+
+  <p class="note">No screenshot is required for this issue because the change is launch-path plumbing and is covered by static checks plus launch-spec tests for every built-in plugin.</p>
+</body>
+</html>

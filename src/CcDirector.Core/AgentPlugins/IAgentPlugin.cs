@@ -32,6 +32,21 @@ public interface IAgentPlugin
     /// <summary>Whether the shared history tab has a conversation provider for this CLI.</summary>
     bool SupportsConversationHistory { get; }
 
+    /// <summary>Plugin-owned settings metadata used by Settings UI and Control API catalog surfaces.</summary>
+    AgentPluginSettingsMetadata Settings { get; }
+
+    /// <summary>Plugin-owned executable detection metadata.</summary>
+    AgentPluginDetectionMetadata Detection { get; }
+
+    /// <summary>Plugin-owned harmless validation/version probe metadata.</summary>
+    AgentPluginValidationMetadata Validation { get; }
+
+    /// <summary>Plugin-owned history/transcript metadata.</summary>
+    AgentPluginHistoryMetadata History { get; }
+
+    /// <summary>Plugin-owned launch capability metadata.</summary>
+    AgentPluginLaunchMetadata Launch { get; }
+
     /// <summary>Command-line presets offered by settings UI for guided launch.</summary>
     IReadOnlyList<AgentCommandPreset> CommandPresets { get; }
 
@@ -43,4 +58,7 @@ public interface IAgentPlugin
 
     /// <summary>Create the launch strategy for a session of this CLI.</summary>
     IAgent CreateAgent(AgentOptions options);
+
+    /// <summary>Build the launch spec for a session of this CLI through the plugin-owned launch path.</summary>
+    AgentLaunchSpec BuildLaunchSpec(AgentPluginLaunchRequest request);
 }

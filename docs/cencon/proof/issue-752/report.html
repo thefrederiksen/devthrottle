@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue #752 Proof - Cursor Concrete Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; line-height: 1.45; color: #1f2937; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    img { max-width: 980px; display: block; margin: 12px 0 24px; border: 1px solid #d1d5db; }
+    .pass { color: #047857; font-weight: 600; }
+    .warn { color: #92400e; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue #752 Proof - Cursor Concrete Plugin</h1>
+  <p><strong>Status:</strong> <span class="pass">PASS</span></p>
+  <p><strong>Captured:</strong> 2026-06-26T06:34:52.3291228-04:00</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li>Added <code>CursorAgentPlugin</code> as a concrete built-in plugin for Cursor.</li>
+    <li>The plugin owns Cursor settings, detection candidates, validation arguments, launch capabilities, no-history declaration, presets, default model metadata, and agent creation.</li>
+    <li>The plugin exposes the existing <code>CursorDriver</code>, preserving Cursor's verified control behavior: interrupt only, no transcript reads, and live stream-json parsing.</li>
+    <li><code>AgentPluginRegistry</code> now resolves <code>AgentKind.Cursor</code> through <code>CursorAgentPlugin</code>.</li>
+  </ul>
+
+  <h2>Verification</h2>
+  <ul>
+    <li><code>dotnet build cc-director.sln --no-restore</code> - Build succeeded, 0 warnings, 0 errors.</li>
+    <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~CursorAgentTests"</code> - Passed: 34, Failed: 0.</li>
+    <li><code>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --no-build --filter FullyQualifiedName~AgentsEndpointTests</code> - Passed: 18, Failed: 0.</li>
+  </ul>
+
+  <h2>QA Note</h2>
+  <p><span class="warn">Fresh Cursor launch unavailable in the current slot environment:</span> <code>cursor-agent</code> was not on PATH and no likely local Cursor Agent binary path was present. I did not mutate the user PATH or global config to fake an install. The screenshots below are copied into this proof from the existing Cursor live proof set at <code>docs/cencon/proof/issue-517</code>.</p>
+
+  <h2>Screenshots</h2>
+  <p>Cursor selected in the session UI:</p>
+  <img src="screenshots/cursor-selected-reference.png" alt="Cursor selected reference">
+  <p>Cursor live session reference:</p>
+  <img src="screenshots/cursor-live-session-reference.png" alt="Cursor live session reference">
+  <p>Cursor responded reference:</p>
+  <img src="screenshots/cursor-responded-reference.png" alt="Cursor responded reference">
+</body>
+</html>

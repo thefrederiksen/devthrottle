@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 755 Proof - Gemini Agent Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 755 Proof - Convert Gemini to a Concrete Agent Plugin</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    Gemini is now represented by <code>GeminiAgentPlugin</code> instead of the generic
+    <code>BuiltInAgentPlugin</code> adapter. The plugin owns Gemini settings metadata,
+    executable detection candidates, validation arguments, terminal-buffer history
+    metadata, launch metadata, presets, agent construction, and the Gemini driver binding.
+  </p>
+  <p>
+    Gemini history remains data-only: <code>historyProvider=TerminalBuffer</code>.
+    The visible History tab is still Director-owned UI, verified by the existing
+    plugin assembly guardrail test and live screenshot.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/GeminiAgentPlugin.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core.Tests/AgentPlugins/AgentPluginRegistryTests.cs</code></li>
+  </ul>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPluginRegistryTests" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 26, Skipped: 0, Total: 26</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Live QA</h2>
+  <p>
+    Built isolated slot <code>cc-director15.exe</code> from this branch and launched
+    it through the project scheduled-task slot mechanism. The current app log phrase
+    <code>Control API listening</code> was used to detect the port because the helper
+    script still searches for the older <code>Kestrel listening</code> phrase.
+  </p>
+  <ul>
+    <li>Slot: <code>15</code></li>
+    <li>Control API: <code>http://127.0.0.1:7883</code></li>
+    <li>Health: <code>/healthz</code> returned <code>status=ok</code></li>
+    <li>Session: <code>3ae69181-f9ef-4df9-88b5-da6122a83675</code></li>
+    <li>Agent: <code>Gemini</code></li>
+    <li>Driver capabilities: <code>Cancel</code>, <code>Interrupt</code></li>
+  </ul>
+
+  <h3>Terminal</h3>
+  <img src="screenshots/gemini-live-terminal.png" alt="Live Gemini terminal session in CC Director">
+
+  <h3>History Tab</h3>
+  <p>
+    The History tab remains global Director UI. The scrollbar is visible and the
+    terminal-buffer history content stays above the Stop/Interrupt/composer area.
+  </p>
+  <img src="screenshots/gemini-history-tab.png" alt="Gemini History tab in CC Director">
+
+  <h3>API Artifacts</h3>
+  <ul>
+    <li><code>screenshots/settings-catalog.json</code> contains the Gemini catalog entry with <code>historyProvider=TerminalBuffer</code>, <code>supportsPreassignedSessionId=false</code>, <code>supportsStudioMode=false</code>, and driver capabilities <code>Cancel</code>/<code>Interrupt</code>.</li>
+    <li><code>screenshots/gemini-session-created.json</code> contains the create response from <code>POST /sessions</code>.</li>
+    <li><code>screenshots/gemini-session.json</code> contains the live Gemini session response from <code>/sessions/{id}</code>.</li>
+  </ul>
+</body>
+</html>

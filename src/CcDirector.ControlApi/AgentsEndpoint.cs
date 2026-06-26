@@ -337,8 +337,8 @@ internal static class AgentsEndpoint
             FileLog.Write("[AgentsEndpoint] GET /settings/agents/catalog");
             var types = TypeOptions.Select(option =>
             {
-                var plugin = AgentPluginRegistry.Contains(option.Type)
-                    ? AgentPluginRegistry.Get(option.Type)
+                var plugin = AgentPluginRegistry.Contains(option.Kind)
+                    ? AgentPluginRegistry.Get(option.Kind)
                     : null;
                 var driver = plugin?.Driver;
                 var supportsModel = driver?.Capabilities.HasFlag(DriverCapabilities.ModelSelection) ?? false;
@@ -362,11 +362,22 @@ internal static class AgentsEndpoint
 
                 return new
                 {
-                    type = option.Type.ToString(),
+                    type = option.Kind.ToString(),
                     displayName = plugin?.DisplayName ?? option.Label,
-                    detectable = ToolDetectionService.SupportedTools.Contains(option.Type),
+                    configKey = plugin?.ConfigKey ?? "",
+                    detectable = ToolDetectionService.SupportedTools.Contains(option.Kind),
+                    detectionCandidates = plugin is null
+                        ? Array.Empty<string>()
+                        : plugin.Detection.Candidates.Select(candidate => candidate.Path).ToArray(),
+                    installHint = plugin?.Detection.InstallHint ?? "",
+                    validationArguments = plugin?.Validation.Arguments ?? "",
+                    validationTimeoutSeconds = plugin?.Validation.Timeout.TotalSeconds ?? 0,
                     supportsModelSelection = supportsModel,
                     supportsConversationHistory = plugin?.SupportsConversationHistory ?? false,
+                    historyProvider = plugin?.History.ProviderKind.ToString() ?? AgentHistoryProviderKind.None.ToString(),
+                    historyStoreDescription = plugin?.History.StoreDescription ?? "",
+                    supportsPreassignedSessionId = plugin?.Launch.SupportsPreassignedSessionId ?? false,
+                    supportsStudioMode = plugin?.Launch.SupportsStudioMode ?? false,
                     driverCapabilities = driver is null ? Array.Empty<string>() : CapabilityNames(driver.Capabilities),
                     modelFlag = driver?.ModelFlag ?? "",
                     detectedDefaultModel = supportsModel ? driver!.ReadConfiguredDefaultModel() : null,
@@ -383,20 +394,8 @@ internal static class AgentsEndpoint
     // Shaping helpers
     // ----------------------------------------------------------------------------------------
 
-    /// <summary>The selectable agent types, matching the Agents tab modal's list exactly
-    /// (AgentEditorDialog.TypeOptions): the full set including the Custom (RawCli) command.</summary>
-    private static readonly IReadOnlyList<(AgentKind Type, string Label)> TypeOptions = new[]
-    {
-        (AgentKind.ClaudeCode, "Claude Code"),
-        (AgentKind.Codex, "Codex"),
-        (AgentKind.Gemini, "Gemini"),
-        (AgentKind.Pi, "Pi"),
-        (AgentKind.OpenCode, "OpenCode"),
-        (AgentKind.Cursor, "Cursor"),
-        (AgentKind.Grok, "Grok"),
-        (AgentKind.Copilot, "GitHub Copilot"),
-        (AgentKind.RawCli, "Custom"),
-    };
+    /// <summary>The selectable agent types, sourced from plugin metadata plus Raw CLI as custom.</summary>
+    private static IReadOnlyList<AgentPluginTypeOption> TypeOptions => AgentPluginRegistry.SettingsTypeOptions;
 
     /// <summary>The wire shape of one agent entry: every value the Agents tab modal edits, plus the
     /// stable id, in camelCase like the rest of the Control API.</summary>
@@ -420,7 +419,7 @@ internal static class AgentsEndpoint
         if (string.IsNullOrWhiteSpace(raw))
         {
             type = AgentKind.ClaudeCode;
-            error = "type is required (one of: " + string.Join(", ", TypeOptions.Select(o => o.Type)) + ")";
+            error = "type is required (one of: " + string.Join(", ", TypeOptions.Select(o => o.Kind)) + ")";
             return false;
         }
         if (Enum.TryParse(raw, ignoreCase: true, out type) && Enum.IsDefined(type))
@@ -428,7 +427,7 @@ internal static class AgentsEndpoint
             error = "";
             return true;
         }
-        error = $"unrecognized type: {raw} (expected one of: {string.Join(", ", TypeOptions.Select(o => o.Type))})";
+        error = $"unrecognized type: {raw} (expected one of: {string.Join(", ", TypeOptions.Select(o => o.Kind))})";
         return false;
     }
 
@@ -486,7 +485,7 @@ internal static class AgentsEndpoint
             .ToArray();
 
     private static string ToolDisplayName(AgentKind type) =>
-        TypeOptions.FirstOrDefault(o => o.Type == type).Label is { Length: > 0 } label
+        TypeOptions.FirstOrDefault(o => o.Kind == type)?.Label is { Length: > 0 } label
             ? label
             : type.ToString();
 }

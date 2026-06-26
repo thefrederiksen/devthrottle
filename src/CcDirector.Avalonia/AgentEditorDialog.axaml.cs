@@ -81,35 +81,18 @@ public partial class AgentEditorDialog : Window
     }
 
     /// <summary>The selectable agent types (the full AgentKind set, incl. Custom).</summary>
-    private static readonly IReadOnlyList<AgentTypeOption> TypeOptions = new[]
-    {
-        new AgentTypeOption(AgentKind.ClaudeCode, "Claude Code"),
-        new AgentTypeOption(AgentKind.Codex, "Codex"),
-        new AgentTypeOption(AgentKind.Gemini, "Gemini"),
-        new AgentTypeOption(AgentKind.Pi, "Pi"),
-        new AgentTypeOption(AgentKind.OpenCode, "OpenCode"),
-        new AgentTypeOption(AgentKind.Cursor, "Cursor"),
-        new AgentTypeOption(AgentKind.Grok, "Grok"),
-        new AgentTypeOption(AgentKind.Copilot, "GitHub Copilot"),
-        new AgentTypeOption(AgentKind.RawCli, "Custom"),
-    };
+    private static IReadOnlyList<AgentTypeOption> TypeOptions =>
+        AgentPluginRegistry.SettingsTypeOptions.Select(option => new AgentTypeOption(option.Kind, option.Label)).ToArray();
 
     /// <summary>All type base labels, so the auto-name "don't clobber a custom name" check can run.</summary>
-    private static readonly IReadOnlyList<string> AllTypeLabels =
+    private static IReadOnlyList<string> AllTypeLabels =>
         TypeOptions.Select(o => o.Label).ToList();
 
-    private static readonly IReadOnlyList<string> CodexPermissionModes = new[]
-    {
-        AgentToolCatalog.StandardPresetName,
-        AgentToolCatalog.CodexFullAccessPresetName,
-    };
+    private static IReadOnlyList<string> CodexPermissionModes =>
+        AgentPluginRegistry.Get(AgentKind.Codex).CommandPresets.Select(preset => preset.Name).ToArray();
 
-    private static readonly IReadOnlyList<string> CodexPermissionModesWithCustom = new[]
-    {
-        AgentToolCatalog.StandardPresetName,
-        AgentToolCatalog.CodexFullAccessPresetName,
-        CustomPermissionMode,
-    };
+    private static IReadOnlyList<string> CodexPermissionModesWithCustom =>
+        CodexPermissionModes.Append(CustomPermissionMode).ToArray();
 
     private const string CustomPermissionMode = "Custom command line";
 
@@ -218,7 +201,7 @@ public partial class AgentEditorDialog : Window
                     ? ""
                     : SelectedLaunchMode() == LaunchMode.Custom
                         ? "Custom command line mode ignores presets. Include every permission flag yourself."
-                        : string.Equals(PermissionsCombo.SelectedItem as string, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(PermissionsCombo.SelectedItem as string, CodexFullAccessPresetName(), StringComparison.OrdinalIgnoreCase)
                             ? "Full access launches Codex without sandbox restrictions or approval prompts. Use it only for trusted repos."
                             : "Standard launches Codex with its normal permissions behavior.";
             }
@@ -230,9 +213,15 @@ public partial class AgentEditorDialog : Window
     }
 
     private static string CodexPermissionModeForPreset(string preset) =>
-        string.Equals(preset, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
-            ? AgentToolCatalog.CodexFullAccessPresetName
-            : AgentToolCatalog.StandardPresetName;
+        string.Equals(preset, CodexFullAccessPresetName(), StringComparison.OrdinalIgnoreCase)
+            ? CodexFullAccessPresetName()
+            : AgentPluginRegistry.Get(AgentKind.Codex).DefaultCommandPreset.Name;
+
+    private static string CodexFullAccessPresetName() =>
+        AgentPluginRegistry.Get(AgentKind.Codex).CommandPresets
+            .FirstOrDefault(preset => !string.Equals(preset.Name, AgentPluginRegistry.Get(AgentKind.Codex).DefaultCommandPreset.Name, StringComparison.OrdinalIgnoreCase))
+            ?.Name
+        ?? AgentPluginRegistry.Get(AgentKind.Codex).DefaultCommandPreset.Name;
 
     private void SelectPresetByName(string presetName)
     {
@@ -286,7 +275,7 @@ public partial class AgentEditorDialog : Window
         if (SelectedType() != AgentKind.Codex)
             return;
 
-        var selected = PermissionsCombo.SelectedItem as string ?? AgentToolCatalog.StandardPresetName;
+        var selected = PermissionsCombo.SelectedItem as string ?? AgentPluginRegistry.Get(AgentKind.Codex).DefaultCommandPreset.Name;
         if (string.Equals(selected, CustomPermissionMode, StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -425,7 +414,7 @@ public partial class AgentEditorDialog : Window
         {
             EffectivePermissionsText.Text = config.LaunchMode == LaunchMode.Custom
                 ? "Custom command line"
-                : string.Equals(config.PresetName, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(config.PresetName, CodexFullAccessPresetName(), StringComparison.OrdinalIgnoreCase)
                     ? "Full access"
                     : "Standard";
             return;

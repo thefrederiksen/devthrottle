@@ -326,6 +326,19 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
         Assert.Equal("--model", (string?)claude["modelFlag"]);
         Assert.NotEmpty(claude["presets"]!.AsArray());
         Assert.NotEmpty(claude["models"]!.AsArray());
+        Assert.Equal("Claude Code", (string?)claude["displayName"]);
+        Assert.Equal("claude", (string?)claude["configKey"]);
+        Assert.Contains(claude["detectionCandidates"]!.AsArray(), c => (string?)c == "claude");
+        Assert.Contains("Claude Code", (string?)claude["installHint"]);
+        Assert.Equal("--version", (string?)claude["validationArguments"]);
+        Assert.Equal(8, (double)claude["validationTimeoutSeconds"]!);
+        Assert.True((bool)claude["supportsConversationHistory"]!);
+        Assert.Equal("TranscriptFile", (string?)claude["historyProvider"]);
+        Assert.Contains(".claude", (string?)claude["historyStoreDescription"]);
+        Assert.True((bool)claude["supportsPreassignedSessionId"]!);
+        Assert.True((bool)claude["supportsStudioMode"]!);
+        Assert.Contains(claude["driverCapabilities"]!.AsArray(), c => (string?)c == "PreassignedSessionId");
+        Assert.Contains(claude["driverCapabilities"]!.AsArray(), c => (string?)c == "ModelSelection");
 
         // A non-model tool reports no model selection and an empty model list.
         var pi = types.First(t => (string?)t!["type"] == "Pi")!.AsObject();
@@ -334,10 +347,49 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
 
         var codex = types.First(t => (string?)t!["type"] == "Codex")!.AsObject();
         Assert.Equal("Codex", (string?)codex["displayName"]);
+        Assert.Equal("codex", (string?)codex["configKey"]);
+        Assert.Contains(codex["detectionCandidates"]!.AsArray(), c => (string?)c == "codex");
+        Assert.Contains("Codex", (string?)codex["installHint"]);
+        Assert.Equal("--version", (string?)codex["validationArguments"]);
+        Assert.Equal(8, (double)codex["validationTimeoutSeconds"]!);
         Assert.True((bool)codex["supportsConversationHistory"]!);
+        Assert.Equal("TranscriptFile", (string?)codex["historyProvider"]);
+        Assert.Contains(".codex", (string?)codex["historyStoreDescription"]);
+        Assert.False((bool)codex["supportsPreassignedSessionId"]!);
+        Assert.False((bool)codex["supportsStudioMode"]!);
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "ClearContext");
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
         Assert.Contains(codex["presets"]!.AsArray(), p => (string?)p!["name"] == "Full access");
+
+        var cursor = types.First(t => (string?)t!["type"] == "Cursor")!.AsObject();
+        Assert.Equal("Cursor", (string?)cursor["displayName"]);
+        Assert.Equal("cursor", (string?)cursor["configKey"]);
+        Assert.Contains(cursor["detectionCandidates"]!.AsArray(), c => (string?)c == "cursor-agent");
+        Assert.Contains("Cursor Agent", (string?)cursor["installHint"]);
+        Assert.Equal("--version", (string?)cursor["validationArguments"]);
+        Assert.False((bool)cursor["supportsConversationHistory"]!);
+        Assert.Equal("None", (string?)cursor["historyProvider"]);
+        Assert.Contains("stream-json", (string?)cursor["historyStoreDescription"]);
+        Assert.False((bool)cursor["supportsPreassignedSessionId"]!);
+        Assert.True((bool)cursor["supportsStudioMode"]!);
+        Assert.Contains(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
+        Assert.DoesNotContain(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "TranscriptRead");
+        Assert.Contains(cursor["presets"]!.AsArray(), p => (string?)p!["name"] == "Automatic (yolo)");
+
+        var copilot = types.First(t => (string?)t!["type"] == "Copilot")!.AsObject();
+        Assert.Equal("GitHub Copilot", (string?)copilot["displayName"]);
+        Assert.Equal("copilot", (string?)copilot["configKey"]);
+        Assert.Contains(copilot["detectionCandidates"]!.AsArray(), c => ((string?)c)?.Contains("copilot") == true);
+        Assert.Contains("GitHub Copilot", (string?)copilot["installHint"]);
+        Assert.Equal("--version", (string?)copilot["validationArguments"]);
+        Assert.True((bool)copilot["supportsConversationHistory"]!);
+        Assert.Equal("SqliteStore", (string?)copilot["historyProvider"]);
+        Assert.Contains("SQLite", (string?)copilot["historyStoreDescription"]);
+        Assert.True((bool)copilot["supportsPreassignedSessionId"]!);
+        Assert.False((bool)copilot["supportsStudioMode"]!);
+        Assert.Contains(copilot["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
+        Assert.Contains(copilot["driverCapabilities"]!.AsArray(), c => (string?)c == "PreassignedSessionId");
+        Assert.Contains(copilot["presets"]!.AsArray(), p => (string?)p!["name"] == "Automatic (yolo)");
     }
 
     [Fact]

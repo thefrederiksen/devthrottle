@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
@@ -45,17 +46,7 @@ public sealed class ToolDetectionService
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(8);
 
-    public static readonly IReadOnlyList<AgentKind> SupportedTools = new[]
-    {
-        AgentKind.ClaudeCode,
-        AgentKind.Pi,
-        AgentKind.Codex,
-        AgentKind.Gemini,
-        AgentKind.OpenCode,
-        AgentKind.Cursor,
-        AgentKind.Grok,
-        AgentKind.Copilot,
-    };
+    public static IReadOnlyList<AgentKind> SupportedTools => AgentPluginRegistry.BuiltIns.Select(plugin => plugin.Kind).ToArray();
 
     /// <summary>Detect the effective executable for Claude Code, Pi, Codex, Gemini, OpenCode, or Cursor.</summary>
     public ToolDetectResult DetectTool(AgentKind tool, AgentOptions options, string? overridePath = null)
@@ -63,7 +54,8 @@ public sealed class ToolDetectionService
         FileLog.Write($"[ToolDetectionService] DetectTool: tool={tool}, overridePath={overridePath ?? "(null)"}");
         if (options is null) throw new ArgumentNullException(nameof(options));
 
-        var display = DisplayName(tool);
+        var plugin = AgentPluginRegistry.Get(tool);
+        var display = plugin.DisplayName;
         var configured = string.IsNullOrWhiteSpace(overridePath) ? GetConfiguredPath(tool, options) : overridePath.Trim();
         var preferKnownCandidate = tool == AgentKind.Pi
             && string.Equals(configured, DefaultNpmCliPath("pi"), StringComparison.OrdinalIgnoreCase);
@@ -105,9 +97,10 @@ public sealed class ToolDetectionService
         if (resolved is null)
             return new ToolTestResult(tool, display, false, path.Trim(), null, $"{display} was not found at {path.Trim()}.");
 
-        var versionArgs = VersionArguments(tool);
+        var plugin = AgentPluginRegistry.Get(tool);
+        var versionArgs = plugin.Validation.Arguments;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(DefaultTimeout);
+        timeout.CancelAfter(plugin.Validation.Timeout == default ? DefaultTimeout : plugin.Validation.Timeout);
 
         try
         {
@@ -128,7 +121,8 @@ public sealed class ToolDetectionService
         catch (OperationCanceledException)
         {
             FileLog.Write($"[ToolDetectionService] TestToolAsync: tool={tool}, timed out");
-            return new ToolTestResult(tool, display, false, resolved, null, $"{display} did not answer within {DefaultTimeout.TotalSeconds:0} seconds.");
+            var seconds = (plugin.Validation.Timeout == default ? DefaultTimeout : plugin.Validation.Timeout).TotalSeconds;
+            return new ToolTestResult(tool, display, false, resolved, null, $"{display} did not answer within {seconds:0} seconds.");
         }
     }
 
@@ -192,78 +186,20 @@ public sealed class ToolDetectionService
     }
 
     /// <summary>Return the mutable <see cref="AgentOptions"/> path property for a supported tool.</summary>
-    public static string GetConfiguredPath(AgentKind tool, AgentOptions options) => tool switch
-    {
-        AgentKind.ClaudeCode => options.ClaudePath,
-        AgentKind.Pi => options.PiPath,
-        AgentKind.Codex => options.CodexPath,
-        AgentKind.Gemini => options.GeminiPath,
-        AgentKind.OpenCode => options.OpenCodePath,
-        AgentKind.Cursor => options.CursorPath,
-        AgentKind.Grok => options.GrokPath,
-        AgentKind.Copilot => options.CopilotPath,
-        _ => throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.")
-    };
+    public static string GetConfiguredPath(AgentKind tool, AgentOptions options) => AgentPluginRegistry.Get(tool).Settings.GetConfiguredPath(options);
 
     /// <summary>Update the mutable <see cref="AgentOptions"/> path property for a supported tool.</summary>
     public static void SetConfiguredPath(AgentKind tool, AgentOptions options, string path)
     {
         FileLog.Write($"[ToolDetectionService] SetConfiguredPath: tool={tool}, path={path}");
-        switch (tool)
-        {
-            case AgentKind.ClaudeCode:
-                options.ClaudePath = path;
-                break;
-            case AgentKind.Pi:
-                options.PiPath = path;
-                break;
-            case AgentKind.Codex:
-                options.CodexPath = path;
-                break;
-            case AgentKind.Gemini:
-                options.GeminiPath = path;
-                break;
-            case AgentKind.OpenCode:
-                options.OpenCodePath = path;
-                break;
-            case AgentKind.Cursor:
-                options.CursorPath = path;
-                break;
-            case AgentKind.Grok:
-                options.GrokPath = path;
-                break;
-            case AgentKind.Copilot:
-                options.CopilotPath = path;
-                break;
-            default:
-                throw new NotSupportedException($"[ToolDetectionService] Tool {tool} is not supported in Settings > Tools yet.");
-        }
+        AgentPluginRegistry.Get(tool).Settings.SetConfiguredPath(options, path);
     }
 
-    public static string DisplayName(AgentKind tool) => tool switch
-    {
-        AgentKind.ClaudeCode => "Claude Code",
-        AgentKind.Pi => "Pi",
-        AgentKind.Codex => "Codex",
-        AgentKind.Gemini => "Gemini",
-        AgentKind.OpenCode => "OpenCode",
-        AgentKind.Cursor => "Cursor",
-        AgentKind.Grok => "Grok",
-        AgentKind.Copilot => "GitHub Copilot",
-        _ => tool.ToString()
-    };
-
-    private static string VersionArguments(AgentKind tool) => tool switch
-    {
-        AgentKind.ClaudeCode => "--version",
-        AgentKind.Pi => "--version",
-        AgentKind.Codex => "--version",
-        _ => "--version"
-    };
+    public static string DisplayName(AgentKind tool) => AgentPluginRegistry.Contains(tool) ? AgentPluginRegistry.Get(tool).DisplayName : tool.ToString();
 
     private static ToolDetectResult? ProbeKnownCandidates(AgentKind tool, string configured, string display)
     {
-        foreach (var candidate in KnownCandidates(tool))
+        foreach (var candidate in AgentPluginRegistry.Get(tool).Detection.Candidates.Select(candidate => candidate.Path))
         {
             var resolved = ExecutableResolver.Resolve(candidate);
             if (resolved is not null)
@@ -276,65 +212,9 @@ public sealed class ToolDetectionService
         return null;
     }
 
-    private static IEnumerable<string> KnownCandidates(AgentKind tool)
-    {
-        if (tool == AgentKind.ClaudeCode)
-        {
-            yield return "claude";
-            yield return DefaultNpmCliPath("claude");
-        }
-        else if (tool == AgentKind.Pi)
-        {
-            yield return @"D:\Tools\Pi\pi.exe";
-            yield return DefaultNpmCliPath("pi");
-            yield return "pi";
-        }
-        else if (tool == AgentKind.Codex)
-        {
-            yield return DefaultNpmCliPath("codex");
-            yield return "codex";
-        }
-        else if (tool == AgentKind.Gemini)
-        {
-            yield return DefaultNpmCliPath("gemini");
-            yield return "gemini";
-        }
-        else if (tool == AgentKind.OpenCode)
-        {
-            yield return DefaultNpmCliPath("opencode");
-            yield return "opencode";
-        }
-        else if (tool == AgentKind.Cursor)
-        {
-            yield return "cursor-agent";
-        }
-        else if (tool == AgentKind.Grok)
-        {
-            yield return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".grok", "bin", "grok.exe");
-            yield return "grok";
-        }
-        else if (tool == AgentKind.Copilot)
-        {
-            // npm global install drops copilot.cmd in %APPDATA%\npm; the bare "copilot" is the
-            // PATH fallback (Homebrew/WinGet/gh.io installs put it on PATH directly).
-            yield return DefaultNpmCliPath("copilot");
-            yield return "copilot";
-        }
-    }
-
-    private static string ValidationKey(AgentKind tool) => tool switch
-    {
-        AgentKind.ClaudeCode => "claude",
-        AgentKind.Pi => "pi",
-        AgentKind.Codex => "codex",
-        AgentKind.Gemini => "gemini",
-        AgentKind.OpenCode => "opencode",
-        AgentKind.Cursor => "cursor",
-        AgentKind.Copilot => "copilot",
-        _ => tool.ToString().ToLowerInvariant(),
-    };
+    private static string ValidationKey(AgentKind tool) => AgentPluginRegistry.Contains(tool)
+        ? AgentPluginRegistry.Get(tool).ConfigKey
+        : tool.ToString().ToLowerInvariant();
 
     private static bool StoredPathMatchesCurrent(AgentKind tool, AgentOptions options, string storedPath)
     {

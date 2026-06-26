@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
@@ -8,7 +9,7 @@ namespace CcDirector.Core.Agents;
 /// <summary>
 /// One catalog tool's first-run suggestion: whether the detector found it on this machine,
 /// the resolved executable path (when found), and the recommended default command-line preset
-/// and model from <see cref="AgentToolCatalog"/>. A found tool is suggested pre-checked; a
+/// and model from <see cref="AgentPluginRegistry"/>. A found tool is suggested pre-checked; a
 /// not-found tool is shown but never auto-added.
 /// </summary>
 /// <param name="Tool">Which agent CLI this suggestion is for.</param>
@@ -87,8 +88,8 @@ public sealed class ToolDetectionWizardModel
     }
 
     /// <summary>
-    /// Scan every catalog tool with the existing detector and return one suggestion per tool,
-    /// each carrying the found/not-found status and the catalog's recommended default preset and
+    /// Scan every plugin-backed tool with the existing detector and return one suggestion per tool,
+    /// each carrying the found/not-found status and the plugin's recommended default preset and
     /// model. Found tools are flagged so the UI can pre-check them; not-found tools are still
     /// returned so the UI can show them as unavailable. CPU/IO-light per tool; the caller runs
     /// this off the UI thread.
@@ -99,18 +100,18 @@ public sealed class ToolDetectionWizardModel
         if (options is null) throw new ArgumentNullException(nameof(options));
 
         var suggestions = new List<ToolDetectionSuggestion>();
-        foreach (var entry in AgentToolCatalog.Entries)
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
         {
-            var detect = _detector.DetectTool(entry.Tool, options);
+            var detect = _detector.DetectTool(plugin.Kind, options);
             suggestions.Add(new ToolDetectionSuggestion(
-                entry.Tool,
-                entry.DisplayName,
+                plugin.Kind,
+                plugin.DisplayName,
                 detect.Found,
                 detect.ResolvedPath ?? "",
-                entry.DefaultPreset.Name,
-                entry.DefaultModel,
+                plugin.DefaultCommandPreset.Name,
+                plugin.DefaultModel,
                 detect.Message));
-            FileLog.Write($"[ToolDetectionWizardModel] ScanSuggestions: tool={entry.Tool}, found={detect.Found}");
+            FileLog.Write($"[ToolDetectionWizardModel] ScanSuggestions: tool={plugin.Kind}, found={detect.Found}");
         }
 
         return suggestions;
@@ -147,12 +148,13 @@ public sealed class ToolDetectionWizardModel
                 continue;
             }
 
-            // Seed the new entry from the catalog defaults so it gets the recommended command line
+            // Seed the new entry from the plugin defaults so it gets the recommended command line
             // and model, enabled, plus the detected executable path.
+            var plugin = AgentPluginRegistry.Get(selection.Tool);
             var defaults = AgentToolConfig.FromCatalogDefaults(selection.Tool);
             entries.Add(new AgentEntry
             {
-                DisplayName = AgentToolCatalog.GetEntry(selection.Tool).DisplayName,
+                DisplayName = plugin.DisplayName,
                 Type = selection.Tool,
                 Enabled = true,
                 ExecutablePath = selection.ResolvedPath ?? "",

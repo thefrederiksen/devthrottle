@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue #751 Proof - Claude Code Concrete Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; line-height: 1.45; color: #1f2937; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    img { max-width: 980px; display: block; margin: 12px 0 24px; border: 1px solid #d1d5db; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue #751 Proof - Claude Code Concrete Plugin</h1>
+  <p><strong>Status:</strong> <span class="pass">PASS</span></p>
+  <p><strong>Captured:</strong> 2026-06-26T06:31:16.0189678-04:00</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li>Added <code>ClaudeAgentPlugin</code> as a concrete built-in plugin for Claude Code.</li>
+    <li>The plugin owns Claude settings, detection candidates, validation arguments, launch capabilities, history metadata, presets, default model metadata, and agent creation.</li>
+    <li>The plugin exposes the existing <code>ClaudeDriver</code>, preserving slash commands, model selection, history, interrupt/cancel, and preassigned session behavior.</li>
+    <li><code>AgentPluginRegistry</code> now resolves <code>AgentKind.ClaudeCode</code> through <code>ClaudeAgentPlugin</code>.</li>
+  </ul>
+
+  <h2>Verification</h2>
+  <ul>
+    <li><code>dotnet build cc-director.sln --no-restore</code> - Build succeeded, 0 warnings, 0 errors.</li>
+    <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~ClaudeAgentDefaultArgsTests"</code> - Passed: 20, Failed: 0.</li>
+    <li><code>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --no-build --filter FullyQualifiedName~AgentsEndpointTests</code> - Passed: 18, Failed: 0.</li>
+  </ul>
+
+  <h2>Live QA</h2>
+  <ul>
+    <li>Built isolated slot 14 with <code>scripts\local-build-avalonia.ps1 -Slot 14</code>.</li>
+    <li>Launched slot 14 on Control API <code>http://127.0.0.1:7882</code>.</li>
+    <li>Created live Claude Code QA session <code>cf3a858c-39a4-45e6-8627-543d8f4afb72</code>.</li>
+    <li>Session reported <code>agent=ClaudeCode</code>, <code>activityState=WaitingForInput</code>, <code>statusColor=green</code>, Claude transcript path under <code>~/.claude/projects</code>, and capabilities including <code>PreassignedSessionId</code>, <code>History</code>, and <code>ModelSelection</code>.</li>
+  </ul>
+
+  <h2>Screenshots</h2>
+  <p>Claude Code settings list:</p>
+  <img src="screenshots/claude-settings-list.png" alt="Claude Code settings list">
+  <p>Live Claude Code terminal session:</p>
+  <img src="screenshots/claude-live-terminal.png" alt="Live Claude Code terminal session">
+</body>
+</html>
