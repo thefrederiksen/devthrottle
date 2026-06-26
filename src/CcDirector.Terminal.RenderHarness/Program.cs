@@ -48,7 +48,12 @@ internal static class Program
         byte[] fixture = File.ReadAllBytes(fixturePath);
         Console.WriteLine($"[harness] fixture={fixturePath} ({fixture.Length} bytes) out={outDir}");
 
-        var terminal = new TerminalControl();
+        string repoPath = args.Length > 2 ? args[2] : "D:/ReposFred/devthrottle";
+        var terminal = new TerminalControl
+        {
+            // So relative path links like "docs/" resolve to a real on-disk dir and render as links.
+            HarnessRepoPath = repoPath,
+        };
         var window = new Window
         {
             Width = WindowWidth,
@@ -119,6 +124,31 @@ internal static class Program
         terminal.HarnessRebuild(fixture);
         Capture("reattach_after_tabswitch");
 
+        // ---- Phase 3: path-link flicker test ----
+        // Path links (e.g. "docs/") render underlined ONLY when an async disk-existence check has
+        // populated the cache. The per-byte handler clears that cache, and Grok's idle footer feeds
+        // bytes ~30x/s - so each frame the link reverts to plain (cache miss) then back to underlined
+        // (async resolves) = flicker. Reproduce deterministically: warm the cache (link underlined),
+        // then feed an EMPTY batch (no screen change, but the per-byte path-cache clear fires) and
+        // re-render. Any pixel difference is the link styling toggling = the flicker.
+        WriteableBitmap? CaptureBmp(string label)
+        {
+            Pump();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            var f = window.CaptureRenderedFrame();
+            if (f is not null) f.Save(Path.Combine(outDir, label + ".png"));
+            return f;
+        }
+        terminal.HarnessCountPathLinks();     // first pass: schedules the async existence checks
+        System.Threading.Thread.Sleep(200);   // let the background checks resolve (cache warms)
+        int warmLinks = terminal.HarnessCountPathLinks();   // warm: existing paths now report as links
+        terminal.HarnessFeed(Array.Empty<byte>());          // no screen change, but clears the path cache
+        int clearedLinks = terminal.HarnessCountPathLinks();// first pass after clear: cache miss -> fewer links
+        CaptureBmp("link_warm");
+        CaptureBmp("link_after_clear");
+        log.Add($"LINK-FLICKER\tpathLinks warm={warmLinks} afterClear={clearedLinks}");
+        Console.WriteLine($"[harness] path-link flicker: pathLinks warm={warmLinks} -> immediately-after-cache-clear={clearedLinks}  (warm>cleared = flicker)");
+
         File.WriteAllLines(Path.Combine(outDir, "metrics.txt"), log);
         Console.WriteLine("[harness] DONE");
         Environment.Exit(0);
@@ -127,6 +157,22 @@ internal static class Program
     private static void Pump()
     {
         Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Fraction of bytes that differ between two captured frames. 0 = identical.</summary>
+    private static double FrameDiffFraction(WriteableBitmap a, WriteableBitmap b)
+    {
+        using var fa = a.Lock();
+        using var fb = b.Lock();
+        int total = Math.Min(fa.RowBytes * fa.Size.Height, fb.RowBytes * fb.Size.Height);
+        var ba = new byte[fa.RowBytes * fa.Size.Height];
+        var bb = new byte[fb.RowBytes * fb.Size.Height];
+        Marshal.Copy(fa.Address, ba, 0, ba.Length);
+        Marshal.Copy(fb.Address, bb, 0, bb.Length);
+        long diff = 0;
+        for (int i = 0; i < total; i++)
+            if (ba[i] != bb[i]) diff++;
+        return total == 0 ? 0 : (double)diff / total;
     }
 
     /// <summary>
