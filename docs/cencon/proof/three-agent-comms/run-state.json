@@ -9,8 +9,8 @@
     "0_preflight":        { "status": "COMPLETE", "note": "all three CLIs installed; branch + proof dirs created" },
     "1_crosscutting":     { "status": "COMPLETE", "note": "TerminalSubmit helper + CodexDriver refactor + ClaudeDriver dedup; FleetPreambleStrategy declared (Claude/Codex/Pi); cc-ask UTF-8 fix. 114 driver/plugin tests green." },
     "2_codex_unlocks":    { "status": "COMPLETE", "note": "Codex AND Pi history already readable via SessionHistoryReader (CodexTranscriptReader + PiTranscriptReader exist and are complete). Driver-level TranscriptRead flag unnecessary: cc-history uses SessionHistoryReader, cc-ask uses the buffer. G4 (Pi reader) already done." },
-    "3_pi_parity":        { "status": "IN_PROGRESS", "items": ["Pi preamble via --append-system-prompt file", "Pi echo-verified submit"], "note": "PiTranscriptReader already exists (was G4)." },
-    "4_comms_quality":    { "status": "PENDING", "items": ["transcript-based ask answers", "cc-status", "cc-history"] },
+    "3_pi_parity":        { "status": "COMPLETE", "note": "PiPreambleWriter + --append-system-prompt; PiDriver echo-verified submit. PiTranscriptReader already existed." },
+    "4_comms_quality":    { "status": "COMPLETE", "items": ["/sessions/{id}/history endpoint (SessionHistoryReader, all 3 agents)", "cc-history CLI tool", "cc-status CLI tool"], "note": "G6 crisp-answers deferred (cc-ask buffer answers acceptable). Tools live in repo tools/cc-history and tools/cc-status." },
     "5_live_trio":        { "status": "PENDING", "items": ["C1-C10 live", "six-pair round-trip"] },
     "6_qa_report":        { "status": "PENDING", "items": ["three-agent-comms-qa-report.html"] }
   },
