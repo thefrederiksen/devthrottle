@@ -6,6 +6,23 @@ using NAudio.Wave;
 namespace CcDirector.Avalonia.Voice;
 
 /// <summary>
+/// Optional UI-meter extension to <see cref="IAudioSource"/>: a source that also
+/// emits the per-band spectrum and input RMS the Speak dialog's equalizer and
+/// "speak up" hint render. Kept off the Core <see cref="IAudioSource"/> contract
+/// because those are desktop-UI cosmetics, not part of the capture/no-loss
+/// guarantee. <see cref="BatchDictationRecorder"/> subscribes to these when the
+/// source provides them and works fine without them (e.g. a headless test source).
+/// </summary>
+public interface IAudioMeterSource : IAudioSource
+{
+    /// <summary>Fires per chunk with a per-band (0..1) spectrum for a UI equalizer.</summary>
+    event Action<double[]>? OnAudioBands;
+
+    /// <summary>Fires per chunk with the raw int16 RMS amplitude (0..32767) for a level hint.</summary>
+    event Action<double>? OnInputRms;
+}
+
+/// <summary>
 /// Mic capture wrapper around NAudio's WaveInEvent, configured for the
 /// format the OpenAI Realtime transcription API expects: 24 kHz, 16-bit,
 /// mono PCM. Fires <see cref="OnAudioChunk"/> for every buffer the
@@ -17,7 +34,7 @@ namespace CcDirector.Avalonia.Voice;
 /// move independently the way a real frequency analyzer does, rather than all
 /// rising and falling together off a single energy number.
 /// </summary>
-public sealed class MicAudioCapture : IAudioSource, IDisposable
+public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
 {
     public const int SampleRate = 24_000;
     public const int BitsPerSample = 16;
@@ -56,6 +73,11 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
     private readonly string _description;
     private bool _started;
     private bool _disposed;
+
+    // Completed by OnRecordingStopped so StopAsync can wait for NAudio to deliver
+    // its final buffered audio before the caller snapshots the buffer. Null except
+    // during an in-flight StopAsync.
+    private TaskCompletionSource<bool>? _stoppedSignal;
 
     /// <summary>
     /// Name of the capture device this instance reads from. Resolved once at
@@ -125,6 +147,42 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
         _started = false;
     }
 
+    /// <summary>
+    /// Stop capture and return only AFTER NAudio has delivered its final buffered
+    /// audio - the trailing words the user just spoke. WaveInEvent keeps capturing
+    /// for up to one buffer (<see cref="MicAudioCapture(int,int)"/>'s
+    /// bufferMilliseconds) after StopRecording, raises the last
+    /// <see cref="OnAudioChunk"/> events on its worker thread, and only then fires
+    /// RecordingStopped. Awaiting that event is what guarantees the whole tail is in
+    /// the buffer before the caller snapshots it; a fire-and-forget <see cref="Stop"/>
+    /// followed by an immediate snapshot would clip the end of the speech.
+    ///
+    /// The <paramref name="drainTimeout"/> is a backstop so a wedged driver that never
+    /// raises RecordingStopped cannot hang the transcription path - on timeout we
+    /// proceed with whatever audio was delivered.
+    /// </summary>
+    public async Task StopAsync(TimeSpan drainTimeout)
+    {
+        if (!_started) return;
+
+        var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _stoppedSignal = signal;
+        try
+        {
+            _waveIn.StopRecording();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MicAudioCapture] StopAsync error: {ex.Message}");
+            signal.TrySetResult(false);
+        }
+        _started = false;
+
+        var finished = await Task.WhenAny(signal.Task, Task.Delay(drainTimeout)).ConfigureAwait(false);
+        if (finished != signal.Task)
+            FileLog.Write($"[MicAudioCapture] StopAsync: RecordingStopped not seen within {drainTimeout.TotalMilliseconds:F0}ms; proceeding with captured audio");
+    }
+
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
         if (e.BytesRecorded <= 0) return;
@@ -147,6 +205,9 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
     {
         if (e.Exception is not null)
             FileLog.Write($"[MicAudioCapture] Recording stopped with error: {e.Exception.Message}");
+        // RecordThread raises this in its finally AFTER the last DataAvailable has
+        // been delivered, so by here every captured chunk is already appended.
+        _stoppedSignal?.TrySetResult(true);
     }
 
     /// <summary>

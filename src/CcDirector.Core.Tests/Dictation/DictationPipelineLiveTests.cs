@@ -203,6 +203,10 @@ public sealed class DictationPipelineLiveTests
             _completed.TrySetResult();
             _thread?.Join(1000);
         }
+
+        // Stop() joins the emit thread, so all chunks have fired by the time it
+        // returns; there is no buffered tail to drain separately.
+        public Task StopAsync(TimeSpan drainTimeout) { Stop(); return Task.CompletedTask; }
     }
 
     private sealed class FailHandler : HttpMessageHandler

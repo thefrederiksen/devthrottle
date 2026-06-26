@@ -35,6 +35,9 @@ public sealed class DictationPipelineTests
 
         public void Start() => Started = true;
         public void Stop() => Stopped = true;
+        // The fake delivers chunks synchronously via Emit, so there is no buffered
+        // tail to drain; StopAsync is just Stop for the streaming-pipeline tests.
+        public Task StopAsync(TimeSpan drainTimeout) { Stop(); return Task.CompletedTask; }
 
         /// <summary>Simulate the driver delivering a captured buffer.</summary>
         public void Emit(byte[] chunk) => OnAudioChunk?.Invoke(chunk);
