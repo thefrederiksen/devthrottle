@@ -260,6 +260,61 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void OpenCodePlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.OpenCode);
+
+        Assert.IsType<OpenCodeAgentPlugin>(plugin);
+        Assert.Equal("opencode", plugin.Id);
+        Assert.Equal("opencode", plugin.ConfigKey);
+        Assert.Equal("OpenCode", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<GenericDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Single(plugin.CommandPresets);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path.EndsWith("opencode.cmd", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "opencode");
+        Assert.Equal(AgentHistoryProviderKind.SqliteStore, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains("SQLite", plugin.History.StoreDescription);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Interrupt));
+        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.OpenCode, command.DriverKind));
+    }
+
+    [Fact]
+    public void OpenCodePlugin_CreatesOpenCodeAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.OpenCode);
+        var options = new AgentOptions { OpenCodePath = "opencode-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: " --print ",
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: "opencode-resume-ignored",
+            StudioMode: false));
+
+        Assert.IsType<OpenCodeAgent>(agent);
+        Assert.Equal("opencode-custom", agent.ExecutablePath);
+        Assert.Equal("--print", newSession.Arguments);
+        Assert.Null(newSession.PreassignedSessionId);
+        Assert.Equal("", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
     public void CursorPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
     {
         var plugin = AgentPluginRegistry.Get(AgentKind.Cursor);

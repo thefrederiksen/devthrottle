@@ -71,6 +71,7 @@ public static class AgentPluginRegistry
                 AgentKind.Copilot => new CopilotAgentPlugin(),
                 AgentKind.Pi => new PiAgentPlugin(),
                 AgentKind.Gemini => new GeminiAgentPlugin(),
+                AgentKind.OpenCode => new OpenCodeAgentPlugin(),
                 _ => new BuiltInAgentPlugin(
                     AgentToolConfig.KeyFor(entry.Tool),
                     AgentToolConfig.KeyFor(entry.Tool),

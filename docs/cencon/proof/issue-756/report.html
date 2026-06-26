@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 756 Proof - OpenCode Agent Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 756 Proof - Convert OpenCode to a Concrete Agent Plugin</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    OpenCode is now represented by <code>OpenCodeAgentPlugin</code> instead of the
+    generic <code>BuiltInAgentPlugin</code> adapter. The plugin owns OpenCode settings
+    metadata, executable detection candidates, validation arguments, SQLite history
+    metadata, launch metadata, presets, agent construction, and the OpenCode driver binding.
+  </p>
+  <p>
+    The plugin remains data/launch/driver only. OpenCode does not add or own any
+    Director UI tab.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/OpenCodeAgentPlugin.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core.Tests/AgentPlugins/AgentPluginRegistryTests.cs</code></li>
+  </ul>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPluginRegistryTests" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 28, Skipped: 0, Total: 28</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Live QA</h2>
+  <p>
+    Built isolated slot <code>cc-director15.exe</code> from this branch, launched it
+    through the scheduled-task slot path, and created an OpenCode session through
+    <code>POST /sessions</code>.
+  </p>
+  <ul>
+    <li>Slot: <code>15</code></li>
+    <li>Control API: <code>http://127.0.0.1:7883</code></li>
+    <li>Health: <code>/healthz</code> returned <code>status=ok</code></li>
+    <li>Session: <code>d20c3be3-c6a9-4ad7-b92e-0e46320e81f0</code></li>
+    <li>Agent: <code>OpenCode</code></li>
+    <li>Driver capabilities: <code>Cancel</code>, <code>Interrupt</code></li>
+  </ul>
+
+  <h3>OpenCode Session</h3>
+  <img src="screenshots/opencode-live-terminal.png" alt="Live OpenCode session in CC Director">
+
+  <h3>API Artifacts</h3>
+  <ul>
+    <li><code>screenshots/settings-catalog.json</code> contains the OpenCode catalog entry with <code>historyProvider=SqliteStore</code>, <code>supportsPreassignedSessionId=false</code>, <code>supportsStudioMode=false</code>, and driver capabilities <code>Cancel</code>/<code>Interrupt</code>.</li>
+    <li><code>screenshots/opencode-session-created.json</code> contains the create response from <code>POST /sessions</code>.</li>
+    <li><code>screenshots/opencode-session.json</code> contains the live OpenCode session response from <code>/sessions/{id}</code>.</li>
+  </ul>
+</body>
+</html>
