@@ -421,11 +421,35 @@ internal static class ControlEndpoints
 
             var timedOut = target.ActivityState != ActivityState.Idle;
             var answer = "";
-            if (target.Buffer is not null)
+
+            // Prefer the transcript: a clean, parsed answer (the last assistant message) instead of a
+            // scrape of the repainting TUI buffer. This makes cross-agent cc-ask answers crisp for
+            // Claude, Codex and Pi - and because the returned text carries no TUI glyphs, the cc-ask
+            // client cannot crash printing it on a legacy Windows console. The transcript can flush a
+            // beat after Idle, so retry briefly. Fall back to the buffer scrape only when the
+            // transcript yields nothing (e.g. a turn that produced only tool calls).
+            if (CcDirector.Core.History.SessionHistoryReader.IsSupported(target))
+            {
+                for (var r = 0; r < 8 && answer.Length == 0; r++)
+                {
+                    var hist = CcDirector.Core.History.SessionHistoryReader.Read(target);
+                    var lastAssistant = hist.Messages.LastOrDefault(
+                        m => m.Role == CcDirector.Core.History.ConversationRole.Assistant);
+                    if (lastAssistant is not null)
+                        answer = string.Join("\n", lastAssistant.Parts
+                            .Where(p => p.Kind == CcDirector.Core.History.ConversationPartKind.Text)
+                            .Select(p => p.Text)).Trim();
+                    if (answer.Length == 0)
+                        await Task.Delay(400, ct);
+                }
+            }
+
+            if (answer.Length == 0 && target.Buffer is not null)
             {
                 var (data, _) = target.Buffer.GetWrittenSince(cursor);
                 answer = AnsiCleaner.Clean(data);
             }
+
             return (answer, timedOut ? "timeout" : "idle");
         }
 
