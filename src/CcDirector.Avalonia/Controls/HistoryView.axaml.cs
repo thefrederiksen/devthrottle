@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Avalonia.Helpers;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Gemini;
 using CcDirector.Core.History;
@@ -21,6 +22,12 @@ public sealed class HistoryMessageVm
     public string Body { get; init; } = "";
     public IBrush HeaderBrush { get; init; } = Brushes.Gray;
     public IBrush CardBrush { get; init; } = Brushes.Transparent;
+
+    /// <summary>True for raw terminal scrollback (Gemini): render verbatim, not as Markdown.</summary>
+    public bool IsRawText { get; init; }
+
+    /// <summary>Link context that makes file paths and URLs in this bubble clickable (#735).</summary>
+    public MarkdownRenderContext? LinkContext { get; init; }
 }
 
 /// <summary>
@@ -43,10 +50,36 @@ public partial class HistoryView : UserControl
     // Keep the recent tail; an uncapped multi-hundred-KB body in one wrapping TextBlock janks the UI.
     private const int GeminiBodyMaxChars = 24_000;
 
+    // History-state pill colors (deliberately distinct from the green "live" badge so the
+    // transcript-derived label can never be mistaken for the live byte-based status).
+    private static readonly IBrush BgRunningPill = new SolidColorBrush(Color.FromRgb(0x3A, 0x2A, 0x4A));
+    private static readonly IBrush BgRunningText = new SolidColorBrush(Color.FromRgb(0xC9, 0xA0, 0xF0));
+    private static readonly IBrush WorkingPill = new SolidColorBrush(Color.FromRgb(0x24, 0x33, 0x4A));
+    private static readonly IBrush WorkingText = new SolidColorBrush(Color.FromRgb(0x6C, 0xA0, 0xF0));
+    private static readonly IBrush NeedsYouPill = new SolidColorBrush(Color.FromRgb(0x44, 0x28, 0x28));
+    private static readonly IBrush NeedsYouText = new SolidColorBrush(Color.FromRgb(0xE0, 0x8A, 0x8A));
+    private static readonly IBrush IdlePill = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+    private static readonly IBrush IdleText = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
+
     private readonly ObservableCollection<HistoryMessageVm> _messages = new();
     private DispatcherTimer? _timer;
     private Session? _session;
     private string _lastSignature = "";
+
+    // Shared per-session link context for clickable paths/URLs in bubbles (#735). Built on Attach
+    // because its inputs (the repo path and the routing callbacks) are stable for a session.
+    private MarkdownRenderContext? _linkContext;
+
+    /// <summary>Raised when the user picks "View File" on a link in a bubble (resolved path).</summary>
+    public event Action<string>? ViewFileRequested;
+
+    /// <summary>Raised when opening a link in a browser fails (human-readable message).</summary>
+    public event Action<string>? BrowserLaunchFailed;
+
+    // Cached transcript analysis for the derived history state (Claude only). Re-parsed only when
+    // the transcript file changes; re-derived every tick so the process-liveness guard updates fast.
+    private HistoryAnalysis? _lastAnalysis;
+    private string _analysisSignature = "";
 
     public HistoryView()
     {
@@ -59,6 +92,13 @@ public partial class HistoryView : UserControl
     {
         Detach();
         _session = session;
+        _linkContext = new MarkdownRenderContext
+        {
+            RepoPath = session.RepoPath,
+            PathExists = static p => File.Exists(p) || Directory.Exists(p),
+            OnViewFile = path => ViewFileRequested?.Invoke(path),
+            OnBrowserError = message => BrowserLaunchFailed?.Invoke(message),
+        };
         FileLog.Write($"[HistoryView] Attach: session={session.Id} agent={session.AgentKind} transcript={session.ClaudeTranscriptPath ?? "(null)"}");
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _timer.Tick += async (_, _) => await RefreshAsync();
@@ -72,11 +112,15 @@ public partial class HistoryView : UserControl
         _timer?.Stop();
         _timer = null;
         _session = null;
+        _linkContext = null;
         _lastSignature = "";
+        _lastAnalysis = null;
+        _analysisSignature = "";
         _messages.Clear();
         CountText.Text = "";
         EmptyText.IsVisible = true;
         EmptyText.Text = "No messages yet.";
+        HistoryStatePill.IsVisible = false;
     }
 
     private async Task RefreshAsync()
@@ -106,10 +150,16 @@ public partial class HistoryView : UserControl
                     ? "Waiting for the conversation to start..."
                     : "History is not available for this agent yet.";
                 _lastSignature = "";
+                HistoryStatePill.IsVisible = false;
                 return;
             }
 
-            // Only re-parse when the transcript file actually changed.
+            // Derived history-state pill (experimental, Claude only). Updated every tick - even when
+            // the transcript itself has not changed - so the liveness guard clears a stuck
+            // "Background running" promptly once the process exits.
+            await UpdateDerivedHistoryStateAsync(session, path);
+
+            // Only re-parse the conversation when the transcript file actually changed.
             var info = new FileInfo(path);
             var signature = info.Length + "|" + info.LastWriteTimeUtc.Ticks;
             if (signature == _lastSignature)
@@ -117,7 +167,7 @@ public partial class HistoryView : UserControl
             _lastSignature = signature;
 
             var history = await Task.Run(() => SessionHistoryReader.Read(session));
-            var vms = Map(history);
+            var vms = Map(history, _linkContext);
             FileLog.Write($"[HistoryView] refresh: path={path} messages={history.Messages.Count} vms={vms.Count}");
 
             var atBottom = IsNearBottom();
@@ -136,6 +186,66 @@ public partial class HistoryView : UserControl
         catch (Exception ex)
         {
             FileLog.Write($"[HistoryView] RefreshAsync failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Compute and render the transcript-derived history state (GitHub #736). This is Claude-only:
+    /// the background-agent lifecycle signal lives in the Claude transcript format, so other agents
+    /// have no derived label (they fall back to today's live heuristic). The cached analysis is
+    /// re-parsed only when the file changes; the cheap <see cref="HistoryStateDeriver.Derive"/> runs
+    /// every tick with the current process-liveness so a finished session cannot stay "Background
+    /// running". This never reads or writes the live byte-based status.
+    /// </summary>
+    private async Task UpdateDerivedHistoryStateAsync(Session session, string path)
+    {
+        if (session.AgentKind != AgentKind.ClaudeCode)
+        {
+            HistoryStatePill.IsVisible = false;
+            return;
+        }
+
+        var info = new FileInfo(path);
+        var signature = info.Length + "|" + info.LastWriteTimeUtc.Ticks;
+        if (signature != _analysisSignature)
+        {
+            _lastAnalysis = await Task.Run(() => HistoryStateDeriver.AnalyzeFile(path));
+            _analysisSignature = signature;
+        }
+
+        var state = HistoryStateDeriver.Derive(_lastAnalysis ?? HistoryAnalysis.Empty, session.Backend.IsRunning);
+        RenderHistoryStatePill(state);
+    }
+
+    /// <summary>Paint the derived-state pill. Hidden when Idle to keep the header quiet.</summary>
+    private void RenderHistoryStatePill(HistoryState state)
+    {
+        switch (state)
+        {
+            case HistoryState.BackgroundRunning:
+                HistoryStatePill.Background = BgRunningPill;
+                HistoryStateText.Foreground = BgRunningText;
+                HistoryStateText.Text = "history: Background running";
+                HistoryStatePill.IsVisible = true;
+                break;
+            case HistoryState.Working:
+                HistoryStatePill.Background = WorkingPill;
+                HistoryStateText.Foreground = WorkingText;
+                HistoryStateText.Text = "history: Working";
+                HistoryStatePill.IsVisible = true;
+                break;
+            case HistoryState.NeedsYou:
+                HistoryStatePill.Background = NeedsYouPill;
+                HistoryStateText.Foreground = NeedsYouText;
+                HistoryStateText.Text = "history: Needs you";
+                HistoryStatePill.IsVisible = true;
+                break;
+            default:
+                HistoryStatePill.Background = IdlePill;
+                HistoryStateText.Foreground = IdleText;
+                HistoryStateText.Text = "history: Idle";
+                HistoryStatePill.IsVisible = true;
+                break;
         }
     }
 
@@ -195,6 +305,7 @@ public partial class HistoryView : UserControl
             Body = body,
             HeaderBrush = ToolHeader,
             CardBrush = ToolCard,
+            IsRawText = true,
         });
         CountText.Text = "raw terminal text";
         EmptyText.IsVisible = false;
@@ -203,19 +314,19 @@ public partial class HistoryView : UserControl
             ScrollToEndDeferred();
     }
 
-    private static List<HistoryMessageVm> Map(ConversationHistory history)
+    private static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext)
     {
         var list = new List<HistoryMessageVm>(history.Messages.Count);
         foreach (var message in history.Messages)
         {
-            var vm = MapMessage(message);
+            var vm = MapMessage(message, linkContext);
             if (vm is not null)
                 list.Add(vm);
         }
         return list;
     }
 
-    private static HistoryMessageVm? MapMessage(ConversationMessage message)
+    private static HistoryMessageVm? MapMessage(ConversationMessage message, MarkdownRenderContext? linkContext)
     {
         var sb = new StringBuilder();
 
@@ -244,7 +355,7 @@ public partial class HistoryView : UserControl
             var body = sb.ToString().Trim();
             return body.Length == 0
                 ? null
-                : new HistoryMessageVm { Speaker = "Assistant", Body = Truncate(body, 4000), HeaderBrush = AssistantHeader, CardBrush = AssistantCard };
+                : new HistoryMessageVm { Speaker = "Assistant", Body = Truncate(body, 4000), HeaderBrush = AssistantHeader, CardBrush = AssistantCard, LinkContext = linkContext };
         }
 
         // User role: either a real prompt, or tool results being fed back to the assistant.
@@ -267,8 +378,8 @@ public partial class HistoryView : UserControl
             return null;
 
         return onlyToolResults
-            ? new HistoryMessageVm { Speaker = "Tool result", Body = Truncate(userBody, 2000), HeaderBrush = ToolHeader, CardBrush = ToolCard }
-            : new HistoryMessageVm { Speaker = "You", Body = Truncate(userBody, 4000), HeaderBrush = UserHeader, CardBrush = UserCard };
+            ? new HistoryMessageVm { Speaker = "Tool result", Body = Truncate(userBody, 2000), HeaderBrush = ToolHeader, CardBrush = ToolCard, LinkContext = linkContext }
+            : new HistoryMessageVm { Speaker = "You", Body = Truncate(userBody, 4000), HeaderBrush = UserHeader, CardBrush = UserCard, LinkContext = linkContext };
     }
 
     private static void Append(StringBuilder sb, string text)
