@@ -134,7 +134,7 @@ public partial class HistoryView : UserControl
             // Gemini is the exception: it has no transcript file, so the file-based path below
             // never applies. Its conversation lives only in the session's terminal buffer, so
             // poll the buffer here and re-render the single cleaned-text block when it grows.
-            if (session.AgentKind == AgentKind.Gemini)
+            if (IsRawTextAgent(session.AgentKind))
             {
                 await RefreshGeminiAsync(session);
                 return;
@@ -305,7 +305,7 @@ public partial class HistoryView : UserControl
             Body = body,
             HeaderBrush = ToolHeader,
             CardBrush = ToolCard,
-            IsRawText = true,
+            IsRawText = IsRawTextAgent(session.AgentKind),
         });
         CountText.Text = "raw terminal text";
         EmptyText.IsVisible = false;
@@ -313,6 +313,16 @@ public partial class HistoryView : UserControl
         if (atBottom)
             ScrollToEndDeferred();
     }
+
+    /// <summary>
+    /// The single source of truth for "this agent's history is raw terminal scrollback, not a
+    /// structured transcript" - currently only Gemini, which persists no usable transcript and is
+    /// read straight from the session's terminal buffer. Such an agent is rendered verbatim
+    /// (<see cref="HistoryMessageVm.IsRawText"/>), never through the Markdown pipeline. Kept as one
+    /// named predicate so the buffer-read branch and the raw-render flag can never disagree (the
+    /// kind of split that produced the Cockpit IsRawText bug, GitHub #742).
+    /// </summary>
+    internal static bool IsRawTextAgent(AgentKind agent) => agent == AgentKind.Gemini;
 
     private static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext)
     {
