@@ -1207,9 +1207,7 @@ public partial class MainWindow : Window
 
     /// <summary>Construct the <see cref="IAgent"/> strategy for the given agent kind.</summary>
     private IAgent CreateAgent(AgentKind agentKind) =>
-        AgentPluginRegistry.Contains(agentKind)
-            ? AgentPluginRegistry.Get(agentKind).CreateAgent(_sessionManager.Options)
-            : new ClaudeAgent(_sessionManager.Options);
+        AgentPluginRegistry.CreateAgent(agentKind, _sessionManager.Options);
 
     /// <summary>
     /// Build a catalog agent (issue #490) whose executable path is the selected entry's configured
@@ -1220,64 +1218,8 @@ public partial class MainWindow : Window
     /// options' default for that type so a not-yet-configured entry still launches its standard
     /// binary. RawCli is handled by the caller via <see cref="RawCliAgent"/> and never reaches here.
     /// </summary>
-    private IAgent CreateAgentForEntry(AgentKind agentKind, string entryExecutablePath)
-    {
-        var options = _sessionManager.Options;
-        var path = entryExecutablePath?.Trim();
-        if (string.IsNullOrEmpty(path))
-            return CreateAgent(agentKind);
-
-        var perLaunch = ClonePathOverriddenOptions(options, agentKind, path);
-        return AgentPluginRegistry.Contains(agentKind)
-            ? AgentPluginRegistry.Get(agentKind).CreateAgent(perLaunch)
-            : new ClaudeAgent(perLaunch);
-    }
-
-    /// <summary>
-    /// Shallow-copy <paramref name="source"/> and override only the executable-path property for
-    /// <paramref name="agentKind"/> with <paramref name="path"/> (issue #490). Used to launch a
-    /// catalog agent from a specific entry's path without mutating the shared running options.
-    /// </summary>
-    private static AgentOptions ClonePathOverriddenOptions(AgentOptions source, AgentKind agentKind, string path)
-    {
-        var copy = new AgentOptions
-        {
-            ClaudePath = source.ClaudePath,
-            DefaultClaudeArgs = source.DefaultClaudeArgs,
-            DefaultBufferSizeBytes = source.DefaultBufferSizeBytes,
-            GracefulShutdownTimeoutSeconds = source.GracefulShutdownTimeoutSeconds,
-            PiPath = source.PiPath,
-            CodexPath = source.CodexPath,
-            GeminiPath = source.GeminiPath,
-            OpenCodePath = source.OpenCodePath,
-            CursorPath = source.CursorPath,
-            CursorApiKey = source.CursorApiKey,
-            GrokPath = source.GrokPath,
-            CopilotPath = source.CopilotPath,
-            CopilotGitHubToken = source.CopilotGitHubToken,
-            ChatSessionRepoPath = source.ChatSessionRepoPath,
-            TtsVoice = source.TtsVoice,
-            TtsModel = source.TtsModel,
-            OpenAiKey = source.OpenAiKey,
-            DictationDictionaryPath = source.DictationDictionaryPath,
-            DictationCleanupModel = source.DictationCleanupModel,
-            DictationPreviewModel = source.DictationPreviewModel,
-        };
-
-        switch (agentKind)
-        {
-            case AgentKind.Pi: copy.PiPath = path; break;
-            case AgentKind.Codex: copy.CodexPath = path; break;
-            case AgentKind.Gemini: copy.GeminiPath = path; break;
-            case AgentKind.OpenCode: copy.OpenCodePath = path; break;
-            case AgentKind.Cursor: copy.CursorPath = path; break;
-            case AgentKind.Grok: copy.GrokPath = path; break;
-            case AgentKind.Copilot: copy.CopilotPath = path; break;
-            default: copy.ClaudePath = path; break;
-        }
-
-        return copy;
-    }
+    private IAgent CreateAgentForEntry(AgentKind agentKind, string entryExecutablePath) =>
+        AgentPluginRegistry.CreateAgentWithPathOverride(agentKind, _sessionManager.Options, entryExecutablePath);
 
     /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
     /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
@@ -1366,29 +1308,11 @@ public partial class MainWindow : Window
     /// Human-readable name and install guidance for an agent CLI, shown when its
     /// executable cannot be found on PATH.
     /// </summary>
-    private static (string DisplayName, string InstallHint) AgentInstallInfo(AgentKind kind) => kind switch
+    private static (string DisplayName, string InstallHint) AgentInstallInfo(AgentKind kind)
     {
-        AgentKind.Pi => ("Pi",
-            "Install it with: npm install -g @earendil-works/pi-coding-agent"),
-        AgentKind.Codex => ("Codex",
-            "Install it with: npm install -g @openai/codex"),
-        AgentKind.Gemini => ("Gemini CLI",
-            "Install it with: npm install -g @google/gemini-cli"),
-        AgentKind.OpenCode => ("OpenCode",
-            "Install it from https://opencode.ai (for example: 'npm install -g opencode-ai', "
-            + "'brew install sst/tap/opencode', or 'scoop install opencode'), then make sure the "
-            + "'opencode' command is on your PATH."),
-        AgentKind.Cursor => ("Cursor",
-            "Install it from https://cursor.com (on Windows: run "
-            + "\"irm 'https://cursor.com/install?win32=true' | iex\"), then make sure the "
-            + "'cursor-agent' command is on your PATH."),
-        AgentKind.Grok => ("Grok",
-            "Install it from https://x.ai (on Windows: run "
-            + "\"irm https://x.ai/cli/install.ps1 | iex\"), then make sure the "
-            + "'grok' command is on your PATH."),
-        _ => ("Claude Code",
-            "Install Claude Code and make sure the 'claude' command is on your PATH.")
-    };
+        var plugin = AgentPluginRegistry.Get(kind);
+        return (plugin.DisplayName, plugin.Detection.InstallHint);
+    }
 
     private void SelectSession(SessionViewModel? vm)
     {

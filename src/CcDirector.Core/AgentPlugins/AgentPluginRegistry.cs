@@ -38,6 +38,29 @@ public static class AgentPluginRegistry
         throw new NotSupportedException($"[AgentPluginRegistry] Agent kind {kind} has no registered plugin.");
     }
 
+    /// <summary>Create a built-in agent through its plugin factory.</summary>
+    public static IAgent CreateAgent(AgentKind kind, AgentOptions options) =>
+        CreatePluginBackedAgent(Get(kind), options);
+
+    /// <summary>
+    /// Create a built-in agent through its plugin factory, overriding only that plugin's executable
+    /// path on a per-launch copy of the running options.
+    /// </summary>
+    public static IAgent CreateAgentWithPathOverride(AgentKind kind, AgentOptions options, string? executablePath)
+    {
+        var plugin = Get(kind);
+        var path = executablePath?.Trim();
+        if (string.IsNullOrEmpty(path))
+            return CreatePluginBackedAgent(plugin, options);
+
+        var perLaunch = CloneOptions(options);
+        plugin.Settings.SetConfiguredPath(perLaunch, path);
+        return CreatePluginBackedAgent(plugin, perLaunch);
+    }
+
+    private static IAgent CreatePluginBackedAgent(IAgentPlugin plugin, AgentOptions options) =>
+        new PluginBackedAgent(plugin, options, plugin.CreateAgent(options));
+
     private static IReadOnlyList<IAgentPlugin> BuildBuiltIns() =>
         AgentToolCatalog.Entries
             .Select<AgentToolCatalogEntry, IAgentPlugin>(entry => entry.Tool == AgentKind.Codex
@@ -53,6 +76,30 @@ public static class AgentPluginRegistry
                     ValidationMetadata(entry.Tool),
                     HistoryMetadata(entry.Tool)))
             .ToArray();
+
+    private static AgentOptions CloneOptions(AgentOptions source) => new()
+    {
+        ClaudePath = source.ClaudePath,
+        DefaultClaudeArgs = source.DefaultClaudeArgs,
+        DefaultBufferSizeBytes = source.DefaultBufferSizeBytes,
+        GracefulShutdownTimeoutSeconds = source.GracefulShutdownTimeoutSeconds,
+        PiPath = source.PiPath,
+        CodexPath = source.CodexPath,
+        GeminiPath = source.GeminiPath,
+        OpenCodePath = source.OpenCodePath,
+        CursorPath = source.CursorPath,
+        CursorApiKey = source.CursorApiKey,
+        GrokPath = source.GrokPath,
+        CopilotPath = source.CopilotPath,
+        CopilotGitHubToken = source.CopilotGitHubToken,
+        ChatSessionRepoPath = source.ChatSessionRepoPath,
+        TtsVoice = source.TtsVoice,
+        TtsModel = source.TtsModel,
+        OpenAiKey = source.OpenAiKey,
+        DictationDictionaryPath = source.DictationDictionaryPath,
+        DictationCleanupModel = source.DictationCleanupModel,
+        DictationPreviewModel = source.DictationPreviewModel,
+    };
 
     private static Func<AgentOptions, IAgent> AgentFactory(AgentKind kind) => kind switch
     {
@@ -210,5 +257,30 @@ public static class AgentPluginRegistry
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         return string.IsNullOrWhiteSpace(appData) ? binName : Path.Combine(appData, "npm", binName + ".cmd");
+    }
+
+    private sealed class PluginBackedAgent : IAgent
+    {
+        private readonly IAgentPlugin _plugin;
+        private readonly AgentOptions _options;
+        private readonly IAgent _agent;
+
+        public PluginBackedAgent(IAgentPlugin plugin, AgentOptions options, IAgent agent)
+        {
+            _plugin = plugin;
+            _options = options;
+            _agent = agent;
+        }
+
+        public AgentKind Kind => _agent.Kind;
+
+        public string ExecutablePath => _agent.ExecutablePath;
+
+        public bool SupportsPreassignedSessionId => _plugin.Launch.SupportsPreassignedSessionId;
+
+        public bool SupportsStudioMode => _plugin.Launch.SupportsStudioMode;
+
+        public AgentLaunchSpec BuildLaunchSpec(string? userArgs, string? resumeSessionId, bool studioMode) =>
+            _plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(_options, userArgs, resumeSessionId, studioMode));
     }
 }

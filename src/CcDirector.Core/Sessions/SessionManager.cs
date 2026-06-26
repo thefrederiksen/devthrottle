@@ -154,7 +154,7 @@ public sealed class SessionManager : IDisposable
     /// point for legacy callers. New callers should prefer the IAgent overload.</summary>
     public Session CreateSession(string repoPath, string? claudeArgs, SessionBackendType backendType, string? resumeSessionId)
     {
-        return CreateSession(repoPath, new ClaudeAgent(_options), claudeArgs, backendType, resumeSessionId);
+        return CreateSession(repoPath, AgentPluginRegistry.CreateAgent(AgentKind.ClaudeCode, _options), claudeArgs, backendType, resumeSessionId);
     }
 
     /// <summary>
@@ -163,10 +163,9 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
-        var plugin = AgentPluginRegistry.Get(agentKind);
         return CreateSession(
             repoPath,
-            plugin.CreateAgent(_options),
+            AgentPluginRegistry.CreateAgent(agentKind, _options),
             userArgs,
             backendType,
             resumeSessionId,

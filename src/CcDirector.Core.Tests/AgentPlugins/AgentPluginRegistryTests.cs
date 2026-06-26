@@ -162,6 +162,73 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void CreateAgent_CreatesEveryBuiltInThroughPluginFactory()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var agent = AgentPluginRegistry.CreateAgent(plugin.Kind, options);
+
+            Assert.Equal(plugin.Kind, agent.Kind);
+            Assert.Equal(plugin.Settings.GetConfiguredPath(options), agent.ExecutablePath);
+        }
+    }
+
+    [Fact]
+    public void CreateAgentWithPathOverride_UsesPluginSettingsPathWithoutMutatingSharedOptions()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var original = plugin.Settings.GetConfiguredPath(options);
+            var custom = $"{plugin.ConfigKey}-override";
+            var agent = AgentPluginRegistry.CreateAgentWithPathOverride(plugin.Kind, options, custom);
+
+            Assert.Equal(custom, agent.ExecutablePath);
+            Assert.Equal(original, plugin.Settings.GetConfiguredPath(options));
+        }
+    }
+
+    [Fact]
+    public void Plugins_BuildLaunchSpecsForEveryBuiltIn()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var spec = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+                options,
+                "--plugin-launch-test",
+                ResumeSessionId: null,
+                StudioMode: false));
+
+            Assert.Contains("--plugin-launch-test", spec.Arguments);
+        }
+    }
+
+    [Fact]
+    public void RegistryCreatedAgents_BuildLaunchSpecsForEveryBuiltInThroughPluginMetadata()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var agent = AgentPluginRegistry.CreateAgent(plugin.Kind, options);
+            var agentSpec = agent.BuildLaunchSpec("--registry-launch-test", "resume-from-registry", studioMode: true);
+            var pluginSpec = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+                options,
+                "--registry-launch-test",
+                "resume-from-registry",
+                StudioMode: true));
+
+            Assert.Equal(pluginSpec.Arguments, agentSpec.Arguments);
+            Assert.Equal(pluginSpec.PreassignedSessionId, agentSpec.PreassignedSessionId);
+        }
+    }
+
+    [Fact]
     public void RawCli_IsNotABuiltInCliPlugin()
     {
         Assert.False(AgentPluginRegistry.Contains(AgentKind.RawCli));

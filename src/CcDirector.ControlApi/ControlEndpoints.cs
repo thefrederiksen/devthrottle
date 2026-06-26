@@ -1772,7 +1772,7 @@ internal static class ControlEndpoints
 
                 if (!AgentPluginRegistry.Contains(kind))
                     return Results.BadRequest(new { error = $"agent {kind} is not a built-in plugin target" });
-                var agent = AgentPluginRegistry.Get(kind).CreateAgent(sessionManager.Options);
+                var agent = AgentPluginRegistry.CreateAgent(kind, sessionManager.Options);
 
                 try
                 {
@@ -2691,7 +2691,7 @@ internal static class ControlEndpoints
 
             IAgent agent = kind == AgentKind.RawCli
                 ? new RawCliAgent(req.Command!, req.CommandArgs)
-                : AgentPluginRegistry.Get(kind).CreateAgent(sessionManager.Options);
+                : AgentPluginRegistry.CreateAgent(kind, sessionManager.Options);
 
             // Session type (issue #211, renamed in #254): identity chosen once at creation.
             // Null/empty means Developer so pre-#211 clients keep today's behavior exactly.
