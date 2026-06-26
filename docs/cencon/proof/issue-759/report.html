@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 759 Proof - Remove Legacy Built-in Plugin Adapter</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 759 Proof - Remove Legacy Built-in Plugin Adapter</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    Removed the generic <code>BuiltInAgentPlugin</code> adapter and the registry helper
+    switches that synthesized plugin settings, detection, validation, history, and
+    agent factories from central tables. Every built-in CLI now enters the registry
+    through a concrete plugin class.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/BuiltInAgentPlugin.cs</code> deleted</li>
+  </ul>
+
+  <h2>Remaining Intentional Central Data</h2>
+  <p>
+    <code>AgentToolCatalog</code> remains as a compatibility source for built-in display
+    order and shared preset constants. It no longer creates plugin metadata through
+    the removed adapter path.
+  </p>
+
+  <h2>Automated Verification</h2>
+  <pre>rg -n "BuiltInAgentPlugin|AgentFactory\(|SettingsMetadata\(|DetectionMetadata\(|HistoryMetadata\(|KnownCandidates\(|InstallHint\(" src\CcDirector.Core src\CcDirector.Core.Tests -S
+
+No legacy adapter/fallback registry references remain.</pre>
+
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPlugin" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 33, Skipped: 0, Total: 33</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+</body>
+</html>
