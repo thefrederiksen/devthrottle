@@ -3,10 +3,10 @@
 @inject ILogger<Dictionary> Log
 
 @* The dictation Dictionary editor (issue #183), ported 1:1 from the static
-   wwwroot/pages/dictionary.html into a Blazor page. Same behavior: edit vocabulary chips,
-   the common-mistranscriptions term->variant map, and per-profile cleanup toggles, with a
-   dirty-state Save that PUTs the whole glossary and re-renders the returned dictionary.
-   The "default" profile is undeletable. Visual parity in Dictionary.razor.css (navy palette). *@
+   wwwroot/pages/dictionary.html into a Blazor page. Same behavior: edit vocabulary chips
+   and the common-mistranscriptions term-to-variant map, with a dirty-state Save that PUTs
+   the whole glossary and re-renders the returned dictionary. Visual parity in
+   Dictionary.razor.css (navy palette). *@
 
 <PageTitle>Dictionary - DevThrottle</PageTitle>
 
@@ -93,42 +93,6 @@
       </div>
     </div>
 
-    @* ---- Profiles ---- *@
-    <div class="dc-section">
-      <h2>Profiles</h2>
-      <p class="dc-hint">Cleanup behavior per context.</p>
-      <div class="dc-profiles">
-        @if (_dict.Profiles.Count == 0)
-        {
-          <p class="dc-empty">No profiles. A "default" profile is created automatically on save.</p>
-        }
-        else
-        {
-          @foreach (var pname in _dict.Profiles.Keys.ToList())
-          {
-            <div class="dc-pcard">
-              <div class="dc-pname">
-                <span>@pname</span>
-                @if (!string.Equals(pname, "default", StringComparison.OrdinalIgnoreCase))
-                {
-                  <button class="dc-x" type="button" title="Remove profile" @onclick="() => RemoveProfile(pname)">x</button>
-                }
-              </div>
-              <label class="dc-plabel">
-                <input type="checkbox" checked="@_dict.Profiles[pname].CleanupEnabled"
-                       @onchange="e => ToggleCleanup(pname, e)" />
-                apply dictionary corrections
-              </label>
-              <p class="dc-empty">When enabled, only dictionary terms are corrected. Your words are never reworded, summarized, or edited.</p>
-            </div>
-          }
-        }
-      </div>
-      <div class="dc-addprofile">
-        <input class="dc-addbox" placeholder="+ new profile name"
-               @bind="_newProfile" @bind:event="oninput" @onkeydown="AddProfileKey" />
-      </div>
-    </div>
   }
 </div>
 </div>
@@ -142,7 +106,6 @@
 
     private string _newVocab = "";
     private string _newTerm = "";
-    private string _newProfile = "";
     // Per-term draft text for the "+ wrong spelling" inputs (keyed by term).
     private readonly Dictionary<string, string> _variantDrafts = new();
 
@@ -227,34 +190,6 @@
         if (!_dict.CommonMistranscriptions.TryGetValue(term, out var variants)) return;
         if (vi < 0 || vi >= variants.Count) return;
         variants.RemoveAt(vi);
-        MarkDirty();
-    }
-
-    // ---- profiles ----
-
-    private void AddProfileKey(KeyboardEventArgs e)
-    {
-        if (e.Key != "Enter") return;
-        var name = (_newProfile ?? "").Trim();
-        _newProfile = "";
-        if (name.Length == 0 || _dict is null) return;
-        if (!_dict.Profiles.ContainsKey(name))
-            _dict.Profiles[name] = new DictionaryProfileDto { CleanupEnabled = true };
-        MarkDirty();
-    }
-
-    private void RemoveProfile(string pname)
-    {
-        if (_dict is null) return;
-        if (string.Equals(pname, "default", StringComparison.OrdinalIgnoreCase)) return;
-        _dict.Profiles.Remove(pname);
-        MarkDirty();
-    }
-
-    private void ToggleCleanup(string pname, ChangeEventArgs e)
-    {
-        if (_dict is null || !_dict.Profiles.TryGetValue(pname, out var p)) return;
-        p.CleanupEnabled = e.Value is bool b && b;
         MarkDirty();
     }
 
