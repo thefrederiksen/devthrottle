@@ -1,6 +1,8 @@
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
+using CcDirector.Core.Settings;
 using Xunit;
 
 namespace CcDirector.Core.Tests.AgentPlugins;
@@ -22,6 +24,9 @@ public sealed class AgentPluginRegistryTests
             Assert.Equal(entry.Presets, plugin.CommandPresets);
             Assert.Equal(entry.DefaultPreset, plugin.DefaultCommandPreset);
             Assert.Equal(entry.DefaultModel, plugin.DefaultModel);
+            Assert.Equal(AgentToolConfig.KeyFor(entry.Tool), plugin.ConfigKey);
+            Assert.Equal(plugin.ConfigKey, plugin.Settings.ConfigKey);
+            Assert.Equal(plugin.DisplayName, plugin.Settings.TypeLabel);
         }
     }
 
@@ -60,6 +65,13 @@ public sealed class AgentPluginRegistryTests
         Assert.IsType<CodexDriver>(plugin.Driver);
         Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
         Assert.Contains(plugin.CommandPresets, preset => preset.Name == AgentToolCatalog.CodexFullAccessPresetName);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "codex");
+        Assert.Equal(AgentHistoryProviderKind.TranscriptFile, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
         Assert.NotEmpty(plugin.Driver.SlashCommands);
         Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Codex, command.DriverKind));
     }
@@ -75,6 +87,66 @@ public sealed class AgentPluginRegistryTests
 
         Assert.Equal("--ask-for-approval never", spec.Arguments);
         Assert.Null(spec.PreassignedSessionId);
+    }
+
+    [Fact]
+    public void BuiltIns_ExposeSettingsDetectionValidationLaunchAndHistoryMetadata()
+    {
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            Assert.NotNull(plugin.Settings.GetConfiguredPath);
+            Assert.NotNull(plugin.Settings.SetConfiguredPath);
+            Assert.NotEmpty(plugin.Detection.Candidates);
+            Assert.All(plugin.Detection.Candidates, candidate => Assert.False(string.IsNullOrWhiteSpace(candidate.Path)));
+            Assert.False(string.IsNullOrWhiteSpace(plugin.Detection.InstallHint));
+            Assert.Equal("--version", plugin.Validation.Arguments);
+            Assert.True(plugin.Validation.Timeout > TimeSpan.Zero);
+            Assert.Equal(plugin.SupportsConversationHistory, plugin.History.SupportsConversationHistory);
+            Assert.False(string.IsNullOrWhiteSpace(plugin.History.StoreDescription));
+
+            var agent = plugin.CreateAgent(new AgentOptions());
+            Assert.Equal(agent.SupportsPreassignedSessionId, plugin.Launch.SupportsPreassignedSessionId);
+            Assert.Equal(agent.SupportsStudioMode, plugin.Launch.SupportsStudioMode);
+        }
+    }
+
+    [Fact]
+    public void PluginSettingsMetadata_CanReadAndWriteAgentOptionsPaths()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var path = $"{plugin.ConfigKey}-custom";
+            plugin.Settings.SetConfiguredPath(options, path);
+
+            Assert.Equal(path, plugin.Settings.GetConfiguredPath(options));
+            Assert.Equal(path, ToolDetectionService.GetConfiguredPath(plugin.Kind, options));
+        }
+    }
+
+    [Fact]
+    public void ToolDetectionService_SupportedToolsComeFromPluginRegistry()
+    {
+        Assert.Equal(
+            AgentPluginRegistry.BuiltIns.Select(plugin => plugin.Kind),
+            ToolDetectionService.SupportedTools);
+    }
+
+    [Fact]
+    public void PluginBuildLaunchSpec_MatchesCreatedAgentLaunchSpec()
+    {
+        var options = new AgentOptions();
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+        {
+            var request = new AgentPluginLaunchRequest(options, " --plugin-test ", "resume-id", false);
+            var fromPlugin = plugin.BuildLaunchSpec(request);
+            var fromAgent = plugin.CreateAgent(options).BuildLaunchSpec(request.UserArgs, request.ResumeSessionId, request.StudioMode);
+
+            Assert.Equal(fromAgent.Arguments, fromPlugin.Arguments);
+            Assert.Equal(fromAgent.PreassignedSessionId is null, fromPlugin.PreassignedSessionId is null);
+        }
     }
 
     [Fact]

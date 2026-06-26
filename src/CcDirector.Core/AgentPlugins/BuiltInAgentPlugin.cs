@@ -15,16 +15,25 @@ public sealed class BuiltInAgentPlugin : IAgentPlugin
         AgentToolCatalogEntry catalogEntry,
         IAgentDriver driver,
         Func<AgentOptions, IAgent> agentFactory,
-        bool supportsConversationHistory)
+        AgentPluginSettingsMetadata settings,
+        AgentPluginDetectionMetadata detection,
+        AgentPluginValidationMetadata validation,
+        AgentPluginHistoryMetadata history)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentException.ThrowIfNullOrWhiteSpace(configKey);
         ArgumentNullException.ThrowIfNull(catalogEntry);
         ArgumentNullException.ThrowIfNull(driver);
         ArgumentNullException.ThrowIfNull(agentFactory);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(detection);
+        ArgumentNullException.ThrowIfNull(validation);
+        ArgumentNullException.ThrowIfNull(history);
 
         if (driver.Kind != catalogEntry.Tool)
             throw new ArgumentException($"Driver kind {driver.Kind} does not match catalog tool {catalogEntry.Tool}.", nameof(driver));
+        if (!string.Equals(settings.ConfigKey, configKey, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"Settings config key {settings.ConfigKey} does not match plugin config key {configKey}.", nameof(settings));
 
         Id = id;
         ConfigKey = configKey;
@@ -34,8 +43,15 @@ public sealed class BuiltInAgentPlugin : IAgentPlugin
         CommandPresets = catalogEntry.Presets;
         DefaultCommandPreset = catalogEntry.DefaultPreset;
         DefaultModel = catalogEntry.DefaultModel;
-        SupportsConversationHistory = supportsConversationHistory;
+        Settings = settings;
+        Detection = detection;
+        Validation = validation;
+        History = history;
+        SupportsConversationHistory = history.SupportsConversationHistory;
         _agentFactory = agentFactory;
+
+        var agent = agentFactory(new AgentOptions());
+        Launch = new AgentPluginLaunchMetadata(agent.SupportsPreassignedSessionId, agent.SupportsStudioMode);
     }
 
     private readonly Func<AgentOptions, IAgent> _agentFactory;
@@ -54,6 +70,16 @@ public sealed class BuiltInAgentPlugin : IAgentPlugin
 
     public bool SupportsConversationHistory { get; }
 
+    public AgentPluginSettingsMetadata Settings { get; }
+
+    public AgentPluginDetectionMetadata Detection { get; }
+
+    public AgentPluginValidationMetadata Validation { get; }
+
+    public AgentPluginHistoryMetadata History { get; }
+
+    public AgentPluginLaunchMetadata Launch { get; }
+
     public IReadOnlyList<AgentCommandPreset> CommandPresets { get; }
 
     public AgentCommandPreset DefaultCommandPreset { get; }
@@ -61,4 +87,10 @@ public sealed class BuiltInAgentPlugin : IAgentPlugin
     public string DefaultModel { get; }
 
     public IAgent CreateAgent(AgentOptions options) => _agentFactory(options);
+
+    public AgentLaunchSpec BuildLaunchSpec(AgentPluginLaunchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return CreateAgent(request.Options).BuildLaunchSpec(request.UserArgs, request.ResumeSessionId, request.StudioMode);
+    }
 }

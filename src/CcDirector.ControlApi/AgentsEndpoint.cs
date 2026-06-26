@@ -364,9 +364,20 @@ internal static class AgentsEndpoint
                 {
                     type = option.Type.ToString(),
                     displayName = plugin?.DisplayName ?? option.Label,
+                    configKey = plugin?.ConfigKey ?? "",
                     detectable = ToolDetectionService.SupportedTools.Contains(option.Type),
+                    detectionCandidates = plugin is null
+                        ? Array.Empty<string>()
+                        : plugin.Detection.Candidates.Select(candidate => candidate.Path).ToArray(),
+                    installHint = plugin?.Detection.InstallHint ?? "",
+                    validationArguments = plugin?.Validation.Arguments ?? "",
+                    validationTimeoutSeconds = plugin?.Validation.Timeout.TotalSeconds ?? 0,
                     supportsModelSelection = supportsModel,
                     supportsConversationHistory = plugin?.SupportsConversationHistory ?? false,
+                    historyProvider = plugin?.History.ProviderKind.ToString() ?? AgentHistoryProviderKind.None.ToString(),
+                    historyStoreDescription = plugin?.History.StoreDescription ?? "",
+                    supportsPreassignedSessionId = plugin?.Launch.SupportsPreassignedSessionId ?? false,
+                    supportsStudioMode = plugin?.Launch.SupportsStudioMode ?? false,
                     driverCapabilities = driver is null ? Array.Empty<string>() : CapabilityNames(driver.Capabilities),
                     modelFlag = driver?.ModelFlag ?? "",
                     detectedDefaultModel = supportsModel ? driver!.ReadConfiguredDefaultModel() : null,

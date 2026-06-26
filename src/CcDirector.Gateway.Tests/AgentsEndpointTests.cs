@@ -334,7 +334,16 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
 
         var codex = types.First(t => (string?)t!["type"] == "Codex")!.AsObject();
         Assert.Equal("Codex", (string?)codex["displayName"]);
+        Assert.Equal("codex", (string?)codex["configKey"]);
+        Assert.Contains(codex["detectionCandidates"]!.AsArray(), c => (string?)c == "codex");
+        Assert.Contains("Codex", (string?)codex["installHint"]);
+        Assert.Equal("--version", (string?)codex["validationArguments"]);
+        Assert.Equal(8, (double)codex["validationTimeoutSeconds"]!);
         Assert.True((bool)codex["supportsConversationHistory"]!);
+        Assert.Equal("TranscriptFile", (string?)codex["historyProvider"]);
+        Assert.Contains(".codex", (string?)codex["historyStoreDescription"]);
+        Assert.False((bool)codex["supportsPreassignedSessionId"]!);
+        Assert.False((bool)codex["supportsStudioMode"]!);
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "ClearContext");
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
         Assert.Contains(codex["presets"]!.AsArray(), p => (string?)p!["name"] == "Full access");
