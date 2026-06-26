@@ -995,46 +995,9 @@ internal static class ControlEndpoints
             return Results.Json(new { ok = true });
         });
 
-        // GET /sessions/{sid}/history?last=N - the agent-agnostic conversation history. Unlike
-        // /turns (Claude-only, the in-terminal widget model), this reads through SessionHistoryReader,
-        // which covers Claude, Codex AND Pi (and others), so cc-history can read any of the three
-        // agents' recent turns. Returns the newest N messages (default 20).
-        app.MapGet("/sessions/{sid}/history", (string sid, int? last) =>
-        {
-            if (!Guid.TryParse(sid, out var guid))
-                return Results.BadRequest(new { error = "invalid session id format" });
-
-            var session = sessionManager.GetSession(guid);
-            if (session is null)
-                return Results.NotFound(new { error = "session not found" });
-
-            var history = CcDirector.Core.History.SessionHistoryReader.Read(session);
-            var all = history.Messages;
-            var take = last is > 0 ? last.Value : 20;
-            var start = Math.Max(0, all.Count - take);
-            var recent = all.Skip(start).Select(m => new
-            {
-                role = m.Role.ToString(),
-                timestamp = m.Timestamp,
-                parts = m.Parts.Select(p => new
-                {
-                    kind = p.Kind.ToString(),
-                    text = p.Text.Length > 4000 ? p.Text[..4000] + "...[truncated]" : p.Text,
-                    toolName = p.ToolName,
-                    toolId = p.ToolId,
-                }).ToList(),
-            }).ToList();
-
-            return Results.Json(new
-            {
-                sessionId = sid,
-                agent = session.AgentKind.ToString(),
-                name = session.CustomName,
-                totalMessages = all.Count,
-                returned = recent.Count,
-                messages = recent,
-            });
-        });
+        // (The agent-agnostic conversation history endpoint, GET /sessions/{sid}/history, is already
+        // provided by SessionHistoryEndpoint via SessionHistoryReader - it covers Claude, Codex, and
+        // Pi. cc-history reads that existing endpoint; no duplicate is registered here.)
 
         app.MapGet("/sessions/{sid}/turns", (string sid) =>
         {

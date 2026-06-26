@@ -79,7 +79,7 @@ def _run(
     name = director.field(chosen, "name", "Name") or director.short_id(sid)
 
     try:
-        resp = director.get_json(f"sessions/{sid}/history?last={last}")
+        resp = director.get_json(f"sessions/{sid}/history")
     except director.DirectorError as err:
         console.print(f"[red]{err}[/red]")
         raise typer.Exit(1)
@@ -88,10 +88,14 @@ def _run(
         console.print("(no history available)")
         return
 
-    messages = resp.get("messages") or []
     agent = resp.get("agent", "")
-    total = resp.get("totalMessages", 0)
-    console.print(f"[dim]-- last {len(messages)} of {total} messages from {name} ({director.short_id(sid)}, {agent}) --[/dim]")
+    if resp.get("isSupported") is False:
+        console.print(f"[yellow]{name} ({agent}) does not support history reading.[/yellow]")
+        return
+
+    all_msgs = resp.get("messages") or []
+    messages = all_msgs[-last:] if last and last > 0 else all_msgs
+    console.print(f"[dim]-- last {len(messages)} of {len(all_msgs)} messages from {name} ({director.short_id(sid)}, {agent}) --[/dim]")
     if not messages:
         console.print("(no history yet)")
         return
