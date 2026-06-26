@@ -60,6 +60,10 @@ public sealed class ClaudeAgentPlugin : IAgentPlugin
 
     public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: true, SupportsStudioMode: true);
 
+    public AgentPluginFleetMetadata Fleet { get; } = new(
+        FleetPreambleStrategy.NativeHook, FleetPreambleStatus.Wired,
+        "SessionStart hook via --settings emits additionalContext; re-injects on clear and compact.");
+
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
     public AgentCommandPreset DefaultCommandPreset => Presets[0];

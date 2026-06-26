@@ -1,0 +1,2 @@
+AGENT Claude
+ANSWER: My session id is 47ff8567, and the fleet commands are cc-sessions, cc-whoami, cc-send, cc-ask, cc-spawn.

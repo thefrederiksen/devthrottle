@@ -1,0 +1,21 @@
+[project]
+name = "cc-status"
+version = "1.0.0"
+description = "Show what cc-director fleet sessions are doing (state, repo, last reason)"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-status = "cc_status.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cc_status"]
+package-dir = {"cc_status" = "src"}

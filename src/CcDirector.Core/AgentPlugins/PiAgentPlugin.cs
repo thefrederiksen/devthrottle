@@ -60,6 +60,10 @@ public sealed class PiAgentPlugin : IAgentPlugin
 
     public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
 
+    public AgentPluginFleetMetadata Fleet { get; } = new(
+        FleetPreambleStrategy.InstructionFile, FleetPreambleStatus.Wired,
+        "Per-session preamble file passed via --append-system-prompt; persists across /new and /compact (it is the launch system prompt).");
+
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
     public AgentCommandPreset DefaultCommandPreset => Presets[0];

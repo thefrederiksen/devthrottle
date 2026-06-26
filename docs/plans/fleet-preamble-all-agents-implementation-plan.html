@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Preamble - All-Agents Implementation Plan</title>
+<style>
+  :root{
+    --have:#1b7f3b; --have-bg:#e4f5e9;
+    --partial:#8a6d00; --partial-bg:#fbf2cf;
+    --missing:#9b1c1c; --missing-bg:#fbe3e3;
+    --na:#5b6470; --na-bg:#eceef1;
+    --target:#0b4f8a; --target-bg:#e1eefb;
+    --ink:#1c2330; --soft:#5b6470; --line:#d8dde4; --bg:#f6f7f9; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);
+       background:var(--bg);margin:0;line-height:1.55;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  h1{font-size:30px;margin:0 0 4px}
+  h2{font-size:23px;margin:42px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:18px;margin:26px 0 8px}
+  .sub{color:var(--soft);font-size:14px}
+  p{margin:10px 0}
+  code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:13px;
+       font-family:Consolas,Menlo,monospace}
+  .lead{font-size:16px}
+  .callout{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--target);
+           padding:14px 16px;border-radius:8px;margin:16px 0}
+  .callout.warn{border-left-color:var(--partial)}
+  .callout.done{border-left-color:var(--have)}
+  table{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;
+        border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .scroll{overflow-x:auto;margin:14px 0}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  thead th{background:#2b3340;color:#fff;position:sticky;top:0;font-weight:600;white-space:nowrap}
+  tbody th{background:#f0f2f5;white-space:nowrap;font-weight:700}
+  .have{background:var(--have-bg);color:var(--have);font-weight:700;text-align:center}
+  .partial{background:var(--partial-bg);color:var(--partial);font-weight:700;text-align:center}
+  .missing{background:var(--missing-bg);color:var(--missing);font-weight:700;text-align:center}
+  .na{background:var(--na-bg);color:var(--na);text-align:center}
+  .target{background:var(--target-bg);color:var(--target);font-weight:700;text-align:center}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .legend span{font-size:12px;padding:3px 9px;border-radius:12px;font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px;
+        margin-left:6px;vertical-align:middle}
+  .pill.done{background:var(--have-bg);color:var(--have)}
+  .pill.todo{background:var(--missing-bg);color:var(--missing)}
+  .pill.blocked{background:var(--partial-bg);color:var(--partial)}
+  .grid2{display:grid;grid-template-columns:120px 1fr;gap:4px 14px;margin:10px 0;font-size:14px}
+  .grid2 .k{color:var(--soft);font-weight:600}
+  ol.steps{margin:8px 0 8px 4px;padding-left:22px}
+  ol.steps li{margin:5px 0}
+  ul.tight{margin:6px 0;padding-left:20px}
+  ul.tight li{margin:3px 0}
+  .fam{font-weight:700}
+  .footer{margin-top:50px;color:var(--soft);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+  .toc{columns:2;font-size:14px;margin:10px 0}
+  .toc a{color:var(--target);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Fleet Preamble: All-Agents Implementation Plan</h1>
+  <div class="sub">CC Director / DevThrottle &nbsp;|&nbsp; Goal: every supported agent has a plugin, a driver, and launch-time fleet-awareness injection - or an explicit, honest declaration that it cannot.</div>
+</header>
+
+<p class="lead">Two agents are done (Claude Code, Codex). This plan covers the remaining six, plus the
+cross-cutting work needed so that "every agent knows the fleet the moment it starts" is a property of
+the whole fleet, not a per-agent accident - and so that an agent that genuinely cannot do it
+<em>says so</em> rather than failing silently.</p>
+
+<div class="callout done">
+  <strong>What "done" means for one agent.</strong> At launch, the agent receives a short preamble -
+  its own session id and the <code>cc-*</code> fleet commands - injected into its context with no
+  skill lookup, and that preamble is re-injected after the agent clears or compacts its context. The
+  shared piece (already built) is the Control API endpoint <code>GET /sessions/{id}/fleet-preamble</code>;
+  each agent differs only in <em>how</em> the text is surfaced and <em>whether</em> the agent emits a
+  reset signal.
+</div>
+
+<h2 id="toc">Contents</h2>
+<div class="toc">
+  <a href="#summary">1. Executive summary</a><br>
+  <a href="#legend">2. Legend</a><br>
+  <a href="#m-structure">3. Matrix A - Structure (plugin / driver / history)</a><br>
+  <a href="#m-caps">4. Matrix B - Driver capabilities (current)</a><br>
+  <a href="#m-preamble">5. Matrix C - Fleet preamble (current vs target)</a><br>
+  <a href="#families">6. The five injection strategies</a><br>
+  <a href="#crosscut">7. Cross-cutting work</a><br>
+  <a href="#per-agent">8. Per-agent implementation detail</a><br>
+  <a href="#cannot">9. Handling agents that cannot inject</a><br>
+  <a href="#roadmap">10. Sequencing and roadmap</a><br>
+  <a href="#risks">11. Open questions and risks</a><br>
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+<p>CC Director runs nine agent kinds. Eight have a first-class plugin and an agent launch class; five
+have a bespoke protocol driver and three share a <code>GenericDriver</code>; the ninth kind,
+<code>RawCli</code>, is a deliberate "run any command" case with no plugin. Today the launch-time
+fleet preamble is wired for <strong>2 of 8</strong> agents (Claude, Codex).</p>
+<ul class="tight">
+  <li><strong>Plugin coverage:</strong> 8 of 8 real agents have a plugin. <code>RawCli</code> has none by design - a decision to confirm (section 9).</li>
+  <li><strong>Driver coverage:</strong> every kind resolves to a driver, but Gemini, OpenCode and Grok use the shared <code>GenericDriver</code> (minimal capabilities). Giving them bespoke drivers is part of this plan.</li>
+  <li><strong>Fleet preamble:</strong> 2 wired, 5 to wire, 1 to declare unsupported. The agents split across four working strategies plus a "cannot" case.</li>
+  <li><strong>A bug found while wiring Codex</strong> (programmatic prompts dropped the Enter) likely affects other agents driven through the same path - audited as a cross-cutting item.</li>
+</ul>
+
+<h2 id="legend">2. Legend</h2>
+<div class="legend">
+  <span class="have">HAVE / DONE</span>
+  <span class="partial">PARTIAL / BLOCKED</span>
+  <span class="missing">MISSING / TO DO</span>
+  <span class="target">TARGET</span>
+  <span class="na">N/A</span>
+</div>
+<p class="sub">All status is text plus colour (no symbols), so it reads in any terminal or print-out.</p>
+
+<h2 id="m-structure">3. Matrix A - Structure</h2>
+<p>What classes back each agent today. Source: <code>AgentPluginRegistry</code>, <code>AgentDrivers</code>, the <code>*AgentPlugin</code> files.</p>
+<div class="scroll">
+<table>
+<thead><tr>
+  <th>Agent</th><th>Kind</th><th>Plugin class</th><th>Driver class</th><th>Driver type</th>
+  <th>Launch class (IAgent)</th><th>History provider</th><th>Installed here</th>
+</tr></thead>
+<tbody>
+  <tr><th>Claude Code</th><td>ClaudeCode</td><td>ClaudeAgentPlugin</td><td>ClaudeDriver</td><td class="have">bespoke</td><td>ClaudeAgent</td><td>TranscriptFile</td><td class="have">yes</td></tr>
+  <tr><th>Codex</th><td>Codex</td><td>CodexAgentPlugin</td><td>CodexDriver</td><td class="have">bespoke</td><td>CodexAgent</td><td>TranscriptFile</td><td class="have">yes (0.141)</td></tr>
+  <tr><th>Gemini</th><td>Gemini</td><td>GeminiAgentPlugin</td><td>GenericDriver</td><td class="missing">generic</td><td>GeminiAgent</td><td>TerminalBuffer</td><td class="partial">yes (0.1.11 - old)</td></tr>
+  <tr><th>OpenCode</th><td>OpenCode</td><td>OpenCodeAgentPlugin</td><td>GenericDriver</td><td class="missing">generic</td><td>OpenCodeAgent</td><td>SqliteStore</td><td class="na">unconfirmed</td></tr>
+  <tr><th>Grok</th><td>Grok</td><td>GrokAgentPlugin</td><td>GenericDriver</td><td class="missing">generic</td><td>GrokAgent</td><td>TranscriptFile</td><td class="have">yes (0.2.67)</td></tr>
+  <tr><th>GitHub Copilot</th><td>Copilot</td><td>CopilotAgentPlugin</td><td>CopilotDriver</td><td class="have">bespoke</td><td>CopilotAgent</td><td>SqliteStore</td><td class="na">unconfirmed</td></tr>
+  <tr><th>Cursor</th><td>Cursor</td><td>CursorAgentPlugin</td><td>CursorDriver</td><td class="have">bespoke</td><td>CursorAgent</td><td>None</td><td class="missing">no (not installed)</td></tr>
+  <tr><th>Pi</th><td>Pi</td><td>PiAgentPlugin</td><td>PiDriver</td><td class="have">bespoke</td><td>PiAgent</td><td>TranscriptFile</td><td class="na">unconfirmed</td></tr>
+  <tr><th>Raw CLI</th><td>RawCli</td><td class="missing">none</td><td>GenericDriver</td><td class="missing">generic</td><td>RawCliAgent</td><td>None</td><td class="na">n/a</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="m-caps">4. Matrix B - Driver capabilities (current)</h2>
+<p>The flags each driver declares today (<code>DriverCapabilities</code>). A blank/MISSING cell means the
+driver does not declare it and its method throws <code>NotSupported</code> - never guesses. "Submit" is
+the programmatic prompt path: <span class="have">echo</span> = echo-verified (reliable),
+<span class="missing">blind</span> = type-then-Enter (drops the Enter on repainting composers - see the Codex bug).</p>
+<div class="scroll">
+<table>
+<thead><tr>
+  <th>Agent</th><th>ClearContext</th><th>Cancel</th><th>Interrupt</th><th>TranscriptRead</th>
+  <th>PreassignedSessionId</th><th>History picker</th><th>ModelSelection</th><th>Submit</th>
+</tr></thead>
+<tbody>
+  <tr><th>Claude Code</th><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="have">echo</td></tr>
+  <tr><th>Codex</th><td class="have">yes</td><td class="have">yes</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="have">echo</td></tr>
+  <tr><th>Gemini</th><td class="missing">no</td><td class="have">yes</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>OpenCode</th><td class="missing">no</td><td class="have">yes</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>Grok</th><td class="missing">no</td><td class="have">yes</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>GitHub Copilot</th><td class="missing">no</td><td class="missing">no</td><td class="have">yes</td><td class="missing">no</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>Cursor</th><td class="missing">no</td><td class="missing">no</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>Pi</th><td class="have">yes</td><td class="have">yes</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">no</td><td class="missing">blind</td></tr>
+  <tr><th>Raw CLI</th><td class="missing">no</td><td class="have">yes</td><td class="have">yes</td><td class="na">n/a</td><td class="na">n/a</td><td class="na">n/a</td><td class="na">n/a</td><td class="missing">blind</td></tr>
+</tbody>
+</table>
+</div>
+<p class="sub">Note: only ClaudeDriver declares <code>TranscriptRead</code>, so <code>cc-ask</code> (ask a session and
+read its reply) only works when the target is Claude. Codex has a working transcript reader that is not
+yet declared as a capability - a cheap unlock (section 7).</p>
+
+<h2 id="m-preamble">5. Matrix C - Fleet preamble (current vs target)</h2>
+<p>This is the heart of the plan: what each agent has now versus what we will implement. "Inject at
+launch" and "re-inject on clear/compact" are the two properties that matter; "Strategy" is the
+mechanism we will use (section 6); "Blocker" is what stands in the way.</p>
+<div class="scroll">
+<table>
+<thead><tr>
+  <th>Agent</th><th>Inject at launch (now)</th><th>Re-inject on reset (now)</th>
+  <th>Target strategy</th><th>Inject at launch (target)</th><th>Re-inject on reset (target)</th>
+  <th>cc-ask (target)</th><th>Main blocker</th>
+</tr></thead>
+<tbody>
+  <tr><th>Claude Code</th><td class="have">DONE</td><td class="have">DONE</td><td class="fam">A native hook</td><td class="have">done</td><td class="have">done</td><td class="have">works</td><td class="na">none</td></tr>
+  <tr><th>Codex</th><td class="have">DONE</td><td class="have">DONE</td><td class="fam">A native hook</td><td class="have">done</td><td class="have">done</td><td class="partial">declare TranscriptRead</td><td class="na">none</td></tr>
+  <tr><th>Gemini</th><td class="missing">no</td><td class="missing">no</td><td class="fam">A hook + D file</td><td class="target">SessionStart additionalContext</td><td class="target">hook (clear) + GEMINI.md (compact)</td><td class="partial">needs transcript reader</td><td class="partial">installed binary too old (0.1.11)</td></tr>
+  <tr><th>Grok</th><td class="missing">no</td><td class="missing">no</td><td class="fam">D instruction file</td><td class="target">write CLAUDE.local.md / .grok rules</td><td class="target">file re-read (passive)</td><td class="partial">needs transcript reader</td><td class="partial">hook stdout ignored by binary</td></tr>
+  <tr><th>OpenCode</th><td class="missing">no</td><td class="missing">no</td><td class="fam">B event bus (or C)</td><td class="target">AGENTS.md + push on event</td><td class="target">SSE session.created / .compacted</td><td class="partial">SDK/transcript</td><td class="partial">TUI may not expose a server</td></tr>
+  <tr><th>GitHub Copilot</th><td class="missing">no</td><td class="missing">no</td><td class="fam">D instruction file</td><td class="target">copilot-instructions.md dir</td><td class="target">file re-read per prompt (passive)</td><td class="partial">SqliteStore reader</td><td class="partial">CLI hook output ignored</td></tr>
+  <tr><th>Cursor</th><td class="missing">no</td><td class="missing">no</td><td class="fam">A native hook</td><td class="target">hooks.json sessionStart additional_context</td><td class="target">verify clear re-fire; preCompact</td><td class="missing">stream-json only</td><td class="missing">binary not installed</td></tr>
+  <tr><th>Pi</th><td class="missing">no</td><td class="missing">no</td><td class="fam">C extension</td><td class="target">ship a Pi extension (before_agent_start)</td><td class="target">session_start reason=new; compact hooks</td><td class="partial">jsonl unparsed</td><td class="partial">extension authoring + trust</td></tr>
+  <tr><th>Raw CLI</th><td class="na">n/a</td><td class="na">n/a</td><td class="fam">None</td><td class="missing">cannot - declare unsupported</td><td class="missing">cannot</td><td class="na">n/a</td><td class="missing">arbitrary command, no contract</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="families">6. The five injection strategies</h2>
+<p>Every agent falls into one family. The work per agent is "implement this agent's family", reusing the
+shared preamble endpoint. The fifth case is the honest "cannot".</p>
+
+<div class="card">
+  <h3>A - Native lifecycle hook (best)</h3>
+  <p>A config file registers a command we own; the command prints the preamble as the agent's
+  <code>additionalContext</code>. The agent re-fires the hook on clear and compact, so re-injection is
+  automatic and free. <strong>Agents:</strong> Claude (done), Codex (done), Gemini (after upgrade), Cursor.</p>
+  <p class="sub">Pattern proven twice: <code>ClaudeHookInstaller</code> (via <code>--settings</code>) and
+  <code>CodexHookInstaller</code> (merge into <code>~/.codex/hooks.json</code> + <code>--dangerously-bypass-hook-trust</code>).</p>
+</div>
+<div class="card">
+  <h3>B - Out-of-process event bus</h3>
+  <p>We subscribe to the agent's event stream over a local socket and push the preamble when we see a
+  new / cleared / compacted session. Richer than a hook for observing resets. <strong>Agents:</strong>
+  OpenCode (<code>opencode serve</code> + <code>GET /event</code> SSE).</p>
+</div>
+<div class="card">
+  <h3>C - In-process extension or plugin we author</h3>
+  <p>We ship a small extension loaded into the agent that handles its lifecycle events and re-injects.
+  <strong>Agents:</strong> Pi (TypeScript extension with <code>session_start</code> /
+  <code>before_agent_start</code> / compact hooks). OpenCode could also use this as an alternative to B.</p>
+</div>
+<div class="card">
+  <h3>D - Instruction file the agent re-reads every prompt (passive, self-healing)</h3>
+  <p>We write the preamble into a file the agent reads on every prompt (<code>AGENTS.md</code>,
+  <code>CLAUDE.local.md</code>, <code>copilot-instructions.md</code>, ...). No event needed; it survives
+  clear and compact because it is re-read, not stored in the conversation. Costs: it lives in a file
+  (some pollute the repo), and there is no reset signal. <strong>Agents:</strong> Grok (hook output is
+  ignored, so this is the only route), Copilot (CLI hook output ignored), and a universal fallback.</p>
+</div>
+<div class="card">
+  <h3>None - cannot inject</h3>
+  <p>The agent is an arbitrary command with no instruction-file, hook, or event contract.
+  <strong>Agents:</strong> Raw CLI. The plan makes this an explicit, declared state, not a silent gap
+  (section 9).</p>
+</div>
+
+<h2 id="crosscut">7. Cross-cutting work (do this first)</h2>
+<p>Three pieces of shared scaffolding make the per-agent work small, consistent, and honest.</p>
+
+<div class="card">
+  <h3>7.1 Declare the strategy on every plugin <span class="pill todo">new</span></h3>
+  <p>Add a plugin-owned metadata record, for example
+  <code>AgentPluginFleetMetadata(FleetPreambleStrategy Strategy, FleetPreambleStatus Status, string Note)</code>,
+  exposed on <code>IAgentPlugin</code>. This is where each agent says <em>how</em> it injects, or that it
+  <em>cannot</em>.</p>
+  <ul class="tight">
+    <li><code>FleetPreambleStrategy</code>: <code>NativeHook</code>, <code>EventBus</code>, <code>Extension</code>, <code>InstructionFile</code>, <code>None</code>.</li>
+    <li><code>FleetPreambleStatus</code>: <code>Wired</code>, <code>Planned</code>, <code>Unsupported</code>.</li>
+    <li>Surfaces in the Control API session DTO and the desktop UI, so a session can be badged
+    "fleet-aware" or "no fleet awareness (this agent cannot)". This is the answer to "how do we say
+    they can't do it".</li>
+    <li>Unit test: every built-in plugin returns a non-default strategy; <code>None</code> is allowed only with a written reason.</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>7.2 Extract the echo-verified submit into a shared helper <span class="pill todo">new</span></h3>
+  <p>Wiring Codex exposed that the blind programmatic submit (type text, wait 50 ms, one Enter) is
+  dropped by a repainting composer, parking the prompt unsubmitted. Claude and Codex now type, wait for
+  the composer to echo the text, then press Enter separately. Extract this into
+  <code>TerminalSubmit.EchoVerifiedAsync(...)</code> and audit each driver:</p>
+  <ul class="tight">
+    <li>Gemini, OpenCode, Grok, Copilot, Cursor, Pi: confirm whether their composers drop the blind Enter when driven over the REST prompt path; adopt the shared echo-verified submit where they do.</li>
+    <li>This is independent of the preamble but blocks reliable automated turns (and therefore hook firing for family A agents, as Codex showed).</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>7.3 Give the three generic-driver agents bespoke drivers <span class="pill todo">new</span></h3>
+  <p>Gemini, OpenCode and Grok currently share <code>GenericDriver</code> (only Cancel + Interrupt). To
+  declare honest capabilities (each has its own clear/compact, transcript, model flag) and to host the
+  echo-verified submit and family-specific behaviour, give each a bespoke driver:
+  <code>GeminiDriver</code>, <code>OpenCodeDriver</code>, <code>GrokDriver</code>. The plugin already
+  owns the driver, so this is a contained change per agent.</p>
+</div>
+
+<h2 id="per-agent">8. Per-agent implementation detail</h2>
+
+<div class="card">
+  <h3>Claude Code <span class="pill done">DONE</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">A</span> - SessionStart hook via <code>--settings</code>, emits <code>additionalContext</code>.</div>
+    <div class="k">State</div><div class="v">Wired and proven: identity + five commands from context, no tools; re-injects on clear and compact.</div>
+    <div class="k">Remaining</div><div class="v">None.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Codex <span class="pill done">DONE</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">A</span> - <code>CodexHookInstaller</code> merges SessionStart into <code>~/.codex/hooks.json</code>; SessionManager appends <code>--dangerously-bypass-hook-trust</code>.</div>
+    <div class="k">State</div><div class="v">Wired and proven on 0.141.0: hook auto-installs, preamble injects at first turn, re-injects on clear and compact. Submit bug fixed (echo-verified).</div>
+    <div class="k">Remaining</div><div class="v">Declare <code>TranscriptRead</code> on CodexDriver (the reader exists) so <code>cc-ask</code> reaches Codex. For shipping, consider managed-hooks (<code>requirements.toml</code>) instead of writing the user's personal hooks.json.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Gemini <span class="pill blocked">BLOCKED (upgrade)</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">A + D</span> - SessionStart hook (<code>hookSpecificOutput.additionalContext</code>, same field as Claude) for startup + clear; <code>GEMINI.md</code> persistence for compaction (Gemini's SessionStart has no <code>compact</code> source, but it has a <code>PreCompress</code> hook and GEMINI.md is re-sent every prompt).</div>
+    <div class="k">Blocker</div><div class="v">Installed binary is 0.1.11, which predates the hooks system entirely. Must upgrade and re-probe before wiring.</div>
+  </div>
+  <ol class="steps">
+    <li>Upgrade Gemini CLI on the dev machine; confirm <code>SessionStart</code> hook + <code>additionalContext</code> exist in the installed build.</li>
+    <li>Add <code>GeminiDriver</code> (bespoke) declaring its real capabilities (it has <code>/clear</code>, <code>/compress</code>, transcript files under <code>~/.gemini/tmp/.../chats/</code> - correct the current "no transcript" assumption).</li>
+    <li>Write <code>GeminiHookInstaller</code>: merge a <code>SessionStart</code> hook into user-level <code>~/.gemini/settings.json</code> calling the shared preamble endpoint and emitting <code>hookSpecificOutput.additionalContext</code>.</li>
+    <li>Also write the preamble into a user-level <code>GEMINI.md</code> (or a path set via <code>context.fileName</code>) so it survives compaction.</li>
+    <li>SessionManager: install on Gemini launch (no special trust flag needed; confirm).</li>
+    <li>Verify live: preamble in context at launch, re-injected after <code>/clear</code>; persists across <code>/compress</code>.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Grok <span class="pill todo">TO DO</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">D</span> - instruction file. Verified against the binary (0.2.67): Grok's hook stdout is IGNORED (no <code>additionalContext</code>), so the Claude-style hook does NOT work here. Use the instruction files Grok reads: <code>CLAUDE.local.md</code> / <code>.grok/rules/*.md</code> / <code>AGENTS.md</code>.</div>
+  </div>
+  <ol class="steps">
+    <li>Add <code>GrokDriver</code> (bespoke) - it has <code>/compact</code>, streaming-json output, ACP; declare what is real.</li>
+    <li>Write <code>GrokPreambleInstaller</code> (instruction-file flavour): write the preamble into a user/global instruction file Grok loads at session start. Because the preamble needs the per-session id, write it per launch into a Director-managed instruction path that Grok is told to read, or include a stable pointer and let the agent run <code>cc-whoami</code> for the live id.</li>
+    <li>Open question to resolve: the preamble is per-session (carries the session id), but instruction files are static/global. Options: (a) write a per-session file in the repo's <code>.grok/rules</code> at launch and remove on exit; (b) write a generic preamble (commands only) globally and rely on the env vars + a one-line "run cc-whoami for your id". Recommend (a) for full parity.</li>
+    <li>Verify with <code>grok inspect</code> that the instruction file is loaded; confirm it is re-read on <code>/compact</code>.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>OpenCode <span class="pill todo">TO DO</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">B</span> event bus (preferred) or <span class="fam">C</span> plugin. <code>opencode serve</code> exposes <code>GET /event</code> (SSE) with <code>session.created</code> (= new/clear) and <code>session.compacted</code>; we subscribe and push the preamble. <code>AGENTS.md</code> covers launch as a backstop.</div>
+    <div class="k">Blocker</div><div class="v">A bare TUI launch may not expose a reachable server; our <code>OpenCodeAgent</code> does not start one today.</div>
+  </div>
+  <ol class="steps">
+    <li>Add <code>OpenCodeDriver</code> (bespoke).</li>
+    <li>Decide transport: either launch via <code>opencode serve</code> (then drive + subscribe) or run a side <code>serve</code> the Director owns. Confirm the SSE payload carries the session id + directory so we can bind an event to the right Director session.</li>
+    <li>Subscribe to <code>GET /event</code>; on <code>session.created</code> / <code>session.compacted</code>, fetch the preamble and push it as a message (the <code>noReply</code> primitive) so it does not cost a visible turn.</li>
+    <li>Backstop: write the preamble into a user-level <code>AGENTS.md</code> for launch coverage.</li>
+    <li>Alternative (C): ship an opencode plugin using <code>experimental.chat.system.transform</code> / <code>experimental.session.compacting</code> - flagged experimental, so prefer B.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>GitHub Copilot <span class="pill todo">TO DO</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">D</span> instruction file. The CLI's <code>sessionStart</code> hook OUTPUT IS IGNORED (only the SDK can inject), so use custom-instruction files which are re-read every prompt: <code>$HOME/.copilot/copilot-instructions.md</code> or a directory set via <code>COPILOT_CUSTOM_INSTRUCTIONS_DIRS</code>.</div>
+  </div>
+  <ol class="steps">
+    <li>Write <code>CopilotPreambleInstaller</code> (instruction-file): write the preamble into a Director-controlled directory and point <code>COPILOT_CUSTOM_INSTRUCTIONS_DIRS</code> at it via the session environment (SessionManager already injects Copilot env).</li>
+    <li>Per-session id: same per-session-vs-static question as Grok - recommend a per-session file in the Director-owned instructions dir, named/scoped so only this session reads it (or accept commands-only + cc-whoami).</li>
+    <li>Detect compaction (optional) via a <code>preCompact</code> hook writing a marker; not required because the file is re-read per prompt.</li>
+    <li>Verify live that the instruction file survives <code>/clear</code> and <code>/compact</code> (inferred from "re-read per prompt"; confirm).</li>
+    <li>Declare <code>TranscriptRead</code> if the SqliteStore reader is wired - unlocks cc-ask.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Cursor <span class="pill blocked">BLOCKED (install)</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">A</span> - <code>hooks.json</code> <code>sessionStart</code> with <code>additional_context</code> (near-exact Claude analog). Rules files (<code>AGENTS.md</code> / <code>.cursor/rules</code>) as a D backstop.</div>
+    <div class="k">Blocker</div><div class="v"><code>cursor-agent</code> is not installed on the dev machine (spawn fails with CreateProcess failed). Whether <code>sessionStart</code> re-fires on a new conversation / clear is undocumented; compaction has only the observational <code>preCompact</code>.</div>
+  </div>
+  <ol class="steps">
+    <li>Install <code>cursor-agent</code>; confirm it launches under the Director.</li>
+    <li>Write <code>CursorHookInstaller</code>: merge a <code>sessionStart</code> hook into <code>~/.cursor/hooks.json</code> emitting <code>additional_context</code> from the preamble endpoint.</li>
+    <li>Verify live: does <code>sessionStart</code> re-fire on a new conversation / clear in the interactive build? Watch for the headless caveat (in <code>--print</code> mode only <code>sessionStart</code> fires). If clear does not re-fire, add a rules-file (D) backstop.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Pi <span class="pill todo">TO DO</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">C</span> - in-process TypeScript extension (Pi's hooks are extension handlers, not shell commands). Maps almost 1:1 to Claude's matchers: <code>session_start</code> reason <code>startup</code>/<code>new</code> (= clear)/<code>resume</code>, plus <code>session_before_compact</code> / <code>session_compact</code>, and <code>before_agent_start</code> to inject a persistent message.</div>
+  </div>
+  <ol class="steps">
+    <li>Author a small Pi extension (placed in <code>~/.pi/agent/</code> so it loads globally) that, on <code>session_start</code>, fetches the preamble from <code>CC_DIRECTOR_API</code> + <code>CC_SESSION_ID</code> and injects it via <code>before_agent_start</code>.</li>
+    <li>Write <code>PiExtensionInstaller</code> that drops/updates that extension file on Pi launch (idempotent).</li>
+    <li>Confirm the global extension auto-loads without a project-trust prompt, and survives <code>/new</code> and <code>/compact</code>.</li>
+    <li>Optional: drive Pi via <code>--mode rpc</code> to also consume its event stream (compaction_start/end) - a richer future option.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>Raw CLI <span class="pill todo">DECLARE</span></h3>
+  <div class="grid2">
+    <div class="k">Strategy</div><div class="v"><span class="fam">None</span> - an arbitrary command (pwsh, aider, anything) with no instruction-file/hook/event contract we can rely on.</div>
+  </div>
+  <p>See section 9 - the work here is to <em>declare</em> the unsupported state, not to inject.</p>
+</div>
+
+<h2 id="cannot">9. Handling agents that cannot inject</h2>
+<p>The user requirement: if an agent cannot do it, we must <strong>say so</strong>. Two sub-cases.</p>
+<ul class="tight">
+  <li><strong>Raw CLI (structurally cannot):</strong> mark <code>FleetPreambleStrategy.None</code>,
+  <code>Status.Unsupported</code>, with the reason "arbitrary command - no context-injection contract".
+  The environment still carries <code>CC_SESSION_ID</code> / <code>CC_DIRECTOR_API</code> and the
+  <code>cc-*</code> tools still work, so a human at the terminal can run <code>cc-whoami</code>; we just
+  cannot pre-load the model's context.</li>
+  <li><strong>Degraded agents (partially can):</strong> e.g. Grok and Copilot inject at launch via a file
+  but get no reset signal; record <code>Status.Wired</code> with a note "re-injection is passive
+  (file re-read), no reset event". The matrix and the session badge tell the truth.</li>
+</ul>
+<div class="callout">
+  <strong>Surfacing it.</strong> The <code>FleetPreambleStatus</code> + note from 7.1 flow into the
+  session DTO and the desktop session card, so every session visibly states whether it is fleet-aware
+  and, if not, why. No silent gaps.
+</div>
+<p><strong>Plugin for Raw CLI?</strong> Today <code>RawCli</code> has no plugin (it is the explicit
+"Custom" case). Two options: (a) leave it plugin-less and special-cased, adding only the declared
+unsupported state where the UI reads it; (b) add a thin <code>RawCliAgentPlugin</code> so "every kind
+resolves to a plugin" holds uniformly and the strategy declaration lives in one place. Recommendation:
+(b) - a minimal plugin that declares <code>Strategy.None</code> - because it makes the invariant
+"every agent has a plugin" literally true and removes the special case.</p>
+
+<h2 id="roadmap">10. Sequencing and roadmap</h2>
+<ol class="steps">
+  <li><strong>Cross-cutting first (7.1, 7.2, 7.3 partial):</strong> the <code>FleetPreambleStrategy</code>
+  declaration + the shared echo-verified submit helper. Small, unblocks everything, and immediately lets
+  the UI tell the truth about all agents.</li>
+  <li><strong>Codex finish:</strong> declare <code>TranscriptRead</code> (cc-ask). Tiny.</li>
+  <li><strong>Grok (D):</strong> installed and understood; instruction-file flavour. No upgrade needed.</li>
+  <li><strong>Copilot (D):</strong> instruction-file; same shape as Grok. Confirm install.</li>
+  <li><strong>Gemini (A+D):</strong> after upgrading the binary; high value (hook parity with Claude/Codex).</li>
+  <li><strong>Pi (C):</strong> author the extension; self-contained.</li>
+  <li><strong>OpenCode (B):</strong> the event-bus transport is the most new infrastructure; do after the simpler wins.</li>
+  <li><strong>Cursor (A):</strong> after installing <code>cursor-agent</code>; verify the clear re-fire.</li>
+  <li><strong>Raw CLI:</strong> add the minimal plugin + declared unsupported state (can land any time with 7.1).</li>
+</ol>
+<p class="sub">Rationale: ship the cheap, already-installed, already-understood agents first (Grok, Copilot),
+do the high-parity hook agents when their binaries are ready (Gemini, Cursor), and leave the most new
+infrastructure (OpenCode event bus, Pi extension) for last.</p>
+
+<h2 id="risks">11. Open questions and risks</h2>
+<ul class="tight">
+  <li><strong>Per-session id in instruction files (Grok, Copilot):</strong> the preamble carries the
+  session id, but instruction files are static. Resolve per agent: per-session file written at launch
+  vs commands-only + <code>cc-whoami</code>. Recommended: per-session file for full parity.</li>
+  <li><strong>Global config edits:</strong> the hook/instruction installers write the user's own agent
+  config (Codex hooks.json, Gemini settings.json, etc.). For a shipped product, prefer managed/elevated
+  config paths where they exist, and always merge (never clobber) the user's content.</li>
+  <li><strong>Binary churn:</strong> these CLIs are young and changing. Every field name (hook output
+  shapes, event names) needs a live check against the installed build before depending on it; the
+  agent-expert skill records the per-agent verification checklists.</li>
+  <li><strong>OpenCode transport:</strong> whether a Director-driven TUI exposes a reachable event server
+  is unconfirmed; may require running <code>serve</code> ourselves.</li>
+  <li><strong>Submit audit:</strong> the echo-verified submit fixed Codex; assume the other agents may
+  need it too and budget a live check per agent.</li>
+  <li><strong>Cursor / OpenCode / Copilot / Pi are not confirmed installed here</strong>, so their plans
+  rest on documentation until a binary is available.</li>
+</ul>
+
+<div class="footer">
+  Source of truth for current state: <code>AgentPluginRegistry</code>, <code>AgentDrivers</code>, the
+  <code>*AgentPlugin</code> / <code>*Driver</code> classes, and the in-repo <code>agent-expert</code>
+  skill (<code>.claude/skills/agent-expert/</code>), which holds the deep per-agent references and the
+  verified-vs-inferred status with source links. This plan is a planning document; no code changes are
+  implied by reading it.
+</div>
+
+</div>
+</body>
+</html>

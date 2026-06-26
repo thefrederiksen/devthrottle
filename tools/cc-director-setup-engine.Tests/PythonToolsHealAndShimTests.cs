@@ -235,4 +235,17 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Assert.Contains("not fully installed", output, StringComparison.Ordinal);
         Assert.Contains("Fix it", output, StringComparison.Ordinal); // points only at the live repair path (Home > Fix it)
     }
+
+    [Fact]
+    public void WindowsBashShimBody_HasShebang_ForwardsToVenvExe_LfEndings()
+    {
+        // The bare-name shim lets an agent driving Git Bash run a cc-* tool by bare name (the .cmd is
+        // not resolved by Git Bash via PATHEXT). It must be a shebang shell script with LF endings.
+        var body = PythonToolsInstaller.BuildWindowsBashShimBody("cc-ask");
+
+        Assert.StartsWith("#!/bin/sh\n", body);                  // shebang so msys runs it
+        Assert.Contains("../pyenv/Scripts/cc-ask.exe", body);     // forwards to the same venv exe (forward slashes for bash)
+        Assert.Contains("\"$@\"", body);                          // passes arguments through
+        Assert.DoesNotContain("\r", body);                        // LF only - a CR would break the shebang line under msys
+    }
 }
