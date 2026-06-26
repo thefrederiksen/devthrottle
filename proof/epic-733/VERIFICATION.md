@@ -64,23 +64,26 @@ is covered by the implementation and is the web answer to #744 items 1-3.
 
 Builds clean: ControlApi, Gateway, Cockpit, and the slot-6 Director publish (0 warnings).
 
-## Cross-CLI status (#742)
+## Cross-CLI status (#742) - all supported CLIs verified in the browser
+
+Every supported CLI was run as a real session and its History tab opened in the browser against
+this branch's Cockpit. Full table, per-CLI detail, and screenshots: `CLI-GALLERY.md` +
+`cli-gallery/`.
 
 | CLI | Status | Notes |
 |---|---|---|
-| Claude Code | PASS | Fully verified live in the browser (above). |
-| Codex | NOT RUN this pass | History data path reuses Core `SessionHistoryReader`, verified per-CLI by the desktop QA (#737); Cockpit rendering is agent-agnostic over the same DTO. |
-| Gemini | NOT RUN this pass | Same; Gemini is raw-terminal text (rendered verbatim, `IsRawText`). |
-| Grok | NOT RUN this pass | Same shared reader. |
-| Pi | NOT RUN this pass | Same shared reader. |
-| Copilot | NOT RUN this pass | Same shared reader (SQLite store). |
-| OpenCode | NOT RUN this pass | Same shared reader (SQLite store). |
-| Cursor | NOT SUPPORTED | No history provider exists for Cursor (matches desktop #737); the tab shows "History is not available for this agent yet." |
+| Claude Code | PASS | You/Assistant bubbles, markdown, links, derived-state pill. |
+| Codex | PASS | You/Assistant bubbles, markdown, links. |
+| Gemini | PASS | Raw terminal scrollback rendered verbatim (`<pre>`). |
+| Grok | PASS | You/Assistant bubbles, markdown, links. |
+| Pi | PASS | You/Assistant/Tool-result bubbles, markdown, links. |
+| Copilot | PASS | You/Assistant bubbles, markdown, links. |
+| OpenCode | PASS | You/Assistant bubbles, markdown, links. |
+| Cursor | NOT SUPPORTED | No history provider / not a configured agent (matches desktop #737); the tab shows "History is not available for this agent yet." |
 
-Honest gap: only Claude Code was individually exercised in the browser in this pass. The remaining
-supported CLIs share the exact agent-agnostic reader and Cockpit rendering, already verified
-per-CLI on the desktop (#737), but were not each re-run here. A focused per-CLI Cockpit pass can
-close this if desired.
+A bug was found and fixed during this pass: Gemini's `IsRawText` flag was not propagated to the
+bubbles, so it rendered as Markdown instead of verbatim. Fixed with regression tests; Gemini now
+renders raw, confirmed in the browser.
 
 ## Note on the test harness
 
