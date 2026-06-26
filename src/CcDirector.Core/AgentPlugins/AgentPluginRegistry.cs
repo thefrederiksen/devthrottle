@@ -70,6 +70,7 @@ public static class AgentPluginRegistry
                 AgentKind.Cursor => new CursorAgentPlugin(),
                 AgentKind.Copilot => new CopilotAgentPlugin(),
                 AgentKind.Pi => new PiAgentPlugin(),
+                AgentKind.Gemini => new GeminiAgentPlugin(),
                 _ => new BuiltInAgentPlugin(
                     AgentToolConfig.KeyFor(entry.Tool),
                     AgentToolConfig.KeyFor(entry.Tool),

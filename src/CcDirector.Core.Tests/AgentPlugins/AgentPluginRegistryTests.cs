@@ -39,6 +39,7 @@ public sealed class AgentPluginRegistryTests
         Assert.Contains("claude", ids);
         Assert.Contains("pi", ids);
         Assert.Contains("codex", ids);
+        Assert.Contains("gemini", ids);
         Assert.Contains("opencode", ids);
         Assert.Contains("copilot", ids);
     }
@@ -198,6 +199,61 @@ public sealed class AgentPluginRegistryTests
         Assert.IsType<PiAgent>(agent);
         Assert.Equal("pi-custom", agent.ExecutablePath);
         Assert.Equal("--model local", newSession.Arguments);
+        Assert.Null(newSession.PreassignedSessionId);
+        Assert.Equal("", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
+    public void GeminiPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Gemini);
+
+        Assert.IsType<GeminiAgentPlugin>(plugin);
+        Assert.Equal("gemini", plugin.Id);
+        Assert.Equal("gemini", plugin.ConfigKey);
+        Assert.Equal("Gemini", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<GenericDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Single(plugin.CommandPresets);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path.EndsWith("gemini.cmd", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "gemini");
+        Assert.Equal(AgentHistoryProviderKind.TerminalBuffer, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains("terminal capture", plugin.History.StoreDescription);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Interrupt));
+        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Gemini, command.DriverKind));
+    }
+
+    [Fact]
+    public void GeminiPlugin_CreatesGeminiAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Gemini);
+        var options = new AgentOptions { GeminiPath = "gemini-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: " --model gemini-2.5-pro ",
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: "gemini-resume-ignored",
+            StudioMode: false));
+
+        Assert.IsType<GeminiAgent>(agent);
+        Assert.Equal("gemini-custom", agent.ExecutablePath);
+        Assert.Equal("--model gemini-2.5-pro", newSession.Arguments);
         Assert.Null(newSession.PreassignedSessionId);
         Assert.Equal("", resume.Arguments);
         Assert.Null(resume.PreassignedSessionId);
