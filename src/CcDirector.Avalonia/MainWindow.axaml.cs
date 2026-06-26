@@ -2481,10 +2481,11 @@ public partial class MainWindow : Window
     private async void BtnSpeak_Click(object? sender, RoutedEventArgs e)
     {
         // In-process dictation. Opens SpeakDialog which captures audio via
-        // NAudio, runs it through the dictation library (OpenAiRealtimeProvider
-        // + CleanupOrchestrator) all in this same process, then returns the
-        // cleaned transcript which we insert into PromptInput. No browser, no
-        // localhost roundtrip.
+        // NAudio (BatchDictationRecorder), runs it through the shared
+        // BatchTranscriptionPipeline (one batch transcription, then the validated
+        // dictionary find/replace in CleanupOrchestrator/TranscriptEditEngine -
+        // never a free-text model rewrite), then returns the corrected transcript
+        // which we insert into PromptInput. No browser, no localhost roundtrip.
         try
         {
             var app = global::Avalonia.Application.Current as App;

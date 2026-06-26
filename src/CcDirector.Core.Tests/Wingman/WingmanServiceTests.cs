@@ -10,119 +10,16 @@ namespace CcDirector.Core.Tests.Wingman;
 ///
 /// The actual side-claude --print invocation is not exercised here - it would
 /// require a live claude CLI install with credentials, which we cannot rely on
-/// in CI.  Instead we test the JSON parser layer + the fail-open behaviour
-/// (empty input, no CLI configured, garbage JSON, fenced JSON).
+/// in CI. Instead we test the parser layers (explain briefing, answer prompt).
 ///
-/// The end-to-end "real Whisper transcript through real Haiku" check is the
-/// self-test gate documented in the goal doc; the user runs it manually with
-/// the live build.
+/// NOTE: the old free-text voice-transcript cleanup (CleanVoiceTranscriptAsync /
+/// ParseVoiceCleanupJson) was removed - it round-tripped the user's transcript
+/// through a model that returned free text, which the transcription-integrity
+/// rule forbids. The only permitted transcript correction is the validated
+/// dictionary find/replace in TranscriptEditEngine, covered by its own tests.
 /// </summary>
 public sealed class WingmanServiceTests
 {
-    // --------------------------------------------------------------------
-    // CleanVoiceTranscriptAsync fail-open contract
-    // --------------------------------------------------------------------
-
-    [Fact]
-    public async Task CleanVoiceTranscriptAsync_empty_raw_returns_empty_with_reason()
-    {
-        var r = await WingmanService.CleanVoiceTranscriptAsync("", repoPath: "", openAiApiKey: "sk-test");
-        Assert.Equal("", r.Cleaned);
-        Assert.Contains("empty", r.Reason, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task CleanVoiceTranscriptAsync_no_openai_key_returns_raw_verbatim()
-    {
-        const string raw = "hello world";
-        var r = await WingmanService.CleanVoiceTranscriptAsync(raw, repoPath: "", openAiApiKey: "");
-        Assert.Equal(raw, r.Cleaned);
-        Assert.Contains("no OpenAI key", r.Reason, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task CleanVoiceTranscriptAsync_bad_key_falls_open_to_raw()
-    {
-        const string raw = "list sessions";
-        // A syntactically-shaped but unauthorized key produces a 401 from OpenAI; the cleanup
-        // method must fall open with the raw transcript rather than throw.
-        var r = await WingmanService.CleanVoiceTranscriptAsync(
-            raw, repoPath: "", openAiApiKey: "sk-this-key-is-not-real-and-will-401");
-        Assert.Equal(raw, r.Cleaned);            // fail-open: raw is preserved
-        Assert.Contains("voice cleanup failed", r.Reason, StringComparison.OrdinalIgnoreCase);
-    }
-
-    // --------------------------------------------------------------------
-    // JSON parser (internal) - exhaustive cases against the shape the
-    // Wingman prompt asks Haiku to emit
-    // --------------------------------------------------------------------
-
-    [Fact]
-    public void ParseVoiceCleanupJson_clean_pair_is_extracted()
-    {
-        const string raw = "{\"cleaned\":\"fix the bug in the login flow\",\"reason\":\"removed filler\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("fix the bug in the login flow", r.Cleaned);
-        Assert.Equal("removed filler", r.Reason);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_fenced_json_is_tolerated()
-    {
-        const string raw = "```json\n{\"cleaned\":\"do the thing\",\"reason\":\"no changes needed\"}\n```";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("do the thing", r.Cleaned);
-        Assert.Equal("no changes needed", r.Reason);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_chatter_before_and_after_is_tolerated()
-    {
-        const string raw = "Sure! Here is the JSON:\n{\"cleaned\":\"x\",\"reason\":\"y\"}\nLet me know if you need more.";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("x", r.Cleaned);
-        Assert.Equal("y", r.Reason);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_empty_cleaned_field_falls_back_to_raw()
-    {
-        const string raw = "{\"cleaned\":\"\",\"reason\":\"could not clean\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
-        Assert.Equal("FALLBACK_TRANSCRIPT", r.Cleaned);
-        Assert.Contains("empty", r.Reason, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_garbage_falls_back_to_raw_with_reason()
-    {
-        const string raw = "this is not json at all";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
-        Assert.Equal("FALLBACK_TRANSCRIPT", r.Cleaned);
-        // Could be either "wingman returned empty output" (no { found) or "wingman JSON parse failed".
-        Assert.True(
-            r.Reason.Contains("wingman", StringComparison.OrdinalIgnoreCase),
-            $"unexpected reason: {r.Reason}");
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_missing_reason_defaults_to_no_changes_needed()
-    {
-        const string raw = "{\"cleaned\":\"x\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("x", r.Cleaned);
-        Assert.Equal("no changes needed", r.Reason);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_trims_whitespace_in_cleaned()
-    {
-        const string raw = "{\"cleaned\":\"   trimmed   \",\"reason\":\"   r   \"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("trimmed", r.Cleaned);
-        Assert.Equal("r", r.Reason);
-    }
-
     // --------------------------------------------------------------------
     // Explain briefing JSON parser
     // --------------------------------------------------------------------
@@ -264,16 +161,6 @@ public sealed class WingmanServiceTests
         Assert.Equal("", b.Headline);
         Assert.Equal("", b.Answer);
         Assert.Empty(b.Actions);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_target_field_is_ignored_when_present()
-    {
-        // Defensive: the cleanup prompt no longer asks for a target field, but if the
-        // model accidentally includes one we ignore it - routing comes from the button.
-        const string raw = "{\"cleaned\":\"read me the whole article\",\"reason\":\"x\",\"target\":\"wingman\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("read me the whole article", r.Cleaned);
     }
 
     // --------------------------------------------------------------------

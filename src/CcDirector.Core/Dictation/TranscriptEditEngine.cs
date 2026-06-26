@@ -43,6 +43,15 @@ public sealed record EditValidation(
 /// text. The worst it can do is propose a bad edit, and bad edits die here.
 ///
 /// Pure and static: no I/O, no logging, no model - fully unit-testable.
+///
+/// INVARIANT (transcription integrity - see docs/CodingStyle.md section 16):
+/// This is the ONLY code in the product allowed to change a user's transcribed
+/// words, and the only change it may make is applying a validated dictionary
+/// find/replace. A language model may LOCATE misheard terms (propose edits); it
+/// must NEVER receive the transcript and return free text used as the user's
+/// words. Do not add a second cleanup path and do not route a transcript
+/// through a text-generating model. The TranscriptionIntegrity architecture
+/// test enforces this at build time.
 /// </summary>
 public static class TranscriptEditEngine
 {

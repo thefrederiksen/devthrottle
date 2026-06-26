@@ -85,32 +85,12 @@ public sealed class WingmanAnswerLiveTests
             $"answer looks summarized: {result.Answer.Length} chars vs article {article.Length} chars");
     }
 
-    [Fact]
-    public async Task CleanVoiceTranscript_returns_verbatim_text_with_no_routing_field()
-    {
-        // The cleanup step is now strictly dictionary/verbatim: routing comes from the
-        // button the user pressed, not from any wake phrase the model sniffed out. We
-        // verify the OUTPUT here, not what the model thought the target was - because
-        // it should not be thinking about a target at all.
-        if (!string.Equals(Environment.GetEnvironmentVariable("WINGMAN_LIVE_TESTS"), "1", StringComparison.Ordinal))
-        {
-            _out.WriteLine("Skipped: set WINGMAN_LIVE_TESTS=1 to run the live cleanup test.");
-            return;
-        }
-        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            _out.WriteLine("Skipped: OPENAI_API_KEY not set.");
-            return;
-        }
-
-        // A "Hey wingman" wake phrase MUST be preserved verbatim now (no stripping).
-        const string utterance = "Hey wingman, read me the whole article we just wrote.";
-        var r = await WingmanService.CleanVoiceTranscriptAsync(utterance, repoPath: "", openAiApiKey: apiKey);
-        _out.WriteLine($"cleaned=\"{r.Cleaned}\" reason=\"{r.Reason}\"");
-        Assert.Contains("wingman", r.Cleaned, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("read me the whole article", r.Cleaned, StringComparison.OrdinalIgnoreCase);
-    }
+    // NOTE: the live "CleanVoiceTranscript returns verbatim text" test was removed
+    // along with WingmanService.CleanVoiceTranscriptAsync. That method round-tripped
+    // the user's transcript through a chat model and used the returned free text as
+    // the user's words - the shape the transcription-integrity rule forbids. The only
+    // permitted transcript correction is the validated dictionary find/replace in
+    // TranscriptEditEngine, which has its own (deterministic, offline) test coverage.
 
     private static string? ResolveClaudePath()
     {

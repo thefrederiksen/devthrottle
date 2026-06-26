@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Agents;
@@ -129,159 +127,16 @@ public static class WingmanService
         """;
 
     // ====================================================================
-    // Phase 1: Voice transcript cleanup
+    // TRANSCRIPTION RULE: there is intentionally NO free-text voice-transcript
+    // cleanup here. The old CleanVoiceTranscriptAsync (issue #142) sent the
+    // user's raw transcript to a chat model and used the model's returned text
+    // AS the user's words - the exact shape issue #190 was created to kill. It
+    // was unwired from every transcription path in issue #587 and removed here.
+    // The ONLY permitted correction of a transcript is the validated dictionary
+    // find/replace in CcDirector.Core.Dictation.TranscriptEditEngine (driven by
+    // CleanupOrchestrator). Do NOT reintroduce a model round-trip of the user's
+    // words. See docs/CodingStyle.md "Transcription integrity".
     // ====================================================================
-
-    /// <summary>
-    /// Cleanup model. A small instruction-following model is the right tool here:
-    /// the cleanup prompt asks for verbatim text + a JSON wrapper + an agent/wingman
-    /// routing decision, none of which need a reasoning-tier model. Using
-    /// <c>claude --print</c> on the Wingman's strong model meant a cold subprocess
-    /// spawn per turn and 60s timeouts on a third of turns (issue #142); a direct
-    /// HTTP call to OpenAI's nano-tier finishes in ~1s and never spawns a process.
-    /// Dictation's <c>CleanupOrchestrator</c> already runs the same model in prod.
-    /// </summary>
-    private const string VoiceCleanupModel = "gpt-4.1-nano";
-    private const string OpenAiChatCompletionsEndpoint = "https://api.openai.com/v1/chat/completions";
-    private static readonly TimeSpan VoiceCleanupHttpTimeout = TimeSpan.FromSeconds(20);
-    private static readonly HttpClient _voiceCleanupHttp = new() { Timeout = VoiceCleanupHttpTimeout };
-
-    /// <summary>
-    /// Clean a raw Whisper transcript and decide its routing target. Output is a JSON
-    /// object <c>{ cleaned, reason, target }</c>; we parse it.
-    ///
-    /// Backed by a direct OpenAI chat call (<see cref="VoiceCleanupModel"/>) rather than
-    /// a side <c>claude --print</c> spawn - issue #142, where cold-spawn cost timed the
-    /// cleanup out on a third of turns including very short ones.
-    ///
-    /// On any failure (no key, parse error, HTTP error, timeout) returns a result whose
-    /// <see cref="VoiceCleanupResult.Cleaned"/> is the raw transcript verbatim (fail open)
-    /// and <see cref="VoiceCleanupResult.Reason"/> describes the failure.
-    /// </summary>
-    public static async Task<VoiceCleanupResult> CleanVoiceTranscriptAsync(
-        string rawTranscript,
-        string repoPath,
-        string openAiApiKey,
-        CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(rawTranscript))
-            return new VoiceCleanupResult(rawTranscript ?? "", "empty raw transcript");
-        if (string.IsNullOrWhiteSpace(openAiApiKey))
-            return new VoiceCleanupResult(rawTranscript, "no OpenAI key configured");
-
-        var prompt = BuildVoiceCleanupPrompt(rawTranscript, repoPath ?? "");
-
-        var sw = Stopwatch.StartNew();
-        try
-        {
-            var stdout = await CallOpenAiChatAsync(prompt, VoiceCleanupModel, openAiApiKey, ct);
-            sw.Stop();
-            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync OK in {sw.ElapsedMilliseconds}ms");
-            return ParseVoiceCleanupJson(stdout, rawTranscript);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}");
-            return new VoiceCleanupResult(rawTranscript, "voice cleanup failed: " + ex.Message);
-        }
-    }
-
-    private static async Task<string> CallOpenAiChatAsync(
-        string userPrompt, string model, string apiKey, CancellationToken ct)
-    {
-        var payload = new
-        {
-            model,
-            messages = new object[]
-            {
-                new { role = "user", content = userPrompt },
-            },
-            temperature = 0.0,
-        };
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsEndpoint);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-        using var resp = await _voiceCleanupHttp.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"OpenAI chat completions HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
-
-        using var doc = JsonDocument.Parse(body);
-        var choices = doc.RootElement.GetProperty("choices");
-        if (choices.GetArrayLength() == 0) return "";
-        var content = choices[0].GetProperty("message").GetProperty("content").GetString() ?? "";
-        return content.Trim();
-    }
-
-    private static string BuildVoiceCleanupPrompt(string raw, string repoPath)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("You are a transcription cleanup assistant for a hands-free voice interface to a Claude Code agent.");
-        sb.AppendLine();
-        sb.AppendLine("The user just dictated the text below into their phone while driving.  Whisper transcribed it.");
-        sb.Append("The text is a request, question, or instruction the user wants sent to the Claude Code agent that is working in ");
-        sb.AppendLine(string.IsNullOrEmpty(repoPath) ? "their repository." : $"the `{repoPath}` repository.");
-        sb.AppendLine();
-        sb.AppendLine("Your job: return the user's message VERBATIM. Do not classify it, do not route it - the UI button the user pressed already decided who hears it.");
-        sb.AppendLine();
-        sb.AppendLine("Cleanup rules - you are a strict transcriber, NOT an editor:");
-        sb.AppendLine("- Return the user's words VERBATIM: same words, same order, same meaning.");
-        sb.AppendLine("- Do NOT remove or alter filler words (um, uh, like, you know, so, right). Keep every one.");
-        sb.AppendLine("- Do NOT reword, rephrase, shorten, summarize, expand, paraphrase, or 'improve' anything.");
-        sb.AppendLine("- Do NOT add or delete words, and do NOT reorder words. This includes wake phrases like \"hey wingman\" - leave them in.");
-        sb.AppendLine("- Do NOT fix grammar, spelling, or mis-transcribed terms. A separate dictionary step handles known term corrections.");
-        sb.AppendLine("- Do NOT add greetings, sign-offs, or commentary. Do NOT answer the question yourself; just return the prompt text.");
-        sb.AppendLine("- One paragraph. No bullet lists, no headings, no quotation marks around the result.");
-        sb.AppendLine();
-        sb.AppendLine("Output JSON only, no markdown fence, no other text, this exact shape:");
-        sb.AppendLine("{\"cleaned\": \"<the cleaned prompt>\", \"reason\": \"<one short sentence explaining what you changed, or 'no changes needed' if minimal>\"}");
-        sb.AppendLine();
-        sb.AppendLine("RAW TRANSCRIPT:");
-        sb.Append(raw);
-        return sb.ToString();
-    }
-
-    internal static VoiceCleanupResult ParseVoiceCleanupJson(string raw, string fallbackRaw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return new VoiceCleanupResult(fallbackRaw, "wingman returned empty output");
-
-        var s = raw.Trim();
-
-        // Defensive: if the model wrapped the JSON in a fence despite the prompt, strip it.
-        if (s.StartsWith("```"))
-        {
-            var nl = s.IndexOf('\n');
-            if (nl > 0) s = s[(nl + 1)..];
-            var endFence = s.LastIndexOf("```", StringComparison.Ordinal);
-            if (endFence > 0) s = s[..endFence].Trim();
-        }
-
-        // Also tolerate a leading "json" label or trailing chatter by extracting first {...} block.
-        var firstBrace = s.IndexOf('{');
-        var lastBrace = s.LastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace)
-            s = s.Substring(firstBrace, lastBrace - firstBrace + 1);
-
-        try
-        {
-            using var doc = JsonDocument.Parse(s);
-            var root = doc.RootElement;
-            var cleaned = root.TryGetProperty("cleaned", out var c) ? (c.GetString() ?? "") : "";
-            var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "") : "";
-            if (string.IsNullOrWhiteSpace(cleaned))
-                return new VoiceCleanupResult(fallbackRaw, "wingman returned empty 'cleaned' field");
-            return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim());
-        }
-        catch (JsonException ex)
-        {
-            FileLog.Write($"[WingmanService] cleanup JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
-            return new VoiceCleanupResult(fallbackRaw, "wingman JSON parse failed");
-        }
-    }
 
     // ====================================================================
     // Phase 2: Per-turn structured summary  (feeds Agent View AND voice TTS)
@@ -1831,12 +1686,3 @@ public static class WingmanService
     private static string Truncate(string s, int max)
         => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max] + "...";
 }
-
-/// <summary>
-/// Output of <see cref="WingmanService.CleanVoiceTranscriptAsync"/>.
-/// Always populated even on failure (Cleaned falls back to raw, Target to "agent").
-/// </summary>
-/// <param name="Cleaned">The cleaned transcript, with any "Hey wingman" wake phrase stripped when <paramref name="Target"/> is "wingman".</param>
-/// <param name="Reason">One-sentence explanation of what changed (or a failure reason).</param>
-/// <param name="Target">Who the utterance is addressed to: "agent" (default, send to the session) or "wingman" (route to the read-only Ask-the-Wingman channel).</param>
-public sealed record VoiceCleanupResult(string Cleaned, string Reason);
