@@ -1,5 +1,7 @@
+using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
+using CcDirector.Core.Memory;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Drivers;
@@ -44,6 +46,33 @@ public sealed class CodexDriverTests
 
         var bytes = Assert.Single(backend.WrittenBytes);
         Assert.Equal([0x03], bytes);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_EchoVerified_TypesTextThenPressesEnterSeparately()
+    {
+        // A buffering backend that echoes typed bytes back, like the repainting Codex composer.
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+
+        await new CodexDriver().SubmitAsync(backend, "hello codex");
+
+        // The fix: type the text, wait for the echo, THEN a SEPARATE Enter (0x0D). A blind
+        // text+Enter (the old behavior) is dropped by the repainting composer.
+        Assert.Equal(2, backend.WrittenBytes.Count);
+        Assert.Equal(Encoding.UTF8.GetBytes("hello codex"), backend.WrittenBytes[0]);
+        Assert.Equal(new byte[] { 0x0D }, backend.WrittenBytes[1]);
+        Assert.Empty(backend.SentTexts); // did not take the blind SendTextAsync path
+    }
+
+    [Fact]
+    public async Task SubmitAsync_NoBufferBackend_FallsBackToBlindSendText()
+    {
+        // No buffer (non-PTY transport): nothing to echo-verify against, so use SendTextAsync.
+        var backend = new RecordingSessionBackend();
+
+        await new CodexDriver().SubmitAsync(backend, "hello");
+
+        Assert.Equal("hello", Assert.Single(backend.SentTexts));
     }
 
     [Fact]

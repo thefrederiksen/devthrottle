@@ -300,6 +300,19 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // For Codex, merge the fleet-preamble SessionStart hook into ~/.codex/hooks.json and
+            // append --dangerously-bypass-hook-trust so it runs without a per-user trust prompt.
+            // Codex re-fires SessionStart on /clear and /compact, so the preamble re-injects itself;
+            // the hook reads CC_SESSION_ID / CC_DIRECTOR_API from the environment injected above.
+            if (agent.Kind == AgentKind.Codex)
+            {
+                if (CcDirector.Core.Codex.CodexHookInstaller.EnsureInstalled())
+                {
+                    args = $"{args} {CcDirector.Core.Codex.CodexHookInstaller.BypassTrustFlag}".Trim();
+                    _log?.Invoke("Installed Codex fleet-preamble SessionStart hook (--dangerously-bypass-hook-trust).");
+                }
+            }
+
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
             // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from

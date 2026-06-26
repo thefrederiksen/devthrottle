@@ -215,6 +215,29 @@ internal static class ControlEndpoints
             return Results.Json(MapWithIdentity(session, turnSummaryCache));
         });
 
+        // The launch-time "fleet awareness" preamble for a session: its own identity plus the
+        // cc-* commands to reach the rest of the fleet. The Claude SessionStart hook fetches this
+        // and injects it as additionalContext so the agent knows the fleet instantly, with no
+        // skill lookup. Plain text (not JSON) so a hook can drop it straight into a context field.
+        app.MapGet("/sessions/{sid}/fleet-preamble", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var name = string.IsNullOrWhiteSpace(session.CustomName)
+                ? Path.GetFileName(session.RepoPath.TrimEnd('\\', '/'))
+                : session.CustomName;
+
+            // A session only ever calls its OWN Director, so this Director's machine name is the
+            // session's machine.
+            var text = FleetPreamble.Build(session.Id.ToString(), name, Environment.MachineName, session.RepoPath);
+            return Results.Text(text, "text/plain");
+        });
+
         // ===== REST: Fleet messaging (issue #705) =====
         // A session can only reach its OWN Director (CC_DIRECTOR_API); it never holds the Gateway
         // URL or the fleet token. These endpoints let a session list and message other sessions
