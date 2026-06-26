@@ -16,6 +16,13 @@ public static class AgentPluginRegistry
     /// <summary>Built-in CLI plugins in display/catalog order.</summary>
     public static IReadOnlyList<IAgentPlugin> BuiltIns => BuiltInPlugins.Value;
 
+    /// <summary>Selectable agent types for Settings surfaces, with Raw CLI as the explicit custom case.</summary>
+    public static IReadOnlyList<AgentPluginTypeOption> SettingsTypeOptions =>
+        BuiltIns
+            .Select(plugin => new AgentPluginTypeOption(plugin.Kind, plugin.Settings.TypeLabel))
+            .Append(new AgentPluginTypeOption(AgentKind.RawCli, "Custom"))
+            .ToArray();
+
     /// <summary>True when a plugin is registered for the supplied built-in agent kind.</summary>
     public static bool Contains(AgentKind kind) => BuiltIns.Any(plugin => plugin.Kind == kind);
 

@@ -48,3 +48,5 @@ public sealed record AgentPluginLaunchRequest(
     string? ResumeSessionId,
     bool StudioMode);
 
+/// <summary>One selectable agent type exposed to Settings UI and settings Control API surfaces.</summary>
+public sealed record AgentPluginTypeOption(AgentKind Kind, string Label);

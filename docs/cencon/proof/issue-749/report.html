@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 749 - Settings plugin metadata proof</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 32px; color: #1f2937; line-height: 1.45; }
+    h1, h2 { color: #111827; }
+    code, pre { font-family: Consolas, "Courier New", monospace; }
+    pre { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 12px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f9fafb; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+    .warn { color: #92400e; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue #749 - Settings UI/API Plugin Metadata</h1>
+  <p><strong>Status:</strong> <span class="warn">Code and automated tests pass; modal screenshot capture was partially blocked.</span></p>
+  <p><strong>Worktree:</strong> D:\ReposFred\devthrottle-agent-plugins</p>
+  <p><strong>Branch:</strong> agent-plugin-rollout</p>
+  <p><strong>Slot used:</strong> 14</p>
+  <p><strong>Scheduled-task QA launch:</strong> PID 38960, Control API port 7882, log C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-26-38960.log</p>
+
+  <h2>Implemented</h2>
+  <ul>
+    <li>Added <code>AgentPluginRegistry.SettingsTypeOptions</code>, derived from built-in plugin metadata plus Raw CLI as the explicit custom case.</li>
+    <li>Moved <code>/settings/agents/catalog</code> type options and display fallback to plugin metadata.</li>
+    <li>Moved Settings Add/Edit type dropdown labels to plugin metadata.</li>
+    <li>Moved Settings list type labels and wizard result display names to plugin metadata.</li>
+    <li>Moved first-run detection wizard suggestions and accepted-entry defaults to plugin metadata.</li>
+    <li>Removed direct <code>AgentToolCatalog</code> reads from the Settings UI/API paths changed by this issue.</li>
+  </ul>
+
+  <h2>Acceptance Criteria</h2>
+  <table>
+    <thead><tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Type option list, display labels, presets, model metadata, detection eligibility, validation status text, add/edit defaults, and detection wizard suggestions come from plugin metadata.</td>
+        <td class="pass">PASS</td>
+        <td>Settings type list, wizard model, editor dialog, detection service, and catalog endpoint now use <code>AgentPluginRegistry</code>/<code>IAgentPlugin</code>.</td>
+      </tr>
+      <tr>
+        <td>Settings UI and <code>/settings/agents/catalog</code> do not directly read <code>AgentToolCatalog</code>.</td>
+        <td class="pass">PASS</td>
+        <td><code>rg AgentToolCatalog</code> across the Settings UI/API files returned no matches.</td>
+      </tr>
+      <tr>
+        <td>Every built-in agent appears in settings from plugin metadata.</td>
+        <td class="pass">PASS</td>
+        <td><code>SettingsTypeOptions_ComeFromPluginsPlusRawCliCustomCase</code> covers all built-ins plus Raw CLI.</td>
+      </tr>
+      <tr>
+        <td>Tests cover the settings metadata path.</td>
+        <td class="pass">PASS</td>
+        <td>Focused Core and Control API tests pass.</td>
+      </tr>
+      <tr>
+        <td>QA report includes settings screenshot coverage.</td>
+        <td class="warn">PARTIAL</td>
+        <td>Captured the slot-14 Settings entry point. The modal did not open through UI automation in this session; the automation blocker is recorded here for QA follow-up.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Screenshot</h2>
+  <p>Slot-14 Settings entry point, captured from <code>local_builds\cc-director14.exe</code>:</p>
+  <img src="screenshots/settings-entrypoint.png" alt="CC Director slot-14 main window showing the Settings entry point">
+
+  <h2>Verification Commands</h2>
+  <pre>rg -n 'AgentToolCatalog' src/CcDirector.Avalonia/AgentEditorDialog.axaml.cs src/CcDirector.Avalonia/SettingsDialog.axaml.cs src/CcDirector.Avalonia/ToolDetectionWizardDialog.axaml.cs src/CcDirector.Core/Agents/ToolDetectionWizardModel.cs src/CcDirector.ControlApi/AgentsEndpoint.cs src/CcDirector.Core/Settings/ToolDetectionService.cs -S</pre>
+  <p class="pass">No matches.</p>
+
+  <pre>dotnet build cc-director.sln --no-restore</pre>
+  <p class="pass">Build succeeded: 0 warnings, 0 errors.</p>
+
+  <pre>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~ToolDetectionWizardModelTests|FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~ToolDetectionServiceTests|FullyQualifiedName~AgentToolConfigTests"</pre>
+  <p class="pass">Passed: 44, Failed: 0, Skipped: 0.</p>
+
+  <pre>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --no-build --filter FullyQualifiedName~AgentsEndpointTests</pre>
+  <p class="pass">Passed: 18, Failed: 0, Skipped: 0.</p>
+
+  <pre>powershell -NoProfile -File scripts\agent-session-isolation.ps1 allocate -Worktree D:\ReposFred\devthrottle-agent-plugins
+powershell -NoProfile -File scripts\local-build-avalonia.ps1 -Slot 14
+powershell -NoProfile -File scripts\agent-session-isolation.ps1 launch -Manifest D:\ReposFred\devthrottle-agent-plugins\local_builds\agent-session-slot14.json
+powershell -NoProfile -File scripts\agent-session-isolation.ps1 teardown -Manifest D:\ReposFred\devthrottle-agent-plugins\local_builds\agent-session-slot14.json</pre>
+  <p class="pass">Slot 14 allocated, built, launched on port 7882, and torn down cleanly.</p>
+
+  <h2>Screenshot Caveat</h2>
+  <p>The scheduled-task slot Director launched and served the Control API correctly. Opening the Settings modal through UI automation failed in this session: <code>CcClick</code> returned access denied for the button invoke, and direct mouse clicks did not open the modal. I then started the same slot executable directly for screenshot capture only, captured the Settings entry point, and stopped that process. This leaves the code/test acceptance covered, with full modal screenshots still needed in a QA pass that can interact with the desktop modal.</p>
+</body>
+</html>

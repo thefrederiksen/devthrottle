@@ -134,6 +134,18 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void SettingsTypeOptions_ComeFromPluginsPlusRawCliCustomCase()
+    {
+        var options = AgentPluginRegistry.SettingsTypeOptions;
+
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+            Assert.Contains(options, option => option.Kind == plugin.Kind && option.Label == plugin.Settings.TypeLabel);
+
+        Assert.Contains(options, option => option.Kind == AgentKind.RawCli && option.Label == "Custom");
+        Assert.Equal(AgentPluginRegistry.BuiltIns.Count + 1, options.Count);
+    }
+
+    [Fact]
     public void PluginBuildLaunchSpec_MatchesCreatedAgentLaunchSpec()
     {
         var options = new AgentOptions();

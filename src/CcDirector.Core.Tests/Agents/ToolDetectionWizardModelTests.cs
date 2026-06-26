@@ -1,4 +1,5 @@
 using Xunit;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
@@ -53,14 +54,14 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void ScanSuggestions_ReturnsOnePerCatalogTool()
+    public void ScanSuggestions_ReturnsOnePerPluginBackedTool()
     {
         var model = new ToolDetectionWizardModel(new ToolDetectionService());
         var suggestions = model.ScanSuggestions(new AgentOptions());
 
-        Assert.Equal(AgentToolCatalog.Entries.Count, suggestions.Count);
-        foreach (var entry in AgentToolCatalog.Entries)
-            Assert.Contains(suggestions, s => s.Tool == entry.Tool);
+        Assert.Equal(AgentPluginRegistry.BuiltIns.Count, suggestions.Count);
+        foreach (var plugin in AgentPluginRegistry.BuiltIns)
+            Assert.Contains(suggestions, s => s.Tool == plugin.Kind && s.DisplayName == plugin.DisplayName);
     }
 
     [Fact]
@@ -70,9 +71,9 @@ public class ToolDetectionWizardModelTests
         var suggestions = model.ScanSuggestions(new AgentOptions());
 
         var claude = suggestions.Single(s => s.Tool == AgentKind.ClaudeCode);
-        // Issue #436 (supersedes #391): the wizard now recommends the catalog default, which for
+        // Issue #436 (supersedes #391): the wizard now recommends the plugin default, which for
         // Claude is Automatic (skip permissions), so a freshly detected Claude defaults to it.
-        Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, claude.RecommendedPresetName);
+        Assert.Equal(AgentPluginRegistry.Get(AgentKind.ClaudeCode).DefaultCommandPreset.Name, claude.RecommendedPresetName);
     }
 
     [Fact]
@@ -120,11 +121,12 @@ public class ToolDetectionWizardModelTests
                 new AcceptedToolSelection(AgentKind.ClaudeCode, "claude"),
             });
 
-            // Issue #436: accepting Claude from the wizard seeds the Automatic (skip permissions)
-            // catalog default on the new entry, so a freshly configured Claude skips permissions.
+            // Issue #436: accepting Claude from the wizard seeds the plugin default on the new
+            // entry, so a freshly configured Claude skips permissions.
             var entry = AgentEntryStore.ReadCurrentEntries().Single(e => e.Type == AgentKind.ClaudeCode);
-            Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, entry.PresetId);
-            Assert.Equal(AgentToolCatalog.ClaudeSkipPermissionsArg, entry.ToToolConfig().ResolveEffectiveArguments());
+            var claude = AgentPluginRegistry.Get(AgentKind.ClaudeCode);
+            Assert.Equal(claude.DefaultCommandPreset.Name, entry.PresetId);
+            Assert.Equal(claude.DefaultCommandPreset.Arguments, entry.ToToolConfig().ResolveEffectiveArguments());
             Assert.True(entry.Enabled);
         }
         finally
@@ -137,8 +139,8 @@ public class ToolDetectionWizardModelTests
     [Fact]
     public void AcceptSelected_GrokAndCursor_DoesNotThrow_AndAddsBothEntries()
     {
-        // Regression: accepting newer catalog tools (Grok, Cursor) must add them like any other
-        // tool. The wizard seeds each new agent.entries item from the catalog defaults plus the
+        // Regression: accepting newer plugin tools (Grok, Cursor) must add them like any other
+        // tool. The wizard seeds each new agent.entries item from the plugin defaults plus the
         // detected executable path, so accepting Grok + Cursor adds two enabled entries and never
         // throws on a tool the wizard had not special-cased.
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");

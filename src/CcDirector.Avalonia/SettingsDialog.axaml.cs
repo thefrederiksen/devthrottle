@@ -12,6 +12,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using CcDirector.Core.Account;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Onboarding;
@@ -852,7 +853,9 @@ public partial class SettingsDialog : Window
         if (result is null)
             return "Detection wizard finished.";
 
-        var addedNames = result.AddedTools.Select(t => AgentToolCatalog.GetEntry(t).DisplayName).ToList();
+        var addedNames = result.AddedTools
+            .Select(t => AgentPluginRegistry.Contains(t) ? AgentPluginRegistry.Get(t).DisplayName : t.ToString())
+            .ToList();
         var addedPart = addedNames.Count switch
         {
             0 => "No new agents added",
@@ -1097,16 +1100,7 @@ public sealed class AgentEntryRow : INotifyPropertyChanged
     };
 
     /// <summary>Human-readable type label shown in the Type column.</summary>
-    public string TypeLabel => Type switch
-    {
-        AgentKind.ClaudeCode => "Claude Code",
-        AgentKind.Pi => "Pi",
-        AgentKind.Codex => "Codex",
-        AgentKind.Gemini => "Gemini",
-        AgentKind.OpenCode => "OpenCode",
-        AgentKind.RawCli => "Custom",
-        _ => Type.ToString(),
-    };
+    public string TypeLabel => AgentPluginRegistry.SettingsTypeOptions.FirstOrDefault(option => option.Kind == Type)?.Label ?? Type.ToString();
 
     public static AgentEntryRow From(AgentEntry entry, string statusText) => new()
     {
