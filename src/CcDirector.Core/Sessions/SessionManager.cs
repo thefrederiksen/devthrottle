@@ -313,6 +313,21 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // For Pi, write the fleet preamble to a per-session file and pass it via
+            // --append-system-prompt. Pi keeps the launch system prompt across /new and /compact, so
+            // the preamble persists without a re-injection hook. The hook reads nothing - the Director
+            // builds the preamble locally from the session's known identity.
+            if (agent.Kind == AgentKind.Pi)
+            {
+                var piName = string.IsNullOrWhiteSpace(session.CustomName)
+                    ? Path.GetFileName(repoPath.TrimEnd('\\', '/'))
+                    : session.CustomName;
+                var preambleFile = CcDirector.Core.Pi.PiPreambleWriter.WriteForSession(
+                    id.ToString(), piName, Environment.MachineName, repoPath);
+                args = $"{args} --append-system-prompt \"{preambleFile}\"".Trim();
+                _log?.Invoke("Wrote Pi fleet preamble and passed it via --append-system-prompt.");
+            }
+
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
             // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from

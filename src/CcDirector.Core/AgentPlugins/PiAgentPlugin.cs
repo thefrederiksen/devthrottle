@@ -61,8 +61,8 @@ public sealed class PiAgentPlugin : IAgentPlugin
     public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
 
     public AgentPluginFleetMetadata Fleet { get; } = new(
-        FleetPreambleStrategy.Extension, FleetPreambleStatus.Wired,
-        "TypeScript extension in ~/.pi/agent/ injects via before_agent_start; re-injects on /new and compact.");
+        FleetPreambleStrategy.InstructionFile, FleetPreambleStatus.Wired,
+        "Per-session preamble file passed via --append-system-prompt; persists across /new and /compact (it is the launch system prompt).");
 
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 

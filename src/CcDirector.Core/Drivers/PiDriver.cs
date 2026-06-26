@@ -48,12 +48,14 @@ public sealed class PiDriver : IAgentDriver
         throw new NotSupportedException(
             "[PiDriver] Launch specs are owned by the Director's PiAgent path.");
 
-    public Task SubmitAsync(ISessionBackend backend, string text)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        // Blind submit: pi's composer echo layout is unverified, so no echo gate yet.
-        return backend.SendTextAsync(text);
-    }
+    /// <summary>
+    /// Echo-verified submit (shared helper): type the text, wait for pi's composer to echo it, then
+    /// a separate Enter. This is the dropped-Enter guard that the blind submit lacked - a repainting
+    /// composer can swallow a blind Enter when driven programmatically (cc-send / cc-ask delivery).
+    /// Falls back to the backend's blind submit for non-buffering transports.
+    /// </summary>
+    public Task SubmitAsync(ISessionBackend backend, string text) =>
+        TerminalSubmit.EchoVerifiedSubmitAsync(backend, text, "PiDriver");
 
     public Task CancelAsync(ISessionBackend backend)
     {
