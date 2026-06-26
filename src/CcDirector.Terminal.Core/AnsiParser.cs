@@ -29,14 +29,14 @@ public class AnsiParser
     private readonly int _maxScrollback;
 
     // --- Height-independent scrollback (issue #240) ---
-    // Claude Code 2.1.x repaints its whole TUI in place (absolute cursor
-    // positioning, normal buffer, no scroll region), so at tall viewports no
-    // linefeed ever crosses the bottom margin: ScrollUp never fires, nothing
-    // spills to scrollback, and the panel can't scroll. We recover history by
-    // diffing consecutive repaint frames -- bounded by bare ESC[H, which Claude
-    // emits exactly once per frame -- and appending the lines that scroll off the
-    // top of the scrolling region. The grid is never modified here, so xterm
-    // parity is unaffected; this only ever appends to _scrollback.
+    // Some agent versions repaint their whole terminal user interface in place
+    // (absolute cursor positioning, normal buffer, no scroll region), so at tall
+    // viewports no linefeed ever crosses the bottom margin: ScrollUp never fires,
+    // nothing spills to scrollback, and the panel can't scroll. We recover history
+    // by diffing consecutive repaint frames -- bounded by bare ESC[H in the
+    // affected streams -- and appending the lines that scroll off the top of the
+    // scrolling region. The grid is never modified here, so xterm parity is
+    // unaffected; this only ever appends to _scrollback.
     private TerminalCell[][]? _committedFrame; // snapshot of the last completed frame
     private int _scrollbackCountAtFrame;       // _scrollback.Count at last frame (ScrollUp reconciliation)
 
