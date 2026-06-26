@@ -11,6 +11,9 @@
   <ItemGroup>
     <!-- SessionDto + MachineErrorDto: the exact shapes the Gateway aggregator returns. -->
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <!-- LinkDetector (#740): the one shared path/URL recognizer used across the product, reused
+         server-side here so the History tab's links do not diverge into an ad-hoc parser. -->
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

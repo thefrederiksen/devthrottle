@@ -9,11 +9,15 @@
    tab. The parent keys this by SessionId, so a session switch disposes this pane and mounts a fresh
    one; mounting only while the History tab is shown means the poll never runs while hidden.
 
+   Bodies render Markdown (#739, the BriefPane pipeline with DisableHtml). File paths and URLs are
+   surfaced as actions (#740): URLs open in a new tab plus Copy URL, paths get Copy path - reusing
+   the product's shared LinkDetector. The header shows the transcript-derived history state (#741),
+   a label distinct from the live status badge.
+
    Scroll model (GitHub #744): sticky-bottom. The view follows new turns while the reader is at the
    bottom, stops following the instant they scroll up, and re-engages when they scroll back down.
    Activation lands at the bottom. cockpit-history-scroll.js owns the measuring/setting; this
-   component owns when to stick. #738 renders readable PLAIN TEXT; markdown (#739), links (#740),
-   and the derived-state label (#741) build on this. *@
+   component owns when to stick. *@
 
 <div class="hist">
     <div class="hist-head">
@@ -23,6 +27,10 @@
             <span class="hist-count">@_bubbles.Count message@(_bubbles.Count == 1 ? "" : "s")</span>
         }
         <span class="hist-live">live</span>
+        @if (_historyState is not null)
+        {
+            <span class="hist-state @StateClass(_historyState)" title="Transcript-derived state - separate from the live status badge">@StateLabel(_historyState)</span>
+        }
     </div>
 
     @if (_loadFailed)
@@ -36,17 +44,42 @@
     else
     {
         <div class="hist-scroll" @ref="_scrollEl">
-            @foreach (var (bubble, i) in _bubbles.Select((b, i) => (b, i)))
+            @foreach (var (rendered, i) in _bubbles.Select((b, i) => (b, i)))
             {
-                <div class="hist-bubble @bubble.Kind" @key="i">
-                    <div class="hist-speaker">@bubble.Speaker</div>
-                    @if (bubble.IsRawText)
+                <div class="hist-bubble @rendered.Bubble.Kind" @key="i">
+                    <div class="hist-speaker">@rendered.Bubble.Speaker</div>
+                    @if (rendered.Bubble.IsRawText)
                     {
-                        <pre class="hist-body raw">@bubble.Body</pre>
+                        <pre class="hist-body raw">@rendered.Bubble.Body</pre>
                     }
                     else
                     {
-                        <div class="hist-body">@bubble.Body</div>
+                        <div class="hist-body md">@rendered.Html</div>
+                    }
+                    @if (rendered.Links.Count > 0)
+                    {
+                        <div class="hist-links">
+                            @foreach (var link in rendered.Links)
+                            {
+                                <span class="hist-link @(link.IsUrl ? "url" : "path")">
+                                    @if (link.IsUrl)
+                                    {
+                                        <a class="hist-link-open" href="@link.Text" target="_blank" rel="noopener noreferrer" title="@link.Text">@LinkLabel(link.Text)</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="hist-link-text" title="@link.Text">@LinkLabel(link.Text)</span>
+                                    }
+                                    <button class="hist-link-copy" @onclick="() => CopyAsync(link.Text)">
+                                        @(link.IsUrl ? "Copy URL" : "Copy path")
+                                    </button>
+                                    @if (_copiedText == link.Text)
+                                    {
+                                        <span class="hist-link-copied">copied</span>
+                                    }
+                                </span>
+                            }
+                        </div>
                     }
                 </div>
             }
@@ -57,13 +90,20 @@
 @code {
     [Parameter] public string SessionId { get; set; } = "";
 
-    private readonly List<HistoryBubble> _bubbles = new();
+    /// <summary>A bubble plus its precomputed Markdown HTML and detected links, so rendering does
+    /// not re-parse Markdown or re-scan for links on every Blazor render pass.</summary>
+    private sealed record RenderedBubble(HistoryBubble Bubble, MarkupString Html, List<HistoryLink> Links);
+
+    private readonly List<RenderedBubble> _bubbles = new();
     private string _emptyText = "Waiting for the conversation to start...";
     private bool _loadFailed;
+    private string? _historyState;
+    private string? _copiedText;
 
     private ElementReference _scrollEl;
     private IJSObjectReference? _module;
     private DotNetObjectReference<HistoryPane>? _selfRef;
+    private bool _listenerAttached;
 
     // Sticky-bottom state. _following mirrors "is the reader at the bottom" (updated by the scroll
     // listener via UpdateFollow); _scrollAfterRender asks the next OnAfterRender to stick to the
@@ -109,14 +149,21 @@
             _emptyText = history is { IsSupported: false }
                 ? "History is not available for this agent yet."
                 : "Waiting for the conversation to start...";
+            _historyState = history?.HistoryState;
 
-            var signature = BuildSignature(bubbles);
+            var signature = BuildSignature(bubbles, _historyState);
             if (signature == _signature)
                 return; // unchanged - do not re-render or touch the scroll position
             _signature = signature;
 
             _bubbles.Clear();
-            _bubbles.AddRange(bubbles);
+            foreach (var bubble in bubbles)
+            {
+                var html = bubble.IsRawText ? default : (MarkupString)HistoryMarkdown.ToHtml(bubble.Body);
+                var links = bubble.IsRawText ? new List<HistoryLink>() : HistoryLinks.Extract(bubble.Body);
+                _bubbles.Add(new RenderedBubble(bubble, html, links));
+            }
+
             // Stick to the bottom after this render only if the reader is currently following.
             _scrollAfterRender = _following;
             await InvokeAsync(StateHasChanged);
@@ -130,17 +177,31 @@
         }
     }
 
-    private static string BuildSignature(List<HistoryBubble> bubbles)
+    private static string BuildSignature(List<HistoryBubble> bubbles, string? state)
     {
         if (bubbles.Count == 0)
-            return "0";
+            return "0|" + state;
         var last = bubbles[^1];
         var total = 0;
         foreach (var b in bubbles)
             total += b.Body.Length;
         // count + total chars + last bubble's tail catches appends and last-bubble edits cheaply.
         var tail = last.Body.Length <= 64 ? last.Body : last.Body[^64..];
-        return $"{bubbles.Count}|{total}|{tail}";
+        return $"{bubbles.Count}|{total}|{tail}|{state}";
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeAsync<bool>("ccTools.copyText", text);
+            _copiedText = text;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "HistoryPane copy failed for sid={Sid}", SessionId);
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -183,8 +244,6 @@
         }
     }
 
-    private bool _listenerAttached;
-
     /// <summary>Called from JS when the reader crosses the at-bottom boundary. While not at the
     /// bottom, new turns never move the view; returning to the bottom re-engages auto-follow.</summary>
     [JSInvokable]
@@ -192,6 +251,26 @@
     {
         _following = atBottom;
     }
+
+    // ----- derived history-state label (#741): transcript-derived, distinct from the live badge -----
+    private static string StateLabel(string state) => state switch
+    {
+        "BackgroundRunning" => "history: Background running",
+        "Working" => "history: Working",
+        "NeedsYou" => "history: Needs you",
+        _ => "history: Idle",
+    };
+
+    private static string StateClass(string state) => state switch
+    {
+        "BackgroundRunning" => "bg",
+        "Working" => "working",
+        "NeedsYou" => "needs",
+        _ => "idle",
+    };
+
+    private static string LinkLabel(string text)
+        => text.Length <= 60 ? text : text[..28] + "..." + text[^28..];
 
     public async ValueTask DisposeAsync()
     {
