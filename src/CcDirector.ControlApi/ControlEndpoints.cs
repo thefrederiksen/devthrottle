@@ -3084,8 +3084,22 @@ internal static class ControlEndpoints
         // and live on the Session itself. Map() reads them directly - no derivation, no
         // recomputation from TurnSummaryCache, no fallback. The `cache` argument is kept for
         // other endpoints that surface raw summaries; it is not consulted for color.
-        var lastWrite = s.Buffer?.LastWriteAtUtc ?? DateTime.MinValue;
-        var lastActivity = lastWrite == DateTime.MinValue ? s.CreatedAt.UtcDateTime : lastWrite;
+        // Idle clock source. Most agents go byte-silent when idle, so the raw last-write time is
+        // the honest "how long since output" measure. Agents with an animated idle footer (Grok)
+        // never go byte-silent - their footer repaints forever - so the raw clock would read ~0
+        // even when the agent is done and waiting. For those, measure idle from the last screen-
+        // BODY change instead (Session.LastBodyActivityAtUtc), matching the detector's content rule
+        // so the idle seconds and the WaitingForInput badge agree.
+        DateTime lastActivity;
+        if (s.Driver.EmitsContinuousIdleOutput)
+        {
+            lastActivity = s.LastBodyActivityAtUtc;
+        }
+        else
+        {
+            var lastWrite = s.Buffer?.LastWriteAtUtc ?? DateTime.MinValue;
+            lastActivity = lastWrite == DateTime.MinValue ? s.CreatedAt.UtcDateTime : lastWrite;
+        }
         var idleSeconds = Math.Max(0, (DateTime.UtcNow - lastActivity).TotalSeconds);
 
         // Issue #335: build the viewUrl from the resolved tailnetEndpoint and the configured

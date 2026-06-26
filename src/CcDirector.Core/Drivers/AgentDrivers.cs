@@ -23,7 +23,7 @@ public static class AgentDrivers
         AgentKind.Codex => new CodexDriver(),
         AgentKind.Gemini => new GenericDriver(k, GeminiSlashCommands.All),
         AgentKind.OpenCode => new GenericDriver(k, OpenCodeSlashCommands.All),
-        AgentKind.Grok => new GenericDriver(k, GrokSlashCommands.All),
+        AgentKind.Grok => new GenericDriver(k, GrokSlashCommands.All, emitsContinuousIdleOutput: true),
         _ => new GenericDriver(k),
     });
 }

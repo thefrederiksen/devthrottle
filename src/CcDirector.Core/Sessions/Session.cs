@@ -730,6 +730,23 @@ public sealed class Session : IDisposable
     private long _lastOutputTicks = DateTime.UtcNow.Ticks;
 
     /// <summary>
+    /// UTC time the screen BODY last changed, as judged by the <c>TerminalStateDetector</c>'s
+    /// content rule. For agents whose idle terminal never goes byte-silent (Grok), this is the
+    /// honest idle clock: <see cref="LastOutputAtUtc"/> keeps moving forever as the animated
+    /// footer repaints, but this only advances when the conversation body actually changes, so
+    /// "time since the last body change" is a true measure of how long the agent has been idle.
+    /// The Control API surfaces idle seconds off this for continuous-idle agents. Defaults to the
+    /// creation time; only the detector advances it, via <see cref="StampBodyActivity"/>.
+    /// </summary>
+    public DateTime LastBodyActivityAtUtc => new(Volatile.Read(ref _lastBodyActivityTicks), DateTimeKind.Utc);
+    private long _lastBodyActivityTicks = DateTime.UtcNow.Ticks;
+
+    /// <summary>Record that the screen body changed now. Called by the detector's content rule;
+    /// independent of whether the detector is driving state, so the idle clock is correct even in
+    /// observe-only mode.</summary>
+    internal void StampBodyActivity() => Volatile.Write(ref _lastBodyActivityTicks, DateTime.UtcNow.Ticks);
+
+    /// <summary>
     /// UTC instant until which terminal byte activity must NOT be counted as agent work by
     /// the <c>TerminalStateDetector</c>. Set whenever the Director itself issues a PTY resize
     /// (on attaching/switching to a session, force-refresh, or a layout change): a resize is a
@@ -1164,23 +1181,12 @@ public sealed class Session : IDisposable
     {
         if (_htmlCells is null || _htmlParser is null)
             return (System.Array.Empty<string>(), -1, -1);
+        // Read the parser's ACTIVE grid, not our held _htmlCells array. On the alternate
+        // screen (Grok, and now Claude Code) the parser draws into an internal buffer that
+        // _htmlCells no longer points at, so iterating _htmlCells here would return the
+        // frozen pre-alternate-screen content. SnapshotActiveRows reflects what is on screen.
         lock (_htmlParserLock)
-        {
-            var rows = new string[HtmlGridRows];
-            var sb = new System.Text.StringBuilder(HtmlGridCols);
-            for (int r = 0; r < HtmlGridRows; r++)
-            {
-                sb.Clear();
-                for (int c = 0; c < HtmlGridCols; c++)
-                {
-                    var ch = _htmlCells[c, r].Character;
-                    sb.Append(ch == '\0' ? ' ' : ch);
-                }
-                rows[r] = sb.ToString().TrimEnd();
-            }
-            var (col, row) = _htmlParser.GetCursorPosition();
-            return (rows, row, col);
-        }
+            return _htmlParser.SnapshotActiveRows();
     }
 
     /// <summary>

@@ -70,6 +70,14 @@ public class AnsiParser
     private bool _autoWrap = true;     // DECAWM (?7)
     private bool _originMode;          // DECOM (?6)
     private bool _cursorVisible = true; // DECTCEM (?25)
+    // Synchronized output (DEC private mode ?2026, the BSU/ESU protocol used by
+    // modern TUIs - kitty, wezterm, ghostty, and the xAI Grok CLI). The app
+    // brackets each frame in ?2026h ... ?2026l so the terminal can render the
+    // whole frame atomically. We do not buffer cell writes; instead the owning
+    // control reads InSynchronizedUpdate after Parse and holds its repaint while
+    // a frame is open, painting once when the frame closes. That is what stops
+    // Grok's mid-frame clear+redraw from flickering on screen (issue: Grok flicker).
+    private bool _inSynchronizedUpdate;
     // Bracketed paste / mouse modes are tracked so that mode changes don't
     // corrupt our state; the actual enabling is only reflected in input
     // generation (not our concern here).
@@ -229,6 +237,34 @@ public class AnsiParser
     /// <summary>Current cursor position (0-based col, row). Diagnostic accessor.</summary>
     public (int Col, int Row) GetCursorPosition() => (_cursorCol, _cursorRow);
 
+    /// <summary>
+    /// Snapshot the CURRENTLY ACTIVE visible grid as trailing-trimmed plain-text rows
+    /// (top to bottom) plus the cursor cell. "Active" means the alternate screen when one
+    /// is in use, otherwise the primary grid: this reads the live <see cref="_cells"/>
+    /// pointer, which the parser swaps to an internal buffer on entering the alternate
+    /// screen. A caller that iterates the grid array it was handed at construction sees a
+    /// FROZEN pre-alternate-screen grid once an app like Grok or Claude Code switches to
+    /// the alternate screen (<c>ESC[?1049h</c>); this method is the only way to read what is
+    /// actually on screen now. Not internally synchronized - the owner serializes Parse and
+    /// this call under its own lock.
+    /// </summary>
+    public (string[] Rows, int CursorRow, int CursorCol) SnapshotActiveRows()
+    {
+        var rows = new string[_rows];
+        var sb = new System.Text.StringBuilder(_cols);
+        for (int r = 0; r < _rows; r++)
+        {
+            sb.Clear();
+            for (int c = 0; c < _cols; c++)
+            {
+                var ch = _cells[c, r].Character;
+                sb.Append(ch == '\0' ? ' ' : ch);
+            }
+            rows[r] = sb.ToString().TrimEnd();
+        }
+        return (rows, _cursorRow, _cursorCol);
+    }
+
     /// <summary>Whether the cursor is currently visible per DECTCEM (?25).</summary>
     public bool IsCursorVisible => _cursorVisible;
 
@@ -239,6 +275,15 @@ public class AnsiParser
     /// wheel to the application while this is true.
     /// </summary>
     public bool IsAlternateScreen => _altCells != null;
+
+    /// <summary>
+    /// True while the application is inside a synchronized output frame (it has sent
+    /// DEC private mode ?2026h - Begin Synchronized Update - and not yet the matching
+    /// ?2026l - End Synchronized Update). The owning terminal control should defer its
+    /// repaint while this is true so partially-drawn frames are never shown, then paint
+    /// once when it returns false. Resets on RIS/full reset.
+    /// </summary>
+    public bool InSynchronizedUpdate => _inSynchronizedUpdate;
 
     /// <summary>
     /// Whether the application has requested mouse reporting (?1000 normal,
@@ -891,12 +936,16 @@ public class AnsiParser
                 // Mouse reporting: ?1000 (normal/click), ?1002 (button-event),
                 // ?1003 (any-event) all enable reporting; ?1006 selects SGR
                 // extended coordinates. Tracked so the control can forward the
-                // wheel to the application. ?1005/?1015 (other encodings) and
-                // 2026 (synchronized update) are accepted without effect.
+                // wheel to the application. ?1005/?1015 (other encodings) are
+                // accepted without effect.
                 case 1000:
                 case 1002:
                 case 1003: _mouseReporting = set; break;
                 case 1006: _mouseSgrCoordinates = set; break;
+                // Synchronized output: ?2026h begins a frame, ?2026l ends it. The
+                // owning control reads InSynchronizedUpdate to hold its repaint until
+                // the frame is complete, rendering each frame atomically.
+                case 2026: _inSynchronizedUpdate = set; break;
             }
         }
     }
@@ -1550,6 +1599,7 @@ public class AnsiParser
         _bracketedPaste = false;
         _mouseReporting = false;
         _mouseSgrCoordinates = false;
+        _inSynchronizedUpdate = false; // a full reset closes any open synchronized frame
         _committedFrame = null; // drop repaint-diff baseline on RIS (issue #240)
         _g0IsDecSpecial = false;
         _g1IsDecSpecial = false;

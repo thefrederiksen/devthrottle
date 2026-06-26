@@ -59,6 +59,19 @@ public interface IAgentDriver
 
     DriverCapabilities Capabilities { get; }
 
+    /// <summary>
+    /// True when this CLI's idle terminal never goes byte-silent: it continuously repaints
+    /// an animated footer (a spinner, a shortcuts hint, a clock, the synchronized-output
+    /// heartbeat) even after the turn is finished and it is waiting for input. The byte-only
+    /// idle rule in <c>TerminalStateDetector</c> would pin such a session to Working forever,
+    /// so for these agents the detector switches to a screen-content rule: it only treats the
+    /// session as active while the screen body (above the cursor) is changing. Default false -
+    /// a well-behaved CLI stops emitting bytes when idle, which the cheap byte rule handles.
+    /// This is a terminal-behavior trait, deliberately separate from <see cref="Capabilities"/>
+    /// (which drives the Director action buttons).
+    /// </summary>
+    bool EmitsContinuousIdleOutput => false;
+
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }
