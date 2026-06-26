@@ -27,6 +27,11 @@ namespace CcDirector.Gateway.Api;
 /// whisper-large-v3 - so a test works in either remote mode regardless of the live pipeline's
 /// transport.
 ///
+/// BY DESIGN this returns the RAW speech-to-text, with NO dictionary correction - its whole job is to
+/// prove the raw transcription path (key + provider) works. Do not add the dictionary corrector here:
+/// it would mask a transcription problem behind a term swap and make the diagnostic lie. (The live
+/// /wingman/transcribe and /wingman/utterance/complete paths DO apply the dictionary correction.)
+///
 /// Local mode (issue #541) has no key and no remote endpoint, so this smoke test - whose whole job
 /// is to prove a STORED KEY actually works - does not apply. It returns 409 with a clear
 /// "local mode - no key required; the local model transcribes in-process" message. The live

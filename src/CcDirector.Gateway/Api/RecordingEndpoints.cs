@@ -493,6 +493,50 @@ internal static class RecordingEndpoints
         return Path.Combine(localAppData, "cc-director", "dictation", "dictionary.yaml");
     }
 
+    /// <summary>
+    /// Apply the validated dictionary corrector to a raw transcript using the user-SELECTED
+    /// transcription method, then return the corrected text. This is the SAME deterministic dictionary
+    /// find/replace (<see cref="CleanupOrchestrator"/> + TranscriptEditEngine) the recording-ingest
+    /// path uses - never a free-text rewrite - so the live <c>/wingman/transcribe</c> and
+    /// <c>/wingman/utterance/complete</c> paths produce the same term-corrected transcript every other
+    /// surface does (issue #587 follow-up). It is the one place these two endpoints reach the cleanup
+    /// engine; the resolver helpers (<see cref="ResolveSelectedMethod"/>, <see cref="DictionaryFilePath"/>)
+    /// stay defined once, here.
+    ///
+    /// Fails open to the RAW transcript (issue #190 contract): when the selected mode is local
+    /// (in-process Whisper - no chat endpoint or key), the dictionary is empty, or the corrector errors,
+    /// the raw transcript comes back byte-identical. The corrector talks to the SAME base URL + key the
+    /// transcription used, so a bring-your-own key is never crossed onto another provider's URL.
+    /// </summary>
+    internal static async Task<string> CleanTranscriptWithSelectedMethodAsync(string rawTranscript, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rawTranscript))
+            return rawTranscript ?? "";
+
+        // Local mode (or a missing key) has no chat endpoint for the corrector - ship raw. This is the
+        // honest behavior: offline Whisper cannot run a dictionary-correction model, so the raw words
+        // stand, exactly as they did before this step existed.
+        var routing = ResolveSelectedMethod();
+        if (routing is null)
+        {
+            FileLog.Write("[RecordingEndpoints] CleanTranscript: no remote method (local/no key) - shipping raw");
+            return rawTranscript;
+        }
+
+        // CleanAsync itself short-circuits an empty dictionary to a verbatim passthrough (no model
+        // round-trip); the early check just avoids constructing the orchestrator for nothing.
+        var dictionary = DictionaryLoader.LoadFromDisk(DictionaryFilePath());
+        if (dictionary.Vocabulary.Count == 0 && dictionary.CommonMistranscriptions.Count == 0)
+            return rawTranscript;
+
+        using var cleanup = new CleanupOrchestrator(
+            apiKey: routing.ApiKey, model: CleanupOrchestrator.DefaultModel, baseUrl: routing.BaseUrl);
+        var outcome = await cleanup.CleanAsync(rawTranscript, dictionary, "default", ct);
+        FileLog.Write($"[RecordingEndpoints] CleanTranscript: applied={outcome.Applied}, "
+            + $"changed={outcome.ChangedWords.Count}, reason=\"{outcome.Reason}\"");
+        return outcome.Text;
+    }
+
     private static DictionaryDto ToDto(DictationDictionary dict) => new(
         Vocabulary: dict.Vocabulary.ToList(),
         CommonMistranscriptions: dict.CommonMistranscriptions

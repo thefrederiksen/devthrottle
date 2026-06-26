@@ -812,6 +812,40 @@ await Task.Delay(500);
 | Regex | Always set timeout | `TimeSpan.FromMilliseconds(50)` |
 | Brushes | Freeze for cross-thread | `brush.Freeze()` |
 | Collections | Snapshot before iterating across threads | `.ToList()` |
+| Transcription | Model may only LOCATE words; only `TranscriptEditEngine` may change them | Never round-trip a transcript through a model that returns free text |
+
+---
+
+## 16. Transcription integrity - CRITICAL
+
+**When a user dictates by voice, the speech-to-text result is the user's words and is the source of truth. It must never be rewritten by a language model.**
+
+This is an absolute, load-bearing rule (it traces to a real corruption incident, issue #190). It has regressed before, so it is written here, enforced by an architecture test, and called out in the one engine allowed to touch the words.
+
+### The rule
+
+1. The raw speech-to-text transcript is the user's words. The ONLY permitted change to it is replacing a misheard term with the correct **dictionary** spelling of a term the user actually said (a single word, or a tightly-joined multi-word term like `cc-director`).
+
+2. A language model may be used ONLY to **locate** which spans are misheard dictionary terms, and it must return that judgment as a **JSON list of find/replace proposals** - never the transcript text itself.
+
+3. Only deterministic code - `CcDirector.Core.Dictation.TranscriptEditEngine`, driven by `CleanupOrchestrator` - may change the words, and only by applying a validated proposal (the `find` must occur verbatim in the raw transcript, the `replace` must be an exact dictionary term, and it must be a plausible mishearing). Everything else fails open to the raw transcript.
+
+4. A transcript with no dictionary hit must come back **byte-identical**.
+
+### Forbidden
+
+- Sending the user's transcript to a chat/completions (or any text-generating) model and using the returned text as the user's words. No rephrasing, reordering, summarizing, grammar-fixing, "cleanup", expansion, or answering.
+- Adding a second, divergent cleanup path. `TranscriptEditEngine` is the single chokepoint; route every surface through `BatchTranscriptionPipeline` / `CleanupOrchestrator`.
+- Mutating transcript content in front-end JavaScript beyond pure display (trivial whitespace trimming and single-space segment joining are the only allowed touches).
+
+### Allowed (different feature, do not confuse)
+
+In voice-**conversation** mode, summarizing the **agent's reply** for text-to-speech playback is fine. The rule protects the **user's** spoken words on their way IN; it does not constrain how the agent's response is spoken back OUT.
+
+### Enforcement
+
+- The invariant is restated at the top of `TranscriptEditEngine`.
+- An architecture test fails the build if any transcription path sends the user's transcript into a text-returning model, and byte-identical regression tests guard every surface.
 
 ---
 

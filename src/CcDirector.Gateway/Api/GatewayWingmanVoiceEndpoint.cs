@@ -92,7 +92,9 @@ internal static class GatewayWingmanVoiceEndpoint
         // ===== Resumable transcription upload (issue #531: drive-safe, keeps trying) =====
         // The phone records locally (works offline), then ships the recording in pieces here and
         // keeps retrying until every piece lands - no user buttons. When all pieces are in, the
-        // assembled audio is transcribed and the text is returned.
+        // assembled audio is transcribed, the validated dictionary correction is applied (the same
+        // engine every other surface uses; raw is returned in local mode or on any cleanup error),
+        // and the corrected text is returned.
         //   POST   /wingman/utterance/upload                  -> { upload_id }
         //   PUT    /wingman/utterance/{id}/chunk/{i}           -> { ok }   (idempotent)
         //   POST   /wingman/utterance/{id}/complete {total}    -> { transcript } | 409 { missing }
@@ -144,6 +146,9 @@ internal static class GatewayWingmanVoiceEndpoint
             var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, assembled.Audio!, "audio." + (req.Ext ?? "webm"), req.Mime ?? "audio/webm", key, ct);
             uploads.Delete(uploadId);
             if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
+            // Apply the validated dictionary correction (the SAME engine every other surface uses);
+            // fails open to the raw transcript in local mode or on any cleanup error.
+            transcript = await RecordingEndpoints.CleanTranscriptWithSelectedMethodAsync(transcript, ct);
             FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: mode={endpoint.Mode.ToConfigString()}, chars={transcript.Length}");
             return Results.Json(new { transcript });
         });
@@ -275,7 +280,9 @@ internal static class GatewayWingmanVoiceEndpoint
         // connection / reload), then ships the recording here to be transcribed - the same
         // record-then-ship-then-transcribe shape the native mobile app uses. Robustness lives on
         // the CLIENT (save-first + retry the upload); this endpoint is the single transcribe step.
-        // Audio arrives as a multipart 'audio' file; returns { transcript }.
+        // Audio arrives as a multipart 'audio' file; the raw transcript then runs through the
+        // validated dictionary correction (raw is returned in local mode or on any cleanup error).
+        // Returns { transcript }.
         app.MapPost("/wingman/transcribe", async (HttpContext ctx, CancellationToken ct) =>
         {
             if (!ctx.Request.HasFormContentType)
@@ -306,6 +313,9 @@ internal static class GatewayWingmanVoiceEndpoint
 
             var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, bytes, fileName, contentType, key, ct);
             if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
+            // Apply the validated dictionary correction (the SAME engine every other surface uses);
+            // fails open to the raw transcript in local mode or on any cleanup error.
+            transcript = await RecordingEndpoints.CleanTranscriptWithSelectedMethodAsync(transcript, ct);
             return Results.Json(new { transcript });
         });
 
