@@ -331,6 +331,13 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
         var pi = types.First(t => (string?)t!["type"] == "Pi")!.AsObject();
         Assert.False((bool)pi["supportsModelSelection"]!);
         Assert.Empty(pi["models"]!.AsArray());
+
+        var codex = types.First(t => (string?)t!["type"] == "Codex")!.AsObject();
+        Assert.Equal("Codex", (string?)codex["displayName"]);
+        Assert.True((bool)codex["supportsConversationHistory"]!);
+        Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "ClearContext");
+        Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
+        Assert.Contains(codex["presets"]!.AsArray(), p => (string?)p!["name"] == "Full access");
     }
 
     [Fact]

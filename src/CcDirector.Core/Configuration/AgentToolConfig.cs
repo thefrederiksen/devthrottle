@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
@@ -61,17 +62,17 @@ public sealed class AgentToolConfig
     /// </summary>
     private string ResolvePresetArguments()
     {
-        if (!AgentToolCatalog.Contains(Tool))
+        if (!AgentPluginRegistry.Contains(Tool))
             return "";
 
-        var entry = AgentToolCatalog.GetEntry(Tool);
-        foreach (var preset in entry.Presets)
+        var plugin = AgentPluginRegistry.Get(Tool);
+        foreach (var preset in plugin.CommandPresets)
         {
             if (string.Equals(preset.Name, PresetName, StringComparison.OrdinalIgnoreCase))
                 return preset.Arguments;
         }
 
-        return entry.DefaultPreset.Arguments;
+        return plugin.DefaultCommandPreset.Arguments;
     }
 
     /// <summary>
@@ -95,7 +96,7 @@ public sealed class AgentToolConfig
         if (model.Length == 0)
             return args;
 
-        var driver = AgentDrivers.For(Tool);
+        var driver = AgentPluginRegistry.Get(Tool).Driver;
         if (!driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection))
             return args;
 
@@ -126,13 +127,13 @@ public sealed class AgentToolConfig
     /// </summary>
     public static AgentToolConfig FromCatalogDefaults(AgentKind tool)
     {
-        var entry = AgentToolCatalog.GetEntry(tool);
+        var plugin = AgentPluginRegistry.Get(tool);
         return new AgentToolConfig
         {
             Tool = tool,
-            PresetName = entry.DefaultPreset.Name,
+            PresetName = plugin.DefaultCommandPreset.Name,
             ArgsOverride = "",
-            DefaultModel = entry.DefaultModel,
+            DefaultModel = plugin.DefaultModel,
             LaunchMode = LaunchMode.Guided,
             Enabled = true,
         };

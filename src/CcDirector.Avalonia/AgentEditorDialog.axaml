@@ -2,8 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.AgentEditorDialog"
         Title="Add Agent"
-        Width="860" Height="600"
-        MinWidth="760" MinHeight="540"
+        Width="1000" Height="760"
+        MinWidth="900" MinHeight="700"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
         Background="#252526">
@@ -87,10 +87,14 @@
                    Margin="0,0,0,8" />
 
         <!-- Two columns: left = form, right = live preview. -->
-        <Grid Grid.Row="1" ColumnDefinitions="*,16,360">
+        <Grid Grid.Row="1" ColumnDefinitions="*,16,380">
 
             <!-- LEFT: the form, in action order. -->
-            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+            <ScrollViewer Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          AllowAutoHide="False"
+                          Padding="0,0,8,0">
                 <StackPanel Spacing="6">
 
                     <!-- 1. Agent type (top). -->
@@ -205,7 +209,9 @@
 
             <!-- RIGHT: live preview panel. -->
             <Border Grid.Column="2" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="12">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              AllowAutoHide="False">
                     <StackPanel Spacing="8">
                         <TextBlock Classes="sectionTitle" Text="Preview" />
 

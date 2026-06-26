@@ -4,6 +4,10 @@
              RequestedThemeVariant="Dark">
     <Application.Styles>
         <FluentTheme />
+        <!-- App-wide policy: scrollbars are controls, not hover-revealed decoration. -->
+        <Style Selector="ScrollViewer">
+            <Setter Property="AllowAutoHide" Value="False" />
+        </Style>
     </Application.Styles>
 
     <Application.Resources>

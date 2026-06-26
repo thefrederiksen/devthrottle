@@ -230,7 +230,7 @@
                         <StackPanel Spacing="4">
                             <!-- Header row. Actions is a fixed 132px last column with a right margin
                                  so it stays inside the panel even at minimum width. -->
-                            <Grid ColumnDefinitions="58,*,96,60,90,132" Margin="8,0,16,2">
+                            <Grid ColumnDefinitions="70,*,96,60,90,132" Margin="8,0,16,2">
                                 <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Order" />
                                 <TextBlock Grid.Column="1" Classes="fieldLabel" Text="Display name" />
                                 <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Type" />
@@ -243,7 +243,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6" Margin="0,0,16,2">
-                                            <Grid ColumnDefinitions="58,*,96,60,90,132" VerticalAlignment="Center">
+                                            <Grid ColumnDefinitions="70,*,96,60,90,132" VerticalAlignment="Center">
                                                 <!-- Compact Up/Down arrow controls in one tight cell. -->
                                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
                                                     <Button Classes="iconButton"
@@ -260,7 +260,7 @@
                                                     </Button>
                                                 </StackPanel>
                                                 <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Foreground="#CCCCCC"
-                                                           FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                                                           FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,8,0" />
                                                 <TextBlock Grid.Column="2" Text="{Binding TypeLabel}" Foreground="#AAAAAA"
                                                            FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                                 <CheckBox Grid.Column="3" IsChecked="{Binding Enabled, Mode=TwoWay}"

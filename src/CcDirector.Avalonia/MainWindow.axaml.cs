@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.ControlApi;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
@@ -1205,17 +1206,10 @@ public partial class MainWindow : Window
     private string? _lastSessionCreateError;
 
     /// <summary>Construct the <see cref="IAgent"/> strategy for the given agent kind.</summary>
-    private IAgent CreateAgent(AgentKind agentKind) => agentKind switch
-    {
-        AgentKind.Pi => new PiAgent(_sessionManager.Options),
-        AgentKind.Codex => new CodexAgent(_sessionManager.Options),
-        AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
-        AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
-        AgentKind.Cursor => new CursorAgent(_sessionManager.Options),
-        AgentKind.Grok => new GrokAgent(_sessionManager.Options),
-        AgentKind.Copilot => new CopilotAgent(_sessionManager.Options),
-        _ => new ClaudeAgent(_sessionManager.Options)
-    };
+    private IAgent CreateAgent(AgentKind agentKind) =>
+        AgentPluginRegistry.Contains(agentKind)
+            ? AgentPluginRegistry.Get(agentKind).CreateAgent(_sessionManager.Options)
+            : new ClaudeAgent(_sessionManager.Options);
 
     /// <summary>
     /// Build a catalog agent (issue #490) whose executable path is the selected entry's configured
@@ -1234,17 +1228,9 @@ public partial class MainWindow : Window
             return CreateAgent(agentKind);
 
         var perLaunch = ClonePathOverriddenOptions(options, agentKind, path);
-        return agentKind switch
-        {
-            AgentKind.Pi => new PiAgent(perLaunch),
-            AgentKind.Codex => new CodexAgent(perLaunch),
-            AgentKind.Gemini => new GeminiAgent(perLaunch),
-            AgentKind.OpenCode => new OpenCodeAgent(perLaunch),
-            AgentKind.Cursor => new CursorAgent(perLaunch),
-            AgentKind.Grok => new GrokAgent(perLaunch),
-            AgentKind.Copilot => new CopilotAgent(perLaunch),
-            _ => new ClaudeAgent(perLaunch)
-        };
+        return AgentPluginRegistry.Contains(agentKind)
+            ? AgentPluginRegistry.Get(agentKind).CreateAgent(perLaunch)
+            : new ClaudeAgent(perLaunch);
     }
 
     /// <summary>

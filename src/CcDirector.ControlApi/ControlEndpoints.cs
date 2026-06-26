@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi.Chat;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
@@ -1769,17 +1770,9 @@ internal static class ControlEndpoints
                 if (!Enum.TryParse<AgentKind>(req.ToAgent, ignoreCase: true, out var kind))
                     return Results.BadRequest(new { error = $"unknown agent: {req.ToAgent}" });
 
-                IAgent agent = kind switch
-                {
-                    AgentKind.ClaudeCode => new ClaudeAgent(sessionManager.Options),
-                    AgentKind.Pi => new PiAgent(sessionManager.Options),
-                    AgentKind.Codex => new CodexAgent(sessionManager.Options),
-                    AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
-                    AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
-                    AgentKind.Grok => new GrokAgent(sessionManager.Options),
-                    AgentKind.Copilot => new CopilotAgent(sessionManager.Options),
-                    _ => throw new InvalidOperationException("unreachable"),
-                };
+                if (!AgentPluginRegistry.Contains(kind))
+                    return Results.BadRequest(new { error = $"agent {kind} is not a built-in plugin target" });
+                var agent = AgentPluginRegistry.Get(kind).CreateAgent(sessionManager.Options);
 
                 try
                 {
@@ -2696,18 +2689,9 @@ internal static class ControlEndpoints
             if (kind == AgentKind.RawCli && string.IsNullOrWhiteSpace(req.Command))
                 return Results.BadRequest(new { error = "command is required when agent is RawCli" });
 
-            IAgent agent = kind switch
-            {
-                AgentKind.ClaudeCode => new ClaudeAgent(sessionManager.Options),
-                AgentKind.Pi => new PiAgent(sessionManager.Options),
-                AgentKind.Codex => new CodexAgent(sessionManager.Options),
-                AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
-                AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
-                AgentKind.Grok => new GrokAgent(sessionManager.Options),
-                AgentKind.Copilot => new CopilotAgent(sessionManager.Options),
-                AgentKind.RawCli => new RawCliAgent(req.Command!, req.CommandArgs),
-                _ => throw new InvalidOperationException("unreachable"),
-            };
+            IAgent agent = kind == AgentKind.RawCli
+                ? new RawCliAgent(req.Command!, req.CommandArgs)
+                : AgentPluginRegistry.Get(kind).CreateAgent(sessionManager.Options);
 
             // Session type (issue #211, renamed in #254): identity chosen once at creation.
             // Null/empty means Developer so pre-#211 clients keep today's behavior exactly.

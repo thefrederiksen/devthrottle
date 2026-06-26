@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
@@ -170,12 +171,12 @@ public partial class AgentEditorDialog : Window
     private static string LabelFor(AgentKind type) =>
         TypeOptions.First(o => o.Kind == type).Label;
 
-    /// <summary>Populate the preset dropdown from the catalog for the type; select the given preset.</summary>
+    /// <summary>Populate the preset dropdown from the plugin for the type; select the given preset.</summary>
     private void PopulatePresetCombo(AgentKind type, string selectedPreset)
     {
-        if (AgentToolCatalog.Contains(type))
+        if (AgentPluginRegistry.Contains(type))
         {
-            var names = AgentToolCatalog.GetEntry(type).Presets.Select(p => p.Name).ToList();
+            var names = AgentPluginRegistry.Get(type).CommandPresets.Select(p => p.Name).ToList();
             PresetCombo.ItemsSource = names;
             var index = names.FindIndex(n => string.Equals(n, selectedPreset, StringComparison.OrdinalIgnoreCase));
             PresetCombo.SelectedIndex = index >= 0 ? index : 0;
@@ -333,7 +334,15 @@ public partial class AgentEditorDialog : Window
     /// </summary>
     private void RefreshModelMetadata(AgentKind type)
     {
-        var driver = AgentDrivers.For(type);
+        if (!AgentPluginRegistry.Contains(type))
+        {
+            if (ModelRow is not null) ModelRow.IsVisible = false;
+            _detectedDefault = null;
+            UpdateModelDisplay(type);
+            return;
+        }
+
+        var driver = AgentPluginRegistry.Get(type).Driver;
         var supportsModel = driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection);
         if (ModelRow is not null) ModelRow.IsVisible = supportsModel;
         _detectedDefault = supportsModel ? driver.ReadConfiguredDefaultModel() : null;
@@ -345,7 +354,9 @@ public partial class AgentEditorDialog : Window
     {
         if (ModelValueText is null || ModelValueSub is null) return;
 
-        var driver = AgentDrivers.For(type);
+        var driver = AgentPluginRegistry.Contains(type)
+            ? AgentPluginRegistry.Get(type).Driver
+            : AgentDrivers.For(type);
         if (string.IsNullOrWhiteSpace(_model))
         {
             ModelValueText.Text = "Use default";
@@ -368,7 +379,9 @@ public partial class AgentEditorDialog : Window
     {
         FileLog.Write("[AgentEditorDialog] BtnChooseModel_Click");
         var type = SelectedType();
-        var driver = AgentDrivers.For(type);
+        var driver = AgentPluginRegistry.Contains(type)
+            ? AgentPluginRegistry.Get(type).Driver
+            : AgentDrivers.For(type);
         var dialog = new ModelPickerDialog(driver.KnownModels, _model, _detectedDefault, LabelFor(type));
         await dialog.ShowDialog(this);
         if (dialog.SelectedModelId is not null)
@@ -462,6 +475,7 @@ public partial class AgentEditorDialog : Window
                 ManualPathPanel.IsVisible = false;
                 SetDetectResult($"Found {LabelFor(type)} at {result.ResolvedPath} (source: {result.Source}).", success: true);
                 RefreshPreview();
+                await RunQuickCheckAsync(type, result.ResolvedPath);
             }
             else
             {
@@ -492,18 +506,27 @@ public partial class AgentEditorDialog : Window
             return;
         }
 
+        await RunQuickCheckAsync(type, PathBox.Text?.Trim() ?? "");
+    }
+
+    private async Task RunQuickCheckAsync(AgentKind type, string path)
+    {
         QuickCheckButton.IsEnabled = false;
         SetQuickCheckResult("Testing...", success: false, neutral: true);
         try
         {
-            var result = await _toolDetector.TestToolAsync(type, PathBox.Text?.Trim() ?? "");
+            var result = await _toolDetector.TestToolAsync(type, path);
             SetQuickCheckResult(result.Message, success: result.Ok);
             await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
-            FileLog.Write($"[AgentEditorDialog] BtnQuickCheck_Click: persisted validation type={type}, ok={result.Ok}");
+            FileLog.Write($"[AgentEditorDialog] RunQuickCheckAsync: persisted validation type={type}, ok={result.Ok}");
+
+            if (!result.Ok)
+                ManualPathPanel.IsVisible = true;
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AgentEditorDialog] BtnQuickCheck_Click FAILED: {ex.Message}");
+            FileLog.Write($"[AgentEditorDialog] RunQuickCheckAsync FAILED: {ex.Message}");
+            ManualPathPanel.IsVisible = true;
             SetQuickCheckResult($"Test failed: {ex.Message}", success: false);
         }
         finally
