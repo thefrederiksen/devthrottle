@@ -41,6 +41,7 @@ public sealed class AgentPluginRegistryTests
         Assert.Contains("codex", ids);
         Assert.Contains("gemini", ids);
         Assert.Contains("opencode", ids);
+        Assert.Contains("grok", ids);
         Assert.Contains("copilot", ids);
     }
 
@@ -309,6 +310,61 @@ public sealed class AgentPluginRegistryTests
         Assert.IsType<OpenCodeAgent>(agent);
         Assert.Equal("opencode-custom", agent.ExecutablePath);
         Assert.Equal("--print", newSession.Arguments);
+        Assert.Null(newSession.PreassignedSessionId);
+        Assert.Equal("", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
+    public void GrokPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Grok);
+
+        Assert.IsType<GrokAgentPlugin>(plugin);
+        Assert.Equal("grok", plugin.Id);
+        Assert.Equal("grok", plugin.ConfigKey);
+        Assert.Equal("Grok", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<GenericDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Single(plugin.CommandPresets);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path.EndsWith(Path.Combine(".grok", "bin", "grok.exe"), StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "grok");
+        Assert.Equal(AgentHistoryProviderKind.TranscriptFile, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains("chat_history.jsonl", plugin.History.StoreDescription);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Interrupt));
+        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Grok, command.DriverKind));
+    }
+
+    [Fact]
+    public void GrokPlugin_CreatesGrokAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Grok);
+        var options = new AgentOptions { GrokPath = "grok-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: " --profile work ",
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: "grok-resume-ignored",
+            StudioMode: false));
+
+        Assert.IsType<GrokAgent>(agent);
+        Assert.Equal("grok-custom", agent.ExecutablePath);
+        Assert.Equal("--profile work", newSession.Arguments);
         Assert.Null(newSession.PreassignedSessionId);
         Assert.Equal("", resume.Arguments);
         Assert.Null(resume.PreassignedSessionId);

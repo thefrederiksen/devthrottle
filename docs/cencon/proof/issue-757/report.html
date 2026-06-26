@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 757 Proof - Grok Agent Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 757 Proof - Convert Grok to a Concrete Agent Plugin</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    Grok is now represented by <code>GrokAgentPlugin</code> instead of the generic
+    <code>BuiltInAgentPlugin</code> adapter. The plugin owns Grok settings metadata,
+    executable detection candidates, validation arguments, transcript-file history
+    metadata, launch metadata, presets, agent construction, and the Grok driver binding.
+  </p>
+  <p>
+    The plugin remains data/launch/driver only. Grok does not add or own any
+    Director UI tab.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/GrokAgentPlugin.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core.Tests/AgentPlugins/AgentPluginRegistryTests.cs</code></li>
+  </ul>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPluginRegistryTests" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 30, Skipped: 0, Total: 30</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Live QA</h2>
+  <p>
+    Built isolated slot <code>cc-director15.exe</code> from this branch, launched it
+    through the scheduled-task slot path, and created a Grok session through
+    <code>POST /sessions</code>.
+  </p>
+  <ul>
+    <li>Slot: <code>15</code></li>
+    <li>Control API: <code>http://127.0.0.1:7883</code></li>
+    <li>Health: <code>/healthz</code> returned <code>status=ok</code></li>
+    <li>Session: <code>fdab0af4-486a-4bd5-88f0-4d8cb837acd1</code></li>
+    <li>Agent: <code>Grok</code></li>
+    <li>Driver capabilities: <code>Cancel</code>, <code>Interrupt</code></li>
+  </ul>
+
+  <h3>Grok Session</h3>
+  <img src="screenshots/grok-live-terminal.png" alt="Live Grok session in CC Director">
+
+  <h3>API Artifacts</h3>
+  <ul>
+    <li><code>screenshots/settings-catalog.json</code> contains the Grok catalog entry with <code>historyProvider=TranscriptFile</code>, <code>supportsPreassignedSessionId=false</code>, <code>supportsStudioMode=false</code>, and driver capabilities <code>Cancel</code>/<code>Interrupt</code>.</li>
+    <li><code>screenshots/grok-session-created.json</code> contains the create response from <code>POST /sessions</code>.</li>
+    <li><code>screenshots/grok-session.json</code> contains the live Grok session response from <code>/sessions/{id}</code>.</li>
+  </ul>
+</body>
+</html>
