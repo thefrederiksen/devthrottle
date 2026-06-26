@@ -1,0 +1,10 @@
+Pi -> Claude agent-initiated round-trip (after bash shim fix)
+got PONG: True
+Pi final: 5e4e106e-24e8-4f9f-b91f-d783a18c38a4 cc-sessions cc-whoami cc-send cc-ask cc-spawn
+Exact output:
+
+/usr/bin/bash: line 1: cc-ask: command not found
+
+
+Command exited with code 127
+PONG-FROM-CLAUDE

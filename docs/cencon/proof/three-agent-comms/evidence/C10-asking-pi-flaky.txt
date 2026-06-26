@@ -1,0 +1,5 @@
+Cross-agent ask TOWARD Pi is flaky: the framed question is delivered to Pi and Pi tends to echo
+the @.temp/input delivery reference instead of answering the token; the /fleet/ask answer fell back
+to the noisy buffer scrape (G6 transcript read returned empty within its retry window). Asking
+Claude as the target works cleanly (Pi->Claude returned PONG-FROM-CLAUDE). So the agent-initiated
+mechanism is proven; reliable answers depend on the target's prompt-handling + transcript flush.

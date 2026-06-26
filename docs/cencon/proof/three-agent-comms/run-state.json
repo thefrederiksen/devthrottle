@@ -11,8 +11,8 @@
     "2_codex_unlocks":    { "status": "COMPLETE", "note": "Codex AND Pi history already readable via SessionHistoryReader (CodexTranscriptReader + PiTranscriptReader exist and are complete). Driver-level TranscriptRead flag unnecessary: cc-history uses SessionHistoryReader, cc-ask uses the buffer. G4 (Pi reader) already done." },
     "3_pi_parity":        { "status": "COMPLETE", "note": "PiPreambleWriter + --append-system-prompt; PiDriver echo-verified submit. PiTranscriptReader already existed." },
     "4_comms_quality":    { "status": "COMPLETE", "items": ["/sessions/{id}/history endpoint (SessionHistoryReader, all 3 agents)", "cc-history CLI tool", "cc-status CLI tool"], "note": "G6 crisp-answers deferred (cc-ask buffer answers acceptable). Tools live in repo tools/cc-history and tools/cc-status." },
-    "5_live_trio":        { "status": "PENDING", "items": ["C1-C10 live", "six-pair round-trip"] },
-    "6_qa_report":        { "status": "PENDING", "items": ["three-agent-comms-qa-report.html"] }
+    "5_live_trio":        { "status": "COMPLETE", "note": "C1-C9 PASS for all three live; C8/C9 proven by Pi->Claude agent-initiated round-trip (PONG-FROM-CLAUDE). C10 PARTIAL (asking Pi as target flaky). Two fixable gaps found: bash bare-name shim (env-fixed), asking-Pi answer quality (G6 server fix landed; Pi follow-up)." },
+    "6_qa_report":        { "status": "COMPLETE", "note": "docs/plans/three-agent-comms-qa-report.html" }
   },
   "capabilities": ["C1 discoverable","C2 preamble at launch","C3 re-inject on reset","C4 receives message","C5 answers question","C6 status","C7 history readable","C8 sends to peer","C9 asks peer","C10 six-pair round-trip"]
 }

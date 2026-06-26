@@ -1,0 +1,36 @@
+{
+    "sessionId":  "5e4e106e-24e8-4f9f-b91f-d783a18c38a4",
+    "directorId":  "",
+    "agent":  "Pi",
+    "isSupported":  true,
+    "isRawText":  false,
+    "historyState":  null,
+    "messages":  [
+                     {
+                         "role":  "User",
+                         "parts":  [
+                                       {
+                                           "kind":  "Text",
+                                           "text":  "From your launch context only, do not run any tools. Reply with exactly one short line: your session id, then the fleet command names you were told about.",
+                                           "toolName":  null,
+                                           "toolId":  null
+                                       }
+                                   ],
+                         "timestamp":  "2026-06-26T23:24:01.573+00:00"
+                     },
+                     {
+                         "role":  "Assistant",
+                         "parts":  [
+                                       {
+                                           "kind":  "Text",
+                                           "text":  "5e4e106e-24e8-4f9f-b91f-d783a18c38a4 cc-sessions cc-whoami cc-send cc-ask cc-spawn",
+                                           "toolName":  null,
+                                           "toolId":  null
+                                       }
+                                   ],
+                         "timestamp":  "2026-06-26T23:24:05.315+00:00"
+                     }
+                 ],
+    "status":  "ok",
+    "error":  null
+}

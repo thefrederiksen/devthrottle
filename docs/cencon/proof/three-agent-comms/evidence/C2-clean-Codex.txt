@@ -1,0 +1,2 @@
+C2 Codex - preamble injected as developer context (from rollout):
+{"timestamp":"2026-06-26T23:24:02.327Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"[CC Director fleet] You are session 98d2261c \"devthrottle\" on machine SOREN_NORTH, repo D:/ReposFred/devthrottle.\nYour full session id is 98d2261c-7b3d-46b6-9941-515418137db2.\nYou can talk to other sessions across the fleet. These commands are already on your PATH:\n  cc-sessions             list every session in the fleet (id, name, machine, r
