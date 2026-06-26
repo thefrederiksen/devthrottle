@@ -1,0 +1,358 @@
+﻿{
+    "types":  [
+                  {
+                      "type":  "ClaudeCode",
+                      "displayName":  "Claude Code",
+                      "configKey":  "claude",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "claude",
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\claude.cmd"
+                                              ],
+                      "installHint":  "Install Claude Code and make the claude command available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  true,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "TranscriptFile",
+                      "historyStoreDescription":  "Claude JSONL transcript under ~/.claude/projects.",
+                      "supportsPreassignedSessionId":  true,
+                      "supportsStudioMode":  true,
+                      "driverCapabilities":  [
+                                                 "ClearContext",
+                                                 "Cancel",
+                                                 "TranscriptRead",
+                                                 "PreassignedSessionId",
+                                                 "Interrupt",
+                                                 "History",
+                                                 "ModelSelection"
+                                             ],
+                      "modelFlag":  "--model",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Automatic (skip permissions)",
+                                          "arguments":  "--dangerously-skip-permissions"
+                                      },
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+                                     {
+                                         "id":  "opus[1m]",
+                                         "displayName":  "Opus 4.8 (1M context)",
+                                         "description":  "Most capable; 1-million-token window.",
+                                         "badge":  "1M context"
+                                     },
+                                     {
+                                         "id":  "opus",
+                                         "displayName":  "Opus 4.8",
+                                         "description":  "Most capable; standard context window.",
+                                         "badge":  ""
+                                     },
+                                     {
+                                         "id":  "sonnet",
+                                         "displayName":  "Sonnet 4.6",
+                                         "description":  "Balanced speed and intelligence.",
+                                         "badge":  ""
+                                     },
+                                     {
+                                         "id":  "haiku",
+                                         "displayName":  "Haiku 4.5",
+                                         "description":  "Fastest and lowest cost.",
+                                         "badge":  ""
+                                     },
+                                     {
+                                         "id":  "fable",
+                                         "displayName":  "Fable 5",
+                                         "description":  "Anthropic\u0027s most capable model for the hardest work.",
+                                         "badge":  ""
+                                     }
+                                 ]
+                  },
+                  {
+                      "type":  "Pi",
+                      "displayName":  "Pi",
+                      "configKey":  "pi",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "D:\\Tools\\Pi\\pi.exe",
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\pi.cmd",
+                                                  "pi"
+                                              ],
+                      "installHint":  "Install Pi from @earendil-works/pi-coding-agent or configure the pi executable path.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "TranscriptFile",
+                      "historyStoreDescription":  "Pi JSONL session transcript under ~/.pi/agent/sessions.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "ClearContext",
+                                                 "Cancel"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "Codex",
+                      "displayName":  "Codex",
+                      "configKey":  "codex",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\codex.cmd",
+                                                  "codex"
+                                              ],
+                      "installHint":  "Install Codex from OpenAI\u0027s standalone installer or npm package, then make the codex command available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "TranscriptFile",
+                      "historyStoreDescription":  "Codex rollout JSONL transcript under ~/.codex/sessions.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "ClearContext",
+                                                 "Cancel",
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      },
+                                      {
+                                          "name":  "Full access",
+                                          "arguments":  "--sandbox danger-full-access --ask-for-approval never"
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "Gemini",
+                      "displayName":  "Gemini",
+                      "configKey":  "gemini",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\gemini.cmd",
+                                                  "gemini"
+                                              ],
+                      "installHint":  "Install Gemini CLI from @google/gemini-cli or configure the gemini executable path.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "TerminalBuffer",
+                      "historyStoreDescription":  "Gemini does not persist assistant responses; Director uses terminal capture.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "Cancel",
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "OpenCode",
+                      "displayName":  "OpenCode",
+                      "configKey":  "opencode",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\opencode.cmd",
+                                                  "opencode"
+                                              ],
+                      "installHint":  "Install OpenCode and make the opencode command available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "SqliteStore",
+                      "historyStoreDescription":  "OpenCode SQLite database under the user data directory.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "Cancel",
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "Cursor",
+                      "displayName":  "Cursor",
+                      "configKey":  "cursor",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "cursor-agent"
+                                              ],
+                      "installHint":  "Install Cursor Agent and make cursor-agent available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  false,
+                      "historyProvider":  "None",
+                      "historyStoreDescription":  "Cursor on-disk transcript location/format is not verified; Director uses live stream-json parsing only.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  true,
+                      "driverCapabilities":  [
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      },
+                                      {
+                                          "name":  "Automatic (yolo)",
+                                          "arguments":  "--force"
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "Grok",
+                      "displayName":  "Grok",
+                      "configKey":  "grok",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "C:\\Users\\soren\\.grok\\bin\\grok.exe",
+                                                  "grok"
+                                              ],
+                      "installHint":  "Install Grok CLI and make the grok command available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "TranscriptFile",
+                      "historyStoreDescription":  "Grok chat_history.jsonl under ~/.grok/sessions.",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "Cancel",
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "Copilot",
+                      "displayName":  "GitHub Copilot",
+                      "configKey":  "copilot",
+                      "detectable":  true,
+                      "detectionCandidates":  [
+                                                  "C:\\Users\\soren\\AppData\\Roaming\\npm\\copilot.cmd",
+                                                  "copilot"
+                                              ],
+                      "installHint":  "Install GitHub Copilot CLI and make the copilot command available on PATH.",
+                      "validationArguments":  "--version",
+                      "validationTimeoutSeconds":  8,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  true,
+                      "historyProvider":  "SqliteStore",
+                      "historyStoreDescription":  "GitHub Copilot SQLite session store.",
+                      "supportsPreassignedSessionId":  true,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+                                                 "PreassignedSessionId",
+                                                 "Interrupt"
+                                             ],
+                      "modelFlag":  "--model",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Standard",
+                                          "arguments":  ""
+                                      },
+                                      {
+                                          "name":  "Automatic (yolo)",
+                                          "arguments":  "--allow-all"
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  },
+                  {
+                      "type":  "RawCli",
+                      "displayName":  "Custom",
+                      "configKey":  "",
+                      "detectable":  false,
+                      "detectionCandidates":  [
+
+                                              ],
+                      "installHint":  "",
+                      "validationArguments":  "",
+                      "validationTimeoutSeconds":  0,
+                      "supportsModelSelection":  false,
+                      "supportsConversationHistory":  false,
+                      "historyProvider":  "None",
+                      "historyStoreDescription":  "",
+                      "supportsPreassignedSessionId":  false,
+                      "supportsStudioMode":  false,
+                      "driverCapabilities":  [
+
+                                             ],
+                      "modelFlag":  "",
+                      "detectedDefaultModel":  null,
+                      "presets":  [
+                                      {
+                                          "name":  "Custom (use args below)",
+                                          "arguments":  ""
+                                      }
+                                  ],
+                      "models":  [
+
+                                 ]
+                  }
+              ]
+}

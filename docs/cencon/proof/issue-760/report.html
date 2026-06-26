@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 760 Proof - All Agent Plugin Rollout QA</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; }
+    th { background: #f3f4f6; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 760 Proof - All Agent Plugin Rollout QA</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    The recovered branch is based on current <code>main</code> and contains concrete
+    plugins for all built-in agent CLIs. Final QA verified the plugin registry,
+    external loader, desktop build, isolated slot launch, and live settings catalog.
+  </p>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPlugin" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 33, Skipped: 0, Total: 33</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Live Slot QA</h2>
+  <ul>
+    <li>Slot: <code>15</code></li>
+    <li>Control API: <code>http://127.0.0.1:7883</code></li>
+    <li>Health: <code>screenshots/healthz.json</code> returned <code>status=ok</code></li>
+    <li>Catalog: <code>screenshots/settings-catalog.json</code></li>
+  </ul>
+
+  <img src="screenshots/slot15-final-window.png" alt="Final isolated slot window">
+
+  <h2>Catalog Matrix</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Agent</th>
+        <th>History Provider</th>
+        <th>Preassigned Session</th>
+        <th>Studio Mode</th>
+        <th>Capabilities</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Claude Code</td><td>TranscriptFile</td><td>true</td><td>true</td><td>ClearContext, Cancel, TranscriptRead, PreassignedSessionId, Interrupt, History, ModelSelection</td></tr>
+      <tr><td>Pi</td><td>TranscriptFile</td><td>false</td><td>false</td><td>ClearContext, Cancel</td></tr>
+      <tr><td>Codex</td><td>TranscriptFile</td><td>false</td><td>false</td><td>ClearContext, Cancel, Interrupt</td></tr>
+      <tr><td>Gemini</td><td>TerminalBuffer</td><td>false</td><td>false</td><td>Cancel, Interrupt</td></tr>
+      <tr><td>OpenCode</td><td>SqliteStore</td><td>false</td><td>false</td><td>Cancel, Interrupt</td></tr>
+      <tr><td>Cursor</td><td>None</td><td>false</td><td>true</td><td>Interrupt</td></tr>
+      <tr><td>Grok</td><td>TranscriptFile</td><td>false</td><td>false</td><td>Cancel, Interrupt</td></tr>
+      <tr><td>GitHub Copilot</td><td>SqliteStore</td><td>true</td><td>false</td><td>PreassignedSessionId, Interrupt</td></tr>
+      <tr><td>Raw CLI</td><td>None</td><td>false</td><td>false</td><td>custom terminal mode, not a built-in plugin</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Per-Issue Evidence</h2>
+  <ul>
+    <li><code>issue-748</code>: plugin contract</li>
+    <li><code>issue-749</code>: Settings metadata and Settings dialog proof</li>
+    <li><code>issue-750</code>: launch creation through plugin factories</li>
+    <li><code>issue-751</code>: Claude Code concrete plugin</li>
+    <li><code>issue-752</code>: Cursor concrete plugin</li>
+    <li><code>issue-753</code>: GitHub Copilot concrete plugin</li>
+    <li><code>issue-754</code>: Pi concrete plugin</li>
+    <li><code>issue-755</code>: Gemini concrete plugin and History layout proof</li>
+    <li><code>issue-756</code>: OpenCode concrete plugin</li>
+    <li><code>issue-757</code>: Grok concrete plugin</li>
+    <li><code>issue-758</code>: external plugin DLL loader</li>
+    <li><code>issue-759</code>: legacy adapter removal</li>
+  </ul>
+
+  <h2>Notes</h2>
+  <p>
+    The slot isolation launch helper still searches for an older
+    <code>Kestrel listening</code> log phrase. For live QA after issue 754, the slot
+    was still started through the scheduled-task slot path, but the port was detected
+    from the current <code>Control API listening</code> log line.
+  </p>
+</body>
+</html>
