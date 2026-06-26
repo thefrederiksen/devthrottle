@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue #753 Proof - GitHub Copilot Concrete Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; line-height: 1.45; color: #1f2937; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    img { max-width: 980px; display: block; margin: 12px 0 24px; border: 1px solid #d1d5db; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue #753 Proof - GitHub Copilot Concrete Plugin</h1>
+  <p><strong>Status:</strong> <span class="pass">PASS</span></p>
+  <p><strong>Captured:</strong> 2026-06-26T06:41:22.7110736-04:00</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li>Added <code>CopilotAgentPlugin</code> as a concrete built-in plugin for GitHub Copilot.</li>
+    <li>The plugin owns Copilot settings, detection candidates, validation arguments, launch capabilities, history declaration, presets, default model metadata, and agent creation.</li>
+    <li>The plugin exposes the existing <code>CopilotDriver</code>, preserving the verified control contract: interrupt and preassigned session IDs.</li>
+    <li><code>AgentPluginRegistry</code> now resolves <code>AgentKind.Copilot</code> through <code>CopilotAgentPlugin</code>.</li>
+  </ul>
+
+  <h2>Verification</h2>
+  <ul>
+    <li><code>dotnet build cc-director.sln --no-restore</code> - Build succeeded, 0 warnings, 0 errors.</li>
+    <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --no-build --filter "FullyQualifiedName~AgentPluginRegistryTests|FullyQualifiedName~CopilotAgentTests"</code> - Passed: 40, Failed: 0.</li>
+    <li><code>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --no-build --filter FullyQualifiedName~AgentsEndpointTests</code> - Passed: 18, Failed: 0.</li>
+  </ul>
+
+  <h2>Live QA</h2>
+  <ul>
+    <li>Built isolated slot 14 with <code>scripts\local-build-avalonia.ps1 -Slot 14</code>.</li>
+    <li>Launched slot 14 on Control API <code>http://127.0.0.1:7883</code>.</li>
+    <li>Created live GitHub Copilot QA session <code>dba6e3df-7c0a-4105-b77a-e7303017afe7</code> with <code>--allow-all</code>.</li>
+    <li>Session reported <code>agent=Copilot</code>, <code>activityState=WaitingForInput</code>, <code>statusColor=green</code>, and driver capabilities <code>PreassignedSessionId</code> and <code>Interrupt</code>.</li>
+    <li>Terminal buffer showed Copilot v1.0.65 and the folder trust prompt for <code>D:\ReposFred\devthrottle-agent-plugins</code>.</li>
+  </ul>
+
+  <h2>Screenshots</h2>
+  <p>Copilot plugin settings catalog:</p>
+  <img src="screenshots/copilot-settings-catalog.png" alt="Copilot plugin settings catalog">
+  <p>Live Copilot terminal session:</p>
+  <img src="screenshots/copilot-live-compact.png" alt="Live GitHub Copilot terminal session">
+</body>
+</html>

@@ -375,6 +375,21 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
         Assert.Contains(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
         Assert.DoesNotContain(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "TranscriptRead");
         Assert.Contains(cursor["presets"]!.AsArray(), p => (string?)p!["name"] == "Automatic (yolo)");
+
+        var copilot = types.First(t => (string?)t!["type"] == "Copilot")!.AsObject();
+        Assert.Equal("GitHub Copilot", (string?)copilot["displayName"]);
+        Assert.Equal("copilot", (string?)copilot["configKey"]);
+        Assert.Contains(copilot["detectionCandidates"]!.AsArray(), c => ((string?)c)?.Contains("copilot") == true);
+        Assert.Contains("GitHub Copilot", (string?)copilot["installHint"]);
+        Assert.Equal("--version", (string?)copilot["validationArguments"]);
+        Assert.True((bool)copilot["supportsConversationHistory"]!);
+        Assert.Equal("SqliteStore", (string?)copilot["historyProvider"]);
+        Assert.Contains("SQLite", (string?)copilot["historyStoreDescription"]);
+        Assert.True((bool)copilot["supportsPreassignedSessionId"]!);
+        Assert.False((bool)copilot["supportsStudioMode"]!);
+        Assert.Contains(copilot["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
+        Assert.Contains(copilot["driverCapabilities"]!.AsArray(), c => (string?)c == "PreassignedSessionId");
+        Assert.Contains(copilot["presets"]!.AsArray(), p => (string?)p!["name"] == "Automatic (yolo)");
     }
 
     [Fact]

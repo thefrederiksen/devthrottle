@@ -187,6 +187,61 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void CopilotPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Copilot);
+
+        Assert.IsType<CopilotAgentPlugin>(plugin);
+        Assert.Equal("copilot", plugin.Id);
+        Assert.Equal("copilot", plugin.ConfigKey);
+        Assert.Equal("GitHub Copilot", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<CopilotDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Contains(plugin.CommandPresets, preset => preset.Name == AgentToolCatalog.CopilotAutomaticPresetName && preset.Arguments == AgentToolCatalog.CopilotAllowAllArg);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "copilot");
+        Assert.Equal(AgentHistoryProviderKind.SqliteStore, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains("SQLite", plugin.History.StoreDescription);
+        Assert.True(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Interrupt));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.PreassignedSessionId));
+        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Copilot, command.DriverKind));
+    }
+
+    [Fact]
+    public void CopilotPlugin_CreatesCopilotAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Copilot);
+        var options = new AgentOptions { CopilotPath = "copilot-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: AgentToolCatalog.CopilotAllowAllArg,
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: "--model auto",
+            ResumeSessionId: "copilot-123",
+            StudioMode: false));
+
+        Assert.IsType<CopilotAgent>(agent);
+        Assert.Equal("copilot-custom", agent.ExecutablePath);
+        Assert.StartsWith("--allow-all --session-id ", newSession.Arguments);
+        Assert.False(string.IsNullOrWhiteSpace(newSession.PreassignedSessionId));
+        Assert.Contains(newSession.PreassignedSessionId, newSession.Arguments);
+        Assert.Equal("--model auto --resume copilot-123", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
     public void CodexPlugin_CreatesCodexAgentThatUsesCodexDriverLaunch()
     {
         var plugin = AgentPluginRegistry.Get(AgentKind.Codex);
