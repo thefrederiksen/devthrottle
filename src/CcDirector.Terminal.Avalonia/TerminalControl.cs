@@ -393,6 +393,10 @@ public class TerminalControl : Control
             replayedBytes = data.Length;
         }
 
+        // After replay the parser may be on the alternate screen, drawing into its own buffer;
+        // render that, not the frozen array we constructed it with.
+        SyncActiveGrid();
+
         FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={replayedBytes}, scrollback={_scrollback.Count}");
     }
 
@@ -407,6 +411,17 @@ public class TerminalControl : Control
             _cells = new TerminalCell[_cols, _rows];
 
         InitializeCells();
+    }
+
+    /// <summary>
+    /// Point our render grid at whatever the parser is currently drawing into. The parser swaps
+    /// its active grid to an internal buffer on the alternate screen, so without this the control
+    /// renders a frozen pre-alternate-screen grid (a black terminal). Call after every parse.
+    /// </summary>
+    private void SyncActiveGrid()
+    {
+        if (_parser is not null)
+            _cells = _parser.ActiveCells;
     }
 
     /// <summary>
@@ -694,35 +709,7 @@ public class TerminalControl : Control
             if (data.Length > 0)
             {
                 _bufferPosition = newPos;
-                _parser?.Parse(data);
-
-                // Clear path cache so links re-evaluate with new terminal content
-                _pathExistsCache.Clear();
-                Interlocked.Exchange(ref _pathCacheInvalidateNeeded, 0);
-
-                // Let selection persist during output so users can
-                // select text while Claude is generating
-
-                // Only auto-scroll if user hasn't manually scrolled up
-                // This lets users review history while output continues
-                if (!_userScrolled && _scrollOffset > 0)
-                    _scrollOffset = 0;
-
-                // Synchronized output (?2026): if the agent is mid-frame, hold the repaint
-                // so we never paint a half-drawn frame (that mid-frame paint is what makes
-                // Grok flicker). Paint once the frame closes - or after a bounded number of
-                // deferred ticks, so a frame that never closes cannot freeze the view.
-                bool frameOpen = _parser?.InSynchronizedUpdate == true;
-                if (frameOpen && _deferredSyncTicks < MaxDeferredSyncTicks)
-                {
-                    _deferredSyncTicks++;
-                }
-                else
-                {
-                    _deferredSyncTicks = 0;
-                    InvalidateVisual();
-                    ScrollChanged?.Invoke(this, EventArgs.Empty);
-                }
+                ApplyIncomingBytes(data);
             }
         }
         catch (Exception ex)
@@ -730,6 +717,87 @@ public class TerminalControl : Control
             FileLog.Write($"[TerminalControl] PollTimer_Tick FAILED: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Parse a batch of newly-arrived PTY bytes and schedule the repaint. Shared by the
+    /// session poll timer and the render harness so both exercise the identical parse +
+    /// synchronized-output deferral + invalidate path.
+    /// </summary>
+    private void ApplyIncomingBytes(byte[] data)
+    {
+        _parser?.Parse(data);
+
+        // Render what the parser is actually drawing into. On the alternate screen (Grok, and
+        // now Claude Code) the parser swaps its grid to an internal buffer, so our _cells field
+        // would otherwise stay frozen at the pre-alt content and the terminal renders black.
+        SyncActiveGrid();
+
+        // Clear path cache so links re-evaluate with new terminal content
+        _pathExistsCache.Clear();
+        Interlocked.Exchange(ref _pathCacheInvalidateNeeded, 0);
+
+        // Let selection persist during output so users can
+        // select text while Claude is generating
+
+        // Only auto-scroll if user hasn't manually scrolled up
+        // This lets users review history while output continues
+        if (!_userScrolled && _scrollOffset > 0)
+            _scrollOffset = 0;
+
+        // Synchronized output (?2026): if the agent is mid-frame, hold the repaint
+        // so we never paint a half-drawn frame (that mid-frame paint is what makes
+        // Grok flicker). Paint once the frame closes - or after a bounded number of
+        // deferred ticks, so a frame that never closes cannot freeze the view.
+        bool frameOpen = _parser?.InSynchronizedUpdate == true;
+        if (frameOpen && _deferredSyncTicks < MaxDeferredSyncTicks)
+        {
+            _deferredSyncTicks++;
+        }
+        else
+        {
+            _deferredSyncTicks = 0;
+            InvalidateVisual();
+            ScrollChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    // ===== Render-harness hooks (CcDirector.Terminal.RenderHarness only) =====
+    // These drive the EXACT same parse/rebuild/render code as a live session, but from a
+    // byte[] instead of a Session.Buffer, so the headless harness can replay a recorded
+    // Grok stream and capture frames. Not used in production.
+
+    /// <summary>Harness: replay a full byte stream through a fresh parser at the current grid
+    /// size - the same work <see cref="RebuildFromBuffer"/> does on attach/tab-switch.</summary>
+    internal void HarnessRebuild(byte[] data)
+    {
+        EnsureCellsMatchGrid();
+        _scrollback.Clear();
+        _scrollOffset = 0;
+        _userScrolled = false;
+        _pathExistsCache.Clear();
+        _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
+        if (data.Length > 0)
+            _parser.Parse(data);
+        SyncActiveGrid();
+        InvalidateVisual();
+    }
+
+    /// <summary>Harness: feed an incremental batch, exactly like a poll tick.</summary>
+    internal void HarnessFeed(byte[] data) => ApplyIncomingBytes(data);
+
+    /// <summary>Harness: force the grid dimensions (when not driven by layout).</summary>
+    internal void HarnessSetGrid(int cols, int rows)
+    {
+        _cols = Math.Max(10, cols);
+        _rows = Math.Max(3, rows);
+        EnsureCellsMatchGrid();
+    }
+
+    internal int HarnessCols => _cols;
+    internal int HarnessRows => _rows;
+
+    /// <summary>Harness: the live parser, for reading the active (alt-aware) grid as ground truth.</summary>
+    internal AnsiParser? HarnessParser => _parser;
 
     public override void Render(DrawingContext context)
     {

@@ -139,6 +139,11 @@ public class TerminalView : Control
     {
         _parser?.Parse(data);
 
+        // Render the parser's active grid: on the alternate screen the parser swaps to an
+        // internal buffer, so our _cells would otherwise freeze at the pre-alt content.
+        if (_parser is not null)
+            _cells = _parser.ActiveCells;
+
         if (!_userScrolled && _scrollOffset > 0)
             _scrollOffset = 0;
 
