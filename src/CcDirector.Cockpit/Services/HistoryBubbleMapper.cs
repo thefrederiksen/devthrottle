@@ -40,16 +40,20 @@ public static class HistoryBubbleMapper
         if (history is null)
             return list;
 
+        // Gemini has no structured transcript - its history is raw terminal scrollback the Cockpit
+        // must render verbatim (a <pre> block), not as Markdown. The flag is per-history on the DTO;
+        // carry it onto every bubble so HistoryPane renders the raw path (matches the desktop).
+        var isRawText = history.IsRawText;
         foreach (var message in history.Messages)
         {
-            var bubble = MapMessage(message);
+            var bubble = MapMessage(message, isRawText);
             if (bubble is not null)
                 list.Add(bubble);
         }
         return list;
     }
 
-    private static HistoryBubble? MapMessage(HistoryMessageDto message)
+    private static HistoryBubble? MapMessage(HistoryMessageDto message, bool isRawText)
     {
         var sb = new StringBuilder();
 
@@ -78,7 +82,7 @@ public static class HistoryBubbleMapper
             var body = sb.ToString().Trim();
             return body.Length == 0
                 ? null
-                : new HistoryBubble { Speaker = "Assistant", Body = Truncate(body, AssistantBodyMax), Kind = "assistant" };
+                : new HistoryBubble { Speaker = "Assistant", Body = Truncate(body, AssistantBodyMax), Kind = "assistant", IsRawText = isRawText };
         }
 
         // User role: either a real prompt, or tool results being fed back to the assistant.
@@ -101,8 +105,8 @@ public static class HistoryBubbleMapper
             return null;
 
         return onlyToolResults
-            ? new HistoryBubble { Speaker = "Tool result", Body = Truncate(userBody, ToolResultBubbleMax), Kind = "tool" }
-            : new HistoryBubble { Speaker = "You", Body = Truncate(userBody, UserBodyMax), Kind = "user" };
+            ? new HistoryBubble { Speaker = "Tool result", Body = Truncate(userBody, ToolResultBubbleMax), Kind = "tool", IsRawText = isRawText }
+            : new HistoryBubble { Speaker = "You", Body = Truncate(userBody, UserBodyMax), Kind = "user", IsRawText = isRawText };
     }
 
     private static void Append(StringBuilder sb, string text)

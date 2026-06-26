@@ -124,6 +124,34 @@ public class HistoryBubbleMapperTests
     }
 
     [Fact]
+    public void Map_RawTextHistory_MarksBubblesRaw()
+    {
+        // Gemini: the DTO carries IsRawText at the history level; every bubble must inherit it so
+        // HistoryPane renders verbatim (a <pre> block) instead of Markdown.
+        var history = new SessionHistoryDto
+        {
+            IsRawText = true,
+            Messages = { Msg("Assistant", Part("Text", "raw terminal scrollback line")) },
+        };
+
+        var bubble = Assert.Single(HistoryBubbleMapper.Map(history));
+        Assert.True(bubble.IsRawText);
+    }
+
+    [Fact]
+    public void Map_NonRawHistory_BubblesAreNotRaw()
+    {
+        var history = new SessionHistoryDto
+        {
+            IsRawText = false,
+            Messages = { Msg("Assistant", Part("Text", "hello")) },
+        };
+
+        var bubble = Assert.Single(HistoryBubbleMapper.Map(history));
+        Assert.False(bubble.IsRawText);
+    }
+
+    [Fact]
     public void Map_PreservesChronologicalOrder()
     {
         var history = new SessionHistoryDto
