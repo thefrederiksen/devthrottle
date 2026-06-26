@@ -37,6 +37,7 @@ public sealed class AgentPluginRegistryTests
 
         Assert.Equal(ids.Length, ids.Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.Contains("claude", ids);
+        Assert.Contains("pi", ids);
         Assert.Contains("codex", ids);
         Assert.Contains("opencode", ids);
         Assert.Contains("copilot", ids);
@@ -50,6 +51,19 @@ public sealed class AgentPluginRegistryTests
             Assert.Same(AgentDrivers.For(plugin.Kind), plugin.Driver);
             Assert.Equal(plugin.Kind, plugin.Driver.Kind);
         }
+    }
+
+    [Fact]
+    public void AgentPluginAssembly_DoesNotReferenceAvaloniaUiAssemblies()
+    {
+        var referenced = typeof(IAgentPlugin).Assembly
+            .GetReferencedAssemblies()
+            .Select(assembly => assembly.Name ?? string.Empty)
+            .ToArray();
+
+        Assert.DoesNotContain(referenced, name => name.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("CcDirector.Avalonia", referenced);
+        Assert.DoesNotContain("CcDirector.Terminal.Avalonia", referenced);
     }
 
     [Fact]
@@ -131,6 +145,61 @@ public sealed class AgentPluginRegistryTests
         Assert.StartsWith("-p --output-format stream-json --verbose --dangerously-skip-permissions --session-id ", newSession.Arguments);
         Assert.False(string.IsNullOrWhiteSpace(newSession.PreassignedSessionId));
         Assert.Equal("--model sonnet --resume resume-123", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
+    public void PiPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Pi);
+
+        Assert.IsType<PiAgentPlugin>(plugin);
+        Assert.Equal("pi", plugin.Id);
+        Assert.Equal("pi", plugin.ConfigKey);
+        Assert.Equal("Pi", plugin.DisplayName);
+        Assert.True(plugin.SupportsConversationHistory);
+        Assert.IsType<PiDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Single(plugin.CommandPresets);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == @"D:\Tools\Pi\pi.exe");
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "pi");
+        Assert.Equal(AgentHistoryProviderKind.TranscriptFile, plugin.History.ProviderKind);
+        Assert.True(plugin.History.SupportsConversationHistory);
+        Assert.Contains(".pi", plugin.History.StoreDescription);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.False(plugin.Launch.SupportsStudioMode);
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.ClearContext));
+        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Pi, command.DriverKind));
+    }
+
+    [Fact]
+    public void PiPlugin_CreatesPiAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Pi);
+        var options = new AgentOptions { PiPath = "pi-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: " --model local ",
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: "pi-resume-ignored",
+            StudioMode: false));
+
+        Assert.IsType<PiAgent>(agent);
+        Assert.Equal("pi-custom", agent.ExecutablePath);
+        Assert.Equal("--model local", newSession.Arguments);
+        Assert.Null(newSession.PreassignedSessionId);
+        Assert.Equal("", resume.Arguments);
         Assert.Null(resume.PreassignedSessionId);
     }
 

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 754 Proof - Pi Agent Plugin</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .pass { color: #047857; font-weight: 600; }
+    .note { color: #92400e; }
+  </style>
+</head>
+<body>
+  <h1>Issue 754 Proof - Convert Pi to a Concrete Agent Plugin</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    Pi is now represented by <code>PiAgentPlugin</code> instead of the generic
+    <code>BuiltInAgentPlugin</code> adapter. The plugin owns Pi settings metadata,
+    executable detection candidates, validation arguments, history metadata,
+    launch metadata, presets, agent construction, and the Pi driver binding.
+  </p>
+  <p>
+    The plugin remains data/launch/driver only. A regression test now asserts that
+    the plugin assembly does not reference Avalonia UI assemblies, so agent plugins
+    cannot grow their own Director tabs or UI surfaces.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/PiAgentPlugin.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core.Tests/AgentPlugins/AgentPluginRegistryTests.cs</code></li>
+  </ul>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPluginRegistryTests" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 24, Skipped: 0, Total: 24</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Live QA</h2>
+  <p>
+    Built isolated slot <code>cc-director15.exe</code> from this branch and launched
+    it through the project scheduled-task slot mechanism. The existing launch helper
+    still searches for the old <code>Kestrel listening</code> log phrase; the app now
+    logs <code>Control API listening</code>, so the port was detected manually from the
+    current log line.
+  </p>
+  <ul>
+    <li>Slot: <code>15</code></li>
+    <li>Control API: <code>http://127.0.0.1:7883</code></li>
+    <li>Health: <code>/healthz</code> returned <code>status=ok</code></li>
+    <li>Session: <code>a331409f-e9a3-4394-8c99-17848e68fb3b</code></li>
+    <li>Agent: <code>Pi</code></li>
+    <li>Driver capabilities: <code>ClearContext</code>, <code>Cancel</code></li>
+  </ul>
+
+  <h3>Pi Session</h3>
+  <p>
+    The live session screenshot shows Director-owned global tabs and Pi's terminal
+    controls. No plugin-specific tab or plugin-owned History UI was introduced.
+  </p>
+  <img src="screenshots/pi-live-session.png" alt="Live Pi session in CC Director">
+
+  <h3>API Artifacts</h3>
+  <ul>
+    <li><code>screenshots/settings-catalog.json</code> contains the Pi catalog entry with <code>historyProvider=TranscriptFile</code>, <code>supportsPreassignedSessionId=false</code>, <code>supportsStudioMode=false</code>, and driver capabilities <code>ClearContext</code>/<code>Cancel</code>.</li>
+    <li><code>screenshots/pi-session.json</code> contains the live Pi session response from <code>/sessions/{id}</code>.</li>
+  </ul>
+</body>
+</html>
