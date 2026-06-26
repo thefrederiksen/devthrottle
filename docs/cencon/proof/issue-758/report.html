@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Issue 758 Proof - External Agent Plugin Loading</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; line-height: 1.45; color: #1f2937; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .pass { color: #047857; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Issue 758 Proof - External Agent Plugin Loading</h1>
+
+  <h2>Summary</h2>
+  <p class="pass">PASS.</p>
+  <p>
+    Added manifest-based external plugin loading for the current agent plugin
+    contract. A plugin folder may contain <code>plugin.json</code> files that point
+    at a DLL and concrete <code>IAgentPlugin</code> type. The loader validates
+    contract version, manifest identity, plugin construction, duplicate ids,
+    duplicate agent kinds, <code>RawCli</code> reservation, and driver kind matching.
+  </p>
+  <p>
+    The current <code>IAgentPlugin</code> contract still uses the fixed
+    <code>AgentKind</code> enum, so external plugins are intentionally constrained
+    to known agent kinds until a future contract version adds dynamic agent type ids.
+  </p>
+
+  <h2>Changed Files</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginLoader.cs</code></li>
+    <li><code>src/CcDirector.Core/AgentPlugins/AgentPluginRegistry.cs</code></li>
+    <li><code>src/CcDirector.Core.Tests/AgentPlugins/AgentPluginLoaderTests.cs</code></li>
+  </ul>
+
+  <h2>Runtime Integration</h2>
+  <ul>
+    <li>Default directory: <code>%LOCALAPPDATA%\cc-director\agent-plugins</code></li>
+    <li>Override: <code>CC_DIRECTOR_AGENT_PLUGIN_DIR</code></li>
+    <li>Registry surfaces: <code>ExternalPlugins</code>, <code>ExternalPluginDiagnostics</code>, and <code>All</code></li>
+    <li>Settings/catalog lookups now use <code>All</code>, with built-ins first and external plugins after validation.</li>
+  </ul>
+
+  <h2>Manifest Shape</h2>
+  <pre>{
+  "id": "example-plugin",
+  "contractVersion": 1,
+  "assembly": "Example.Plugin.dll",
+  "type": "Example.Plugin.ExampleAgentPlugin",
+  "enabled": true
+}</pre>
+
+  <h2>Automated Verification</h2>
+  <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "FullyQualifiedName~AgentPlugin" /m:1 /nodeReuse:false
+
+Passed! - Failed: 0, Passed: 33, Skipped: 0, Total: 33</pre>
+
+  <pre>dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj /m:1 /nodeReuse:false
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)</pre>
+
+  <h2>Test Coverage</h2>
+  <ul>
+    <li>Loads a manifest-described DLL/type implementing <code>IAgentPlugin</code>.</li>
+    <li>Rejects duplicate agent kinds when an external plugin collides with an existing plugin.</li>
+    <li>Rejects unsupported contract versions.</li>
+  </ul>
+</body>
+</html>

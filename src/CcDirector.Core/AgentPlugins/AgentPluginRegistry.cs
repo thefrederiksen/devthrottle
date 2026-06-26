@@ -12,24 +12,34 @@ namespace CcDirector.Core.AgentPlugins;
 public static class AgentPluginRegistry
 {
     private static readonly Lazy<IReadOnlyList<IAgentPlugin>> BuiltInPlugins = new(BuildBuiltIns);
+    private static readonly Lazy<AgentPluginLoadResult> ExternalPluginLoad = new(LoadExternalPlugins);
 
     /// <summary>Built-in CLI plugins in display/catalog order.</summary>
     public static IReadOnlyList<IAgentPlugin> BuiltIns => BuiltInPlugins.Value;
 
+    /// <summary>External CLI plugins loaded from the configured plugin directory.</summary>
+    public static IReadOnlyList<IAgentPlugin> ExternalPlugins => ExternalPluginLoad.Value.Plugins;
+
+    /// <summary>Diagnostics produced while loading external plugins.</summary>
+    public static IReadOnlyList<AgentPluginLoadDiagnostic> ExternalPluginDiagnostics => ExternalPluginLoad.Value.Diagnostics;
+
+    /// <summary>All available CLI plugins: built-ins first, then validated external plugins.</summary>
+    public static IReadOnlyList<IAgentPlugin> All => BuiltIns.Concat(ExternalPlugins).ToArray();
+
     /// <summary>Selectable agent types for Settings surfaces, with Raw CLI as the explicit custom case.</summary>
     public static IReadOnlyList<AgentPluginTypeOption> SettingsTypeOptions =>
-        BuiltIns
+        All
             .Select(plugin => new AgentPluginTypeOption(plugin.Kind, plugin.Settings.TypeLabel))
             .Append(new AgentPluginTypeOption(AgentKind.RawCli, "Custom"))
             .ToArray();
 
     /// <summary>True when a plugin is registered for the supplied built-in agent kind.</summary>
-    public static bool Contains(AgentKind kind) => BuiltIns.Any(plugin => plugin.Kind == kind);
+    public static bool Contains(AgentKind kind) => All.Any(plugin => plugin.Kind == kind);
 
     /// <summary>Look up a plugin by built-in agent kind.</summary>
     public static IAgentPlugin Get(AgentKind kind)
     {
-        foreach (var plugin in BuiltIns)
+        foreach (var plugin in All)
         {
             if (plugin.Kind == kind)
                 return plugin;
@@ -60,6 +70,21 @@ public static class AgentPluginRegistry
 
     private static IAgent CreatePluginBackedAgent(IAgentPlugin plugin, AgentOptions options) =>
         new PluginBackedAgent(plugin, options, plugin.CreateAgent(options));
+
+    private static AgentPluginLoadResult LoadExternalPlugins() =>
+        AgentPluginLoader.LoadDirectory(DefaultExternalPluginDirectory(), BuiltIns);
+
+    private static string DefaultExternalPluginDirectory()
+    {
+        var fromEnv = Environment.GetEnvironmentVariable("CC_DIRECTOR_AGENT_PLUGIN_DIR");
+        if (!string.IsNullOrWhiteSpace(fromEnv))
+            return fromEnv;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return string.IsNullOrWhiteSpace(localAppData)
+            ? string.Empty
+            : Path.Combine(localAppData, "cc-director", "agent-plugins");
+    }
 
     private static IReadOnlyList<IAgentPlugin> BuildBuiltIns() =>
         AgentToolCatalog.Entries
