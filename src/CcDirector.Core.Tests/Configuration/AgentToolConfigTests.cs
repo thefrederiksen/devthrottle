@@ -96,6 +96,17 @@ public class AgentToolConfigTests
     }
 
     [Fact]
+    public void FromCatalogDefaults_Codex_ComesFromPluginDefaults()
+    {
+        var config = AgentToolConfig.FromCatalogDefaults(AgentKind.Codex);
+
+        Assert.Equal(AgentKind.Codex, config.Tool);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, config.PresetName);
+        Assert.Equal("", config.DefaultModel);
+        Assert.Equal("", config.ResolveEffectiveCommandLineArguments());
+    }
+
+    [Fact]
     public void ResolveEffectiveCommandLineArguments_AutomaticPresetWithModel_AppendsModelFlag()
     {
         var config = new AgentToolConfig

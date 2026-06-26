@@ -233,6 +233,8 @@ public partial class SettingsDialog : Window
             var status = ToolDetectionService.ReadValidationStatus(entry.Type, CurrentOptions());
             if (status is null)
                 return "Not checked";
+            if (!ValidationMatchesEntryPath(entry, status))
+                return "Not checked";
             return status.Ok ? "OK" : "Failed";
         }
         catch (Exception ex)
@@ -240,6 +242,17 @@ public partial class SettingsDialog : Window
             FileLog.Write($"[SettingsDialog] ReadStatusText FAILED: {ex.Message}");
             return "";
         }
+    }
+
+    private static bool ValidationMatchesEntryPath(AgentEntry entry, ToolValidationStatus status)
+    {
+        var entryPath = entry.ExecutablePath?.Trim() ?? "";
+        if (entryPath.Length == 0)
+            return status.MatchesCurrentPath;
+
+        var resolved = ExecutableResolver.Resolve(entryPath);
+        return string.Equals(status.Path, entryPath, StringComparison.OrdinalIgnoreCase)
+            || (resolved is not null && string.Equals(status.Path, resolved, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>A stable string snapshot of the agent list, used to detect changes on Save.</summary>

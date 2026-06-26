@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Agent Plugin QA Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #5d6972;
+      --line: #d7dde2;
+      --band: #f5f7f9;
+      --ok: #0f6b3f;
+      --warn: #8a5a00;
+      --blue: #155aa8;
+    }
+    body {
+      margin: 0;
+      font-family: Segoe UI, Arial, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.45;
+    }
+    header {
+      padding: 28px 36px 20px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 30px 0 12px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 20px 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 36px 48px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .metric strong {
+      display: block;
+      font-size: 20px;
+      color: var(--blue);
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-ok {
+      color: var(--ok);
+      font-weight: 700;
+    }
+    .status-warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 24px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: var(--band);
+      font-weight: 700;
+    }
+    code {
+      font-family: Consolas, Menlo, monospace;
+      background: #eef2f5;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    pre {
+      overflow: auto;
+      background: #111820;
+      color: #eef5ff;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 14px 0 24px;
+    }
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      min-height: 96px;
+    }
+    .step b {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--blue);
+    }
+    ul {
+      padding-left: 20px;
+    }
+    @media (max-width: 800px) {
+      header, main { padding-left: 18px; padding-right: 18px; }
+      .summary, .flow { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Codex Agent Plugin QA Report</h1>
+    <div>Generated for the first full CLI plugin migration slice. Scope: Codex settings metadata, driver controls, launch strategy, and history-provider declaration.</div>
+    <div class="summary">
+      <div class="metric"><strong>Codex</strong><span>First full plugin implementation</span></div>
+      <div class="metric"><strong>100</strong><span>Focused tests passed across Core, HostedAgent, and Gateway</span></div>
+      <div class="metric"><strong>3</strong><span>Build targets verified: Core dependency path, Control API, Avalonia</span></div>
+      <div class="metric"><strong>0</strong><span>Compile warnings or errors in verified builds</span></div>
+    </div>
+  </header>
+  <main>
+    <h2>Result</h2>
+    <p><span class="status-ok">PASS.</span> Codex is no longer routed through the generic driver. It now has a plugin-owned driver, settings metadata, launch strategy, command presets, slash commands, context-clear control, and history support declaration.</p>
+
+    <h2>Implemented Flow</h2>
+    <div class="flow">
+      <div class="step"><b>1. Settings</b>Agent settings and the Control API catalog read plugin metadata: presets, model support, capabilities, and history support.</div>
+      <div class="step"><b>2. Config</b><code>AgentToolConfig</code> resolves presets and model flags through <code>AgentPluginRegistry</code>.</div>
+      <div class="step"><b>3. Launch</b>Runtime factories ask the plugin to create the CLI launch strategy. Codex creates <code>CodexAgent</code>.</div>
+      <div class="step"><b>4. Controls</b>Sessions resolve the active driver through the plugin registry, so Codex exposes its own stop, interrupt, and clear-context behavior.</div>
+    </div>
+
+    <h2>Settings Verification</h2>
+    <table>
+      <thead>
+        <tr><th>Surface</th><th>Expected</th><th>Verified</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>GET /settings/agents/catalog</code></td>
+          <td>Codex reports plugin metadata, not generic fallback metadata.</td>
+          <td><span class="status-ok">PASS</span>: test asserts display name, full-access preset, <code>ClearContext</code>, <code>Interrupt</code>, and conversation history support.</td>
+        </tr>
+        <tr>
+          <td>Agent Editor dialog</td>
+          <td>Preset dropdown and model picker derive from the selected plugin driver.</td>
+          <td><span class="status-ok">PASS</span>: Avalonia build passed after replacing catalog/driver reads with plugin reads.</td>
+        </tr>
+        <tr>
+          <td><code>AgentToolConfig</code></td>
+          <td>Guided command-line resolution uses plugin presets and driver model flags.</td>
+          <td><span class="status-ok">PASS</span>: focused config tests passed, including Codex full-access and plugin defaults.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Runtime Verification</h2>
+    <table>
+      <thead>
+        <tr><th>Runtime Path</th><th>Expected</th><th>Verified</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>AgentDrivers.For(Codex)</code></td>
+          <td>Returns <code>CodexDriver</code>.</td>
+          <td><span class="status-ok">PASS</span>: Core and HostedAgent tests assert exact type.</td>
+        </tr>
+        <tr>
+          <td>Codex launch strategy</td>
+          <td>Plugin creates <code>CodexAgent</code>; launch args are delegated to <code>CodexDriver.BuildLaunchSpec</code>.</td>
+          <td><span class="status-ok">PASS</span>: registry test constructs a Codex agent through the plugin and verifies launch args plus no preassigned session id.</td>
+        </tr>
+        <tr>
+          <td>Desktop and Control API factories</td>
+          <td>Built-in agent creation uses <code>AgentPluginRegistry.Get(kind).CreateAgent(...)</code>.</td>
+          <td><span class="status-ok">PASS</span>: Control API and Avalonia builds passed after migration.</td>
+        </tr>
+        <tr>
+          <td>Session controls</td>
+          <td>Codex declares cancel, interrupt, and clear context; no unverified terminal history picker.</td>
+          <td><span class="status-ok">PASS</span>: tests assert Esc, Ctrl+C, <code>/clear</code>, and explicit history-picker rejection.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Commands Run</h2>
+    <pre>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter "CodexDriverTests|AgentPluginRegistryTests|AgentToolConfigTests|DriverContractTests|SessionAskRunnerTests" --no-restore
+Passed: 53, Skipped: 1, Failed: 0
+
+dotnet test src\CcDirector.HostedAgent.Tests\CcDirector.HostedAgent.Tests.csproj --filter DriverRegistryTests --no-restore
+Passed: 29, Failed: 0
+
+dotnet test src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj --filter AgentsEndpointTests --no-restore
+Passed: 18, Failed: 0
+
+dotnet build src\CcDirector.ControlApi\CcDirector.ControlApi.csproj --no-restore
+Build succeeded, 0 warnings, 0 errors
+
+dotnet build src\CcDirector.Avalonia\CcDirector.Avalonia.csproj --no-restore
+Build succeeded, 0 warnings, 0 errors</pre>
+
+    <h2>Important Notes</h2>
+    <ul>
+      <li>This slice proves the new architecture with Codex first. Other CLIs still use compatibility adapters unless they already had dedicated drivers.</li>
+      <li>Codex conversation history remains read through the existing <code>SessionHistoryReader</code> and <code>CodexRolloutLocator</code>. The plugin declares that the shared history tab supports Codex, while the driver refuses an unverified in-terminal history picker.</li>
+      <li>External DLL loading is not part of this slice. The new contract and registry are the foundation for that next work item.</li>
+      <li>No live Codex process was launched by these automated tests. The verified launch path proves Director constructs the Codex agent through the plugin; live manual QA should start a Codex session and confirm <code>/clear</code>, stop, interrupt, and history binding in the UI.</li>
+    </ul>
+  </main>
+</body>
+</html>

@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Target Architecture - Agent Plugin Framework</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px;
+    font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0d1117;
+    color: #d6deea;
+  }
+  main { max-width: 1260px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 30px; color: #f0f6fc; letter-spacing: 0; }
+  h2 { margin: 34px 0 14px; font-size: 19px; color: #f0f6fc; }
+  h3 { margin: 0 0 8px; font-size: 14px; color: #f0f6fc; }
+  p { margin: 0 0 12px; line-height: 1.55; color: #aebbd0; }
+  .subtitle { color: #8b98aa; max-width: 900px; }
+  .tagline {
+    margin: 20px 0 28px;
+    padding: 14px 16px;
+    border: 1px solid #30445d;
+    background: #111c2b;
+    border-radius: 8px;
+    color: #cfe3ff;
+  }
+  .grid { display: grid; gap: 14px; }
+  .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 15px;
+  }
+  .card p { font-size: 13px; margin-bottom: 0; }
+  .blue h3 { color: #79c0ff; }
+  .green h3 { color: #7ee787; }
+  .purple h3 { color: #d2a8ff; }
+  .orange h3 { color: #ffa657; }
+  .red h3 { color: #ff7b72; }
+  .teal h3 { color: #56d4dd; }
+  .diagram {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: 1.05fr 0.9fr 1.2fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+  .lane {
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #10151d;
+  }
+  .lane-title {
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid #30363d;
+  }
+  .host .lane-title { background: #17273a; color: #79c0ff; }
+  .registry .lane-title { background: #251a36; color: #d2a8ff; }
+  .plugin .lane-title { background: #163323; color: #7ee787; }
+  .lane-body { padding: 14px; display: grid; gap: 10px; }
+  .node {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 12px;
+    background: #161b22;
+  }
+  .node strong { display: block; color: #f0f6fc; margin-bottom: 5px; font-size: 13px; }
+  .node span { display: block; color: #8b98aa; font-size: 12px; line-height: 1.45; }
+  .arrow {
+    text-align: center;
+    color: #6e7681;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    margin: -2px 0;
+  }
+  .contract {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #10151d;
+  }
+  .contract-nav {
+    background: #161b22;
+    border-right: 1px solid #30363d;
+    padding: 14px;
+  }
+  .contract-nav div {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    background: #0d1117;
+    color: #aebbd0;
+    font-size: 13px;
+  }
+  .contract-body { padding: 16px; }
+  .cap-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .cap {
+    padding: 10px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #161b22;
+    min-height: 82px;
+  }
+  .cap b { display: block; color: #f0f6fc; font-size: 12px; margin-bottom: 4px; }
+  .cap span { color: #8b98aa; font-size: 12px; line-height: 1.35; }
+  .flow {
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    background: #161b22;
+    padding: 18px;
+    overflow-x: auto;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    color: #c9d1d9;
+    line-height: 1.65;
+    font-size: 13px;
+  }
+  .flow .b { color: #79c0ff; }
+  .flow .g { color: #7ee787; }
+  .flow .p { color: #d2a8ff; }
+  .flow .o { color: #ffa657; }
+  .flow .r { color: #ff7b72; }
+  .matrix {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #30363d;
+    background: #161b22;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .matrix th, .matrix td {
+    border-bottom: 1px solid #30363d;
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+    font-size: 13px;
+  }
+  .matrix th { background: #10151d; color: #f0f6fc; }
+  .matrix td { color: #aebbd0; }
+  .yes { color: #7ee787; font-weight: 700; }
+  .no { color: #ff7b72; font-weight: 700; }
+  .note {
+    border-left: 4px solid #ffa657;
+    background: #21180d;
+    padding: 12px 14px;
+    color: #ffd6a0;
+    border-radius: 6px;
+  }
+  ul { margin: 8px 0 0 18px; padding: 0; color: #aebbd0; line-height: 1.55; font-size: 13px; }
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 1px 4px;
+    color: #e6edf3;
+  }
+  @media (max-width: 980px) {
+    body { padding: 18px; }
+    .diagram, .two, .three, .four, .cap-grid, .contract { grid-template-columns: 1fr; }
+    .contract-nav { border-right: 0; border-bottom: 1px solid #30363d; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Target Architecture: Agent Plugin Framework</h1>
+  <p class="subtitle">
+    A proposed clean architecture for controlling Claude Code, Codex, Gemini, Pi, OpenCode,
+    Cursor, Grok, Copilot, and future CLIs without central switch statements or hard-coded
+    tool catalogs.
+  </p>
+
+  <div class="tagline">
+    <strong>Core principle:</strong> every CLI integration is a plugin. The plugin owns what makes
+    that CLI special: settings, launch, permissions, models, runtime verbs, slash commands,
+    transcript/history, and verification status. Product surfaces consume plugin contracts.
+  </div>
+
+  <h2>1. Target Shape</h2>
+  <section class="diagram" aria-label="Agent plugin architecture diagram">
+    <div class="lane host">
+      <div class="lane-title">Host Surfaces</div>
+      <div class="lane-body">
+        <div class="node">
+          <strong>Settings / Agent Editor</strong>
+          <span>Renders plugin-provided fields, presets, permission modes, model picker, and executable checks.</span>
+        </div>
+        <div class="node">
+          <strong>New Session</strong>
+          <span>Shows installed agent entries from plugin metadata. No per-agent UI branches.</span>
+        </div>
+        <div class="node">
+          <strong>Session Action Bar</strong>
+          <span>Buttons come from plugin runtime verbs: Stop, Interrupt, Clear, History, Resume, Fork.</span>
+        </div>
+        <div class="node">
+          <strong>History / Usage / Wingman</strong>
+          <span>Reads plugin transcript adapters and capability declarations.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lane registry">
+      <div class="lane-title">Framework Core</div>
+      <div class="lane-body">
+        <div class="node">
+          <strong>Agent Plugin Registry</strong>
+          <span>Loads built-in and external plugins by manifest. Replaces central agent switch statements.</span>
+        </div>
+        <div class="arrow">down</div>
+        <div class="node">
+          <strong>Agent Runtime Host</strong>
+          <span>Owns process lifecycle, PTY, buffers, environment, storage, and Control API routing.</span>
+        </div>
+        <div class="arrow">down</div>
+        <div class="node">
+          <strong>Session Controller</strong>
+          <span>Executes plugin verbs against the terminal backend. Applies shared safety, logging, and status.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lane plugin">
+      <div class="lane-title">Agent Plugin</div>
+      <div class="lane-body">
+        <div class="node">
+          <strong>Identity + Manifest</strong>
+          <span>Kind, display name, executable names, version probe, install guidance, icons.</span>
+        </div>
+        <div class="node">
+          <strong>Settings Schema</strong>
+          <span>Presets, permission modes, models, flags, custom fields, validation rules.</span>
+        </div>
+        <div class="node">
+          <strong>Launch Adapter</strong>
+          <span>Builds argv/env/cwd/session hints. No UI code knows CLI flags.</span>
+        </div>
+        <div class="node">
+          <strong>Runtime Driver</strong>
+          <span>Submit, cancel, interrupt, clear, history picker, resume/fork, safe fallbacks.</span>
+        </div>
+        <div class="node">
+          <strong>Transcript Adapter</strong>
+          <span>Locate, parse, summarize, usage, and session-id mapping for the CLI's storage format.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <h2>2. The Agent Plugin Contract</h2>
+  <section class="contract">
+    <div class="contract-nav">
+      <div>Identity</div>
+      <div>Discovery</div>
+      <div>Settings</div>
+      <div>Launch</div>
+      <div>Runtime</div>
+      <div>Transcripts</div>
+      <div>Commands</div>
+      <div>Compatibility</div>
+    </div>
+    <div class="contract-body">
+      <p>
+        The plugin is the single authoritative object for a CLI. It can be implemented as one
+        class internally, or as a small bundle of interfaces, but it must be registered as one
+        coherent capability package.
+      </p>
+      <div class="cap-grid">
+        <div class="cap"><b>Identity</b><span>Stable id, display name, vendor, docs URL, plugin version.</span></div>
+        <div class="cap"><b>Discovery</b><span>Executable candidates, PATH names, known install paths, version command.</span></div>
+        <div class="cap"><b>Settings</b><span>Schema for presets, permission modes, models, custom options, validation.</span></div>
+        <div class="cap"><b>Launch</b><span>Build executable, argv, environment, cwd, and optional preassigned session id.</span></div>
+        <div class="cap"><b>Runtime</b><span>Submit prompt, soft stop, hard interrupt, clear context, history picker.</span></div>
+        <div class="cap"><b>Transcripts</b><span>Find active transcript, parse messages, usage, tool calls, session rollover.</span></div>
+        <div class="cap"><b>Commands</b><span>Slash-command metadata and completion help surfaced by the composer.</span></div>
+        <div class="cap"><b>Compatibility</b><span>Verified CLI versions, unsupported features, test probes, degradation rules.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <h2>3. Recommended Interface Family</h2>
+  <div class="grid three">
+    <div class="card blue">
+      <h3>IAgentPlugin</h3>
+      <p>Top-level registration unit. Carries identity and returns the specialized providers below. The host talks to this first.</p>
+      <ul>
+        <li><code>Id</code>, <code>DisplayName</code>, <code>Kind</code></li>
+        <li><code>Capabilities</code></li>
+        <li><code>Settings</code>, <code>Launch</code>, <code>Runtime</code>, <code>Transcripts</code></li>
+      </ul>
+    </div>
+    <div class="card green">
+      <h3>IAgentSettingsProvider</h3>
+      <p>Replaces the central tool catalog. Settings UI renders this schema and stores values generically.</p>
+      <ul>
+        <li>permission modes</li>
+        <li>command presets</li>
+        <li>models and model flags</li>
+        <li>custom fields and validation</li>
+      </ul>
+    </div>
+    <div class="card purple">
+      <h3>IAgentLaunchProvider</h3>
+      <p>Composes launch command from saved settings. No Settings dialog, New Session dialog, or Control API endpoint knows flags.</p>
+      <ul>
+        <li>detect executable</li>
+        <li>version probe</li>
+        <li>compose argv/env</li>
+        <li>resume/session id support</li>
+      </ul>
+    </div>
+    <div class="card orange">
+      <h3>IAgentRuntimeDriver</h3>
+      <p>Owns live terminal control after the process starts. Buttons and REST verbs come directly from this contract.</p>
+      <ul>
+        <li>submit</li>
+        <li>cancel / interrupt</li>
+        <li>clear context</li>
+        <li>history / resume / fork</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h3>IAgentTranscriptProvider</h3>
+      <p>Owns history and usage for each CLI. It may be absent; when present, the History tab and Wingman consume it.</p>
+      <ul>
+        <li>resolve active transcript</li>
+        <li>parse conversation</li>
+        <li>usage and tools</li>
+        <li>context reset rollover</li>
+      </ul>
+    </div>
+    <div class="card red">
+      <h3>IAgentCommandProvider</h3>
+      <p>Supplies slash commands and composer help. This remains CLI-specific and plugin-owned.</p>
+      <ul>
+        <li>slash command list</li>
+        <li>docs snippets</li>
+        <li>feature flags</li>
+        <li>version-aware availability</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>4. How A New CLI Should Plug In</h2>
+  <pre class="flow"><span class="g">external plugin package</span>
+  contains plugin manifest
+  contains implementation assembly/script bundle
+  declares agent id: "codex", "gemini", "aider", ...
+
+        |
+        v
+
+<span class="p">AgentPluginRegistry</span>
+  loads built-ins
+  scans plugin folders
+  validates manifest and compatibility
+  exposes discovered plugins to host surfaces
+
+        |
+        v
+
+<span class="b">Settings</span> renders plugin schema
+<span class="b">New Session</span> renders installed entries
+<span class="b">Session Action Bar</span> renders runtime verbs
+<span class="b">History / Wingman</span> consumes transcript provider
+
+        |
+        v
+
+<span class="o">AgentRuntimeHost</span>
+  starts process through plugin launch provider
+  sends terminal operations through plugin runtime driver
+  never hard-codes CLI flags or slash commands</pre>
+
+  <h2>5. Ownership Matrix</h2>
+  <table class="matrix">
+    <thead>
+      <tr>
+        <th>Concern</th>
+        <th>Target Owner</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Display name, icon, docs, install help</td>
+        <td>Agent plugin manifest</td>
+        <td>A plugin should describe itself without app code changes.</td>
+      </tr>
+      <tr>
+        <td>Executable detection and version probe</td>
+        <td>Plugin launch provider</td>
+        <td>Detection is CLI-specific and often version-specific.</td>
+      </tr>
+      <tr>
+        <td>Command-line presets and permission modes</td>
+        <td>Plugin settings provider</td>
+        <td>Presets are part of the CLI integration, not a central catalog.</td>
+      </tr>
+      <tr>
+        <td>Model picker and model flag</td>
+        <td>Plugin settings provider</td>
+        <td>Models and flags vary by CLI and evolve independently.</td>
+      </tr>
+      <tr>
+        <td>Process lifecycle and PTY custody</td>
+        <td>Framework runtime host</td>
+        <td>Shared mechanical custody should stay CLI-agnostic.</td>
+      </tr>
+      <tr>
+        <td>Submit, Stop, Interrupt, Clear, History</td>
+        <td>Plugin runtime driver</td>
+        <td>Keystrokes and slash commands are CLI protocol, not UI behavior.</td>
+      </tr>
+      <tr>
+        <td>Transcript lookup and parsing</td>
+        <td>Plugin transcript provider</td>
+        <td>Every CLI stores history differently.</td>
+      </tr>
+      <tr>
+        <td>Button visibility and REST verb availability</td>
+        <td>Framework reads plugin capabilities</td>
+        <td>Surfaces render declared capabilities; they do not special-case CLIs.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>6. Capability Model</h2>
+  <p>
+    Capabilities should be richer than a flat enum. A plugin should report both whether a feature
+    exists and how verified it is.
+  </p>
+  <div class="grid four">
+    <div class="card green">
+      <h3>Supported</h3>
+      <p>Implemented and tested for this CLI/version. UI may show the button normally.</p>
+    </div>
+    <div class="card orange">
+      <h3>Experimental</h3>
+      <p>Available behind an explicit flag or warning. Useful for new plugin development.</p>
+    </div>
+    <div class="card red">
+      <h3>Unsupported</h3>
+      <p>Known absent or unsafe. UI hides it and API returns a clear unsupported response.</p>
+    </div>
+    <div class="card blue">
+      <h3>Unknown</h3>
+      <p>Not verified for this CLI/version. Treated as unsupported until proven.</p>
+    </div>
+  </div>
+
+  <h2>7. Example: Codex As A Plugin</h2>
+  <div class="grid two">
+    <div class="card green">
+      <h3>Plugin-Owned Settings</h3>
+      <p>Codex declares its own permissions control, command-line flags, model behavior, and validation.</p>
+      <ul>
+        <li><code>Standard</code>: normal Codex permissions behavior</li>
+        <li><code>Full access</code>: <code>--sandbox danger-full-access --ask-for-approval never</code></li>
+        <li>model options if Codex exposes a stable launch flag</li>
+        <li>version probe and install instructions</li>
+      </ul>
+    </div>
+    <div class="card orange">
+      <h3>Plugin-Owned Runtime</h3>
+      <p>Codex declares which live actions are valid and exactly how to perform them.</p>
+      <ul>
+        <li>Stop: verified soft-cancel keystroke</li>
+        <li>Interrupt: verified hard interrupt behavior</li>
+        <li>Clear context: submit <code>/clear</code> if verified for this CLI version</li>
+        <li>History: only if a safe picker/resume action is verified</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>8. Target Runtime Flow</h2>
+  <pre class="flow"><span class="b">User clicks "Clear context"</span>
+        |
+        v
+<span class="p">SessionActionBar</span> asks current session for verb "clear-context"
+        |
+        v
+<span class="p">SessionController</span> checks plugin capability status
+        |
+        v
+<span class="g">CodexPlugin.Runtime.ClearContextAsync(terminal)</span>
+        |
+        v
+<span class="o">Terminal backend</span> receives plugin-defined operation, e.g. submit "/clear"
+        |
+        v
+<span class="teal">CodexPlugin.Transcripts</span> refreshes active rollout if transcript support exists</pre>
+
+  <h2>9. What This Replaces</h2>
+  <div class="note">
+    The target architecture removes central knowledge from the host. There should be no central
+    list that says "Codex has these presets" or "Cursor has this yolo flag" or "Gemini has no
+    clear-context button." Those facts belong to the plugin. The host only knows how to load,
+    validate, store, and execute plugin contracts.
+  </div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card red">
+      <h3>Current Pattern To Retire</h3>
+      <ul>
+        <li>central <code>AgentToolCatalog</code> for CLI presets</li>
+        <li>central <code>ToolDetectionService</code> switch logic</li>
+        <li>central <code>AgentDrivers.For(...)</code> switch as the only registry</li>
+        <li>UI branches for specific CLIs</li>
+      </ul>
+    </div>
+    <div class="card green">
+      <h3>Target Pattern</h3>
+      <ul>
+        <li>plugin manifest and registry</li>
+        <li>plugin-owned settings schema</li>
+        <li>plugin-owned launch/runtime/transcript adapters</li>
+        <li>host-rendered generic UI from plugin capabilities</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>10. Architectural Decision</h2>
+  <p>
+    <strong>Do not merge everything into one huge interface.</strong> Use one top-level plugin
+    registration unit that exposes focused subcontracts. That gives us one source of truth per CLI
+    without creating a monolithic interface every plugin must implement completely.
+  </p>
+  <div class="grid three">
+    <div class="card blue">
+      <h3>One Plugin</h3>
+      <p>Every CLI has one package and one registration point. The product thinks in agents, not in scattered services.</p>
+    </div>
+    <div class="card purple">
+      <h3>Many Facets</h3>
+      <p>Settings, launch, runtime, transcripts, and commands stay separate internally because they have different lifecycles.</p>
+    </div>
+    <div class="card green">
+      <h3>Optional Providers</h3>
+      <p>A plugin can support runtime but not transcripts, or settings but not model selection, with explicit capability status.</p>
+    </div>
+  </div>
+
+  <h2>11. Migration Direction</h2>
+  <table class="matrix">
+    <thead>
+      <tr>
+        <th>Phase</th>
+        <th>Goal</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1. Define contracts</td>
+        <td>Create plugin interfaces and capability schema without changing behavior.</td>
+        <td>Current CLIs can be wrapped by adapter plugins.</td>
+      </tr>
+      <tr>
+        <td>2. Wrap built-ins</td>
+        <td>Turn Claude, Pi, Cursor, Copilot, Codex, Gemini, OpenCode, Grok into built-in plugins.</td>
+        <td>No central preset or driver switch needed for built-ins.</td>
+      </tr>
+      <tr>
+        <td>3. Move settings ownership</td>
+        <td>Replace <code>AgentToolCatalog</code> with plugin settings providers.</td>
+        <td>Settings UI becomes schema-rendered and plugin-driven.</td>
+      </tr>
+      <tr>
+        <td>4. Move detection ownership</td>
+        <td>Replace central detection switch with plugin launch providers.</td>
+        <td>New CLIs can define their own install/detect/version story.</td>
+      </tr>
+      <tr>
+        <td>5. External plugin loading</td>
+        <td>Load plugin packages from a configured folder with manifest validation.</td>
+        <td>Adding a CLI no longer requires changing Director source code.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>12. Summary</h2>
+  <p>
+    The target architecture is not "one driver class does everything" and not "many unrelated
+    central catalogs know pieces of each CLI." It is one plugin per CLI, with focused provider
+    interfaces underneath. The framework owns custody and rendering. The plugin owns CLI knowledge.
+  </p>
+</main>
+</body>
+</html>

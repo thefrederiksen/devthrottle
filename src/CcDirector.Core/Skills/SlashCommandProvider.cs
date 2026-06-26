@@ -1,3 +1,4 @@
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
@@ -34,7 +35,9 @@ public sealed class SlashCommandProvider
             return cached;
 
         var commands = new Dictionary<string, SlashCommandItem>(StringComparer.OrdinalIgnoreCase);
-        var driver = AgentDrivers.For(agentKind);
+        var driver = AgentPluginRegistry.Contains(agentKind)
+            ? AgentPluginRegistry.Get(agentKind).Driver
+            : AgentDrivers.For(agentKind);
         AddDriverCommands(driver, commands);
 
         if (agentKind == AgentKind.ClaudeCode)

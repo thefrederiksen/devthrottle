@@ -1339,7 +1339,9 @@ public sealed class Session : IDisposable
     // endpoints read Driver.Capabilities to know which verbs this session supports.
 
     /// <summary>The interaction driver for this session's CLI. Stateless singleton.</summary>
-    public Drivers.IAgentDriver Driver => Drivers.AgentDrivers.For(AgentKind);
+    public Drivers.IAgentDriver Driver => AgentPlugins.AgentPluginRegistry.Contains(AgentKind)
+        ? AgentPlugins.AgentPluginRegistry.Get(AgentKind).Driver
+        : Drivers.AgentDrivers.For(AgentKind);
 
     /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
     public async Task CancelTurnAsync()

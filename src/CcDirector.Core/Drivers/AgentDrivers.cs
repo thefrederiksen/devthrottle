@@ -20,7 +20,7 @@ public static class AgentDrivers
         AgentKind.Pi => new PiDriver(),
         AgentKind.Cursor => new CursorDriver(),
         AgentKind.Copilot => new CopilotDriver(),
-        AgentKind.Codex => new GenericDriver(k, CodexSlashCommands.All),
+        AgentKind.Codex => new CodexDriver(),
         AgentKind.Gemini => new GenericDriver(k, GeminiSlashCommands.All),
         AgentKind.OpenCode => new GenericDriver(k, OpenCodeSlashCommands.All),
         AgentKind.Grok => new GenericDriver(k, GrokSlashCommands.All),

@@ -1,4 +1,5 @@
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Agents;
@@ -12,10 +13,12 @@ namespace CcDirector.Core.Agents;
 public sealed class CodexAgent : IAgent
 {
     private readonly AgentOptions _options;
+    private readonly IAgentDriver _driver;
 
-    public CodexAgent(AgentOptions options)
+    public CodexAgent(AgentOptions options, IAgentDriver? driver = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _driver = driver ?? AgentDrivers.For(AgentKind.Codex);
     }
 
     public AgentKind Kind => AgentKind.Codex;
@@ -30,13 +33,11 @@ public sealed class CodexAgent : IAgent
     {
         FileLog.Write($"[CodexAgent] BuildLaunchSpec: userArgs={userArgs ?? "(null)"}, resume={resumeSessionId ?? "(null)"}, studio={studioMode}");
 
-        if (!string.IsNullOrEmpty(resumeSessionId))
-            FileLog.Write($"[CodexAgent] BuildLaunchSpec: ignoring resume={resumeSessionId} (Codex v1 does not support Director-initiated resume)");
         if (studioMode)
             FileLog.Write("[CodexAgent] BuildLaunchSpec: ignoring studioMode (Codex v1 does not support Studio stream-json wrapper)");
 
-        var args = (userArgs ?? string.Empty).Trim();
-        FileLog.Write($"[CodexAgent] BuildLaunchSpec result: argsLen={args.Length}");
-        return new AgentLaunchSpec(args, PreassignedSessionId: null);
+        var spec = _driver.BuildLaunchSpec(userArgs, resumeSessionId);
+        FileLog.Write($"[CodexAgent] BuildLaunchSpec result: argsLen={spec.Arguments.Length}");
+        return spec;
     }
 }

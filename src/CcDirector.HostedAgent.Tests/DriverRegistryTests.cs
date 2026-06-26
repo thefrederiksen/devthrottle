@@ -17,7 +17,7 @@ public class DriverRegistryTests
         Assert.IsType<PiDriver>(AgentDrivers.For(AgentKind.Pi));
         Assert.IsType<CursorDriver>(AgentDrivers.For(AgentKind.Cursor));
         Assert.IsType<CopilotDriver>(AgentDrivers.For(AgentKind.Copilot));
-        Assert.IsType<GenericDriver>(AgentDrivers.For(AgentKind.Codex));
+        Assert.IsType<CodexDriver>(AgentDrivers.For(AgentKind.Codex));
         Assert.IsType<GenericDriver>(AgentDrivers.For(AgentKind.Gemini));
     }
 
@@ -106,6 +106,36 @@ public class DriverRegistryTests
         Assert.Equal(DriverCapabilities.Cancel | DriverCapabilities.ClearContext, caps);
     }
 
+    // ------------------------------------------------------------ Codex
+
+    [Fact]
+    public async Task CodexDriver_ReproducesVerifiedControlBytes()
+    {
+        var backend = new FakeBackend();
+        backend.Start("x", "", ".", 80, 24);
+        var driver = new CodexDriver();
+
+        await driver.CancelAsync(backend);
+        await driver.InterruptAsync(backend);
+        await driver.ClearContextAsync(backend);
+        await driver.SubmitAsync(backend, "hello");
+
+        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[0]);
+        Assert.Equal(new byte[] { 0x03 }, backend.RawWrites[1]);
+        Assert.Contains("/clear", backend.SentTexts);
+        Assert.Contains("hello", backend.SentTexts);
+    }
+
+    [Fact]
+    public void CodexDriver_DeclaresCancelInterruptAndClearOnly()
+    {
+        var caps = new CodexDriver().Capabilities;
+
+        Assert.Equal(
+            DriverCapabilities.Cancel | DriverCapabilities.Interrupt | DriverCapabilities.ClearContext,
+            caps);
+    }
+
     // ------------------------------------------------------------ Generic
 
     [Fact]
@@ -113,7 +143,7 @@ public class DriverRegistryTests
     {
         var backend = new FakeBackend();
         backend.Start("x", "", ".", 80, 24);
-        var driver = new GenericDriver(AgentKind.Codex);
+        var driver = new GenericDriver(AgentKind.Gemini);
 
         await driver.CancelAsync(backend);
         await driver.InterruptAsync(backend);

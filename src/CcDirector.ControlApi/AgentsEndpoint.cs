@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
@@ -40,7 +41,7 @@ namespace CcDirector.ControlApi;
 ///     GET    /settings/agents/catalog          -> the selectable types and, per type, the presets,
 ///                                                 the known models, the driver-detected default model,
 ///                                                 and whether the type supports model selection
-///                                                 (<see cref="AgentToolCatalog"/> / <see cref="AgentDrivers"/>).
+///                                                 (<see cref="AgentPluginRegistry"/>).
 ///
 /// All writes persist through <see cref="AgentEntryStore.SaveEntries"/> -> the non-lossy
 /// <see cref="CcDirectorConfigService.MergePatch"/> write authority, so unrelated config.json
@@ -336,18 +337,21 @@ internal static class AgentsEndpoint
             FileLog.Write("[AgentsEndpoint] GET /settings/agents/catalog");
             var types = TypeOptions.Select(option =>
             {
-                var driver = AgentDrivers.For(option.Type);
-                var supportsModel = driver.Capabilities.HasFlag(DriverCapabilities.ModelSelection);
+                var plugin = AgentPluginRegistry.Contains(option.Type)
+                    ? AgentPluginRegistry.Get(option.Type)
+                    : null;
+                var driver = plugin?.Driver;
+                var supportsModel = driver?.Capabilities.HasFlag(DriverCapabilities.ModelSelection) ?? false;
                 // Built-in types expose the catalog presets; a custom command has no catalog
                 // entry, so it shows the same single "Custom (use args below)" placeholder the
                 // modal's preset dropdown shows for an uncatalogued type (AgentEditorDialog).
-                var presets = AgentToolCatalog.Contains(option.Type)
-                    ? AgentToolCatalog.GetEntry(option.Type).Presets
+                var presets = plugin is not null
+                    ? plugin.CommandPresets
                         .Select(p => new { name = p.Name, arguments = p.Arguments }).ToList()
                     : new[] { new { name = "Custom (use args below)", arguments = "" } }.ToList();
 
                 var models = supportsModel
-                    ? driver.KnownModels.Select(m => new
+                    ? driver!.KnownModels.Select(m => new
                     {
                         id = m.Id,
                         displayName = m.DisplayName,
@@ -359,11 +363,13 @@ internal static class AgentsEndpoint
                 return new
                 {
                     type = option.Type.ToString(),
-                    displayName = option.Label,
+                    displayName = plugin?.DisplayName ?? option.Label,
                     detectable = ToolDetectionService.SupportedTools.Contains(option.Type),
                     supportsModelSelection = supportsModel,
-                    modelFlag = driver.ModelFlag,
-                    detectedDefaultModel = supportsModel ? driver.ReadConfiguredDefaultModel() : null,
+                    supportsConversationHistory = plugin?.SupportsConversationHistory ?? false,
+                    driverCapabilities = driver is null ? Array.Empty<string>() : CapabilityNames(driver.Capabilities),
+                    modelFlag = driver?.ModelFlag ?? "",
+                    detectedDefaultModel = supportsModel ? driver!.ReadConfiguredDefaultModel() : null,
                     presets,
                     models,
                 };
@@ -466,12 +472,18 @@ internal static class AgentsEndpoint
     /// matching what the Agents tab pre-populates when a user picks a type in the Add modal.</summary>
     private static void ApplyType(AgentEntry entry, AgentKind type)
     {
-        if (!AgentToolCatalog.Contains(type))
+        if (!AgentPluginRegistry.Contains(type))
             return;
-        var catalog = AgentToolCatalog.GetEntry(type);
-        entry.PresetId = catalog.DefaultPreset.Name;
-        entry.DefaultModel = catalog.DefaultModel;
+        var plugin = AgentPluginRegistry.Get(type);
+        entry.PresetId = plugin.DefaultCommandPreset.Name;
+        entry.DefaultModel = plugin.DefaultModel;
     }
+
+    private static string[] CapabilityNames(DriverCapabilities caps) =>
+        Enum.GetValues<DriverCapabilities>()
+            .Where(flag => flag != DriverCapabilities.None && caps.HasFlag(flag))
+            .Select(flag => flag.ToString())
+            .ToArray();
 
     private static string ToolDisplayName(AgentKind type) =>
         TypeOptions.FirstOrDefault(o => o.Type == type).Label is { Length: > 0 } label

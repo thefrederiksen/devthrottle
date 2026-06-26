@@ -49,7 +49,19 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
     private readonly DictionaryResolver _dictionaryResolver;
     private readonly int _micDeviceNumber;
 
-    private MicAudioCapture? _mic;
+    // Builds the audio source for a device number. Production builds a NAudio
+    // MicAudioCapture; tests inject a fake to drive the capture/stop sequencing
+    // without a real microphone (the IAudioSource seam).
+    private readonly Func<int, IAudioSource> _audioSourceFactory;
+
+    // Test seam: replaces the post-snapshot transcription (key + dictionary resolve,
+    // WAV wrap, shared batch pipeline, audit log) with a stub that receives the
+    // snapshotted PCM. Null in production, where the real pipeline runs. Lets a test
+    // assert exactly which captured bytes reach transcription - i.e. that the tail is
+    // not clipped - without any network.
+    private readonly Func<byte[], string, CancellationToken, Task<DictationResult>>? _transcribeOverride;
+
+    private IAudioSource? _mic;
 
     // The whole-turn PCM16 accumulator. Every captured chunk is appended here in
     // capture order; nothing leaves the machine until TranscribeAsync wraps the
@@ -97,6 +109,27 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         // attached, the local cache when standalone (#253). A Cockpit edit reaches this Director.
         _dictionaryResolver = new DictionaryResolver(options);
         _micDeviceNumber = micDeviceNumber;
+        _audioSourceFactory = static device => new MicAudioCapture(device);
+        _transcribeOverride = null;
+    }
+
+    /// <summary>
+    /// Test-only constructor (the IAudioSource seam). Injects the audio source so the
+    /// capture-and-stop sequencing can be driven by a fake, and the transcription so
+    /// the snapshotted PCM can be inspected, both without a real mic or the network.
+    /// </summary>
+    internal BatchDictationRecorder(
+        AgentOptions options,
+        Func<int, IAudioSource> audioSourceFactory,
+        Func<byte[], string, CancellationToken, Task<DictationResult>> transcribeOverride,
+        int micDeviceNumber = MicDevices.DefaultDeviceNumber)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _keyResolver = new OpenAiKeyResolver(options);
+        _dictionaryResolver = new DictionaryResolver(options);
+        _micDeviceNumber = micDeviceNumber;
+        _audioSourceFactory = audioSourceFactory ?? throw new ArgumentNullException(nameof(audioSourceFactory));
+        _transcribeOverride = transcribeOverride ?? throw new ArgumentNullException(nameof(transcribeOverride));
     }
 
     /// <summary>
@@ -115,10 +148,15 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         // resolved later, at TranscribeAsync, for the single batch transcription. So
         // the bars move and audio is captured from the very first frame and the
         // dialog can flip to RECORDING the instant capture is live.
-        _mic = new MicAudioCapture(_micDeviceNumber);
+        _mic = _audioSourceFactory(_micDeviceNumber);
         _mic.OnAudioChunk += AppendChunk;
-        _mic.OnAudioBands += bands => OnAudioBands?.Invoke(bands);
-        _mic.OnInputRms += rms => OnInputRms?.Invoke(rms);
+        // Equalizer + level hint are optional UI cosmetics: wire them only when the
+        // source actually emits them (the real mic does; a headless test source need not).
+        if (_mic is IAudioMeterSource meter)
+        {
+            meter.OnAudioBands += RaiseAudioBands;
+            meter.OnInputRms += RaiseInputRms;
+        }
 
         try
         {
@@ -162,13 +200,20 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
 
         FileLog.Write("[BatchDictationRecorder] TranscribeAsync");
 
-        // Stop the mic and detach the chunk handler so no late buffer can race the
-        // snapshot below. NAudio delivers DataAvailable on its own thread, so the
-        // lock guards the buffer against a final in-flight chunk.
+        // Stop the mic and WAIT for NAudio to flush its final buffered audio before
+        // snapshotting. WaveInEvent keeps capturing for up to one buffer after the
+        // stop and delivers the trailing words via AppendChunk on its worker thread,
+        // then raises RecordingStopped; StopAsync completes on that event, so the
+        // whole tail of speech is appended to _audio before the snapshot below.
+        // Detaching the handler BEFORE the drain (the old order) discarded that tail
+        // and clipped the end of the user's speech. Only after the drain do we detach,
+        // so no genuinely-late chunk can race the snapshot; the lock guards it anyway.
         var device = _mic?.Description ?? MicDevices.DescribeDevice(_micDeviceNumber);
         if (_mic is not null)
+        {
+            await _mic.StopAsync(TimeSpan.FromMilliseconds(750));
             _mic.OnAudioChunk -= AppendChunk;
-        _mic?.Stop();
+        }
         _recordingStopwatch?.Stop();
 
         byte[] pcm;
@@ -186,6 +231,12 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
             FileLog.Write("[BatchDictationRecorder] TranscribeAsync: no audio captured; refusing to transcribe (completeness gate)");
             throw new NoAudioCapturedException(device);
         }
+
+        // Test seam: hand the snapshotted PCM to the injected stub instead of the real
+        // network pipeline. The empty-audio gate above still runs first, so the stub
+        // only ever sees a non-empty capture - exactly what the real path transcribes.
+        if (_transcribeOverride is not null)
+            return await _transcribeOverride(pcm, device, ct);
 
         // Resolve the user-selected transcription method (base URL, key, model). No
         // routing means dictation is unavailable; surface the mode-appropriate message.
@@ -250,6 +301,11 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         }
     }
 
+    // Named so they can be unsubscribed in DisposeAsync; forward the source's UI-meter
+    // events to this recorder's own events for the dialog's equalizer and level hint.
+    private void RaiseAudioBands(double[] bands) => OnAudioBands?.Invoke(bands);
+    private void RaiseInputRms(double rms) => OnInputRms?.Invoke(rms);
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
@@ -257,7 +313,17 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         if (_mic is not null)
         {
             _mic.OnAudioChunk -= AppendChunk;
-            _mic.Dispose();
+            if (_mic is IAudioMeterSource meter)
+            {
+                meter.OnAudioBands -= RaiseAudioBands;
+                meter.OnInputRms -= RaiseInputRms;
+            }
+            // Stop discards any undrained tail - fine here: Dispose is the cancel/teardown
+            // path. The no-loss drain happens in TranscribeAsync via StopAsync. IAudioSource
+            // is not itself IDisposable, so release the concrete resource when it is.
+            _mic.Stop();
+            if (_mic is IDisposable disposable)
+                disposable.Dispose();
         }
         _audio.Dispose();
         await ValueTask.CompletedTask;

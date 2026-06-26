@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
@@ -154,6 +155,25 @@ public sealed class SessionManager : IDisposable
     public Session CreateSession(string repoPath, string? claudeArgs, SessionBackendType backendType, string? resumeSessionId)
     {
         return CreateSession(repoPath, new ClaudeAgent(_options), claudeArgs, backendType, resumeSessionId);
+    }
+
+    /// <summary>
+    /// Create a session by resolving the requested built-in CLI plugin and asking it for the
+    /// launch strategy. This is the plugin-backed path new callers should use.
+    /// </summary>
+    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    {
+        var plugin = AgentPluginRegistry.Get(agentKind);
+        return CreateSession(
+            repoPath,
+            plugin.CreateAgent(_options),
+            userArgs,
+            backendType,
+            resumeSessionId,
+            sessionType,
+            groupId,
+            groupRole,
+            groupName);
     }
 
     /// <summary>

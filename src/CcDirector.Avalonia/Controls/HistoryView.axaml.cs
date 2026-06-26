@@ -66,6 +66,10 @@ public partial class HistoryView : UserControl
     private Session? _session;
     private string _lastSignature = "";
 
+    // Whether the History tab is the visible tab (#744). MainWindow drives this via OnShown/OnHidden
+    // so the poll timer only runs while the tab is on screen.
+    private bool _isShown;
+
     // Shared per-session link context for clickable paths/URLs in bubbles (#735). Built on Attach
     // because its inputs (the repo path and the routing callbacks) are stable for a session.
     private MarkdownRenderContext? _linkContext;
@@ -100,17 +104,16 @@ public partial class HistoryView : UserControl
             OnBrowserError = message => BrowserLaunchFailed?.Invoke(message),
         };
         FileLog.Write($"[HistoryView] Attach: session={session.Id} agent={session.AgentKind} transcript={session.ClaudeTranscriptPath ?? "(null)"}");
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
-        _timer.Tick += async (_, _) => await RefreshAsync();
-        _timer.Start();
-        _ = RefreshAsync();
+        // Poll only while the History tab is the visible tab (#744). If it is hidden now, polling
+        // starts when MainWindow calls OnShown().
+        if (_isShown)
+            StartPolling();
     }
 
     /// <summary>Stop polling and clear the view.</summary>
     public void Detach()
     {
-        _timer?.Stop();
-        _timer = null;
+        StopPolling();
         _session = null;
         _linkContext = null;
         _lastSignature = "";
@@ -121,6 +124,43 @@ public partial class HistoryView : UserControl
         EmptyText.IsVisible = true;
         EmptyText.Text = "No messages yet.";
         HistoryStatePill.IsVisible = false;
+    }
+
+    /// <summary>Start the 2.5s poll timer (idempotent) and refresh once immediately.</summary>
+    private void StartPolling()
+    {
+        if (_timer != null || _session is null)
+            return;
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _timer.Tick += async (_, _) => await RefreshAsync();
+        _timer.Start();
+        _ = RefreshAsync();
+    }
+
+    /// <summary>Stop the poll timer (the session binding is left intact).</summary>
+    private void StopPolling()
+    {
+        _timer?.Stop();
+        _timer = null;
+    }
+
+    /// <summary>
+    /// Called by MainWindow when the History tab becomes the visible tab (#744). Resume polling (an
+    /// immediate refresh runs) and snap to the latest message. Gating on visibility avoids parsing
+    /// and rendering off-screen and avoids computing scroll geometry against a zero-size viewport.
+    /// </summary>
+    public void OnShown()
+    {
+        _isShown = true;
+        StartPolling();
+        ScrollToEndDeferred();
+    }
+
+    /// <summary>Called by MainWindow when the History tab is hidden (#744): stop polling.</summary>
+    public void OnHidden()
+    {
+        _isShown = false;
+        StopPolling();
     }
 
     private async Task RefreshAsync()
@@ -170,16 +210,20 @@ public partial class HistoryView : UserControl
             var vms = Map(history, _linkContext);
             FileLog.Write($"[HistoryView] refresh: path={path} messages={history.Messages.Count} vms={vms.Count}");
 
+            // Was the user parked at the bottom before this update? (Decide before changing the list.)
             var atBottom = IsNearBottom();
-            _messages.Clear();
-            foreach (var vm in vms)
-                _messages.Add(vm);
+
+            // Incremental render (#745): keep the common leading bubbles, append only what is new -
+            // existing bubbles are not re-created, so a scrolled-up reader keeps their position.
+            Reconcile(vms);
 
             CountText.Text = vms.Count == 0 ? "" : $"{vms.Count} messages";
             EmptyText.IsVisible = vms.Count == 0;
             if (vms.Count == 0)
                 EmptyText.Text = "No messages yet.";
 
+            // Keep the newest message in view if the user was already at the bottom (#744). The list
+            // is bottom-anchored, so a short conversation is always pinned without any scrolling.
             if (atBottom)
                 ScrollToEndDeferred();
         }
@@ -289,23 +333,26 @@ public partial class HistoryView : UserControl
             : "... [earlier terminal output trimmed]\n" + fullBody.Substring(fullBody.Length - GeminiBodyMaxChars);
         FileLog.Write($"[HistoryView] gemini refresh: bytes={buffer.TotalBytesWritten} bodyLen={body.Length} (full={fullBody.Length})");
 
-        var atBottom = IsNearBottom();
-        _messages.Clear();
         if (body.Length == 0)
         {
+            _messages.Clear();
             CountText.Text = "";
             EmptyText.IsVisible = true;
             EmptyText.Text = "Waiting for the conversation to start...";
             return;
         }
 
-        _messages.Add(new HistoryMessageVm
+        var atBottom = IsNearBottom();
+        Reconcile(new List<HistoryMessageVm>
         {
-            Speaker = GeminiTerminalHistory.Label,
-            Body = body,
-            HeaderBrush = ToolHeader,
-            CardBrush = ToolCard,
-            IsRawText = IsRawTextAgent(session.AgentKind),
+            new HistoryMessageVm
+            {
+                Speaker = GeminiTerminalHistory.Label,
+                Body = body,
+                HeaderBrush = ToolHeader,
+                CardBrush = ToolCard,
+                IsRawText = IsRawTextAgent(session.AgentKind),
+            },
         });
         CountText.Text = "raw terminal text";
         EmptyText.IsVisible = false;
@@ -323,6 +370,31 @@ public partial class HistoryView : UserControl
     /// kind of split that produced the Cockpit IsRawText bug, GitHub #742).
     /// </summary>
     internal static bool IsRawTextAgent(AgentKind agent) => agent == AgentKind.Gemini;
+
+    /// <summary>
+    /// Incrementally reconcile the rendered list with the latest view-models (#745). Keeps the common
+    /// leading run untouched (so existing bubbles are not re-created and a scrolled-up reader's
+    /// position is preserved), removes any diverging tail, then appends the new messages. A handover
+    /// that replaces the conversation (e.g. Claude /clear, which repoints the transcript) shares no
+    /// prefix, so it naturally rebuilds from scratch.
+    /// </summary>
+    private void Reconcile(List<HistoryMessageVm> newVms)
+    {
+        int prefix = 0;
+        int min = Math.Min(_messages.Count, newVms.Count);
+        while (prefix < min && SameVm(_messages[prefix], newVms[prefix]))
+            prefix++;
+
+        for (int i = _messages.Count - 1; i >= prefix; i--)
+            _messages.RemoveAt(i);
+        for (int i = prefix; i < newVms.Count; i++)
+            _messages.Add(newVms[i]);
+    }
+
+    // Two rendered messages are the same bubble when their visible content matches; LinkContext is
+    // per-session (identical across bubbles) so it is intentionally not compared.
+    private static bool SameVm(HistoryMessageVm a, HistoryMessageVm b)
+        => a.Speaker == b.Speaker && a.IsRawText == b.IsRawText && a.Body == b.Body;
 
     private static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext)
     {
@@ -412,16 +484,17 @@ public partial class HistoryView : UserControl
     private static string Truncate(string text, int max)
         => text.Length <= max ? text : text.Substring(0, max) + " ...";
 
+    /// <summary>True when the user is parked at (or within a line of) the bottom of the thread, or
+    /// the content is short enough that there is nothing to scroll.</summary>
     private bool IsNearBottom()
     {
         var max = Scroller.Extent.Height - Scroller.Viewport.Height;
         return max <= 0 || Scroller.Offset.Y >= max - 60;
     }
 
+    /// <summary>Scroll to the newest message after the pending layout pass. With the bottom-anchored
+    /// layout a short conversation is already pinned to the bottom; this handles the case where the
+    /// thread is taller than the viewport and a new message has been appended.</summary>
     private void ScrollToEndDeferred()
-    {
-        Dispatcher.UIThread.Post(
-            () => Scroller.Offset = new Vector(0, Scroller.Extent.Height),
-            DispatcherPriority.Background);
-    }
+        => Dispatcher.UIThread.Post(() => Scroller.ScrollToEnd(), DispatcherPriority.Background);
 }

@@ -15,8 +15,15 @@ namespace CcDirector.Core.Dictation;
 ///   is lost to connection latency.
 /// - <see cref="OnAudioChunk"/> fires for every captured buffer, on the
 ///   source's own thread. Chunks are PCM16 little-endian.
-/// - <see cref="Stop"/> halts capture; no further <see cref="OnAudioChunk"/>
-///   events fire after it returns.
+/// - <see cref="Stop"/> halts capture immediately and may DISCARD audio still
+///   sitting in the driver's buffers. Use it only on paths that throw the clip
+///   away anyway (cancel, teardown).
+/// - <see cref="StopAsync"/> halts capture and returns only AFTER the source has
+///   delivered its final buffered audio - the tail of speech - via
+///   <see cref="OnAudioChunk"/>. A whole-clip transcription path MUST stop with
+///   this and only snapshot the buffer once it returns, or the last words the
+///   user spoke (still in the driver's buffers at the moment of the stop) are
+///   clipped. This is the no-loss counterpart to <see cref="Stop"/>.
 /// </summary>
 public interface IAudioSource
 {
@@ -34,6 +41,20 @@ public interface IAudioSource
     /// <summary>Begin capturing. Must be synchronous so capture starts before any network connection completes.</summary>
     void Start();
 
-    /// <summary>Stop capturing. No further <see cref="OnAudioChunk"/> events fire after this returns.</summary>
+    /// <summary>
+    /// Stop capturing IMMEDIATELY, discarding any audio still buffered in the
+    /// driver. Only for paths that discard the clip (cancel/teardown). For a
+    /// whole-clip transcription use <see cref="StopAsync"/> so the tail is kept.
+    /// </summary>
     void Stop();
+
+    /// <summary>
+    /// Stop capturing and return only AFTER the source has delivered its final
+    /// buffered audio via <see cref="OnAudioChunk"/>, so the caller can snapshot
+    /// the whole recording - including the trailing words - without clipping the
+    /// end. <paramref name="drainTimeout"/> bounds the wait so a wedged driver
+    /// that never signals completion cannot hang the caller; on timeout the
+    /// source proceeds with whatever it has delivered.
+    /// </summary>
+    Task StopAsync(TimeSpan drainTimeout);
 }
