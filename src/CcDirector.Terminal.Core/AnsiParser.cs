@@ -238,6 +238,16 @@ public class AnsiParser
     public (int Col, int Row) GetCursorPosition() => (_cursorCol, _cursorRow);
 
     /// <summary>
+    /// The grid currently being drawn into: the alternate screen's buffer while one is active,
+    /// otherwise the primary grid. A control MUST render this - not the array it handed the
+    /// parser at construction - because entering the alternate screen (<c>ESC[?1049h</c>) swaps
+    /// the active grid to an internal buffer, leaving the caller's array frozen at the pre-alt
+    /// content. Reading this keeps the on-screen grid correct across alt enter/exit. Replaced
+    /// only by <see cref="UpdateGrid"/> on resize.
+    /// </summary>
+    public TerminalCell[,] ActiveCells => _cells;
+
+    /// <summary>
     /// Snapshot the CURRENTLY ACTIVE visible grid as trailing-trimmed plain-text rows
     /// (top to bottom) plus the cursor cell. "Active" means the alternate screen when one
     /// is in use, otherwise the primary grid: this reads the live <see cref="_cells"/>

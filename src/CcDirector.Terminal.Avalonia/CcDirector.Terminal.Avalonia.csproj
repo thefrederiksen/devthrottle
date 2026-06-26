@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="CcDirector.Terminal.RenderHarness" />
+    <InternalsVisibleTo Include="CcDirector.Terminal.Avalonia.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
     <ProjectReference Include="..\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj" />
   </ItemGroup>
