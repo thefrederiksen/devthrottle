@@ -145,3 +145,8 @@ playground/headless-brain/state.json
 playground/hosted-agent-smoke/sandboxes/
 playground/hosted-agent-smoke/smoke-output.txt
 playground/alpha-test-root/
+
+# MCP server tool-definition schema dumps, written into the repo root at runtime by
+# connected MCP tooling (mindzie-dev-proto / mindzie-localhost-proto / pencil). Generated
+# local artifacts, never part of the codebase.
+mcps/
