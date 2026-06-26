@@ -35,8 +35,7 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="{Binding Speaker}" Foreground="{Binding HeaderBrush}"
                                            FontSize="11" FontWeight="Bold" />
-                                <TextBlock Text="{Binding Body}" Foreground="#D4D4D4" FontSize="13"
-                                           TextWrapping="Wrap" />
+                                <controls:MarkdownTextBlock Markdown="{Binding Body}" Plain="{Binding IsRawText}" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>

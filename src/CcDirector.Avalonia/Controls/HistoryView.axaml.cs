@@ -21,6 +21,9 @@ public sealed class HistoryMessageVm
     public string Body { get; init; } = "";
     public IBrush HeaderBrush { get; init; } = Brushes.Gray;
     public IBrush CardBrush { get; init; } = Brushes.Transparent;
+
+    /// <summary>True for raw terminal scrollback (Gemini): render verbatim, not as Markdown.</summary>
+    public bool IsRawText { get; init; }
 }
 
 /// <summary>
@@ -280,6 +283,7 @@ public partial class HistoryView : UserControl
             Body = body,
             HeaderBrush = ToolHeader,
             CardBrush = ToolCard,
+            IsRawText = true,
         });
         CountText.Text = "raw terminal text";
         EmptyText.IsVisible = false;
