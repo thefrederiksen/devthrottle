@@ -238,6 +238,10 @@
                                turn-brief pipeline. Terminal is the default; Voice (issue #531) stays. *@
                             <button class="ctab @(CenterTab == "term" ? "on" : "")" @onclick="@(() => SetCenterTab("term"))">Terminal</button>
                             <button class="ctab @(CenterTab == "voice" ? "on" : "")" @onclick="@(() => SetCenterTab("voice"))">Voice</button>
+                            @* History (epic #733): the read-only conversation thread, the web peer of
+                               the desktop History tab. Lazy: the pane (and its live poll) exist only
+                               while this tab is shown. *@
+                            <button class="ctab @(CenterTab == "history" ? "on" : "")" @onclick="@(() => SetCenterTab("history"))">History</button>
                             <span class="center-tabs-spacer"></span>
                             @* Needs-you conveyor: flip through the sessions waiting on the user,
                                in the same order the rail's triage view shows them. *@
@@ -317,6 +321,14 @@
                                 {
                                     <div class="act-error">@_voiceError</div>
                                 }
+                            </div>
+                        }
+                        else if (CenterTab == "history")
+                        {
+                            @* Lazy: HistoryPane mounts only here, so its live poll never runs while
+                               the tab is hidden. Keyed by session so a switch gives a fresh pane. *@
+                            <div class="hist-wrap">
+                                <HistoryPane @key="Selected.SessionId" SessionId="@Selected.SessionId" />
                             </div>
                         }
 

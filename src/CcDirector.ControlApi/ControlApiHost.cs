@@ -387,6 +387,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver, dictionaryResolver);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);
+        // GET /sessions/{sid}/history (epic #733): the parsed, agent-agnostic conversation
+        // history (reuses Core SessionHistoryReader) plus the transcript-derived history state.
+        // Forwarded to the Cockpit verbatim by the Gateway's generic /sessions/{sid}/{**rest} proxy.
+        SessionHistoryEndpoint.Map(_app, _sessionManager);
         ClaudeTranscriptsEndpoint.Map(_app);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
         // /settings/agents (issue #584): full Settings-dialog Agents-tab parity over REST -
