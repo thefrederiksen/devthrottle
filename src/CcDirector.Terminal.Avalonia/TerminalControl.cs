@@ -30,6 +30,19 @@ public class TerminalControl : Control
     private const double PollIntervalMs = 50;
 
     /// <summary>
+    /// Safety bound on synchronized-output (?2026) repaint holding. While an agent has an
+    /// open frame we defer the repaint so it renders atomically (no flicker). A well-behaved
+    /// agent closes the frame within a tick or two; if one opens a frame and never closes it,
+    /// this many consecutive deferred ticks forces a repaint anyway so the view cannot freeze.
+    /// At a 50ms poll that is ~300ms - imperceptible for real frames, safe against a stuck frame.
+    /// </summary>
+    private const int MaxDeferredSyncTicks = 6;
+
+    // Consecutive PollTimer ticks whose repaint was deferred because a synchronized
+    // output frame was still open. Reset to zero whenever a repaint actually happens.
+    private int _deferredSyncTicks;
+
+    /// <summary>
     /// How long after a Director-issued PTY resize the terminal-state detector should ignore
     /// byte activity. A resize makes Claude Code repaint its whole screen; that burst is our
     /// doing, not the agent working, so we tell the session to suppress it. Kept well under the
@@ -695,8 +708,21 @@ public class TerminalControl : Control
                 if (!_userScrolled && _scrollOffset > 0)
                     _scrollOffset = 0;
 
-                InvalidateVisual();
-                ScrollChanged?.Invoke(this, EventArgs.Empty);
+                // Synchronized output (?2026): if the agent is mid-frame, hold the repaint
+                // so we never paint a half-drawn frame (that mid-frame paint is what makes
+                // Grok flicker). Paint once the frame closes - or after a bounded number of
+                // deferred ticks, so a frame that never closes cannot freeze the view.
+                bool frameOpen = _parser?.InSynchronizedUpdate == true;
+                if (frameOpen && _deferredSyncTicks < MaxDeferredSyncTicks)
+                {
+                    _deferredSyncTicks++;
+                }
+                else
+                {
+                    _deferredSyncTicks = 0;
+                    InvalidateVisual();
+                    ScrollChanged?.Invoke(this, EventArgs.Empty);
+                }
             }
         }
         catch (Exception ex)

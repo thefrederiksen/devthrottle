@@ -23,16 +23,27 @@ public sealed class GenericDriver : IAgentDriver
 
     private readonly IReadOnlyList<AgentSlashCommand> _slashCommands;
 
-    public GenericDriver(AgentKind kind, IReadOnlyList<AgentSlashCommand>? slashCommands = null)
+    public GenericDriver(
+        AgentKind kind,
+        IReadOnlyList<AgentSlashCommand>? slashCommands = null,
+        bool emitsContinuousIdleOutput = false)
     {
         Kind = kind;
         _slashCommands = slashCommands ?? [];
+        EmitsContinuousIdleOutput = emitsContinuousIdleOutput;
     }
 
     public AgentKind Kind { get; }
 
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel | DriverCapabilities.Interrupt;
+
+    /// <summary>
+    /// Set true for Grok: its idle terminal keeps repainting an animated footer (spinner +
+    /// shortcuts + synchronized-output heartbeat), so the byte-only idle rule never fires.
+    /// See <see cref="IAgentDriver.EmitsContinuousIdleOutput"/>.
+    /// </summary>
+    public bool EmitsContinuousIdleOutput { get; }
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => _slashCommands;
 

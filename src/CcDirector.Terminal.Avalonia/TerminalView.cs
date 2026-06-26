@@ -142,7 +142,11 @@ public class TerminalView : Control
         if (!_userScrolled && _scrollOffset > 0)
             _scrollOffset = 0;
 
-        InvalidateVisual();
+        // Synchronized output (?2026): hold the repaint while a frame is still open so
+        // partially-drawn frames are never shown; the next Feed that closes the frame
+        // paints it atomically. Prevents the Grok mid-frame redraw flicker.
+        if (_parser?.InSynchronizedUpdate != true)
+            InvalidateVisual();
     }
 
     /// <summary>
