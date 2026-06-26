@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three-Agent Communication Release Plan - Claude Code, Codex, Pi</title>
+<style>
+  :root{
+    --have:#1b7f3b; --have-bg:#e4f5e9;
+    --partial:#8a6d00; --partial-bg:#fbf2cf;
+    --missing:#9b1c1c; --missing-bg:#fbe3e3;
+    --na:#5b6470; --na-bg:#eceef1;
+    --target:#0b4f8a; --target-bg:#e1eefb;
+    --ink:#1c2330; --soft:#5b6470; --line:#d8dde4; --bg:#f6f7f9; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);
+       background:var(--bg);margin:0;line-height:1.55;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  h1{font-size:29px;margin:0 0 4px}
+  h2{font-size:22px;margin:40px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:18px;margin:24px 0 8px}
+  .sub{color:var(--soft);font-size:14px}
+  p{margin:10px 0}
+  code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:13px;font-family:Consolas,Menlo,monospace}
+  .lead{font-size:16px}
+  .callout{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--target);padding:14px 16px;border-radius:8px;margin:16px 0}
+  .callout.warn{border-left-color:var(--partial)}
+  .callout.done{border-left-color:var(--have)}
+  table{border-collapse:collapse;width:100%;background:var(--card);font-size:13.5px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .scroll{overflow-x:auto;margin:14px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  thead th{background:#2b3340;color:#fff;font-weight:600;white-space:nowrap}
+  tbody th{background:#f0f2f5;white-space:nowrap;font-weight:700}
+  .have{background:var(--have-bg);color:var(--have);font-weight:700}
+  .partial{background:var(--partial-bg);color:var(--partial);font-weight:700}
+  .missing{background:var(--missing-bg);color:var(--missing);font-weight:700}
+  .na{background:var(--na-bg);color:var(--na)}
+  .target{background:var(--target-bg);color:var(--target);font-weight:700}
+  .ctr{text-align:center}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .legend span{font-size:12px;padding:3px 9px;border-radius:12px;font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px;margin-left:6px;vertical-align:middle}
+  .pill.done{background:var(--have-bg);color:var(--have)}
+  .pill.todo{background:var(--missing-bg);color:var(--missing)}
+  .pill.small{background:var(--target-bg);color:var(--target)}
+  .grid2{display:grid;grid-template-columns:130px 1fr;gap:4px 14px;margin:10px 0;font-size:14px}
+  .grid2 .k{color:var(--soft);font-weight:600}
+  ol.steps{margin:8px 0;padding-left:22px}
+  ol.steps li{margin:5px 0}
+  ul.tight{margin:6px 0;padding-left:20px}
+  ul.tight li{margin:3px 0}
+  .footer{margin-top:50px;color:var(--soft);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+  .effort{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#eef1f5;color:#33405a;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Three-Agent Communication: Release Plan</h1>
+  <div class="sub">Claude Code &nbsp;+&nbsp; Codex &nbsp;+&nbsp; Pi &nbsp;|&nbsp; Goal: start them, they always find each other, and they communicate every way possible - then cut a release.</div>
+</header>
+
+<p class="lead">Scope is deliberately narrow: make these three agents excellent at talking to each other.
+Start any of them, they discover each other instantly, send messages, ask and get answers, see what the
+others are doing, and read each other's history - on one machine today, across machines through the
+Gateway. This plan lists exactly what already works, what is missing, and the work to a release.</p>
+
+<div class="callout done">
+  <strong>The plumbing already exists.</strong> Sessions reach each other through their own Director with
+  no token: <code>cc-sessions</code> (list the fleet), <code>cc-whoami</code> (your id),
+  <code>cc-send</code> (one-way message, or <code>all</code>), <code>cc-ask</code> (ask and wait for the
+  answer), <code>cc-spawn</code> (open a session). A message is delivered into the recipient as a framed
+  prompt; <code>cc-ask</code> reads the reply from the recipient's terminal once it returns to idle. The
+  fleet preamble injected at launch tells each agent these commands exist. The gaps are about making all
+  three <em>equally good</em> at every one of these.</p>
+</div>
+
+<h2>1. How the communication actually works (so the gaps make sense)</h2>
+<ul class="tight">
+  <li><strong>Discovery</strong> is the fleet list. On one Director, <code>cc-sessions</code> shows every
+  session; across machines, each Director relays to the Gateway which aggregates. An agent only knows to
+  use it because the <strong>fleet preamble</strong> was injected at launch.</li>
+  <li><strong>Send</strong> (<code>cc-send</code>) frames your message with your identity and delivers it
+  into the target as a prompt. This depends on the target's <strong>submit path</strong> working (typing
+  the text and pressing Enter reliably).</li>
+  <li><strong>Ask</strong> (<code>cc-ask</code>) sends the question the same way, then waits for the
+  target to leave and return to Idle and reads everything it printed in between (ANSI cleaned). So
+  <code>cc-ask</code> needs two things from the target: a working <strong>submit</strong> and accurate
+  <strong>Working/Idle detection</strong>. It does NOT need transcript parsing.</li>
+  <li><strong>Read history</strong> (past turns of another session) is the one thing that needs a
+  <strong>transcript reader</strong> for that agent.</li>
+</ul>
+<div class="callout">
+  <strong>Correction worth stating:</strong> earlier notes said "cc-ask only works for Claude because of
+  TranscriptRead". That is the standalone hosted-ask path. The <em>fleet</em> <code>cc-ask</code> is
+  buffer-based and works for any agent whose submit and idle-detection work. Transcript reading is for
+  history, not for asking.
+</div>
+
+<h2>2. Readiness matrix for the three (current vs target)</h2>
+<div class="legend">
+  <span class="have">HAVE</span><span class="partial">PARTIAL / RISK</span>
+  <span class="missing">MISSING</span><span class="target">TARGET = all HAVE</span>
+</div>
+<div class="scroll">
+<table>
+<thead><tr>
+  <th>Communication capability</th><th>Claude Code</th><th>Codex</th><th>Pi</th><th>What "done" needs</th>
+</tr></thead>
+<tbody>
+  <tr><th>Knows the fleet at launch (preamble + commands)</th>
+    <td class="have ctr">HAVE</td><td class="have ctr">HAVE</td><td class="missing ctr">MISSING</td>
+    <td>Pi fleet-preamble extension</td></tr>
+  <tr><th>Always discoverable (appears in cc-sessions)</th>
+    <td class="have ctr">HAVE</td><td class="have ctr">HAVE</td><td class="have ctr">HAVE</td>
+    <td>works once Pi knows to look</td></tr>
+  <tr><th>Receives messages reliably (cc-send delivers)</th>
+    <td class="have ctr">HAVE</td><td class="have ctr">HAVE</td><td class="partial ctr">RISK</td>
+    <td>Pi echo-verified submit</td></tr>
+  <tr><th>Answers questions cleanly (cc-ask)</th>
+    <td class="have ctr">HAVE</td><td class="partial ctr">PARTIAL</td><td class="partial ctr">RISK</td>
+    <td>Pi submit; cleaner answer for TUI agents</td></tr>
+  <tr><th>Status visible (running/working/waiting)</th>
+    <td class="have ctr">HAVE</td><td class="have ctr">HAVE</td><td class="have ctr">HAVE</td>
+    <td>already in cc-sessions</td></tr>
+  <tr><th>"What are you doing" (live summary)</th>
+    <td class="partial ctr">PARTIAL</td><td class="partial ctr">PARTIAL</td><td class="partial ctr">PARTIAL</td>
+    <td>a cc-status command (new)</td></tr>
+  <tr><th>History readable by others (past turns)</th>
+    <td class="have ctr">HAVE</td><td class="partial ctr">PARTIAL</td><td class="missing ctr">MISSING</td>
+    <td>Codex: declare capability; Pi: build a reader</td></tr>
+  <tr><th>ask-and-read tool works on Windows</th>
+    <td class="partial ctr">BUG</td><td class="partial ctr">BUG</td><td class="partial ctr">BUG</td>
+    <td>fix cc-ask Unicode print crash (all targets)</td></tr>
+</tbody>
+</table>
+</div>
+<p class="sub">Codex "PARTIAL" on cc-ask/history: the answer is readable but scraped from a heavy TUI
+buffer, and Codex's transcript reader exists but is not declared as a capability. Pi "RISK" on send/ask:
+its submit is blind (the same dropped-Enter class of bug we just fixed for Codex), so it needs the
+echo-verified submit before delivery is reliable.</p>
+
+<h2>3. What we are missing (the gap list)</h2>
+<p>Eight items take the three from "mostly works" to "excellent in every direction". Effort tags are
+rough: S = small, M = medium, L = larger.</p>
+
+<div class="card">
+  <h3>G1. Pi fleet preamble <span class="pill todo">MISSING</span><span class="effort">M</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">Without it, a Pi session does not know it can list/message the fleet - it cannot "always find" Claude and Codex. This is the single most important gap for Pi.</div>
+    <div class="k">How</div><div class="v">Family C: ship a small Pi TypeScript extension (loaded from <code>~/.pi/agent/</code>) that on <code>session_start</code> fetches <code>GET /sessions/{id}/fleet-preamble</code> using the injected <code>CC_DIRECTOR_API</code> + <code>CC_SESSION_ID</code> and injects it via <code>before_agent_start</code>; re-injects on <code>/new</code> (<code>session_start</code> reason=new) and on compaction. A <code>PiExtensionInstaller</code> drops/updates it on Pi launch (idempotent), mirroring <code>ClaudeHookInstaller</code> / <code>CodexHookInstaller</code>.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G2. Pi echo-verified submit <span class="pill todo">RISK</span><span class="effort">S</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v"><code>PiDriver.SubmitAsync</code> is a blind submit ("composer echo layout is unverified, so no echo gate yet"). That is exactly the bug that parked every programmatic prompt for Codex. If Pi drops the Enter, <code>cc-send</code> and <code>cc-ask</code> into Pi silently fail.</div>
+    <div class="k">How</div><div class="v">Reuse the shared echo-verified submit (extracted from ClaudeDriver/CodexDriver): type, wait for Pi's composer to echo the text, then a separate Enter. First verify live whether Pi even needs it; adopt if it drops the blind Enter.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G3. Codex: declare TranscriptRead <span class="pill small">PARTIAL</span><span class="effort">S</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">CodexTranscriptReader is built and tested but the driver does not declare the capability, so the uniform "read this session's history" path treats Codex as unreadable even though the data is there.</div>
+    <div class="k">How</div><div class="v">Wire CodexDriver's ReadWidgets/ReadUsage/ListTranscripts to the existing reader and add <code>DriverCapabilities.TranscriptRead</code>. Cheap unlock for clean ask answers and history.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G4. Pi transcript reader <span class="pill todo">MISSING</span><span class="effort">L</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">Pi's conversation is JSONL under <code>~/.pi/agent/sessions/</code> but unparsed, so "look at Pi's history" and clean ask-answer extraction are impossible.</div>
+    <div class="k">How</div><div class="v">Reverse-engineer the Pi JSONL schema from a real session, write a <code>PiTranscriptReader</code> (same shape as Claude/Codex readers), declare <code>TranscriptRead</code>, and surface it through SessionHistoryReader / the History tab.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G5. Fix the cc-ask Windows print crash <span class="pill todo">BUG</span><span class="effort">S</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">The data round-trip works, but <code>cc-ask</code> crashes while printing the answer on Windows (a Unicode encoding error on a prompt glyph). It exits with an error even though the answer arrived, which reads as "broken".</div>
+    <div class="k">How</div><div class="v">Force UTF-8 / ASCII-safe console output in the cc-ask Python tool (and audit the other cc-* tools for the same). This makes "ask and read the answer" clean for all three.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G6. Cleaner ask-answers for TUI agents <span class="pill small">PARTIAL</span><span class="effort">M</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">cc-ask scrapes the terminal buffer. For Claude that is clean; for Codex/Pi the answer is interleaved with heavy TUI repaint, so the returned text is noisy.</div>
+    <div class="k">How</div><div class="v">When the target has a transcript reader (Claude now, Codex after G3, Pi after G4), read the last assistant message from the transcript instead of the buffer scrape. Falls back to the buffer when no reader exists. Gives crisp answers across all three.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G7. "Know what each other are doing": cc-status <span class="pill todo">NEW</span><span class="effort">M</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">cc-sessions shows running/working/waiting, but not <em>what</em> a session is working on. The Director already computes per-session summaries and briefs.</div>
+    <div class="k">How</div><div class="v">Add a <code>cc-status &lt;id|all&gt;</code> tool that surfaces, per session: activity state, current repo/branch, and the latest one-line summary (from the existing <code>/sessions/{id}/summary</code> or turn-summaries). Optionally a <code>--watch</code> that streams changes. This is read-only and works for any agent.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>G8. "Look at their history": cc-history <span class="pill todo">NEW</span><span class="effort">M</span></h3>
+  <div class="grid2">
+    <div class="k">Why</div><div class="v">An agent should be able to read another session's recent conversation, not just ask it a live question.</div>
+    <div class="k">How</div><div class="v">Add a <code>cc-history &lt;id&gt; [--last N]</code> tool that returns the last N turns of a target session via the transcript readers (Claude, then Codex G3, then Pi G4). Read-only; the relay goes through the Director like the other cc-* tools.</div>
+  </div>
+</div>
+
+<h2>4. Per-agent: what is left</h2>
+
+<div class="card">
+  <h3>Claude Code <span class="pill done">essentially complete</span></h3>
+  <ul class="tight">
+    <li>Fleet preamble wired; discoverable; receives and answers; history readable.</li>
+    <li>Only shared item: benefits from G5 (cc-ask print fix) and gains G7/G8 as new tools.</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>Codex <span class="pill small">two small unlocks</span></h3>
+  <ul class="tight">
+    <li>Fleet preamble wired; submit fixed; discoverable; receives and answers.</li>
+    <li>G3 (declare TranscriptRead) - small. Then G6 makes its ask-answers crisp and G8 reads its history.</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>Pi <span class="pill todo">the bulk of the work</span></h3>
+  <ul class="tight">
+    <li>G1 fleet preamble extension - so Pi can find and address the others (most important).</li>
+    <li>G2 echo-verified submit - so messages and asks actually deliver into Pi.</li>
+    <li>G4 transcript reader - so others can read Pi's history and get clean ask-answers.</li>
+    <li>After these three, Pi is a first-class peer to Claude and Codex.</li>
+  </ul>
+</div>
+
+<h2>5. Release plan</h2>
+<div class="callout">
+  <strong>Release definition of done:</strong> on one machine, start Claude + Codex + Pi; each appears in
+  the others' <code>cc-sessions</code>; every ordered pair can <code>cc-send</code> and
+  <code>cc-ask</code> successfully; <code>cc-status</code> shows what each is doing; <code>cc-history</code>
+  reads each one's recent turns; and a single self-test proves all of it.
+</div>
+<ol class="steps">
+  <li><strong>Land the cross-cutting bits first:</strong> shared echo-verified submit helper (used by G2), and G5 (cc-ask print fix).</li>
+  <li><strong>Codex unlocks:</strong> G3 (declare TranscriptRead).</li>
+  <li><strong>Pi to parity:</strong> G1 (preamble extension), G2 (submit), G4 (transcript reader).</li>
+  <li><strong>Crisp comms:</strong> G6 (transcript-based ask answers), then the new tools G7 (cc-status) and G8 (cc-history).</li>
+  <li><strong>Three-way verification:</strong> extend <code>cc-fleet-selftest</code> into a trio test - spawn Claude, Codex, Pi; run send/ask/status/history across all six ordered pairs; assert PASS. Run it live before tagging.</li>
+  <li><strong>Cut the release:</strong> version bump and release notes ("super communication between Claude Code, Codex, and Pi: start, discover, message, ask, status, history - all directions").</li>
+</ol>
+
+<h2>6. Stretch (nice, not required for the release)</h2>
+<ul class="tight">
+  <li><strong>Start the trio in one shot:</strong> a convenience that spawns Claude + Codex + Pi as a named
+  group (the Director already has session groups) so "start my three" is one action and they boot
+  knowing they are a team.</li>
+  <li><strong>Subscribe to a peer:</strong> a <code>cc-watch &lt;id&gt;</code> that pushes a short note to
+  you when a peer finishes a turn or needs input - "know what each other are doing" without polling.</li>
+  <li><strong>Cross-machine:</strong> the same flows already relay through the Gateway, so the trio works
+  across machines once each Director is attached - verify as a follow-up.</li>
+</ul>
+
+<h2>7. Risks and checks</h2>
+<ul class="tight">
+  <li><strong>Pi submit may or may not need the echo gate</strong> - verify live before assuming; cheap either way.</li>
+  <li><strong>Pi JSONL schema is undocumented</strong> - the transcript reader (G4) needs a real session
+  file to reverse-engineer; this is the largest single item.</li>
+  <li><strong>TUI answer noise</strong> - until G6, Codex/Pi ask-answers are buffer scrapes; acceptable but
+  not crisp.</li>
+  <li><strong>Idle-detection accuracy</strong> - cc-ask relies on Working->Idle; confirm it is reliable
+  for Pi (Pi's continuous-output behaviour, if any) so asks do not time out or return early.</li>
+  <li><strong>All three installed</strong> - Claude and Codex are confirmed on this machine; confirm Pi is
+  installed before the live trio test.</li>
+</ul>
+
+<div class="footer">
+  Current-state source: <code>FleetMessaging</code> / the <code>/fleet/*</code> endpoints,
+  <code>PiDriver</code> / <code>CodexDriver</code> / <code>ClaudeDriver</code>, the <code>*AgentPlugin</code>
+  classes, and the in-repo <code>agent-expert</code> skill. Planning document only - no code changes implied.
+</div>
+
+</div>
+</body>
+</html>

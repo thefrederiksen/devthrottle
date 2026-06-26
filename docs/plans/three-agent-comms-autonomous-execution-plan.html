@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autonomous Execution Plan - Three-Agent Communication</title>
+<style>
+  :root{
+    --have:#1b7f3b; --have-bg:#e4f5e9;
+    --partial:#8a6d00; --partial-bg:#fbf2cf;
+    --missing:#9b1c1c; --missing-bg:#fbe3e3;
+    --na:#5b6470; --na-bg:#eceef1;
+    --target:#0b4f8a; --target-bg:#e1eefb;
+    --ink:#1c2330; --soft:#5b6470; --line:#d8dde4; --bg:#f6f7f9; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;line-height:1.55;font-size:15px}
+  .wrap{max-width:1120px;margin:0 auto;padding:32px 24px 80px}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  h1{font-size:29px;margin:0 0 4px}
+  h2{font-size:22px;margin:42px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:18px;margin:22px 0 8px}
+  .sub{color:var(--soft);font-size:14px}
+  p{margin:10px 0}
+  code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:13px;font-family:Consolas,Menlo,monospace}
+  .lead{font-size:16px}
+  .callout{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--target);padding:14px 16px;border-radius:8px;margin:16px 0}
+  .callout.warn{border-left-color:var(--partial)}
+  .callout.done{border-left-color:var(--have)}
+  .callout.stop{border-left-color:var(--missing)}
+  table{border-collapse:collapse;width:100%;background:var(--card);font-size:13px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .scroll{overflow-x:auto;margin:14px 0}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  thead th{background:#2b3340;color:#fff;font-weight:600;white-space:nowrap}
+  tbody th{background:#f0f2f5;white-space:nowrap;font-weight:700}
+  .have{background:var(--have-bg);color:var(--have);font-weight:700;text-align:center}
+  .partial{background:var(--partial-bg);color:var(--partial);font-weight:700;text-align:center}
+  .missing{background:var(--missing-bg);color:var(--missing);font-weight:700;text-align:center}
+  .na{background:var(--na-bg);color:var(--na);text-align:center}
+  .target{background:var(--target-bg);color:var(--target);font-weight:700;text-align:center}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .legend span{font-size:12px;padding:3px 9px;border-radius:12px;font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card h3{margin-top:0}
+  .phase{border-left:5px solid var(--target)}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px;margin-left:6px;vertical-align:middle}
+  .pill.gate{background:var(--have-bg);color:var(--have)}
+  .pill.effort{background:#eef1f5;color:#33405a}
+  ol.steps{margin:8px 0;padding-left:22px}
+  ol.steps li{margin:5px 0}
+  ul.tight{margin:6px 0;padding-left:20px}
+  ul.tight li{margin:3px 0}
+  .kv{display:grid;grid-template-columns:128px 1fr;gap:4px 14px;margin:8px 0;font-size:14px}
+  .kv .k{color:var(--soft);font-weight:600}
+  .toc{columns:2;font-size:14px}
+  .toc a{color:var(--target);text-decoration:none}
+  .footer{margin-top:50px;color:var(--soft);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+  .tag{font-family:Consolas,monospace;font-size:12px;background:#2b3340;color:#fff;padding:1px 6px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Autonomous Execution Plan: Three-Agent Communication</h1>
+  <div class="sub">Claude Code + Codex + Pi &nbsp;|&nbsp; Close every gap, prove each capability with tests, run start-to-finish without stopping, and emit a large QA HTML report at the end.</div>
+</header>
+
+<p class="lead">This is the runbook a machine follows. It turns the gap list into ordered phases, each
+gated by automated tests, with pre-decided answers to every choice so it never has to pause for a human.
+It ends by generating a QA report that shows, per capability per agent, PASS with evidence, or
+NOT POSSIBLE with the reason it genuinely cannot be done.</p>
+
+<div class="callout">
+  <strong>Two honest outcomes only.</strong> For each capability and each agent the run produces exactly
+  one of: <span class="have" style="padding:1px 6px;border-radius:4px">PASS</span> (proven by a test and a
+  captured artifact) or <span class="missing" style="padding:1px 6px;border-radius:4px">NOT POSSIBLE</span>
+  (the agent's CLI genuinely lacks the mechanism, cited from the agent-expert reference). A third,
+  temporary state <span class="partial" style="padding:1px 6px;border-radius:4px">BLOCKED-BY-ENV</span>
+  (e.g. a CLI is not installed) is allowed only while the environment is being fixed; it must resolve to
+  PASS or NOT POSSIBLE before the report is final.
+</div>
+
+<h2 id="toc">Contents</h2>
+<div class="toc">
+  <a href="#autonomy">1. Autonomy model (how it never stops)</a><br>
+  <a href="#decisions">2. Pre-decided decisions</a><br>
+  <a href="#capabilities">3. Capability inventory (what the QA proves)</a><br>
+  <a href="#testing">4. Test strategy (the proof layers)</a><br>
+  <a href="#phases">5. The phases</a><br>
+  <a href="#notpossible">6. The NOT-POSSIBLE rule</a><br>
+  <a href="#report">7. The final QA HTML report</a><br>
+  <a href="#runbook">8. Orchestration runbook</a><br>
+  <a href="#dod">9. Definition of done</a><br>
+</div>
+
+<h2 id="autonomy">1. Autonomy model - how it runs without stopping</h2>
+<ul class="tight">
+  <li><strong>Phases are gated by tests, not by humans.</strong> A phase proceeds only when its test suite
+  is green. Nothing waits for approval.</li>
+  <li><strong>Every choice is pre-decided</strong> (section 2). The runner never reaches an "ask the user"
+  branch; if it would, that is a planning bug, and the pre-decisions list is extended.</li>
+  <li><strong>Failure handling is bounded fix-retry, then classify.</strong> On a failing gate the runner
+  attempts a fix and re-runs the gate up to <span class="tag">MAX_FIX_ATTEMPTS = 3</span>. If still
+  failing, it classifies: a <em>bug in our code</em> is logged and the phase is marked
+  <span class="tag">DEFERRED</span> (run continues; the QA report lists it); a <em>genuine feature gap</em>
+  is recorded as NOT POSSIBLE with a citation and the run continues. It never halts the whole run for one
+  capability.</li>
+  <li><strong>Resumable.</strong> Phase status is written to a state file
+  (<span class="tag">docs/cencon/proof/three-agent-comms/run-state.json</span>). A restart skips completed
+  phases. This is what lets the run survive a crash or a context reset and keep going.</li>
+  <li><strong>Self-contained environment.</strong> The runner builds to its own test slots, launches test
+  Directors, spawns and tears down its own sessions, and cleans up - all without touching the user's
+  Directors (section 2, D-6 / D-7).</li>
+  <li><strong>Progress is observable.</strong> Each phase appends a line to a run log and updates the state
+  file, so the user can watch without intervening.</li>
+</ul>
+
+<h2 id="decisions">2. Pre-decided decisions (so it never asks)</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>ID</th><th>Decision</th><th>Resolution</th></tr></thead>
+<tbody>
+  <tr><td>D-1</td><td>Where global agent config is written (hooks, extensions, instruction files)</td><td>Merge into the user's per-agent config (never clobber): Codex <code>~/.codex/hooks.json</code>, Pi <code>~/.pi/agent/</code> extension. Idempotent, atomic. Acceptable for dev.</td></tr>
+  <tr><td>D-2</td><td>Pi submit: blind vs echo-verified</td><td>Verify live once; if Pi drops the blind Enter, adopt the shared echo-verified submit. Default to adopting it (safe).</td></tr>
+  <tr><td>D-3</td><td>Pi preamble per-session id source</td><td>The extension reads <code>CC_SESSION_ID</code> + <code>CC_DIRECTOR_API</code> from the environment the Director injects (same as Claude/Codex). No static file.</td></tr>
+  <tr><td>D-4</td><td>ask-answer source for TUI agents</td><td>Prefer the transcript reader when present (Claude; Codex after Phase 2; Pi after Phase 3); fall back to the buffer scrape otherwise.</td></tr>
+  <tr><td>D-5</td><td>New cc-* tools (cc-status, cc-history)</td><td>Build them; they are read-only and relay through the owning Director like the existing tools.</td></tr>
+  <tr><td>D-6</td><td>Test Director slots</td><td>The runner uses slots 8 and 9 only. It never builds to, launches, or stops slots 0-7 or the main build.</td></tr>
+  <tr><td>D-7</td><td>Test Director lifecycle</td><td>Launch test Directors via the Windows Task Scheduler (so spawned Claude sessions survive the nested-pseudoconsole exit). The runner stops ONLY its own slot-8/9 processes after confirming the exe path, at end of run. (If you prefer the standing "never stop a Director" rule, set <code>RUNNER_SELF_CLEANUP=false</code> and the report lists PIDs for manual close instead - but then the run leaves processes behind.)</td></tr>
+  <tr><td>D-8</td><td>Pi not installed</td><td>If Pi is absent, attempt the documented install once; if that fails, mark Pi capabilities BLOCKED-BY-ENV and continue with Claude+Codex. Do not halt.</td></tr>
+  <tr><td>D-9</td><td>Commit / release</td><td>The run commits each phase to a feature branch with passing tests; it does NOT push, open a pull request, or tag a release without a final explicit go. (Code lands locally; shipping stays a human action.)</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="capabilities">3. Capability inventory - exactly what the QA report proves</h2>
+<p>These are the proof points. Each becomes a row in the QA matrix, evaluated for each agent (and, for the
+round-trips, for each ordered pair).</p>
+<div class="scroll">
+<table>
+<thead><tr><th>#</th><th>Capability</th><th>How it is proven</th></tr></thead>
+<tbody>
+  <tr><td>C1</td><td>Discoverable - the agent appears in a peer's <code>cc-sessions</code></td><td>Spawn all three; assert each id/name shows in the fleet list returned to the others.</td></tr>
+  <tr><td>C2</td><td>Knows the fleet at launch - preamble injected</td><td>Inspect the agent's context (transcript / rollout / extension log) for the preamble marker after launch.</td></tr>
+  <tr><td>C3</td><td>Re-knows after reset - preamble re-injected on clear and compact</td><td>Trigger clear and compact; count preamble injections (must increase).</td></tr>
+  <tr><td>C4</td><td>Receives a message - <code>cc-send</code> delivers and the agent processes it</td><td>cc-send a sentinel; assert the agent acts on it (turn runs / sentinel echoed).</td></tr>
+  <tr><td>C5</td><td>Answers a question - <code>cc-ask</code> returns the agent's answer</td><td>cc-ask a question with a known answer; assert the returned answer contains it.</td></tr>
+  <tr><td>C6</td><td>Reports status - <code>cc-status</code> returns activity + a summary</td><td>Run cc-status against the agent mid-task; assert state + non-empty summary.</td></tr>
+  <tr><td>C7</td><td>History readable - <code>cc-history</code> returns recent turns</td><td>Run a known turn, then cc-history; assert the turn appears.</td></tr>
+  <tr><td>C8</td><td>Sends to a peer - the agent itself runs <code>cc-send</code></td><td>Instruct agent A to cc-send agent B; assert B receives it.</td></tr>
+  <tr><td>C9</td><td>Asks a peer - the agent itself runs <code>cc-ask</code> and uses the answer</td><td>Instruct A to cc-ask B a question; assert A reports B's answer.</td></tr>
+  <tr><td>C10</td><td>Round-trip - A asks B, B answers, A acts - for all 6 ordered pairs</td><td>The six-pair matrix; every ordered pair of the three must pass.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="testing">4. Test strategy - the proof layers</h2>
+<div class="card">
+  <h3>Layer 1 - Unit tests (xUnit, in the solution)</h3>
+  <ul class="tight">
+    <li>Each installer (Pi extension, Codex capability, readers) and helper (shared echo-verified submit) gets focused unit tests, same style as <code>CodexHookInstallerTests</code> / <code>CodexDriverTests</code>.</li>
+    <li>Transcript readers are tested against captured sample files (a real Pi JSONL, a real Codex rollout) checked into the proof folder.</li>
+    <li>Gate: <code>dotnet test</code> for the touched projects is green.</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>Layer 2 - Integration tests (Control API, single process)</h3>
+  <ul class="tight">
+    <li>Spin the Control API in-process where possible; exercise <code>/fleet/*</code>, <code>/sessions/{id}/fleet-preamble</code>, the new cc-status / cc-history endpoints with fakes.</li>
+    <li>Gate: integration suite green.</li>
+  </ul>
+</div>
+<div class="card">
+  <h3>Layer 3 - Live trio end-to-end (the real proof)</h3>
+  <ul class="tight">
+    <li>Build to a test slot, launch a test Director via Task Scheduler, spawn real Claude + Codex + Pi.</li>
+    <li>Drive the capability inventory C1-C10 against the live sessions, capturing an evidence artifact for every assertion (a rollout/transcript excerpt, a cc-* output, a buffer snapshot).</li>
+    <li>The six-pair round-trip (C10) is the headline test: for each ordered pair (Claude-Codex, Claude-Pi, Codex-Claude, Codex-Pi, Pi-Claude, Pi-Codex) prove send + ask succeed.</li>
+    <li>Gate: every capability is PASS or a justified NOT POSSIBLE.</li>
+  </ul>
+</div>
+
+<h2 id="phases">5. The phases</h2>
+
+<div class="card phase">
+  <h3>Phase 0 - Pre-flight and scaffolding <span class="pill effort">S</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">A clean, resumable run environment and an evidence collector.</div></div>
+  <ol class="steps">
+    <li>Detect the three CLIs and versions; record them. If Pi is missing, apply D-8.</li>
+    <li>Create the proof folder <code>docs/cencon/proof/three-agent-comms/</code> with <code>run-state.json</code>, <code>run.log</code>, and an <code>evidence/</code> directory.</li>
+    <li>Create the feature branch.</li>
+  </ol>
+  <div class="kv"><div class="k">Gate</div><div class="v">State file initialised; branch created; versions recorded.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 1 - Cross-cutting code <span class="pill effort">M</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">Shared helpers used by later phases, and the honest "not possible" mechanism.</div></div>
+  <ol class="steps">
+    <li>Extract the echo-verified submit into <code>TerminalSubmit.EchoVerifiedAsync(...)</code>; refactor ClaudeDriver and CodexDriver to call it (behaviour unchanged; tests stay green).</li>
+    <li>Add a plugin-owned <code>FleetPreambleStrategy</code> + <code>Status</code> declaration so every agent states how it injects, or that it cannot, and surface it on the session DTO.</li>
+    <li>Add the cc-ask Windows print fix (ASCII-safe console) - small and unblocks clean ask output.</li>
+  </ol>
+  <div class="kv"><div class="k">Tests</div><div class="v">Unit: shared submit helper; strategy declaration present for all built-ins. Regression: existing Claude/Codex submit tests still pass.</div></div>
+  <div class="kv"><div class="k">Gate</div><div class="v">Touched projects green; existing suites unbroken.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 2 - Codex unlocks <span class="pill effort">S</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">Codex history and clean ask-answers.</div></div>
+  <ol class="steps">
+    <li>Wire <code>CodexDriver</code> Read* methods to the existing <code>CodexTranscriptReader</code> and declare <code>DriverCapabilities.TranscriptRead</code>.</li>
+  </ol>
+  <div class="kv"><div class="k">Tests</div><div class="v">Unit: CodexDriver now reads a captured rollout into turns; capability flag asserted. Integration: cc-history returns Codex turns.</div></div>
+  <div class="kv"><div class="k">Gate</div><div class="v">Codex history readable via the uniform path.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 3 - Pi to parity <span class="pill effort">L</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">Pi becomes a first-class peer: knows the fleet, receives reliably, and is readable.</div></div>
+  <ol class="steps">
+    <li><strong>G2 submit:</strong> verify Pi's composer live; if it drops the blind Enter, switch <code>PiDriver.SubmitAsync</code> to the shared echo-verified submit.</li>
+    <li><strong>G1 preamble:</strong> author the Pi fleet-preamble extension + <code>PiExtensionInstaller</code> (drops it into <code>~/.pi/agent/</code> on launch; idempotent); SessionManager installs it for Pi sessions.</li>
+    <li><strong>G4 reader:</strong> capture a real Pi JSONL, reverse-engineer the schema, write <code>PiTranscriptReader</code>, declare <code>TranscriptRead</code>, surface via SessionHistoryReader.</li>
+  </ol>
+  <div class="kv"><div class="k">Tests</div><div class="v">Unit: PiExtensionInstaller (writes/idempotent/preserves), PiTranscriptReader (against the captured sample), Pi submit. Live: preamble present in a Pi session and re-injected on <code>/new</code> and <code>/compact</code>.</div></div>
+  <div class="kv"><div class="k">Gate</div><div class="v">Pi: C2, C3, C4, C7 provable.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 4 - Comms quality and new tools <span class="pill effort">M</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">Crisp answers and the two new visibility tools.</div></div>
+  <ol class="steps">
+    <li><strong>G6:</strong> ask-answer extraction prefers the transcript when a reader exists (D-4).</li>
+    <li><strong>G7 cc-status:</strong> new tool + endpoint returning activity state, repo/branch, and the latest summary.</li>
+    <li><strong>G8 cc-history:</strong> new tool + endpoint returning the last N turns via the transcript readers.</li>
+  </ol>
+  <div class="kv"><div class="k">Tests</div><div class="v">Unit + integration for both tools; ask-answer crispness checked against a transcript-backed agent.</div></div>
+  <div class="kv"><div class="k">Gate</div><div class="v">C5 crisp; C6 and C7 implemented for all readers.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 5 - Live trio verification <span class="pill effort">L</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">Prove the whole matrix on real sessions.</div></div>
+  <ol class="steps">
+    <li>Build to slot 8, launch via Task Scheduler, spawn Claude + Codex + Pi.</li>
+    <li>Run C1-C9 for each agent, capturing an evidence artifact per assertion.</li>
+    <li>Run C10 - the six ordered pairs - send + ask each way; capture transcripts of each round-trip.</li>
+    <li>Tear down sessions; stop slot 8 (D-7).</li>
+  </ol>
+  <div class="kv"><div class="k">Gate</div><div class="v">Every capability is PASS or a justified NOT POSSIBLE; all evidence written to <code>evidence/</code>.</div></div>
+</div>
+
+<div class="card phase">
+  <h3>Phase 6 - QA report generation <span class="pill effort">M</span></h3>
+  <div class="kv"><div class="k">Goal</div><div class="v">The large, human-readable QA HTML report (section 7).</div></div>
+  <ol class="steps">
+    <li>Collect unit/integration results and the live evidence into one dataset.</li>
+    <li>Render <code>three-agent-comms-qa-report.html</code> with the capability x agent matrix, per-cell evidence, and NOT-POSSIBLE reasons.</li>
+    <li>Open it; write the final run-state summary.</li>
+  </ol>
+  <div class="kv"><div class="k">Gate</div><div class="v">Report exists, every cell is PASS or NOT POSSIBLE (no BLOCKED-BY-ENV remaining), every PASS links real evidence.</div></div>
+</div>
+
+<h2 id="notpossible">6. The NOT-POSSIBLE rule (the honesty gate)</h2>
+<p>A cell may be marked NOT POSSIBLE only when all of the following hold, so "we gave up" can never
+masquerade as "the agent cannot":</p>
+<ul class="tight">
+  <li>The agent's CLI has no documented mechanism for the capability, cited from the
+  <code>agent-expert</code> reference (file + line/section), AND</li>
+  <li>A live probe confirms the mechanism is absent or inert on the installed binary (e.g. the Grok-style
+  "hook output is ignored" finding), AND</li>
+  <li>No alternative family (A/B/C/D) achieves it either.</li>
+</ul>
+<p>For these three agents we expect very few NOT-POSSIBLE cells - the inventory is achievable for Claude,
+Codex and Pi. The rule exists so that if, say, Pi's idle-detection proves fundamentally unreliable for a
+clean <code>cc-ask</code>, the report says exactly that, with the probe that shows it, rather than a green
+cell that is really flaky.</p>
+
+<h2 id="report">7. The final QA HTML report</h2>
+<div class="callout done">
+  <strong>Deliverable:</strong> <code>docs/plans/three-agent-comms-qa-report.html</code> - a standalone,
+  human-readable report proving the cross-communication.
+</div>
+<p>Structure:</p>
+<ul class="tight">
+  <li><strong>Verdict banner</strong> - "N of 10 capabilities PASS for all three agents", run date, binary versions.</li>
+  <li><strong>The headline matrix</strong> - rows = C1-C10, columns = Claude / Codex / Pi, each cell PASS
+  (with an "evidence" link) or NOT POSSIBLE (with the cited reason). Colour + text, no symbols.</li>
+  <li><strong>The six-pair round-trip grid</strong> - a 3x3 (minus diagonal) showing each ordered pair's
+  send and ask result, each linking the captured round-trip transcript.</li>
+  <li><strong>Per-capability sections</strong> - for each C#, what was tested, the exact assertion, and the
+  evidence artifact (a rollout/transcript excerpt, a cc-* output block) inline.</li>
+  <li><strong>NOT-POSSIBLE appendix</strong> - any cell that could not be done, with the citation and the
+  live probe output that proves the feature is absent.</li>
+  <li><strong>Test ledger</strong> - every unit/integration test name and result that backs the matrix.</li>
+</ul>
+
+<h2 id="runbook">8. Orchestration runbook (the loop the runner follows)</h2>
+<ol class="steps">
+  <li>Load <code>run-state.json</code>; determine the first incomplete phase.</li>
+  <li>For that phase: do the work, run the phase tests (the gate).</li>
+  <li>If green: mark the phase COMPLETE, commit (D-9), append to the log, advance.</li>
+  <li>If red: fix-retry up to MAX_FIX_ATTEMPTS; then classify DEFERRED (bug) or NOT POSSIBLE (feature gap) and advance - never halt.</li>
+  <li>Repeat until Phase 6 emits the QA report.</li>
+  <li>Stop only at the very end (or on a true environment block it cannot self-resolve, which it records and continues past where possible).</li>
+</ol>
+<p class="sub">This loop can be driven directly by the agent in a sustained run, by the <code>/loop</code>
+skill (self-paced), or as a multi-agent workflow. The state file makes any of them resumable.</p>
+
+<h2 id="dod">9. Definition of done</h2>
+<ul class="tight">
+  <li>Phases 0-6 COMPLETE (or their gaps classified) in <code>run-state.json</code>.</li>
+  <li>All new code committed to the feature branch with green unit + integration suites.</li>
+  <li>The live trio test ran and captured evidence for C1-C10.</li>
+  <li>The QA report exists, every cell is PASS or NOT POSSIBLE, every PASS links real evidence, and the
+  three agents demonstrably start, find each other, message, ask, report status, and read history - in all
+  directions that are possible.</li>
+  <li>Pushing the branch, opening a pull request, and tagging the release remain the only human steps (D-9).</li>
+</ul>
+
+<div class="footer">
+  Inputs: the gap list and readiness matrix from <code>three-agent-communication-release-plan.html</code>;
+  current-state facts from <code>FleetMessaging</code>, the <code>/fleet/*</code> endpoints, the driver and
+  plugin classes, and the in-repo <code>agent-expert</code> skill. This document is the execution plan; it
+  authorises the autonomous run described, within the pre-decided decisions in section 2.
+</div>
+
+</div>
+</body>
+</html>

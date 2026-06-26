@@ -1,0 +1,18 @@
+{
+  "run": "three-agent-communication",
+  "branch": "three-agent-communication",
+  "binaries": { "claude": "2.1.195", "codex": "0.141.0", "pi": "0.79.4" },
+  "testSlots": [8, 9],
+  "selfCleanupAuthorized": true,
+  "maxFixAttempts": 3,
+  "phases": {
+    "0_preflight":        { "status": "COMPLETE", "note": "all three CLIs installed; branch + proof dirs created" },
+    "1_crosscutting":     { "status": "COMPLETE", "note": "TerminalSubmit helper + CodexDriver refactor + ClaudeDriver dedup; FleetPreambleStrategy declared (Claude/Codex/Pi); cc-ask UTF-8 fix. 114 driver/plugin tests green." },
+    "2_codex_unlocks":    { "status": "IN_PROGRESS", "items": ["CodexDriver TranscriptRead"] },
+    "3_pi_parity":        { "status": "PENDING", "items": ["Pi echo-verified submit", "Pi fleet-preamble extension", "PiTranscriptReader"] },
+    "4_comms_quality":    { "status": "PENDING", "items": ["transcript-based ask answers", "cc-status", "cc-history"] },
+    "5_live_trio":        { "status": "PENDING", "items": ["C1-C10 live", "six-pair round-trip"] },
+    "6_qa_report":        { "status": "PENDING", "items": ["three-agent-comms-qa-report.html"] }
+  },
+  "capabilities": ["C1 discoverable","C2 preamble at launch","C3 re-inject on reset","C4 receives message","C5 answers question","C6 status","C7 history readable","C8 sends to peer","C9 asks peer","C10 six-pair round-trip"]
+}
