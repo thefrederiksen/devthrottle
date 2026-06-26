@@ -16,6 +16,16 @@ from cc_shared import director  # noqa: E402
 
 from . import __version__  # noqa: E402
 
+# Windows consoles default to a legacy codepage (cp1252); an agent's answer can contain glyphs
+# (for example a prompt arrow) that cannot be encoded there, which previously crashed the answer
+# print with a UnicodeEncodeError even though the answer had arrived. Force UTF-8 with replacement
+# BEFORE the Console captures stdout, so cc-ask never dies while showing the answer.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
+
 console = Console()
 
 

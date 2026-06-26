@@ -61,6 +61,10 @@ public sealed class CodexAgentPlugin : IAgentPlugin
 
     public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
 
+    public AgentPluginFleetMetadata Fleet { get; } = new(
+        FleetPreambleStrategy.NativeHook, FleetPreambleStatus.Wired,
+        "SessionStart hook merged into ~/.codex/hooks.json with --dangerously-bypass-hook-trust; re-injects on clear and compact.");
+
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
     public AgentCommandPreset DefaultCommandPreset => Presets[0];

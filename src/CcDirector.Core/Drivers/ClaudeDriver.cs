@@ -243,50 +243,11 @@ public sealed class ClaudeDriver : IAgentDriver
         return verdict;
     }
 
-    /// <summary>Drop ANSI escape sequences (CSI / OSC / two-byte) from a terminal chunk.</summary>
-    public static string StripAnsi(string raw)
-    {
-        var sb = new StringBuilder(raw.Length);
-        for (var i = 0; i < raw.Length; i++)
-        {
-            var c = raw[i];
-            if (c != '\x1B')
-            {
-                sb.Append(c);
-                continue;
-            }
-            if (i + 1 >= raw.Length) break;
-            var kind = raw[i + 1];
-            if (kind == '[')
-            {
-                // CSI: ESC [ ... final byte 0x40-0x7E
-                i += 2;
-                while (i < raw.Length && (raw[i] < '\x40' || raw[i] > '\x7E')) i++;
-            }
-            else if (kind == ']')
-            {
-                // OSC: ESC ] ... BEL or ESC \
-                i += 2;
-                while (i < raw.Length && raw[i] != '\a' && raw[i] != '\x1B') i++;
-                if (i + 1 < raw.Length && raw[i] == '\x1B') i++;
-            }
-            else
-            {
-                i++; // two-byte sequence (ESC + single char)
-            }
-        }
-        return sb.ToString();
-    }
+    /// <summary>Drop ANSI escape sequences from a terminal chunk (delegates to the shared helper).</summary>
+    public static string StripAnsi(string raw) => TerminalSubmit.StripAnsi(raw);
 
-    /// <summary>Letters, digits and '/' only - the comparison alphabet for echo checks.</summary>
-    public static string NormalizeForEcho(string s)
-    {
-        var sb = new StringBuilder(s.Length);
-        foreach (var c in s)
-            if (char.IsLetterOrDigit(c) || c == '/')
-                sb.Append(c);
-        return sb.ToString();
-    }
+    /// <summary>Letters, digits and '/' only - the echo comparison alphabet (shared helper).</summary>
+    public static string NormalizeForEcho(string s) => TerminalSubmit.NormalizeForEcho(s);
 
     public Task CancelAsync(ISessionBackend backend)
     {

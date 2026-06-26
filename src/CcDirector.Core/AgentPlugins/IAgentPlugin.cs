@@ -47,6 +47,13 @@ public interface IAgentPlugin
     /// <summary>Plugin-owned launch capability metadata.</summary>
     AgentPluginLaunchMetadata Launch { get; }
 
+    /// <summary>
+    /// How this agent gets the launch-time fleet preamble, or that it cannot. Defaults to "not yet
+    /// declared" so a new plugin compiles; every built-in should override it with the truth.
+    /// </summary>
+    AgentPluginFleetMetadata Fleet =>
+        new(FleetPreambleStrategy.None, FleetPreambleStatus.Planned, "Not yet declared.");
+
     /// <summary>Command-line presets offered by settings UI for guided launch.</summary>
     IReadOnlyList<AgentCommandPreset> CommandPresets { get; }
 

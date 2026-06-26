@@ -50,3 +50,39 @@ public sealed record AgentPluginLaunchRequest(
 
 /// <summary>One selectable agent type exposed to Settings UI and settings Control API surfaces.</summary>
 public sealed record AgentPluginTypeOption(AgentKind Kind, string Label);
+
+/// <summary>
+/// How an agent surfaces the launch-time fleet preamble (its identity + the cc-* fleet commands),
+/// or that it genuinely cannot. The four working strategies plus an explicit "cannot" let the UI and
+/// reports tell the truth per agent instead of leaving a silent gap.
+/// </summary>
+public enum FleetPreambleStrategy
+{
+    /// <summary>The agent cannot inject context (e.g. an arbitrary raw command with no contract).</summary>
+    None = 0,
+    /// <summary>A config hook emits the preamble as additionalContext (Claude, Codex, Gemini, Cursor).</summary>
+    NativeHook = 1,
+    /// <summary>We subscribe to the agent's event stream and push the preamble (OpenCode).</summary>
+    EventBus = 2,
+    /// <summary>An in-process extension we author injects the preamble (Pi).</summary>
+    Extension = 3,
+    /// <summary>A file the agent re-reads every prompt carries the preamble (Grok, Copilot).</summary>
+    InstructionFile = 4,
+}
+
+/// <summary>Where the fleet-preamble work stands for an agent.</summary>
+public enum FleetPreambleStatus
+{
+    /// <summary>Genuinely cannot be done - the agent has no usable mechanism.</summary>
+    Unsupported = 0,
+    /// <summary>The strategy is known but not yet implemented.</summary>
+    Planned = 1,
+    /// <summary>Implemented and active.</summary>
+    Wired = 2,
+}
+
+/// <summary>Plugin-owned declaration of how (or whether) this agent gets the fleet preamble.</summary>
+public sealed record AgentPluginFleetMetadata(
+    FleetPreambleStrategy Strategy,
+    FleetPreambleStatus Status,
+    string Note);

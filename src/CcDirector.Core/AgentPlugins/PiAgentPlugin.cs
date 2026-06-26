@@ -60,6 +60,10 @@ public sealed class PiAgentPlugin : IAgentPlugin
 
     public AgentPluginLaunchMetadata Launch { get; } = new(SupportsPreassignedSessionId: false, SupportsStudioMode: false);
 
+    public AgentPluginFleetMetadata Fleet { get; } = new(
+        FleetPreambleStrategy.Extension, FleetPreambleStatus.Wired,
+        "TypeScript extension in ~/.pi/agent/ injects via before_agent_start; re-injects on /new and compact.");
+
     public IReadOnlyList<AgentCommandPreset> CommandPresets => Presets;
 
     public AgentCommandPreset DefaultCommandPreset => Presets[0];
