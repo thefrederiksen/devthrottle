@@ -14,6 +14,11 @@
                 <Border Background="#1B3A2A" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
                     <TextBlock Text="live" Foreground="#57C77D" FontSize="10" />
                 </Border>
+                <!-- Transcript-derived history state (experimental; distinct from the live badge). -->
+                <Border x:Name="HistoryStatePill" CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                        Background="#2A2A2A" IsVisible="False">
+                    <TextBlock x:Name="HistoryStateText" Text="" Foreground="#AAAAAA" FontSize="10" />
+                </Border>
             </StackPanel>
         </Border>
 
