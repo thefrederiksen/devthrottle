@@ -360,6 +360,21 @@ public sealed class AgentsEndpointTests : IAsyncLifetime
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "ClearContext");
         Assert.Contains(codex["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
         Assert.Contains(codex["presets"]!.AsArray(), p => (string?)p!["name"] == "Full access");
+
+        var cursor = types.First(t => (string?)t!["type"] == "Cursor")!.AsObject();
+        Assert.Equal("Cursor", (string?)cursor["displayName"]);
+        Assert.Equal("cursor", (string?)cursor["configKey"]);
+        Assert.Contains(cursor["detectionCandidates"]!.AsArray(), c => (string?)c == "cursor-agent");
+        Assert.Contains("Cursor Agent", (string?)cursor["installHint"]);
+        Assert.Equal("--version", (string?)cursor["validationArguments"]);
+        Assert.False((bool)cursor["supportsConversationHistory"]!);
+        Assert.Equal("None", (string?)cursor["historyProvider"]);
+        Assert.Contains("stream-json", (string?)cursor["historyStoreDescription"]);
+        Assert.False((bool)cursor["supportsPreassignedSessionId"]!);
+        Assert.True((bool)cursor["supportsStudioMode"]!);
+        Assert.Contains(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "Interrupt");
+        Assert.DoesNotContain(cursor["driverCapabilities"]!.AsArray(), c => (string?)c == "TranscriptRead");
+        Assert.Contains(cursor["presets"]!.AsArray(), p => (string?)p!["name"] == "Automatic (yolo)");
     }
 
     [Fact]

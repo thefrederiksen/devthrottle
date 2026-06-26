@@ -67,6 +67,7 @@ public static class AgentPluginRegistry
             {
                 AgentKind.ClaudeCode => new ClaudeAgentPlugin(),
                 AgentKind.Codex => new CodexAgentPlugin(),
+                AgentKind.Cursor => new CursorAgentPlugin(),
                 _ => new BuiltInAgentPlugin(
                     AgentToolConfig.KeyFor(entry.Tool),
                     AgentToolConfig.KeyFor(entry.Tool),

@@ -135,6 +135,58 @@ public sealed class AgentPluginRegistryTests
     }
 
     [Fact]
+    public void CursorPlugin_ExposesCurrentSettingsSlashCommandsAndCapabilities()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Cursor);
+
+        Assert.IsType<CursorAgentPlugin>(plugin);
+        Assert.Equal("cursor", plugin.Id);
+        Assert.Equal("cursor", plugin.ConfigKey);
+        Assert.Equal("Cursor", plugin.DisplayName);
+        Assert.False(plugin.SupportsConversationHistory);
+        Assert.IsType<CursorDriver>(plugin.Driver);
+        Assert.Equal(AgentToolCatalog.StandardPresetName, plugin.DefaultCommandPreset.Name);
+        Assert.Contains(plugin.CommandPresets, preset => preset.Name == AgentToolCatalog.CursorAutomaticPresetName && preset.Arguments == AgentToolCatalog.CursorForceArg);
+        Assert.Equal("--version", plugin.Validation.Arguments);
+        Assert.Equal(TimeSpan.FromSeconds(8), plugin.Validation.Timeout);
+        Assert.Contains(plugin.Detection.Candidates, candidate => candidate.Path == "cursor-agent");
+        Assert.Equal(AgentHistoryProviderKind.None, plugin.History.ProviderKind);
+        Assert.False(plugin.History.SupportsConversationHistory);
+        Assert.Contains("stream-json", plugin.History.StoreDescription);
+        Assert.False(plugin.Launch.SupportsPreassignedSessionId);
+        Assert.True(plugin.Launch.SupportsStudioMode);
+        Assert.Equal(DriverCapabilities.Interrupt, plugin.Driver.Capabilities);
+        Assert.NotEmpty(plugin.Driver.SlashCommands);
+        Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Cursor, command.DriverKind));
+    }
+
+    [Fact]
+    public void CursorPlugin_CreatesCursorAgentThatPreservesLaunchBehavior()
+    {
+        var plugin = AgentPluginRegistry.Get(AgentKind.Cursor);
+        var options = new AgentOptions { CursorPath = "cursor-custom" };
+
+        var agent = plugin.CreateAgent(options);
+        var newSession = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: AgentToolCatalog.CursorForceArg,
+            ResumeSessionId: null,
+            StudioMode: true));
+        var resume = plugin.BuildLaunchSpec(new AgentPluginLaunchRequest(
+            options,
+            UserArgs: null,
+            ResumeSessionId: "chat_abc123",
+            StudioMode: false));
+
+        Assert.IsType<CursorAgent>(agent);
+        Assert.Equal("cursor-custom", agent.ExecutablePath);
+        Assert.Equal("-p --output-format stream-json --force", newSession.Arguments);
+        Assert.Null(newSession.PreassignedSessionId);
+        Assert.Equal("--resume=\"chat_abc123\"", resume.Arguments);
+        Assert.Null(resume.PreassignedSessionId);
+    }
+
+    [Fact]
     public void CodexPlugin_CreatesCodexAgentThatUsesCodexDriverLaunch()
     {
         var plugin = AgentPluginRegistry.Get(AgentKind.Codex);
