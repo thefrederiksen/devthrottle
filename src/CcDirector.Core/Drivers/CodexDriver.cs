@@ -1,5 +1,7 @@
+using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
+using CcDirector.Core.Input;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -13,7 +15,14 @@ namespace CcDirector.Core.Drivers;
 public sealed class CodexDriver : IAgentDriver
 {
     private static readonly byte[] EscapeByte = [0x1B];
+    private static readonly byte[] EnterByte = [0x0D];
     private static readonly byte[] CtrlC = [0x03];
+
+    // Echo-verified submit timing (see SubmitAsync). The composer repaints a cycling
+    // placeholder, so we wait for the typed text to appear before pressing Enter.
+    private static readonly TimeSpan EchoTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan EchoPollInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan EnterSettleDelay = TimeSpan.FromMilliseconds(40);
 
     public AgentKind Kind => AgentKind.Codex;
 
@@ -56,10 +65,76 @@ public sealed class CodexDriver : IAgentDriver
         return new AgentLaunchSpec(args, PreassignedSessionId: null);
     }
 
-    public Task SubmitAsync(ISessionBackend backend, string text)
+    /// <summary>
+    /// ECHO-VERIFIED submit. Codex's TUI repaints a cycling placeholder in its composer, so the
+    /// backend's blind submit (type text, wait 50 ms, send one Enter) drops the Enter when driven
+    /// programmatically: the Enter lands mid-repaint and is swallowed, leaving the prompt parked
+    /// in the composer unsubmitted (confirmed live on codex 0.141.0 via the REST prompt path).
+    /// The desktop UI is unaffected because there the Enter is a separate, later human keystroke.
+    /// Mirror the Claude fix: type the text WITHOUT Enter, wait until the composer echoes it back
+    /// in the terminal byte stream, then press Enter. One Esc-and-retype recovery; a second miss
+    /// throws rather than silently parking the prompt.
+    ///
+    /// Large / multi-line prompts delegate to the backend's @-temp-file submit path unchanged.
+    /// </summary>
+    public async Task SubmitAsync(ISessionBackend backend, string text)
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return backend.SendTextAsync(text);
+
+        if (LargeInputHandler.IsLargeInput(text.TrimEnd('\r', '\n')))
+        {
+            await backend.SendTextAsync(text);
+            return;
+        }
+
+        var buffer = backend.Buffer;
+        if (buffer is null)
+        {
+            // No buffering backend (non-PTY transport): nothing to echo-verify against.
+            await backend.SendTextAsync(text);
+            return;
+        }
+
+        // Letters/digits/slash alphabet, ANSI stripped - survives the composer's wrapping/styling.
+        var needle = ClaudeDriver.NormalizeForEcho(text);
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            var cursor = buffer.TotalBytesWritten;
+            backend.Write(Encoding.UTF8.GetBytes(text));
+
+            if (needle.Length == 0 || await WaitForComposerEchoAsync(buffer, cursor, needle))
+            {
+                await Task.Delay(EnterSettleDelay);   // let the repaint settle before Enter
+                backend.Write(EnterByte);
+                return;
+            }
+
+            FileLog.Write($"[CodexDriver] SubmitAsync: composer echo not seen on attempt {attempt} " +
+                          $"(len={text.Length}) - clearing the composer and retyping");
+            backend.Write(EscapeByte);
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
+        }
+
+        throw new InvalidOperationException(
+            "[CodexDriver] SubmitAsync: the Codex composer never echoed the typed text after 2 attempts - " +
+            "the TUI is not accepting input (a modal, a picker, or a composer still initializing).");
+    }
+
+    /// <summary>Poll the terminal byte stream until the typed text echoes back in the composer.</summary>
+    private static async Task<bool> WaitForComposerEchoAsync(
+        Memory.CircularTerminalBuffer buffer, long cursor, string needle)
+    {
+        var deadline = DateTime.UtcNow + EchoTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var (bytes, _) = buffer.GetWrittenSince(cursor);
+            var hay = ClaudeDriver.NormalizeForEcho(ClaudeDriver.StripAnsi(Encoding.UTF8.GetString(bytes)));
+            if (hay.Contains(needle, StringComparison.Ordinal))
+                return true;
+            await Task.Delay(EchoPollInterval);
+        }
+        return false;
     }
 
     public Task CancelAsync(ISessionBackend backend)

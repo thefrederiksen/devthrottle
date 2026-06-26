@@ -30,6 +30,9 @@ internal sealed class RecordingSessionBackend : ISessionBackend
     public void Write(byte[] data)
     {
         WrittenBytes.Add(data.ToArray());
+        // Echo typed bytes into the terminal buffer when one is attached, like a real TUI
+        // composer - lets echo-verified driver submits (CodexDriver, ClaudeDriver) be tested.
+        Buffer?.Write(data);
     }
 
     public Task SendTextAsync(string text)
