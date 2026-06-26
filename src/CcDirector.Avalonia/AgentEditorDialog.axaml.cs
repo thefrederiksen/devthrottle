@@ -43,6 +43,10 @@ public partial class AgentEditorDialog : Window
     // Suppresses the auto-name / preview handlers during programmatic field population.
     private bool _loading;
 
+    // Suppresses recursive updates while the Codex permissions shortcut and Advanced preset
+    // dropdown mirror each other.
+    private bool _syncingPermissions;
+
     // True once the user has confirmed discarding, so OnClosing does not prompt twice.
     private bool _allowClose;
 
@@ -93,6 +97,21 @@ public partial class AgentEditorDialog : Window
     private static readonly IReadOnlyList<string> AllTypeLabels =
         TypeOptions.Select(o => o.Label).ToList();
 
+    private static readonly IReadOnlyList<string> CodexPermissionModes = new[]
+    {
+        AgentToolCatalog.StandardPresetName,
+        AgentToolCatalog.CodexFullAccessPresetName,
+    };
+
+    private static readonly IReadOnlyList<string> CodexPermissionModesWithCustom = new[]
+    {
+        AgentToolCatalog.StandardPresetName,
+        AgentToolCatalog.CodexFullAccessPresetName,
+        CustomPermissionMode,
+    };
+
+    private const string CustomPermissionMode = "Custom command line";
+
     private void LoadForm(AgentEntry? existing)
     {
         _loading = true;
@@ -115,6 +134,7 @@ public partial class AgentEditorDialog : Window
             GuidedRadio.IsChecked = mode == LaunchMode.Guided;
             CustomRadio.IsChecked = mode == LaunchMode.Custom;
             ApplyLaunchModeVisibility();
+            ConfigurePermissionsShortcut(type);
             RefreshModelMetadata(type);
 
             // Display name: editing keeps the stored (possibly customized) name; adding auto-fills
@@ -125,7 +145,6 @@ public partial class AgentEditorDialog : Window
             // entry that already has a manual path keeps it visible so the user can see/edit it.
             ManualPathPanel.IsVisible = existing is not null && !string.IsNullOrWhiteSpace(existing.ExecutablePath);
 
-            AdvancedPanel.IsVisible = false;
             DetectResultText.Text = "Not detected yet.";
             DetectResultText.Foreground = global::Avalonia.Media.Brushes.Gray;
             QuickCheckResultText.Text = "Not checked yet.";
@@ -170,12 +189,67 @@ public partial class AgentEditorDialog : Window
         }
     }
 
+    private void ConfigurePermissionsShortcut(AgentKind type)
+    {
+        if (PermissionsPanel is null || PermissionsCombo is null)
+            return;
+
+        _syncingPermissions = true;
+        try
+        {
+            var isCodex = type == AgentKind.Codex;
+            PermissionsPanel.IsVisible = isCodex;
+            if (PresetRow is not null)
+                PresetRow.IsVisible = !isCodex;
+
+            PermissionsCombo.ItemsSource = isCodex
+                ? SelectedLaunchMode() == LaunchMode.Custom ? CodexPermissionModesWithCustom : CodexPermissionModes
+                : Array.Empty<string>();
+            PermissionsCombo.SelectedItem = isCodex
+                ? SelectedLaunchMode() == LaunchMode.Custom
+                    ? CustomPermissionMode
+                    : CodexPermissionModeForPreset(PresetCombo?.SelectedItem as string ?? "")
+                : null;
+
+            if (PermissionsHintText is not null)
+            {
+                PermissionsHintText.Text = !isCodex
+                    ? ""
+                    : SelectedLaunchMode() == LaunchMode.Custom
+                        ? "Custom command line mode ignores presets. Include every permission flag yourself."
+                        : string.Equals(PermissionsCombo.SelectedItem as string, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
+                            ? "Full access launches Codex without sandbox restrictions or approval prompts. Use it only for trusted repos."
+                            : "Standard launches Codex with its normal permissions behavior.";
+            }
+        }
+        finally
+        {
+            _syncingPermissions = false;
+        }
+    }
+
+    private static string CodexPermissionModeForPreset(string preset) =>
+        string.Equals(preset, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
+            ? AgentToolCatalog.CodexFullAccessPresetName
+            : AgentToolCatalog.StandardPresetName;
+
+    private void SelectPresetByName(string presetName)
+    {
+        if (PresetCombo?.ItemsSource is not IEnumerable<string> names)
+            return;
+
+        var index = names.ToList().FindIndex(n => string.Equals(n, presetName, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+            PresetCombo.SelectedIndex = index;
+    }
+
     private void TypeCombo_Changed(object? sender, SelectionChangedEventArgs e)
     {
         if (_loading || PresetCombo is null) return;
 
         var type = SelectedType();
         PopulatePresetCombo(type, "");
+        ConfigurePermissionsShortcut(type);
         RefreshModelMetadata(type);
 
         // Auto-fill the display name from the new type ONLY when the user has not customized it
@@ -197,7 +271,39 @@ public partial class AgentEditorDialog : Window
         // refreshing nothing here; the discard guard reads the live field directly.
     }
 
-    private void PresetCombo_Changed(object? sender, SelectionChangedEventArgs e) => RefreshPreview();
+    private void PresetCombo_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_syncingPermissions)
+            ConfigurePermissionsShortcut(SelectedType());
+        RefreshPreview();
+    }
+    private void PermissionsCombo_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || _syncingPermissions)
+            return;
+
+        if (SelectedType() != AgentKind.Codex)
+            return;
+
+        var selected = PermissionsCombo.SelectedItem as string ?? AgentToolCatalog.StandardPresetName;
+        if (string.Equals(selected, CustomPermissionMode, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _syncingPermissions = true;
+        try
+        {
+            GuidedRadio.IsChecked = true;
+            CustomRadio.IsChecked = false;
+            ApplyLaunchModeVisibility();
+            SelectPresetByName(selected);
+        }
+        finally
+        {
+            _syncingPermissions = false;
+        }
+
+        RefreshPreview();
+    }
     private void ArgsOverrideBox_Changed(object? sender, TextChangedEventArgs e) { if (!_loading) RefreshPreview(); }
     private void PathBox_Changed(object? sender, TextChangedEventArgs e) { if (!_loading) RefreshPreview(); }
 
@@ -205,6 +311,7 @@ public partial class AgentEditorDialog : Window
     {
         if (_loading) return;
         ApplyLaunchModeVisibility();
+        ConfigurePermissionsShortcut(SelectedType());
         RefreshPreview();
     }
 
@@ -293,11 +400,35 @@ public partial class AgentEditorDialog : Window
 
         var args = config.ResolveEffectiveCommandLineArguments();
         PreviewStrip.Text = string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
+        RefreshEffectivePermissions(type, config);
+    }
+
+    private void RefreshEffectivePermissions(AgentKind type, AgentToolConfig config)
+    {
+        if (EffectivePermissionsText is null)
+            return;
+
+        if (type == AgentKind.Codex)
+        {
+            EffectivePermissionsText.Text = config.LaunchMode == LaunchMode.Custom
+                ? "Custom command line"
+                : string.Equals(config.PresetName, AgentToolCatalog.CodexFullAccessPresetName, StringComparison.OrdinalIgnoreCase)
+                    ? "Full access"
+                    : "Standard";
+            return;
+        }
+
+        EffectivePermissionsText.Text = config.LaunchMode == LaunchMode.Custom
+            ? "Custom command line"
+            : string.IsNullOrWhiteSpace(config.PresetName)
+                ? "Catalog default"
+                : config.PresetName;
     }
 
     private void BtnToggleAdvanced_Click(object? sender, RoutedEventArgs e)
     {
-        AdvancedPanel.IsVisible = !AdvancedPanel.IsVisible;
+        // Kept for compatibility with older XAML-generated event hookups; the launch settings are
+        // intentionally always visible now.
     }
 
     // ----------------------------------------------------------------------------------------
