@@ -10,21 +10,34 @@ namespace CcDirector.Core.Codex;
 /// <c>session_meta.cwd</c> matches the session's repo path. The result is cached per session
 /// id (re-scanned only if the cached file disappears) so the History tab's poll is cheap.
 ///
-/// First-cut heuristic: newest-for-cwd by file modified time. Two Codex sessions in the same
-/// repo at once is the known ambiguity (see the plan); the active session is normally the
-/// newest file, so this resolves it in practice.
+/// First-cut heuristic: newest-for-cwd by file modified time. For live Director sessions,
+/// resolution is also launch-time scoped so a brand-new Codex terminal does not bind to an
+/// older rollout from the same repo while waiting for its own rollout file to appear.
 /// </summary>
 public static class CodexRolloutLocator
 {
     private static readonly ConcurrentDictionary<Guid, string> Cache = new();
+    private static readonly TimeSpan LaunchClockSkew = TimeSpan.FromMinutes(5);
 
     /// <summary>Resolve (and cache) the rollout for a session, or null if none matches the repo.</summary>
-    public static string? Resolve(Guid sessionId, string repoPath)
+    public static string? Resolve(Guid sessionId, string repoPath, DateTimeOffset? notBefore = null)
     {
+        var target = NormalizePath(repoPath);
         if (Cache.TryGetValue(sessionId, out var cached) && File.Exists(cached))
-            return cached;
+        {
+            var cachedInfo = new FileInfo(cached);
+            var cachedMeta = ReadSessionMeta(cached);
+            if (cachedMeta != null
+                && NormalizePath(cachedMeta.Cwd) == target
+                && IsWithinLaunchWindow(cachedMeta.Timestamp, cachedInfo, notBefore))
+            {
+                return cached;
+            }
 
-        var found = Scan(repoPath, SessionsDirectory());
+            Cache.TryRemove(sessionId, out _);
+        }
+
+        var found = Scan(repoPath, SessionsDirectory(), notBefore);
         if (found != null)
             Cache[sessionId] = found;
         return found;
@@ -35,6 +48,14 @@ public static class CodexRolloutLocator
     /// <paramref name="repoPath"/>. Exposed (with an explicit directory) for testing.
     /// </summary>
     public static string? Scan(string repoPath, string sessionsDirectory)
+        => Scan(repoPath, sessionsDirectory, notBefore: null);
+
+    /// <summary>
+    /// Scan a sessions directory for the newest rollout whose session_meta cwd matches
+    /// <paramref name="repoPath"/> and whose metadata/write timestamp is not older than
+    /// <paramref name="notBefore"/>. Exposed (with an explicit directory) for testing.
+    /// </summary>
+    public static string? Scan(string repoPath, string sessionsDirectory, DateTimeOffset? notBefore)
     {
         if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(sessionsDirectory))
             return null;
@@ -58,15 +79,19 @@ public static class CodexRolloutLocator
         // we usually inspect only one or two session_meta lines.
         foreach (var file in files)
         {
-            var cwd = ReadSessionCwd(file.FullName);
-            if (cwd != null && NormalizePath(cwd) == target)
+            var meta = ReadSessionMeta(file.FullName);
+            if (meta != null
+                && NormalizePath(meta.Cwd) == target
+                && IsWithinLaunchWindow(meta.Timestamp, file, notBefore))
+            {
                 return file.FullName;
+            }
         }
         return null;
     }
 
-    /// <summary>Read the cwd from a rollout's first line (its session_meta), or null.</summary>
-    private static string? ReadSessionCwd(string path)
+    /// <summary>Read cwd and timestamp from a rollout's first line (its session_meta), or null.</summary>
+    private static CodexSessionMeta? ReadSessionMeta(string path)
     {
         try
         {
@@ -84,15 +109,40 @@ public static class CodexRolloutLocator
                 return null;
             if (!root.TryGetProperty("payload", out var p) || p.ValueKind != JsonValueKind.Object)
                 return null;
-            return p.TryGetProperty("cwd", out var cwd) && cwd.ValueKind == JsonValueKind.String
-                ? cwd.GetString()
-                : null;
+            if (!p.TryGetProperty("cwd", out var cwd) || cwd.ValueKind != JsonValueKind.String)
+                return null;
+
+            var cwdValue = cwd.GetString();
+            if (string.IsNullOrWhiteSpace(cwdValue))
+                return null;
+
+            var timestamp = ParseTimestamp(root);
+            if (timestamp is null)
+                timestamp = ParseTimestamp(p);
+
+            return new CodexSessionMeta(cwdValue, timestamp);
         }
         catch
         {
             return null;
         }
     }
+
+    private static bool IsWithinLaunchWindow(DateTimeOffset? metadataTimestamp, FileInfo file, DateTimeOffset? notBefore)
+    {
+        if (notBefore is null)
+            return true;
+
+        var candidateTimestamp = metadataTimestamp ?? new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero);
+        return candidateTimestamp >= notBefore.Value.ToUniversalTime() - LaunchClockSkew;
+    }
+
+    private static DateTimeOffset? ParseTimestamp(JsonElement obj)
+        => obj.TryGetProperty("timestamp", out var ts)
+           && ts.ValueKind == JsonValueKind.String
+           && DateTimeOffset.TryParse(ts.GetString(), out var parsed)
+            ? parsed
+            : null;
 
     private static string SessionsDirectory()
         => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
@@ -102,4 +152,6 @@ public static class CodexRolloutLocator
         try { return Path.GetFullPath(p).TrimEnd('\\', '/').ToLowerInvariant(); }
         catch { return p.TrimEnd('\\', '/').ToLowerInvariant(); }
     }
+
+    private sealed record CodexSessionMeta(string Cwd, DateTimeOffset? Timestamp);
 }

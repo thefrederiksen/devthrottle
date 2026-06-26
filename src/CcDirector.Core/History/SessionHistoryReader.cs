@@ -53,7 +53,7 @@ public static class SessionHistoryReader
         return session.AgentKind switch
         {
             AgentKind.ClaudeCode => ResolveClaude(session),
-            AgentKind.Codex => CodexRolloutLocator.Resolve(session.Id, session.RepoPath),
+            AgentKind.Codex => CodexRolloutLocator.Resolve(session.Id, session.RepoPath, session.CreatedAt),
             AgentKind.Pi => PiSessionLocator.Resolve(session.Id, session.RepoPath),
             AgentKind.Grok => GrokSessionLocator.Resolve(session.Id, session.RepoPath),
             // Copilot has no per-session transcript file; the readable source is its SQLite store.
