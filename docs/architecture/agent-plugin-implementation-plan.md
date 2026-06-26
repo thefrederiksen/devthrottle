@@ -38,3 +38,23 @@ Move CLI-specific behavior out of central Director switches and into per-CLI plu
 ## Delivery Strategy
 
 Use multiple issues or work items rather than one large branch. The first issue should establish the plugin contract and built-in registry. Subsequent issues should migrate settings, launch, and each CLI plugin independently so every step can be tested without breaking all CLI support at once.
+
+## Adding a CLI After the Plugin Rollout
+
+New built-in CLI tools must be added as concrete `IAgentPlugin` implementations. Do not add launch, settings, detection, history, presets, or driver selection through central switches as the primary path.
+
+Minimum checklist:
+
+- Add one concrete plugin class under `src/CcDirector.Core/AgentPlugins`.
+- Put settings metadata, detection candidates, validation arguments, history declaration, presets, launch metadata, agent construction, and driver binding on that plugin.
+- Add or update the tool-specific driver and slash-command catalog where needed.
+- Register the plugin in `AgentPluginRegistry.BuildBuiltIns`.
+- Add focused tests in `AgentPluginRegistryTests`.
+- Keep UI ownership in Director views; plugins provide data/launch/driver behavior only.
+- Add proof under `docs/cencon/proof/issue-<n>/` for live launch/catalog behavior when the CLI is available.
+
+Architecture guard tests enforce the core rule:
+
+- every `AgentToolCatalog` entry must resolve to a concrete built-in plugin class;
+- production code may instantiate concrete CLI agents only inside `AgentPlugins`;
+- the old generic `BuiltInAgentPlugin` adapter must stay deleted.
