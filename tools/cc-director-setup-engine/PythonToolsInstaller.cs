@@ -334,7 +334,12 @@ public sealed class PythonToolsInstaller
         foreach (var script in scripts)
         {
             var paths = OperatingSystem.IsWindows()
-                ? new[] { Path.Combine(_layout.BinDir, $"{script}.cmd"), Path.Combine(_layout.BinDir, $"{script}.exe") }
+                ? new[]
+                  {
+                      Path.Combine(_layout.BinDir, $"{script}.cmd"),
+                      Path.Combine(_layout.BinDir, $"{script}.exe"),
+                      Path.Combine(_layout.BinDir, script), // bare-name bash shim
+                  }
                 : new[] { Path.Combine(_layout.MacUserBinDir, script) };
             foreach (var path in paths)
             {
@@ -371,8 +376,26 @@ public sealed class PythonToolsInstaller
 
             var cmd = Path.Combine(_layout.BinDir, $"{script}.cmd");
             File.WriteAllText(cmd, BuildWindowsShimBody(script));
+
+            // ALSO write a bare-name (no extension) shell shim. CMD and PowerShell resolve the .cmd via
+            // PATHEXT, but Git Bash does NOT - so an agent that drives Git Bash and runs a cc-* tool by
+            // bare name ("cc-ask") otherwise gets "command not found". Git Bash runs this extensionless
+            // file via its shebang and execs the same venv exe. CMD/PowerShell ignore it (no PATHEXT
+            // match), so there is no conflict. This is what lets agents call each other from bash.
+            var bare = Path.Combine(_layout.BinDir, script);
+            File.WriteAllText(bare, BuildWindowsBashShimBody(script));
         }
     }
+
+    /// <summary>
+    /// The body of the bare-name bash shim (no extension) for Git Bash. Uses LF line endings and a
+    /// shebang so msys runs it; forwards to the venv console-script exe via a path relative to bin so
+    /// the install tree stays movable.
+    /// </summary>
+    internal static string BuildWindowsBashShimBody(string script) =>
+        "#!/bin/sh\n"
+        + $"# bash-runnable bare-name shim for '{script}' (Git Bash does not resolve the .cmd via PATHEXT).\n"
+        + $"exec \"$(dirname \"$0\")/../pyenv/Scripts/{script}.exe\" \"$@\"\n";
 
     /// <summary>
     /// The body of a Windows tool shim. It forwards to the venv console script, but FIRST checks the target
