@@ -22,26 +22,31 @@
             </StackPanel>
         </Border>
 
-        <!-- thread -->
+        <!-- thread. Scrollbar is always visible (like the terminal). The list is anchored to the
+             bottom: the host Grid fills at least the viewport height and the ItemsControl bottom-
+             aligns inside it, so the newest bubble always sits at the bottom (just above the input)
+             and a height miscalculation can only ever affect the oldest content at the top. -->
         <ScrollViewer x:Name="Scroller" Grid.Row="1"
-                      VerticalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Visible"
                       HorizontalScrollBarVisibility="Disabled"
-                      Padding="10">
-            <ItemsControl x:Name="Items">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="controls:HistoryMessageVm">
-                        <Border Background="{Binding CardBrush}" BorderBrush="#3C3C3C" BorderThickness="1"
-                                CornerRadius="8" Padding="12,9" Margin="0,0,0,8">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="{Binding Speaker}" Foreground="{Binding HeaderBrush}"
-                                           FontSize="11" FontWeight="Bold" />
-                                <controls:MarkdownTextBlock Markdown="{Binding Body}" Plain="{Binding IsRawText}"
-                                                            LinkContext="{Binding LinkContext}" />
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                      Padding="10,0">
+            <Grid MinHeight="{Binding #Scroller.Viewport.Height}">
+                <ItemsControl x:Name="Items" VerticalAlignment="Bottom" Margin="0,8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="controls:HistoryMessageVm">
+                            <Border Background="{Binding CardBrush}" BorderBrush="#3C3C3C" BorderThickness="1"
+                                    CornerRadius="8" Padding="12,9" Margin="0,0,0,8">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding Speaker}" Foreground="{Binding HeaderBrush}"
+                                               FontSize="11" FontWeight="Bold" />
+                                    <controls:MarkdownTextBlock Markdown="{Binding Body}" Plain="{Binding IsRawText}"
+                                                                LinkContext="{Binding LinkContext}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
         </ScrollViewer>
 
         <!-- empty state -->
