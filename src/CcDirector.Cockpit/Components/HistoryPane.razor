@@ -1,0 +1,207 @@
+@implements IAsyncDisposable
+@inject DirectorClient Director
+@inject IJSRuntime JS
+@inject ILogger<HistoryPane> Log
+
+@* The History tab: a read-only, agent-agnostic view of one session's conversation, rendered from
+   the Director's parsed history endpoint (GET /sessions/{sid}/history, proxied by the Gateway).
+   It polls live and renders user / assistant / tool bubbles - the web peer of the desktop History
+   tab. The parent keys this by SessionId, so a session switch disposes this pane and mounts a fresh
+   one; mounting only while the History tab is shown means the poll never runs while hidden.
+
+   Scroll model (GitHub #744): sticky-bottom. The view follows new turns while the reader is at the
+   bottom, stops following the instant they scroll up, and re-engages when they scroll back down.
+   Activation lands at the bottom. cockpit-history-scroll.js owns the measuring/setting; this
+   component owns when to stick. #738 renders readable PLAIN TEXT; markdown (#739), links (#740),
+   and the derived-state label (#741) build on this. *@
+
+<div class="hist">
+    <div class="hist-head">
+        <span class="hist-title">Conversation history</span>
+        @if (_bubbles.Count > 0)
+        {
+            <span class="hist-count">@_bubbles.Count message@(_bubbles.Count == 1 ? "" : "s")</span>
+        }
+        <span class="hist-live">live</span>
+    </div>
+
+    @if (_loadFailed)
+    {
+        <div class="hist-empty">Could not read this session's history right now. Retrying...</div>
+    }
+    else if (_bubbles.Count == 0)
+    {
+        <div class="hist-empty">@_emptyText</div>
+    }
+    else
+    {
+        <div class="hist-scroll" @ref="_scrollEl">
+            @foreach (var (bubble, i) in _bubbles.Select((b, i) => (b, i)))
+            {
+                <div class="hist-bubble @bubble.Kind" @key="i">
+                    <div class="hist-speaker">@bubble.Speaker</div>
+                    @if (bubble.IsRawText)
+                    {
+                        <pre class="hist-body raw">@bubble.Body</pre>
+                    }
+                    else
+                    {
+                        <div class="hist-body">@bubble.Body</div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string SessionId { get; set; } = "";
+
+    private readonly List<HistoryBubble> _bubbles = new();
+    private string _emptyText = "Waiting for the conversation to start...";
+    private bool _loadFailed;
+
+    private ElementReference _scrollEl;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<HistoryPane>? _selfRef;
+
+    // Sticky-bottom state. _following mirrors "is the reader at the bottom" (updated by the scroll
+    // listener via UpdateFollow); _scrollAfterRender asks the next OnAfterRender to stick to the
+    // bottom because content changed. A scrolled-up reader (_following == false) is never moved.
+    private bool _following = true;
+    private bool _scrollAfterRender;
+
+    // Cheap change signature so an unchanged poll does not re-render (and so a steady stream of
+    // identical polls never disturbs the scroll position of a reader who has scrolled up).
+    private string _signature = "";
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override Task OnInitializedAsync()
+    {
+        _ = PollLoopAsync();
+        return Task.CompletedTask;
+    }
+
+    private async Task PollLoopAsync()
+    {
+        await RefreshAsync();
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2.5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (string.IsNullOrEmpty(SessionId))
+            return;
+
+        try
+        {
+            var history = await Director.GetSessionHistoryAsync(SessionId, _cts.Token);
+            _loadFailed = false;
+
+            // null = 404 (old Director or unknown session): treat as "nothing yet", not an error.
+            var bubbles = HistoryBubbleMapper.Map(history);
+            _emptyText = history is { IsSupported: false }
+                ? "History is not available for this agent yet."
+                : "Waiting for the conversation to start...";
+
+            var signature = BuildSignature(bubbles);
+            if (signature == _signature)
+                return; // unchanged - do not re-render or touch the scroll position
+            _signature = signature;
+
+            _bubbles.Clear();
+            _bubbles.AddRange(bubbles);
+            // Stick to the bottom after this render only if the reader is currently following.
+            _scrollAfterRender = _following;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _loadFailed = true;
+            Log.LogDebug(ex, "HistoryPane refresh failed for sid={Sid}", SessionId);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string BuildSignature(List<HistoryBubble> bubbles)
+    {
+        if (bubbles.Count == 0)
+            return "0";
+        var last = bubbles[^1];
+        var total = 0;
+        foreach (var b in bubbles)
+            total += b.Body.Length;
+        // count + total chars + last bubble's tail catches appends and last-bubble edits cheaply.
+        var tail = last.Body.Length <= 64 ? last.Body : last.Body[^64..];
+        return $"{bubbles.Count}|{total}|{tail}";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-history-scroll.js");
+                _selfRef = DotNetObjectReference.Create(this);
+            }
+            catch (Exception ex)
+            {
+                Log.LogDebug(ex, "HistoryPane scroll module import failed for sid={Sid}", SessionId);
+            }
+        }
+
+        if (_module is null)
+            return;
+
+        try
+        {
+            // Attach the scroll listener once the scroll container exists (it is absent while the
+            // empty state shows), and land at the bottom on activation.
+            if (_selfRef is not null && _bubbles.Count > 0 && !_listenerAttached)
+            {
+                _listenerAttached = true;
+                await _module.InvokeVoidAsync("init", _scrollEl, _selfRef);
+            }
+
+            if (_scrollAfterRender && _following && _bubbles.Count > 0)
+            {
+                _scrollAfterRender = false;
+                await _module.InvokeVoidAsync("scrollToBottom", _scrollEl);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "HistoryPane scroll update failed for sid={Sid}", SessionId);
+        }
+    }
+
+    private bool _listenerAttached;
+
+    /// <summary>Called from JS when the reader crosses the at-bottom boundary. While not at the
+    /// bottom, new turns never move the view; returning to the bottom re-engages auto-follow.</summary>
+    [JSInvokable]
+    public void UpdateFollow(bool atBottom)
+    {
+        _following = atBottom;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        if (_module is not null)
+        {
+            try { await _module.InvokeVoidAsync("dispose", _scrollEl); } catch { /* circuit gone */ }
+            try { await _module.DisposeAsync(); } catch { /* already disposed */ }
+        }
+        _selfRef?.Dispose();
+        _cts.Dispose();
+    }
+}
