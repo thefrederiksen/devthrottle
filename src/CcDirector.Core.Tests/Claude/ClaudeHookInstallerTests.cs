@@ -26,6 +26,12 @@ public class ClaudeHookInstallerTests
             Assert.Contains("CC_SESSION_ID", script);
             Assert.Contains("CC_DIRECTOR_API", script);
 
+            // It also fetches the fleet preamble and surfaces it into the session via the
+            // SessionStart additionalContext field, so the agent knows the fleet instantly.
+            Assert.Contains("fleet-preamble", script);
+            Assert.Contains("additionalContext", script);
+            Assert.Contains("hookSpecificOutput", script);
+
             // The settings register a SessionStart hook for each boundary source, in order.
             using var doc = JsonDocument.Parse(File.ReadAllText(settingsPath!));
             var sessionStart = doc.RootElement.GetProperty("hooks").GetProperty("SessionStart");

@@ -30,10 +30,10 @@ public static class ClaudeHookInstaller
         "$ErrorActionPreference = 'SilentlyContinue'\r\n" +
         "try {\r\n" +
         "    $raw = [Console]::In.ReadToEnd()\r\n" +
+        "    $api = $env:CC_DIRECTOR_API\r\n" +
+        "    $sid = $env:CC_SESSION_ID\r\n" +
         "    if ($raw) {\r\n" +
         "        $evt = $raw | ConvertFrom-Json\r\n" +
-        "        $api = $env:CC_DIRECTOR_API\r\n" +
-        "        $sid = $env:CC_SESSION_ID\r\n" +
         "        if ($api -and $sid -and $evt.session_id) {\r\n" +
         "            $body = @{\r\n" +
         "                claudeSessionId = $evt.session_id\r\n" +
@@ -42,6 +42,18 @@ public static class ClaudeHookInstaller
         "                source          = $evt.source\r\n" +
         "            } | ConvertTo-Json -Compress\r\n" +
         "            Invoke-RestMethod -Uri \"$api/sessions/$sid/claude-hook\" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 3 | Out-Null\r\n" +
+        "        }\r\n" +
+        "    }\r\n" +
+        // Surface the launch-time fleet preamble into the session's context. SessionStart's
+        // additionalContext is injected by Claude at startup/resume/clear/compact - exactly the
+        // moments the agent's memory of the fleet is otherwise empty - so it learns its identity
+        // and the cc-* commands instantly, with no skill lookup and zero turn cost. The text is
+        // owned by the Director (GET /fleet-preamble); the script just relays it.
+        "    if ($api -and $sid) {\r\n" +
+        "        $preamble = Invoke-RestMethod -Uri \"$api/sessions/$sid/fleet-preamble\" -TimeoutSec 3\r\n" +
+        "        if ($preamble) {\r\n" +
+        "            $out = @{ hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = [string]$preamble } } | ConvertTo-Json -Compress\r\n" +
+        "            [Console]::Out.Write($out)\r\n" +
         "        }\r\n" +
         "    }\r\n" +
         "} catch { }\r\n" +
