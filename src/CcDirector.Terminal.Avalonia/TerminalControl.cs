@@ -732,8 +732,14 @@ public class TerminalControl : Control
         // would otherwise stay frozen at the pre-alt content and the terminal renders black.
         SyncActiveGrid();
 
-        // Clear path cache so links re-evaluate with new terminal content
-        _pathExistsCache.Clear();
+        // Do NOT clear the path-existence cache here. A path's existence on disk does not change
+        // because the agent redrew its screen, and the cache is keyed by absolute path, so stale
+        // entries are harmless (a path no longer on screen is simply never looked up). Clearing it
+        // every byte made existing path links (e.g. "docs/") report as missing for one frame on the
+        // resulting cache miss, then reappear when the async check re-resolved - a per-byte underline
+        // flicker under Grok, whose footer never stops emitting bytes. The cache is still cleared on
+        // attach/detach/rebuild (a real content reset). Reset only the one-shot repaint guard so a
+        // newly-seen path can still schedule its repaint when its existence check resolves.
         Interlocked.Exchange(ref _pathCacheInvalidateNeeded, 0);
 
         // Let selection persist during output so users can
@@ -799,6 +805,29 @@ public class TerminalControl : Control
     /// <summary>Harness: the live parser, for reading the active (alt-aware) grid as ground truth.</summary>
     internal AnsiParser? HarnessParser => _parser;
 
+    // Harness: stand-in for the session's RepoPath so relative path links (e.g. "docs/") resolve
+    // to real on-disk directories and exercise the path-existence link rendering.
+    private string? _harnessRepoPath;
+    internal string? HarnessRepoPath { get => _harnessRepoPath; set => _harnessRepoPath = value; }
+
+    /// <summary>Harness: number of PATH link regions found in the most recent render. Drops to zero
+    /// the frame after the path-existence cache is cleared (the flicker), then recovers.</summary>
+    internal int HarnessPathLinkRegionCount =>
+        _linkRegions.Count(r => r.Type == LinkDetector.LinkType.Path);
+
+    /// <summary>Harness: run the renderer's exact path-link detection over the visible grid and count
+    /// PATH links right now. This calls <see cref="PathExistsCheckForRender"/>, so the FIRST call
+    /// after the path cache is cleared returns fewer links (existing paths report missing for that
+    /// frame) - that drop, repeated every Grok footer byte, is the flicker.</summary>
+    internal int HarnessCountPathLinks()
+    {
+        int n = 0;
+        for (int row = 0; row < _rows; row++)
+            foreach (var m in FindAllLinkMatches(GetLineText(row)))
+                if (m.Type == LinkDetector.LinkType.Path) n++;
+        return n;
+    }
+
     public override void Render(DrawingContext context)
     {
         // Always fill the full control area with the renderer background first.
@@ -856,7 +885,7 @@ public class TerminalControl : Control
             cursorVisible, curCol, curRow,
             renderLinkRegions,
             _dpiScale, _fontSize,
-            _session?.RepoPath);
+            _session?.RepoPath ?? _harnessRepoPath);
 
         try
         {
@@ -1385,7 +1414,7 @@ public class TerminalControl : Control
     /// </summary>
     private List<LinkDetector.LinkMatch> FindAllLinkMatches(string lineText)
     {
-        return LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath, PathExistsCheckForRender);
+        return LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath ?? _harnessRepoPath, PathExistsCheckForRender);
     }
 
     /// <summary>

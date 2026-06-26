@@ -25,6 +25,41 @@ public sealed class TerminalRenderTests
     // A margin well above black, well below the real value, makes this robust to font fallback.
     private const double NotBlackThreshold = 0.02;
 
+    /// <summary>Walk up from the test binary to the repo root (the folder with cc-director.sln), so
+    /// relative path links in the fixture (docs/, phone/, ...) resolve to real on-disk directories.</summary>
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
+
+    [AvaloniaFact]
+    public void Grok_path_link_does_not_flicker_on_footer_bytes()
+    {
+        // The flicker: path links render underlined only when an async disk-existence check has
+        // populated a cache; the per-byte handler used to wipe that cache, so on Grok's never-ending
+        // footer bytes existing path links (e.g. "docs/") vanished for a frame then reappeared,
+        // ~30x/s. Detect path links, simulate a footer byte, and assert the count is unchanged.
+        var fixture = LoadFixture();
+        var (terminal, window) = NewTerminal();
+        terminal.HarnessRepoPath = RepoRoot();
+        terminal.HarnessRebuild(fixture);
+
+        terminal.HarnessCountPathLinks();         // schedule the async existence checks
+        System.Threading.Thread.Sleep(250);       // let them resolve (cache warms)
+        int warm = terminal.HarnessCountPathLinks();
+        Assert.True(warm > 0, "fixture should contain existing path links (e.g. docs/) to test");
+
+        // A footer byte runs the per-byte handler. The link count must NOT drop.
+        terminal.HarnessFeed(System.Array.Empty<byte>());
+        int afterFooterByte = terminal.HarnessCountPathLinks();
+
+        Assert.Equal(warm, afterFooterByte);
+    }
+
     private static byte[] LoadFixture()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "grok-alt-screen.bin");
