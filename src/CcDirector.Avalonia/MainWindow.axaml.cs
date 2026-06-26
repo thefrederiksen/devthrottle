@@ -4252,6 +4252,7 @@ public partial class MainWindow : Window
     private void SwitchLeftTab(string tab)
     {
         if (_activeLeftTab == tab) return;
+        var previousTab = _activeLeftTab;
         _activeLeftTab = tab;
         FileLog.Write($"[MainWindow] SwitchLeftTab: {tab}");
 
@@ -4283,6 +4284,13 @@ public partial class MainWindow : Window
         WingmanPanel.IsVisible = tab == "Wingman";
         HistoryPanel.IsVisible = tab == "History";
         DocumentPanel.IsVisible = isDocTab;
+
+        // Gate the History tab's polling + auto-scroll on its visibility (#744): it only follows the
+        // conversation while it is the visible tab, and snaps to the latest message on activation.
+        if (tab == "History")
+            HistoryView.OnShown();
+        else if (previousTab == "History")
+            HistoryView.OnHidden();
 
         // The shared prompt bar belongs to the terminal-style tabs. The Voice and
         // Wingman tabs have their own input affordances (push-to-talk buttons / a
