@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Avalonia.Helpers;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Gemini;
 using CcDirector.Core.History;
@@ -24,6 +25,9 @@ public sealed class HistoryMessageVm
 
     /// <summary>True for raw terminal scrollback (Gemini): render verbatim, not as Markdown.</summary>
     public bool IsRawText { get; init; }
+
+    /// <summary>Link context that makes file paths and URLs in this bubble clickable (#735).</summary>
+    public MarkdownRenderContext? LinkContext { get; init; }
 }
 
 /// <summary>
@@ -62,6 +66,16 @@ public partial class HistoryView : UserControl
     private Session? _session;
     private string _lastSignature = "";
 
+    // Shared per-session link context for clickable paths/URLs in bubbles (#735). Built on Attach
+    // because its inputs (the repo path and the routing callbacks) are stable for a session.
+    private MarkdownRenderContext? _linkContext;
+
+    /// <summary>Raised when the user picks "View File" on a link in a bubble (resolved path).</summary>
+    public event Action<string>? ViewFileRequested;
+
+    /// <summary>Raised when opening a link in a browser fails (human-readable message).</summary>
+    public event Action<string>? BrowserLaunchFailed;
+
     // Cached transcript analysis for the derived history state (Claude only). Re-parsed only when
     // the transcript file changes; re-derived every tick so the process-liveness guard updates fast.
     private HistoryAnalysis? _lastAnalysis;
@@ -78,6 +92,13 @@ public partial class HistoryView : UserControl
     {
         Detach();
         _session = session;
+        _linkContext = new MarkdownRenderContext
+        {
+            RepoPath = session.RepoPath,
+            PathExists = static p => File.Exists(p) || Directory.Exists(p),
+            OnViewFile = path => ViewFileRequested?.Invoke(path),
+            OnBrowserError = message => BrowserLaunchFailed?.Invoke(message),
+        };
         FileLog.Write($"[HistoryView] Attach: session={session.Id} agent={session.AgentKind} transcript={session.ClaudeTranscriptPath ?? "(null)"}");
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _timer.Tick += async (_, _) => await RefreshAsync();
@@ -91,6 +112,7 @@ public partial class HistoryView : UserControl
         _timer?.Stop();
         _timer = null;
         _session = null;
+        _linkContext = null;
         _lastSignature = "";
         _lastAnalysis = null;
         _analysisSignature = "";
@@ -145,7 +167,7 @@ public partial class HistoryView : UserControl
             _lastSignature = signature;
 
             var history = await Task.Run(() => SessionHistoryReader.Read(session));
-            var vms = Map(history);
+            var vms = Map(history, _linkContext);
             FileLog.Write($"[HistoryView] refresh: path={path} messages={history.Messages.Count} vms={vms.Count}");
 
             var atBottom = IsNearBottom();
@@ -292,19 +314,19 @@ public partial class HistoryView : UserControl
             ScrollToEndDeferred();
     }
 
-    private static List<HistoryMessageVm> Map(ConversationHistory history)
+    private static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext)
     {
         var list = new List<HistoryMessageVm>(history.Messages.Count);
         foreach (var message in history.Messages)
         {
-            var vm = MapMessage(message);
+            var vm = MapMessage(message, linkContext);
             if (vm is not null)
                 list.Add(vm);
         }
         return list;
     }
 
-    private static HistoryMessageVm? MapMessage(ConversationMessage message)
+    private static HistoryMessageVm? MapMessage(ConversationMessage message, MarkdownRenderContext? linkContext)
     {
         var sb = new StringBuilder();
 
@@ -333,7 +355,7 @@ public partial class HistoryView : UserControl
             var body = sb.ToString().Trim();
             return body.Length == 0
                 ? null
-                : new HistoryMessageVm { Speaker = "Assistant", Body = Truncate(body, 4000), HeaderBrush = AssistantHeader, CardBrush = AssistantCard };
+                : new HistoryMessageVm { Speaker = "Assistant", Body = Truncate(body, 4000), HeaderBrush = AssistantHeader, CardBrush = AssistantCard, LinkContext = linkContext };
         }
 
         // User role: either a real prompt, or tool results being fed back to the assistant.
@@ -356,8 +378,8 @@ public partial class HistoryView : UserControl
             return null;
 
         return onlyToolResults
-            ? new HistoryMessageVm { Speaker = "Tool result", Body = Truncate(userBody, 2000), HeaderBrush = ToolHeader, CardBrush = ToolCard }
-            : new HistoryMessageVm { Speaker = "You", Body = Truncate(userBody, 4000), HeaderBrush = UserHeader, CardBrush = UserCard };
+            ? new HistoryMessageVm { Speaker = "Tool result", Body = Truncate(userBody, 2000), HeaderBrush = ToolHeader, CardBrush = ToolCard, LinkContext = linkContext }
+            : new HistoryMessageVm { Speaker = "You", Body = Truncate(userBody, 4000), HeaderBrush = UserHeader, CardBrush = UserCard, LinkContext = linkContext };
     }
 
     private static void Append(StringBuilder sb, string text)

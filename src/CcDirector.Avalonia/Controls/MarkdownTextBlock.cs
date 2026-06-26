@@ -24,6 +24,10 @@ public sealed class MarkdownTextBlock : ContentControl
     public static readonly StyledProperty<bool> PlainProperty =
         AvaloniaProperty.Register<MarkdownTextBlock, bool>(nameof(Plain));
 
+    /// <summary>Optional link context that makes file paths and URLs clickable (GitHub #735).</summary>
+    public static readonly StyledProperty<MarkdownRenderContext?> LinkContextProperty =
+        AvaloniaProperty.Register<MarkdownTextBlock, MarkdownRenderContext?>(nameof(LinkContext));
+
     public string? Markdown
     {
         get => GetValue(MarkdownProperty);
@@ -36,10 +40,17 @@ public sealed class MarkdownTextBlock : ContentControl
         set => SetValue(PlainProperty, value);
     }
 
+    public MarkdownRenderContext? LinkContext
+    {
+        get => GetValue(LinkContextProperty);
+        set => SetValue(LinkContextProperty, value);
+    }
+
     static MarkdownTextBlock()
     {
         MarkdownProperty.Changed.AddClassHandler<MarkdownTextBlock>((control, _) => control.Rebuild());
         PlainProperty.Changed.AddClassHandler<MarkdownTextBlock>((control, _) => control.Rebuild());
+        LinkContextProperty.Changed.AddClassHandler<MarkdownTextBlock>((control, _) => control.Rebuild());
     }
 
     private void Rebuild()
@@ -54,7 +65,7 @@ public sealed class MarkdownTextBlock : ContentControl
                     FontSize = 13,
                     Foreground = FallbackBrush,
                 }
-                : MarkdownRenderer.Render(Markdown);
+                : MarkdownRenderer.Render(Markdown, LinkContext);
         }
         catch (Exception ex)
         {

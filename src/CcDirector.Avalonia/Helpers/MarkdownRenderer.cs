@@ -1,10 +1,14 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using CcDirector.Core.Utilities;
+using CcDirector.Terminal.Avalonia;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -13,11 +17,33 @@ using MdInline = Markdig.Syntax.Inlines.Inline;
 namespace CcDirector.Avalonia.Helpers;
 
 /// <summary>
+/// Optional context that turns file paths and URLs inside rendered Markdown into clickable links
+/// (GitHub #735). When supplied, literal text is scanned with <see cref="LinkDetector"/> and each
+/// match becomes a clickable inline that opens the shared <see cref="LinkContextMenuBuilder"/> menu -
+/// the same actions the terminal offers. When null, text is rendered as plain runs (markdown only).
+/// </summary>
+public sealed class MarkdownRenderContext
+{
+    /// <summary>Repo root used to resolve relative paths, or null.</summary>
+    public string? RepoPath { get; init; }
+
+    /// <summary>Returns true when a resolved path exists; used by <see cref="LinkDetector"/> to
+    /// validate relative paths and to extend absolute paths through spaces.</summary>
+    public Func<string, bool>? PathExists { get; init; }
+
+    /// <summary>Routes "View File" to the host's document viewer (resolved absolute path).</summary>
+    public Action<string>? OnViewFile { get; init; }
+
+    /// <summary>Routes a browser-launch failure message to the host.</summary>
+    public Action<string>? OnBrowserError { get; init; }
+}
+
+/// <summary>
 /// Renders a Markdown string into a native Avalonia control tree (GitHub #734). Unlike
 /// <see cref="MarkdownHtmlRenderer"/> (which produces HTML for a WebView2), this builds plain
 /// Avalonia controls so it is cheap enough to use once per History bubble and so individual text
-/// runs can later be made clickable (GitHub #735). It reuses the same Markdig parser the rest of
-/// the app already depends on - no second Markdown library is introduced.
+/// runs can be made clickable (GitHub #735). It reuses the same Markdig parser the rest of the app
+/// already depends on - no second Markdown library is introduced.
 ///
 /// The supported subset matches what agent output actually uses: headings, paragraphs, bold /
 /// italic / inline code, fenced and indented code blocks, ordered and unordered lists, block
@@ -45,8 +71,9 @@ public static class MarkdownRenderer
     /// <summary>
     /// Render <paramref name="markdown"/> into a single Avalonia control (a vertical stack of
     /// blocks). Never returns null; an empty or unparseable input becomes a plain text block.
+    /// When <paramref name="linkContext"/> is supplied, paths and URLs become clickable.
     /// </summary>
-    public static Control Render(string? markdown)
+    public static Control Render(string? markdown, MarkdownRenderContext? linkContext = null)
     {
         if (string.IsNullOrEmpty(markdown))
             return PlainParagraph(string.Empty);
@@ -65,7 +92,7 @@ public static class MarkdownRenderer
         var root = NewStack();
         foreach (var block in doc)
         {
-            var control = RenderBlock(block, BaseFontSize);
+            var control = RenderBlock(block, BaseFontSize, linkContext);
             if (control != null)
                 root.Children.Add(control);
         }
@@ -75,15 +102,15 @@ public static class MarkdownRenderer
 
     private static StackPanel NewStack() => new() { Spacing = 6 };
 
-    private static Control? RenderBlock(Block block, double baseSize)
+    private static Control? RenderBlock(Block block, double baseSize, MarkdownRenderContext? ctx)
     {
         switch (block)
         {
             case HeadingBlock heading:
-                return RenderHeading(heading);
+                return RenderHeading(heading, ctx);
 
             case ParagraphBlock paragraph:
-                return RenderParagraph(paragraph, baseSize);
+                return RenderParagraph(paragraph, baseSize, ctx);
 
             case FencedCodeBlock fenced:
                 return RenderCodeBlock(GetCodeText(fenced));
@@ -92,10 +119,10 @@ public static class MarkdownRenderer
                 return RenderCodeBlock(GetCodeText(code));
 
             case ListBlock list:
-                return RenderList(list, baseSize);
+                return RenderList(list, baseSize, ctx);
 
             case QuoteBlock quote:
-                return RenderQuote(quote, baseSize);
+                return RenderQuote(quote, baseSize, ctx);
 
             case ThematicBreakBlock:
                 return new Border
@@ -114,7 +141,7 @@ public static class MarkdownRenderer
         }
     }
 
-    private static Control RenderHeading(HeadingBlock heading)
+    private static Control RenderHeading(HeadingBlock heading, MarkdownRenderContext? ctx)
     {
         double size = heading.Level switch
         {
@@ -134,11 +161,11 @@ public static class MarkdownRenderer
             Margin = new Thickness(0, 2, 0, 0),
         };
         if (heading.Inline != null)
-            AppendInlines(heading.Inline, tb.Inlines!, BaseFontSize);
+            AppendInlines(heading.Inline, tb.Inlines!, BaseFontSize, ctx);
         return tb;
     }
 
-    private static Control RenderParagraph(ParagraphBlock paragraph, double baseSize)
+    private static Control RenderParagraph(ParagraphBlock paragraph, double baseSize, MarkdownRenderContext? ctx)
     {
         var tb = new TextBlock
         {
@@ -147,7 +174,7 @@ public static class MarkdownRenderer
             Foreground = BodyBrush,
         };
         if (paragraph.Inline != null)
-            AppendInlines(paragraph.Inline, tb.Inlines!, baseSize);
+            AppendInlines(paragraph.Inline, tb.Inlines!, baseSize, ctx);
         return tb;
     }
 
@@ -171,7 +198,7 @@ public static class MarkdownRenderer
         };
     }
 
-    private static Control RenderList(ListBlock list, double baseSize)
+    private static Control RenderList(ListBlock list, double baseSize, MarkdownRenderContext? ctx)
     {
         var stack = NewStack();
         stack.Spacing = 2;
@@ -182,7 +209,7 @@ public static class MarkdownRenderer
             if (child is not ListItemBlock item)
                 continue;
 
-            string bullet = list.IsOrdered ? index + "." : "•"; // "•"
+            string bullet = list.IsOrdered ? index + "." : "-";
             index++;
 
             var bulletText = new TextBlock
@@ -199,7 +226,7 @@ public static class MarkdownRenderer
             content.Spacing = 2;
             foreach (var sub in item)
             {
-                var c = RenderBlock(sub, baseSize);
+                var c = RenderBlock(sub, baseSize, ctx);
                 if (c != null)
                     content.Children.Add(c);
             }
@@ -218,12 +245,12 @@ public static class MarkdownRenderer
         return stack;
     }
 
-    private static Control RenderQuote(QuoteBlock quote, double baseSize)
+    private static Control RenderQuote(QuoteBlock quote, double baseSize, MarkdownRenderContext? ctx)
     {
         var inner = NewStack();
         foreach (var sub in quote)
         {
-            var c = RenderBlock(sub, baseSize);
+            var c = RenderBlock(sub, baseSize, ctx);
             if (c != null)
             {
                 if (c is TextBlock tb)
@@ -252,19 +279,20 @@ public static class MarkdownRenderer
 
     // ---- inline rendering ----
 
-    private static void AppendInlines(ContainerInline container, InlineCollection target, double baseSize)
+    private static void AppendInlines(ContainerInline container, InlineCollection target, double baseSize,
+        MarkdownRenderContext? ctx)
     {
         foreach (var inline in container)
-            AppendInline(inline, target, baseSize, FontWeight.Normal, FontStyle.Normal);
+            AppendInline(inline, target, baseSize, FontWeight.Normal, FontStyle.Normal, ctx);
     }
 
     private static void AppendInline(MdInline inline, InlineCollection target, double baseSize,
-        FontWeight weight, FontStyle style)
+        FontWeight weight, FontStyle style, MarkdownRenderContext? ctx)
     {
         switch (inline)
         {
             case LiteralInline literal:
-                target.Add(StyledRun(literal.Content.ToString(), baseSize, weight, style));
+                AppendText(literal.Content.ToString(), target, baseSize, weight, style, ctx);
                 break;
 
             case EmphasisInline emphasis:
@@ -273,7 +301,7 @@ public static class MarkdownRenderer
                 var w = emphasis.DelimiterCount >= 2 ? FontWeight.Bold : weight;
                 var s = emphasis.DelimiterCount == 1 ? FontStyle.Italic : style;
                 foreach (var child in emphasis)
-                    AppendInline(child, target, baseSize, w, s);
+                    AppendInline(child, target, baseSize, w, s, ctx);
                 break;
             }
 
@@ -296,28 +324,135 @@ public static class MarkdownRenderer
 
             case LinkInline link when !link.IsImage:
             {
-                // Markdown hyperlink. Rendered as styled text here; click handling is added by #735.
                 var label = LinkLabel(link);
-                target.Add(new Run(label) { Foreground = LinkBrush, FontWeight = weight, FontStyle = style });
+                var url = link.Url ?? string.Empty;
+                if (ctx != null && url.Length > 0)
+                {
+                    var type = url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                        ? LinkDetector.LinkType.Url
+                        : LinkDetector.LinkType.Path;
+                    target.Add(ClickableLink(label, url, type, baseSize, weight, style, ctx));
+                }
+                else
+                {
+                    target.Add(new Run(label) { Foreground = LinkBrush, FontWeight = weight, FontStyle = style });
+                }
                 break;
             }
 
             case AutolinkInline auto:
-                target.Add(new Run(auto.Url) { Foreground = LinkBrush });
+            {
+                if (ctx != null)
+                    target.Add(ClickableLink(auto.Url, auto.Url, LinkDetector.LinkType.Url, baseSize, weight, style, ctx));
+                else
+                    target.Add(new Run(auto.Url) { Foreground = LinkBrush });
                 break;
+            }
 
             case ContainerInline nested:
                 foreach (var child in nested)
-                    AppendInline(child, target, baseSize, weight, style);
+                    AppendInline(child, target, baseSize, weight, style, ctx);
                 break;
 
             default:
                 // Unknown inline: emit its plain text if it has any.
                 var text = inline.ToString();
                 if (!string.IsNullOrEmpty(text))
-                    target.Add(StyledRun(text, baseSize, weight, style));
+                    AppendText(text, target, baseSize, weight, style, ctx);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Append a plain text run, OR - when a link context is present - scan the text for file paths
+    /// and URLs (via <see cref="LinkDetector"/>) and split it into plain runs plus clickable links.
+    /// </summary>
+    private static void AppendText(string text, InlineCollection target, double baseSize,
+        FontWeight weight, FontStyle style, MarkdownRenderContext? ctx)
+    {
+        if (ctx == null || string.IsNullOrEmpty(text))
+        {
+            target.Add(StyledRun(text, baseSize, weight, style));
+            return;
+        }
+
+        List<LinkDetector.LinkMatch> matches;
+        try
+        {
+            matches = LinkDetector.FindAllLinkMatches(text, ctx.RepoPath, ctx.PathExists);
+        }
+        catch
+        {
+            matches = new List<LinkDetector.LinkMatch>();
+        }
+
+        if (matches.Count == 0)
+        {
+            target.Add(StyledRun(text, baseSize, weight, style));
+            return;
+        }
+
+        matches.Sort((a, b) => a.StartCol.CompareTo(b.StartCol));
+
+        int pos = 0;
+        foreach (var m in matches)
+        {
+            if (m.StartCol < pos || m.EndCol > text.Length || m.EndCol <= m.StartCol)
+                continue; // overlap or out-of-range guard
+            if (m.StartCol > pos)
+                target.Add(StyledRun(text.Substring(pos, m.StartCol - pos), baseSize, weight, style));
+            target.Add(ClickableLink(m.Text, m.Text, m.Type, baseSize, weight, style, ctx));
+            pos = m.EndCol;
+        }
+        if (pos < text.Length)
+            target.Add(StyledRun(text.Substring(pos), baseSize, weight, style));
+    }
+
+    /// <summary>
+    /// Build a clickable link inline: underlined blue text with a hand cursor that, on left click,
+    /// opens the shared terminal-equivalent context menu for the link.
+    /// </summary>
+    private static MdInlineHost ClickableLink(string display, string link, LinkDetector.LinkType type,
+        double baseSize, FontWeight weight, FontStyle style, MarkdownRenderContext ctx)
+    {
+        var tb = new TextBlock
+        {
+            Text = display,
+            Foreground = LinkBrush,
+            TextDecorations = TextDecorations.Underline,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            FontWeight = weight,
+            FontStyle = style,
+            FontSize = baseSize,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        void Open(Control owner)
+        {
+            var menu = LinkContextMenuBuilder.Build(new LinkMenuContext
+            {
+                Link = link,
+                Type = type,
+                RepoPath = ctx.RepoPath,
+                Owner = owner,
+                OnViewFile = ctx.OnViewFile,
+                OnBrowserError = ctx.OnBrowserError,
+            });
+            menu.Open(owner);
+        }
+
+        tb.PointerPressed += (_, e) =>
+        {
+            // Left click opens the menu (mirrors the terminal); also handle right click for parity.
+            var props = e.GetCurrentPoint(tb).Properties;
+            if (!props.IsLeftButtonPressed && !props.IsRightButtonPressed)
+                return;
+            e.Handled = true;
+            Open(tb);
+        };
+
+        return new MdInlineHost(tb);
     }
 
     private static Run StyledRun(string text, double size, FontWeight weight, FontStyle style)
@@ -348,5 +483,17 @@ public static class MarkdownRenderer
             sb.Append(lines[i].Slice.ToString());
         }
         return sb.ToString();
+    }
+}
+
+/// <summary>
+/// An <see cref="InlineUIContainer"/> that hosts a clickable link control inside flowing text.
+/// A thin named subclass keeps the call sites readable and the baseline alignment in one place.
+/// </summary>
+internal sealed class MdInlineHost : InlineUIContainer
+{
+    public MdInlineHost(Control child) : base(child)
+    {
+        BaselineAlignment = BaselineAlignment.TextBottom;
     }
 }

@@ -1,8 +1,6 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Avalonia;
@@ -11,7 +9,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
-using CcDirector.Core.Browsers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
@@ -104,8 +101,6 @@ public class TerminalControl : Control
 
     // Link detection state
     private ContextMenu? _linkContextMenu;
-    private string? _detectedLink;
-    private LinkDetector.LinkType _detectedLinkType;
 
     // Paste state
     private bool _isPasting;
@@ -1506,55 +1501,24 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Show context menu for detected link.
+    /// Show the context menu for a detected link. The link items (View File / Copy / Open in File
+    /// Manager / Open in Browser) come from the shared <see cref="LinkContextMenuBuilder"/> so the
+    /// terminal and the History tab offer identical actions; the terminal then appends its own paste
+    /// items.
     /// </summary>
     private void ShowLinkContextMenu(Point position, string link, LinkDetector.LinkType type)
     {
-        _detectedLink = link;
-        _detectedLinkType = type;
-
         _linkContextMenu = new ContextMenu();
 
-        if (type == LinkDetector.LinkType.Path)
+        LinkContextMenuBuilder.PopulateLinkItems(_linkContextMenu, new LinkMenuContext
         {
-            bool addedViewerItem = false;
-
-            if (FileExtensions.IsViewable(link))
-            {
-                var viewItem = new MenuItem { Header = "View File" };
-                viewItem.Click += (_, _) => OpenFileViewer();
-                _linkContextMenu.Items.Add(viewItem);
-                addedViewerItem = true;
-            }
-
-            if (FileExtensions.IsHtml(link))
-            {
-                string htmlTarget = ResolvePath(link).Replace('/', '\\').TrimEnd('\\');
-                _linkContextMenu.Items.Add(BuildOpenInBrowserMenuItem(htmlTarget));
-                addedViewerItem = true;
-            }
-
-            if (addedViewerItem)
-            {
-                _linkContextMenu.Items.Add(new Separator());
-            }
-
-            var copyItem = new MenuItem { Header = "Copy Path" };
-            copyItem.Click += (_, _) => _ = CopyLinkToClipboardAsync();
-            _linkContextMenu.Items.Add(copyItem);
-
-            var explorerItem = new MenuItem { Header = "Open in File Manager" };
-            explorerItem.Click += (_, _) => OpenInFileManager();
-            _linkContextMenu.Items.Add(explorerItem);
-        }
-        else if (type == LinkDetector.LinkType.Url)
-        {
-            var copyItem = new MenuItem { Header = "Copy URL" };
-            copyItem.Click += (_, _) => _ = CopyLinkToClipboardAsync();
-            _linkContextMenu.Items.Add(copyItem);
-
-            _linkContextMenu.Items.Add(BuildOpenInBrowserMenuItem(_detectedLink));
-        }
+            Link = link,
+            Type = type,
+            RepoPath = _session?.RepoPath,
+            Owner = this,
+            OnViewFile = path => ViewFileRequested?.Invoke(path),
+            OnBrowserError = message => BrowserLaunchFailed?.Invoke(message),
+        });
 
         if (_session != null)
         {
@@ -1564,215 +1528,6 @@ public class TerminalControl : Control
 
         this.ContextMenu = _linkContextMenu;
         _linkContextMenu.Open(this);
-    }
-
-    /// <summary>
-    /// Copy detected link to clipboard (async for Avalonia).
-    /// </summary>
-    private async Task CopyLinkToClipboardAsync()
-    {
-        if (string.IsNullOrEmpty(_detectedLink)) return;
-
-        string textToCopy = _detectedLinkType == LinkDetector.LinkType.Path
-            ? ResolvePath(_detectedLink).Replace('/', '\\').TrimEnd('\\')
-            : _detectedLink;
-
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard != null)
-        {
-            await clipboard.SetTextAsync(textToCopy);
-            FileLog.Write($"[TerminalControl] Copied link: {textToCopy}");
-        }
-    }
-
-    /// <summary>
-    /// Open path in the platform file manager (Explorer on Windows, open on macOS, xdg-open on Linux).
-    /// </summary>
-    private void OpenInFileManager()
-    {
-        if (string.IsNullOrEmpty(_detectedLink)) return;
-
-        try
-        {
-            string path = ResolvePath(_detectedLink).Replace('/', '\\').TrimEnd('\\');
-            string target = File.Exists(path) ? Path.GetDirectoryName(path) ?? path : path;
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                Process.Start("explorer.exe", $"\"{target}\"");
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                Process.Start("open", $"\"{target}\"");
-            }
-            else
-            {
-                Process.Start("xdg-open", $"\"{target}\"");
-            }
-
-            FileLog.Write($"[TerminalControl] Opened in file manager: {target}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TerminalControl] OpenInFileManager FAILED: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Builds the "Open in Browser" menu item for <paramref name="target"/> (a URL or a local
-    /// file path). A plain click on the item reopens the remembered default; hovering expands a
-    /// submenu of "System default" plus each installed browser, each with its real profiles
-    /// (re-read from that browser's Local State so newly added profiles appear without a restart).
-    /// </summary>
-    private MenuItem BuildOpenInBrowserMenuItem(string target)
-    {
-        var parent = new MenuItem { Header = "Open in Browser" };
-        // A submenu parent in Avalonia does NOT raise Click on its header - pressing the header
-        // just expands the submenu. To make a plain click on the parent reopen the remembered
-        // default (while HOVER still expands the submenu for AC1), intercept the header press in
-        // the tunnel phase, before the submenu-open handling runs.
-        //
-        // The tunnel route also passes through this parent for presses on its OWN submenu leaves
-        // (they are descendants), so we must launch the default ONLY when the press lands on the
-        // parent's own header. The submenu flies out to a popup outside the header's bounds, so a
-        // press whose position is within the header rectangle is a header click; anything outside
-        // is a leaf press that must fall through to that leaf's own Click handler.
-        parent.AddHandler(PointerPressedEvent, (_, e) =>
-        {
-            var pos = e.GetPosition(parent);
-            bool onHeader = pos.X >= 0 && pos.Y >= 0
-                && pos.X <= parent.Bounds.Width && pos.Y <= parent.Bounds.Height;
-            if (!onHeader)
-                return;
-
-            e.Handled = true;
-            _linkContextMenu?.Close();
-            OpenInBrowserDefault(target);
-        }, RoutingStrategies.Tunnel);
-
-        var systemItem = new MenuItem { Header = "System default" };
-        systemItem.Click += (_, e) =>
-        {
-            e.Handled = true;
-            OpenInBrowserSystemDefault(target);
-        };
-        parent.Items.Add(systemItem);
-
-        foreach (var browser in BrowserLauncher.DetectBrowsers())
-        {
-            var browserItem = new MenuItem { Header = browser.DisplayName };
-
-            var profiles = BrowserLauncher.GetProfiles(browser);
-            if (profiles.Count == 0)
-            {
-                browserItem.Items.Add(new MenuItem { Header = "(no profiles found)", IsEnabled = false });
-            }
-            else
-            {
-                foreach (var profile in profiles)
-                {
-                    string header = profile.Account is null
-                        ? profile.DisplayName
-                        : $"{profile.DisplayName} ({profile.Account})";
-
-                    var profileItem = new MenuItem { Header = header };
-                    var capturedBrowser = browser;
-                    var capturedFolder = profile.FolderName;
-                    profileItem.Click += (_, e) =>
-                    {
-                        e.Handled = true;
-                        OpenInBrowserProfile(target, capturedBrowser, capturedFolder);
-                    };
-                    browserItem.Items.Add(profileItem);
-                }
-            }
-
-            parent.Items.Add(browserItem);
-        }
-
-        return parent;
-    }
-
-    /// <summary>
-    /// Opens <paramref name="target"/> using the remembered default browser+profile. If no default
-    /// has been chosen, opens the system default (the historical behavior). If a default exists but
-    /// its browser or profile is missing, surfaces a clear error - never silently falls back.
-    /// </summary>
-    private void OpenInBrowserDefault(string target)
-    {
-        try
-        {
-            var remembered = BrowserDefaultStore.Load();
-            if (remembered is null)
-            {
-                FileLog.Write($"[TerminalControl] OpenInBrowserDefault: no remembered default, using system default: {target}");
-                BrowserLauncher.OpenSystemDefault(target);
-                return;
-            }
-
-            var browser = BrowserDefaultStore.ResolveBrowser(remembered.ExePath);
-            BrowserLauncher.OpenWithProfile(target, browser, remembered.ProfileFolder);
-            FileLog.Write($"[TerminalControl] OpenInBrowserDefault: opened {target} in {browser.DisplayName}/{remembered.ProfileFolder}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TerminalControl] OpenInBrowserDefault FAILED: {ex.Message}");
-            BrowserLaunchFailed?.Invoke($"Could not open in browser.\n\n{ex.Message}");
-        }
-    }
-
-    /// <summary>Opens <paramref name="target"/> in the OS default browser (an explicit menu choice).</summary>
-    private void OpenInBrowserSystemDefault(string target)
-    {
-        try
-        {
-            BrowserLauncher.OpenSystemDefault(target);
-            FileLog.Write($"[TerminalControl] OpenInBrowserSystemDefault: {target}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TerminalControl] OpenInBrowserSystemDefault FAILED: {ex.Message}");
-            BrowserLaunchFailed?.Invoke($"Could not open in the system default browser.\n\n{ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Opens <paramref name="target"/> in a specific browser+profile and remembers that choice as
-    /// the new default. Surfaces a clear error if the launch fails - never silently falls back.
-    /// </summary>
-    private void OpenInBrowserProfile(string target, BrowserInfo browser, string profileFolder)
-    {
-        try
-        {
-            BrowserLauncher.OpenWithProfile(target, browser, profileFolder);
-            BrowserDefaultStore.Save(new BrowserDefault(browser.ExePath, profileFolder));
-            FileLog.Write($"[TerminalControl] OpenInBrowserProfile: opened {target} in {browser.DisplayName}/{profileFolder}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TerminalControl] OpenInBrowserProfile FAILED: {ex.Message}");
-            BrowserLaunchFailed?.Invoke($"Could not open in {browser.DisplayName}.\n\n{ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Open a file in the built-in viewer.
-    /// </summary>
-    private void OpenFileViewer()
-    {
-        if (string.IsNullOrEmpty(_detectedLink)) return;
-
-        string path = ResolvePath(_detectedLink);
-        FileLog.Write($"[TerminalControl] OpenFileViewer: {path}");
-        ViewFileRequested?.Invoke(path);
-    }
-
-    /// <summary>
-    /// Resolve a detected path to an absolute Windows path.
-    /// </summary>
-    private string ResolvePath(string path)
-    {
-        return LinkDetector.ResolvePath(path, _session?.RepoPath);
     }
 
     private static byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)

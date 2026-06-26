@@ -146,6 +146,10 @@ public partial class MainWindow : Window
         TerminalHost.ScrollChanged += OnTerminalScrollChanged;
         TerminalHost.ViewFileRequested += OnTerminalViewFileRequested;
         TerminalHost.BrowserLaunchFailed += OnTerminalBrowserLaunchFailed;
+        // The History tab reuses the same link actions as the terminal (GitHub #735); these handlers
+        // are agent-agnostic (open a file in the viewer, surface a browser-launch error).
+        HistoryView.ViewFileRequested += OnTerminalViewFileRequested;
+        HistoryView.BrowserLaunchFailed += OnTerminalBrowserLaunchFailed;
         TerminalScrollBar.PropertyChanged += TerminalScrollBar_PropertyChanged;
 
         SessionList.AddHandler(DragDrop.DragOverEvent, SessionList_DragOver);
