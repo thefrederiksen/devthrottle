@@ -267,6 +267,11 @@ internal static class Program
             _completed.TrySetResult();
             _thread?.Join(1000);
         }
+
+        // The replay thread emits synchronously and Stop() joins it, so once Stop
+        // returns every chunk it was going to emit has already fired - there is no
+        // separate buffered tail to drain. StopAsync is therefore just Stop.
+        public Task StopAsync(TimeSpan drainTimeout) { Stop(); return Task.CompletedTask; }
     }
 
     private static string? FindFfmpeg()
