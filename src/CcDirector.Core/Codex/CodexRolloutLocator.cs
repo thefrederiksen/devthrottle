@@ -50,6 +50,12 @@ public static class CodexRolloutLocator
     public static string? Scan(string repoPath, string sessionsDirectory)
         => Scan(repoPath, sessionsDirectory, notBefore: null);
 
+    /// <summary>The newest rollout for a repo using the default <c>~/.codex/sessions</c> directory.
+    /// Used by the context gauge, which has only the repo path (no Director session id or launch
+    /// time), so it takes the newest matching rollout - the active session's, in the common case.</summary>
+    public static string? ResolveByRepo(string repoPath)
+        => Scan(repoPath, SessionsDirectory(), notBefore: null);
+
     /// <summary>
     /// Scan a sessions directory for the newest rollout whose session_meta cwd matches
     /// <paramref name="repoPath"/> and whose metadata/write timestamp is not older than

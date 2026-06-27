@@ -258,18 +258,26 @@ public sealed class ContextUsageTests
         Assert.InRange(ctx.PercentUsed!.Value, 11.0, 13.0); // ~12.2%, the bug's correct reading
     }
 
-    // ---- The NotSupported guarantee on drivers without the flag ----
+    // ---- Capability declaration: Claude, Codex, and pi report context usage; others do not ----
+
+    [Fact]
+    public void CodexAndPi_DeclareContextUsage()
+    {
+        Assert.True(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.True(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+    }
 
     [Fact]
     public void ReadContextUsage_DriverWithoutFlag_Throws()
     {
-        Assert.False(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
-        Assert.False(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        // Drivers that do NOT declare ContextUsage inherit the throwing default - honestly absent.
+        Assert.False(new CopilotDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.False(new CursorDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
 
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new CodexDriver()).ReadContextUsage("sid", "C:\\repo", null));
+            () => ((IAgentDriver)new CopilotDriver()).ReadContextUsage("sid", "C:\\repo", null));
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new PiDriver()).ReadContextUsage("sid", "C:\\repo", null));
+            () => ((IAgentDriver)new CursorDriver()).ReadContextUsage("sid", "C:\\repo", null));
     }
 
     [Fact]
