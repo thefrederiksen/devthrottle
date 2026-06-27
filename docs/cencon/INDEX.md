@@ -329,7 +329,7 @@ CenCon governs not only how cc-director is **documented** but how it is **change
 running cc-director sessions (Product / Developer / QA / Support). The single hard rule: **no code is
 written without a clearly-defined GitHub issue that passed the Definition of Ready.**
 
-State is carried by `flow:*` labels on GitHub issues in `thefrederiksen/cc-director`:
+State is carried by `flow:*` labels on GitHub issues in `thefrederiksen/devthrottle`:
 
 | Label | Stage | Owning agent | Skill |
 |-------|-------|--------------|-------|

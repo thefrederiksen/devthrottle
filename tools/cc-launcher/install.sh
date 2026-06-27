@@ -10,7 +10,7 @@ LABEL="com.centerconsulting.cc-launcher"
 PLIST_SRC="$DIR/$LABEL.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SCRIPT="$DIR/launcher.py"
-CCD_BIN="${CCD_BIN:-$HOME/ReposFred/cc-director/local_builds/mac/cc-director-mac1}"
+CCD_BIN="${CCD_BIN:-$HOME/ReposFred/devthrottle/local_builds/mac/cc-director-mac1}"
 DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
 
 mkdir -p "$HOME/Library/LaunchAgents"

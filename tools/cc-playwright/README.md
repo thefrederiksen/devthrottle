@@ -11,7 +11,7 @@ Browser automation CLI - trusted-event sibling to cc-browser.
 ## Install
 
 ```bash
-uv tool install --reinstall D:/ReposFred/cc-director/tools/cc-playwright
+uv tool install --reinstall D:/ReposFred/devthrottle/tools/cc-playwright
 ```
 
 The `cc-playwright` executable is installed to `~/.local/bin/`.

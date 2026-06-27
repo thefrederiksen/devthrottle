@@ -17,7 +17,7 @@
 param([switch] $DefineOnly)
 
 $ErrorActionPreference = 'Stop'
-$stage      = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
+$stage      = 'D:\ReposFred\devthrottle\local_builds\cockpit-publish'
 $root       = "$env:LOCALAPPDATA\cc-director"
 $target     = "$root\cockpit"
 $gatewayExe = "$root\gateway\devthrottle-gateway.exe"

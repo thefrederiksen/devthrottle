@@ -50,7 +50,7 @@ PORT = int(os.environ.get("CCL_PORT", "8765"))
 WORKDIR = os.environ.get("CCL_DIR", HERE)
 CCD_BIN = os.environ.get(
     "CCD_BIN",
-    os.path.expanduser("~/ReposFred/cc-director/local_builds/mac/cc-director-mac1"),
+    os.path.expanduser("~/ReposFred/devthrottle/local_builds/mac/cc-director-mac1"),
 )
 DOTNET_ROOT = os.environ.get("DOTNET_ROOT", os.path.expanduser("~/.dotnet"))
 

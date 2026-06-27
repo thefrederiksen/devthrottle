@@ -63,7 +63,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #376 -- [Gateway] Add async voice-turn submit/poll endpoints and TurnJobStore
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/376
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/376
 **Labels:** flow:ready-dev, enhancement
 
 **What to build:**
@@ -125,7 +125,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #377 -- [ControlApi] Remove temporary async voice-turn endpoints from Director
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/377
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/377
 **Labels:** flow:ready-dev, enhancement
 **Depends on:** #376 merged
 
@@ -148,7 +148,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #378 -- [Voice] Phone app: swap voice-turn URLs from Director to Gateway
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/378
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/378
 **Labels:** flow:ready-dev, enhancement
 **Depends on:** #376 merged and deployed
 
@@ -170,7 +170,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #366 -- [Voice] Fix stale transcript: voice-turn endpoint speaks previous-turn content
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/366
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/366
 **Labels:** flow:ready-dev, bug, voice-review
 **Independent** (no dependency on Gateway issues)
 
@@ -189,7 +189,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #367 -- [Voice] Fix non-Latin script refusal in ClaudeSummarizer
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/367
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/367
 **Labels:** flow:ready-dev, bug, voice-review
 **Independent**
 
@@ -207,7 +207,7 @@ Dependencies flow left to right. Issues with no arrow are independent.
 
 ### #368 -- [Voice] Fix backtick content deletion in ClaudeSummarizer CleanupForSpeech
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/368
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/368
 **Labels:** flow:ready-dev, bug, voice-review
 **Independent**
 
@@ -227,7 +227,7 @@ Note: triple-backtick code blocks should still be stripped entirely (code blocks
 
 ### #369 -- Security: require API key on Gateway voice-turn endpoints
 
-**Link:** https://github.com/thefrederiksen/cc-director/issues/369
+**Link:** https://github.com/thefrederiksen/devthrottle/issues/369
 **Labels:** flow:ready-dev (already filed)
 **Depends on:** #376 merged
 

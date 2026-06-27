@@ -34,7 +34,7 @@ gate before an issue is done.
 **Read the contract first:** `docs/cencon/DEVELOPMENT_METHOD.md`. This skill implements the QA Agent
 role defined there. That document wins on any disagreement.
 
-Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
+Tracker: **GitHub Issues** in `thefrederiksen/devthrottle` (via `gh`). State is carried by `flow:*`
 labels.
 
 ## The laws (never violated)
@@ -81,7 +81,7 @@ This skill is a loop, not a one-shot. One pass = one issue.
 
 Find the oldest `flow:ready-qa` issue:
 ```bash
-gh issue list --repo thefrederiksen/cc-director --label flow:ready-qa --state open \
+gh issue list --repo thefrederiksen/devthrottle --label flow:ready-qa --state open \
   --json number,title,updatedAt --jq 'sort_by(.updatedAt) | .[0]'
 ```
 If none, report "QA queue empty" and stop. Otherwise take that one.
@@ -89,7 +89,7 @@ If none, report "QA queue empty" and stop. Otherwise take that one.
 ### Step 1: Read the contract and the claim
 
 ```bash
-gh issue view <ID> --repo thefrederiksen/cc-director --json number,title,body,labels,comments
+gh issue view <ID> --repo thefrederiksen/devthrottle --json number,title,body,labels,comments
 ```
 
 (By the time you pick it up the issue is `flow:ready-qa`: the Developer hand-off already released the
@@ -147,8 +147,8 @@ Only if EVERY acceptance criterion is PASS and the method checks pass:
 2. Commit it to the PR branch under `docs/cencon/proof/issue-<n>/qa-report.html` (with screenshots).
 3. Post a comment linking the proof repo-relative, then label `flow:done`:
 ```bash
-gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat qa-summary.md)"
-gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --remove-label flow:ready-qa
+gh issue comment <ID> --repo thefrederiksen/devthrottle --body "$(cat qa-summary.md)"
+gh issue edit <ID> --repo thefrederiksen/devthrottle --add-label flow:done --remove-label flow:ready-qa
 ```
 4. **Merge the PR to main (squash).** This is the QA role's authorized exception inside the
    `implementation-loop` (DECIDED D5 - merge-to-main IS part of `flow:done` when driven by the loop;
@@ -156,9 +156,9 @@ gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --rem
    for this workflow). **Build gate first:** verify the merged result builds clean before the merge
    is final - never force a dirty build to main.
    ```bash
-   gh pr merge <PR> --repo thefrederiksen/cc-director --squash --delete-branch
+   gh pr merge <PR> --repo thefrederiksen/devthrottle --squash --delete-branch
    dotnet build cc-director.sln   # must show Build succeeded. / 0 Error(s)
-   gh issue close <ID> --repo thefrederiksen/cc-director
+   gh issue close <ID> --repo thefrederiksen/devthrottle
    ```
    - If `gh pr merge` reports a **conflict** or the post-merge build is **not clean**, do NOT force
      it: re-label `flow:needs-human`, comment with the exact failure, and stop. Merge is autonomous
@@ -172,7 +172,7 @@ gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --rem
    git status --porcelain                       # MUST be empty
    git stash list                               # MUST show no stash you created (stashing is NOT cleanup)
    git rev-parse HEAD origin/main               # MUST match - local main == origin/main
-   gh pr list --repo thefrederiksen/cc-director --state open --json number,headRefName  # this PR must be GONE
+   gh pr list --repo thefrederiksen/devthrottle --state open --json number,headRefName  # this PR must be GONE
    ```
    ALL must hold: the PR no longer open, `git status --porcelain` empty, `git stash list` carrying
    none of your WIP, and local `main` == `origin/main`. If any is not true, you are NOT done -
@@ -192,8 +192,8 @@ If ANY criterion fails or a regression/method violation is found:
 2. Commit the failure screenshot(s) under `docs/cencon/proof/issue-<n>/` and reference them.
 3. Comment, then label `flow:qa-failed`:
 ```bash
-gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat defect.md)"
-gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:qa-failed --remove-label flow:ready-qa
+gh issue comment <ID> --repo thefrederiksen/devthrottle --body "$(cat defect.md)"
+gh issue edit <ID> --repo thefrederiksen/devthrottle --add-label flow:qa-failed --remove-label flow:ready-qa
 git status --porcelain   # MUST be empty - your failure screenshots are committed, the PR code stays put
 git stash list           # MUST show no stash you created - commit WIP, never stash it
 ```
@@ -215,8 +215,8 @@ it in a known state, then stop:
 3. Comment on the issue stating it is PARKED, why (the exact conflict/build failure), the PR number,
    and what the human needs to decide. Then label `flow:needs-human`:
    ```bash
-   gh issue comment <ID> --repo thefrederiksen/cc-director --body "PARKED for human: <reason>. PR #<pr> left open with all work committed. Working tree clean."
-   gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-qa
+   gh issue comment <ID> --repo thefrederiksen/devthrottle --body "PARKED for human: <reason>. PR #<pr> left open with all work committed. Working tree clean."
+   gh issue edit <ID> --repo thefrederiksen/devthrottle --add-label flow:needs-human --remove-label flow:ready-qa
    git status --porcelain   # MUST be empty before you stop (your WIP is COMMITTED to the PR branch)
    git stash list           # MUST show no stash you created - park by committing, never by stashing
    ```

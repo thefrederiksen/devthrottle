@@ -32,7 +32,7 @@ of its own development method.
 
 ## 2. The Hard Gate
 
-Every code change traces back to exactly one **GitHub issue** (in `thefrederiksen/cc-director`)
+Every code change traces back to exactly one **GitHub issue** (in `thefrederiksen/devthrottle`)
 that has passed the **Definition of Ready** (Section 5). There are no exceptions for "small"
 changes.
 
@@ -171,7 +171,7 @@ Label vocabulary (single source of truth - these labels exist in the repo):
 Only one `flow:*` label is present at a time. Changing the label IS the handoff:
 
 ```bash
-gh issue edit <N> --repo thefrederiksen/cc-director --add-label flow:ready-qa --remove-label flow:ready-dev
+gh issue edit <N> --repo thefrederiksen/devthrottle --add-label flow:ready-qa --remove-label flow:ready-dev
 ```
 
 DECIDED (D1): the `flow:*` labels are authoritative. GitHub's open/closed state is cosmetic and is
@@ -205,9 +205,9 @@ the label so it leaves every other loop's selection set:
 
 ```bash
 # claim: ready-dev -> in-progress, in a single edit, then record WHO claimed it
-gh issue edit <N> --repo thefrederiksen/cc-director \
+gh issue edit <N> --repo thefrederiksen/devthrottle \
    --add-label flow:in-progress --remove-label flow:ready-dev
-gh issue comment <N> --repo thefrederiksen/cc-director \
+gh issue comment <N> --repo thefrederiksen/devthrottle \
    --body "CLAIM flow:in-progress by <director-id>/<session-id> at <UTC-ISO8601>"
 ```
 
@@ -215,7 +215,7 @@ The selection query reads `flow:ready-dev` **only**, so a `flow:in-progress` iss
 every other loop:
 
 ```bash
-gh issue list --repo thefrederiksen/cc-director --label flow:ready-dev --state open \
+gh issue list --repo thefrederiksen/devthrottle --label flow:ready-dev --state open \
   --json number,title,updatedAt --jq 'sort_by(.updatedAt) | .[0]'
 ```
 
@@ -495,7 +495,7 @@ half, below).
 Each runnable source has a mode in the `implementation-loop` skill defining who carries the claim
 and where terminal status is written back. Everything code-side (branch, PR, squash-merge, proof
 under `docs/cencon/proof/`) stays GitHub PR-based in the code repo the work item names (default
-`thefrederiksen/cc-director`).
+`thefrederiksen/devthrottle`).
 
 - **github mode** (the original): claim and write-back are the `flow:*` labels (Section 4/4a).
 - **devops mode** (issue #300): claim and write-back are the Azure DevOps work item State plus

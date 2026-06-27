@@ -67,7 +67,7 @@
                                FontSize="11"
                                Margin="6,0,0,0"
                                Cursor="Hand"
-                               Tag="https://github.com/thefrederiksen/cc-director/blob/main/docs/public/getting-started/02-installation.md#if-a-tool-is-not-detected-after-installing-it"
+                               Tag="https://github.com/thefrederiksen/devthrottle/blob/main/docs/public/getting-started/02-installation.md#if-a-tool-is-not-detected-after-installing-it"
                                PointerPressed="InstallLink_PointerPressed">
                         <TextBlock.TextDecorations>
                             <TextDecorationCollection>

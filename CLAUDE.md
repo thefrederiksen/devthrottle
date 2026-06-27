@@ -48,8 +48,8 @@ Processes launched by Task Scheduler run under `svchost.exe` (the Schedule servi
 ```powershell
 # Point the task at your current test build. The WorkingDirectory must be set, or
 # Avalonia's first-time resource resolution may fail with exit -1.
-$exe = "D:\ReposFred\cc-director\local_builds\cc-director5.exe"
-$wd  = "D:\ReposFred\cc-director\local_builds"
+$exe = "D:\ReposFred\devthrottle\local_builds\cc-director5.exe"
+$wd  = "D:\ReposFred\devthrottle\local_builds"
 $action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory $wd
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)  # far future, on-demand only
 Register-ScheduledTask -TaskName "cc-director-launch" -Action $action -Trigger $trigger -Force

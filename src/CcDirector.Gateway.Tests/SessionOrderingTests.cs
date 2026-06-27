@@ -272,8 +272,8 @@ public sealed class SessionOrderingTests
     [Fact]
     public void RepoName_PrefersNormalizedRemote_LeafCaseInsensitiveDotGitStripped()
     {
-        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "thefrederiksen/cc-director.git")));
-        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "  thefrederiksen/cc-director  ")));
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "thefrederiksen/devthrottle.git")));
+        Assert.Equal("cc-director", SessionOrdering.RepoName(R("x", remoteRepo: "  thefrederiksen/devthrottle  ")));
     }
 
     [Fact]
@@ -345,8 +345,8 @@ public sealed class SessionOrderingTests
         // Same repo (same RemoteRepo) on two different machines / Directors must land under ONE header.
         var sessions = new[]
         {
-            R("onA", remoteRepo: "thefrederiksen/cc-director.git", machine: "MACHINE_A", directorId: "dirA"),
-            R("onB", remoteRepo: "thefrederiksen/cc-director",     machine: "MACHINE_B", directorId: "dirB"),
+            R("onA", remoteRepo: "thefrederiksen/devthrottle.git", machine: "MACHINE_A", directorId: "dirA"),
+            R("onB", remoteRepo: "thefrederiksen/devthrottle",     machine: "MACHINE_B", directorId: "dirB"),
         };
 
         var groups = SessionOrdering.InRepoGroups(sessions);

@@ -11,7 +11,7 @@ namespace CcDirector.Setup.Engine;
 /// </summary>
 public static class IssueReporter
 {
-    public const string NewIssueBase = "https://github.com/thefrederiksen/cc-director/issues/new";
+    public const string NewIssueBase = "https://github.com/thefrederiksen/devthrottle/issues/new";
 
     // GitHub/browsers reject very long URLs; keep the whole thing well under the practical ~8 KB limit.
     private const int MaxUrlLength = 7500;

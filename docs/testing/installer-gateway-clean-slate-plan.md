@@ -102,7 +102,7 @@ source going forward.
 
 ## Session brief (seed for the installer session)
 - Name: "Installer + Gateway clean-slate test"
-- Repo: D:\ReposFred\cc-director
+- Repo: D:\ReposFred\devthrottle
 - Mission: execute this plan; resolve the env-var-vs-vault seam; keep
   INSTALLATION.md authoritative; never kill the user's Director processes; HOLD on
   the destructive steps (section 1+) until Soren explicitly says go.

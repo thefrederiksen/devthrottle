@@ -51,7 +51,7 @@ Named mutex `Global\cc-director-scheduler`.
 - On each tick:
   1. Open `communications.db` read-only.
   2. For each registered runner, query for items matching the runner's filter (e.g. linkedin-connect runner filters by `platform='linkedin' AND type='message' AND tags LIKE '%connection-request%' AND status='approved'`).
-  3. If matching items exist, invoke the runner's command (e.g. `python D:\ReposFred\cc-director\scripts\linkedin-connect-from-queue.py`) via `Process.Start` with stdout/stderr captured to log.
+  3. If matching items exist, invoke the runner's command (e.g. `python D:\ReposFred\devthrottle\scripts\linkedin-connect-from-queue.py`) via `Process.Start` with stdout/stderr captured to log.
   4. The runner itself does the per-item marking-as-posted via `cc-comm-queue mark-posted`. Scheduler does not touch DB state directly.
 - **Jitter:** before invoking, sleep a random 0-60 minutes if the runner declares `RespectHumanCadence = true`. The first scheduled fire of the day for LinkedIn should not be deterministic at 08:00:00.000 - LinkedIn pattern-matches that.
 - **Per-runner cooldown:** keep an in-memory `Dictionary<string, DateTime> LastFiredAt` keyed by runner name. Do not refire a runner within 30 minutes of its last fire. Protects against tick storms during recovery.
@@ -65,7 +65,7 @@ schedulerService.RegisterRunner(new RunnerRegistration {
     Name = "linkedin-connect",
     QueueFilter = "platform='linkedin' AND type='message' AND tags LIKE '%connection-request%' AND status='approved'",
     Command = "python",
-    Args = new[] { @"D:\ReposFred\cc-director\scripts\linkedin-connect-from-queue.py" },
+    Args = new[] { @"D:\ReposFred\devthrottle\scripts\linkedin-connect-from-queue.py" },
     Schedule = Cron.Daily("08:00"),       // simple cron-ish helper
     RespectHumanCadence = true,           // 0-60min jitter
     MinIntervalBetweenFires = TimeSpan.FromHours(1),

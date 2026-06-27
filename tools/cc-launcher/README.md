@@ -72,7 +72,7 @@ curl -s -X POST http://127.0.0.1:8765/restart
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `CCD_BIN` | `~/ReposFred/cc-director/local_builds/mac/cc-director-mac1` | binary to launch |
+| `CCD_BIN` | `~/ReposFred/devthrottle/local_builds/mac/cc-director-mac1` | binary to launch |
 | `DOTNET_ROOT` | `~/.dotnet` | .NET runtime for the framework-dependent build |
 | `CCL_PORT` | `8765` | listen port |
 | `CCL_DIR` | this dir | working/log directory |

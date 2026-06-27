@@ -10,7 +10,7 @@ public static class PrerequisiteChecker
     private static readonly bool IsMacOS = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
     private const string DocsBase =
-        "https://github.com/thefrederiksen/cc-director/blob/main/docs/public/getting-started/02-installation.md";
+        "https://github.com/thefrederiksen/devthrottle/blob/main/docs/public/getting-started/02-installation.md";
 
     public static List<PrerequisiteInfo> CreateChecklist()
     {

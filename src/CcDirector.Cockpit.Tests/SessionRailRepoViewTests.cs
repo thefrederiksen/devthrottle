@@ -108,9 +108,9 @@ public sealed class SessionRailRepoViewTests : TestContext
             .Add(c => c.Sessions, new List<SessionDto>
             {
                 Session("onA", "agent-a", @"D:\ReposFred\cc-director",
-                    remoteRepo: "thefrederiksen/cc-director.git", directorId: Guid7884, machine: "MACHINE_A"),
+                    remoteRepo: "thefrederiksen/devthrottle.git", directorId: Guid7884, machine: "MACHINE_A"),
                 Session("onB", "agent-b", @"C:\src\cc-director",
-                    remoteRepo: "thefrederiksen/cc-director", directorId: Guid7886, machine: "MACHINE_B"),
+                    remoteRepo: "thefrederiksen/devthrottle", directorId: Guid7886, machine: "MACHINE_B"),
             }));
 
         // Exactly one header, both sessions under it.
@@ -168,11 +168,11 @@ public sealed class SessionRailRepoViewTests : TestContext
         {
             Session("a1", "apple-impl", @"D:\repos\apple", color: "blue", sortOrder: 0, directorId: Guid7884, machine: "MACHINE_A"),
             Session("c1", "cc-director-A", @"D:\ReposFred\cc-director", color: "blue", sortOrder: 1,
-                remoteRepo: "thefrederiksen/cc-director.git", directorId: Guid7884, machine: "MACHINE_A"),
+                remoteRepo: "thefrederiksen/devthrottle.git", directorId: Guid7884, machine: "MACHINE_A"),
             // The "flip" row: blue by default, red when CC219_PROOF_FLIP=1 - proves the color change
             // does not move it out of its SortOrder=2 slot (renders BELOW cc-director-A either way).
             Session("c2", "cc-director-B", @"C:\src\cc-director", color: redOrBlue ? "red" : "blue", sortOrder: 2,
-                remoteRepo: "thefrederiksen/cc-director", directorId: Guid7886, machine: "MACHINE_B"),
+                remoteRepo: "thefrederiksen/devthrottle", directorId: Guid7886, machine: "MACHINE_B"),
             Session("n1", "scratch-session", repoPath: "", color: "blue", directorId: Guid7884, machine: "MACHINE_A"),
         };
 

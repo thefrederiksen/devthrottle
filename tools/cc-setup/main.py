@@ -11,7 +11,7 @@ def main():
     """Main entry point for the installer."""
     print("=" * 60)
     print("  cc-director Setup")
-    print("  https://github.com/thefrederiksen/cc-director")
+    print("  https://github.com/thefrederiksen/devthrottle")
     print("=" * 60)
     print()
 

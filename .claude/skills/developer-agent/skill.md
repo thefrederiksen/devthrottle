@@ -10,7 +10,7 @@ You are the **Developer Agent** in the CenCon Development Method.
 **Read the contract first:** `docs/cencon/DEVELOPMENT_METHOD.md`. This skill implements the
 Developer Agent role defined there. That document wins on any disagreement.
 
-Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
+Tracker: **GitHub Issues** in `thefrederiksen/devthrottle` (via `gh`). State is carried by `flow:*`
 labels.
 
 ## The four laws (never violated)
@@ -42,7 +42,7 @@ labels.
 ### Step 1: Get the issue and read it against the Definition of Ready
 
 ```bash
-gh issue view <ID> --repo thefrederiksen/cc-director --json number,title,body,labels,comments,state
+gh issue view <ID> --repo thefrederiksen/devthrottle --json number,title,body,labels,comments,state
 ```
 
 Confirm it carries `flow:ready-dev`. If it does not, stop - it is not yours to implement.
@@ -59,10 +59,10 @@ NOT invent the missing intent. You bounce it back. The comment MUST be specific 
 the Product Agent can fix exactly the gap (this is what the 3-strike ping-pong guard relies on):
 
 ```bash
-gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat rejection.md)"
+gh issue comment <ID> --repo thefrederiksen/devthrottle --body "$(cat rejection.md)"
 # release whichever working-state label is set (flow:ready-dev standalone, or flow:in-progress
 # when the loop claimed the issue, issue #298) - removing an absent label is a harmless no-op
-gh issue edit <ID> --repo thefrederiksen/cc-director \
+gh issue edit <ID> --repo thefrederiksen/devthrottle \
   --add-label flow:rejected --remove-label flow:ready-dev --remove-label flow:in-progress
 ```
 
@@ -88,7 +88,7 @@ issue to the human and halt the loop for this issue:
 
 ```bash
 # release the working-state label (flow:ready-dev standalone, or flow:in-progress under the loop, #298)
-gh issue edit <ID> --repo thefrederiksen/cc-director \
+gh issue edit <ID> --repo thefrederiksen/devthrottle \
   --add-label flow:needs-human --remove-label flow:ready-dev --remove-label flow:in-progress
 ```
 
@@ -236,7 +236,7 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
    issue #298); standalone it may still be `flow:ready-dev`. Remove BOTH so no working-state label
    lingers (removing a label that is not present is a harmless no-op):
    ```bash
-   gh issue edit <ID> --repo thefrederiksen/cc-director \
+   gh issue edit <ID> --repo thefrederiksen/devthrottle \
      --add-label flow:ready-qa --remove-label flow:in-progress --remove-label flow:ready-dev
    ```
    `flow:in-progress` must NEVER remain on the issue after your hand-off - it is the loop's claim and
@@ -283,7 +283,7 @@ loop claimed is the work item State (the Basic/Scrum/Agile mapping table in the 
 skill) instead of `flow:*` labels - so the label-swap steps in this skill are carried by the State
 + comments in devops mode, performed by the loop per its mapping. EVERYTHING code-side is
 unchanged and stays in the GitHub code repo the work item description names (default
-`thefrederiksen/cc-director`): branch off main, build, prove, commit proof under
+`thefrederiksen/devthrottle`): branch off main, build, prove, commit proof under
 `docs/cencon/proof/devops-<workItemId>/`, open the PR, clean-tree gate. Host prerequisite: az CLI +
 azure-devops extension, authenticated, default organization configured.
 

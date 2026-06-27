@@ -115,7 +115,7 @@ The skill resolver should check this path first before falling back to the manag
 |------|--------|
 | `tools/cc-browser/src/connections.mjs` | Add `skill` field support + resolver |
 | `C:\Users\alice\.claude\CLAUDE.md` | Replace bot detection blocks |
-| `D:\ReposFred\cc-director\CLAUDE.md` | Add skill usage instructions |
+| `D:\ReposFred\devthrottle\CLAUDE.md` | Add skill usage instructions |
 
 ## Files to Create
 

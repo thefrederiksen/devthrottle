@@ -13,7 +13,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$repo = "D:\ReposFred\cc-director"
+$repo = "D:\ReposFred\devthrottle"
 $logDir = Join-Path $env:LOCALAPPDATA "cc-director\voice-review\logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ("run-{0}.log" -f (Get-Date -Format "yyyy-MM-dd-HHmmss"))

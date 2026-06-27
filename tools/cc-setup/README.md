@@ -30,7 +30,7 @@ No arguments required. Runs a 5-step automated installation.
 ```
 ============================================================
   cc-director Setup
-  https://github.com/cc-director/cc-director
+  https://github.com/thefrederiksen/devthrottle
 ============================================================
 
 [1/5] Creating install directory...

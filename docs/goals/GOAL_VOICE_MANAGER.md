@@ -120,7 +120,7 @@ What about "list sessions" / "what's running"? In v1, **don't build it.** The us
 
 ---
 
-## What's already built in `D:/ReposFred/cc-director/` (use, do not duplicate)
+## What's already built in `D:/ReposFred/devthrottle/` (use, do not duplicate)
 
 Everything below is in cc-director and works today. Reuse, do not rebuild.
 
@@ -255,7 +255,7 @@ These need a decision. The agent should pick a default and document it.
 1. Read this doc top to bottom. Then read the cc-director `docs/architecture/gateway/` docs for context on where things live.
 2. Build Phase 1 first. Get a text-only chat round-trip working over Tailscale to a phone.
 3. Only after Phase 1 ships, move to Phase 2.
-4. Use the `voice-test-host` (`D:/ReposFred/cc-director/tools/voice-test-host/`) for local development - it spins up the same Control API without disturbing any real `cc-director.exe` on the machine.
+4. Use the `voice-test-host` (`D:/ReposFred/devthrottle/tools/voice-test-host/`) for local development - it spins up the same Control API without disturbing any real `cc-director.exe` on the machine.
 5. Don't touch any running `cc-director.exe` or `cc-director-gateway.exe` processes. Use the start/stop scripts in `cc-director/scripts/voice-test/` for the test host.
 6. When unsure, default to the simpler thing. The whole point of v1 is the driving scenario - skip anything that doesn't move that needle.
 

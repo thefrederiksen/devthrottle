@@ -6,7 +6,7 @@ CC Director uses GitHub Actions to automate building, testing, and publishing re
 
 ## How to Release a New Version
 
-1. Go to https://github.com/thefrederiksen/cc-director/releases
+1. Go to https://github.com/thefrederiksen/devthrottle/releases
 2. Click **"Draft a new release"**
 3. In the **"Choose a tag"** dropdown, type a new tag (e.g., `v1.3.0`) and select **"Create new tag on publish"**
 4. Set the **Target** to `main`
@@ -20,7 +20,7 @@ GitHub Actions will automatically:
 - Build the single-file EXE using the 3-step workaround for .NET 10 bugs
 - Attach `cc-director.exe` to the release as a downloadable asset
 
-Monitor progress at: https://github.com/thefrederiksen/cc-director/actions
+Monitor progress at: https://github.com/thefrederiksen/devthrottle/actions
 
 ## Versioning
 
@@ -36,8 +36,8 @@ Pre-release versions use a suffix: `v2.0.0-rc.1`, `v1.3.0-beta.1`
 
 ## Download Links
 
-- **Latest release:** https://github.com/thefrederiksen/cc-director/releases/latest
-- **Direct EXE download:** https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director.exe
+- **Latest release:** https://github.com/thefrederiksen/devthrottle/releases/latest
+- **Direct EXE download:** https://github.com/thefrederiksen/devthrottle/releases/latest/download/cc-director.exe
 
 The README download link always points to the latest release automatically.
 

@@ -200,7 +200,7 @@ SUGGESTIONS:
 [full path]:[line]
 Issue: [what could be improved]
 
-CRITICAL: Use FULL file paths like D:\ReposFred\cc-director\src\CcDirector.Core\Session.cs:45
+CRITICAL: Use FULL file paths like D:\ReposFred\devthrottle\src\CcDirector.Core\Session.cs:45
 Never use just the filename.
 
 If NO PII is found, include this line in the report:

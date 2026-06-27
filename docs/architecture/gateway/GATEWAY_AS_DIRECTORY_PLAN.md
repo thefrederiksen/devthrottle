@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 **Date:** 2026-05-21
-**Tracking issue:** [#123](https://github.com/thefrederiksen/cc-director/issues/123)
+**Tracking issue:** [#123](https://github.com/thefrederiksen/devthrottle/issues/123)
 **Design doc:** [GATEWAY_DIRECTOR_TARGET.md](GATEWAY_DIRECTOR_TARGET.md)
 
 This document is the concrete implementation plan for the Phase-1 pivot described in the target doc: the Gateway becomes a thin "receptionist" that lists running Directors and deeplinks users to each Director's own manager UI. It does not proxy session traffic anymore.

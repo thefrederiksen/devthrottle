@@ -164,7 +164,7 @@ These are non-negotiable for "a real terminal." User-stated, must ship.
 
 ### Candidate parity backlog (NOT yet graded must-have vs. later)
 
-These are confirmed gaps vs. a real terminal / tmux. They are listed for grading, one at a time, in a later session. None is committed yet. Tracked in GitHub issue [#449](https://github.com/thefrederiksen/cc-director/issues/449) (parked - not a current priority).
+These are confirmed gaps vs. a real terminal / tmux. They are listed for grading, one at a time, in a later session. None is committed yet. Tracked in GitHub issue [#449](https://github.com/thefrederiksen/devthrottle/issues/449) (parked - not a current priority).
 
 | # | Gap | Impact | Notes |
 |---|---|---|---|

@@ -486,8 +486,8 @@ These external tools currently read from or write to `communications.db` at the 
 The `/write` skill calls this CLI to add emails and LinkedIn posts to the queue. It's the primary way communications enter the system.
 
 **Files to change:**
-- `D:\ReposFred\cc-director\src\cc-comm-queue\src\queue_manager.py` line 66: change `self.db_path = queue_path / "communications.db"` to `self.db_path = queue_path / "engine.db"`
-- `D:\ReposFred\cc-director\src\cc_shared\config.py` line 173: change `CommManagerConfig.queue_path` default from `"D:/ReposFred/cc-consult/tools/communication_manager/content"` to the cc-myvault directory
+- `D:\ReposFred\devthrottle\src\cc-comm-queue\src\queue_manager.py` line 66: change `self.db_path = queue_path / "communications.db"` to `self.db_path = queue_path / "engine.db"`
+- `D:\ReposFred\devthrottle\src\cc_shared\config.py` line 173: change `CommManagerConfig.queue_path` default from `"D:/ReposFred/cc-consult/tools/communication_manager/content"` to the cc-myvault directory
 
 ### 2. Communication Manager WPF App (REVIEWER -- approve/reject queue)
 
@@ -502,7 +502,7 @@ The skill at `~/.claude/skills/write/skill.md` calls `cc-comm-queue add ...` and
 
 ### 4. Python Scheduler Dispatcher (REPLACED -- deleted)
 
-The old dispatcher at `D:\ReposFred\cc-director\scheduler\cc_director\` is entirely replaced by the C# Engine. No update needed -- it gets deleted in Phase 5.
+The old dispatcher at `D:\ReposFred\devthrottle\scheduler\cc_director\` is entirely replaced by the C# Engine. No update needed -- it gets deleted in Phase 5.
 
 ---
 

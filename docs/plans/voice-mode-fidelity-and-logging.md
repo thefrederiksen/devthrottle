@@ -2,7 +2,7 @@
 
 Status: planned (implementing)
 Owner: Soren
-GitHub issue: #141 (https://github.com/thefrederiksen/cc-director/issues/141)
+GitHub issue: #141 (https://github.com/thefrederiksen/devthrottle/issues/141)
 Related: docs/problems/voice-dictionary-not-applied-on-mobile.md (word-level mishearing, separate bug)
 
 ## Background

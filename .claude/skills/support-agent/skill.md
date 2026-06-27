@@ -12,7 +12,7 @@ three agents are doing.
 **Read the contract:** `docs/cencon/DEVELOPMENT_METHOD.md`. This skill implements the Support Agent
 role defined there. That document wins on any disagreement.
 
-Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
+Tracker: **GitHub Issues** in `thefrederiksen/devthrottle` (via `gh`). State is carried by `flow:*`
 labels.
 
 ## What you are for
@@ -53,7 +53,7 @@ Read-only queries only:
 
 ```bash
 # Everything currently in flight, grouped by stage
-gh issue list --repo thefrederiksen/cc-director --state open \
+gh issue list --repo thefrederiksen/devthrottle --state open \
   --json number,title,labels --jq '[.[] | select(.labels[].name | startswith("flow:"))]'
 ```
 

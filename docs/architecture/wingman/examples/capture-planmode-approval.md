@@ -37,9 +37,9 @@ Session 2d118a13-5f79-44fa-a222-71efac40d1da, Director :7887, state at capture: 
 ```
   0. UserMessage: Plan how you would add a CONTRIBUTING.md to this repo (just a short plan), then exit plan mode so I 
   1. Read: 
-  2. Bash: ls -A "D:/ReposFred/cc-director-qa-scratch"
+  2. Bash: ls -A "D:/ReposFred/devthrottle-qa-scratch"
   3. Text: This is a tiny scratch repo (just a README), so the plan is short:
-  4. Write: # Plan: Add CONTRIBUTING.md  ## Context  The repo (`D:\ReposFred\cc-director-qa-scratch`) is a throw
+  4. Write: # Plan: Add CONTRIBUTING.md  ## Context  The repo (`D:\ReposFred\devthrottle-qa-scratch`) is a throw
   5. GenericTool: query=select:ExitPlanMode, max_results=1
   6. GenericTool (pending): See terminal to approve or modify the plan
 ```

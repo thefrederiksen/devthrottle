@@ -434,7 +434,7 @@ The user specifically asked for "a specific way to test the new manager skill us
    - `cc-director.exe` (Director #1)
    - `cc-director.exe` (Director #2)
    - `cc-director.exe` (Director #3)
-4. In each, create one Claude session on a small repo (e.g., `D:\ReposFred\cc-director`). Wait for each to reach `Idle`.
+4. In each, create one Claude session on a small repo (e.g., `D:\ReposFred\devthrottle`). Wait for each to reach `Idle`.
 5. Start gateway: `cc-director-gateway.exe` (tray icon appears).
 
 ### 9.2 Test cases

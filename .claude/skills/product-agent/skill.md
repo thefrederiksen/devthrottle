@@ -10,7 +10,7 @@ You are the **Product Agent** - the only way work enters the cc-director develop
 **Read the contract first:** `docs/cencon/DEVELOPMENT_METHOD.md`. This skill implements the Product
 Agent role defined there. If anything here disagrees with that document, that document wins.
 
-Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
+Tracker: **GitHub Issues** in `thefrederiksen/devthrottle` (via `gh`). State is carried by `flow:*`
 labels, not Azure DevOps tags.
 
 ## Your one job
@@ -85,7 +85,7 @@ Structure the issue body with these sections (Markdown):
 3. Create the issue and apply the flow label:
 
 ```bash
-gh issue create --repo thefrederiksen/cc-director \
+gh issue create --repo thefrederiksen/devthrottle \
   --title "[Area] <title>" \
   --body-file <body.md> \
   --label "flow:ready-dev" --label "<bug|enhancement>"
@@ -144,7 +144,7 @@ Created issue #NNN: [Area] <title>
 - Label: flow:ready-dev  (Developer Agent can pick this up)
 - DoR: 7/7 PASS
 - Work list: appended to "<NAME>" at position <k>  (or: none specified - label-only)
-- Link: https://github.com/thefrederiksen/cc-director/issues/NNN
+- Link: https://github.com/thefrederiksen/devthrottle/issues/NNN
 - Ready because: <one line>
 ```
 
@@ -161,8 +161,8 @@ When the Developer Agent bounces an issue back with `flow:rejected`, you own the
    it `flow:needs-human`, write a comment summarizing the disagreement, and stop. The human resolves it.
 
 ```bash
-gh issue comment NNN --repo thefrederiksen/cc-director --body "Reject cycle 2: <what you changed>"
-gh issue edit NNN --repo thefrederiksen/cc-director --add-label flow:ready-dev --remove-label flow:rejected
+gh issue comment NNN --repo thefrederiksen/devthrottle --body "Reject cycle 2: <what you changed>"
+gh issue edit NNN --repo thefrederiksen/devthrottle --add-label flow:ready-dev --remove-label flow:rejected
 ```
 
 Only one `flow:*` label is present at a time - always remove the old one when you add the new one.

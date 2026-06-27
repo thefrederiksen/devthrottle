@@ -1109,4 +1109,4 @@ set OPENAI_API_KEY=your-key-here
 
 ## Source Repository
 
-GitHub: https://github.com/cc-director/cc-director
+GitHub: https://github.com/thefrederiksen/devthrottle

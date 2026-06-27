@@ -20,7 +20,7 @@ the Developer Agent (`/developer-agent`) and QA Agent (`/qa-agent`) roles - thei
 bars still govern; you only sequence them and own the loop guards. That document wins on any
 disagreement.
 
-Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
+Tracker: **GitHub Issues** in `thefrederiksen/devthrottle` (via `gh`). State is carried by `flow:*`
 labels.
 
 ## What this skill is for
@@ -32,7 +32,7 @@ labels.
 - `/implementation-loop --source devops <workItemId>` - drive ONE Azure DevOps work item (issue
   #300). The tracker is the work item (claim and write-back via `az boards`, see "devops mode"
   below); the engineering mechanics (branch, PR, squash-merge, proof) stay GitHub PR-based in the
-  code repo the work item's description names (default `thefrederiksen/cc-director`).
+  code repo the work item's description names (default `thefrederiksen/devthrottle`).
 
 ## The terminal signal you MUST emit (machine-readable, every path)
 
@@ -80,7 +80,7 @@ ONLY the tracker operations - who carries the claim and where the terminal statu
 Everything else is identical to github mode: the DEV/QA sub-agents, the proof bar, the loop guards,
 the leave-clean invariant, and the engineering mechanics (branch, PR, squash-merge, proof committed
 under `docs/cencon/proof/`) all stay GitHub PR-based in the CODE repo. The work item's description
-names the target code repo; when it names none, the default is `thefrederiksen/cc-director` (v1).
+names the target code repo; when it names none, the default is `thefrederiksen/devthrottle` (v1).
 The proof directory for a devops item is `docs/cencon/proof/devops-<workItemId>/`.
 
 **Host prerequisites (documented, not auto-installed):** the Azure CLI with the `azure-devops`
@@ -216,7 +216,7 @@ needs itself. Example DEV spawn prompt:
 
 ```
 You are the Developer Agent. Read .claude/skills/developer-agent/skill.md and follow it exactly to
-implement issue #<N> in thefrederiksen/cc-director. Do all work in your own context. When done,
+implement issue #<N> in thefrederiksen/devthrottle. Do all work in your own context. When done,
 your final message must be ONLY this block (nothing else):
 
 RESULT
@@ -345,13 +345,13 @@ leaves an issue `flow:in-progress` with no live owner - invisible to selection f
 reclaimed. Before selecting, sweep stale claims back into the pool:
 ```bash
 # any flow:in-progress issue whose newest CLAIM comment is older than 60 min is stale
-gh issue list --repo thefrederiksen/cc-director --label flow:in-progress --state open \
+gh issue list --repo thefrederiksen/devthrottle --label flow:in-progress --state open \
   --json number --jq '.[].number' | while read N; do
-  NEWEST=$(gh issue view "$N" --repo thefrederiksen/cc-director --json comments \
+  NEWEST=$(gh issue view "$N" --repo thefrederiksen/devthrottle --json comments \
     --jq '[.comments[] | select(.body|startswith("CLAIM flow:in-progress by "))] | sort_by(.createdAt) | last | .createdAt')
   # if NEWEST is empty or older than 60 minutes, reclaim it:
-  #   gh issue edit "$N" --repo thefrederiksen/cc-director --add-label flow:ready-dev --remove-label flow:in-progress
-  #   gh issue comment "$N" --repo thefrederiksen/cc-director --body "STALE-CLAIM SWEEP: reclaimed flow:in-progress -> flow:ready-dev (claim older than 60 min)."
+  #   gh issue edit "$N" --repo thefrederiksen/devthrottle --add-label flow:ready-dev --remove-label flow:in-progress
+  #   gh issue comment "$N" --repo thefrederiksen/devthrottle --body "STALE-CLAIM SWEEP: reclaimed flow:in-progress -> flow:ready-dev (claim older than 60 min)."
 done
 ```
 Do NOT sweep an issue this run just claimed (a fresh claim is protected - that is what stops the
@@ -364,7 +364,7 @@ sweep stealing an issue out from under a healthy run).
 - No arg: pick the oldest open `flow:ready-dev` (the selection query reads `flow:ready-dev` ONLY, so
   an in-progress/claimed issue is already invisible):
   ```bash
-  gh issue list --repo thefrederiksen/cc-director --label flow:ready-dev --state open \
+  gh issue list --repo thefrederiksen/devthrottle --label flow:ready-dev --state open \
     --json number,title,updatedAt --jq 'sort_by(.updatedAt) | .[0]'
   ```
   If none, report "No flow:ready-dev issues" and stop.
@@ -373,10 +373,10 @@ sweep stealing an issue out from under a healthy run).
 compare-and-swap, so close the race honestly:
 ```bash
 # (a) best-effort claim: ready-dev -> in-progress in ONE edit, then record WHO claimed it
-gh issue edit <N> --repo thefrederiksen/cc-director --add-label flow:in-progress --remove-label flow:ready-dev
-gh issue comment <N> --repo thefrederiksen/cc-director --body "CLAIM flow:in-progress by <director-id>/<session-id> at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+gh issue edit <N> --repo thefrederiksen/devthrottle --add-label flow:in-progress --remove-label flow:ready-dev
+gh issue comment <N> --repo thefrederiksen/devthrottle --body "CLAIM flow:in-progress by <director-id>/<session-id> at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # (b) verify-after-claim: the WINNER is whoever's CLAIM comment is OLDEST
-gh issue view <N> --repo thefrederiksen/cc-director --json comments \
+gh issue view <N> --repo thefrederiksen/devthrottle --json comments \
   --jq '[.comments[]|select(.body|startswith("CLAIM flow:in-progress by "))]|sort_by(.createdAt)|.[0].body'
 ```
 - If the oldest `CLAIM ...` comment is **yours**: you won. Proceed.
@@ -428,7 +428,7 @@ own proof, runs the regression + CenCon checks, and produces a QA proof report. 
     in DEVELOPMENT_METHOD.md Section 5a). Go to Step 4 (which emits the `needs-human` terminal
     signal).
     ```bash
-    gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:qa-failed
+    gh issue edit <ID> --repo thefrederiksen/devthrottle --add-label flow:needs-human --remove-label flow:qa-failed
     ```
   - Else: go back to **Step 1** and spawn a **fresh Developer sub-agent**. It reads the issue
     (including the QA defect comment - that is how the defect crosses contexts, not via shared
@@ -444,7 +444,7 @@ own proof, runs the regression + CenCon checks, and produces a QA proof report. 
 
 The squash-merge happens in QA Step 3a, but the loop owns the guard:
 
-- Merge command: `gh pr merge <PR> --repo thefrederiksen/cc-director --squash --delete-branch`.
+- Merge command: `gh pr merge <PR> --repo thefrederiksen/devthrottle --squash --delete-branch`.
 - **Build gate:** the merged result must build clean (`dotnet build cc-director.sln`) before the
   merge is treated as final.
 - **Conflict or dirty build -> never force.** Re-label `flow:needs-human`, comment the exact
@@ -466,13 +466,13 @@ git stash list           # MUST be empty of any stash the loop created (stashing
   what is dirty or stashed, and ask the human - this is the failure mode this whole invariant exists
   to catch. This is an abnormal stop: the terminal signal for this issue is **`failed`** (the run
   could not leave a clean outcome). On a PASS outcome also confirm the PR is gone: `gh pr list --repo
-  thefrederiksen/cc-director --state open` must not show it; on a needs-human outcome the parked PR
+  thefrederiksen/devthrottle --state open` must not show it; on a needs-human outcome the parked PR
   may remain (that is the one allowed open PR).
 
 **Claim-release gate (issue #298).** `flow:in-progress` is a transient working state and must NEVER
 be the label an issue is left in at a terminal stop. Confirm the claim was released:
 ```bash
-gh issue view <N> --repo thefrederiksen/cc-director --json labels --jq '[.labels[].name]'
+gh issue view <N> --repo thefrederiksen/devthrottle --json labels --jq '[.labels[].name]'
 ```
 The result must NOT contain `flow:in-progress` (it should be `flow:done` on PASS, or
 `flow:needs-human` on a park/escalate). If `flow:in-progress` lingers, a sub-agent failed to swap it

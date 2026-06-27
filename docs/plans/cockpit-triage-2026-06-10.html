@@ -105,7 +105,7 @@
 
   <div class="rootcause" style="border-left-color:var(--green);margin:6px 0 18px">
     <b>Update — 2026-06-10 (later that day):</b> the backbone
-    <a href="https://github.com/thefrederiksen/cc-director/issues/268">#268</a> has since landed and
+    <a href="https://github.com/thefrederiksen/devthrottle/issues/268">#268</a> has since landed and
     merged (PRs #283 + #289) and is <span class="pill done">flow:done</span>. The per-session WS legs
     now route through the Gateway, <b>verified cross-machine</b> (SORENLAPTOP → SOREN_NORTH: live
     dictation + terminal, and the offline-owner 503 / unknown-session 404 path). Voice + terminal
@@ -119,7 +119,7 @@
       <span class="id">#279</span></h2>
     <p class="epic-sub">Make the Cockpit fully usable from any non-Gateway machine. Reliability only —
       visual redesign is explicitly deferred.
-      <a href="https://github.com/thefrederiksen/cc-director/issues/279">view epic →</a></p>
+      <a href="https://github.com/thefrederiksen/devthrottle/issues/279">view epic →</a></p>
 
     <div class="rootcause">
       <b>One root cause, not a pile of bugs.</b> The Gateway already reverse-proxies HTTP
@@ -135,7 +135,7 @@
       <thead><tr><th>Issue</th><th>Status</th><th>What it does</th><th>Dependency</th></tr></thead>
       <tbody>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/268">#268</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/268">#268</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill done">done</span></td>
           <td class="what"><b>The backbone — landed.</b> New Gateway WS-proxy endpoints
             (<code>/sessions/{sid}/stream</code>, <code>/sessions/{sid}/dictate</code>) resolve the
@@ -145,7 +145,7 @@
           <td class="dep">merged — PR #283 / #289</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/199">#199</a><br><span class="pill enh">enh</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/199">#199</a><br><span class="pill enh">enh</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Persisted Cockpit INFO logging (user actions + stream/circuit lifecycle). The
             diagnosability enabler — today Cockpit logs are discarded, which is why remote WS failures
@@ -153,14 +153,14 @@
           <td class="dep">independent — parallel</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/267">#267</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/267">#267</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Open-in-Cockpit toolbar button honors the configured gateway URL instead of
             hardcoded <code>127.0.0.1:7878</code>. The Avalonia front door for cross-machine use.</td>
           <td class="dep">independent — parallel</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/226">#226</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/226">#226</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Dictation failure UX: read the WS close code/reason (today <code>onclose</code>
             takes no event and hard-codes "Connection closed." at <code>cockpit-dictate.js:366</code>),
@@ -170,7 +170,7 @@
           <td class="dep">gate met (#268 done) → ready-dev</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/198">#198</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/198">#198</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill recheck">recheck</span></td>
           <td class="what">Terminal tab blank for minutes. <b>Half fixed</b> by #268 (the
             "WS never reaches the Director" cross-machine half — the stream now proxies through the
@@ -180,7 +180,7 @@
           <td class="dep">reproduce-check on post-#268 build</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/170">#170</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/170">#170</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill research">research</span></td>
           <td class="what">Director shows yellow / "not connected" in the Cockpit. Written as an
             investigation of the Director→Gateway→Cockpit liveness pipeline, not a fix — so it cannot be
@@ -207,7 +207,7 @@
       <span class="id">#280</span></h2>
     <p class="epic-sub">Every user action gives feedback before the round-trip (CLAUDE.md rule 1:
       &lt;100ms feedback). Found by the audit after the #217 explain-button fix.
-      <a href="https://github.com/thefrederiksen/cc-director/issues/280">view epic →</a></p>
+      <a href="https://github.com/thefrederiksen/devthrottle/issues/280">view epic →</a></p>
 
     <div class="rootcause">
       <b>Canonical pattern — commit 137b289 (#217).</b> Stamp optimistic local state in the same render
@@ -221,7 +221,7 @@
       <thead><tr><th>Issue</th><th>Status</th><th>What it does</th><th>Anchor</th></tr></thead>
       <tbody>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/227">#227</a><br><span class="pill bug">bug</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/227">#227</a><br><span class="pill bug">bug</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Answer-option buttons (reply path) give zero feedback. Add an
             <code>answering…</code> state + disable the group on click; replace the silent conveyor
@@ -230,7 +230,7 @@
           <td class="dep"><code>BriefPane.AnswerSingleAsync</code>:716; dead param :424</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/228">#228</a><br><span class="pill enh">enh</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/228">#228</a><br><span class="pill enh">enh</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Rail kebab actions (Close / Hold / Wingman / New-Issue) show no in-progress
             state. Fire <code>ShowRailNotice("…")</code> before the await and optimistically dim the Close
@@ -238,14 +238,14 @@
           <td class="dep">helper already at <code>Cockpit.razor</code>:1883</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/229">#229</a><br><span class="pill enh">enh</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/229">#229</a><br><span class="pill enh">enh</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">New-session Create button stays "Create" during the multi-second spawn. Bind
             the existing <code>_acting</code> flag into the label → <code>Creating session…</code>.</td>
           <td class="dep">mirrors Recap/Fan-out/Handover :218/:829/:904</td>
         </tr>
         <tr>
-          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/230">#230</a><br><span class="pill enh">enh</span></td>
+          <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/230">#230</a><br><span class="pill enh">enh</span></td>
           <td><span class="pill ready">ready-dev</span></td>
           <td class="what">Composer image upload shows nothing until it finishes. Set
             <code>_shotStatus</code> to <code>uploading &lt;file&gt; (1 of N)…</code> before the upload
@@ -260,13 +260,13 @@
   <div class="queue">
     <h2>Ready-for-dev queue (sittable by the implementation-loop now)</h2>
     <div class="chips">
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/226">#226</a><span class="t">dictation failure UX + retry</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/199">#199</a><span class="t">Cockpit logging</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/267">#267</a><span class="t">toolbar gateway URL</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/227">#227</a><span class="t">answer-button feedback</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/228">#228</a><span class="t">rail kebab feedback</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/229">#229</a><span class="t">Create button label</span></div>
-      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/230">#230</a><span class="t">image-upload status</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/226">#226</a><span class="t">dictation failure UX + retry</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/199">#199</a><span class="t">Cockpit logging</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/267">#267</a><span class="t">toolbar gateway URL</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/227">#227</a><span class="t">answer-button feedback</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/228">#228</a><span class="t">rail kebab feedback</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/229">#229</a><span class="t">Create button label</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/devthrottle/issues/230">#230</a><span class="t">image-upload status</span></div>
     </div>
     <p class="note"><b>Backbone #268 is done</b> — this laptop can now reach voice + terminal over the
       Gateway. The queue above is the follow-on work: #226 (dictation failure UX) and #199/#267 can run
@@ -280,19 +280,19 @@
     <thead><tr><th>Issue</th><th>Status</th><th>Why untouched</th></tr></thead>
     <tbody>
       <tr>
-        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/270">#270</a></td>
+        <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/270">#270</a></td>
         <td><span class="pill epic">epic</span></td>
         <td class="what">Autonomous work-item queue runner — its own epic with children #272–#276 and a
           deliberate dependency order. Not part of the cockpit reliability/UX work.</td>
       </tr>
       <tr>
-        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/275">#275</a></td>
+        <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/275">#275</a></td>
         <td><span class="pill gated">gated</span></td>
         <td class="what">Work-list Cockpit client — DoR-complete but correctly gated by #273 (named-lists
           REST) until that reaches <code>flow:done</code>. Belongs to epic #270.</td>
       </tr>
       <tr>
-        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/237">#237</a></td>
+        <td class="num"><a href="https://github.com/thefrederiksen/devthrottle/issues/237">#237</a></td>
         <td><span class="pill none">no flow</span></td>
         <td class="what">Rail shows a meaningless GUID prefix instead of the port — a separate visual
           cleanup, not part of either epic. Candidate for a future UX batch.</td>
@@ -303,7 +303,7 @@
   <footer>
     Generated by the CenCon Product Agent · 2026-06-10 (revised same day: backbone #268 merged,
     #226 advanced to ready-dev, #198 flagged for reproduce-check) · source of truth is the GitHub tracker
-    (<code>thefrederiksen/cc-director</code>). Flow state lives on the <code>flow:*</code> labels, not
+    (<code>thefrederiksen/devthrottle</code>). Flow state lives on the <code>flow:*</code> labels, not
     on this report. File: <code>docs/plans/cockpit-triage-2026-06-10.html</code>.
   </footer>
 

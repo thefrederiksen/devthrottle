@@ -42,7 +42,7 @@ the rest, pulling all binaries from that same release:
 Confirmed by reading the engine and CLI:
 
 - GitHub release discovery + download. `ReleaseSource.FetchLatestAsync()` hits
-  `api.github.com/repos/thefrederiksen/cc-director/releases/latest`, finds the
+  `api.github.com/repos/thefrederiksen/devthrottle/releases/latest`, finds the
   `release-manifest.json` asset, parses it, and maps every asset name to its
   download URL. (tools/cc-director-setup-engine/ReleaseSource.cs:19-122)
 - Download -> SHA-256 verify -> atomic swap with `.old` backup.

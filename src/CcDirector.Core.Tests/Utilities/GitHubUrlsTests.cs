@@ -9,15 +9,15 @@ public class GitHubUrlsTests
     // ---------- ParseNewIssueUrl (pure URL normalization) ----------
 
     [Theory]
-    [InlineData("https://github.com/thefrederiksen/cc-director.git")]
-    [InlineData("https://github.com/thefrederiksen/cc-director")]
-    [InlineData("git@github.com:thefrederiksen/cc-director.git")]
-    [InlineData("ssh://git@github.com/thefrederiksen/cc-director.git")]
+    [InlineData("https://github.com/thefrederiksen/devthrottle.git")]
+    [InlineData("https://github.com/thefrederiksen/devthrottle")]
+    [InlineData("git@github.com:thefrederiksen/devthrottle.git")]
+    [InlineData("ssh://git@github.com/thefrederiksen/devthrottle.git")]
     public void ParseNewIssueUrl_KnownRemoteShapes_NormalizesToNewIssueUrl(string originUrl)
     {
         var url = GitHubUrls.ParseNewIssueUrl(originUrl);
 
-        Assert.Equal("https://github.com/thefrederiksen/cc-director/issues/new", url);
+        Assert.Equal("https://github.com/thefrederiksen/devthrottle/issues/new", url);
     }
 
     [Fact]

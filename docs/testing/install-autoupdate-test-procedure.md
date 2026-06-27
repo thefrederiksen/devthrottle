@@ -33,10 +33,10 @@ do not "work around" a failure, do not mark a broken thing as passing.
 ### 0a. Filing issues - the ONLY way you report failures
 
 For **every** failure, error, blank/broken page, unexpected output, or "this should work and doesn't,"
-open a GitHub issue on `thefrederiksen/cc-director`, labeled `installation`, immediately:
+open a GitHub issue on `thefrederiksen/devthrottle`, labeled `installation`, immediately:
 
 ```powershell
-gh issue create --repo thefrederiksen/cc-director --label installation `
+gh issue create --repo thefrederiksen/devthrottle --label installation `
   --title "[install-test] <short symptom> (<Test A/B/C/D or Clean/Uninstall>)" `
   --body @"
 ## What I did
@@ -92,7 +92,7 @@ Rules for issues:
 gh auth status
 
 # 2. The repo, if you will cut releases or build locally (clone if absent)
-#    git clone https://github.com/thefrederiksen/cc-director  (path of your choice)
+#    git clone https://github.com/thefrederiksen/devthrottle  (path of your choice)
 
 # 3. .NET 10 SDK (only needed if building locally; the published installer is self-contained)
 dotnet --version    # expect 10.0.x
@@ -125,7 +125,7 @@ Auto-update only exists from the commit series that added it (phases 1-5), which
 
 Check the current latest:
 ```powershell
-gh api repos/thefrederiksen/cc-director/releases/latest --jq '.tag_name'
+gh api repos/thefrederiksen/devthrottle/releases/latest --jq '.tag_name'
 ```
 
 ---
@@ -173,7 +173,7 @@ Get-NetTCPConnection -State Listen -LocalPort 7470,7878 -ErrorAction SilentlyCon
 ```powershell
 # Download the wizard from the baseline release (set $TAG to vBASE)
 $TAG = 'vBASE'
-gh release download $TAG --repo thefrederiksen/cc-director --pattern cc-director-setup-win-x64.exe --dir $env:USERPROFILE\Downloads --clobber
+gh release download $TAG --repo thefrederiksen/devthrottle --pattern cc-director-setup-win-x64.exe --dir $env:USERPROFILE\Downloads --clobber
 & "$env:USERPROFILE\Downloads\cc-director-setup-win-x64.exe"
 ```
 In the wizard: **Welcome -> select Workstation -> Next through to Install -> Complete.**

@@ -345,7 +345,7 @@
 <hr/>
 <h2>Issues</h2>
 <h3>#376 -- [Gateway] Add async voice-turn submit/poll endpoints and TurnJobStore</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/376">https://github.com/thefrederiksen/cc-director/issues/376</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/376">https://github.com/thefrederiksen/devthrottle/issues/376</a>
 <strong>Labels:</strong> flow:ready-dev, enhancement</p>
 <p><strong>What to build:</strong></p>
 <ol>
@@ -433,7 +433,7 @@
 </ul>
 <hr/>
 <h3>#377 -- [ControlApi] Remove temporary async voice-turn endpoints from Director</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/377">https://github.com/thefrederiksen/cc-director/issues/377</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/377">https://github.com/thefrederiksen/devthrottle/issues/377</a>
 <strong>Labels:</strong> flow:ready-dev, enhancement
         <strong>Depends on:</strong> #376 merged</p>
 <p><strong>What to do:</strong></p>
@@ -453,7 +453,7 @@
 <p><strong>Note:</strong> These files are on branch <code>issue-347-voice-dictation-recording-indicator</code> (commit <code>044e1c3</code>). If they are not present in the working tree when this issue is picked up, close as no-op with a comment.</p>
 <hr/>
 <h3>#378 -- [Voice] Phone app: swap voice-turn URLs from Director to Gateway</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/378">https://github.com/thefrederiksen/cc-director/issues/378</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/378">https://github.com/thefrederiksen/devthrottle/issues/378</a>
 <strong>Labels:</strong> flow:ready-dev, enhancement
         <strong>Depends on:</strong> #376 merged and deployed</p>
 <p><strong>What to change:</strong></p>
@@ -472,7 +472,7 @@
 </ul>
 <hr/>
 <h3>#366 -- [Voice] Fix stale transcript: voice-turn endpoint speaks previous-turn content</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/366">https://github.com/thefrederiksen/cc-director/issues/366</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/366">https://github.com/thefrederiksen/devthrottle/issues/366</a>
 <strong>Labels:</strong> flow:ready-dev, bug, voice-review
         <strong>Independent</strong> (no dependency on Gateway issues)</p>
 <p><strong>Root cause:</strong> <code>ReadLastAssistantText</code> in <code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code> reads the most recent assistant message in the JSONL file after the turn poll loop exits. If the agent has not yet written its response to the current utterance, this returns the previous turn's output.</p>
@@ -486,7 +486,7 @@
 <p><strong>Test required:</strong> <code>VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply</code> -- submit two turns to the same session with <code>QuickIdleBackend</code>, assert the second reply stage does not contain content from the first turn.</p>
 <hr/>
 <h3>#367 -- [Voice] Fix non-Latin script refusal in ClaudeSummarizer</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/367">https://github.com/thefrederiksen/cc-director/issues/367</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/367">https://github.com/thefrederiksen/devthrottle/issues/367</a>
 <strong>Labels:</strong> flow:ready-dev, bug, voice-review
         <strong>Independent</strong></p>
 <p><strong>Root cause:</strong> The summarizer prompt or pre-processing in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> flags non-ASCII code points as encoding corruption and instructs the model to refuse.</p>
@@ -499,7 +499,7 @@
 <p><strong>Test required:</strong> <code>ClaudeSummarizer_NonLatinInput_IsNotDropped</code> -- pass a Korean or Japanese string through <code>CleanupForSpeech</code>; assert the content is not empty or near-empty after processing.</p>
 <hr/>
 <h3>#368 -- [Voice] Fix backtick content deletion in ClaudeSummarizer CleanupForSpeech</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/368">https://github.com/thefrederiksen/cc-director/issues/368</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/368">https://github.com/thefrederiksen/devthrottle/issues/368</a>
 <strong>Labels:</strong> flow:ready-dev, bug, voice-review
         <strong>Independent</strong></p>
 <p><strong>Root cause:</strong> <code>CleanupForSpeech</code> in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> (around line 261) strips the content inside backticks (e.g. <code>`sessionName`</code> becomes empty string). The fix is to strip the backtick markers only and keep the inner text.</p>
@@ -513,7 +513,7 @@
 </ul>
 <hr/>
 <h3>#369 -- Security: require API key on Gateway voice-turn endpoints</h3>
-<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/369">https://github.com/thefrederiksen/cc-director/issues/369</a>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/devthrottle/issues/369">https://github.com/thefrederiksen/devthrottle/issues/369</a>
 <strong>Labels:</strong> flow:ready-dev (already filed)
         <strong>Depends on:</strong> #376 merged</p>
 <p>Add bearer-token check (same mechanism as other protected Gateway routes) to:</p>

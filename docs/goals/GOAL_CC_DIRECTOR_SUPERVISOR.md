@@ -171,7 +171,7 @@ You can simulate the response by either:
 - (a) directly invoking the JS that renders bubbles with a fake response object, OR
 - (b) running test A above and then loading a real `/voice/command` response into the UI.
 
-Either way: take a screenshot to `D:\ReposFred\cc-director\docs\features\director\.run\voice-test-screens\09-voice-cleanup.png` showing the raw + cleaned distinction visible in the voice log.
+Either way: take a screenshot to `D:\ReposFred\devthrottle\docs\features\director\.run\voice-test-screens\09-voice-cleanup.png` showing the raw + cleaned distinction visible in the voice log.
 
 #### What to report
 

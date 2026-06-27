@@ -70,7 +70,7 @@ def get_readme_path() -> str:
     """Get the path to the README file for help messages."""
     if README_PATH.exists():
         return str(README_PATH)
-    return "https://github.com/cc-director/cc-director"
+    return "https://github.com/thefrederiksen/devthrottle"
 
 
 def get_config_dir() -> Path:
