@@ -12,6 +12,7 @@ OAuth (Gmail API) -- Full Setup:
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -362,10 +363,24 @@ def load_credentials(account: str) -> Optional[Credentials]:
     return creds if creds and creds.valid else None
 
 
+def _harden_file_permissions(path: Path) -> None:
+    """Restrict a secret file to the owner only (POSIX).
+
+    The OAuth token file holds a refresh token that grants ongoing mailbox
+    access. On POSIX the default umask can leave it group/world-readable, so
+    scope it to the owner (0600). On Windows the %LOCALAPPDATA% profile already
+    restricts access per-user, so no change is needed there.
+    """
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
+
 def save_credentials(account: str, creds: Credentials) -> None:
     """Save OAuth credentials to token file."""
     get_account_dir(account)  # Ensure directory exists
-    get_token_path(account).write_text(creds.to_json())
+    token_path = get_token_path(account)
+    token_path.write_text(creds.to_json())
+    _harden_file_permissions(token_path)
 
 
 def authenticate(account: str, force: bool = False, open_browser: bool = True,

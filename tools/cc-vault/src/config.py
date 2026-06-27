@@ -53,7 +53,30 @@ def get_config_file() -> Path:
 
 
 def get_vault_path() -> Path:
-    """Get the vault path. Delegates to CcStorage.vault()."""
+    """Resolve the vault path.
+
+    Precedence:
+      1. CC_VAULT_PATH environment variable (highest).
+      2. The persisted vault override written by `cc-vault init <path>`
+         (tool config: config/vault/config.json -> "vault_path").
+      3. The default location from CcStorage.vault().
+
+    A corrupt override file is NOT silently ignored -- it raises so the user can
+    fix it, rather than quietly redirecting the vault to the default and hiding
+    their data.
+    """
+    override = os.environ.get("CC_VAULT_PATH")
+    if override:
+        return Path(override)
+
+    config_file = get_config_file()
+    if config_file.exists():
+        with open(config_file, "r", encoding="utf-8") as f:
+            data = json.load(f)  # raises on corrupt JSON - intentional, no silent fallback
+        vault_path = data.get("vault_path")
+        if vault_path:
+            return Path(vault_path)
+
     return CcStorage.vault()
 
 

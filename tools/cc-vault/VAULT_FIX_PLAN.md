@@ -1,5 +1,14 @@
 # cc-vault Stability Fix Plan
 
+> **STATUS: SUPERSEDED / HISTORICAL (kept for reference).**
+> This plan was written around a ChromaDB-based vector design that has since been
+> **replaced by native SQLite vector storage** (`src/vectors.py`, the
+> `vec_embeddings` table in `vault.db`). The ChromaDB segfault problem it targets
+> no longer applies, and most phases here are already implemented (repair-vectors,
+> backup --list, restore). Read this only for background; do not treat the
+> ChromaDB instructions or the old `cc-myvault` path as current. The real vault
+> path is `%LOCALAPPDATA%\cc-director\vault`.
+
 **Date:** 2026-02-27
 **Priority:** CRITICAL -- vault segfaults on search/ask commands, eroding user trust
 **Goal:** Make the vault reliable. No silent failures, no segfaults, no data loss.
@@ -8,15 +17,15 @@
 
 ## Context
 
-The vault is a personal data platform storing 4,584 contacts, 462 documents, 32 ideas, and mailing lists. It uses SQLite for structured data and ChromaDB for vector/semantic search. The problem: any command that touches ChromaDB (search, ask) segfaults, while SQLite-only commands (stats, lists, contacts) work fine.
+The vault is a personal data platform storing 4,584 contacts, 462 documents, 32 ideas, and mailing lists. It uses SQLite for structured data and (historically) ChromaDB for vector/semantic search. The problem this plan addressed: any command that touched ChromaDB (search, ask) segfaulted, while SQLite-only commands (stats, lists, contacts) worked fine. Vector search has since moved to native SQLite, removing the ChromaDB dependency entirely.
 
 **Architecture:**
 - CLI: `src/cli.py` (Typer) -> commands
 - Database: `src/db.py` (SQLite, vault.db)
-- Vectors: `src/vectors.py` (ChromaDB + OpenAI embeddings)
+- Vectors: `src/vectors.py` (native SQLite vectors + OpenAI embeddings; formerly ChromaDB)
 - RAG: `src/rag.py` (hybrid search + OpenAI chat completions)
 - Config: `src/config.py` (paths, API keys, constants)
-- Vault path: `%LOCALAPPDATA%\cc-myvault\`
+- Vault path: `%LOCALAPPDATA%\cc-director\vault\`
 - Deployed as: PyInstaller exe
 
 ---

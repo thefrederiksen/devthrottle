@@ -2,8 +2,30 @@
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+
+
+def _as_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """Attach the local timezone to a naive datetime.
+
+    The CLI builds naive datetimes (datetime.now(), strptime), which O365 and
+    Microsoft Graph would otherwise interpret as UTC, shifting times by the
+    local offset. A naive datetime's .astimezone() is treated as local time and
+    returned as an aware local datetime.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.astimezone()
+    return dt
+
+
+def _to_utc(dt: datetime) -> datetime:
+    """Convert a datetime to UTC, treating naive values as local time."""
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt.astimezone(timezone.utc)
 
 from O365 import Account
 
@@ -33,12 +55,23 @@ class OutlookClient:
         Get the authenticated user's profile.
 
         Returns:
-            Dict with user profile info
+            Dict with the user's real email address.
         """
-        mailbox = self.account.mailbox()
-        return {
-            'emailAddress': mailbox.main_resource if hasattr(mailbox, 'main_resource') else 'Unknown',
-        }
+        # Query Microsoft Graph /me directly. mailbox.main_resource is the
+        # resource path (often the literal 'me'), not the mailbox address.
+        url = f'{self.GRAPH_API_BASE}/me'
+        con = self.account.connection
+        response = con.get(url)
+
+        if not response:
+            raise ConnectionError("Failed to get profile (no response from Graph API)")
+
+        data = response.json()
+        email = data.get('mail') or data.get('userPrincipalName')
+        if not email:
+            raise ConnectionError("Graph /me returned no email address")
+
+        return {'emailAddress': email}
 
     # =========================================================================
     # Email Operations
@@ -178,6 +211,9 @@ class OutlookClient:
         # Set message properties
         message.subject = subject
         message.body = body
+        # O365 defaults the body type to HTML, so plain text would otherwise be
+        # sent as HTML (newlines collapse). Set the type explicitly to honor --html.
+        message.body_type = 'HTML' if html else 'text'
         message.importance = importance
 
         # Add attachments
@@ -215,6 +251,8 @@ class OutlookClient:
 
         message.subject = subject
         message.body = body
+        # Honor --html; O365 defaults the body type to HTML otherwise.
+        message.body_type = 'HTML' if html else 'text'
 
         # Save as draft
         message.save_draft()
@@ -562,11 +600,15 @@ class OutlookClient:
         else:
             calendar = schedule.get_default_calendar()
 
-        start = start_date if start_date else datetime.now()
-        end = end_date if end_date else start + timedelta(days=days_ahead)
+        start = _as_aware(start_date) if start_date else _as_aware(datetime.now())
+        end = _as_aware(end_date) if end_date else start + timedelta(days=days_ahead)
 
+        # Paginate with batch so the result is not silently capped. O365 returns
+        # a generator that follows @odata.nextLink across all pages when a batch
+        # size is given and limit is None.
         events = calendar.get_events(
-            limit=250,
+            limit=None,
+            batch=100,
             include_recurring=True,
             start_recurring=start,
             end_recurring=end,
@@ -602,8 +644,10 @@ class OutlookClient:
 
         event = calendar.new_event()
         event.subject = subject
-        event.start = start_time
-        event.end = start_time + timedelta(minutes=duration_minutes)
+        # Attach the local timezone so the event is not shifted by the local
+        # offset (O365 treats naive datetimes as UTC).
+        event.start = _as_aware(start_time)
+        event.end = _as_aware(start_time + timedelta(minutes=duration_minutes))
 
         if all_day:
             event.is_all_day = True
@@ -739,8 +783,9 @@ class OutlookClient:
         # Set flag using the internal attribute
         flag_data = {'flagStatus': flag_status}
         if due_date and flag_status == 'flagged':
+            # Convert to UTC so the due date is not shifted by the local offset.
             flag_data['dueDateTime'] = {
-                'dateTime': due_date.isoformat(),
+                'dateTime': _to_utc(due_date).isoformat(),
                 'timeZone': 'UTC'
             }
 
@@ -912,9 +957,9 @@ class OutlookClient:
         if subject is not None:
             event.subject = subject
         if start_time is not None:
-            event.start = start_time
+            event.start = _as_aware(start_time)
         if end_time is not None:
-            event.end = end_time
+            event.end = _as_aware(end_time)
         if location is not None:
             event.location = location
         if body is not None:
@@ -1034,14 +1079,15 @@ class OutlookClient:
         # Use direct Graph API call for getSchedule
         url = f'{self.GRAPH_API_BASE}/me/calendar/getSchedule'
 
+        # Convert to UTC so the window matches the timeZone we declare.
         data = {
             'schedules': emails,
             'startTime': {
-                'dateTime': start.isoformat(),
+                'dateTime': _to_utc(start).isoformat(),
                 'timeZone': 'UTC',
             },
             'endTime': {
-                'dateTime': end.isoformat(),
+                'dateTime': _to_utc(end).isoformat(),
                 'timeZone': 'UTC',
             },
             'availabilityViewInterval': 30,
@@ -1050,8 +1096,10 @@ class OutlookClient:
         con = self.account.connection
         response = con.post(url, data=data)
 
+        # A falsy response means the request failed; do not dereference
+        # .status_code on it (that would mask the real error with AttributeError).
         if not response:
-            raise ConnectionError(f"Failed to get schedule: {response.status_code}")
+            raise ConnectionError("Failed to get schedule (no response from Graph API)")
 
         result_data = response.json()
         schedules = result_data.get('value', [])
@@ -1109,8 +1157,10 @@ class OutlookClient:
         con = self.account.connection
         response = con.post(url, data=data)
 
+        # A falsy response means the request failed; do not dereference
+        # .status_code on it (that would mask the real error with AttributeError).
         if not response:
-            raise ConnectionError(f"Failed to forward event: {response.status_code}")
+            raise ConnectionError("Failed to forward event (no response from Graph API)")
 
         return True
 

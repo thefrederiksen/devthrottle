@@ -7,8 +7,36 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "cc_shared"))
 
+import base64
+import struct
+import zlib
+
 from word_converter import _hex_to_rgb, convert_to_word
+from docx import Document
 from docx.shared import RGBColor
+
+
+def _make_png() -> bytes:
+    """Build a valid 1x1 grayscale PNG for inline-image tests."""
+    def _chunk(typ: bytes, data: bytes) -> bytes:
+        body = typ + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0)
+    raw_scanline = b"\x00\x00"  # filter byte + one gray pixel
+    idat = zlib.compress(raw_scanline)
+    return signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+# A minimal valid 1x1 PNG, used to test inline image insertion.
+_TINY_PNG = _make_png()
+
+
+def _convert(html, tmp_path, **kwargs):
+    out = tmp_path / "out.docx"
+    convert_to_word(html, out, **kwargs)
+    return Document(str(out))
 
 
 class TestHexToRgb:
@@ -77,3 +105,66 @@ class TestConvertToWord:
         output = tmp_path / "subdir" / "test.docx"
         convert_to_word(html, output, theme_name="paper")
         assert output.exists()
+
+
+class TestInlineFormatting:
+    def test_bold_and_italic_runs(self, tmp_path):
+        html = "<article><p><strong>boldword</strong> and <em>italword</em></p></article>"
+        doc = _convert(html, tmp_path, theme_name="paper")
+        runs = [r for p in doc.paragraphs for r in p.runs]
+        bold = [r for r in runs if r.text == "boldword"]
+        ital = [r for r in runs if r.text == "italword"]
+        assert bold and bold[0].bold is True
+        assert ital and ital[0].italic is True
+
+    def test_inline_code_uses_monospace(self, tmp_path):
+        html = "<article><p>see <code>x = 1</code> here</p></article>"
+        doc = _convert(html, tmp_path, theme_name="terminal")
+        code_runs = [r for p in doc.paragraphs for r in p.runs if r.text == "x = 1"]
+        assert code_runs
+        # Monospace code font applied (not the default body font).
+        assert code_runs[0].font.name is not None
+
+    def test_hyperlink_relationship_created(self, tmp_path):
+        html = '<article><p><a href="https://example.com/page">link</a></p></article>'
+        doc = _convert(html, tmp_path, theme_name="paper")
+        targets = [rel.target_ref for rel in doc.part.rels.values()]
+        assert any("example.com/page" in t for t in targets)
+
+    def test_inline_image_inserted(self, tmp_path):
+        b64 = base64.b64encode(_TINY_PNG).decode("ascii")
+        html = f'<article><p><img src="data:image/png;base64,{b64}" alt="x"></p></article>'
+        doc = _convert(html, tmp_path, theme_name="paper")
+        assert len(doc.inline_shapes) == 1
+
+    def test_local_image_inserted_via_base_path(self, tmp_path):
+        img = tmp_path / "pic.png"
+        img.write_bytes(_TINY_PNG)
+        html = '<article><p><img src="pic.png" alt="x"></p></article>'
+        out = tmp_path / "out.docx"
+        convert_to_word(html, out, theme_name="paper", base_path=tmp_path)
+        doc = Document(str(out))
+        assert len(doc.inline_shapes) == 1
+
+    def test_missing_image_warns_not_silent(self, tmp_path, capsys):
+        html = '<article><p><img src="gone.png" alt="caption"></p></article>'
+        out = tmp_path / "out.docx"
+        convert_to_word(html, out, theme_name="paper", base_path=tmp_path)
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert captured.err.isascii()
+
+
+class TestNestedLists:
+    def test_nested_list_is_indented(self, tmp_path):
+        html = (
+            "<article><ul><li>Top<ul><li>Nested</li></ul></li></ul></article>"
+        )
+        doc = _convert(html, tmp_path, theme_name="paper")
+        texts = {p.text: p for p in doc.paragraphs if p.text}
+        assert "Top" in texts
+        assert "Nested" in texts
+        # The nested item carries a left indent; the top-level item does not.
+        nested = texts["Nested"]
+        assert nested.paragraph_format.left_indent is not None
+        assert nested.paragraph_format.left_indent > 0

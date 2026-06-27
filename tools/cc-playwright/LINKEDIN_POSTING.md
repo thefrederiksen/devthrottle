@@ -134,7 +134,7 @@ uses **different** class names than the post comment composer:
 
 | Thing | Selector |
 |---|---|
-| Body | `div.msg-form__contenteditable` (role=textbox, aria-label `Write a message…` with Unicode ellipsis) |
+| Body | `div.msg-form__contenteditable` (role=textbox, aria-label `Write a message...`; note LinkedIn renders the trailing dots as a single ellipsis glyph in the live DOM) |
 | Subject (optional) | `input[placeholder="Subject (optional)"]` |
 | Send button | `button.msg-form__send-btn` |
 

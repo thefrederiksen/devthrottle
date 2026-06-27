@@ -178,6 +178,36 @@ class TestPreservesUnknownSections:
         assert config_file.read_text() == "{ not valid json "
 
 
+class TestSetValueGuards:
+    """Coercion must fail clearly, not silently turn a typo into False or crash with a traceback."""
+
+    def test_invalid_bool_raises(self, tmp_path):
+        config = CCDirectorConfig()
+        config._config_path = tmp_path / "config.json"
+        with pytest.raises(ValueError):
+            set_value(config, "llm.providers.claude_code.enabled", "maybe")
+
+    def test_bool_accepts_on_off_tokens(self, tmp_path):
+        config = CCDirectorConfig()
+        config._config_path = tmp_path / "config.json"
+        set_value(config, "llm.providers.claude_code.enabled", "off")
+        assert config.llm.providers.claude_code.enabled is False
+        set_value(config, "llm.providers.claude_code.enabled", "on")
+        assert config.llm.providers.claude_code.enabled is True
+
+
+class TestJsonOutputIsParseable:
+    """JSON output must be valid JSON (printed plainly, not Rich-wrapped at 80 columns)."""
+
+    def test_path_json_loads(self, capsys):
+        from src.settings_ops import path as settings_path
+
+        settings_path(json_output=True)
+        out = capsys.readouterr().out
+        data = json.loads(out)
+        assert "config_path" in data
+
+
 class TestListKeys:
     def test_returns_sorted_list(self):
         config = CCDirectorConfig()

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 
@@ -78,17 +79,39 @@ def set_value(config: CCDirectorConfig, key: str, value: str) -> bool:
         return False
 
     current = getattr(obj, attr_name)
-    coerced: Any = value
-    if isinstance(current, bool):
-        coerced = value.lower() in ("true", "1", "yes")
-    elif isinstance(current, int):
-        coerced = int(value)
-    elif isinstance(current, float):
-        coerced = float(value)
+    coerced: Any = _coerce_value(key, current, value)
 
     setattr(obj, attr_name, coerced)
     config.save()
     return True
+
+
+def _coerce_value(key: str, current: Any, value: str) -> Any:
+    """Coerce a string value to the current setting's type, failing clearly on bad input.
+
+    A boolean setting only accepts an explicit truthy/falsy token; an int/float setting only
+    accepts a parseable number. Anything else raises ValueError so the caller can print a clear
+    message instead of silently coercing a typo to False or crashing with a raw traceback.
+    """
+    # bool must be checked before int (bool is a subclass of int in Python).
+    if isinstance(current, bool):
+        token = value.strip().lower()
+        if token in ("true", "1", "yes", "on"):
+            return True
+        if token in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(f"{key} expects a boolean (true/false), got '{value}'")
+    if isinstance(current, int):
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"{key} expects an integer, got '{value}'")
+    if isinstance(current, float):
+        try:
+            return float(value)
+        except ValueError:
+            raise ValueError(f"{key} expects a number, got '{value}'")
+    return value
 
 
 def list_keys(config: CCDirectorConfig) -> List[str]:
@@ -114,7 +137,7 @@ def show(section: Optional[str], json_output: bool) -> None:
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps({section: data}, indent=2))
+            print(json.dumps({section: data}, indent=2))
             return
 
         console.print(f"\n[bold]{section}[/bold]")
@@ -124,7 +147,7 @@ def show(section: Optional[str], json_output: bool) -> None:
 
     full = config.to_dict()
     if json_output:
-        console.print(json.dumps(full, indent=2))
+        print(json.dumps(full, indent=2))
         return
 
     for name, data in full.items():
@@ -144,7 +167,7 @@ def get(key: str, json_output: bool) -> None:
         raise typer.Exit(1)
 
     if json_output:
-        console.print(json.dumps({"key": key, "value": value}, indent=2))
+        print(json.dumps({"key": key, "value": value}, indent=2))
     else:
         console.print(str(value))
 
@@ -152,7 +175,11 @@ def get(key: str, json_output: bool) -> None:
 def set_config_value(key: str, value: str, json_output: bool) -> None:
     """Set a configuration value."""
     config = load_config()
-    success = set_value(config, key, value)
+    try:
+        success = set_value(config, key, value)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1)
 
     if not success:
         console.print(f"[red]Cannot set key: {key}[/red]")
@@ -160,7 +187,7 @@ def set_config_value(key: str, value: str, json_output: bool) -> None:
         raise typer.Exit(1)
 
     if json_output:
-        console.print(json.dumps({"key": key, "value": value, "status": "saved"}, indent=2))
+        print(json.dumps({"key": key, "value": value, "status": "saved"}, indent=2))
     else:
         console.print(f"[green]Set {key} = {value}[/green]")
 
@@ -172,10 +199,11 @@ def list_settings(json_output: bool) -> None:
     all_settings = get_all_settings(config)
 
     if json_output:
-        console.print(json.dumps(keys, indent=2))
+        print(json.dumps(keys, indent=2))
         return
 
-    table = Table(show_header=True, header_style="bold")
+    # box.ASCII keeps output ASCII-only (no Unicode line-drawing) per the house rule.
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
     table.add_column("Key")
     table.add_column("Value")
 
@@ -190,7 +218,7 @@ def path(json_output: bool) -> None:
     config_path = str(get_config_path())
 
     if json_output:
-        console.print(json.dumps({"config_path": config_path}, indent=2))
+        print(json.dumps({"config_path": config_path}, indent=2))
     else:
         console.print(config_path)
 

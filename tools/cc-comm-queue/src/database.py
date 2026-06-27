@@ -101,6 +101,41 @@ CREATE INDEX IF NOT EXISTS idx_campaign_id ON communications(campaign_id);
 """
 
 
+class InvalidStatusTransition(Exception):
+    """Raised when a status change would skip the human-approval workflow."""
+
+
+# Allowed status transitions. The approval queue exists so a human reviews every
+# item before it is posted, so reaching "posted" is only legal from "approved".
+# Any transition not listed here is rejected unless the caller passes force=True.
+_ALLOWED_TRANSITIONS: Dict[str, set] = {
+    "pending_review": {"pending_review", "approved", "rejected", "error"},
+    "approved": {"approved", "posted", "rejected", "pending_review", "error"},
+    "rejected": {"rejected", "approved", "pending_review"},
+    "posted": {"posted", "error"},
+    "error": {"error", "approved", "pending_review"},
+}
+
+
+def _validate_status_transition(current: str, new_status: str, force: bool) -> None:
+    """Validate a status change against the approval workflow.
+
+    Raises InvalidStatusTransition when the change is not allowed and force is False.
+    """
+    if force:
+        return
+    allowed = _ALLOWED_TRANSITIONS.get(current)
+    if allowed is None:
+        # Unknown current status -- be permissive rather than wedge the item.
+        return
+    if new_status not in allowed:
+        raise InvalidStatusTransition(
+            f"Cannot change status from '{current}' to '{new_status}'. "
+            f"Allowed from '{current}': {', '.join(sorted(allowed))}. "
+            f"Use --force to override the approval workflow."
+        )
+
+
 class Database:
     """SQLite database wrapper for Communication Manager."""
 
@@ -121,9 +156,18 @@ class Database:
         self._init_schema()
 
     def _connect(self) -> None:
-        """Establish database connection."""
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        """Establish database connection.
+
+        communications.db is shared with the Communication Manager desktop app, so
+        the connection is opened in Write-Ahead Logging mode with a busy timeout to
+        avoid "database is locked" errors when both processes write concurrently.
+        """
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=5.0)
         self.conn.row_factory = sqlite3.Row
+        # WAL allows one writer plus concurrent readers without immediate lock errors.
+        self.conn.execute("PRAGMA journal_mode = WAL")
+        # Wait up to 5000 ms for a competing writer to release its lock before failing.
+        self.conn.execute("PRAGMA busy_timeout = 5000")
         # Enable foreign keys
         self.conn.execute("PRAGMA foreign_keys = ON")
 
@@ -579,19 +623,68 @@ class Database:
 
         return [self._row_to_dict(row) for row in cursor.fetchall()]
 
-    def update_status(self, ticket_number: int, new_status: Status, **kwargs: Any) -> bool:
+    def count_by_status(self, status: Optional[Status] = None, campaign_id: Optional[str] = None) -> int:
+        """Count communications matching a status and/or campaign, ignoring any limit.
+
+        Args:
+            status: Filter by status, or None for all
+            campaign_id: Filter by campaign identifier, or None for all
+
+        Returns:
+            The true number of matching rows.
+        """
+        if self.conn is None:
+            raise RuntimeError("Database not connected")
+
+        conditions = []
+        params: List[Any] = []
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status.value)
+
+        if campaign_id:
+            conditions.append("campaign_id = ?")
+            params.append(campaign_id)
+
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        cursor = self.conn.execute(
+            f"SELECT COUNT(*) FROM communications{where_clause}",
+            params,
+        )
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+    def update_status(self, ticket_number: int, new_status: Status, force: bool = False, **kwargs: Any) -> bool:
         """Update communication status.
 
         Args:
             ticket_number: The ticket number
             new_status: The new status
+            force: Bypass the approval-workflow transition guard when True
             **kwargs: Additional fields to update (e.g., rejection_reason, posted_at)
 
         Returns:
             True if successful
+
+        Raises:
+            InvalidStatusTransition: if the change would skip the approval workflow
+                and force is False
         """
         if self.conn is None:
             raise RuntimeError("Database not connected")
+
+        # Enforce the approval workflow centrally: fetch the current status and
+        # reject illegal transitions (e.g. pending_review -> posted) unless forced.
+        cursor = self.conn.execute(
+            "SELECT status FROM communications WHERE ticket_number = ?",
+            (ticket_number,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            # No such item -- nothing to update.
+            return False
+        _validate_status_transition(row["status"], new_status.value, force)
 
         # Build update query
         fields = ["status = ?"]
@@ -715,6 +808,7 @@ class Database:
             "approved": 0,
             "rejected": 0,
             "posted": 0,
+            "error": 0,
         }
 
         for row in cursor.fetchall():

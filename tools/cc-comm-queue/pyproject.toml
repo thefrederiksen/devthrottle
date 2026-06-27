@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cc_comm_queue"
+name = "cc-comm-queue"
 version = "0.1.0"
 description = "CLI tool for adding content to the Communication Manager approval queue"
 readme = "README.md"

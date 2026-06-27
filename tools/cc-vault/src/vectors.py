@@ -672,7 +672,13 @@ class VaultVectors:
                 formatted = self._query_collection(coll_name, query_embedding, n_results)
                 results[coll_name] = formatted
             except Exception as e:
-                logger.debug(f"No results from collection {coll_name}: {e}")
+                # A failed collection is NOT the same as "no matches" -- log it at
+                # WARNING with the exception class so a corrupt collection is visible
+                # instead of silently looking empty.
+                logger.warning(
+                    "semantic_search: collection '%s' failed (%s): %s",
+                    coll_name, type(e).__name__, e,
+                )
                 results[coll_name] = []
 
         return results

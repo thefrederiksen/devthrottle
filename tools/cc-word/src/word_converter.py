@@ -1,13 +1,17 @@
 """Word document conversion using python-docx with theme support."""
 
+import base64
+import binascii
+import sys
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
 from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor, Emu
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
+from docx.shared import Pt, Inches, RGBColor
+from docx.opc.constants import RELATIONSHIP_TYPE as DOCX_REL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
@@ -20,6 +24,11 @@ except ImportError:
     except ImportError:
         CanonicalTheme = None
         get_theme = None
+
+
+# Maximum width for an inserted image so large screenshots do not overflow the
+# printable page area.
+_MAX_IMAGE_WIDTH = Inches(6)
 
 
 def _hex_to_rgb(hex_color: str) -> Optional[RGBColor]:
@@ -94,38 +103,193 @@ def _add_paragraph_border_left(para, color_hex: str, size: int = 12) -> None:
     pPr.append(pBdr)
 
 
-def _line_height_to_spacing(line_height_str: str) -> Optional[Pt]:
-    """Convert CSS line-height string to Word line spacing value."""
+def _line_height_to_spacing(line_height_str: str) -> Optional[float]:
+    """Convert CSS line-height string to a Word proportional line spacing value."""
     try:
-        val = float(line_height_str)
-        # python-docx uses Pt for line spacing when set via line_spacing
-        # A value of Pt(X) with line_spacing_rule = EXACTLY uses exact points
-        # For proportional, we use the float directly on line_spacing
-        return val
+        return float(line_height_str)
     except (ValueError, TypeError):
         return None
+
+
+def _add_hyperlink(paragraph, url: str, text: str) -> None:
+    """Add a real external hyperlink run to a paragraph."""
+    part = paragraph.part
+    r_id = part.relate_to(url, DOCX_REL.HYPERLINK, is_external=True)
+
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+
+    new_run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    rPr.append(color)
+
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rPr.append(underline)
+
+    new_run.append(rPr)
+
+    text_el = OxmlElement("w:t")
+    text_el.set(qn("xml:space"), "preserve")
+    text_el.text = text
+    new_run.append(text_el)
+
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+
+
+def _decode_image_src(src: str, base_path: Optional[Path]) -> Optional[bytes]:
+    """Resolve an <img> src to raw image bytes, or None if it cannot be read."""
+    if not src:
+        return None
+
+    # Base64 data URI
+    if src.startswith("data:"):
+        try:
+            header, _, b64 = src.partition(",")
+            if "base64" in header:
+                return base64.b64decode(b64)
+        except (ValueError, binascii.Error):
+            return None
+        return None
+
+    # Remote URLs are not fetched (no network in conversion path).
+    if src.startswith(("http://", "https://")):
+        return None
+
+    # Local file reference
+    if src.startswith("file:///"):
+        img_path = Path(src[8:])
+    elif base_path is not None:
+        img_path = (base_path / src).resolve()
+    else:
+        img_path = Path(src)
+
+    if img_path.exists():
+        try:
+            return img_path.read_bytes()
+        except OSError:
+            return None
+    return None
+
+
+def _add_inline_image(paragraph, img_node: Tag, base_path: Optional[Path]) -> None:
+    """Insert an image inline into a paragraph; warn visibly if it cannot load."""
+    src = img_node.get("src", "")
+    alt = img_node.get("alt", "") or ""
+
+    data = _decode_image_src(src, base_path)
+    if data is None:
+        # Visible, ASCII-only warning. Keep the alt text in the document so the
+        # reader sees that something was meant to be here.
+        print(f"WARNING: could not embed image {src or '(no src)'}", file=sys.stderr)
+        if alt:
+            paragraph.add_run(f"[image: {alt}]")
+        return
+
+    try:
+        run = paragraph.add_run()
+        picture = run.add_picture(BytesIO(data))
+    except Exception as exc:  # python-docx raises various errors for bad images
+        print(f"WARNING: could not embed image {src or '(no src)'}: {exc}", file=sys.stderr)
+        if alt:
+            paragraph.add_run(f"[image: {alt}]")
+        return
+
+    # Scale down oversized images while preserving aspect ratio.
+    if picture.width and picture.width > _MAX_IMAGE_WIDTH:
+        ratio = _MAX_IMAGE_WIDTH / picture.width
+        picture.width = int(picture.width * ratio)
+        picture.height = int(picture.height * ratio)
+
+
+def _add_run(paragraph, text: str, theme: Optional["CanonicalTheme"],
+             bold: bool, italic: bool, code: bool, strike: bool):
+    """Add a styled text run to a paragraph."""
+    run = paragraph.add_run(text)
+    if bold:
+        run.bold = True
+    if italic:
+        run.italic = True
+    if strike:
+        run.font.strike = True
+    if code:
+        run.font.name = theme.fonts.code if theme else "Consolas"
+        run.font.size = Pt(9)
+    return run
+
+
+def _render_inline(paragraph, node, theme: Optional["CanonicalTheme"],
+                   base_path: Optional[Path],
+                   bold: bool = False, italic: bool = False,
+                   code: bool = False, strike: bool = False) -> None:
+    """Render the inline children of an element into a Word paragraph.
+
+    Emits text runs with the correct bold/italic/strikethrough/inline-code
+    formatting, real hyperlinks for <a>, and inserted pictures for <img>.
+    Block-level lists are skipped here (handled by the list processor).
+    """
+    for child in node.children:
+        if isinstance(child, NavigableString):
+            text = str(child)
+            if text:
+                _add_run(paragraph, text, theme, bold, italic, code, strike)
+            continue
+
+        name = child.name
+        if name in ("strong", "b"):
+            _render_inline(paragraph, child, theme, base_path, True, italic, code, strike)
+        elif name in ("em", "i"):
+            _render_inline(paragraph, child, theme, base_path, bold, True, code, strike)
+        elif name in ("del", "s", "strike"):
+            _render_inline(paragraph, child, theme, base_path, bold, italic, code, True)
+        elif name == "code":
+            _render_inline(paragraph, child, theme, base_path, bold, italic, True, strike)
+        elif name == "a":
+            href = child.get("href", "")
+            text = child.get_text()
+            if href:
+                _add_hyperlink(paragraph, href, text)
+            elif text:
+                _add_run(paragraph, text, theme, bold, italic, code, strike)
+        elif name == "img":
+            _add_inline_image(paragraph, child, base_path)
+        elif name == "br":
+            paragraph.add_run().add_break()
+        elif name in ("ul", "ol"):
+            # Nested lists are handled by the list processor, not inline.
+            continue
+        else:
+            # span, p inside li, and any other inline container: recurse.
+            _render_inline(paragraph, child, theme, base_path, bold, italic, code, strike)
 
 
 def convert_to_word(
     html_content: str,
     output_path: Path,
     theme_name: str = "paper",
+    base_path: Optional[Path] = None,
 ) -> None:
-    """Convert HTML to Word document with theme styling.
+    """Convert HTML to a Word document with theme styling.
 
     Maps HTML elements to Word styles:
     - h1-h6 -> Heading 1-6
-    - p -> Normal
-    - ul/ol -> List styles
+    - p -> Normal (with inline bold/italic/links/inline code/images)
+    - ul/ol -> List styles (nested lists indented)
     - table -> Table with theme colors
     - pre/code -> Code style with theme code font
     - blockquote -> Quote style
     - hr -> Paragraph with bottom border
+    - img -> inserted picture (resolved relative to base_path)
 
     Args:
         html_content: Complete HTML document string
         output_path: Path for output .docx file
         theme_name: Theme to apply for fonts and colors
+        base_path: Directory used to resolve relative <img> sources
     """
     # Get theme
     theme = None
@@ -149,13 +313,11 @@ def convert_to_word(
         if text_color:
             style.font.color.rgb = text_color
 
-        # Set paragraph spacing from theme line height
         line_height = _line_height_to_spacing(theme.style.body_line_height)
         if line_height:
             style.paragraph_format.line_spacing = line_height
         style.paragraph_format.space_after = Pt(6)
 
-        # Apply heading fonts and spacing
         for level in range(1, 7):
             style_name = f"Heading {level}"
             if style_name in [s.name for s in doc.styles]:
@@ -171,7 +333,7 @@ def convert_to_word(
     body = soup.find("article") or soup.find("body") or soup
 
     # Process elements
-    _process_element(doc, body, theme)
+    _process_element(doc, body, theme, base_path)
 
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,104 +342,117 @@ def convert_to_word(
     doc.save(str(output_path))
 
 
-def _process_element(doc: Document, element, theme: Optional[CanonicalTheme] = None):
-    """Recursively process HTML elements."""
+def _element_has_content(element: Tag) -> bool:
+    """True if the element carries visible text or an image."""
+    if element.get_text(strip=True):
+        return True
+    return element.find("img") is not None
+
+
+def _process_element(doc: Document, element, theme: Optional["CanonicalTheme"] = None,
+                     base_path: Optional[Path] = None):
+    """Recursively process HTML block elements."""
     if element.name is None:
         return
 
     for child in element.children:
         if child.name is None:
-            if child.string and child.string.strip():
-                pass
             continue
 
         if child.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(child.name[1])
-            text = child.get_text(strip=True)
-            heading = doc.add_heading(text, level=level)
+            heading = doc.add_heading("", level=level)
+            _render_inline(heading, child, theme, base_path)
 
-            # Apply theme accent underline on h1
             if theme and level == 1:
                 primary_color = _hex_to_rgb(theme.colors.primary)
-                if primary_color and heading.runs:
-                    heading.runs[0].font.color.rgb = primary_color
+                if primary_color:
+                    for run in heading.runs:
+                        run.font.color.rgb = primary_color
 
         elif child.name == "p":
-            text = child.get_text(strip=True)
-            if text:
-                doc.add_paragraph(text)
+            if _element_has_content(child):
+                para = doc.add_paragraph()
+                _render_inline(para, child, theme, base_path)
 
         elif child.name == "ul":
-            _process_list(doc, child, ordered=False)
+            _process_list(doc, child, theme, base_path, ordered=False, level=0)
 
         elif child.name == "ol":
-            _process_list(doc, child, ordered=True)
+            _process_list(doc, child, theme, base_path, ordered=True, level=0)
 
         elif child.name == "blockquote":
-            _process_blockquote(doc, child, theme)
+            _process_blockquote(doc, child, theme, base_path)
 
         elif child.name == "pre":
             _process_code_block(doc, child, theme)
 
         elif child.name == "table":
-            _process_table(doc, child, theme)
+            _process_table(doc, child, theme, base_path)
 
         elif child.name == "hr":
             _process_hr(doc, theme)
 
         elif child.name in ["div", "article", "section", "main"]:
-            _process_element(doc, child, theme)
+            _process_element(doc, child, theme, base_path)
 
 
-def _process_list(doc: Document, list_element, ordered: bool = False):
-    """Process ul or ol list."""
+def _process_list(doc: Document, list_element, theme: Optional["CanonicalTheme"],
+                  base_path: Optional[Path], ordered: bool = False, level: int = 0):
+    """Process a ul or ol list, recursing for nested lists with indentation."""
     for li in list_element.find_all("li", recursive=False):
-        text = li.get_text(strip=True)
-        if text:
-            style = "List Number" if ordered else "List Bullet"
-            try:
-                doc.add_paragraph(text, style=style)
-            except KeyError:
-                para = doc.add_paragraph(text)
-                para.paragraph_format.left_indent = Inches(0.5)
+        style = "List Number" if ordered else "List Bullet"
+        try:
+            para = doc.add_paragraph(style=style)
+        except KeyError:
+            para = doc.add_paragraph()
+
+        # Indent nested levels.
+        if level > 0:
+            para.paragraph_format.left_indent = Inches(0.25 * (level + 1))
+
+        # Render the item's own inline content (nested lists are skipped here).
+        _render_inline(para, li, theme, base_path)
+
+        # Recurse into any nested lists.
+        for sub in li.find_all(["ul", "ol"], recursive=False):
+            _process_list(doc, sub, theme, base_path,
+                          ordered=(sub.name == "ol"), level=level + 1)
 
 
-def _process_blockquote(doc: Document, element, theme: Optional[CanonicalTheme] = None):
+def _process_blockquote(doc: Document, element, theme: Optional["CanonicalTheme"] = None,
+                        base_path: Optional[Path] = None):
     """Process blockquote with left border and optional italic styling."""
-    text = element.get_text(strip=True)
-    if not text:
+    if not _element_has_content(element):
         return
 
-    para = doc.add_paragraph(text)
+    para = doc.add_paragraph()
+    _render_inline(para, element, theme, base_path)
     para.paragraph_format.left_indent = Inches(0.5)
     para.paragraph_format.space_before = Pt(8)
     para.paragraph_format.space_after = Pt(8)
 
     if theme:
-        # Apply left border using theme blockquote border color
         border_color = theme.colors.blockquote_border
         if border_color.startswith("#"):
             _add_paragraph_border_left(para, border_color)
 
-        # Apply blockquote text color
         bq_color = _hex_to_rgb(theme.colors.blockquote_text)
         if bq_color:
             for run in para.runs:
                 run.font.color.rgb = bq_color
 
-        # Italic for boardroom and thesis themes
         if theme.name in ("boardroom", "thesis"):
             for run in para.runs:
                 run.font.italic = True
 
 
-def _process_code_block(doc: Document, element, theme: Optional[CanonicalTheme] = None):
+def _process_code_block(doc: Document, element, theme: Optional["CanonicalTheme"] = None):
     """Process code block with monospace font and background shading."""
     code_text = element.get_text()
     para = doc.add_paragraph()
     run = para.add_run(code_text)
 
-    # Use theme code font
     if theme:
         run.font.name = theme.fonts.code
     else:
@@ -289,7 +464,6 @@ def _process_code_block(doc: Document, element, theme: Optional[CanonicalTheme] 
     para.paragraph_format.space_before = Pt(8)
     para.paragraph_format.space_after = Pt(8)
 
-    # Apply code background shading
     if theme:
         code_bg = theme.colors.code_bg
         if code_bg.startswith("#"):
@@ -300,7 +474,7 @@ def _process_code_block(doc: Document, element, theme: Optional[CanonicalTheme] 
             run.font.color.rgb = code_color
 
 
-def _process_hr(doc: Document, theme: Optional[CanonicalTheme] = None):
+def _process_hr(doc: Document, theme: Optional["CanonicalTheme"] = None):
     """Process horizontal rule as a paragraph with bottom border."""
     para = doc.add_paragraph()
     para.paragraph_format.space_before = Pt(12)
@@ -316,7 +490,8 @@ def _process_hr(doc: Document, theme: Optional[CanonicalTheme] = None):
         _add_paragraph_border_bottom(para, "CCCCCC", size=6)
 
 
-def _process_table(doc: Document, table_element, theme: Optional[CanonicalTheme] = None):
+def _process_table(doc: Document, table_element, theme: Optional["CanonicalTheme"] = None,
+                   base_path: Optional[Path] = None):
     """Process HTML table with theme colors and alternating rows."""
     rows = table_element.find_all("tr")
     if not rows:
@@ -335,29 +510,30 @@ def _process_table(doc: Document, table_element, theme: Optional[CanonicalTheme]
     for row_idx, row in enumerate(rows):
         cells = row.find_all(["th", "td"])
         for col_idx, cell in enumerate(cells):
-            if col_idx < num_cols:
-                text = cell.get_text(strip=True)
-                table.rows[row_idx].cells[col_idx].text = text
+            if col_idx >= num_cols:
+                continue
 
-                if cell.name == "th":
-                    for paragraph in table.rows[row_idx].cells[col_idx].paragraphs:
-                        for run in paragraph.runs:
-                            run.bold = True
-                            # Apply theme header colors
-                            if theme:
-                                header_text_color = _hex_to_rgb(theme.colors.table_header_text)
-                                if header_text_color:
-                                    run.font.color.rgb = header_text_color
-                                run.font.name = theme.fonts.heading
+            doc_cell = table.rows[row_idx].cells[col_idx]
+            # Render inline content into the cell's existing first paragraph.
+            para = doc_cell.paragraphs[0]
+            _render_inline(para, cell, theme, base_path)
 
-                    # Apply theme header background
-                    if theme:
-                        header_bg = theme.colors.table_header_bg
-                        if header_bg.startswith("#"):
-                            _set_cell_shading(table.rows[row_idx].cells[col_idx], header_bg)
+            if cell.name == "th":
+                for paragraph in doc_cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+                        if theme:
+                            header_text_color = _hex_to_rgb(theme.colors.table_header_text)
+                            if header_text_color:
+                                run.font.color.rgb = header_text_color
+                            run.font.name = theme.fonts.heading
 
-                # Alternating row shading (skip header row)
-                elif theme and cell.name == "td" and row_idx % 2 == 0 and row_idx > 0:
-                    alt_bg = theme.colors.alt_row_bg
-                    if alt_bg.startswith("#"):
-                        _set_cell_shading(table.rows[row_idx].cells[col_idx], alt_bg)
+                if theme:
+                    header_bg = theme.colors.table_header_bg
+                    if header_bg.startswith("#"):
+                        _set_cell_shading(doc_cell, header_bg)
+
+            elif theme and cell.name == "td" and row_idx % 2 == 0 and row_idx > 0:
+                alt_bg = theme.colors.alt_row_bg
+                if alt_bg.startswith("#"):
+                    _set_cell_shading(doc_cell, alt_bg)

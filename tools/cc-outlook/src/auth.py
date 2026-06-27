@@ -50,6 +50,7 @@ Date: February 2026
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -67,6 +68,19 @@ except ImportError:
     from cc_storage import CcStorage
 
 logger = logging.getLogger(__name__)
+
+
+def _harden_file_permissions(path: Path) -> None:
+    """Restrict a secret file to the owner only (POSIX).
+
+    The MSAL token cache holds a refresh token that grants ongoing mailbox
+    access. On POSIX the default umask can leave it group/world-readable, so
+    scope it to the owner (0600). On Windows the %LOCALAPPDATA% profile already
+    restricts access per-user, so no change is needed there.
+    """
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
 
 # Configuration - uses centralized cc-director storage
 CONFIG_DIR = CcStorage.tool_config('outlook')
@@ -135,6 +149,7 @@ class MSALTokenBackend(BaseTokenBackend):
         if self._token_cache.has_state_changed:
             self.token_path.parent.mkdir(parents=True, exist_ok=True)
             self.token_path.write_text(self._token_cache.serialize(), encoding='utf-8')
+            _harden_file_permissions(self.token_path)
 
     @property
     def msal_app(self) -> msal.PublicClientApplication:
@@ -332,6 +347,7 @@ def _save_token_cache(token_path: Path, token_cache: msal.SerializableTokenCache
     if token_cache.has_state_changed:
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(token_cache.serialize(), encoding='utf-8')
+        _harden_file_permissions(token_path)
 
 
 def get_msal_token_path(email: str) -> Path:

@@ -1,7 +1,6 @@
 """HTML document generator -- intermediate format for Word conversion."""
 
-import base64
-import mimetypes
+import html as html_module
 from pathlib import Path
 from typing import Optional
 
@@ -50,7 +49,9 @@ def generate_html(parsed: ParsedMarkdown, css: str) -> str:
     Returns:
         Complete HTML document as string
     """
-    title = parsed.title or "Document"
+    # Escape the title so a heading containing &, <, or > produces a valid
+    # <title> rather than malformed HTML.
+    title = html_module.escape(parsed.title or "Document")
 
     # Indent CSS for cleaner output
     css_indented = "\n".join(f"        {line}" for line in css.split("\n"))

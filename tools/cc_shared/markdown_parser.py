@@ -26,7 +26,7 @@ def parse_markdown(content: str) -> ParsedMarkdown:
     Supports:
     - CommonMark specification
     - GitHub Flavored Markdown (tables, strikethrough, task lists)
-    - Fenced code blocks with syntax highlighting
+    - Fenced code blocks (rendered as plain <pre><code>, no syntax highlighting)
     - Footnotes
 
     Args:

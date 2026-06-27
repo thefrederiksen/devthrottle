@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -42,9 +44,40 @@ CC_DIRECTOR_CONNECTIONS_DIR = (
 DEFAULT_CONNECTION = "default"
 PORT_SCAN_START = 9223
 PORT_SCAN_END = 9999
-BRAVE_PATHS = [
+
+# Environment override for the browser executable. A caller can point
+# cc-playwright at any Chromium-family browser without editing code.
+BROWSER_ENV_VAR = "CC_PLAYWRIGHT_BROWSER"
+
+# Names looked up on PATH via shutil.which (covers Linux package names and any
+# browser already exposed on PATH on Windows or macOS).
+BROWSER_WHICH_NAMES = [
+    "brave",
+    "brave-browser",
+    "chrome",
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+    "msedge",
+    "microsoft-edge",
+]
+
+# Common fixed install locations, Windows first (primary platform) then macOS
+# (secondary target). Brave is preferred, then Chrome, then Edge.
+WINDOWS_BROWSER_PATHS = [
     r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
     r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+]
+MACOS_BROWSER_PATHS = [
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ]
 
 
@@ -70,12 +103,30 @@ def _migrate_legacy_state_if_needed() -> None:
 def _load_state(connection: str) -> dict:
     _migrate_legacy_state_if_needed()
     f = _state_file(connection)
-    if f.exists():
+    if not f.exists():
+        return {}
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as ex:
+        # A corrupt state file must not silently look like "no state" - that
+        # could start a second browser on top of a live one or hide the real
+        # failure. Move the bad file aside (so the tool can recover on the next
+        # run) and warn loudly in ASCII on stderr.
+        moved = f.with_suffix(f.suffix + ".corrupt")
         try:
-            return json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+            if moved.exists():
+                moved.unlink()
+            f.rename(moved)
+            hint = f"moved aside to {moved}"
+        except OSError as move_ex:
+            hint = f"could not move it aside: {move_ex}"
+        print(
+            f"WARNING: state file for connection '{connection}' is corrupt "
+            f"({type(ex).__name__}: {ex}); {hint}. Starting from empty state. "
+            f"Re-run 'cc-playwright --connection {connection} start' to recreate it.",
+            file=sys.stderr,
+        )
+        return {}
 
 
 def _save_state(connection: str, state: dict) -> None:
@@ -114,11 +165,84 @@ def _all_connections() -> list[str]:
 
 # ---------------- Helpers ----------------
 
-def _find_brave() -> str:
-    for p in BRAVE_PATHS:
+def _candidate_browser_paths() -> list[str]:
+    """Fixed install locations to probe, ordered by platform and preference."""
+    if sys.platform == "win32":
+        return list(WINDOWS_BROWSER_PATHS)
+    if sys.platform == "darwin":
+        return list(MACOS_BROWSER_PATHS)
+    # Linux and others rely on PATH lookup below; no fixed list here.
+    return []
+
+
+def _find_browser(override: str | None = None) -> str:
+    """Locate a Chromium-family browser executable.
+
+    Resolution order (first hit wins):
+      1. --browser-path argument (override)
+      2. CC_PLAYWRIGHT_BROWSER environment variable
+      3. shutil.which() lookup for common browser names on PATH
+      4. common fixed install paths for Brave, Chrome, and Edge
+         (Windows primary, macOS secondary)
+
+    A bad explicit override fails immediately with a clear ASCII message; an
+    empty search fails with a message that names the override options.
+    """
+    if override:
+        if Path(override).exists():
+            return override
+        raise SystemExit(
+            f"Browser executable not found at --browser-path: {override}"
+        )
+
+    env_path = os.environ.get(BROWSER_ENV_VAR)
+    if env_path:
+        if Path(env_path).exists():
+            return env_path
+        raise SystemExit(
+            f"Browser executable not found at {BROWSER_ENV_VAR}={env_path}"
+        )
+
+    for name in BROWSER_WHICH_NAMES:
+        found = shutil.which(name)
+        if found:
+            return found
+
+    for p in _candidate_browser_paths():
         if Path(p).exists():
             return p
-    raise SystemExit("Brave not found. Looked in: " + ", ".join(BRAVE_PATHS))
+
+    raise SystemExit(
+        "No Chromium-family browser found (looked for Brave, Chrome, and Edge "
+        "on PATH and in common install locations). Install one, or point "
+        f"cc-playwright at a browser with --browser-path or the "
+        f"{BROWSER_ENV_VAR} environment variable."
+    )
+
+
+def _browser_command_lines() -> list[str]:
+    """Best-effort list of command lines for running Chromium-family browsers.
+
+    Factored out so the profile-lock pre-check is unit-testable. Failure to
+    enumerate is not fatal: it only means the early "busy profile" hint cannot
+    be produced, and start falls back to the debug-port timeout. This is an
+    advisory probe, not core logic, so a failed enumeration must not block start.
+    """
+    if sys.platform == "win32":
+        out = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Get-CimInstance Win32_Process -Filter "
+                "\"Name='brave.exe' or Name='chrome.exe' or Name='msedge.exe'\" "
+                "| Select-Object -ExpandProperty CommandLine",
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+    else:
+        out = subprocess.run(
+            ["ps", "-eo", "args"], capture_output=True, text=True, timeout=10,
+        )
+    return [ln for ln in out.stdout.splitlines() if ln.strip()]
 
 
 def _is_running(pid: int) -> bool:
@@ -192,17 +316,47 @@ def _resolve_profile_dir(connection: str, override: str | None) -> Path:
     return CC_DIRECTOR_CONNECTIONS_DIR / connection
 
 
+def _norm_path(p) -> str:
+    """Normalize a path string for substring matching across slash styles."""
+    return str(p).replace("\\", "/").rstrip("/").lower()
+
+
+def _dir_locked_by_running_browser(profile_dir: Path) -> bool:
+    """Return True if a running browser has this user-data-dir open.
+
+    Works on Windows (where Chromium leaves no SingletonLock file) by scanning
+    running browser command lines for a matching --user-data-dir. This is what
+    catches a cc-browser instance holding the profile, so the user gets the
+    "close cc-browser first" hint immediately instead of waiting the full
+    debug-port timeout.
+    """
+    needle = _norm_path(profile_dir)
+    try:
+        command_lines = _browser_command_lines()
+    except (subprocess.SubprocessError, OSError):
+        # Advisory probe only; if process enumeration fails we cannot detect a
+        # busy profile here. Start still fails clearly later via the debug-port
+        # timeout, so do not block on an enumeration failure.
+        return False
+    for line in command_lines:
+        low = _norm_path(line)
+        if "--user-data-dir" in low and needle in low:
+            return True
+    return False
+
+
 def _looks_locked(profile_dir: Path) -> bool:
     """Best-effort detect that another browser instance has the profile open."""
     if not profile_dir.exists():
         return False
-    # Brave/Chrome on POSIX leaves a SingletonLock symlink. Windows uses file
-    # handles, so absence of these files does NOT mean unlocked. Presence is
-    # a strong positive signal though.
+    # Brave/Chrome on POSIX leaves a SingletonLock symlink. Presence is a strong
+    # positive signal.
     for marker in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
         if (profile_dir / marker).exists():
             return True
-    return False
+    # Windows leaves no such file, so scan running browser command lines for a
+    # process that already has this user-data-dir open.
+    return _dir_locked_by_running_browser(profile_dir)
 
 
 def _connect(connection: str):
@@ -341,6 +495,87 @@ def _host_of(url: str | None) -> str | None:
         return None
 
 
+def _cc_director_config_path() -> Path:
+    """Path to cc-director's config.json (holds the configured screenshots dir)."""
+    override = os.environ.get("CC_DIRECTOR_ROOT")
+    if override:
+        root = Path(override)
+    elif sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local"))) / "cc-director"
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Application Support" / "cc-director"
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))) / "cc-director"
+    return root / "config" / "config.json"
+
+
+def _configured_screenshots_dir() -> Path | None:
+    """Return the screenshots directory configured in cc-director, or None.
+
+    Reads screenshots.source_directory from cc-director's config.json. Returns
+    None when there is no Director config (cc-playwright can run standalone), so
+    the caller can pick its own default in that case.
+    """
+    config_path = _cc_director_config_path()
+    if not config_path.exists():
+        return None
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    section = data.get("screenshots")
+    if isinstance(section, dict):
+        value = section.get("source_directory")
+        if value:
+            return Path(value)
+    return None
+
+
+def _wait_for_exit(pid: int, timeout: float) -> bool:
+    """Poll until the process exits or the timeout elapses. True if it exited."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _is_running(pid):
+            return True
+        time.sleep(0.2)
+    return not _is_running(pid)
+
+
+def _terminate_process(pid: int, grace_seconds: float = 6.0) -> str:
+    """Stop a process, preferring a graceful close to protect the profile.
+
+    Tries a normal terminate first (taskkill without /F on Windows, SIGTERM on
+    POSIX), which lets Chromium flush and unlock its profile cleanly. Only if
+    the process is still alive after grace_seconds does it force-kill the single
+    recorded PID (no /T tree-kill). Returns the path taken: "graceful",
+    "forced", or "already_exited".
+    """
+    if not _is_running(pid):
+        return "already_exited"
+
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return "already_exited"
+
+    if _wait_for_exit(pid, grace_seconds):
+        return "graceful"
+
+    # Still alive - force only this PID.
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    _wait_for_exit(pid, 3.0)
+    return "forced"
+
+
 # ---------------- Commands ----------------
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -367,10 +602,10 @@ def cmd_start(args: argparse.Namespace) -> None:
         )
 
     port = _find_free_port(preferred=args.port)
-    brave = _find_brave()
+    browser = _find_browser(getattr(args, "browser_path", None))
 
     cmd = [
-        brave,
+        browser,
         f"--remote-debugging-port={port}",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
@@ -442,12 +677,9 @@ def cmd_stop(args: argparse.Namespace) -> None:
         _clear_state(connection)
         _ok({"status": "not_running", "connection": connection})
         return
-    if sys.platform == "win32":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
-    else:
-        os.kill(pid, 15)
+    method = _terminate_process(pid)
     _clear_state(connection)
-    _ok({"status": "stopped", "connection": connection, "pid": pid})
+    _ok({"status": "stopped", "connection": connection, "pid": pid, "method": method})
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -610,7 +842,13 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 def cmd_screenshot(args: argparse.Namespace) -> None:
     pw, browser, ctx, page = _connect(args.connection)
     try:
-        out = Path(args.output) if args.output else STATE_DIR / f"screenshot-{int(time.time())}.png"
+        if args.output:
+            out = Path(args.output)
+        else:
+            # Default to the configured screenshots location so captures land
+            # where the rest of cc-director puts them, not in the tool state dir.
+            base = _configured_screenshots_dir() or STATE_DIR
+            out = base / f"screenshot-{int(time.time())}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(out), full_page=args.full_page)
         _ok({"screenshot": str(out)})
@@ -632,39 +870,91 @@ def cmd_info(args: argparse.Namespace) -> None:
         pw.stop()
 
 
+_SNAPSHOT_INTERACTIVE_JS = """() => {
+    const tags = ['button', 'input', 'textarea', 'select', 'a'];
+    const all = [];
+    tags.forEach(tag => {
+        document.querySelectorAll(tag).forEach((el, i) => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            const r = el.getBoundingClientRect();
+            all.push({
+                tag: el.tagName,
+                text: (el.textContent || '').trim().slice(0, 80),
+                placeholder: el.placeholder || '',
+                name: el.name || '',
+                id: el.id || '',
+                type: el.type || '',
+                href: el.href || '',
+                value: (el.value || '').slice(0, 60),
+                label: el.labels?.[0]?.textContent?.trim().slice(0, 80) || '',
+                aria: el.getAttribute('aria-label') || '',
+                visible: rect.width > 0 && rect.height > 0,
+                x: Math.round(r.x), y: Math.round(r.y),
+            });
+        });
+    });
+    return all;
+}"""
+
+# Fuller page picture used only by snapshot --full: headings, landmark regions,
+# and a slice of the visible body text. Deliberately different from (and on top
+# of) the interactive-element list so callers get more than the same data back.
+_SNAPSHOT_FULL_JS = """() => {
+    const headings = [];
+    document.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h => {
+        const rect = h.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        const t = (h.textContent || '').trim().slice(0, 120);
+        if (t) headings.push({tag: h.tagName, text: t});
+    });
+    const landmarks = [];
+    document.querySelectorAll(
+        'nav,main,header,footer,aside,[role=navigation],[role=main],[role=banner],[role=contentinfo],[role=search]'
+    ).forEach(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        landmarks.push({
+            tag: el.tagName,
+            role: el.getAttribute('role') || '',
+            aria: el.getAttribute('aria-label') || '',
+        });
+    });
+    const bodyText = (document.body ? (document.body.innerText || '') : '').trim();
+    return {
+        headings: headings,
+        landmarks: landmarks,
+        meta_description:
+            (document.querySelector('meta[name=description]') || {}).content || '',
+        text: bodyText.slice(0, 5000),
+        text_length: bodyText.length,
+    };
+}"""
+
+
 def cmd_snapshot(args: argparse.Namespace) -> None:
-    """Return interactive elements (buttons, inputs, links) with selector hints."""
+    """Return interactive elements (buttons, inputs, links) with selector hints.
+
+    With --full, also include a fuller page picture: headings, landmark
+    regions, the meta description, and a slice of the visible body text.
+    """
     pw, browser, ctx, page = _connect(args.connection)
     try:
-        items = page.evaluate(
-            """() => {
-                const tags = ['button', 'input', 'textarea', 'select', 'a'];
-                const all = [];
-                tags.forEach(tag => {
-                    document.querySelectorAll(tag).forEach((el, i) => {
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width === 0 || rect.height === 0) return;
-                        const r = el.getBoundingClientRect();
-                        all.push({
-                            tag: el.tagName,
-                            text: (el.textContent || '').trim().slice(0, 80),
-                            placeholder: el.placeholder || '',
-                            name: el.name || '',
-                            id: el.id || '',
-                            type: el.type || '',
-                            href: el.href || '',
-                            value: (el.value || '').slice(0, 60),
-                            label: el.labels?.[0]?.textContent?.trim().slice(0, 80) || '',
-                            aria: el.getAttribute('aria-label') || '',
-                            visible: rect.width > 0 && rect.height > 0,
-                            x: Math.round(r.x), y: Math.round(r.y),
-                        });
-                    });
-                });
-                return all;
-            }"""
-        )
-        _ok({"url": page.url, "title": page.title(), "elements": items})
+        items = page.evaluate(_SNAPSHOT_INTERACTIVE_JS)
+        result = {
+            "url": page.url,
+            "title": page.title(),
+            "full": bool(args.full),
+            "elements": items,
+        }
+        if args.full:
+            extra = page.evaluate(_SNAPSHOT_FULL_JS)
+            result["headings"] = extra["headings"]
+            result["landmarks"] = extra["landmarks"]
+            result["meta_description"] = extra["meta_description"]
+            result["text"] = extra["text"]
+            result["text_length"] = extra["text_length"]
+        _ok(result)
     finally:
         pw.stop()
 
@@ -744,13 +1034,18 @@ def main() -> None:
     s.add_argument("--profile", help=(
         "Override profile dir. Default for the implicit 'default' connection "
         "is cc-playwright's own profile; any named connection defaults to "
-        "%LOCALAPPDATA%/cc-director/connections/<name> (shares with cc-browser)."
+        "%%LOCALAPPDATA%%/cc-director/connections/<name> (shares with cc-browser)."
     ))
     s.add_argument("--port", type=int, help=(
         f"Preferred debug port. Auto-allocated from {PORT_SCAN_START} upward "
         "if not given or already in use."
     ))
     s.add_argument("--url", help="Open this URL after launch (also pins the tab)")
+    s.add_argument("--browser-path", help=(
+        "Path to the browser executable to launch. Overrides the "
+        f"{BROWSER_ENV_VAR} environment variable and auto-discovery. "
+        "Accepts any Chromium-family browser (Brave, Chrome, Edge)."
+    ))
     s.set_defaults(func=cmd_start)
 
     s = sub.add_parser("stop", help="Kill this connection's Brave instance")
@@ -854,7 +1149,20 @@ def main() -> None:
     s.set_defaults(func=cmd_new_tab)
 
     args = p.parse_args()
-    args.func(args)
+    # Single catch-all at the entry point (where try/except is allowed per the
+    # coding standard) so every command holds the JSON error contract. Without
+    # this, an uncaught Playwright TimeoutError (or any other error) inside an
+    # action command would dump a raw traceback instead of {"error": ...}.
+    try:
+        args.func(args)
+    except SystemExit:
+        # _err()/_find_browser()/_connect() already emitted their own message
+        # and chose an exit code; let it through unchanged.
+        raise
+    except KeyboardInterrupt:
+        _err("interrupted", code=130)
+    except Exception as ex:
+        _err(f"{type(ex).__name__}: {ex}")
 
 
 if __name__ == "__main__":
