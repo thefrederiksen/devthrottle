@@ -1,0 +1,16 @@
+┌────────────────┬───────────────────────────────────────┬─────────────┬─────────────┬─────────────────┐
+│ ID             │ NAME                                  │ MACHINE     │ REPOSITORY  │ STATUS          │
+├────────────────┼───────────────────────────────────────┼─────────────┼─────────────┼─────────────────┤
+│ e4e8bdc5 (you) │ devthrottle: impl #800 session-naming │ SOREN_NORTH │ devthrottle │ Working         │
+│ 8322105f       │ mindzieWeb - mindzieAnalysis          │ SOREN_NORTH │ mindzieWeb  │ WaitingForInput │
+│ ce2bc7fb       │ devthrottle - agent context           │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ 1fb5fe40       │ (unnamed)                             │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ 5675a3fc       │ Dev Throttle Tools Review             │ SOREN_NORTH │ devthrottle │ Working         │
+│ 3429220a       │ cc-devthrottle Claude Review          │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ a441a7b3       │ devthrottle / Developer / a441        │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ 6b76f01c       │ devthrottle / Developer / 6b76        │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ f1288d70       │ devthrottle: fix the login bug        │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ f7a538c8       │ devthrottle / Developer / f7a5        │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ 3ace1b1c       │ devthrottle: implement #799           │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+│ f3025341       │ Frontend review                       │ SOREN_NORTH │ devthrottle │ WaitingForInput │
+└────────────────┴───────────────────────────────────────┴─────────────┴─────────────┴─────────────────┘

@@ -1,0 +1,13 @@
+=== spawn NEITHER --name nor --purpose (expect warning) ===
+Warning: no --name or --purpose given; the session will get an auto-composed 
+name. Pass --purpose "<what it is for>" so it is easy to tell apart.
+Opened session 6b76f01c (devthrottle / Developer / 6b76).
+id: 6b76f01c-939f-42c3-862e-97d6c61dad0b
+Message it:  cc-devthrottle message send 6b76f01c "<message>"   |   Ask it:  
+cc-devthrottle message ask 6b76f01c "<question>"
+
+=== spawn with --purpose 'fix the login bug' (expect name includes purpose) ===
+Opened session f1288d70 (devthrottle: fix the login bug).
+id: f1288d70-1371-454f-aa80-085e48282566
+Message it:  cc-devthrottle message send f1288d70 "<message>"   |   Ask it:  
+cc-devthrottle message ask f1288d70 "<question>"

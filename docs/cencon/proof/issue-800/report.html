@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #800 - Enforce meaningful session names at creation - Developer Agent proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 18px; color: #1d1d1d; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2b6cb0; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #ccc; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f8fa; border: 1px solid #ddd; padding: 10px; overflow-x: auto; font-size: 13px; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .ac { background: #fafafa; }
+  img { max-width: 100%; border: 1px solid #bbb; margin: 8px 0; }
+  .note { background: #fff8e1; border-left: 4px solid #f0b000; padding: 8px 12px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #800 - Enforce meaningful session names at creation (name/purpose, never bare folder)</h1>
+<p><strong>Developer Agent proof.</strong> Branch <code>issue-800-session-names</code>.
+Build: <code>dotnet build cc-director.sln</code> -&gt; <strong class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</strong>
+Live proof captured against an isolated test Director (slot 14, Control API <code>http://127.0.0.1:7880</code>),
+launched via its own scheduled task per CLAUDE.md rule 0b.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Single name composer</strong> - new <code>SessionName</code> in <code>CcDirector.Core/Sessions/SessionName.cs</code>:
+      <code>Compose(folder, type, explicitName, purpose, disambiguator)</code>, <code>IsWeakExplicitName</code>,
+      <code>DisplayName</code>, <code>FolderName</code>, <code>Disambiguator</code>. It is the one place the naming rule lives.</li>
+  <li><strong>Contract</strong> - <code>NewSessionRequest</code> gains optional <code>Name</code> and <code>Purpose</code> fields
+      (<code>CcDirector.Gateway.Contracts</code>).</li>
+  <li><strong>Name at birth</strong> - <code>SessionManager.CreateSession</code> takes an optional
+      <code>Func&lt;Guid,string&gt; nameFactory</code>; the new session's <code>CustomName</code> is set in the create call,
+      not by a later rename. The id is passed so the name can carry an id-derived disambiguator (no new persisted state).</li>
+  <li><strong>POST /sessions</strong> - composes the final name through the composer and enforces the rule (below),
+      setting <code>CustomName</code> on the new session before returning 201.</li>
+  <li><strong>De-duplicated display fallbacks</strong> - the bare-folder fallbacks at <code>ControlEndpoints.cs</code> ~231 and ~256,
+      <code>SessionManager.cs</code> ~322 (plus the same pattern in the voice endpoint ~1538) now route through
+      <code>SessionName.DisplayName</code>.</li>
+  <li><strong>cc-devthrottle</strong> - <code>session spawn</code> gains <code>--purpose</code> (forwarded to the new
+      <code>Purpose</code> field), keeps <code>--name</code>, and prints a warning when NEITHER is supplied.</li>
+  <li><strong>Docs</strong> - the <code>fleet-comms</code> skill spawn examples lead with <code>--name</code>/<code>--purpose</code>
+      and state the always-name-your-session norm.</li>
+  <li><strong>Tests</strong> - <code>SessionNameTests</code> (15 cases) cover passthrough, purpose composition, type+disambiguator
+      default, weak-name rejection, and disambiguator-distinctness.</li>
+</ul>
+
+<div class="note"><strong>Enforcement rule (the agreed middle path):</strong> an EXPLICIT name
+(<code>req.Name</code> supplied) that is blank or equals (case-insensitive) the bare folder name is rejected with HTTP 400.
+An ABSENT name (<code>req.Name == null</code>) is auto-composed from folder + purpose, else folder + type + disambiguator,
+so a session can never display as the bare folder name alone.</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+
+<tr class="ac"><td>New <code>Name</code>/<code>Purpose</code> fields, solution builds clean</td>
+<td>Fields present; <code>dotnet build cc-director.sln</code> clean</td>
+<td>Fields added to <code>NewSessionRequest</code>; build succeeded, 0 warnings, 0 errors</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>Explicit <code>Name</code> -&gt; 201, name verbatim</td>
+<td>HTTP 201, <code>name</code> == "Frontend review"</td>
+<td>HTTP 201, <code>name</code> = "Frontend review" (<code>v1-explicit-name.json</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>Blank <code>Name</code> -&gt; 400</td>
+<td>HTTP 400 telling caller to give a meaningful name/purpose</td>
+<td>HTTP 400: "Provide a meaningful session name or a purpose..." (<code>v2-blank-name-400.json</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td><code>Name</code> == bare folder -&gt; 400</td>
+<td>HTTP 400</td>
+<td>HTTP 400, same message, folder "devthrottle" named (<code>v3-folder-name-400.json</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>No <code>Name</code> but a <code>Purpose</code> -&gt; 201, folder + purpose, not bare folder</td>
+<td>name contains folder AND purpose</td>
+<td>HTTP 201, <code>name</code> = "devthrottle: implement #799" (<code>v4-purpose-only.json</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>Neither -&gt; 201, folder + type + disambiguator, not bare folder</td>
+<td>name has folder + type + disambiguator</td>
+<td>HTTP 201, <code>name</code> = "devthrottle / Developer / f7a5" (<code>v5a-neither.json</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>Two same-repo sessions, neither named -&gt; DISTINCT names</td>
+<td>names differ</td>
+<td>"devthrottle / Developer / f7a5" vs "devthrottle / Developer / a441" (<code>v5a</code>/<code>v5b</code>) - distinct</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>No naming path returns the bare folder name as the whole name</td>
+<td>former fallbacks go through the single composer</td>
+<td>Call sites in <code>composer-callsites.txt</code>: ControlEndpoints 233/259/1541/2778/2796, SessionManager 336.
+The only remaining <code>Path.GetFileName(repoPath...)</code> is <code>ProjectNameOf</code> (a project-grouping label, not the session identity name)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>CLI: spawn with neither flag warns; <code>--purpose</code> includes purpose in name</td>
+<td>warning printed; name includes purpose</td>
+<td>Warning printed; "devthrottle / Developer / 6b76" (no flags) and "devthrottle: fix the login bug" (--purpose)
+(<code>cli-spawn-output.txt</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td>Unit tests for <code>SessionName.Compose</code> cover the listed cases</td>
+<td>passthrough, purpose, type+disambiguator default, weak-name rejection, disambiguator-distinctness</td>
+<td>15 tests passed (<code>unit-test-run.txt</code>)</td>
+<td class="pass">PASS</td></tr>
+
+<tr class="ac"><td><code>session list</code> shows two same-repo sessions with distinct meaningful names (screenshot)</td>
+<td>distinct, meaningful names in same repo</td>
+<td>6 same-repo "devthrottle" sessions, all distinct (screenshot below)</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>POST /sessions - the five variants (captured JSON)</h2>
+<pre>
+Variant 1 - explicit Name:    HTTP 201  name = "Frontend review"
+Variant 2 - blank Name:       HTTP 400  "Provide a meaningful session name or a purpose: a blank name or
+                                         the bare repository folder name (\"devthrottle\") is not allowed."
+Variant 3 - Name == folder:   HTTP 400  (same message)
+Variant 4 - Purpose only:     HTTP 201  name = "devthrottle: implement #799"
+Variant 5a - neither:         HTTP 201  name = "devthrottle / Developer / f7a5"
+Variant 5b - neither (2nd):   HTTP 201  name = "devthrottle / Developer / a441"   (DISTINCT from 5a)
+</pre>
+<p>Raw responses: <code>v1-explicit-name.json</code>, <code>v2-blank-name-400.json</code>, <code>v3-folder-name-400.json</code>,
+<code>v4-purpose-only.json</code>, <code>v5a-neither.json</code>, <code>v5b-neither-2.json</code>.</p>
+
+<h2>cc-devthrottle session spawn (CLI)</h2>
+<pre>
+=== spawn NEITHER --name nor --purpose (expect warning) ===
+Warning: no --name or --purpose given; the session will get an auto-composed
+name. Pass --purpose "&lt;what it is for&gt;" so it is easy to tell apart.
+Opened session 6b76f01c (devthrottle / Developer / 6b76).
+
+=== spawn with --purpose 'fix the login bug' (expect name includes purpose) ===
+Opened session f1288d70 (devthrottle: fix the login bug).
+</pre>
+<p>Full output: <code>cli-spawn-output.txt</code>. Session list text: <code>cli-session-list.txt</code>.</p>
+
+<h2>Screenshot - session list, same repo, distinct meaningful names</h2>
+<p>The test Director's session list. All six sessions are in the SAME repository ("devthrottle"),
+each with a distinct, meaningful name composed at birth - none is the bare folder name.</p>
+<img src="session-list-ui.png" alt="Session list showing six same-repo sessions with distinct meaningful names">
+
+<h2>Unit test run</h2>
+<pre>
+Passed!  - Failed: 0, Passed: 15, Skipped: 0, Total: 15 - CcDirector.Core.Tests.dll
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change adds a pure helper and two optional contract fields within the
+existing containers (<code>gateway_contracts</code>, <code>core_services</code>, <code>control_api</code>, <code>cc-devthrottle</code>);
+it introduces no new container, no new persisted state (the disambiguator is derived from the session id), and touches
+no blocking security rule. The new HTTP 400 path is input validation that fails loud, consistent with the no-fallback rule.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. Every acceptance criterion is met with the proof above, the solution builds
+clean with zero warnings, and all 15 new unit tests pass.</p>
+
+</body>
+</html>

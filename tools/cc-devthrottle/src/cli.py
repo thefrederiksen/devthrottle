@@ -256,6 +256,12 @@ def spawn(
         None, "--prompt", help="First prompt to send once the session is ready."
     ),
     name: Optional[str] = typer.Option(None, "--name", help="Custom display name for the session."),
+    purpose: Optional[str] = typer.Option(
+        None,
+        "--purpose",
+        help="Short description of what the session is FOR (e.g. 'implement #799'); used to "
+        "build the session name when no --name is given.",
+    ),
     session_type: Optional[str] = typer.Option(
         None, "--type", help="Session type: Developer, Implementation, Discuss, Product, QA, Support."
     ),
@@ -267,7 +273,7 @@ def spawn(
     ),
 ) -> None:
     """Open a new session on the local Director and print its id."""
-    spawn_session(repo, agent, prompt, name, session_type, command, command_args)
+    spawn_session(repo, agent, prompt, name, purpose, session_type, command, command_args)
 
 
 @message_app.command("send")

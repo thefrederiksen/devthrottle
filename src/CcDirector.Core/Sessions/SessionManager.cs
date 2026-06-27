@@ -161,7 +161,7 @@ public sealed class SessionManager : IDisposable
     /// Create a session by resolving the requested built-in CLI plugin and asking it for the
     /// launch strategy. This is the plugin-backed path new callers should use.
     /// </summary>
-    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null)
     {
         return CreateSession(
             repoPath,
@@ -172,7 +172,8 @@ public sealed class SessionManager : IDisposable
             sessionType,
             groupId,
             groupRole,
-            groupName);
+            groupName,
+            nameFactory);
     }
 
     /// <summary>
@@ -187,7 +188,12 @@ public sealed class SessionManager : IDisposable
     /// null for a solo session.</param>
     /// <param name="groupRole">The member's descriptive role within its group (issue #225).</param>
     /// <param name="groupName">The group's display name (issue #225), for the desktop header.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    /// <param name="nameFactory">Optional name-at-birth composer (issue #800): when supplied it
+    /// is invoked with the new session's id and its result becomes the session's
+    /// <see cref="Session.CustomName"/>, so the session is named in the create call rather than
+    /// only by a later rename. The id is passed in so the name can carry an id-derived
+    /// disambiguator. Null leaves the session unnamed (legacy behavior).</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -237,6 +243,12 @@ public sealed class SessionManager : IDisposable
             GroupRole = groupRole,
             GroupName = groupName,
         };
+
+        // Issue #800: name the session AT BIRTH. The factory is invoked with the new id so the
+        // composed name can carry an id-derived disambiguator. This is what stops a session from
+        // ever displaying as the bare repository folder name.
+        if (nameFactory is not null)
+            session.CustomName = nameFactory(id);
 
         try
         {
@@ -319,9 +331,13 @@ public sealed class SessionManager : IDisposable
             // builds the preamble locally from the session's known identity.
             if (agent.Kind == AgentKind.Pi)
             {
-                var piName = string.IsNullOrWhiteSpace(session.CustomName)
-                    ? Path.GetFileName(repoPath.TrimEnd('\\', '/'))
-                    : session.CustomName;
+                // Issue #800: route the display-name fallback through the single composer so a
+                // session never identifies itself by the bare folder name.
+                var piName = SessionName.DisplayName(
+                    session.CustomName,
+                    SessionName.FolderName(repoPath),
+                    session.SessionType,
+                    SessionName.Disambiguator(id));
                 var preambleFile = CcDirector.Core.Pi.PiPreambleWriter.WriteForSession(
                     id.ToString(), piName, Environment.MachineName, repoPath);
                 args = $"{args} --append-system-prompt \"{preambleFile}\"".Trim();

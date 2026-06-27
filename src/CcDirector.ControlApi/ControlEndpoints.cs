@@ -228,9 +228,11 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            var name = string.IsNullOrWhiteSpace(session.CustomName)
-                ? Path.GetFileName(session.RepoPath.TrimEnd('\\', '/'))
-                : session.CustomName;
+            // Issue #800: the display name goes through the single composer so it is never the
+            // bare folder name (legacy sessions with no CustomName get folder + type + disambiguator).
+            var name = SessionName.DisplayName(session.CustomName,
+                SessionName.FolderName(session.RepoPath), session.SessionType,
+                SessionName.Disambiguator(session.Id));
 
             // A session only ever calls its OWN Director, so this Director's machine name is the
             // session's machine.
@@ -253,9 +255,10 @@ internal static class ControlEndpoints
             {
                 var sender = sessionManager.GetSession(fromGuid);
                 if (sender is not null)
-                    fromName = string.IsNullOrWhiteSpace(sender.CustomName)
-                        ? Path.GetFileName(sender.RepoPath.TrimEnd('\\', '/'))
-                        : sender.CustomName;
+                    // Issue #800: route the sender's display name through the single composer.
+                    fromName = SessionName.DisplayName(sender.CustomName,
+                        SessionName.FolderName(sender.RepoPath), sender.SessionType,
+                        SessionName.Disambiguator(sender.Id));
             }
             return FleetMessaging.BuildFramedMessage(fromSessionId, fromName, Environment.MachineName, text, includeReplyHint);
         }
@@ -1533,9 +1536,10 @@ internal static class ControlEndpoints
             {
                 var s = sessionManager.GetSession(sg);
                 repoPath = s?.RepoPath ?? "";
+                // Issue #800: route the display name through the single composer (never bare folder).
                 sessionName = s is null ? ""
-                    : (!string.IsNullOrWhiteSpace(s.CustomName) ? s.CustomName!.Trim()
-                       : Path.GetFileName(s.RepoPath.TrimEnd('\\', '/')));
+                    : SessionName.DisplayName(s.CustomName, SessionName.FolderName(s.RepoPath),
+                        s.SessionType, SessionName.Disambiguator(s.Id));
             }
 
             var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
@@ -2767,6 +2771,18 @@ internal static class ControlEndpoints
                 && !SessionTypeNames.TryParse(req.Type, out sessionType))
                 return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Implementation, Developer, Discuss, Product, QA, Support" });
 
+            // Issue #800: enforce a meaningful name at birth. An EXPLICIT name (req.Name supplied,
+            // even if blank) that is blank or equal to the bare repository folder name is rejected;
+            // an ABSENT name (req.Name == null) is auto-composed from folder + purpose / type +
+            // disambiguator by the name factory below, so a session never displays as the bare folder.
+            var repoFolderName = SessionName.FolderName(req.RepoPath);
+            if (req.Name is not null && SessionName.IsWeakExplicitName(req.Name, repoFolderName))
+                return Results.BadRequest(new { error =
+                    $"Provide a meaningful session name or a purpose: a blank name or the bare repository folder name (\"{repoFolderName}\") is not allowed." });
+
+            var explicitName = req.Name;
+            var purpose = req.Purpose;
+
             Session session;
             try
             {
@@ -2776,7 +2792,9 @@ internal static class ControlEndpoints
                     req.Args,
                     SessionBackendType.ConPty,
                     resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId,
-                    sessionType: sessionType);
+                    sessionType: sessionType,
+                    nameFactory: id => SessionName.Compose(
+                        repoFolderName, sessionType, explicitName, purpose, SessionName.Disambiguator(id)));
             }
             catch (Exception ex)
             {
