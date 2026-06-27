@@ -44,6 +44,32 @@ def _install_ascii_truncation():
 _install_ascii_truncation()
 
 
+# --- ASCII-only output: Typer renders its --help and error panels with Rich's default ROUNDED
+# (Unicode) box; force them to the ASCII box so panels stay ASCII even when the console is UTF-8.
+# Guarded so a non-Typer environment is a harmless no-op. ---
+def _install_ascii_typer_panels():
+    try:
+        import typer.rich_utils as _tru
+        from rich import box as _rbox
+    except Exception:
+        return
+    if getattr(_tru.Panel, "_ascii_box", False):
+        return
+    _OrigPanel = _tru.Panel
+
+    class _AsciiPanel(_OrigPanel):
+        _ascii_box = True
+
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("box", _rbox.ASCII)
+            super().__init__(*args, **kwargs)
+
+    _tru.Panel = _AsciiPanel
+
+
+_install_ascii_typer_panels()
+
+
 def Table(*args, **kwargs):
     """Rich Table that defaults to an ASCII box (house ASCII-only output rule).
 

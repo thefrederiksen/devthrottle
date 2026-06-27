@@ -53,6 +53,22 @@ def test_declares_console_script(name):
     )
 
 
+# Tools that force a UTF-8 console (so they can carry non-ASCII contact/message data) do not get
+# Rich's automatic Unicode->ASCII box downgrade, so Typer's default ROUNDED panel box would render
+# Unicode in their --help / error output. They must install the ASCII Typer-panel patch.
+UTF8_CONSOLE_TOOLS = ["cc-gmail", "cc-outlook", "cc-vault", "cc-devthrottle"]
+
+
+@pytest.mark.parametrize("name", UTF8_CONSOLE_TOOLS)
+def test_forces_ascii_typer_panels(name):
+    src = TOOLS_DIR / name / "src"
+    has_patch = any(
+        "_install_ascii_typer_panels" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in src.rglob("*.py")
+    )
+    assert has_patch, f"{name}: forces a UTF-8 console but does not install the ASCII Typer-panel patch"
+
+
 @pytest.mark.parametrize("name", SHIPPED_PYTHON)
 def test_installs_ascii_truncation(name):
     # Rich truncates overflowing table cells with a Unicode ellipsis; each shipped tool that renders
