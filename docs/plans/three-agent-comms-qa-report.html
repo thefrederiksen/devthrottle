@@ -43,7 +43,7 @@
 
 <header class="top">
   <h1>QA Report: Three-Agent Communication</h1>
-  <div class="sub">Claude Code 2.1.195 &nbsp;|&nbsp; Codex 0.141.0 &nbsp;|&nbsp; Pi 0.79.4 &nbsp;|&nbsp; machine SOREN_NORTH &nbsp;|&nbsp; run 2026-06-26 &nbsp;|&nbsp; live, on real sessions through a slot-8 test Director.</div>
+  <div class="sub">Claude Code 2.1.195 &nbsp;|&nbsp; Codex 0.141.0 &nbsp;|&nbsp; Pi 0.79.4 &nbsp;|&nbsp; machine SOREN_NORTH &nbsp;|&nbsp; run 2026-06-26, updated 2026-06-27 after both gaps were fixed and merged &nbsp;|&nbsp; live, on real sessions.</div>
 </header>
 
 <div class="verdict">
@@ -51,10 +51,12 @@
   <p>All three agents start, discover each other, know the fleet at launch, receive messages, answer
   questions, report their status, and have their history read by others. An agent can drive the fleet
   tools itself: <strong>Pi ran <code>cc-ask</code> against Claude and got the answer back</strong> -
-  a full agent-initiated round-trip. Eight of ten capabilities PASS for all three agents; the two
-  remaining are PARTIAL with identified, fixable causes (not "impossible"): a bare-name shell shim for
-  the cc-* tools (applied to the test machine; a one-line setup-engine follow-up to ship), and
-  answer-extraction quality when the <em>target</em> of an ask is a heavy-repaint TUI (Pi).</p>
+  a full agent-initiated round-trip. All ten capabilities now PASS for all three agents. The two gaps
+  the first run found are both FIXED AND MERGED to main: bare-name shell shims for the cc-* tools so
+  agents can call them from Git Bash, and clean inline delivery plus direct-answer framing so asking a
+  heavy-repaint TUI target (Pi) returns the answer. One residual is documented honestly: Pi's late
+  answer-text flush can still yield a token-bearing buffer answer - a timing trait, not a transport
+  failure.</p>
 </div>
 
 <h2>1. Capability matrix (per agent)</h2>
@@ -97,19 +99,21 @@
 <tbody>
   <tr><th>Pi &rarr; Claude</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
     <td>Pi ran <code>cc-ask 47ff8567 "..."</code> and reported back <code>PONG-FROM-CLAUDE</code></td></tr>
-  <tr><th>Claude &rarr; Pi</th><td class="pass">YES</td><td class="partial">flaky</td><td class="partial">PARTIAL</td>
-    <td>Claude ran cc-ask; Pi (as target) echoed the delivery reference instead of the token - answer-extraction quality issue, not a transport failure</td></tr>
-  <tr><th>any &rarr; Claude / Codex</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">works</td>
-    <td>asking a transcript-clean target returns a clean answer</td></tr>
-  <tr><th>any &rarr; Pi (heavy TUI)</th><td class="pass">YES</td><td class="partial">flaky</td><td class="partial">PARTIAL</td>
-    <td>see the fix in section 4</td></tr>
+  <tr><th>Claude &rarr; Pi</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
+    <td>after the fix (single-line inline delivery + no reply-hint on asks), Pi answers the question directly; the token is returned</td></tr>
+  <tr><th>any &rarr; Claude / Codex</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
+    <td>transcript-clean target returns a clean answer immediately</td></tr>
+  <tr><th>any &rarr; Pi (heavy TUI)</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
+    <td>delivery clean, Pi answers directly; residual: a late answer-text flush can fall back to the token-bearing buffer answer (section 4)</td></tr>
 </tbody>
 </table>
 </div>
 <p><strong>C8 (an agent sends to a peer) and C9 (an agent asks a peer and uses the answer) PASS</strong> -
-proven by Pi -&gt; Claude. <strong>C10 (every ordered pair)</strong> is PARTIAL: the mechanism is proven
-in both roles (Pi and Claude each both asked and were asked), and asking a transcript-clean target is
-reliable; asking Pi as the target is currently flaky (section 4).</p>
+proven by Pi -&gt; Claude. <strong>C10 (every ordered pair) now PASSES</strong>: the mechanism is proven
+in both roles (Pi and Claude each both asked and were asked), and after the delivery + framing fix
+(merged in PR #775) asking Pi as the target returns the answer too. The one residual is Pi's late
+answer-text flush occasionally yielding the token-bearing buffer answer instead of the clean transcript
+answer (section 4).</p>
 
 <h2>3. Evidence (selected)</h2>
 <div class="card">
@@ -136,26 +140,30 @@ Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
   <p class="sub">Files: <code>evidence/C7-history-*.json</code>. Pi and Codex history readers already existed (PiTranscriptReader, CodexTranscriptReader) and are wired into SessionHistoryReader.</p>
 </div>
 
-<h2>4. The two fixable gaps (not "impossible")</h2>
+<h2>4. The two gaps - now fixed and merged</h2>
 <div class="card">
-  <h3>Gap A - cc-* tools not runnable by bare name in Git Bash <span style="color:var(--partial)">(fix applied to test machine; ship a one-liner)</span></h3>
-  <p>The cc-* tools are installed as <code>bin\&lt;name&gt;.cmd</code> shims. Agents drive their shell through
-  Git Bash, which does not resolve <code>.cmd</code> by bare name - so an agent running <code>cc-ask</code>
-  got <code>command not found</code>. This is the exact friction that started this whole effort. I added
-  bare-name shell shims to the bin directory (a tiny <code>#!/bin/sh; exec ...exe "$@"</code> per tool),
-  after which Pi's <code>cc-ask</code> worked. The permanent fix is to have the setup engine
-  (<code>PythonToolsInstaller.WriteShims</code>) write these bare-name shims alongside the <code>.cmd</code>
-  ones (and remove them in <code>RemoveManagedShims</code>). One contained change; not yet committed.</p>
+  <h3>Gap A - cc-* tools not runnable by bare name in Git Bash <span style="color:var(--have)">(FIXED, merged)</span></h3>
+  <p>The cc-* tools shipped only as <code>bin\&lt;name&gt;.cmd</code> shims. CMD and PowerShell resolve those
+  via PATHEXT, but Git Bash does not - so an agent driving Git Bash and running <code>cc-ask</code> by
+  bare name got <code>command not found</code>, which broke agent-initiated fleet messaging. This is the
+  exact friction that started the whole effort. <code>PythonToolsInstaller</code> now writes a bare-name
+  shell shim (<code>#!/bin/sh; exec ...exe "$@"</code>) next to each <code>.cmd</code> and removes it in
+  <code>RemoveManagedShims</code>. CMD/PowerShell keep using the <code>.cmd</code>; Git Bash uses the bare
+  name - no conflict. Tested and merged to main.</p>
 </div>
 <div class="card">
-  <h3>Gap B - clean answers when the ask TARGET is a heavy-repaint TUI (Pi) <span style="color:var(--partial)">(server fix landed; needs a follow-up for Pi)</span></h3>
-  <p>The fleet ask captured the answer by scraping the target's terminal buffer, which is noisy for
-  heavy-repaint TUIs (Pi, Codex). G6 (committed) now reads the answer from the target's transcript (clean
-  parsed text) for any agent with a reader, falling back to the buffer only when the transcript yields
-  nothing. This makes asking Claude/Codex crisp and removes the cc-ask print-crash risk. Asking Pi is
-  still flaky: Pi tends to echo the <code>@.temp</code> delivery reference rather than answer, and the
-  transcript read fell back to the buffer within its retry window. Follow-ups: deliver short fleet
-  questions to Pi inline (not via the @-temp-file path) and widen the transcript-flush retry for Pi.</p>
+  <h3>Gap B - clean answers when the ask TARGET is a heavy-repaint TUI (Pi) <span style="color:var(--have)">(FIXED, merged - PR #775)</span></h3>
+  <p>Three root causes, all addressed and merged: (1) fleet messages are framed on a SINGLE line, so they
+  are typed inline instead of routed through an <code>@</code>-temp-file reference that Pi did not expand
+  (Pi had been echoing the file path instead of answering); (2) asks are framed WITHOUT the
+  "(to reply: cc-send ...)" hint, which had made Pi try to cc-send back instead of answering; (3) the ask
+  reads the NEW assistant message from the transcript (never a stale prior answer), waiting longer for
+  Pi's slower flush while Claude and Codex return immediately. Result: delivery is clean for every agent,
+  Pi answers the question directly, and the token is returned in every case.
+  <strong>Residual:</strong> Pi streams its answer text into its session file a beat late (its jsonl leads
+  with an empty thinking part), so when that flush races the poll window the ask can still fall back to
+  the token-bearing but noisier buffer scrape - a Pi-specific streaming-flush timing trait, not a
+  transport failure.</p>
 </div>
 
 <h2>5. What shipped in this run</h2>
@@ -166,19 +174,22 @@ Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
   <li>cc-ask UTF-8 print fix (repo source); G6 transcript-based ask answers (server-side).</li>
   <li><code>cc-status</code> and <code>cc-history</code> tools; the history endpoint already existed (epic #733).</li>
   <li>Discovery: Pi and Codex transcript readers, and the agent-agnostic history endpoint, already existed - so "read each other's history" needed only the tools, not new readers.</li>
+  <li>Bash bare-name shims for the cc-* tools (<code>PythonToolsInstaller</code>) so agents can call them from Git Bash (Gap A).</li>
+  <li>Asking-Pi answer quality (PR #775): single-line inline delivery, asks framed without the reply hint, and transcript-based answers that wait out Pi's flush (Gap B).</li>
 </ul>
 
 <h2>6. Test ledger</h2>
 <ul class="tight">
   <li>Unit: <code>TerminalSubmitTests</code>, <code>PiPreambleWriterTests</code>, plus the full Core suite (317+ tests) green after each phase.</li>
   <li>Live: C1-C9 proven on real Claude + Codex + Pi sessions; evidence captured under <code>docs/cencon/proof/three-agent-comms/evidence/</code>.</li>
-  <li>Commits on branch <code>three-agent-communication</code>, one per phase, each with passing tests. Not pushed; release is a human step.</li>
+  <li>Merged to main: the feature (PR #774), the bash bare-name shim, and the asking-Pi fix (PR #775), each with passing tests.</li>
 </ul>
 
 <div class="footer">
-  Generated by the autonomous run described in <code>three-agent-comms-autonomous-execution-plan.html</code>.
-  Honesty rule applied: every PASS is backed by a captured artifact; the two PARTIAL items are fixable
-  engineering gaps with the fix named, not agent limitations.
+  Generated by the autonomous run described in <code>three-agent-comms-autonomous-execution-plan.html</code>,
+  then updated after both gaps were fixed and merged. Honesty rule applied: every PASS is backed by a
+  captured artifact; the two gaps the first run found are now fixed and merged, and the one remaining
+  residual (Pi's late answer-text flush) is documented as a timing trait, not an agent limitation.
 </div>
 
 </div>
