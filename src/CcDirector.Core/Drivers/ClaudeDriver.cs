@@ -298,18 +298,25 @@ public sealed class ClaudeDriver : IAgentDriver
     /// <summary>
     /// How full the Claude context window is right now (capability
     /// <see cref="DriverCapabilities.ContextUsage"/>). Reuses the existing transcript token walk for
-    /// the used-token count and the latest model, then sizes the window from
-    /// <see cref="ClaudeContextWindow"/>. Null until the first usage-bearing assistant line exists
-    /// (no turn has happened yet). When the model id is unmapped, the window and percent are null
-    /// (the raw-number fallback) rather than a guessed denominator.
+    /// the used-token count, then sizes the window. The AUTHORITATIVE window signal is the launch
+    /// model id parsed from <paramref name="launchArgs"/> (e.g. <c>--model opus[1m]</c>): Claude's
+    /// transcript records the base model id WITHOUT the <c>[1m]</c> suffix, so a 1-million-token Opus
+    /// session below 200k tokens would otherwise be sized against 200k and read far too high (issue
+    /// #803). When the launch model is unknown, we fall back to the transcript model with upward
+    /// self-correction. Null until the first usage-bearing assistant line exists (no turn yet); when
+    /// neither model maps, the window and percent are null (the raw-number fallback).
     /// </summary>
-    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory)
+    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory, string? launchArgs)
     {
         var usage = _transcripts.ReadUsage(agentSessionId, workingDirectory);
         if (usage is null || usage.AssistantMessageCount == 0)
             return null;
 
-        var window = ClaudeContextWindow.WindowTokensForModel(usage.ContextModel);
+        // Prefer the launched model id (carries [1m]); fall back to the transcript model, which is
+        // stripped of [1m] and so needs the observed-size self-correction as its only [1m] signal.
+        var launchModelId = ExtractLaunchModelId(launchArgs);
+        var window = ClaudeContextWindow.WindowTokensForModel(launchModelId)
+                  ?? ClaudeContextWindow.WindowTokensForModel(usage.ContextModel, usage.ContextTokens);
         var percent = window is > 0
             ? Math.Round((double)usage.ContextTokens / window.Value * 100.0, 1)
             : (double?)null;
@@ -321,6 +328,30 @@ public sealed class ClaudeDriver : IAgentDriver
             PercentUsed = percent,
             AsOfUtc = usage.LastMessageUtc,
         };
+    }
+
+    /// <summary>Extracts the value passed after this driver's <see cref="ModelFlag"/> (<c>--model</c>)
+    /// from a launch command line, e.g. <c>opus[1m]</c> from
+    /// <c>--dangerously-skip-permissions --model opus[1m]</c>. Handles both the space form
+    /// (<c>--model opus[1m]</c>) and the equals form (<c>--model=opus[1m]</c>). Returns null when no
+    /// model flag is present (the session uses the provider default), driving the transcript
+    /// fallback.</summary>
+    private string? ExtractLaunchModelId(string? launchArgs)
+    {
+        if (string.IsNullOrWhiteSpace(launchArgs))
+            return null;
+
+        var tokens = launchArgs.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var token = tokens[i];
+            if (token.Equals(ModelFlag, StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
+                return tokens[i + 1];
+            if (token.StartsWith(ModelFlag + "=", StringComparison.OrdinalIgnoreCase))
+                return token[(ModelFlag.Length + 1)..];
+        }
+
+        return null;
     }
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory)

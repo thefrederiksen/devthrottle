@@ -89,7 +89,8 @@ public partial class SessionActionBar : UserControl
             }
 
             var repoPath = session.RepoPath;
-            var usage = await Task.Run(() => session.Driver.ReadContextUsage(sid, repoPath));
+            var launchArgs = session.ClaudeArgs;   // the launched model id ([1m]) is the authoritative window
+            var usage = await Task.Run(() => session.Driver.ReadContextUsage(sid, repoPath, launchArgs));
 
             // The active session may have changed while the read ran; ignore a stale result.
             if (!ReferenceEquals(_session, session))

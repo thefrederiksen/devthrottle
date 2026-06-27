@@ -137,11 +137,14 @@ public interface IAgentDriver
 
     /// <summary>How full the context window is right now (capability
     /// <see cref="DriverCapabilities.ContextUsage"/>): used tokens, the window size when the model
-    /// is known, and the percent. Null when it cannot be determined yet (no turn has happened). The
+    /// is known, and the percent. Null when it cannot be determined yet (no turn has happened).
+    /// <paramref name="launchArgs"/> is the session's launch command line (e.g.
+    /// <c>--model opus[1m]</c>): the AUTHORITATIVE window signal, because the transcript model id is
+    /// recorded without the <c>[1m]</c> suffix. A driver that needs no launch hint may ignore it. The
     /// default throws <see cref="NotSupportedException"/> so a driver that does not declare the flag
     /// is honestly absent - never emulated; only a driver that declares ContextUsage overrides
     /// this.</summary>
-    ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory) =>
+    ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory, string? launchArgs) =>
         throw new NotSupportedException(
             $"[{GetType().Name}] {Kind} does not declare DriverCapabilities.ContextUsage.");
 
