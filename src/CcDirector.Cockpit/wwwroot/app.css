@@ -1045,6 +1045,9 @@ body{background:var(--panel);color:var(--text);
 .hist-title{font-size:13px;font-weight:600;color:var(--text)}
 .hist-count{font-size:12px;color:var(--text3)}
 .hist-live{font-size:10px;color:#57C77D;background:#1B3A2A;border-radius:4px;padding:1px 6px}
+.hist-filter{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text3)}
+.hist-filter label{display:flex;align-items:center;gap:4px;color:var(--text);cursor:pointer;user-select:none}
+.hist-filter input{cursor:pointer;margin:0}
 .hist-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;padding:24px}
 .hist-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px}
 .hist-bubble{border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin:0 0 8px}

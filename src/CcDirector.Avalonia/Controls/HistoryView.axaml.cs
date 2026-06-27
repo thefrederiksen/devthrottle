@@ -4,10 +4,12 @@ using System.Linq;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Avalonia.Helpers;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Gemini;
 using CcDirector.Core.History;
 using CcDirector.Core.Sessions;
@@ -66,6 +68,14 @@ public partial class HistoryView : UserControl
     private Session? _session;
     private string _lastSignature = "";
 
+    // What the header "Show:" toggles let through (tool calls / tool results / thinking). Loaded
+    // from config.json on construction and re-saved whenever a checkbox flips (#760).
+    private HistoryFilterConfig _filter = HistoryFilterConfig.Default;
+
+    // The most recently parsed conversation, kept so a filter toggle can re-render instantly from
+    // memory without re-reading and re-parsing the transcript. Null for the raw-text (Gemini) path.
+    private ConversationHistory? _lastHistory;
+
     // Whether the History tab is the visible tab (#744). MainWindow drives this via OnShown/OnHidden
     // so the poll timer only runs while the tab is on screen.
     private bool _isShown;
@@ -89,6 +99,98 @@ public partial class HistoryView : UserControl
     {
         InitializeComponent();
         Items.ItemsSource = _messages;
+
+        // Apply the saved filter to the checkboxes FIRST, then subscribe. Wiring the handler only
+        // after the initial state is set guarantees it fires solely on real user clicks - never
+        // during construction, where it could otherwise overwrite the persisted choice (#760).
+        LoadFilterIntoCheckboxes();
+        ShowToolCallsCheck.IsCheckedChanged += OnFilterChanged;
+        ShowToolResultsCheck.IsCheckedChanged += OnFilterChanged;
+        ShowThinkingCheck.IsCheckedChanged += OnFilterChanged;
+    }
+
+    /// <summary>
+    /// Read the saved filter and set the three "Show:" checkboxes to match. A malformed config.json
+    /// would throw here; we fall back to showing everything and log it, because the History tab must
+    /// still open (the user fixes the config file out-of-band) - this is presentation state, not an
+    /// action that hides a real bug. Called before the change handlers are wired, so it never fires
+    /// <see cref="OnFilterChanged"/>.
+    /// </summary>
+    private void LoadFilterIntoCheckboxes()
+    {
+        try
+        {
+            _filter = HistoryFilterConfig.Get();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[HistoryView] LoadFilter failed, showing everything: {ex.Message}");
+            _filter = HistoryFilterConfig.Default;
+        }
+
+        ShowToolCallsCheck.IsChecked = _filter.ShowToolCalls;
+        ShowToolResultsCheck.IsChecked = _filter.ShowToolResults;
+        ShowThinkingCheck.IsChecked = _filter.ShowThinking;
+    }
+
+    /// <summary>A "Show:" checkbox flipped: capture the new filter, persist it, and re-render the
+    /// already-parsed conversation from memory (no transcript re-read).</summary>
+    private void OnFilterChanged(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _filter = new HistoryFilterConfig(
+                ShowToolCalls: ShowToolCallsCheck.IsChecked ?? true,
+                ShowToolResults: ShowToolResultsCheck.IsChecked ?? true,
+                ShowThinking: ShowThinkingCheck.IsChecked ?? true);
+            _filter.Save();
+            ReapplyFilter();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[HistoryView] OnFilterChanged failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Re-map the cached conversation with the current filter and reconcile the rendered
+    /// list. No-op when there is nothing parsed yet or for the raw-text (Gemini) path, where the
+    /// single verbatim block has no structured parts to filter.</summary>
+    private void ReapplyFilter()
+    {
+        var session = _session;
+        if (session is null || _lastHistory is null || IsRawTextAgent(session.AgentKind))
+            return;
+
+        var atBottom = IsNearBottom();
+        var vms = Map(_lastHistory, _linkContext, _filter);
+        Reconcile(vms);
+        CountText.Text = vms.Count == 0 ? "" : $"{vms.Count} messages";
+        UpdateEmptyState(vms.Count);
+        if (atBottom)
+            ScrollToEndDeferred();
+    }
+
+    /// <summary>
+    /// Show/hide the empty-state label and pick its wording. When nothing rendered but the parsed
+    /// conversation actually has messages and a filter is hiding part of it, say so explicitly
+    /// ("No messages match the current filters.") rather than the misleading "No messages yet."
+    /// (Codex review, finding 2) - this is the common case for a tool-result-only turn with
+    /// "Results" switched off.
+    /// </summary>
+    private void UpdateEmptyState(int renderedCount)
+    {
+        if (renderedCount > 0)
+        {
+            EmptyText.IsVisible = false;
+            return;
+        }
+
+        EmptyText.IsVisible = true;
+        var anyFilterOff = !_filter.ShowToolCalls || !_filter.ShowToolResults || !_filter.ShowThinking;
+        var historyHadMessages = _lastHistory is { Messages.Count: > 0 };
+        EmptyText.Text = anyFilterOff && historyHadMessages
+            ? "No messages match the current filters."
+            : "No messages yet.";
     }
 
     /// <summary>Bind the tab to a session and start polling its history.</summary>
@@ -117,6 +219,7 @@ public partial class HistoryView : UserControl
         _session = null;
         _linkContext = null;
         _lastSignature = "";
+        _lastHistory = null;
         _lastAnalysis = null;
         _analysisSignature = "";
         _messages.Clear();
@@ -190,6 +293,9 @@ public partial class HistoryView : UserControl
                     ? "Waiting for the conversation to start..."
                     : "History is not available for this agent yet.";
                 _lastSignature = "";
+                // Drop the cached conversation too: otherwise a later filter toggle would re-render
+                // this now-gone transcript from memory and resurrect history the refresh just hid.
+                _lastHistory = null;
                 HistoryStatePill.IsVisible = false;
                 return;
             }
@@ -207,7 +313,8 @@ public partial class HistoryView : UserControl
             _lastSignature = signature;
 
             var history = await Task.Run(() => SessionHistoryReader.Read(session));
-            var vms = Map(history, _linkContext);
+            _lastHistory = history;
+            var vms = Map(history, _linkContext, _filter);
             FileLog.Write($"[HistoryView] refresh: path={path} messages={history.Messages.Count} vms={vms.Count}");
 
             // Was the user parked at the bottom before this update? (Decide before changing the list.)
@@ -218,9 +325,7 @@ public partial class HistoryView : UserControl
             Reconcile(vms);
 
             CountText.Text = vms.Count == 0 ? "" : $"{vms.Count} messages";
-            EmptyText.IsVisible = vms.Count == 0;
-            if (vms.Count == 0)
-                EmptyText.Text = "No messages yet.";
+            UpdateEmptyState(vms.Count);
 
             // Keep the newest message in view if the user was already at the bottom (#744). The list
             // is bottom-anchored, so a short conversation is always pinned without any scrolling.
@@ -396,19 +501,22 @@ public partial class HistoryView : UserControl
     private static bool SameVm(HistoryMessageVm a, HistoryMessageVm b)
         => a.Speaker == b.Speaker && a.IsRawText == b.IsRawText && a.Body == b.Body;
 
-    private static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext)
+    /// <summary>Map a parsed conversation to display bubbles, applying the "Show:" filter. Internal
+    /// so the filtering behavior (hiding tool calls / results / thinking, and the all-hidden case)
+    /// can be unit-tested directly without a live UI (Codex review, test-gap finding).</summary>
+    internal static List<HistoryMessageVm> Map(ConversationHistory history, MarkdownRenderContext? linkContext, HistoryFilterConfig filter)
     {
         var list = new List<HistoryMessageVm>(history.Messages.Count);
         foreach (var message in history.Messages)
         {
-            var vm = MapMessage(message, linkContext);
+            var vm = MapMessage(message, linkContext, filter);
             if (vm is not null)
                 list.Add(vm);
         }
         return list;
     }
 
-    private static HistoryMessageVm? MapMessage(ConversationMessage message, MarkdownRenderContext? linkContext)
+    private static HistoryMessageVm? MapMessage(ConversationMessage message, MarkdownRenderContext? linkContext, HistoryFilterConfig filter)
     {
         var sb = new StringBuilder();
 
@@ -422,14 +530,16 @@ public partial class HistoryView : UserControl
                         Append(sb, part.Text);
                         break;
                     case ConversationPartKind.Thinking:
-                        if (part.Text.Length > 0)
+                        if (filter.ShowThinking && part.Text.Length > 0)
                             Append(sb, "(thinking) " + part.Text);
                         break;
                     case ConversationPartKind.ToolUse:
-                        Append(sb, "[tool] " + (part.ToolName ?? "?") + ToolInputSuffix(part.Text));
+                        if (filter.ShowToolCalls)
+                            Append(sb, "[tool] " + (part.ToolName ?? "?") + ToolInputSuffix(part.Text));
                         break;
                     case ConversationPartKind.ToolResult:
-                        Append(sb, "[result] " + Truncate(part.Text, 400));
+                        if (filter.ShowToolResults)
+                            Append(sb, "[result] " + Truncate(part.Text, 400));
                         break;
                 }
             }
@@ -442,6 +552,11 @@ public partial class HistoryView : UserControl
 
         // User role: either a real prompt, or tool results being fed back to the assistant.
         var onlyToolResults = message.Parts.Count > 0 && message.Parts.All(p => p.Kind == ConversationPartKind.ToolResult);
+
+        // A pure tool-result bubble is hidden entirely when results are filtered out.
+        if (onlyToolResults && !filter.ShowToolResults)
+            return null;
+
         foreach (var part in message.Parts)
         {
             switch (part.Kind)
@@ -450,7 +565,8 @@ public partial class HistoryView : UserControl
                     Append(sb, part.Text);
                     break;
                 case ConversationPartKind.ToolResult:
-                    Append(sb, Truncate(part.Text, 600));
+                    if (filter.ShowToolResults)
+                        Append(sb, Truncate(part.Text, 600));
                     break;
             }
         }

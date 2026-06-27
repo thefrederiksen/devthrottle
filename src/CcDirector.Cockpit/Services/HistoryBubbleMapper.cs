@@ -17,6 +17,21 @@ public sealed class HistoryBubble
 }
 
 /// <summary>
+/// The History tab's "Show:" filter (issue #760): which kinds of content the reader wants to see.
+/// Mirrors the desktop <c>HistoryFilterConfig</c> so the web and desktop tabs filter identically.
+/// Defaults to showing everything, so an unfiltered <see cref="HistoryBubbleMapper.Map(SessionHistoryDto?)"/>
+/// behaves exactly as before.
+/// </summary>
+public readonly record struct HistoryBubbleFilter(bool ShowToolCalls, bool ShowToolResults, bool ShowThinking)
+{
+    /// <summary>Show every kind of content (the default posture).</summary>
+    public static readonly HistoryBubbleFilter ShowAll = new(true, true, true);
+
+    /// <summary>True when at least one kind is hidden (drives the "no messages match" empty text).</summary>
+    public bool AnyHidden => !ShowToolCalls || !ShowToolResults || !ShowThinking;
+}
+
+/// <summary>
 /// Maps the agent-agnostic <see cref="SessionHistoryDto"/> into display bubbles, mirroring the
 /// desktop <c>HistoryView.MapMessage</c> exactly so the web and desktop History views read
 /// identically: an assistant turn flattens text / thinking / tool-use / tool-result into one
@@ -34,7 +49,12 @@ public static class HistoryBubbleMapper
     private const int UserToolResultMax = 600;
     private const int ToolResultBubbleMax = 2000;
 
+    /// <summary>Map with no filtering (show everything) - the original behavior.</summary>
     public static List<HistoryBubble> Map(SessionHistoryDto? history)
+        => Map(history, HistoryBubbleFilter.ShowAll);
+
+    /// <summary>Map applying the History tab's "Show:" filter (issue #760).</summary>
+    public static List<HistoryBubble> Map(SessionHistoryDto? history, HistoryBubbleFilter filter)
     {
         var list = new List<HistoryBubble>();
         if (history is null)
@@ -46,14 +66,14 @@ public static class HistoryBubbleMapper
         var isRawText = history.IsRawText;
         foreach (var message in history.Messages)
         {
-            var bubble = MapMessage(message, isRawText);
+            var bubble = MapMessage(message, isRawText, filter);
             if (bubble is not null)
                 list.Add(bubble);
         }
         return list;
     }
 
-    private static HistoryBubble? MapMessage(HistoryMessageDto message, bool isRawText)
+    private static HistoryBubble? MapMessage(HistoryMessageDto message, bool isRawText, HistoryBubbleFilter filter)
     {
         var sb = new StringBuilder();
 
@@ -67,14 +87,16 @@ public static class HistoryBubbleMapper
                         Append(sb, part.Text);
                         break;
                     case "Thinking":
-                        if (part.Text.Length > 0)
+                        if (filter.ShowThinking && part.Text.Length > 0)
                             Append(sb, "(thinking) " + part.Text);
                         break;
                     case "ToolUse":
-                        Append(sb, "[tool] " + (part.ToolName ?? "?") + ToolInputSuffix(part.Text));
+                        if (filter.ShowToolCalls)
+                            Append(sb, "[tool] " + (part.ToolName ?? "?") + ToolInputSuffix(part.Text));
                         break;
                     case "ToolResult":
-                        Append(sb, "[result] " + Truncate(part.Text, AssistantToolResultMax));
+                        if (filter.ShowToolResults)
+                            Append(sb, "[result] " + Truncate(part.Text, AssistantToolResultMax));
                         break;
                 }
             }
@@ -87,6 +109,11 @@ public static class HistoryBubbleMapper
 
         // User role: either a real prompt, or tool results being fed back to the assistant.
         var onlyToolResults = message.Parts.Count > 0 && message.Parts.All(p => p.Kind == "ToolResult");
+
+        // A pure tool-result bubble is hidden entirely when results are filtered out.
+        if (onlyToolResults && !filter.ShowToolResults)
+            return null;
+
         foreach (var part in message.Parts)
         {
             switch (part.Kind)
@@ -95,7 +122,8 @@ public static class HistoryBubbleMapper
                     Append(sb, part.Text);
                     break;
                 case "ToolResult":
-                    Append(sb, Truncate(part.Text, UserToolResultMax));
+                    if (filter.ShowToolResults)
+                        Append(sb, Truncate(part.Text, UserToolResultMax));
                     break;
             }
         }

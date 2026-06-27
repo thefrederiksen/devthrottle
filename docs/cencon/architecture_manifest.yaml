@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-25"  # dictation UX unification: /dictate is now whole-clip BATCH for every mode via the shared BatchTranscriptionPipeline (DictationEndpoint no longer uses the OpenAI Realtime provider/live preview/partial frames); added shared Core.Audio.PcmWav (one PCM->WAV wrapper); desktop SpeakDialog and the phone SpeakIntoTextboxDialog gained a Pause/Resume checkpoint over batch. See docs/architecture/dictation/DICTATION_UX_SPEC.md
+last_updated: "2026-06-27"  # History tab "Show:" filter (#760): new Core.Configuration/HistoryFilterConfig (config.json "history_filter" - show tool calls/results/thinking, defaults to all-on) consumed by the desktop HistoryView and the Cockpit HistoryPane/HistoryBubbleMapper to hide machinery and read just the conversation. No new container, external system, security boundary, or pattern - a presentation filter over the already-documented History views and Configuration component. Re-verified the model still matches. Prior: dictation UX unification (whole-clip BATCH via BatchTranscriptionPipeline; shared Core.Audio.PcmWav). See docs/architecture/dictation/DICTATION_UX_SPEC.md
 
 # C4 Level 1: System Context
 context:

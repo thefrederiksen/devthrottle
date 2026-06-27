@@ -152,6 +152,85 @@ public class HistoryBubbleMapperTests
     }
 
     [Fact]
+    public void Map_HideToolCalls_DropsToolLineKeepsText()
+    {
+        var history = new SessionHistoryDto
+        {
+            Messages =
+            {
+                Msg("Assistant",
+                    Part("Text", "I'll read it now."),
+                    Part("ToolUse", "{\"path\":\"a.cs\"}", toolName: "Read")),
+            },
+        };
+
+        var filter = new HistoryBubbleFilter(ShowToolCalls: false, ShowToolResults: true, ShowThinking: true);
+        var bubble = Assert.Single(HistoryBubbleMapper.Map(history, filter));
+        Assert.Contains("I'll read it now.", bubble.Body);
+        Assert.DoesNotContain("[tool]", bubble.Body);
+    }
+
+    [Fact]
+    public void Map_HideThinking_DropsThinkingKeepsText()
+    {
+        var history = new SessionHistoryDto
+        {
+            Messages =
+            {
+                Msg("Assistant",
+                    Part("Thinking", "secret reasoning"),
+                    Part("Text", "Here is the answer.")),
+            },
+        };
+
+        var filter = new HistoryBubbleFilter(ShowToolCalls: true, ShowToolResults: false, ShowThinking: false);
+        var bubble = Assert.Single(HistoryBubbleMapper.Map(history, filter));
+        Assert.Contains("Here is the answer.", bubble.Body);
+        Assert.DoesNotContain("(thinking)", bubble.Body);
+    }
+
+    [Fact]
+    public void Map_HideResults_RemovesToolResultBubble()
+    {
+        var history = new SessionHistoryDto
+        {
+            Messages =
+            {
+                Msg("User", Part("Text", "do the thing")),
+                Msg("User", Part("ToolResult", "exit code 0\noutput")),
+            },
+        };
+
+        var filter = new HistoryBubbleFilter(ShowToolCalls: true, ShowToolResults: false, ShowThinking: true);
+        var bubble = Assert.Single(HistoryBubbleMapper.Map(history, filter));
+        Assert.Equal("You", bubble.Speaker);
+    }
+
+    [Fact]
+    public void Map_AllFiltersHide_ToolResultOnlyConversation_IsEmpty()
+    {
+        var history = new SessionHistoryDto
+        {
+            Messages = { Msg("User", Part("ToolResult", "some output")) },
+        };
+
+        var filter = new HistoryBubbleFilter(ShowToolCalls: true, ShowToolResults: false, ShowThinking: true);
+        Assert.Empty(HistoryBubbleMapper.Map(history, filter));
+    }
+
+    [Fact]
+    public void Map_DefaultOverload_ShowsEverything()
+    {
+        var history = new SessionHistoryDto
+        {
+            Messages = { Msg("Assistant", Part("ToolUse", "{}", toolName: "Read")) },
+        };
+
+        // The no-filter overload must behave exactly as before (show all).
+        Assert.Single(HistoryBubbleMapper.Map(history));
+    }
+
+    [Fact]
     public void Map_PreservesChronologicalOrder()
     {
         var history = new SessionHistoryDto

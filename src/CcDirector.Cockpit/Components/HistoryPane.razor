@@ -31,6 +31,21 @@
         {
             <span class="hist-state @StateClass(_historyState)" title="Transcript-derived state - separate from the live status badge">@StateLabel(_historyState)</span>
         }
+
+        @* Compact "Show:" filter (issue #760), mirroring the desktop History tab: hide tool calls,
+           tool results, or thinking to read just the conversation. Choice is remembered per browser. *@
+        <span class="hist-filter">
+            <span>Show:</span>
+            <label title="Show the &quot;[tool] ...&quot; lines where the assistant calls a tool.">
+                <input type="checkbox" @bind="_showToolCalls" @bind:after="OnFilterChangedAsync" /> Tool calls
+            </label>
+            <label title="Show the &quot;Tool result&quot; bubbles (command output, file lists, exit codes).">
+                <input type="checkbox" @bind="_showToolResults" @bind:after="OnFilterChangedAsync" /> Results
+            </label>
+            <label title="Show the assistant's &quot;(thinking) ...&quot; reasoning lines.">
+                <input type="checkbox" @bind="_showThinking" @bind:after="OnFilterChangedAsync" /> Thinking
+            </label>
+        </span>
     </div>
 
     @if (_loadFailed)
@@ -100,6 +115,17 @@
     private string? _historyState;
     private string? _copiedText;
 
+    // "Show:" filter state (issue #760). Defaults to showing everything; loaded from the browser's
+    // localStorage on first render so the reader's choice sticks. The last fetched history is cached
+    // so a toggle re-renders instantly from memory without waiting for the next poll.
+    private bool _showToolCalls = true;
+    private bool _showToolResults = true;
+    private bool _showThinking = true;
+    private SessionHistoryDto? _lastHistory;
+    private const string FilterStorageKey = "ccHistoryFilter";
+
+    private HistoryBubbleFilter Filter => new(_showToolCalls, _showToolResults, _showThinking);
+
     private ElementReference _scrollEl;
     private IJSObjectReference? _module;
     private DotNetObjectReference<HistoryPane>? _selfRef;
@@ -143,30 +169,8 @@
         {
             var history = await Director.GetSessionHistoryAsync(SessionId, _cts.Token);
             _loadFailed = false;
-
-            // null = 404 (old Director or unknown session): treat as "nothing yet", not an error.
-            var bubbles = HistoryBubbleMapper.Map(history);
-            _emptyText = history is { IsSupported: false }
-                ? "History is not available for this agent yet."
-                : "Waiting for the conversation to start...";
-            _historyState = history?.HistoryState;
-
-            var signature = BuildSignature(bubbles, _historyState);
-            if (signature == _signature)
-                return; // unchanged - do not re-render or touch the scroll position
-            _signature = signature;
-
-            _bubbles.Clear();
-            foreach (var bubble in bubbles)
-            {
-                var html = bubble.IsRawText ? default : (MarkupString)HistoryMarkdown.ToHtml(bubble.Body);
-                var links = bubble.IsRawText ? new List<HistoryLink>() : HistoryLinks.Extract(bubble.Body);
-                _bubbles.Add(new RenderedBubble(bubble, html, links));
-            }
-
-            // Stick to the bottom after this render only if the reader is currently following.
-            _scrollAfterRender = _following;
-            await InvokeAsync(StateHasChanged);
+            _lastHistory = history; // cache so a filter toggle can re-render without re-fetching
+            await RenderHistoryAsync(history);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -177,17 +181,102 @@
         }
     }
 
-    private static string BuildSignature(List<HistoryBubble> bubbles, string? state)
+    /// <summary>
+    /// Map the given history through the current "Show:" filter and render it, unless the result is
+    /// byte-identical to what is already shown (the signature guard keeps a steady poll from
+    /// disturbing a scrolled-up reader). Shared by the poll and by a filter toggle.
+    /// </summary>
+    private async Task RenderHistoryAsync(SessionHistoryDto? history)
     {
+        // null = 404 (old Director or unknown session): treat as "nothing yet", not an error.
+        var bubbles = HistoryBubbleMapper.Map(history, Filter);
+
+        if (history is { IsSupported: false })
+            _emptyText = "History is not available for this agent yet.";
+        else if (bubbles.Count == 0 && Filter.AnyHidden && history is { Messages.Count: > 0 })
+            _emptyText = "No messages match the current filters.";
+        else
+            _emptyText = "Waiting for the conversation to start...";
+
+        _historyState = history?.HistoryState;
+
+        var signature = BuildSignature(bubbles, _historyState, Filter);
+        if (signature == _signature)
+            return; // unchanged - do not re-render or touch the scroll position
+        _signature = signature;
+
+        _bubbles.Clear();
+        foreach (var bubble in bubbles)
+        {
+            var html = bubble.IsRawText ? default : (MarkupString)HistoryMarkdown.ToHtml(bubble.Body);
+            var links = bubble.IsRawText ? new List<HistoryLink>() : HistoryLinks.Extract(bubble.Body);
+            _bubbles.Add(new RenderedBubble(bubble, html, links));
+        }
+
+        // Stick to the bottom after this render only if the reader is currently following.
+        _scrollAfterRender = _following;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>A "Show:" checkbox flipped: remember the choice and re-render the cached history
+    /// immediately through the new filter.</summary>
+    private async Task OnFilterChangedAsync()
+    {
+        await PersistFilterAsync();
+        await RenderHistoryAsync(_lastHistory);
+    }
+
+    private async Task LoadFilterAsync()
+    {
+        try
+        {
+            var raw = await JS.InvokeAsync<string>("localStorage.getItem", FilterStorageKey);
+            if (string.IsNullOrEmpty(raw))
+                return;
+            var parts = raw.Split(',');
+            if (parts.Length == 3
+                && bool.TryParse(parts[0], out var tc)
+                && bool.TryParse(parts[1], out var tr)
+                && bool.TryParse(parts[2], out var th))
+            {
+                _showToolCalls = tc;
+                _showToolResults = tr;
+                _showThinking = th;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "HistoryPane load filter failed for sid={Sid}", SessionId);
+        }
+    }
+
+    private async Task PersistFilterAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", FilterStorageKey,
+                $"{_showToolCalls},{_showToolResults},{_showThinking}");
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "HistoryPane persist filter failed for sid={Sid}", SessionId);
+        }
+    }
+
+    private static string BuildSignature(List<HistoryBubble> bubbles, string? state, HistoryBubbleFilter filter)
+    {
+        // Fold the filter into the signature so toggling it forces a re-render even when the
+        // underlying transcript has not changed.
+        var f = $"{filter.ShowToolCalls}{filter.ShowToolResults}{filter.ShowThinking}";
         if (bubbles.Count == 0)
-            return "0|" + state;
+            return $"0|{state}|{f}";
         var last = bubbles[^1];
         var total = 0;
         foreach (var b in bubbles)
             total += b.Body.Length;
         // count + total chars + last bubble's tail catches appends and last-bubble edits cheaply.
         var tail = last.Body.Length <= 64 ? last.Body : last.Body[^64..];
-        return $"{bubbles.Count}|{total}|{tail}|{state}";
+        return $"{bubbles.Count}|{total}|{tail}|{state}|{f}";
     }
 
     private async Task CopyAsync(string text)
@@ -217,6 +306,11 @@
             {
                 Log.LogDebug(ex, "HistoryPane scroll module import failed for sid={Sid}", SessionId);
             }
+
+            // localStorage is only reachable after the first render (Blazor Server). Load the saved
+            // filter now and re-render the cached history through it, so the reader's choice applies.
+            await LoadFilterAsync();
+            await RenderHistoryAsync(_lastHistory);
         }
 
         if (_module is null)

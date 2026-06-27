@@ -6,20 +6,37 @@
 
     <Grid RowDefinitions="Auto,*">
 
-        <!-- header -->
+        <!-- header. Left: title + count + live/derived-state pills. Right (compact): the
+             "Show:" filter toggles that let the reader hide the machinery (tool calls, tool
+             results, thinking) and read just the conversation (#760). -->
         <Border Grid.Row="0" Background="#252526" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1" Padding="12,8">
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Text="Conversation history" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <TextBlock x:Name="CountText" Text="" Foreground="#888888" FontSize="12" VerticalAlignment="Center" />
-                <Border Background="#1B3A2A" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
-                    <TextBlock Text="live" Foreground="#57C77D" FontSize="10" />
-                </Border>
-                <!-- Transcript-derived history state (experimental; distinct from the live badge). -->
-                <Border x:Name="HistoryStatePill" CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
-                        Background="#2A2A2A" IsVisible="False">
-                    <TextBlock x:Name="HistoryStateText" Text="" Foreground="#AAAAAA" FontSize="10" />
-                </Border>
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="Conversation history" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="CountText" Text="" Foreground="#888888" FontSize="12" VerticalAlignment="Center" />
+                    <Border Background="#1B3A2A" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                        <TextBlock Text="live" Foreground="#57C77D" FontSize="10" />
+                    </Border>
+                    <!-- Transcript-derived history state (experimental; distinct from the live badge). -->
+                    <Border x:Name="HistoryStatePill" CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                            Background="#2A2A2A" IsVisible="False">
+                        <TextBlock x:Name="HistoryStateText" Text="" Foreground="#AAAAAA" FontSize="10" />
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <!-- Initial checked state and the change handler are wired in code AFTER the
+                         saved filter is applied (HistoryView constructor), so the handler can never
+                         fire during control construction and overwrite the persisted choice. -->
+                    <TextBlock Text="Show:" Foreground="#888888" FontSize="12" VerticalAlignment="Center" />
+                    <CheckBox x:Name="ShowToolCallsCheck" Content="Tool calls" Foreground="#CCCCCC" FontSize="12"
+                              ToolTip.Tip="Show the &quot;[tool] ...&quot; lines where the assistant calls a tool." />
+                    <CheckBox x:Name="ShowToolResultsCheck" Content="Results" Foreground="#CCCCCC" FontSize="12"
+                              ToolTip.Tip="Show the &quot;Tool result&quot; bubbles (command output, file lists, exit codes)." />
+                    <CheckBox x:Name="ShowThinkingCheck" Content="Thinking" Foreground="#CCCCCC" FontSize="12"
+                              ToolTip.Tip="Show the assistant's &quot;(thinking) ...&quot; reasoning lines." />
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- thread. Scrollbar is always visible (like the terminal). The list is anchored to the
