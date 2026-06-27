@@ -1,0 +1,2 @@
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 51 ms - CcDirector.Core.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    19, Skipped:     0, Total:    19, Duration: 32 ms - CcDirector.Avalonia.Tests.dll (net10.0)

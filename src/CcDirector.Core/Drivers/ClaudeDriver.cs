@@ -53,7 +53,8 @@ public sealed class ClaudeDriver : IAgentDriver
         | DriverCapabilities.History
         | DriverCapabilities.TranscriptRead
         | DriverCapabilities.PreassignedSessionId
-        | DriverCapabilities.ModelSelection;
+        | DriverCapabilities.ModelSelection
+        | DriverCapabilities.ContextUsage;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => BuiltInSlashCommands.All
         .Select(command => new AgentSlashCommand(
@@ -293,6 +294,34 @@ public sealed class ClaudeDriver : IAgentDriver
 
     public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory)
         => _transcripts.ReadUsage(agentSessionId, workingDirectory);
+
+    /// <summary>
+    /// How full the Claude context window is right now (capability
+    /// <see cref="DriverCapabilities.ContextUsage"/>). Reuses the existing transcript token walk for
+    /// the used-token count and the latest model, then sizes the window from
+    /// <see cref="ClaudeContextWindow"/>. Null until the first usage-bearing assistant line exists
+    /// (no turn has happened yet). When the model id is unmapped, the window and percent are null
+    /// (the raw-number fallback) rather than a guessed denominator.
+    /// </summary>
+    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory)
+    {
+        var usage = _transcripts.ReadUsage(agentSessionId, workingDirectory);
+        if (usage is null || usage.AssistantMessageCount == 0)
+            return null;
+
+        var window = ClaudeContextWindow.WindowTokensForModel(usage.ContextModel);
+        var percent = window is > 0
+            ? Math.Round((double)usage.ContextTokens / window.Value * 100.0, 1)
+            : (double?)null;
+
+        return new ContextUsageDto
+        {
+            UsedTokens = usage.ContextTokens,
+            WindowTokens = window,
+            PercentUsed = percent,
+            AsOfUtc = usage.LastMessageUtc,
+        };
+    }
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory)
         => _transcripts.ListTranscripts(workingDirectory);

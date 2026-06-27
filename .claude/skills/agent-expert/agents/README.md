@@ -16,6 +16,27 @@ names, source links, and verification status. Ratings: Strong / Partial / None /
 | [Copilot](copilot.md) | Partial (instruction files; CLI hook output ignored) | None documented | Detect via preCompact | D instruction-file | CopilotDriver |
 | [pi](pi.md) | Strong (flags, AGENTS.md, before_agent_start) | Strong (extension, session_start reason=new) | Strong (extension, session_before_compact) | C in-process extension | PiDriver |
 
+## Context-usage reporting (the live context gauge)
+
+Can the driver answer "how full is the context window right now" (capability `ContextUsage`), so the
+Director shows a live gauge without the user typing a slash command? This is narrower than
+`TranscriptRead` (parse the whole conversation): an agent may report context usage without a full
+transcript parser. Ratings: Strong / Partial / None.
+
+| Agent | Context-usage reporting | Mechanism | Our driver |
+|-------|-------------------------|-----------|------------|
+| [Claude Code](claude-code.md) | Strong (implemented) | Transcript: latest assistant line's input + cache tokens; model-id -> window table for the percent | ClaudeDriver |
+| [Codex](codex.md) | None yet (planned) | Rollout transcript carries a usage block; extractor not written | CodexDriver |
+| [pi](pi.md) | None yet (planned) | In-process extension `ctx.getContextUsage()` (no transcript parse needed) | PiDriver |
+| Gemini / Grok / opencode / Cursor / Copilot | None | not declared | GenericDriver / per-driver |
+
+Only ClaudeDriver declares `ContextUsage` today; Codex and pi are deliberately separate follow-up
+issues. A driver that does not declare the flag throws `NotSupportedException` from
+`ReadContextUsage`, and the desktop gauge / `GET /sessions/{sid}/context` are simply absent for it.
+The window denominator is a driver-owned per-model table (200,000 tokens for the standard Claude
+models, 1,000,000 for the `[1m]` Opus id); an unmapped model falls back to the raw used-token count
+with no percent.
+
 ## The four mechanism families
 
 - A - shell-command hook that injects context. A config file registers a command we own; it

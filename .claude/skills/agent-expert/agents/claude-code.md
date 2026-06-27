@@ -156,6 +156,7 @@ additionalContext field name: `hookSpecificOutput.additionalContext` (SessionSta
 - Format: JSONL, one JSON object per line (a message, tool use, or metadata entry). [VERIFIED from docs - https://code.claude.com/docs/en/sessions]
 - Parseable: yes, but the docs explicitly warn the entry format is INTERNAL and changes between versions; they recommend /export or the script interfaces (-p --output-format json, the hook `transcript_path`, or the SDK) instead of parsing JSONL directly. We DO parse it (ClaudeTranscriptReader); this is a known coupling to monitor on each Claude Code release. [VERIFIED from docs - https://code.claude.com/docs/en/sessions; coupling noted from our code - ClaudeDriver / ClaudeTranscriptReader]
 - Token usage: available. Headless json/stream-json carries `usage` and `total_cost_usd`; our ClaudeDriver.ReadUsage reads usage from the transcript. [VERIFIED from docs - https://code.claude.com/docs/en/headless; and our code - ClaudeDriver.ReadUsage]
+- Context usage (the live gauge, capability `ContextUsage`): available. ClaudeDriver.ReadContextUsage reuses the transcript walk - the latest assistant line's input + cache-read + cache-creation tokens are the used count, and that line's `message.model` is mapped to a window size (200,000 for the standard Claude models, 1,000,000 for the `[1m]` Opus id; an unmapped model -> raw-number fallback, no percent). Served by `GET /sessions/{sid}/context` and shown in the desktop SessionActionBar. [VERIFIED from our code - ClaudeDriver.ReadContextUsage, ClaudeContextWindow]
 - Retention/relocation: 30-day default (cleanupPeriodDays); move with CLAUDE_CONFIG_DIR; suppress with CLAUDE_CODE_SKIP_PROMPT_HISTORY or --no-session-persistence. [VERIFIED from docs - https://code.claude.com/docs/en/sessions]
 
 ## 9. Session semantics
@@ -169,7 +170,7 @@ additionalContext field name: `hookSpecificOutput.additionalContext` (SessionSta
 ## 10. How CC Director integrates it (our current integration)
 
 Classes:
-- Driver: ClaudeDriver (src/CcDirector.Core/Drivers/ClaudeDriver.cs). Declares capabilities ClearContext, Cancel, Interrupt, History, TranscriptRead, PreassignedSessionId, ModelSelection. ModelFlag = --model. [VERIFIED from our code]
+- Driver: ClaudeDriver (src/CcDirector.Core/Drivers/ClaudeDriver.cs). Declares capabilities ClearContext, Cancel, Interrupt, History, TranscriptRead, PreassignedSessionId, ModelSelection, ContextUsage. ModelFlag = --model. [VERIFIED from our code]
 - Agent launch: ClaudeAgent (src/CcDirector.Core/Agents/ClaudeAgent.cs). [VERIFIED from our code]
 - Plugin: ClaudeAgentPlugin (src/CcDirector.Core/AgentPlugins/ClaudeAgentPlugin.cs). [VERIFIED from our code]
 - History provider kind: TranscriptFile (we read the ~/.claude/projects JSONL directly via ClaudeTranscriptReader). [VERIFIED - stated by the task; consistent with ClaudeDriver using ITranscriptReader]

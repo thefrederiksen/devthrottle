@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue 799 - Live context-usage gauge (Claude)</title>
+<style>
+ body { font-family: Segoe UI, Arial, sans-serif; margin: 32px; color: #1a1a1a; max-width: 1000px; }
+ h1 { border-bottom: 2px solid #444; padding-bottom: 8px; }
+ table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+ th, td { border: 1px solid #bbb; padding: 8px 10px; text-align: left; vertical-align: top; }
+ th { background: #f0f0f0; }
+ .pass { color: #137333; font-weight: bold; }
+ .verdict { background: #e6f4ea; border: 1px solid #137333; padding: 12px; font-size: 18px; font-weight: bold; color: #137333; }
+ code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+ img { max-width: 900px; border: 1px solid #ccc; margin: 8px 0; }
+ .small { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #799</h1>
+<p><strong>Title:</strong> [Desktop] Live context-usage gauge in the SessionActionBar (Claude)<br>
+<strong>PR:</strong> #801, branch <code>issue-799-context-gauge</code><br>
+<strong>Verified by:</strong> QA Agent (independent session, slot 14 test Director, port 7880)<br>
+<strong>Date:</strong> 2026-06-27</p>
+
+<p class="small">Independent verification: the QA session built the PR branch in its own checkout,
+launched its own isolated test Director (slot 14), created a real Claude session via the Control
+API, drove a turn, and produced its own proof. The Developer report and screenshots were NOT
+relied on.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Squash-merged to main.</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Evidence</th><th>Verdict</th></tr>
+<tr><td>1</td><td>Catalog lists ContextUsage on ClaudeCode only</td>
+<td>ContextUsage present on ClaudeCode, absent on Codex/Pi/others</td>
+<td>Live <code>GET /settings/agents/catalog</code>: ClaudeCode caps include ContextUsage; Codex, Pi, Gemini, OpenCode, Cursor, Grok, Copilot, RawCli do NOT</td>
+<td>catalog-capabilities.json</td><td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>GET /sessions/{sid}/context returns valid DTO</td>
+<td>HTTP 200, UsedTokens &gt; 0, PercentUsed 0-100, WindowTokens set</td>
+<td>HTTP 200; <code>{"usedTokens":57349,"windowTokens":200000,"percentUsed":28.7,"asOfUtc":"2026-06-27T07:59:14.457Z"}</code></td>
+<td>context-endpoint.json</td><td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>Desktop gauge in SessionActionBar reading like ctx 42k / 200k (21%)</td>
+<td>Gauge shows ctx &lt;used&gt; / &lt;window&gt; (&lt;pct&gt;%)</td>
+<td>Live Claude session gauge reads <code>ctx 57k / 200k (29%)</code></td>
+<td>qa-gauge-live.png</td><td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>Bar color neutral &lt;70%, amber 70-90%, red &gt;90%</td>
+<td>Three boundaries asserted; one colored bar screenshot</td>
+<td>Avalonia SelectBand unit tests pass at 69.9 (neutral), 70/80/90 (amber), 90.1/99/100 (red); live bar is green/neutral at 29%</td>
+<td>unit tests (Avalonia 19 passed); qa-gauge-live.png</td><td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Window denominator 1,000,000 for [1m] Opus, 200,000 for standard</td>
+<td>model-id -&gt; window mapping unit test</td>
+<td>WindowTokensForModel returns 1,000,000 for [1m] ids, 200,000 for opus/sonnet/haiku/fable; tests pass</td>
+<td>unit tests (Core 31 passed)</td><td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Raw-number fallback for unmapped model</td>
+<td>WindowTokens/PercentUsed null; raw used count; neutral bar</td>
+<td>ReadContextUsage on gpt-4o model -&gt; WindowTokens null, PercentUsed null, UsedTokens raw; SelectBand(null)=Neutral; FormatLabel = "ctx 12k"</td>
+<td>unit tests (Core + Avalonia)</td><td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Non-Claude session shows NO gauge</td>
+<td>Capability gate hides gauge / endpoint 404 for non-flag drivers</td>
+<td>Catalog assertion (criterion 1) confirms only ClaudeCode declares ContextUsage; endpoint returns 404 for drivers without the flag; SessionActionBar gates ContextGaugePanel on the flag</td>
+<td>catalog-capabilities.json; SessionContextEndpoint.cs; SessionActionBar.axaml.cs</td><td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>ReadContextUsage throws NotSupportedException without flag</td>
+<td>Throws on CodexDriver / PiDriver</td>
+<td>Unit test asserts NotSupportedException for CodexDriver and PiDriver; interface default throws</td>
+<td>unit tests (Core 31 passed)</td><td class="pass">PASS</td></tr>
+
+<tr><td>9</td><td>Gauge updates off the UI thread, reflects a new turn within ~5s</td>
+<td>No synchronous file I/O on UI thread; value rises after a turn</td>
+<td>RefreshContextGauge reads via <code>await Task.Run(() =&gt; driver.ReadContextUsage(...))</code> off-thread; DispatcherTimer polls every 4s; live gauge shows 57k/29% reflecting the completed READY turn</td>
+<td>SessionActionBar.axaml.cs; qa-gauge-live.png</td><td class="pass">PASS</td></tr>
+
+<tr><td>10</td><td>Build clean + agent-expert README/claude-code.md updated</td>
+<td>dotnet build clean; docs describe ContextUsage</td>
+<td>Slot-14 build: 0 warnings / 0 errors; README adds a "Context-usage reporting" section + matrix row; claude-code.md adds the ContextUsage capability line</td>
+<td>build output; git diff of agent-expert docs</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / negative sweep</h2>
+<p>The live screenshot shows the rest of the UI intact: Stop / Interrupt / Clear context / History
+buttons present, terminal rendering correctly, Send / Speak controls working, Gateway connected. No
+adjacent breakage observed. CenCon method checks: unit tests added for the new logic, agent-expert
+docs updated, the new endpoint is loopback and capability-gated (404 for non-supporting drivers),
+no security rule violated.</p>
+
+<h2>Live gauge screenshot</h2>
+<img src="qa-gauge-live.png" alt="SessionActionBar context gauge reading ctx 57k / 200k (29%)">
+
+</body>
+</html>

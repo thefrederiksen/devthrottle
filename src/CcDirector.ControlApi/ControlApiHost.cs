@@ -387,6 +387,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver, dictionaryResolver);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);
+        // GET /sessions/{sid}/context (issue #799): the always-visible "how full is the window"
+        // gauge data, via the session driver's ContextUsage capability (Claude today).
+        SessionContextEndpoint.Map(_app, _sessionManager);
         // GET /sessions/{sid}/history (epic #733): the parsed, agent-agnostic conversation
         // history (reuses Core SessionHistoryReader) plus the transcript-derived history state.
         // Forwarded to the Cockpit verbatim by the Gateway's generic /sessions/{sid}/{**rest} proxy.

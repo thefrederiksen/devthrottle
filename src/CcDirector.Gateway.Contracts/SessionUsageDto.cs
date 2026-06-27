@@ -27,6 +27,11 @@ public sealed class SessionUsageDto
     /// the context window currently is.</summary>
     public long ContextTokens { get; set; }
 
+    /// <summary>The model id of the latest assistant line (its <c>message.model</c> value), or
+    /// null when no usage-bearing assistant line carried one. Used to size the context window for
+    /// the live gauge; never part of the token arithmetic.</summary>
+    public string? ContextModel { get; set; }
+
     /// <summary>Number of assistant lines that carried a usage block.</summary>
     public int AssistantMessageCount { get; set; }
 

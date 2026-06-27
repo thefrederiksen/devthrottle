@@ -1,0 +1,154 @@
+using CcDirector.Core.Drivers;
+using CcDirector.Gateway.Contracts;
+using Xunit;
+
+namespace CcDirector.Core.Tests.Drivers;
+
+// =====================================================================================
+// ContextUsage capability (issue #799): the model -> window-size lookup, the ClaudeDriver
+// ReadContextUsage mapping (percent + raw-number fallback), and the NotSupported guarantee
+// on a driver that does not declare the flag.
+// =====================================================================================
+public sealed class ContextUsageTests
+{
+    // ---- ClaudeContextWindow: model id -> window size ----
+
+    [Theory]
+    [InlineData("claude-opus-4-8[1m]")]
+    [InlineData("opus[1m]")]
+    [InlineData("OPUS[1M]")] // suffix match is case-insensitive
+    public void WindowTokensForModel_OneMillionSuffix_ReturnsOneMillion(string modelId)
+    {
+        Assert.Equal(1_000_000, ClaudeContextWindow.WindowTokensForModel(modelId));
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4-8")]
+    [InlineData("opus")]
+    [InlineData("claude-sonnet-4-5-20250929")]
+    [InlineData("sonnet")]
+    [InlineData("claude-haiku-4-5")]
+    [InlineData("fable")]
+    public void WindowTokensForModel_StandardClaudeModels_ReturnTwoHundredThousand(string modelId)
+    {
+        Assert.Equal(200_000, ClaudeContextWindow.WindowTokensForModel(modelId));
+    }
+
+    [Theory]
+    [InlineData("gpt-4o")]
+    [InlineData("gemini-2.5-pro")]
+    [InlineData("some-unknown-model")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void WindowTokensForModel_UnmappedOrEmpty_ReturnsNull(string? modelId)
+    {
+        Assert.Null(ClaudeContextWindow.WindowTokensForModel(modelId));
+    }
+
+    // ---- ClaudeDriver.ReadContextUsage: mapping + fallback ----
+
+    private static ClaudeDriver DriverReturning(SessionUsageDto? usage)
+        => new(new StubTranscriptReader(usage));
+
+    [Fact]
+    public void ReadContextUsage_KnownModel_ComputesPercentAndWindow()
+    {
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 42_000,
+            ContextModel = "claude-sonnet-4-5-20250929",
+            AssistantMessageCount = 3,
+            LastMessageUtc = new DateTime(2026, 6, 27, 8, 0, 0, DateTimeKind.Utc),
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(42_000, ctx.UsedTokens);
+        Assert.Equal(200_000, ctx.WindowTokens);
+        Assert.Equal(21.0, ctx.PercentUsed);
+        Assert.Equal(usage.LastMessageUtc, ctx.AsOfUtc);
+    }
+
+    [Fact]
+    public void ReadContextUsage_OneMillionModel_UsesMillionDenominator()
+    {
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 250_000,
+            ContextModel = "claude-opus-4-8[1m]",
+            AssistantMessageCount = 1,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.Equal(25.0, ctx.PercentUsed);
+    }
+
+    [Fact]
+    public void ReadContextUsage_UnmappedModel_RawNumberFallback_NoWindowNoPercent()
+    {
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 12_345,
+            ContextModel = "gpt-4o",
+            AssistantMessageCount = 2,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(12_345, ctx.UsedTokens);
+        Assert.Null(ctx.WindowTokens);
+        Assert.Null(ctx.PercentUsed);
+    }
+
+    [Fact]
+    public void ReadContextUsage_NoTurnYet_ReturnsNull()
+    {
+        // Transcript exists but carries no usage-bearing assistant line.
+        var usage = new SessionUsageDto { AssistantMessageCount = 0 };
+        Assert.Null(DriverReturning(usage).ReadContextUsage("sid", "C:\\repo"));
+    }
+
+    [Fact]
+    public void ReadContextUsage_NoTranscript_ReturnsNull()
+    {
+        Assert.Null(DriverReturning(null).ReadContextUsage("sid", "C:\\repo"));
+    }
+
+    // ---- The NotSupported guarantee on drivers without the flag ----
+
+    [Fact]
+    public void ReadContextUsage_DriverWithoutFlag_Throws()
+    {
+        Assert.False(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.False(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+
+        Assert.Throws<NotSupportedException>(
+            () => ((IAgentDriver)new CodexDriver()).ReadContextUsage("sid", "C:\\repo"));
+        Assert.Throws<NotSupportedException>(
+            () => ((IAgentDriver)new PiDriver()).ReadContextUsage("sid", "C:\\repo"));
+    }
+
+    [Fact]
+    public void ClaudeDriver_DeclaresContextUsage()
+    {
+        Assert.True(new ClaudeDriver(new StubTranscriptReader(null))
+            .Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+    }
+
+    /// <summary>A transcript reader that returns a fixed usage object - keeps the driver tests off
+    /// disk and the user profile.</summary>
+    private sealed class StubTranscriptReader : ITranscriptReader
+    {
+        private readonly SessionUsageDto? _usage;
+        public StubTranscriptReader(SessionUsageDto? usage) => _usage = usage;
+        public List<TurnWidgetDto> ReadWidgets(string claudeSessionId, string repoPath) => new();
+        public SessionUsageDto? ReadUsage(string claudeSessionId, string repoPath) => _usage;
+        public List<(string ClaudeSessionId, DateTime LastWriteUtc)> ListTranscripts(string repoPath) => new();
+    }
+}

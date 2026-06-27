@@ -75,6 +75,14 @@ public static class SessionTokenUsage
                 dto.CacheReadTokens += cacheRead;
                 dto.CacheCreationTokens += cacheCreate;
                 dto.ContextTokens = input + cacheRead + cacheCreate;
+                // The latest line wins, mirroring ContextTokens: the window is sized to whichever
+                // model produced the most recent reply (a session can switch models mid-run).
+                if (msg.TryGetProperty("model", out var modelEl) && modelEl.ValueKind == JsonValueKind.String)
+                {
+                    var model = modelEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(model))
+                        dto.ContextModel = model;
+                }
                 dto.AssistantMessageCount++;
 
                 var ts = root.TryGetProperty("timestamp", out var tsEl) && tsEl.ValueKind == JsonValueKind.String

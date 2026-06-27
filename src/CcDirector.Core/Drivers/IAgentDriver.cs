@@ -40,6 +40,14 @@ public enum DriverCapabilities
     /// Edit Agent dialog can offer a driver-supplied model picker. When absent, model
     /// selection is hidden and the tool's own default is used.</summary>
     ModelSelection = 64,
+
+    /// <summary>The driver can report how full the context window currently is (used tokens, and
+    /// where the model's window is known, the window size and percent), so the Director can show a
+    /// live context gauge without the user typing a slash command. Distinct from
+    /// <see cref="TranscriptRead"/>: that means "I can parse the whole conversation", this means "I
+    /// can answer the narrower question 'how full is the window right now'" - a driver may have one
+    /// without the other.</summary>
+    ContextUsage = 128,
 }
 
 /// <summary>
@@ -126,6 +134,16 @@ public interface IAgentDriver
     /// <summary>Token usage of one transcript; null when it does not exist yet
     /// (capability TranscriptRead).</summary>
     SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory);
+
+    /// <summary>How full the context window is right now (capability
+    /// <see cref="DriverCapabilities.ContextUsage"/>): used tokens, the window size when the model
+    /// is known, and the percent. Null when it cannot be determined yet (no turn has happened). The
+    /// default throws <see cref="NotSupportedException"/> so a driver that does not declare the flag
+    /// is honestly absent - never emulated; only a driver that declares ContextUsage overrides
+    /// this.</summary>
+    ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory) =>
+        throw new NotSupportedException(
+            $"[{GetType().Name}] {Kind} does not declare DriverCapabilities.ContextUsage.");
 
     /// <summary>The working directory's transcript files, newest first
     /// (capability TranscriptRead).</summary>

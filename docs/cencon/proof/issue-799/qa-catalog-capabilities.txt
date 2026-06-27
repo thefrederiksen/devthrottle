@@ -1,0 +1,5 @@
+GET /settings/agents/catalog driverCapabilities (QA slot-14, port 7880):
+ClaudeCode: ClearContext,Cancel,TranscriptRead,PreassignedSessionId,Interrupt,History,ModelSelection,ContextUsage
+Pi: ClearContext,Cancel  (NO ContextUsage)
+Codex: ClearContext,Cancel,Interrupt  (NO ContextUsage)
+Gemini/OpenCode/Cursor/Grok/Copilot/RawCli: NO ContextUsage
