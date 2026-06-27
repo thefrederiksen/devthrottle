@@ -7,9 +7,9 @@ namespace CcDirector.Core.Tests.Configuration;
 /// <summary>
 /// Issue #760: <see cref="HistoryFilterConfig"/> reads the History tab's "Show:" toggles from
 /// config.json's "history_filter" object. The headline guarantee under test: with no config (or a
-/// missing key) the tab shows EVERYTHING, so the filter is invisible to anyone who never touches
-/// it. A round-trip (Save then Get) and the no-fallback throw on a wrong-typed key are also locked
-/// in. Each method runs against an isolated CC_DIRECTOR_ROOT.
+/// missing key) the machinery is HIDDEN by default, so the tab opens as just the conversation. A
+/// round-trip (Save then Get) and the no-fallback throw on a wrong-typed key are also locked in.
+/// Each method runs against an isolated CC_DIRECTOR_ROOT.
 /// </summary>
 [Collection("CcStorageRoot")]
 public sealed class HistoryFilterConfigTests : IDisposable
@@ -31,29 +31,29 @@ public sealed class HistoryFilterConfigTests : IDisposable
     }
 
     [Fact]
-    public void Get_NoConfig_ShowsEverything()
+    public void Get_NoConfig_HidesEverythingByDefault()
     {
         var cfg = HistoryFilterConfig.Get();
 
-        Assert.True(cfg.ShowToolCalls);
-        Assert.True(cfg.ShowToolResults);
-        Assert.True(cfg.ShowThinking);
+        Assert.False(cfg.ShowToolCalls);
+        Assert.False(cfg.ShowToolResults);
+        Assert.False(cfg.ShowThinking);
         Assert.Equal(HistoryFilterConfig.Default, cfg);
     }
 
     [Fact]
-    public void Get_SectionPresentButMissingKey_DefaultsToShown()
+    public void Get_SectionPresentButMissingKey_DefaultsToHidden()
     {
         CcDirectorConfigService.MergePatch(new JsonObject
         {
-            ["history_filter"] = new JsonObject { ["show_tool_results"] = false },
+            ["history_filter"] = new JsonObject { ["show_tool_calls"] = true },
         });
 
         var cfg = HistoryFilterConfig.Get();
 
-        Assert.False(cfg.ShowToolResults); // explicit
-        Assert.True(cfg.ShowToolCalls);    // unspecified -> shown
-        Assert.True(cfg.ShowThinking);     // unspecified -> shown
+        Assert.True(cfg.ShowToolCalls);     // explicit
+        Assert.False(cfg.ShowToolResults);  // unspecified -> hidden (new default)
+        Assert.False(cfg.ShowThinking);     // unspecified -> hidden (new default)
     }
 
     [Fact]

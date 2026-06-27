@@ -4,16 +4,17 @@ using System.Text.Json.Nodes;
 namespace CcDirector.Core.Configuration;
 
 /// <summary>
-/// What the History tab shows: the user can hide the machinery (tool calls, tool results,
-/// the model's thinking) to read just the conversation. Persisted in config.json under the
-/// top-level object "history_filter" with these boolean keys, all defaulting to true (show
-/// everything, so the tab behaves exactly as before for anyone who never touches the toggles):
+/// What the History tab shows: by default the machinery (tool calls, tool results, the model's
+/// thinking) is HIDDEN so the tab opens as just the clean conversation; the reader turns a kind
+/// back on when they want to see it. Persisted in config.json under the top-level object
+/// "history_filter" with these boolean keys, all defaulting to false (hidden):
 ///   - "show_tool_calls"   (bool) - the "[tool] ..." lines inside an Assistant bubble.
 ///   - "show_tool_results" (bool) - the gold "Tool result" bubbles (command output, file lists).
 ///   - "show_thinking"     (bool) - the "(thinking) ..." reasoning lines inside an Assistant bubble.
 ///
 /// Read once when the History tab attaches and re-read when a toggle is flipped; the toggle
-/// writes the new value straight back so the choice sticks between sessions.
+/// writes the new value straight back so the choice sticks between sessions and across restarts -
+/// a per-machine setting, so whatever the reader last chose comes back for every session's tab.
 ///
 /// No-fallback rule: a present-but-wrong-typed key THROWS with the fix named, rather than
 /// silently picking a default (matching <see cref="AutoResumeConfig"/>).
@@ -23,11 +24,11 @@ public sealed record HistoryFilterConfig(
     bool ShowToolResults,
     bool ShowThinking)
 {
-    /// <summary>The default posture: show everything.</summary>
+    /// <summary>The default posture: hide the machinery, show just the conversation.</summary>
     public static readonly HistoryFilterConfig Default = new(
-        ShowToolCalls: true,
-        ShowToolResults: true,
-        ShowThinking: true);
+        ShowToolCalls: false,
+        ShowToolResults: false,
+        ShowThinking: false);
 
     /// <summary>Read the effective config from config.json's "history_filter" object; missing keys
     /// fall back to <see cref="Default"/> per key.</summary>
@@ -40,7 +41,7 @@ public sealed record HistoryFilterConfig(
         if (node is not JsonObject obj)
             throw new InvalidOperationException(
                 "config.json key 'history_filter' must be an object. " +
-                "Fix the value or remove the key to use the defaults (show everything).");
+                "Fix the value or remove the key to use the defaults (machinery hidden).");
 
         return new HistoryFilterConfig(
             ShowToolCalls: ReadBool(obj, "show_tool_calls", Default.ShowToolCalls),
@@ -74,6 +75,6 @@ public sealed record HistoryFilterConfig(
 
         throw new InvalidOperationException(
             $"config.json key 'history_filter.{key}' must be true or false. " +
-            "Fix the value or remove the key to use the default (true = shown).");
+            "Fix the value or remove the key to use the default (false = hidden).");
     }
 }

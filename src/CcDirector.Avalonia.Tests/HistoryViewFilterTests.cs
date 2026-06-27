@@ -28,17 +28,37 @@ public class HistoryViewFilterTests
     private static ConversationPart ToolUse(string name) => new(ConversationPartKind.ToolUse, "{}", name);
     private static ConversationPart ToolResult(string t) => new(ConversationPartKind.ToolResult, t);
 
+    private static readonly HistoryFilterConfig ShowAll = new(ShowToolCalls: true, ShowToolResults: true, ShowThinking: true);
+
     [Fact]
     public void ShowEverything_KeepsTextToolCallAndThinking()
     {
         var history = Conversation(Assistant(Text("hello"), ToolUse("Bash"), Thinking("reasoning")));
 
-        var vms = HistoryView.Map(history, null, HistoryFilterConfig.Default);
+        var vms = HistoryView.Map(history, null, ShowAll);
 
         var body = Assert.Single(vms).Body;
         Assert.Contains("hello", body);
         Assert.Contains("[tool] Bash", body);
         Assert.Contains("(thinking) reasoning", body);
+    }
+
+    [Fact]
+    public void DefaultFilter_HidesMachinery_KeepsConversation()
+    {
+        var history = Conversation(
+            User(Text("do the thing")),
+            Assistant(Text("on it"), ToolUse("Bash"), Thinking("reasoning")),
+            User(ToolResult("exit code 0")));
+
+        // The default posture hides tool calls, results, and thinking - leaving just the conversation.
+        var vms = HistoryView.Map(history, null, HistoryFilterConfig.Default);
+
+        Assert.Equal(2, vms.Count);
+        Assert.Equal("You", vms[0].Speaker);
+        Assert.Equal("Assistant", vms[1].Speaker);
+        Assert.Equal("on it", vms[1].Body);
+        Assert.DoesNotContain(vms, v => v.Speaker == "Tool result");
     }
 
     [Fact]

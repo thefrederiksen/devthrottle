@@ -113,7 +113,7 @@ public partial class HistoryView : UserControl
     /// Read the saved filter and set the three "Show:" checkboxes to match. A malformed config.json
     /// makes <see cref="HistoryFilterConfig.Get"/> throw (it never silently coerces a bad value). The
     /// History tab is a non-critical view that must still open, so this lifecycle boundary catches and
-    /// shows everything - but logs the FULL exception (not just the message) so the bad config is
+    /// applies the defaults - but logs the FULL exception (not just the message) so the bad config is
     /// diagnosable, never silently swallowed (#760 review). Called before the change handlers are
     /// wired, so it never fires <see cref="OnFilterChanged"/>.
     /// </summary>
@@ -125,7 +125,7 @@ public partial class HistoryView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[HistoryView] LoadFilter FAILED (malformed config.json 'history_filter'?), showing everything: {ex}");
+            FileLog.Write($"[HistoryView] LoadFilter FAILED (malformed config.json 'history_filter'?), using defaults: {ex}");
             _filter = HistoryFilterConfig.Default;
         }
 

@@ -115,12 +115,13 @@
     private string? _historyState;
     private string? _copiedText;
 
-    // "Show:" filter state (issue #760). Defaults to showing everything; loaded from the browser's
-    // localStorage on first render so the reader's choice sticks. The last fetched history is cached
-    // so a toggle re-renders instantly from memory without waiting for the next poll.
-    private bool _showToolCalls = true;
-    private bool _showToolResults = true;
-    private bool _showThinking = true;
+    // "Show:" filter state (issue #760). Defaults to HIDDEN (show just the conversation); the reader
+    // turns a kind on to see it. Loaded from the browser's localStorage on first render so the
+    // choice sticks per machine across sessions and reloads. The last fetched history is cached so a
+    // toggle re-renders instantly from memory without waiting for the next poll.
+    private bool _showToolCalls = false;
+    private bool _showToolResults = false;
+    private bool _showThinking = false;
     private SessionHistoryDto? _lastHistory;
     private const string FilterStorageKey = "ccHistoryFilter";
 
