@@ -36,7 +36,7 @@ internal static class SessionContextEndpoint
 
             try
             {
-                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath);
+                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath, session.ClaudeArgs);
                 if (context is null)
                     return Results.NotFound(new { error = "no context usage yet (no completed turn)" });
                 return Results.Json(context);
