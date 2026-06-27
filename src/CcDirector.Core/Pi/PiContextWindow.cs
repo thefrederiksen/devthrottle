@@ -10,10 +10,11 @@ namespace CcDirector.Core.Pi;
 /// </summary>
 public static class PiContextWindow
 {
-    /// <summary>The window for OpenAI's gpt-5.5 as reported by the Codex backend's
-    /// <c>model_context_window</c> (258,400 tokens). pi drives the same backend via the
-    /// <c>openai-codex</c> provider, so the value matches.</summary>
-    public const long Gpt55WindowTokens = 258_400;
+    /// <summary>The window pi itself uses for gpt-5.5: 272,000 tokens. pi's own changelog notes it
+    /// "use[s] the observed 272k limit" for gpt-5.5, and the pi footer displays it as 272k - so the
+    /// gauge matches what pi shows the user. (This is larger than the Codex backend's reported
+    /// <c>model_context_window</c> of 258,400; pi applies its own observed limit, so we follow pi.)</summary>
+    public const long Gpt55WindowTokens = 272_000;
 
     /// <summary>The context-window size for a pi model id, or null when unrecognized (the gauge then
     /// shows the raw used-token count with no percent).</summary>

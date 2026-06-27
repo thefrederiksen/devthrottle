@@ -23,8 +23,8 @@ public sealed class PiContextUsageTests
 
         Assert.NotNull(ctx);
         Assert.Equal(3876, ctx.UsedTokens);                 // the LATEST assistant message wins
-        Assert.Equal(258_400, ctx.WindowTokens);            // gpt-5.5 -> 258400
-        Assert.Equal(1.5, ctx.PercentUsed);                 // 3876 / 258400 * 100, rounded
+        Assert.Equal(272_000, ctx.WindowTokens);            // gpt-5.5 -> 272000 (pi's observed limit)
+        Assert.Equal(1.4, ctx.PercentUsed);                 // 3876 / 272000 * 100, rounded
         Assert.Equal(new DateTime(2026, 6, 27, 3, 5, 0, DateTimeKind.Utc), ctx.AsOfUtc);
     }
 
@@ -56,7 +56,7 @@ public sealed class PiContextUsageTests
     [Fact]
     public void PiContextWindow_MapsGpt55_AndReusesClaudeTable()
     {
-        Assert.Equal(258_400, PiContextWindow.WindowTokensForModel("gpt-5.5"));
+        Assert.Equal(272_000, PiContextWindow.WindowTokensForModel("gpt-5.5"));
         Assert.Equal(200_000, PiContextWindow.WindowTokensForModel("claude-sonnet-4-5"));
         Assert.Equal(1_000_000, PiContextWindow.WindowTokensForModel("claude-opus-4-8[1m]"));
         Assert.Null(PiContextWindow.WindowTokensForModel("mystery-model"));
