@@ -87,7 +87,7 @@ public class GitHubReleaseService
         SetupLog.Write($"[GitHubReleaseService] DownloadFileAsync: complete, bytes={downloaded}");
     }
 
-    public async Task<bool> DownloadSkillFileAsync(string destPath, string repoPath = "skills/cc-director/SKILL.md")
+    public async Task<bool> DownloadSkillFileAsync(string destPath, string repoPath = ".claude/skills/dev-throttle/SKILL.md")
     {
         SetupLog.Write($"[GitHubReleaseService] DownloadSkillFileAsync: {repoPath}");
 
