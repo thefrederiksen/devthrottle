@@ -53,6 +53,20 @@ public sealed class FleetMessagingFramingTests
         Assert.Contains("broadcast text", framed);
         Assert.DoesNotContain("to reply:", framed);
     }
+
+    [Fact]
+    public void BuildFramedMessage_IsSingleLine_soItDeliversInlineToEveryAgent()
+    {
+        // A multi-line frame is routed through the @-temp-file delivery path that some agents (e.g. Pi)
+        // do not expand, so they would see the file reference instead of the message. The frame - even
+        // for a multi-line body - must collapse to a single line so it is typed inline.
+        var framed = FleetMessaging.BuildFramedMessage(
+            "4c810000-1111-2222-3333-444444444444", "asker", "machine-A",
+            "Reply with\nexactly\nGREEN-42");
+
+        Assert.DoesNotContain("\n", framed);
+        Assert.Contains("Reply with exactly GREEN-42", framed); // body newlines collapsed to spaces
+    }
 }
 
 /// <summary>
