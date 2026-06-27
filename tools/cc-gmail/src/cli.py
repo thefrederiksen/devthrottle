@@ -18,9 +18,27 @@ logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 import typer
 from googleapiclient.errors import HttpError
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+from rich.table import Table as _RichTable
+from rich.panel import Panel as _RichPanel
 from rich.text import Text
+from rich import box as _box
+
+
+def Table(*args, **kwargs):
+    """Rich Table that defaults to an ASCII box (house ASCII-only output rule).
+
+    Rich's default table border uses Unicode box-drawing characters. Defaulting
+    the box to ASCII keeps all rendered output to plain ASCII. Call sites that
+    pass box=None (borderless) are preserved.
+    """
+    kwargs.setdefault("box", _box.ASCII)
+    return _RichTable(*args, **kwargs)
+
+
+def Panel(*args, **kwargs):
+    """Rich Panel that defaults to an ASCII box (house ASCII-only output rule)."""
+    kwargs.setdefault("box", _box.ASCII)
+    return _RichPanel(*args, **kwargs)
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +107,13 @@ except ImportError:
     from src.contacts_api import ContactsClient
     from src.utils import format_timestamp, truncate, format_message_summary
 
-# Configure logging for library modules
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+# Configure logging for library modules.
+# User-facing output goes through the Rich console (stdout). Attaching a
+# NullHandler to the root logger keeps internal logger.error/info calls from
+# ALSO printing to stderr, which would double-print every error (once via the
+# logger and once via console.print). A handler is present, so Python's
+# last-resort stderr handler stays disabled.
+logging.getLogger().addHandler(logging.NullHandler())
 
 app = typer.Typer(
     name="cc-gmail",

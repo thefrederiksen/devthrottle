@@ -2,12 +2,17 @@
 Fuzzy and phonetic name matching for contact search.
 
 Uses a hybrid multi-algorithm scoring system:
-- Double Metaphone: Sound-alike matching (Smith/Smyth)
+- Metaphone: Sound-alike matching (Smith/Smyth)
 - Jaro-Winkler: Typos, transpositions
 - Token Set Ratio: Partial/reordered names
 
 Combined score formula:
     score = (phonetic * 0.3) + (jaro_winkler * 0.4) + (token_set * 0.3)
+
+Phonetic matching uses jellyfish.metaphone (single Metaphone). jellyfish does
+not provide a Double Metaphone, so primary and secondary codes are identical;
+the (primary, secondary) tuple shape is kept for callers but both slots hold the
+same Metaphone code.
 """
 
 from typing import List, Dict, Any, Optional, Tuple
@@ -131,8 +136,10 @@ NICKNAME_MAP = {
 
 def compute_metaphone(name: str) -> Tuple[str, str]:
     """
-    Generate Double Metaphone codes for a name.
-    Returns (primary, secondary) phonetic codes.
+    Generate Metaphone codes for a name.
+
+    Returns (primary, secondary) phonetic codes. jellyfish only provides a single
+    Metaphone, so secondary == primary; the tuple shape is kept for callers.
     """
     if not name:
         return ('', '')
@@ -142,14 +149,12 @@ def compute_metaphone(name: str) -> Tuple[str, str]:
         return ('', '')
     # Get metaphone for each word and concatenate
     words = clean_name.split()
-    primary_codes = []
-    secondary_codes = []
+    codes = []
     for word in words:
         if word:
-            p, s = jellyfish.metaphone(word), jellyfish.metaphone(word)
-            primary_codes.append(p)
-            secondary_codes.append(s)
-    return (' '.join(primary_codes), ' '.join(secondary_codes))
+            codes.append(jellyfish.metaphone(word))
+    joined = ' '.join(codes)
+    return (joined, joined)
 
 
 def _phonetic_similarity(query: str, target: str) -> float:

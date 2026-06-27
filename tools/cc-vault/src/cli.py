@@ -19,10 +19,26 @@ from types import ModuleType
 from typing import Any, Optional, List
 
 import typer
+from rich import box
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+from rich.table import Table as _RichTable
+from rich.panel import Panel as _RichPanel
 from rich.text import Text
+
+
+def Table(*args, **kwargs):
+    """Rich Table defaulting to ASCII box drawing (house ASCII-only rule).
+
+    Callers passing box=... (including box=None) keep their explicit choice.
+    """
+    kwargs.setdefault("box", box.ASCII)
+    return _RichTable(*args, **kwargs)
+
+
+def Panel(*args, **kwargs):
+    """Rich Panel defaulting to ASCII box drawing (house ASCII-only rule)."""
+    kwargs.setdefault("box", box.ASCII)
+    return _RichPanel(*args, **kwargs)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -158,28 +174,42 @@ def main(
 
 @app.command()
 def init(
-    path: Optional[str] = typer.Argument(None, help="Vault path (default: ~/Vault)"),
+    path: Optional[str] = typer.Argument(None, help="Vault path (default: %LOCALAPPDATA%\\cc-director\\vault)"),
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize if exists"),
 ):
-    """Initialize a new vault."""
+    """Initialize a new vault.
+
+    When a path is given, the database and directories are created there and the
+    choice is persisted so later commands use the same vault.
+    """
     try:
-        from .config import ensure_directories
+        from .config import ensure_directories, save_config, get_vault_path
+        from . import db as db_module
     except ImportError:
-        from config import ensure_directories
+        from config import ensure_directories, save_config, get_vault_path
+        import db as db_module
 
-    vault_path = Path(path) if path else VAULT_PATH
+    vault_path = Path(path).resolve() if path else get_vault_path()
+    db_path = vault_path / "vault.db"
 
-    if vault_path.exists() and not force:
+    if db_path.exists() and not force:
         console.print(f"[yellow]Vault already exists at:[/yellow] {vault_path}")
         console.print("Use --force to reinitialize.")
         return
 
     try:
+        if path:
+            # Honor the requested path: make every dynamic resolver target it for
+            # this process, point the database layer at it, and persist the choice.
+            os.environ["CC_VAULT_PATH"] = str(vault_path)
+            db_module.set_db_path(db_path)
+            save_config(str(vault_path))
+
         ensure_directories()
-        db = get_db()
+        db_module.init_db(silent=True)
         console.print(f"[green]Vault initialized at:[/green] {vault_path}")
-        console.print(f"  Database: {DB_PATH}")
-        console.print(f"  Documents: {DOCUMENTS_PATH}")
+        console.print(f"  Database: {db_path}")
+        console.print(f"  Documents: {vault_path / 'documents'}")
     except (OSError, sqlite3.Error) as e:
         console.print(f"[red]Error initializing vault:[/red] {e}")
         raise typer.Exit(1)
@@ -610,7 +640,7 @@ def restore(
 
 @tasks_app.command("list")
 def tasks_list(
-    status: str = typer.Option("pending", "-s", "--status", help="Filter by status: pending, completed, all"),
+    status: str = typer.Option("pending", "-s", "--status", help="Filter by status: pending, done, all (completed is an alias for done)"),
     contact_id: Optional[int] = typer.Option(None, "-c", "--contact", help="Filter by contact"),
     sort: str = typer.Option("priority", "--sort", help="Sort: priority, newest, due"),
     limit: int = typer.Option(20, "-n", help="Max results"),
@@ -3870,15 +3900,31 @@ def lists_copy(
         raise typer.Exit(1)
 
 
+def _has_structured_filter(company, tag, account, category, relationship) -> bool:
+    return any([company, tag, account, category, relationship])
+
+
 @lists_app.command("add")
 def lists_add(
     name: str = typer.Argument(..., help="List name"),
     contact_id: Optional[int] = typer.Option(None, "--contact-id", "-c", help="Single contact ID to add"),
-    query: Optional[str] = typer.Option(None, "--query", "-q", help="SQL WHERE clause to match contacts"),
+    company: Optional[str] = typer.Option(None, "--company", help="Match contacts at this company"),
+    tag: Optional[List[str]] = typer.Option(None, "--tag", help="Match contacts with this tag (repeatable, AND logic)"),
+    account: Optional[str] = typer.Option(None, "--account", help="Match contacts in this account: consulting, personal, both"),
+    category: Optional[str] = typer.Option(None, "--category", help="Match contacts in this category"),
+    relationship: Optional[str] = typer.Option(None, "--relationship", help="Match contacts with this relationship"),
+    where: Optional[str] = typer.Option(None, "--where", hidden=True, help="EXPERT: raw SQL WHERE clause (requires --yes)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm the expert --where clause"),
 ):
-    """Add contacts to a list (by ID or query)."""
-    if not contact_id and not query:
-        console.print("[red]Provide --contact-id or --query[/red]")
+    """Add contacts to a list by ID or by structured filters.
+
+    Use --company / --tag / --account / --category / --relationship to select
+    contacts safely. --where is a hidden expert escape hatch for a raw SQL WHERE
+    clause and requires --yes.
+    """
+    has_filter = _has_structured_filter(company, tag, account, category, relationship)
+    if not contact_id and not has_filter and not where:
+        console.print("[red]Provide --contact-id, a structured filter (--company/--tag/--account/--category/--relationship), or --where[/red]")
         raise typer.Exit(1)
 
     db = get_db()
@@ -3889,8 +3935,19 @@ def lists_add(
                 console.print(f"[green]Added contact #{contact_id} to \"{name}\"[/green]")
             else:
                 console.print(f"[yellow]Contact #{contact_id} is already in \"{name}\"[/yellow]")
-        elif query:
-            count = db.add_list_members_by_query(name, query)
+        elif has_filter:
+            count = db.add_list_members_by_filters(
+                name, company=company, tag=tag, account=account,
+                category=category, relationship=relationship,
+            )
+            console.print(f"[green]Added {count} contacts to \"{name}\"[/green]")
+        elif where:
+            clause = db.validate_where_clause(where)
+            if not yes:
+                matched = db.count_contacts_by_query(clause)
+                console.print(f"[yellow]--where would match {matched} contact(s). Re-run with --yes to apply.[/yellow]")
+                raise typer.Exit(1)
+            count = db.add_list_members_by_query(name, clause)
             console.print(f"[green]Added {count} contacts to \"{name}\"[/green]")
 
     except ValueError as e:
@@ -3905,11 +3962,22 @@ def lists_add(
 def lists_remove(
     name: str = typer.Argument(..., help="List name"),
     contact_id: Optional[int] = typer.Option(None, "--contact-id", "-c", help="Contact ID to remove"),
-    query: Optional[str] = typer.Option(None, "--query", "-q", help="SQL WHERE clause to match contacts"),
+    company: Optional[str] = typer.Option(None, "--company", help="Match contacts at this company"),
+    tag: Optional[List[str]] = typer.Option(None, "--tag", help="Match contacts with this tag (repeatable, AND logic)"),
+    account: Optional[str] = typer.Option(None, "--account", help="Match contacts in this account: consulting, personal, both"),
+    category: Optional[str] = typer.Option(None, "--category", help="Match contacts in this category"),
+    relationship: Optional[str] = typer.Option(None, "--relationship", help="Match contacts with this relationship"),
+    where: Optional[str] = typer.Option(None, "--where", hidden=True, help="EXPERT: raw SQL WHERE clause (requires --yes)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm a bulk removal (required for filters/--where)"),
 ):
-    """Remove contacts from a list (by ID or query)."""
-    if not contact_id and not query:
-        console.print("[red]Provide --contact-id or --query[/red]")
+    """Remove contacts from a list by ID or by structured filters.
+
+    Bulk removals (structured filters or --where) show the matched count and
+    require --yes to actually remove.
+    """
+    has_filter = _has_structured_filter(company, tag, account, category, relationship)
+    if not contact_id and not has_filter and not where:
+        console.print("[red]Provide --contact-id, a structured filter (--company/--tag/--account/--category/--relationship), or --where[/red]")
         raise typer.Exit(1)
 
     db = get_db()
@@ -3920,8 +3988,26 @@ def lists_remove(
                 console.print(f"[green]Removed contact #{contact_id} from \"{name}\"[/green]")
             else:
                 console.print(f"[yellow]Contact #{contact_id} was not in \"{name}\"[/yellow]")
-        elif query:
-            count = db.remove_list_members_by_query(name, query)
+        elif has_filter:
+            matched = db.count_contacts_by_filters(
+                company=company, tag=tag, account=account,
+                category=category, relationship=relationship,
+            )
+            if not yes:
+                console.print(f"[yellow]Filter matches {matched} contact(s). Re-run with --yes to remove them from \"{name}\".[/yellow]")
+                raise typer.Exit(1)
+            count = db.remove_list_members_by_filters(
+                name, company=company, tag=tag, account=account,
+                category=category, relationship=relationship,
+            )
+            console.print(f"[green]Removed {count} contacts from \"{name}\"[/green]")
+        elif where:
+            clause = db.validate_where_clause(where)
+            matched = db.count_contacts_by_query(clause)
+            if not yes:
+                console.print(f"[yellow]--where matches {matched} contact(s). Re-run with --yes to remove them from \"{name}\".[/yellow]")
+                raise typer.Exit(1)
+            count = db.remove_list_members_by_query(name, clause)
             console.print(f"[green]Removed {count} contacts from \"{name}\"[/green]")
 
     except ValueError as e:

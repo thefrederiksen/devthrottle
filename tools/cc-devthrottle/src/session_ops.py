@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 
@@ -84,14 +85,16 @@ def list_sessions(json_output: bool) -> None:
     sessions = _get_sessions()
 
     if json_output:
-        console.print(json.dumps(sessions, indent=2))
+        # Plain print, not console.print: Rich wraps to 80 columns when stdout is not a TTY and
+        # injects newlines into long values, producing invalid JSON for agents/pipes.
+        print(json.dumps(sessions, indent=2))
         return
 
     if not sessions:
         console.print("No sessions are running in the fleet.")
         return
 
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
     table.add_column("ID")
     table.add_column("NAME")
     table.add_column("MACHINE")

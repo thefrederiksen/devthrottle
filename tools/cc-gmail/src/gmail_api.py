@@ -7,6 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
+from email.utils import getaddresses, formataddr
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -342,11 +343,11 @@ class GmailClient:
         if reply_all:
             original_to = headers.get("to", "")
             original_cc = headers.get("cc", "")
-            # Combine all recipients except self
-            all_recipients = [reply_to]
-            if original_to:
-                all_recipients.append(original_to)
-            reply_to = ", ".join(all_recipients)
+            # Combine sender + To + Cc, drop the user's own address, dedupe.
+            own_address = self.get_profile().get("emailAddress", "")
+            reply_to = _build_reply_all_recipients(
+                own_address, original_from, original_to, original_cc
+            )
 
         # Build subject with Re: prefix if not already present
         if original_subject.lower().startswith("re:"):
@@ -820,6 +821,34 @@ class GmailClient:
 
         logger.info("Unique recipients after filtering: %d", len(filtered))
         return filtered
+
+
+def _build_reply_all_recipients(
+    own_address: str,
+    original_from: str,
+    original_to: str,
+    original_cc: str,
+) -> str:
+    """Build the reply-all recipient list.
+
+    Combines the original sender, To, and Cc recipients, drops the user's own
+    address, and de-duplicates by address while preserving order.
+    """
+    own = (own_address or "").strip().lower()
+    seen = set()
+    result = []
+    for header in (original_from, original_to, original_cc):
+        if not header:
+            continue
+        for name, addr in getaddresses([header]):
+            if not addr:
+                continue
+            low = addr.lower()
+            if low == own or low in seen:
+                continue
+            seen.add(low)
+            result.append(formataddr((name, addr)) if name else addr)
+    return ", ".join(result)
 
 
 def _parse_email_addresses(header_value: str) -> List[Dict[str, str]]:

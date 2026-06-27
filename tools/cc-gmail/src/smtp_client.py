@@ -79,8 +79,10 @@ class SmtpClient:
 
         if cc:
             message["Cc"] = cc
-        if bcc:
-            message["Bcc"] = bcc
+        # NOTE: Bcc is intentionally NOT added to the MIME headers. smtplib
+        # transmits the message verbatim, so a Bcc header would be delivered to
+        # every To and Cc recipient, exposing the hidden recipients. Bcc is kept
+        # only in the SMTP envelope (the recipient list passed to sendmail).
 
         # Build recipient list for SMTP envelope
         recipients = [addr.strip() for addr in to.split(",")]

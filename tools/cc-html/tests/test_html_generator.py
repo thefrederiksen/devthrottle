@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "cc_shared"))
 
-from html_generator import generate_html, embed_images_as_base64
+from html_generator import generate_html, embed_images_as_base64, AssetEmbedError
 from cc_shared.markdown_parser import ParsedMarkdown
 
 
@@ -70,3 +70,28 @@ class TestEmbedImages:
         html = '<img src="nonexistent.png">'
         result = embed_images_as_base64(html, Path("."))
         assert "nonexistent.png" in result
+
+
+class TestTitleEscaping:
+    def test_title_with_special_chars_is_escaped(self):
+        parsed = ParsedMarkdown(html="<p>x</p>", title="A & B <c>", raw="x")
+        result = generate_html(parsed, "")
+        assert "<title>A &amp; B &lt;c&gt;</title>" in result
+
+
+class TestEmbedAssetWarnings:
+    def test_missing_file_collects_warning(self, capsys):
+        warnings = []
+        embed_images_as_base64('<img src="missing.png">', Path("."), warnings=warnings)
+        assert warnings
+        assert "missing.png" in warnings[0]
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert captured.err.isascii()
+
+    def test_strict_mode_raises(self):
+        try:
+            embed_images_as_base64('<img src="missing.png">', Path("."), strict=True)
+            assert False, "Strict mode should raise AssetEmbedError"
+        except AssetEmbedError as e:
+            assert "missing.png" in str(e)

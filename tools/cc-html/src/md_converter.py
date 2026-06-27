@@ -8,7 +8,7 @@ from pathlib import Path
 from markdownify import markdownify
 
 try:
-    from cc_shared.image_extractor import ExtractedImage, save_extracted_images
+    from cc_shared.image_extractor import ExtractedImage, relative_paths_in_order
 except ImportError:
     import sys
     import os
@@ -16,7 +16,7 @@ except ImportError:
         sys.path.insert(0, os.path.join(sys._MEIPASS, 'cc_shared'))
     else:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "cc_shared"))
-    from image_extractor import ExtractedImage, save_extracted_images
+    from image_extractor import ExtractedImage, relative_paths_in_order
 
 
 def convert_html_to_markdown(
@@ -104,19 +104,14 @@ def convert_html_to_markdown(
         strip=["script", "style"],
     )
 
-    # Save extracted images and replace placeholders
+    # Save extracted images and replace placeholders.
+    # Use index-aligned paths so two source images with the same filename
+    # (for example two different "logo.png" files) do not collide onto one
+    # extracted file.
     if images:
-        path_map = save_extracted_images(images, output_path)
-        # Build index -> relative path mapping
-        idx_to_path: dict[str, str] = {}
-        for orig_name, rel_path in path_map.items():
-            for placeholder, idx_str in img_placeholder_map.items():
-                img = images[int(idx_str)]
-                if img.original_name == orig_name:
-                    idx_to_path[idx_str] = rel_path
-
+        ordered_paths = relative_paths_in_order(images, output_path)
         for placeholder, idx_str in img_placeholder_map.items():
-            rel_path = idx_to_path.get(idx_str, placeholder)
+            rel_path = ordered_paths[int(idx_str)]
             markdown = markdown.replace(placeholder, rel_path)
 
     # Clean up excessive blank lines

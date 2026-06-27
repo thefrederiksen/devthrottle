@@ -8,10 +8,10 @@ from typing import Any, Dict, List, Optional
 # Handle imports for both package and frozen executable
 try:
     from .schema import ContentItem, QueueResult, QueueStats, Status
-    from .database import Database
+    from .database import Database, InvalidStatusTransition
 except ImportError:
     from schema import ContentItem, QueueResult, QueueStats, Status
-    from database import Database
+    from database import Database, InvalidStatusTransition
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,18 @@ class QueueManager:
         """
         return self.db.list_by_status(status, limit, campaign_id=campaign_id)
 
+    def count_content(self, status: Optional[Status] = None, campaign_id: Optional[str] = None) -> int:
+        """Count content items matching a status and/or campaign (ignores any limit).
+
+        Args:
+            status: Filter by status, or None for all
+            campaign_id: Filter by campaign identifier, or None for all
+
+        Returns:
+            The true number of matching items.
+        """
+        return self.db.count_by_status(status, campaign_id=campaign_id)
+
     def get_stats(self) -> QueueStats:
         """Get queue statistics.
 
@@ -107,6 +119,7 @@ class QueueManager:
             approved=stats.get("approved", 0),
             rejected=stats.get("rejected", 0),
             posted=stats.get("posted", 0),
+            error=stats.get("error", 0),
         )
 
     def get_content_by_id(self, content_id: str) -> Optional[Dict[str, Any]]:
@@ -161,21 +174,26 @@ class QueueManager:
             rejected_by="user",
         )
 
-    def mark_posted(self, ticket_number: int, posted_by: str = "cc_director", posted_url: Optional[str] = None) -> bool:
+    def mark_posted(self, ticket_number: int, posted_by: str = "cc_director", posted_url: Optional[str] = None, force: bool = False) -> bool:
         """Mark a content item as posted.
 
         Args:
             ticket_number: The ticket number
             posted_by: Who/what posted it
             posted_url: Optional URL where it was posted
+            force: Bypass the approval-workflow guard (only approved items may post)
 
         Returns:
             True if successful
+
+        Raises:
+            InvalidStatusTransition: if the item is not approved and force is False
         """
         from datetime import datetime
         return self.db.update_status(
             ticket_number,
             Status.POSTED,
+            force=force,
             posted_at=datetime.now().isoformat(),
             posted_by=posted_by,
             posted_url=posted_url,

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 
@@ -43,7 +44,36 @@ app = typer.Typer(
     add_completion=False,
     invoke_without_command=True,
 )
+# stdout is reserved for data; progress and status go to stderr.
 console = Console()
+err_console = Console(stderr=True)
+
+
+def _progress(message: str, quiet: bool) -> None:
+    """Print a progress/status message to stderr unless quiet is set."""
+    if not quiet:
+        err_console.print(message)
+
+
+def _guard_output(output: Path, force: bool, no_clobber: bool, quiet: bool) -> None:
+    """Refuse to silently overwrite an existing output file.
+
+    Default behavior errors when the output exists; --force overwrites and
+    --no-clobber skips (exit 0). The two flags are mutually exclusive.
+    """
+    if force and no_clobber:
+        err_console.print("[red]Error:[/red] --force and --no-clobber cannot be used together")
+        raise typer.Exit(1)
+    if output.exists():
+        if no_clobber:
+            _progress(f"Skip: {output} already exists (--no-clobber)", quiet)
+            raise typer.Exit(0)
+        if not force:
+            err_console.print(
+                f"[red]Error:[/red] {output} already exists. "
+                "Use --force to overwrite or --no-clobber to skip."
+            )
+            raise typer.Exit(1)
 
 
 def version_callback(value: bool):
@@ -54,7 +84,7 @@ def version_callback(value: bool):
 
 def themes_callback(value: bool):
     if value:
-        table = Table(title="Available Themes")
+        table = Table(title="Available Themes", box=box.ASCII)
         table.add_column("Theme", style="cyan")
         table.add_column("Description")
 
@@ -105,52 +135,69 @@ def from_markdown(
     theme: str = typer.Option(
         "paper",
         "--theme", "-t",
-        help="Built-in theme name",
+        help="Built-in theme name (Word styling is theme-name-only)",
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet", "-q",
+        help="Suppress progress output (errors still shown)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Overwrite the output file if it already exists",
+    ),
+    no_clobber: bool = typer.Option(
+        False,
+        "--no-clobber",
+        help="Skip (do not overwrite) if the output file already exists",
     ),
 ):
     """Convert Markdown to Word documents with beautiful themes."""
 
     # Validate theme
     if theme not in THEMES:
-        console.print(f"[red]Error:[/red] Unknown theme '{theme}'. Use --themes to list available themes.")
+        err_console.print(f"[red]Error:[/red] Unknown theme '{theme}'. Use --themes to list available themes.")
         raise typer.Exit(1)
 
     # Validate output extension
     if output.suffix.lower() != ".docx":
-        console.print("[red]Error:[/red] Output file must have .docx extension")
+        err_console.print("[red]Error:[/red] Output file must have .docx extension")
         raise typer.Exit(1)
+
+    # Do not silently overwrite.
+    _guard_output(output, force, no_clobber, quiet)
 
     try:
         # Read input
-        console.print(f"[blue]Reading:[/blue] {input_file}")
+        _progress(f"[blue]Reading:[/blue] {input_file}", quiet)
         markdown_content = input_file.read_text(encoding="utf-8")
 
         # Parse markdown
-        console.print("[blue]Parsing:[/blue] Markdown")
+        _progress("[blue]Parsing:[/blue] Markdown", quiet)
         parsed = parse_markdown(markdown_content)
 
-        # Get CSS (used as intermediate HTML for Word conversion)
-        console.print(f"[blue]Loading:[/blue] Theme '{theme}'")
-        css_content = get_theme_css(theme)
+        # Generate the intermediate HTML. Word styling is applied by name in
+        # convert_to_word (it does not read CSS), so no theme CSS is generated
+        # here -- the styling pipeline is theme-name-only.
+        _progress("[blue]Generating:[/blue] HTML", quiet)
+        html_content = generate_html(parsed, "")
 
-        # Generate HTML (intermediate format)
-        console.print("[blue]Generating:[/blue] HTML")
-        html_content = generate_html(parsed, css_content)
+        # Convert to Word with theme. base_path lets relative <img> sources
+        # resolve so images are embedded in the .docx.
+        _progress(f"[blue]Converting:[/blue] Word document (theme '{theme}')", quiet)
+        convert_to_word(html_content, output, theme_name=theme, base_path=input_file.parent)
 
-        # Convert to Word with theme
-        console.print("[blue]Converting:[/blue] Word document")
-        convert_to_word(html_content, output, theme_name=theme)
-
-        console.print(f"[green]Done:[/green] {output}")
+        _progress(f"[green]Done:[/green] {output}", quiet)
 
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        err_console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
     except ValueError as e:
-        console.print(f"[red]Invalid input:[/red] {e}")
+        err_console.print(f"[red]Invalid input:[/red] {e}")
         raise typer.Exit(1)
     except OSError as e:
-        console.print(f"[red]File error:[/red] {e}")
+        err_console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -167,6 +214,21 @@ def to_markdown(
         "--output", "-o",
         help="Output Markdown file (defaults to input name with .md extension)",
     ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet", "-q",
+        help="Suppress progress output (errors still shown)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Overwrite the output file if it already exists",
+    ),
+    no_clobber: bool = typer.Option(
+        False,
+        "--no-clobber",
+        help="Skip (do not overwrite) if the output file already exists",
+    ),
 ):
     """Convert a Word document to Markdown, extracting embedded images."""
 
@@ -176,29 +238,32 @@ def to_markdown(
 
     # Validate output extension
     if output.suffix.lower() != ".md":
-        console.print("[red]Error:[/red] Output file must have .md extension")
+        err_console.print("[red]Error:[/red] Output file must have .md extension")
         raise typer.Exit(1)
 
-    try:
-        console.print(f"[blue]Reading:[/blue] {input_file}")
+    # Do not silently overwrite.
+    _guard_output(output, force, no_clobber, quiet)
 
-        console.print("[blue]Converting:[/blue] DOCX to Markdown")
+    try:
+        _progress(f"[blue]Reading:[/blue] {input_file}", quiet)
+
+        _progress("[blue]Converting:[/blue] DOCX to Markdown", quiet)
         markdown = convert_docx_to_markdown(input_file, output)
 
-        console.print(f"[blue]Writing:[/blue] {output}")
+        _progress(f"[blue]Writing:[/blue] {output}", quiet)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(markdown, encoding="utf-8")
 
-        console.print(f"[green]Done:[/green] {output}")
+        _progress(f"[green]Done:[/green] {output}", quiet)
 
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        err_console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
     except ValueError as e:
-        console.print(f"[red]Invalid input:[/red] {e}")
+        err_console.print(f"[red]Invalid input:[/red] {e}")
         raise typer.Exit(1)
     except OSError as e:
-        console.print(f"[red]File error:[/red] {e}")
+        err_console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

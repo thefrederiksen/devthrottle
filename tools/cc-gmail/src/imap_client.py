@@ -10,7 +10,7 @@ import imaplib
 import logging
 import re
 from email.header import decode_header
-from email.utils import parseaddr
+from email.utils import parseaddr, getaddresses, formataddr
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,35 @@ def _decode_header_value(value: str) -> str:
         else:
             decoded_parts.append(part)
     return " ".join(decoded_parts)
+
+
+def build_reply_all_recipients(
+    own_address: str,
+    original_from: str,
+    original_to: str,
+    original_cc: str,
+) -> str:
+    """Build the reply-all recipient list.
+
+    Combines the original sender, To, and Cc recipients, drops the user's own
+    address (so the user does not reply to themselves), and de-duplicates by
+    address while preserving order.
+    """
+    own = (own_address or "").strip().lower()
+    seen = set()
+    result = []
+    for header in (original_from, original_to, original_cc):
+        if not header:
+            continue
+        for name, addr in getaddresses([header]):
+            if not addr:
+                continue
+            low = addr.lower()
+            if low == own or low in seen:
+                continue
+            seen.add(low)
+            result.append(formataddr((name, addr)) if name else addr)
+    return ", ".join(result)
 
 
 def _parse_uid_from_response(data: bytes) -> Optional[str]:
@@ -104,6 +133,63 @@ class ImapClient:
         status, data = conn.select(f'"{imap_folder}"', readonly=readonly)
         if status != "OK":
             raise ConnectionError(f"Failed to select folder '{folder}': {data}")
+
+    def _uids_to_msgids(
+        self, conn: imaplib.IMAP4_SSL, uids: List[bytes]
+    ) -> List[str]:
+        """Map a list of per-mailbox UIDs to their stable Gmail message IDs.
+
+        Gmail gives every label its own IMAP UID space, so a UID is only valid
+        in the mailbox it came from. X-GM-MSGID is a single global identifier
+        for the message, stable across every mailbox. Returning that as the
+        public 'id' lets later operations (read/mark/delete/archive) address the
+        exact same message no matter which mailbox they select.
+        """
+        if not uids:
+            return []
+
+        uid_set = b",".join(uids)
+        status, data = conn.uid("fetch", uid_set, "(X-GM-MSGID)")
+        if status != "OK":
+            raise ConnectionError(f"Failed to fetch X-GM-MSGID: {data}")
+
+        # Build a uid -> msgid map from the FETCH response.
+        mapping: Dict[bytes, str] = {}
+        for item in data:
+            raw = item[0] if isinstance(item, tuple) else item
+            if not isinstance(raw, (bytes, bytearray)):
+                continue
+            uid_match = re.search(rb"UID (\d+)", raw)
+            msgid_match = re.search(rb"X-GM-MSGID (\d+)", raw)
+            if uid_match and msgid_match:
+                mapping[uid_match.group(1)] = msgid_match.group(1).decode("ascii")
+
+        msgids = []
+        for uid in uids:
+            msgid = mapping.get(uid)
+            if msgid is None:
+                raise ConnectionError(
+                    f"No X-GM-MSGID returned for UID {uid.decode('ascii')}"
+                )
+            msgids.append(msgid)
+        return msgids
+
+    def _resolve_uid(self, msgid: str, folder: str, readonly: bool) -> str:
+        """Resolve a stable Gmail message ID to the UID within a given mailbox.
+
+        Selects the mailbox and searches for the message by X-GM-MSGID so the
+        returned UID is valid for fetch/store/copy in THAT mailbox. Raises if the
+        message is not present in the mailbox (no silent fallback).
+        """
+        conn = self._connect()
+        self._select_folder(folder, readonly=readonly)
+        status, data = conn.uid("search", None, f"X-GM-MSGID {msgid}")
+        if status != "OK" or not data or not data[0]:
+            raise ValueError(f"Message {msgid} not found in mailbox '{folder}'")
+        uids = data[0].split()
+        if not uids:
+            raise ValueError(f"Message {msgid} not found in mailbox '{folder}'")
+        return uids[0].decode("ascii")
 
     def get_profile(self) -> Dict[str, Any]:
         """Get basic profile info (email address)."""
@@ -188,11 +274,8 @@ class ImapClient:
         # Return most recent first (highest UIDs), limited to max_results
         uids = list(reversed(uids))[:max_results]
 
-        messages = []
-        for uid in uids:
-            messages.append({"id": uid.decode("ascii")})
-
-        return messages
+        # Return stable Gmail message IDs (X-GM-MSGID), not per-mailbox UIDs.
+        return [{"id": msgid} for msgid in self._uids_to_msgids(conn, uids)]
 
     def list_all_messages(
         self,
@@ -247,28 +330,31 @@ class ImapClient:
         if max_results:
             uids = uids[:max_results]
 
-        return [{"id": uid.decode("ascii")} for uid in uids]
+        # Return stable Gmail message IDs (X-GM-MSGID), not per-mailbox UIDs.
+        return [{"id": msgid} for msgid in self._uids_to_msgids(conn, uids)]
 
     def get_message_details(self, message_uid: str) -> Dict[str, Any]:
         """Get message with parsed headers and body.
 
         Args:
-            message_uid: The message UID.
+            message_uid: The stable Gmail message ID (X-GM-MSGID).
 
         Returns:
             Dict with id, thread_id, snippet, labels, headers, body, internal_date.
         """
         conn = self._connect()
 
-        # Select All Mail to be able to fetch any message by UID
-        self._select_folder("ALL", readonly=True)
+        # Resolve the stable message ID to the UID inside All Mail, then fetch
+        # by THAT UID. This avoids mixing the INBOX UID namespace (where list/
+        # search ids come from) with the All Mail UID namespace.
+        uid = self._resolve_uid(message_uid, "ALL", readonly=True)
 
         # Fetch the full message plus Gmail extensions
         status, data = conn.uid(
-            "fetch", message_uid, "(RFC822 X-GM-THRID X-GM-LABELS)"
+            "fetch", uid, "(RFC822 X-GM-THRID X-GM-LABELS)"
         )
         if status != "OK" or not data or data[0] is None:
-            raise ValueError(f"Message UID {message_uid} not found")
+            raise ValueError(f"Message {message_uid} not found")
 
         # Parse the response - data[0] is a tuple (envelope, message_bytes)
         raw_response = data[0]
@@ -449,24 +535,23 @@ class ImapClient:
     def mark_as_read(self, message_uid: str) -> Dict[str, Any]:
         """Mark a message as read by setting the Seen flag."""
         conn = self._connect()
-        self._select_folder("ALL", readonly=False)
-        conn.uid("store", message_uid, "+FLAGS", "\\Seen")
+        uid = self._resolve_uid(message_uid, "ALL", readonly=False)
+        conn.uid("store", uid, "+FLAGS", "\\Seen")
         return {"id": message_uid}
 
     def mark_as_unread(self, message_uid: str) -> Dict[str, Any]:
         """Mark a message as unread by removing the Seen flag."""
         conn = self._connect()
-        self._select_folder("ALL", readonly=False)
-        conn.uid("store", message_uid, "-FLAGS", "\\Seen")
+        uid = self._resolve_uid(message_uid, "ALL", readonly=False)
+        conn.uid("store", uid, "-FLAGS", "\\Seen")
         return {"id": message_uid}
 
     def archive_message(self, message_uid: str) -> Dict[str, Any]:
         """Archive a message by removing it from INBOX."""
         conn = self._connect()
-        self._select_folder("INBOX", readonly=False)
-        # Move out of INBOX by copying to All Mail and removing from INBOX
-        conn.uid("copy", message_uid, "[Gmail]/All Mail")
-        conn.uid("store", message_uid, "+FLAGS", "\\Deleted")
+        # The message must be addressed within INBOX to be removed from it.
+        uid = self._resolve_uid(message_uid, "INBOX", readonly=False)
+        conn.uid("store", uid, "+FLAGS", "\\Deleted")
         conn.expunge()
         return {"id": message_uid}
 
@@ -485,12 +570,25 @@ class ImapClient:
         conn = self._connect()
         self._select_folder("INBOX", readonly=False)
 
+        # Resolve each stable message ID to its INBOX UID. Messages not present
+        # in INBOX (already archived) are skipped rather than addressed by the
+        # wrong UID namespace.
+        inbox_uids = []
+        for msgid in message_uids:
+            status, data = conn.uid("search", None, f"X-GM-MSGID {msgid}")
+            if status == "OK" and data and data[0]:
+                found = data[0].split()
+                if found:
+                    inbox_uids.append(found[0].decode("ascii"))
+
+        if not inbox_uids:
+            return 0
+
         # Process in batches of 100 UIDs at a time
         archived = 0
-        for i in range(0, len(message_uids), 100):
-            chunk = message_uids[i:i + 100]
+        for i in range(0, len(inbox_uids), 100):
+            chunk = inbox_uids[i:i + 100]
             uid_set = ",".join(chunk)
-            conn.uid("copy", uid_set, "[Gmail]/All Mail")
             conn.uid("store", uid_set, "+FLAGS", "\\Deleted")
             archived += len(chunk)
 
@@ -505,23 +603,25 @@ class ImapClient:
             permanent: If True, permanently delete. Otherwise, move to trash.
         """
         conn = self._connect()
-        self._select_folder("ALL", readonly=False)
+        # Resolve within All Mail so the UID actually addresses this message.
+        uid = self._resolve_uid(message_uid, "ALL", readonly=False)
 
         if permanent:
-            conn.uid("store", message_uid, "+FLAGS", "\\Deleted")
+            conn.uid("store", uid, "+FLAGS", "\\Deleted")
             conn.expunge()
         else:
             # Move to trash
-            conn.uid("copy", message_uid, "[Gmail]/Trash")
-            conn.uid("store", message_uid, "+FLAGS", "\\Deleted")
+            conn.uid("copy", uid, "[Gmail]/Trash")
+            conn.uid("store", uid, "+FLAGS", "\\Deleted")
             conn.expunge()
 
     def untrash_message(self, message_uid: str) -> Dict[str, Any]:
         """Restore a message from trash by moving to INBOX."""
         conn = self._connect()
-        self._select_folder("TRASH", readonly=False)
-        conn.uid("copy", message_uid, "INBOX")
-        conn.uid("store", message_uid, "+FLAGS", "\\Deleted")
+        # The message lives in Trash; resolve its UID there.
+        uid = self._resolve_uid(message_uid, "TRASH", readonly=False)
+        conn.uid("copy", uid, "INBOX")
+        conn.uid("store", uid, "+FLAGS", "\\Deleted")
         conn.expunge()
         return {"id": message_uid}
 
@@ -542,20 +642,21 @@ class ImapClient:
             Dict with message id.
         """
         conn = self._connect()
-        self._select_folder("ALL", readonly=False)
 
         if add_labels:
+            # Resolve within All Mail; copying applies the target label.
+            uid = self._resolve_uid(message_uid, "ALL", readonly=False)
             for label in add_labels:
                 imap_label = GMAIL_FOLDERS.get(label.upper(), label)
-                conn.uid("copy", message_uid, f'"{imap_label}"')
+                conn.uid("copy", uid, f'"{imap_label}"')
 
         if remove_labels:
             for label in remove_labels:
                 if label.upper() == "INBOX":
-                    # Removing from INBOX = archiving
-                    # Select INBOX, delete from there
-                    self._select_folder("INBOX", readonly=False)
-                    conn.uid("store", message_uid, "+FLAGS", "\\Deleted")
+                    # Removing from INBOX = archiving. Resolve the INBOX UID and
+                    # delete it from there.
+                    inbox_uid = self._resolve_uid(message_uid, "INBOX", readonly=False)
+                    conn.uid("store", inbox_uid, "+FLAGS", "\\Deleted")
                     conn.expunge()
 
         return {"id": message_uid}
@@ -698,11 +799,15 @@ class ImapClient:
         uids = list(reversed(uids))[:max_results]
 
         drafts = []
-        for uid in uids:
-            uid_str = uid.decode("ascii")
+        for uid_str, msgid in zip(
+            (u.decode("ascii") for u in uids),
+            self._uids_to_msgids(conn, uids),
+        ):
+            # Expose the stable Gmail message ID so it addresses the same
+            # message across mailboxes, consistent with list/search.
             drafts.append({
-                "id": uid_str,
-                "message": {"id": uid_str},
+                "id": msgid,
+                "message": {"id": msgid},
             })
 
         return drafts
@@ -891,10 +996,10 @@ class ImapClient:
         reply_to = original_from
         if reply_all:
             original_to = headers.get("to", "")
-            all_recipients = [reply_to]
-            if original_to:
-                all_recipients.append(original_to)
-            reply_to = ", ".join(all_recipients)
+            original_cc = headers.get("cc", "")
+            reply_to = build_reply_all_recipients(
+                self.email_address, original_from, original_to, original_cc
+            )
 
         if original_subject.lower().startswith("re:"):
             reply_subject = original_subject

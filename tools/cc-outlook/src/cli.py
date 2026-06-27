@@ -9,9 +9,27 @@ from typing import Optional, List
 
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+from rich.table import Table as _RichTable
+from rich.panel import Panel as _RichPanel
 from rich.text import Text
+from rich import box as _box
+
+
+def Table(*args, **kwargs):
+    """Rich Table that defaults to an ASCII box (house ASCII-only output rule).
+
+    Rich's default table border uses Unicode box-drawing characters. Defaulting
+    the box to ASCII keeps all rendered output to plain ASCII. Call sites that
+    pass box=None (borderless) are preserved.
+    """
+    kwargs.setdefault("box", _box.ASCII)
+    return _RichTable(*args, **kwargs)
+
+
+def Panel(*args, **kwargs):
+    """Rich Panel that defaults to an ASCII box (house ASCII-only output rule)."""
+    kwargs.setdefault("box", _box.ASCII)
+    return _RichPanel(*args, **kwargs)
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -272,6 +290,7 @@ def accounts_remove(
         console.print(f"[green]Account '{name}' removed.[/green]")
     else:
         console.print(f"[red]Failed to remove account '{name}'[/red]")
+        raise typer.Exit(1)
 
 
 # =============================================================================
@@ -404,6 +423,13 @@ def read(
         if not msg:
             console.print(f"[red]Error:[/red] Message not found: {message_id}")
             raise typer.Exit(1)
+
+        # Raw mode: emit the full message dict as JSON (machine-readable), then
+        # mark as read and return without the formatted view.
+        if raw:
+            print(json.dumps(msg, default=str, indent=2, ensure_ascii=True))
+            client.mark_as_read(message_id)
+            return
 
         # Header panel
         header_text = Text()
@@ -742,7 +768,8 @@ def attachments(
                 att.get('name', ''),
                 size_str,
                 att.get('content_type', ''),
-                att.get('id', '')[:30] + '...',
+                # Print the full id: download-attachment consumes it verbatim.
+                att.get('id', ''),
             )
 
         console.print(table)
@@ -1082,7 +1109,8 @@ def profile() -> None:
 def _print_event(event: dict) -> None:
     """Print a single calendar event in standard format."""
     console.print(f"  [bold]{event.get('subject', '(No subject)')}[/bold]")
-    console.print(f"    ID: [dim]{event.get('id', '')[:40]}...[/dim]")
+    # Print the full id: calendar get / forward consume it verbatim.
+    console.print(f"    ID: [dim]{event.get('id', '')}[/dim]")
     console.print(f"    Start: {event.get('start', '')}")
     console.print(f"    End: {event.get('end', '')}")
     if event.get('location'):
@@ -1123,7 +1151,8 @@ def calendar_list() -> None:
         table.add_column("ID")
 
         for cal in calendars:
-            table.add_row(cal.get('name', ''), cal.get('id', '')[:30] + '...')
+            # Print the full id so it can be reused in follow-up commands.
+            table.add_row(cal.get('name', ''), cal.get('id', ''))
 
         console.print(table)
 

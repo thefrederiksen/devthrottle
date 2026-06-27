@@ -225,13 +225,12 @@ dd {
 """
 
 
-# Print-specific CSS appended when for_pdf=True
+# Print-specific CSS appended when for_pdf=True.
+# NOTE: the @page rule (page size and margin) is injected dynamically at convert
+# time by cc-pdf from the --page-size / --margin options, so it is intentionally
+# not hardcoded here.
 PRINT_CSS = """
 /* Print / PDF styles */
-@page {
-    margin: 1in;
-}
-
 @media print {
     h1, h2, h3, h4, h5, h6 {
         page-break-after: avoid;

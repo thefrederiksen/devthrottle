@@ -30,17 +30,20 @@ copy dist\cc-vault.exe %LOCALAPPDATA%\cc-director\bin\
 
 ## Configuration
 
-Set the vault path (optional, defaults to `%LOCALAPPDATA%\cc-myvault`):
+Set the vault path (optional, defaults to `%LOCALAPPDATA%\cc-director\vault`):
 
 ```bash
-# Environment variable
-set CC_VAULT_PATH=%LOCALAPPDATA%\cc-myvault
+# Environment variable (highest precedence)
+set CC_VAULT_PATH=D:\MyVault
 
-# Or config file: ~/.cc-vault/config.json
-{
-    "vault_path": "%LOCALAPPDATA%\\cc-myvault"
-}
+# Or persist it by initializing into a specific path:
+cc-vault init D:\MyVault
 ```
+
+`cc-vault init <path>` writes the chosen path to the tool config file
+(`%LOCALAPPDATA%\cc-director\config\vault\config.json`, key `vault_path`), and
+later commands resolve the vault from `CC_VAULT_PATH` first, then that file, then
+the default.
 
 Set OpenAI API key for RAG features:
 
@@ -161,16 +164,21 @@ cc-vault search "project requirements" --hybrid
 - openai, tiktoken (RAG)
 
 ### Optional
-- chromadb (vector search)
 - python-docx (Word documents)
 - pymupdf (PDF documents)
 
+Vector/semantic search is built on native SQLite vector storage and does not
+require ChromaDB.
+
 ## Architecture
 
+Vector/semantic search uses native SQLite vector storage (the `vec_embeddings`
+table in `vault.db`); it no longer depends on ChromaDB.
+
 ```
-%LOCALAPPDATA%\cc-myvault\
-    vault.db              # SQLite database
-    chroma/               # ChromaDB vector store
+%LOCALAPPDATA%\cc-director\vault\
+    vault.db              # SQLite database (structured data + vector embeddings)
+    vectors/              # Legacy vector index (rebuildable via repair-vectors)
     documents/
         transcripts/
         notes/

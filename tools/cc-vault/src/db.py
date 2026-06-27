@@ -35,12 +35,43 @@ except ImportError:
 # Track if DB has been initialized this session
 _db_initialized = False
 
+# Optional override for the database location, set by `cc-vault init <path>` so
+# the database is created where the user asked rather than at the default path
+# captured in DB_PATH at import time.
+_db_path_override: Optional[Path] = None
+
+
+def set_db_path(path) -> None:
+    """Point the database layer at an explicit vault.db location.
+
+    Used by `cc-vault init <path>` so initialization honors the requested path.
+    Resets the per-session init flag so the new database gets its schema.
+    """
+    global _db_path_override, _db_initialized
+    _db_path_override = Path(path)
+    _db_initialized = False
+
+
+def _current_db_path() -> Path:
+    """Resolve the active database path (override beats the import-time default)."""
+    return _db_path_override if _db_path_override is not None else DB_PATH
+
 
 def get_db() -> sqlite3.Connection:
-    """Get database connection with row factory for dict-like access."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    """Get database connection with row factory for dict-like access.
+
+    vault.db is shared with the cc-director desktop app, so the connection is
+    opened in Write-Ahead Logging mode with a busy timeout to avoid
+    "database is locked" errors when both processes access it concurrently.
+    """
+    db_path = _current_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    # WAL allows one writer plus concurrent readers without immediate lock errors.
+    conn.execute("PRAGMA journal_mode = WAL")
+    # Wait up to 5000 ms for a competing writer before raising "database is locked".
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
@@ -897,7 +928,8 @@ def get_vault_stats() -> Dict[str, Any]:
     result = conn.execute("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").fetchone()
     stats['tasks_pending'] = result[0] if result else 0
 
-    result = conn.execute("SELECT COUNT(*) FROM tasks WHERE status = 'completed'").fetchone()
+    # complete_task() stores 'done' (per the tasks CHECK constraint), so count that.
+    result = conn.execute("SELECT COUNT(*) FROM tasks WHERE status = 'done'").fetchone()
     stats['tasks_completed'] = result[0] if result else 0
 
     # Count goals by status
@@ -2484,6 +2516,120 @@ def copy_list(source_name: str, dest_name: str) -> int:
         conn.close()
 
 
+def validate_where_clause(where_clause: str) -> str:
+    """Validate a raw expert WHERE clause: a single expression, no statement breaks.
+
+    Blocks semicolons and SQL comment markers so the clause cannot smuggle in a
+    second statement. Returns the trimmed clause. Raises ValueError if unsafe.
+    """
+    clause = (where_clause or "").strip()
+    if not clause:
+        raise ValueError("Empty WHERE clause")
+    if ";" in clause:
+        raise ValueError("WHERE clause must be a single expression (no ';')")
+    if "--" in clause or "/*" in clause or "*/" in clause:
+        raise ValueError("WHERE clause must not contain SQL comments ('--', '/*', '*/')")
+    return clause
+
+
+def _contact_ids_by_filters(
+    company: Optional[str] = None,
+    tag: Optional[List[str]] = None,
+    account: Optional[str] = None,
+    category: Optional[str] = None,
+    relationship: Optional[str] = None,
+) -> List[int]:
+    """Resolve contact IDs matching structured filters using parameterized SQL.
+
+    All filters combine with AND logic. Returns an empty list when no filter is
+    given (callers should treat that as "no match", not "all contacts").
+    """
+    if not any([company, tag, account, category, relationship]):
+        return []
+
+    contacts = list_contacts(
+        account=account,
+        category=category,
+        relationship=relationship,
+        tags=tag,
+    )
+    if company:
+        wanted = company.strip().lower()
+        contacts = [c for c in contacts if (c.get("company") or "").strip().lower() == wanted]
+    return [c["id"] for c in contacts]
+
+
+def add_list_members_by_filters(
+    list_name: str,
+    company: Optional[str] = None,
+    tag: Optional[List[str]] = None,
+    account: Optional[str] = None,
+    category: Optional[str] = None,
+    relationship: Optional[str] = None,
+) -> int:
+    """Add contacts matching structured filters to a list. Returns count added."""
+    init_db(silent=True)
+    lst = get_list(list_name)
+    if not lst:
+        raise ValueError(f"List not found: {list_name}")
+
+    ids = _contact_ids_by_filters(company, tag, account, category, relationship)
+    added = 0
+    for contact_id in ids:
+        if add_list_member(list_name, contact_id):
+            added += 1
+    return added
+
+
+def remove_list_members_by_filters(
+    list_name: str,
+    company: Optional[str] = None,
+    tag: Optional[List[str]] = None,
+    account: Optional[str] = None,
+    category: Optional[str] = None,
+    relationship: Optional[str] = None,
+) -> int:
+    """Remove contacts matching structured filters from a list. Returns count removed."""
+    init_db(silent=True)
+    lst = get_list(list_name)
+    if not lst:
+        raise ValueError(f"List not found: {list_name}")
+
+    ids = _contact_ids_by_filters(company, tag, account, category, relationship)
+    removed = 0
+    for contact_id in ids:
+        if remove_list_member(list_name, contact_id):
+            removed += 1
+    return removed
+
+
+def count_contacts_by_filters(
+    company: Optional[str] = None,
+    tag: Optional[List[str]] = None,
+    account: Optional[str] = None,
+    category: Optional[str] = None,
+    relationship: Optional[str] = None,
+) -> int:
+    """Count contacts matching structured filters (for a pre-action preview)."""
+    return len(_contact_ids_by_filters(company, tag, account, category, relationship))
+
+
+def count_contacts_by_query(where_clause: str, params: Optional[list] = None) -> int:
+    """Count contacts matching a raw (validated) WHERE clause, for a preview."""
+    init_db(silent=True)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT COUNT(*) FROM contacts WHERE {where_clause}",
+            params or [],
+        )
+        row = cursor.fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
 def remove_list_members_by_query(list_name: str, where_clause: str, params: Optional[list] = None) -> int:
     """
     Remove contacts matching a SQL WHERE clause from a list.
@@ -2932,6 +3078,10 @@ def list_tasks(
     params = []
 
     if status:
+        # Accept the documented-but-legacy 'completed' as an alias for the stored
+        # 'done' value so `tasks list --status completed` matches real rows.
+        if status == "completed":
+            status = "done"
         sql += " AND t.status = ?"
         params.append(status)
     elif not include_done:

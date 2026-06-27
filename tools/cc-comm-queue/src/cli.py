@@ -32,8 +32,18 @@ if getattr(sys, 'frozen', False):
     atexit.register(_flush_on_exit)
 
 import typer
+from rich import box
 from rich.console import Console
-from rich.table import Table
+from rich.table import Table as _RichTable
+
+
+def Table(*args, **kwargs):
+    """Rich Table that defaults to ASCII box drawing (house ASCII-only rule).
+
+    Callers that explicitly pass box=... (including box=None) keep their choice.
+    """
+    kwargs.setdefault("box", box.ASCII)
+    return _RichTable(*args, **kwargs)
 
 __version__ = "0.1.0"
 
@@ -45,6 +55,7 @@ try:
         SendTiming, Status, Visibility, WhatsAppSpecific, YouTubeSpecific,
     )
     from .queue_manager import QueueManager
+    from .database import InvalidStatusTransition
 except ImportError:
     # Running as frozen executable
     from schema import (
@@ -53,6 +64,7 @@ except ImportError:
         SendTiming, Status, Visibility, WhatsAppSpecific, YouTubeSpecific,
     )
     from queue_manager import QueueManager
+    from database import InvalidStatusTransition
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -78,10 +90,34 @@ def get_config():
 
 
 def get_queue_manager() -> QueueManager:
-    """Get a QueueManager instance with configured path."""
+    """Get a QueueManager instance with configured path.
+
+    The underlying SQLite connection is closed at process exit so the shared
+    communications.db file is released cleanly for the desktop app.
+    """
     config = get_config()
     queue_path = config.comm_manager.get_queue_path()
-    return QueueManager(queue_path)
+    qm = QueueManager(queue_path)
+    atexit.register(qm.close)
+    return qm
+
+
+def _reject_invalid_choice(field: str, value: str, valid: List[str], json_output: bool) -> None:
+    """Print a clear ASCII error for an unknown choice and exit with code 2.
+
+    Used so a typo in a constrained option (status, visibility, audience, privacy)
+    fails loudly instead of silently defaulting or broadening the result.
+    """
+    valid_str = ", ".join(valid)
+    if json_output:
+        print(json.dumps({
+            "success": False,
+            "error": f"Invalid {field}: {value}. Valid values: {valid_str}",
+        }))
+    else:
+        console.print(f"[red]ERROR:[/red] Invalid {field}: {value}")
+        console.print(f"Valid values: {valid_str}")
+    raise typer.Exit(2)
 
 
 def version_callback(value: bool) -> None:
@@ -177,7 +213,7 @@ def add(
             console.print(f"[red]ERROR:[/red] Invalid platform: {platform}")
             console.print("Valid platforms: linkedin, twitter, reddit, youtube, email, blog, facebook, whatsapp, medium")
         else:
-            console.print(json.dumps({"success": False, "error": f"Invalid platform: {platform}"}))
+            print(json.dumps({"success": False, "error": f"Invalid platform: {platform}"}))
         raise typer.Exit(1)
 
     # Parse content type
@@ -188,7 +224,7 @@ def add(
             console.print(f"[red]ERROR:[/red] Invalid type: {content_type}")
             console.print("Valid types: post, comment, reply, message, article, email")
         else:
-            console.print(json.dumps({"success": False, "error": f"Invalid type: {content_type}"}))
+            print(json.dumps({"success": False, "error": f"Invalid type: {content_type}"}))
         raise typer.Exit(1)
 
     # Parse persona
@@ -199,7 +235,7 @@ def add(
             console.print(f"[red]ERROR:[/red] Invalid persona: {persona}")
             console.print("Valid personas: mindzie, center_consulting, personal")
         else:
-            console.print(json.dumps({"success": False, "error": f"Invalid persona: {persona}"}))
+            print(json.dumps({"success": False, "error": f"Invalid persona: {persona}"}))
         raise typer.Exit(1)
 
     # Parse tags
@@ -216,7 +252,7 @@ def add(
             console.print(f"[red]ERROR:[/red] Invalid send_timing: {send_timing}")
             console.print("Valid options: immediate, scheduled, asap, hold")
         else:
-            console.print(json.dumps({"success": False, "error": f"Invalid send_timing: {send_timing}"}))
+            print(json.dumps({"success": False, "error": f"Invalid send_timing: {send_timing}"}))
         raise typer.Exit(1)
 
     # Validate scheduled_for if timing is scheduled
@@ -224,7 +260,7 @@ def add(
         if not json_output:
             console.print("[red]ERROR:[/red] --scheduled-for required when send_timing is 'scheduled'")
         else:
-            console.print(json.dumps({"success": False, "error": "--scheduled-for required when send_timing is 'scheduled'"}))
+            print(json.dumps({"success": False, "error": "--scheduled-for required when send_timing is 'scheduled'"}))
         raise typer.Exit(1)
 
     # Require send_from for email platform
@@ -235,7 +271,7 @@ def add(
             console.print("[red]ERROR:[/red] --send-from is required for email.")
             console.print(f"Valid accounts: {acct_list}")
         else:
-            console.print(json.dumps({"success": False, "error": f"--send-from is required for email. Valid accounts: {acct_list}"}))
+            print(json.dumps({"success": False, "error": f"--send-from is required for email. Valid accounts: {acct_list}"}))
         raise typer.Exit(1)
 
     # Validate send_from if provided
@@ -248,7 +284,7 @@ def add(
             )
             console.print(f"Valid accounts: {acct_list}")
         else:
-            console.print(json.dumps({"success": False, "error": f"Invalid send_from: {send_from}. Valid: {', '.join(valid_accounts)}"}))
+            print(json.dumps({"success": False, "error": f"Invalid send_from: {send_from}. Valid: {', '.join(valid_accounts)}"}))
         raise typer.Exit(1)
 
     # Build recipient info if provided
@@ -284,7 +320,7 @@ def add(
         )
     except Exception as e:
         if json_output:
-            console.print(json.dumps({"success": False, "error": str(e)}))
+            print(json.dumps({"success": False, "error": str(e)}))
         else:
             console.print(f"[red]ERROR:[/red] {e}")
         raise typer.Exit(1)
@@ -294,7 +330,10 @@ def add(
         try:
             vis = Visibility(linkedin_visibility.lower())
         except ValueError:
-            vis = Visibility.PUBLIC
+            _reject_invalid_choice(
+                "linkedin-visibility", linkedin_visibility,
+                [v.value for v in Visibility], json_output,
+            )
         item.linkedin_specific = LinkedInSpecific(visibility=vis)
 
     elif plat == Platform.REDDIT:
@@ -315,7 +354,7 @@ def add(
                         if not json_output:
                             console.print(f"[red]ERROR:[/red] Attachment file not found: {ap}")
                         else:
-                            console.print(json.dumps({"success": False, "error": f"Attachment file not found: {ap}"}))
+                            print(json.dumps({"success": False, "error": f"Attachment file not found: {ap}"}))
                         raise typer.Exit(1)
                     attachment_paths.append(str(p.resolve()))
             item.email_specific = EmailSpecific(
@@ -328,10 +367,13 @@ def add(
             )
 
     elif plat == Platform.FACEBOOK:
+        valid_audiences = ["public", "friends", "only_me"]
+        if facebook_audience.lower() not in valid_audiences:
+            _reject_invalid_choice("facebook-audience", facebook_audience, valid_audiences, json_output)
         item.facebook_specific = FacebookSpecific(
             page_id=facebook_page_id,
             page_name=facebook_page_name,
-            audience=facebook_audience,
+            audience=facebook_audience.lower(),
         )
 
     elif plat == Platform.WHATSAPP:
@@ -341,6 +383,10 @@ def add(
         )
 
     elif plat == Platform.YOUTUBE:
+        valid_privacy = ["private", "unlisted", "public"]
+        if youtube_privacy.lower() not in valid_privacy:
+            _reject_invalid_choice("youtube-privacy", youtube_privacy, valid_privacy, json_output)
+        youtube_privacy = youtube_privacy.lower()
         yt_tags = [t.strip() for t in youtube_tags.split(",")] if youtube_tags else []
         # Validate video file exists if provided
         if youtube_video:
@@ -349,7 +395,7 @@ def add(
                 if not json_output:
                     console.print(f"[red]ERROR:[/red] Video file not found: {youtube_video}")
                 else:
-                    console.print(json.dumps({"success": False, "error": f"Video file not found: {youtube_video}"}))
+                    print(json.dumps({"success": False, "error": f"Video file not found: {youtube_video}"}))
                 raise typer.Exit(1)
         # Validate thumbnail file exists if provided
         if youtube_thumbnail:
@@ -358,7 +404,7 @@ def add(
                 if not json_output:
                     console.print(f"[red]ERROR:[/red] Thumbnail file not found: {youtube_thumbnail}")
                 else:
-                    console.print(json.dumps({"success": False, "error": f"Thumbnail file not found: {youtube_thumbnail}"}))
+                    print(json.dumps({"success": False, "error": f"Thumbnail file not found: {youtube_thumbnail}"}))
                 raise typer.Exit(1)
         item.youtube_specific = YouTubeSpecific(
             title=youtube_title,
@@ -395,14 +441,14 @@ def add(
                 if not json_output:
                     console.print(f"[red]ERROR:[/red] Media file not found: {mf}")
                 else:
-                    console.print(json.dumps({"success": False, "error": f"Media file not found: {mf}"}))
+                    print(json.dumps({"success": False, "error": f"Media file not found: {mf}"}))
                 raise typer.Exit(1)
 
     # Add to queue
     result = qm.add_content(item, media_files=media_files)
 
     if json_output:
-        console.print(json.dumps({
+        print(json.dumps({
             "success": result.success,
             "id": result.id,
             "file": result.file,
@@ -438,7 +484,7 @@ def add_json(
         result = qm.add_content(item)
 
         if json_output:
-            console.print(json.dumps({
+            print(json.dumps({
                 "success": result.success,
                 "id": result.id,
                 "file": result.file,
@@ -455,13 +501,13 @@ def add_json(
 
     except json.JSONDecodeError as e:
         if json_output:
-            console.print(json.dumps({"success": False, "error": f"Invalid JSON: {e}"}))
+            print(json.dumps({"success": False, "error": f"Invalid JSON: {e}"}))
         else:
             console.print(f"[red]ERROR:[/red] Invalid JSON: {e}")
         raise typer.Exit(1)
     except Exception as e:
         if json_output:
-            console.print(json.dumps({"success": False, "error": str(e)}))
+            print(json.dumps({"success": False, "error": str(e)}))
         else:
             console.print(f"[red]ERROR:[/red] {e}")
         raise typer.Exit(1)
@@ -476,7 +522,7 @@ def list_content(
     """List content items in the queue."""
     qm = get_queue_manager()
 
-    # Parse status
+    # Parse status -- reject unknown values instead of silently showing everything.
     status_filter = None
     if status:
         status_map = {
@@ -488,8 +534,15 @@ def list_content(
             "error": Status.ERROR,
         }
         status_filter = status_map.get(status.lower())
+        if status_filter is None:
+            _reject_invalid_choice(
+                "status", status, sorted(status_map.keys()), json_output=False,
+            )
 
-    items = qm.list_content(status=status_filter, campaign_id=campaign_id)
+    # Pass the CLI limit through so "-n 200" can actually return up to 200 rows,
+    # and compute the true total separately so the footer is accurate.
+    items = qm.list_content(status=status_filter, limit=limit, campaign_id=campaign_id)
+    total = qm.count_content(status=status_filter, campaign_id=campaign_id)
 
     if not items:
         console.print("[yellow]No content items found[/yellow]")
@@ -538,7 +591,7 @@ def list_content(
         )
 
     console.print(table)
-    console.print(f"\n[dim]Showing {min(len(items), limit)} of {len(items)} items[/dim]")
+    console.print(f"\n[dim]Showing {len(items)} of {total} items[/dim]")
 
 
 @app.command("status")
@@ -555,8 +608,9 @@ def status_cmd():
     table.add_row("[green]Approved[/green]", str(stats.approved))
     table.add_row("[red]Rejected[/red]", str(stats.rejected))
     table.add_row("[dim]Posted[/dim]", str(stats.posted))
+    table.add_row("[red]Error[/red]", str(stats.error))
     table.add_row("", "")
-    table.add_row("[bold]Total[/bold]", str(stats.pending_review + stats.approved + stats.rejected + stats.posted))
+    table.add_row("[bold]Total[/bold]", str(stats.pending_review + stats.approved + stats.rejected + stats.posted + stats.error))
 
     console.print(table)
     console.print(f"\n[dim]Queue path: {qm.queue_path}[/dim]")
@@ -579,7 +633,7 @@ def show_content(
 
     if not item:
         if json_output:
-            console.print(json.dumps({"error": f"Content not found: {content_id}"}))
+            print(json.dumps({"error": f"Content not found: {content_id}"}))
         else:
             console.print(f"[red]ERROR:[/red] Content not found: {content_id}")
         raise typer.Exit(1)
@@ -588,7 +642,7 @@ def show_content(
     if json_output:
         # Remove internal fields
         output = {k: v for k, v in item.items() if not k.startswith("_")}
-        console.print(json.dumps(output, indent=2, default=str))
+        print(json.dumps(output, indent=2, default=str))
         return
 
     # Header
@@ -670,14 +724,14 @@ def delete_content(
 
     if not item:
         if json_output:
-            console.print(json.dumps({"success": False, "error": f"Content not found: {content_id}"}))
+            print(json.dumps({"success": False, "error": f"Content not found: {content_id}"}))
         else:
             console.print(f"[red]ERROR:[/red] Content not found: {content_id}")
         raise typer.Exit(1)
 
     if ticket_number is None:
         if json_output:
-            console.print(json.dumps({"success": False, "error": "Item has no ticket number"}))
+            print(json.dumps({"success": False, "error": "Item has no ticket number"}))
         else:
             console.print("[red]ERROR:[/red] Item has no ticket number, cannot delete")
         raise typer.Exit(1)
@@ -701,7 +755,7 @@ def delete_content(
     deleted = qm.delete_content(ticket_number)
 
     if json_output:
-        console.print(json.dumps({
+        print(json.dumps({
             "success": deleted,
             "ticket_number": ticket_number,
             "error": None if deleted else "Delete failed",
@@ -718,8 +772,13 @@ def delete_content(
 def mark_posted_cmd(
     content_id: str = typer.Argument(..., help="Ticket number or content ID (can be partial)"),
     posted_by: str = typer.Option("cc_director", "--by", help="Who posted the content"),
+    force: bool = typer.Option(False, "--force", "-f", help="Bypass the approval workflow (mark a non-approved item posted)"),
 ):
-    """Mark a content item as posted (sent)."""
+    """Mark a content item as posted (sent).
+
+    Only items in 'approved' status can be marked posted -- the approval queue
+    exists so a human reviews every item first. Pass --force to override.
+    """
     qm = get_queue_manager()
 
     item = None
@@ -740,7 +799,11 @@ def mark_posted_cmd(
         console.print("[red]ERROR:[/red] Item has no ticket number")
         raise typer.Exit(1)
 
-    success = qm.mark_posted(ticket_number, posted_by=posted_by)
+    try:
+        success = qm.mark_posted(ticket_number, posted_by=posted_by, force=force)
+    except InvalidStatusTransition as e:
+        console.print(f"[red]ERROR:[/red] {e}")
+        raise typer.Exit(1)
     if success:
         console.print(f"[green]OK:[/green] Marked ticket #{ticket_number} as posted")
         # Auto-log to vault
@@ -1206,31 +1269,24 @@ def config_set(
     value: str = typer.Argument(..., help="Config value"),
 ):
     """Set a configuration value."""
-    config_path = Path.home() / ".cc-director" / "config.json"
-
-    # Load existing config
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {}
-
-    # Ensure comm_manager section exists
-    if "comm_manager" not in data:
-        data["comm_manager"] = {}
-
-    # Set the value
-    if key in ["queue_path", "default_persona", "default_created_by"]:
-        data["comm_manager"][key] = value
-    else:
+    valid_keys = ["queue_path", "default_persona", "default_created_by"]
+    if key not in valid_keys:
         console.print(f"[red]ERROR:[/red] Unknown config key: {key}")
-        console.print("Valid keys: queue_path, default_persona, default_created_by")
+        console.print(f"Valid keys: {', '.join(valid_keys)}")
         raise typer.Exit(1)
 
-    # Save config
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    # Write through the SAME shared config store that `config show` and queue
+    # operations read (cc-director's config.json). CCDirectorConfig.save()
+    # deep-merges over the on-disk file, so unknown keys owned by the desktop
+    # app or other tools are preserved.
+    from cc_shared.config import CCDirectorConfig, reload_config
+
+    cfg = CCDirectorConfig().load()
+    setattr(cfg.comm_manager, key, value)
+    cfg.save()
+    # Drop the process-wide cached config so a later get_config() in the same
+    # process sees the new value.
+    reload_config()
 
     console.print(f"[green]OK:[/green] Set {key} = {value}")
 
@@ -1246,9 +1302,9 @@ def migrate_json(
     console.print(f"[cyan]Migrating JSON files from:[/cyan] {queue_path}")
 
     try:
-        from migrate import migrate_json_to_sqlite
-    except ImportError:
         from .migrate import migrate_json_to_sqlite
+    except ImportError:
+        from migrate import migrate_json_to_sqlite
 
     stats = migrate_json_to_sqlite(queue_path, backup=True, delete_json=delete)
 

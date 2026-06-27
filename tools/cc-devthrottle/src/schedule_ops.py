@@ -9,8 +9,10 @@ from typing import Any, Dict, List, Optional
 
 import requests
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
+from urllib.parse import urlparse
 
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
@@ -52,12 +54,27 @@ def _auth_token() -> str:
     return (config.gateway.token or "").strip()
 
 
+def _is_loopback(url: str) -> bool:
+    """True when the URL targets this machine (a loopback Gateway needs no token)."""
+    host = (urlparse(url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
 class ScheduleClient:
     """Talks to one Gateway's cron/schedule surface."""
 
     def __init__(self, base_url: Optional[str] = None) -> None:
         self.base_url = (base_url or resolve_base_url()).rstrip("/")
         self._token = _auth_token()
+        # Make the auth requirement explicit instead of silently issuing an unauthenticated
+        # request to a remote Gateway: a loopback Gateway on this machine needs no token, but a
+        # remote one does.
+        if not self._token and not _is_loopback(self.base_url):
+            raise GatewayError(
+                f"Gateway URL {self.base_url} is remote but gateway.token is not set. "
+                "Set it with 'cc-devthrottle settings set gateway.token <token>' "
+                "(a loopback Gateway on this machine needs no token)."
+            )
 
     def _headers(self) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -181,7 +198,7 @@ def list_jobs(json_output: bool) -> None:
         return
 
     if json_output:
-        console.print(json.dumps(jobs, indent=2))
+        print(json.dumps(jobs, indent=2))
         return
 
     if not jobs:
@@ -190,7 +207,7 @@ def list_jobs(json_output: bool) -> None:
         )
         return
 
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
     table.add_column("Id")
     table.add_column("Name")
     table.add_column("Machine")
@@ -221,7 +238,7 @@ def get_job(job_id: str, json_output: bool) -> None:
         return
 
     if json_output:
-        console.print(json.dumps(job, indent=2))
+        print(json.dumps(job, indent=2))
         return
 
     target = job.get("target") or {}
@@ -244,14 +261,14 @@ def list_runs(job_id: str, json_output: bool) -> None:
         return
 
     if json_output:
-        console.print(json.dumps(history, indent=2))
+        print(json.dumps(history, indent=2))
         return
 
     if not history:
         console.print("No runs recorded yet for this schedule.")
         return
 
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
     table.add_column("Scheduled (UTC)")
     table.add_column("Fired (UTC)")
     table.add_column("Target")
@@ -324,7 +341,7 @@ def create_job(
         return
 
     if json_output:
-        console.print(json.dumps(created, indent=2))
+        print(json.dumps(created, indent=2))
         return
 
     console.print("[green]Created schedule.[/green]")
@@ -341,7 +358,7 @@ def run_now(job_id: str, json_output: bool) -> None:
         return
 
     if json_output:
-        console.print(json.dumps(record, indent=2))
+        print(json.dumps(record, indent=2))
         return
 
     console.print("[green]Fired the schedule.[/green]")
@@ -382,6 +399,6 @@ def delete_job(job_id: str) -> None:
 def endpoint(json_output: bool) -> None:
     base = gateway_override or resolve_base_url()
     if json_output:
-        console.print(json.dumps({"base_url": base}, indent=2))
+        print(json.dumps({"base_url": base}, indent=2))
     else:
         console.print(base)
