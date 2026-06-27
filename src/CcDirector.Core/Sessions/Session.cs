@@ -145,6 +145,16 @@ public sealed class Session : IDisposable
     public SessionStatus Status { get; internal set; }
     public DateTimeOffset CreatedAt { get; }
     public string? ClaudeArgs { get; }
+
+    /// <summary>The EFFECTIVE launch command line the agent process was actually started with -
+    /// the merged result of <see cref="ClaudeArgs"/> (per-session args) and the configured agent
+    /// defaults (e.g. <c>AgentOptions.DefaultClaudeArgs</c>), as produced by the agent's
+    /// BuildLaunchSpec. This is the authoritative source of the launched <c>--model</c> value
+    /// (issue #803): <see cref="ClaudeArgs"/> is null whenever the model comes from the configured
+    /// default rather than a per-session override, so the context gauge must read the effective
+    /// args, not the raw per-session ones. Set by SessionManager at launch.</summary>
+    public string? EffectiveLaunchArgs { get; internal set; }
+
     public int? ExitCode { get; internal set; }
 
     /// <summary>The terminal buffer from the backend. May be null for Embedded mode.</summary>

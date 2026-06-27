@@ -89,7 +89,9 @@ public partial class SessionActionBar : UserControl
             }
 
             var repoPath = session.RepoPath;
-            var launchArgs = session.ClaudeArgs;   // the launched model id ([1m]) is the authoritative window
+            // EffectiveLaunchArgs carries the launched --model ([1m]) even when it came from the
+            // configured default; ClaudeArgs alone is null in that case (#803).
+            var launchArgs = session.EffectiveLaunchArgs ?? session.ClaudeArgs;
             var usage = await Task.Run(() => session.Driver.ReadContextUsage(sid, repoPath, launchArgs));
 
             // The active session may have changed while the read ran; ignore a stale result.
