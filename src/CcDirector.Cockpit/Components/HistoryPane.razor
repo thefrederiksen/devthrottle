@@ -318,6 +318,15 @@
 
         try
         {
+            // When every bubble is hidden (an empty transcript, or a filter that hides all of it),
+            // the .hist-scroll element leaves the DOM. Reset the attach flag so the listener re-binds
+            // to the FRESH element when bubbles return; otherwise it stays bound to the detached node
+            // and sticky-bottom scroll silently dies after an empty->non-empty cycle - which the new
+            // "Show:" filters make easy to trigger (#760 review). init() is idempotent (it disposes
+            // any prior listener for the element first), so re-binding is safe.
+            if (_bubbles.Count == 0)
+                _listenerAttached = false;
+
             // Attach the scroll listener once the scroll container exists (it is absent while the
             // empty state shows), and land at the bottom on activation.
             if (_selfRef is not null && _bubbles.Count > 0 && !_listenerAttached)

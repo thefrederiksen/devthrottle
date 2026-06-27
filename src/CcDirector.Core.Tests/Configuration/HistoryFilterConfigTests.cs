@@ -76,7 +76,9 @@ public sealed class HistoryFilterConfigTests : IDisposable
         new HistoryFilterConfig(ShowToolCalls: false, ShowToolResults: true, ShowThinking: true).Save();
 
         // The unrelated section must survive the filter write (deep-merge, not whole-file rewrite).
-        Assert.Equal("lan", CcDirectorConfigService.ReadRaw()["addressing_mode"]!.GetValue<string>());
+        var addressingMode = CcDirectorConfigService.ReadRaw()["addressing_mode"];
+        Assert.NotNull(addressingMode);
+        Assert.Equal("lan", addressingMode.GetValue<string>());
         Assert.False(HistoryFilterConfig.Get().ShowToolCalls);
     }
 
