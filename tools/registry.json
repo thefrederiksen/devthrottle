@@ -260,19 +260,10 @@
       "requirements": ["Graphviz"]
     },
     {
-      "name": "cc-settings",
-      "category": "data-utilities",
-      "type": "python",
-      "description": "Manage cc-director configuration and system settings",
-      "built": true,
-      "ship": true,
-      "requirements": []
-    },
-    {
       "name": "cc-devthrottle",
       "category": "fleet",
       "type": "python",
-      "description": "Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup",
+      "description": "Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup",
       "built": true,
       "ship": true,
       "requirements": []

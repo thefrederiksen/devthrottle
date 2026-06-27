@@ -11,6 +11,7 @@ from rich.table import Table
 
 from . import __version__
 from . import schedule_ops
+from . import settings_ops
 from . import setup_ops
 from .session_ops import (
     ask_session,
@@ -30,6 +31,9 @@ app = typer.Typer(
 )
 session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
 message_app = typer.Typer(help="Send messages between sessions.", add_completion=False)
+settings_app = typer.Typer(
+    help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
+)
 schedule_app = typer.Typer(
     help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
 )
@@ -38,6 +42,7 @@ setup_app = typer.Typer(
 )
 app.add_typer(session_app, name="session")
 app.add_typer(message_app, name="message")
+app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(setup_app, name="setup")
 console = Console()
@@ -107,6 +112,30 @@ _ACTIONS = [
         "command": "cc-devthrottle selftest",
         "mutatesState": True,
         "args": [],
+    },
+    {
+        "id": "settings-show",
+        "description": "Display current CC Director settings.",
+        "command": "cc-devthrottle settings show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "settings-get",
+        "description": "Get a CC Director setting by dotted key.",
+        "command": "cc-devthrottle settings get <key>",
+        "mutatesState": False,
+        "args": [{"name": "key", "required": True}],
+    },
+    {
+        "id": "settings-set",
+        "description": "Set a CC Director setting by dotted key.",
+        "command": "cc-devthrottle settings set <key> <value>",
+        "mutatesState": True,
+        "args": [
+            {"name": "key", "required": True},
+            {"name": "value", "required": True},
+        ],
     },
     {
         "id": "schedule-list",
@@ -270,6 +299,52 @@ def selftest(
 ) -> None:
     """Run the fleet messaging self-test against the local Director."""
     run_selftest(timeout_ms)
+
+
+@settings_app.command("show")
+def settings_show(
+    section: Optional[str] = typer.Argument(
+        None, help="Section name to show, e.g. screenshots, vault, or llm."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Display current settings."""
+    settings_ops.show(section, json_output)
+
+
+@settings_app.command("get")
+def settings_get(
+    key: str = typer.Argument(..., help="Setting key, e.g. screenshots.source_directory."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Get a specific setting value."""
+    settings_ops.get(key, json_output)
+
+
+@settings_app.command("set")
+def settings_set(
+    key: str = typer.Argument(..., help="Setting key, e.g. screenshots.source_directory."),
+    value: str = typer.Argument(..., help="New value."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Set a configuration value."""
+    settings_ops.set_config_value(key, value, json_output)
+
+
+@settings_app.command("list")
+def settings_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """List all setting keys."""
+    settings_ops.list_settings(json_output)
+
+
+@settings_app.command("path")
+def settings_path(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show the config file location."""
+    settings_ops.path(json_output)
 
 
 @schedule_app.callback()

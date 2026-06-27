@@ -25,7 +25,7 @@ CC Director includes command-line tools for document conversion, media processin
 
 | Tool | Description | Requirements |
 |------|-------------|--------------|
-| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
+| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
 
 ### Web and Social
 
@@ -68,7 +68,6 @@ CC Director includes command-line tools for document conversion, media processin
 | cc-vault | Personal vault: contacts, tasks, goals, docs, RAG | None |
 | cc-hardware | System hardware info (RAM, CPU, GPU, disk) | None |
 | cc-comm-queue | Communication Manager approval queue | None |
-| cc-settings | CC Director configuration management | None |
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz; not shipped (dev-only, build from repo) |
 | cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
 
@@ -194,14 +193,15 @@ cc-devthrottle session rename 9b2f "Frontend Review"
 cc-devthrottle message send 9b2f "Can you run the focused test?"
 cc-devthrottle message ask 9b2f "What is your status?"
 cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests."
+cc-devthrottle settings get screenshots.source_directory
 cc-devthrottle schedule list
 cc-devthrottle setup status
 cc-devthrottle selftest
 ```
 
 The one-argument rename form renames the current session using `CC_SESSION_ID`.
-Schedule commands manage Gateway cron jobs. Setup commands inspect, install, update, and repair
-the local DevThrottle tool installation.
+Settings commands read and write `config.json`. Schedule commands manage Gateway cron jobs.
+Setup commands inspect, install, update, and repair the local DevThrottle tool installation.
 
 ---
 

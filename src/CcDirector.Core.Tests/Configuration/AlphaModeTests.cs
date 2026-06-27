@@ -118,7 +118,7 @@ public sealed class AlphaModeTests : IDisposable
     {
         AlphaMode.SetEnabled(false);
 
-        // Simulate an external writer (Python cc-settings, REST PUT) flipping the flag.
+        // Simulate an external writer (cc-devthrottle settings, REST PUT) flipping the flag.
         CcDirectorConfigService.MergePatch(new JsonObject { ["alpha_mode"] = true });
         AlphaMode.Reload();
 

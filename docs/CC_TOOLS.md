@@ -32,7 +32,7 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 
 | Tool | Description | Requirements |
 |------|-------------|--------------|
-| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
+| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
 
 ### Web and Social
 
@@ -974,6 +974,23 @@ cc-docgen validate
 **Output:** context.png and container.png (C4 Level 1 and Level 2 diagrams)
 
 **Requires:** Graphviz installed and on PATH
+
+---
+
+### cc-devthrottle settings
+
+Read and write CC Director configuration settings from the same unified command surface.
+
+```bash
+cc-devthrottle settings show
+cc-devthrottle settings show screenshots
+cc-devthrottle settings get screenshots.source_directory
+cc-devthrottle settings set gateway.url "http://gateway-host:7878"
+cc-devthrottle settings list
+cc-devthrottle settings path
+```
+
+`--json` is available on every settings subcommand.
 
 ---
 

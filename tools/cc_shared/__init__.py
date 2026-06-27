@@ -14,7 +14,7 @@ from .themes import (
 
 # NOTE: markdown_parser is imported lazily (PEP 562) rather than eagerly. It pulls in
 # markdown-it-py + mdit_py_plugins, which only cc-pdf / cc-html / cc-word need. Tools
-# like cc-settings that import a sibling submodule (e.g. cc_shared.config) would
+# like cc-devthrottle that import a sibling submodule (e.g. cc_shared.config) would
 # otherwise crash if those packages were not bundled into their frozen build. Accessing
 # cc_shared.parse_markdown / cc_shared.ParsedMarkdown still works on demand.
 _LAZY = {"ParsedMarkdown", "parse_markdown"}

@@ -9,7 +9,7 @@ namespace CcDirector.Core.Configuration;
 ///
 /// Why this exists: <c>config.json</c> holds many independent sections (<c>gateway</c>,
 /// <c>llm</c>, <c>photos</c>, <c>comm_manager</c>, <c>screenshots</c>, ...) written by
-/// different owners (this app, the Python cc-settings tool). Any writer that rewrites
+/// different owners (this app, cc-devthrottle settings, REST PUT /settings). Any writer that rewrites
 /// the whole file from a typed model silently DROPS sections it doesn't know about.
 /// To avoid that data loss, all writes here go through <see cref="MergePatch"/>, which
 /// deep-merges a partial patch into the on-disk JSON and preserves every untouched key.

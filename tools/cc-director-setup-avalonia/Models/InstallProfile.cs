@@ -22,7 +22,7 @@ public static class ToolGroupRegistry
     public static readonly ToolGroup[] AllGroups =
     [
         new("Core", "Settings and configuration",
-            ["cc-settings"], DefaultEnabled: true, IsRequired: true),
+            ["cc-devthrottle"], DefaultEnabled: true, IsRequired: true),
 
         new("Documents", "PDF, HTML, Word, Excel, PowerPoint generation",
             ["cc-pdf", "cc-html", "cc-word", "cc-excel", "cc-powerpoint"],

@@ -84,10 +84,11 @@ public class SkillToolLinkerTests : IDisposable
     [Fact]
     public void BuildLinks_OverrideForUndiscoveredPair_AddsDeclared()
     {
-        // No skill file mentions cc-settings here; the embedded override declares cc-settings-api drives it.
-        var links = Linker("cc-settings").BuildLinks();
+        // No skill file mentions cc-devthrottle here; the embedded override declares
+        // cc-settings-api drives its settings subcommands.
+        var links = Linker("cc-devthrottle").BuildLinks();
 
-        var matching = links.Where(l => l.ToolName == "cc-settings" && l.SkillName == "cc-settings-api").ToList();
+        var matching = links.Where(l => l.ToolName == "cc-devthrottle" && l.SkillName == "cc-settings-api").ToList();
         Assert.Single(matching);
         Assert.Equal(SkillLinkSource.Declared, matching[0].Source);
         Assert.Equal(SkillLinkRelation.Drives, matching[0].Relation);

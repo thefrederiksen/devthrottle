@@ -38,7 +38,6 @@ PYTHON_TOOLS = [
     "cc-posthog",
     "cc-powerpoint",
     "cc-reddit",
-    "cc-settings",
     "cc-transcribe",
     "cc-twitter",
     "cc-vault",

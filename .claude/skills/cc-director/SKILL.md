@@ -35,15 +35,16 @@ All tools are on PATH after install. For exact flags and examples, run any tool 
 `cc-image`, `cc-voice` (text-to-speech), `cc-whisper` (audio transcription / translation), `cc-video`, `cc-transcribe`, `cc-photos`, `cc-youtube-info`.
 
 ### Data and utilities
-`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML), `cc-settings` (configuration).
+`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML).
 
 ### DevThrottle fleet, schedules, and setup
-`cc-devthrottle` is the unified command for fleet/session operations, inter-session messages, Gateway schedules, and setup:
+`cc-devthrottle` is the unified command for fleet/session operations, inter-session messages, settings, Gateway schedules, and setup:
 
 ```
 cc-devthrottle actions --json
 cc-devthrottle session list
 cc-devthrottle message send <target|all> "message"
+cc-devthrottle settings get screenshots.source_directory
 cc-devthrottle schedule list
 cc-devthrottle setup status
 ```

@@ -82,7 +82,7 @@ class ScheduleClient:
                 f"Gateway not reachable at {self.base_url}. "
                 "Is the Gateway tray app running on this machine? "
                 "If you target a remote Gateway, set gateway.url with "
-                "'cc-settings set gateway.url <url>'."
+                "'cc-devthrottle settings set gateway.url <url>'."
             ) from exc
         except requests.exceptions.Timeout as exc:
             raise GatewayError(

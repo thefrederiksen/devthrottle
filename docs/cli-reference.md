@@ -626,68 +626,12 @@ OPTIONS:
 
 ---
 
-## cc-settings
-
-Manage cc-director configuration and system settings.
-
-```
-USAGE: cc-settings [OPTIONS] COMMAND [ARGS]...
-
-OPTIONS: --version -v, --help
-
-COMMANDS:
-  show [SECTION]                       Display current settings (all or one section)
-  get KEY                              Get a specific setting value
-  set KEY VALUE                        Set a configuration value
-  list                                 List all setting keys with values
-  path                                 Show the config file location
-```
-
-### cc-settings show
-
-```
-USAGE: cc-settings show [OPTIONS] [SECTION]
-
-ARGUMENTS:
-  SECTION  Section name (e.g. screenshots, vault, llm) [optional]
-
-OPTIONS:
-  --json  -j  Output as JSON
-```
-
-### cc-settings get
-
-```
-USAGE: cc-settings get [OPTIONS] KEY
-
-ARGUMENTS:
-  KEY  Dotted setting key (e.g. screenshots.source_directory) [required]
-
-OPTIONS:
-  --json  -j  Output as JSON
-```
-
-### cc-settings set
-
-```
-USAGE: cc-settings set [OPTIONS] KEY VALUE
-
-ARGUMENTS:
-  KEY    Dotted setting key [required]
-  VALUE  New value [required]
-
-OPTIONS:
-  --json  -j  Output as JSON
-```
-
----
-
 ## DevThrottle Command (cc-devthrottle)
 
 Unified DevThrottle command surface for session-to-session messaging, session management, Gateway
-schedules, and local setup diagnostics. Fleet/session/message commands run inside a DevThrottle
-session and talk to that session's own Director through `CC_DIRECTOR_API`. Schedule commands talk
-to the Gateway using `gateway.url` and `gateway.token` from config.
+schedules, settings, and local setup diagnostics. Fleet/session/message commands run inside a
+DevThrottle session and talk to that session's own Director through `CC_DIRECTOR_API`. Schedule
+commands talk to the Gateway using `gateway.url` and `gateway.token` from config.
 
 ### cc-devthrottle
 
@@ -704,6 +648,9 @@ COMMANDS:
   session spawn    Open a new session on the local Director.
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
+  settings show    Display current settings.
+  settings get     Get a specific setting value.
+  settings set     Set a configuration value.
   schedule list    List every schedule on the Gateway.
   schedule create  Create a schedule, one-off with --at or recurring with --cron.
   schedule run     Fire a schedule immediately.
@@ -810,6 +757,22 @@ OPTIONS:
 
 Spawns two throwaway sessions, lists them, sends to one, asks the other, tears them down, and prints
 PASS/FAIL.
+
+### Settings
+
+```
+USAGE: cc-devthrottle settings COMMAND [ARGS]...
+
+COMMANDS:
+  show [SECTION]  Display current settings, or one section.
+  get KEY         Get a specific setting value.
+  set KEY VALUE   Set a configuration value.
+  list            List all setting keys with values.
+  path            Show the config file location.
+```
+
+`--json` is available on every settings subcommand. Dotted keys use the same names as
+`config.json`, for example `screenshots.source_directory` or `gateway.url`.
 
 ### Schedule
 

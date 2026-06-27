@@ -10,7 +10,7 @@
       { "skill": "contact-merge", "relation": "uses" },
       { "skill": "campaign", "relation": "uses" }
     ],
-    "cc-settings": [
+    "cc-devthrottle": [
       { "skill": "cc-settings-api", "relation": "drives" }
     ]
   }

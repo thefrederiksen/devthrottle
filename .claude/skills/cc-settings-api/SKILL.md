@@ -77,8 +77,8 @@ After this the Director re-registers immediately. Verify it appears in the gatew
 ## Notes
 
 - Do NOT hand-edit `config.json` while a Director is running and also use this API - go
-  through the API so the live gateway re-apply happens. (The Python `cc-settings` CLI is
-  the offline path and is also round-trip-preserving.)
+  through the API so the live gateway re-apply happens. (`cc-devthrottle settings` is the
+  offline path and is also round-trip-preserving.)
 - If no Director is running, the script fails loudly telling you to start CC Director. It
   does not silently write the file - starting the Director is the fix.
 - Output is ASCII-only.
