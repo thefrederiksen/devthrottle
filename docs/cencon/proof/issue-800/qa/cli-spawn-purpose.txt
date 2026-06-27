@@ -1,0 +1,4 @@
+Opened session b5f374d5 (wt-qa-issue-800: verify issue 800 QA).
+id: b5f374d5-5639-450b-939b-01a20a949d46
+Message it:  cc-devthrottle message send b5f374d5 "<message>"   |   Ask it:  
+cc-devthrottle message ask b5f374d5 "<question>"

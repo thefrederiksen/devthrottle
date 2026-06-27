@@ -9,6 +9,23 @@ public sealed class NewSessionRequest
     public string RepoPath { get; set; } = "";
 
     /// <summary>
+    /// Optional explicit display name for the new session (issue #800). When provided it is used
+    /// verbatim, EXCEPT that a blank name or one equal (case-insensitive) to the bare repository
+    /// folder name is rejected with HTTP 400 - pass a meaningful name or a <see cref="Purpose"/>.
+    /// When omitted, the Director auto-composes a meaningful name from the folder, the session
+    /// type, and a disambiguator so a session never displays as the bare folder name alone.
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// Optional short free-text description of what the session is FOR (issue #800), e.g.
+    /// "implement #799". When no explicit <see cref="Name"/> is given, the Director builds the
+    /// session name from the folder name plus this purpose (e.g. "devthrottle: implement #799").
+    /// Trimmed and capped when building the name; not stored as a separate field on the session.
+    /// </summary>
+    public string? Purpose { get; set; }
+
+    /// <summary>
     /// Which agent CLI to launch. Valid values: "ClaudeCode" (default), "Pi", "Codex",
     /// "Gemini", "OpenCode", "Grok", "RawCli". When "RawCli" is specified, <see cref="Command"/>
     /// must also be set to the executable to run.

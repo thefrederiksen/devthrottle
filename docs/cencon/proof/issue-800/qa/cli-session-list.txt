@@ -1,0 +1,35 @@
+┌───────────────┬───────────────┬─────────────┬───────────────┬───────────────┐
+│ ID            │ NAME          │ MACHINE     │ REPOSITORY    │ STATUS        │
+├───────────────┼───────────────┼─────────────┼───────────────┼───────────────┤
+│ 01e19d41      │ QA explicit   │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ name check    │             │               │               │
+│ 0c836d12      │ wt-qa-issue-… │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ /             │             │               │               │
+│               │ Implementati… │             │               │               │
+│               │ / 0c83        │             │               │               │
+│ b5f374d5      │ wt-qa-issue-… │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ verify issue  │             │               │               │
+│               │ 800 QA        │             │               │               │
+│ 1df6ad3f      │ wt-qa-issue-… │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ / Developer / │             │               │               │
+│               │ 1df6          │             │               │               │
+│ 6f915c70      │ wt-qa-issue-… │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ implement     │             │               │               │
+│               │ #799          │             │               │               │
+│ f3efb469      │ wt-qa-issue-… │ SOREN_NORTH │ wt-qa-issue-… │ WaitingForIn… │
+│               │ /             │             │               │               │
+│               │ Implementati… │             │               │               │
+│               │ / f3ef        │             │               │               │
+│ e4e8bdc5      │ devthrottle:  │ SOREN_NORTH │ devthrottle   │ Working       │
+│ (you)         │ impl #800     │             │               │               │
+│               │ session-nami… │             │               │               │
+│ 8322105f      │ mindzieWeb -  │ SOREN_NORTH │ mindzieWeb    │ WaitingForIn… │
+│               │ mindzieAnaly… │             │               │               │
+│ ce2bc7fb      │ devthrottle - │ SOREN_NORTH │ devthrottle   │ WaitingForIn… │
+│               │ agent context │             │               │               │
+│ 1fb5fe40      │ (unnamed)     │ SOREN_NORTH │ devthrottle   │ WaitingForIn… │
+│ 5675a3fc      │ Dev Throttle  │ SOREN_NORTH │ devthrottle   │ WaitingForIn… │
+│               │ Tools Review  │             │               │               │
+│ 3429220a      │ cc-devthrott… │ SOREN_NORTH │ devthrottle   │ WaitingForIn… │
+│               │ Claude Review │             │               │               │
+└───────────────┴───────────────┴─────────────┴───────────────┴───────────────┘

@@ -28,10 +28,17 @@ cc-devthrottle session list
 cc-devthrottle session whoami
 cc-devthrottle session rename "Dev Throttle Review"
 cc-devthrottle session rename 9b2f "Frontend Review"
-cc-devthrottle session spawn D:\path\to\repo
-cc-devthrottle session spawn D:\path\to\repo --agent ClaudeCode --prompt "Run the tests and report failures."
+cc-devthrottle session spawn D:\path\to\repo --purpose "implement #799"
+cc-devthrottle session spawn D:\path\to\repo --name "Frontend review"
+cc-devthrottle session spawn D:\path\to\repo --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
 cc-devthrottle session spawn D:\path\to\repo --name "frontend" --agent RawCli --command cmd
 ```
+
+Always name your session. On this fleet many sessions run in the SAME checkout, so a session with
+no name displays as the bare folder name and is impossible to tell apart. Lead with `--name`
+(an explicit display name) or `--purpose` (a short description of what the session is FOR, e.g.
+`implement #799`); spawn warns when you give neither. A blank name, or a name equal to the bare
+repository folder name, is rejected - pass something meaningful or a purpose.
 
 `session rename "name"` renames the current session using `CC_SESSION_ID`.
 `session rename <target> "name"` renames another session selected by id prefix or exact name.

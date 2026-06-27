@@ -246,12 +246,26 @@ def spawn_session(
     agent: str,
     prompt: Optional[str],
     name: Optional[str],
+    purpose: Optional[str],
     session_type: Optional[str],
     command: Optional[str],
     command_args: Optional[str],
 ) -> None:
     """Open a new session on the local Director."""
+    # Issue #800: always name your session. On this fleet many sessions run in the same
+    # checkout, so a session with neither a name nor a purpose still gets an auto-composed
+    # name from the Director, but it reads better when you describe what it is FOR.
+    if not name and not purpose:
+        console.print(
+            "[yellow]Warning:[/yellow] no --name or --purpose given; the session will get an "
+            "auto-composed name. Pass --purpose \"<what it is for>\" so it is easy to tell apart."
+        )
+
     body: Dict[str, Any] = {"repoPath": repo, "agent": agent}
+    if name:
+        body["name"] = name
+    if purpose:
+        body["purpose"] = purpose
     if prompt:
         body["prePrompt"] = prompt
     if session_type:
@@ -272,14 +286,9 @@ def spawn_session(
         console.print("[red]Error:[/red] the Director did not return a session id.")
         raise typer.Exit(1)
 
-    if name:
-        try:
-            director.patch_json(f"sessions/{sid}", {"name": name})
-        except director.DirectorError as err:
-            console.print(f"[yellow]Session created, but rename failed:[/yellow] {err}")
-
     short = director.short_id(sid)
-    label = name or director.field(resp, "name", "Name") or short
+    # The Director names the session at birth (issue #800), so the response carries the final name.
+    label = director.field(resp, "name", "Name") or name or short
     console.print(f"[green]Opened[/green] session {short} ({label}).")
     console.print(f"id: {sid}")
     console.print(

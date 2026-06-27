@@ -1,0 +1,18 @@
+=== composer call sites (SessionName.Compose / DisplayName) ===
+src/CcDirector.ControlApi/ControlEndpoints.cs:233:            var name = SessionName.DisplayName(session.CustomName,
+src/CcDirector.ControlApi/ControlEndpoints.cs:234:                SessionName.FolderName(session.RepoPath), session.SessionType,
+src/CcDirector.ControlApi/ControlEndpoints.cs:235:                SessionName.Disambiguator(session.Id));
+src/CcDirector.ControlApi/ControlEndpoints.cs:259:                    fromName = SessionName.DisplayName(sender.CustomName,
+src/CcDirector.ControlApi/ControlEndpoints.cs:260:                        SessionName.FolderName(sender.RepoPath), sender.SessionType,
+src/CcDirector.ControlApi/ControlEndpoints.cs:261:                        SessionName.Disambiguator(sender.Id));
+src/CcDirector.ControlApi/ControlEndpoints.cs:1541:                    : SessionName.DisplayName(s.CustomName, SessionName.FolderName(s.RepoPath),
+src/CcDirector.ControlApi/ControlEndpoints.cs:1542:                        s.SessionType, SessionName.Disambiguator(s.Id));
+src/CcDirector.ControlApi/ControlEndpoints.cs:2778:            var repoFolderName = SessionName.FolderName(req.RepoPath);
+src/CcDirector.ControlApi/ControlEndpoints.cs:2779:            if (req.Name is not null && SessionName.IsWeakExplicitName(req.Name, repoFolderName))
+src/CcDirector.ControlApi/ControlEndpoints.cs:2796:                    nameFactory: id => SessionName.Compose(
+src/CcDirector.ControlApi/ControlEndpoints.cs:2797:                        repoFolderName, sessionType, explicitName, purpose, SessionName.Disambiguator(id)));
+src/CcDirector.Core/Sessions/SessionManager.cs:336:                var piName = SessionName.DisplayName(
+src/CcDirector.Core/Sessions/SessionManager.cs:338:                    SessionName.FolderName(repoPath),
+src/CcDirector.Core/Sessions/SessionManager.cs:340:                    SessionName.Disambiguator(id));
+=== confirm NO bare-folder session-name fallbacks remain in those files ===
+src/CcDirector.ControlApi/ControlEndpoints.cs:3047:        return Path.GetFileName(repoPath.TrimEnd('\\', '/'));

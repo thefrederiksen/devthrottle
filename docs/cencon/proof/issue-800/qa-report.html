@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #800 (PR #802)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f3f0fb; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: .6rem; overflow-x: auto; font-size: .82rem; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #f5a623; padding: .6rem .8rem; margin: 1rem 0; }
+  .verdict { background: #e7f7ec; border: 2px solid #0a7d28; padding: 1rem; font-size: 1.1rem; font-weight: bold; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report</h1>
+<p><strong>Issue:</strong> #800 - [ControlApi] Enforce meaningful session names at creation (name/purpose, never bare folder)<br>
+<strong>Pull request:</strong> #802 - branch <code>issue-800-session-names</code><br>
+<strong>Verifier:</strong> QA Agent (independent), isolated worktree <code>D:\ReposFred\wt-qa-issue-800</code>, test slot 14, Control API <code>http://127.0.0.1:7880</code><br>
+<strong>Date:</strong> 2026-06-27<br>
+<strong>Method:</strong> CenCon Development Method - independent build, run, and verification. Repository folder under test: <code>wt-qa-issue-800</code>.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Solution builds clean (0 errors). PASS.</div>
+
+<h2>Build and unit-test verification</h2>
+<ul>
+  <li>Slot 14 release build: <span class="pass">Build succeeded - 0 Warning(s), 0 Error(s)</span> (<code>scripts\local-build-avalonia.ps1 -Slot 14</code>).</li>
+  <li><code>SessionNameTests</code>: <span class="pass">Passed 15/15</span> (independent run of <code>CcDirector.Core.Tests</code>).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my run)</th><th>Result</th></tr>
+
+<tr><td>1</td><td><code>NewSessionRequest</code> has optional <code>Name</code>/<code>Purpose</code>; solution builds clean</td>
+<td>Fields present; <code>dotnet build</code> succeeds</td>
+<td>Both fields present in <code>NewSessionRequest.cs</code>; slot build = 0 errors; post-merge <code>dotnet build cc-director.sln</code> = succeeded</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td><code>POST /sessions</code> with explicit <code>Name</code> -> 201, <code>name</code> verbatim</td>
+<td>HTTP 201, name == "QA explicit name check"</td>
+<td>HTTP 201, <code>name = "QA explicit name check"</code> (see v1-explicit-name.json)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>Blank <code>Name</code> -> 400 with guidance</td>
+<td>HTTP 400, error tells caller to give a meaningful name/purpose</td>
+<td>HTTP 400: "Provide a meaningful session name or a purpose: a blank name or the bare repository folder name (\"wt-qa-issue-800\") is not allowed." (v2-blank-name-400.json)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td><code>Name</code> == bare folder (case-insensitive) -> 400</td>
+<td>HTTP 400</td>
+<td>Sent <code>name="WT-QA-Issue-800"</code> (different case) -> HTTP 400 same error (v3-folder-name-400.json)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>No <code>Name</code>, with <code>Purpose</code> -> 201, name contains folder AND purpose, != bare folder</td>
+<td>e.g. "folder: purpose"</td>
+<td>HTTP 201, <code>name = "wt-qa-issue-800: implement #799"</code> - contains folder + purpose, != bare folder (v4-purpose-only.json)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Neither -> 201, name = folder + type + disambiguator, != bare folder</td>
+<td>e.g. "folder / Type / xxxx"</td>
+<td>HTTP 201, <code>name = "wt-qa-issue-800 / Implementation / 0c83"</code> (v5a-neither.json)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Two same-repo sessions with neither -> DISTINCT names</td>
+<td>Two distinct names</td>
+<td>"wt-qa-issue-800 / Implementation / 0c83" vs "wt-qa-issue-800 / Implementation / f3ef" - distinct (v5a/v5b)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>No naming path returns bare folder; former <code>Path.GetFileName(RepoPath)</code> fallbacks go through the composer</td>
+<td>The 3 fallbacks named in the issue routed through <code>SessionName</code></td>
+<td>All 3 (ControlEndpoints ~228, ~255; SessionManager Pi ~331) now call <code>SessionName.DisplayName</code>; create path uses <code>SessionName.Compose</code> via nameFactory. Remaining grep hits are desktop/voice/chat display, explicitly OUT of scope per issue.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>9</td><td><code>cc-devthrottle session spawn</code>: warning on no name/purpose; <code>--purpose</code> -> name includes purpose</td>
+<td>Warning printed; purpose in name</td>
+<td>No name/purpose -> warning "no --name or --purpose given..." + name "wt-qa-issue-800 / Developer / 1df6"; <code>--purpose "verify issue 800 QA"</code> -> "wt-qa-issue-800: verify issue 800 QA" (cli-spawn-*.txt)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>10</td><td>Unit tests cover passthrough, purpose, type+disambiguator default, weak-name rejection, disambiguator distinctness</td>
+<td>All cases tested, green</td>
+<td><code>SessionNameTests</code> - 15/15 passed, covering every listed case</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>11</td><td><code>cc-devthrottle session list</code> shows two same-repo sessions with distinct meaningful names</td>
+<td>Distinct, meaningful rows</td>
+<td>List shows 6 same-repo sessions all distinct and meaningful (cli-session-list.txt): "QA explicit name check", "wt-qa-issue-800 / Implementation / 0c83", "wt-qa-issue-800: verify issue 800 QA", "wt-qa-issue-800 / Developer / 1df6", "wt-qa-issue-800: implement #799", "wt-qa-issue-800 / Implementation / f3ef"</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Full <code>CcDirector.Core.Tests</code> suite run: 2581 passed, 6 skipped, 1 failed. The single
+failure is <code>AnsiParserXtermSnapshotTests.ClaudeStartup_MatchesXtermHeadless</code>.</p>
+<div class="note">
+<strong>This failure is PRE-EXISTING and UNRELATED to issue #800.</strong> Investigation:
+<ul>
+  <li>PR #802 has zero diff for the test, the ANSI parser, or the fixtures (<code>git diff main...HEAD</code> shows no terminal-snapshot files).</li>
+  <li>The committed input fixture <code>claude-startup.bin</code> (1565 bytes, md5 <code>7700bd31</code>) is identical on <code>main</code> HEAD and the PR branch; <code>claude-startup.expected.json</code> (md5 <code>22fd53b8</code>) is identical everywhere.</li>
+  <li>Building from the committed sources fails this test on BOTH branches (132 cells diverge). The <code>main</code> working tree only appears to pass because its shared checkout carries a STALE pre-genericization <code>.bin</code> (1601 bytes, md5 <code>a21f8dc0</code>) that git does not even report as committed.</li>
+  <li>Root cause is commit <code>18c1d968</code> ("genericize personal identifiers repo-wide"), which regenerated the <code>.bin</code> input but did not regenerate the <code>.expected.json</code> ground truth. A fresh clone of <code>main</code> would fail identically.</li>
+</ul>
+Merging #800 does not change the ANSI parser or its fixtures and cannot affect this test. It is flagged here for a separate fix; it does not block #800.
+</div>
+<p>No adjacent session-naming behaviour regressed: all five <code>POST /sessions</code> variants returned healthy sessions (status WaitingForInput) and the CLI list rendered them all.</p>
+
+<h2>CenCon / method check</h2>
+<p>Change is additive within existing containers (gateway_contracts, core_services, control_api, cc-devthrottle). No new container, no security-profile change, no blocking DT rule touched, no PII. <code>review-code</code> lens: clean.</p>
+
+<h2>Artifacts (this folder, <code>qa/</code>)</h2>
+<ul>
+  <li><code>v1-explicit-name.json</code> .. <code>v5b-neither-2.json</code> - the five POST /sessions variants (HTTP code + JSON body).</li>
+  <li><code>cli-spawn-neither.txt</code>, <code>cli-spawn-purpose.txt</code> - cc-devthrottle spawn output.</li>
+  <li><code>cli-session-list.txt</code> - cc-devthrottle session list table.</li>
+</ul>
+</body>
+</html>
