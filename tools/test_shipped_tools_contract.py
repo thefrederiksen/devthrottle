@@ -54,6 +54,26 @@ def test_declares_console_script(name):
 
 
 @pytest.mark.parametrize("name", SHIPPED_PYTHON)
+def test_installs_ascii_truncation(name):
+    # Rich truncates overflowing table cells with a Unicode ellipsis; each shipped tool that renders
+    # tables installs an ASCII-"..." patch at import. Guards against the patch being dropped.
+    src = TOOLS_DIR / name / "src"
+    if not src.exists():
+        return
+    renders_tables = any(
+        "Table(" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in src.rglob("*.py")
+    )
+    if not renders_tables:
+        return
+    has_patch = any(
+        "_install_ascii_truncation" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in src.rglob("*.py")
+    )
+    assert has_patch, f"{name}: renders Rich tables but does not install the ASCII truncation patch"
+
+
+@pytest.mark.parametrize("name", SHIPPED_PYTHON)
 def test_shipped_source_is_ascii(name):
     src = TOOLS_DIR / name / "src"
     if not src.exists():
