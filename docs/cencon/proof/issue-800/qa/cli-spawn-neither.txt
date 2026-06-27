@@ -1,0 +1,6 @@
+Warning: no --name or --purpose given; the session will get an auto-composed 
+name. Pass --purpose "<what it is for>" so it is easy to tell apart.
+Opened session 1df6ad3f (wt-qa-issue-800 / Developer / 1df6).
+id: 1df6ad3f-8c63-45bd-8d00-0904fad66869
+Message it:  cc-devthrottle message send 1df6ad3f "<message>"   |   Ask it:  
+cc-devthrottle message ask 1df6ad3f "<question>"
