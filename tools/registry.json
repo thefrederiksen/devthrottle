@@ -121,14 +121,6 @@
       "requirements": ["Google OAuth (YouTube Data API v3)"]
     },
     {
-      "name": "cc-spotify",
-      "category": "web-social",
-      "type": "python",
-      "description": "Spotify playback control via browser automation",
-      "built": true,
-      "requirements": ["cc-browser"]
-    },
-    {
       "name": "cc-crawl4ai",
       "category": "web-social",
       "type": "python",
