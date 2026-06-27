@@ -247,7 +247,7 @@
       <!-- 1 Session A -->
       <rect x="180" y="20" width="400" height="74" rx="12" fill="#fff7ed" stroke="#b45309" stroke-width="2.5"/>
       <text x="200" y="48" font-size="15" font-weight="700" fill="#b45309">Session 4c81  (machine-A)</text>
-      <text x="200" y="72" font-size="13" font-family="Consolas, monospace" fill="#7c2d12">runs:  cc-send 9b2f "run the tests"</text>
+      <text x="200" y="72" font-size="13" font-family="Consolas, monospace" fill="#7c2d12">runs:  cc-devthrottle message send 9b2f "run the tests"</text>
 
       <line x1="380" y1="94" x2="380" y2="132" stroke="#475569" stroke-width="2.5" marker-end="url(#flow)"/>
       <text x="392" y="118" font-size="12" fill="#475569">POST $CC_DIRECTOR_API/fleet/send  (own Director only)</text>
@@ -281,17 +281,17 @@
       <text x="200" y="536" font-size="15" font-weight="700" fill="#b45309">Session 9b2f  (machine-B) sees:</text>
       <text x="200" y="562" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">[message from "feature-work" (machine-A), id 4c81]</text>
       <text x="200" y="582" font-size="12.5" font-family="Consolas, monospace" fill="#7c2d12">run the tests</text>
-      <text x="200" y="608" font-size="12.5" font-family="Consolas, monospace" fill="#9a3412">(to reply: cc-send 4c81 "...")</text>
+      <text x="200" y="608" font-size="12.5" font-family="Consolas, monospace" fill="#9a3412">(to reply: cc-devthrottle message send 4c81 "...")</text>
     </svg>
     <figcaption>Every hop except the Director relay and the sender framing already exists. The Gateway
     already routes prompts by identifier; we add the small relay and the framing.</figcaption>
   </figure>
 
   <h2><span class="num">6</span>What a session can do (the methods)</h2>
-  <p>Capabilities ship as small command-line tools on the path. Each one calls the session's own
+  <p>Capabilities ship through <code>cc-devthrottle</code> on the path. It calls the session's own
   Director (<code>CC_DIRECTOR_API</code>); the Director relays to the Gateway as needed.</p>
 
-  <h3>List the fleet &mdash; <code>cc-sessions</code></h3>
+  <h3>List the fleet &mdash; <code>cc-devthrottle session list</code></h3>
   <pre><code>ID      NAME           MACHINE     REPOSITORY     STATUS
 4c81    feature-work   machine-A   devthrottle    working
 9b2f    docs           machine-B   mindzieWeb     idle
@@ -300,20 +300,20 @@ a1d7    qa             machine-B   cc-director    working</code></pre>
   forwarding to the Gateway's existing fleet aggregator. A Director with no Gateway returns just its
   own sessions.</p>
 
-  <h3>Find out who you are &mdash; <code>cc-whoami</code></h3>
+  <h3>Find out who you are &mdash; <code>cc-devthrottle session whoami</code></h3>
   <pre><code>You are session 4c81 ("feature-work") on machine-A, repo devthrottle.
-To message another session:  cc-send &lt;id&gt; "&lt;message&gt;"
-To see all sessions:         cc-sessions</code></pre>
+To message another session:  cc-devthrottle message send &lt;id&gt; "&lt;message&gt;"
+To see all sessions:         cc-devthrottle session list</code></pre>
 
-  <h3>Send to one session &mdash; <code>cc-send</code></h3>
-  <pre><code>cc-send 9b2f "Can you run the integration tests on your branch?"
-cc-send docs "Please update the API page when you get a chance."</code></pre>
+  <h3>Send to one session &mdash; <code>cc-devthrottle message send</code></h3>
+  <pre><code>cc-devthrottle message send 9b2f "Can you run the integration tests on your branch?"
+cc-devthrottle message send docs "Please update the API page when you get a chance."</code></pre>
   <p>Address by short identifier (preferred) or name; an ambiguous prefix or name is refused with the
   candidate list. Calls <code>POST $CC_DIRECTOR_API/fleet/send</code>, relayed to the Gateway's
   existing prompt route.</p>
 
-  <h3>Send to everyone &mdash; <code>cc-send all</code></h3>
-  <pre><code>cc-send all "Heads up: I am about to merge to main in 5 minutes."</code></pre>
+  <h3>Send to everyone &mdash; <code>cc-devthrottle message send all</code></h3>
+  <pre><code>cc-devthrottle message send all "Heads up: I am about to merge to main in 5 minutes."</code></pre>
   <p>Calls <code>POST $CC_DIRECTOR_API/fleet/broadcast</code>, relayed to the Gateway's existing
   broadcast route.</p>
 
@@ -321,7 +321,7 @@ cc-send docs "Please update the API page when you get a chance."</code></pre>
   <pre><code>[message from "feature-work" (machine-A), id 4c81]
 Can you run the integration tests on your branch?
 
-(to reply: cc-send 4c81 "&lt;your reply&gt;")</code></pre>
+(to reply: cc-devthrottle message send 4c81 "&lt;your reply&gt;")</code></pre>
   <p>The sender identity is stamped by the relaying Director from the calling session's own
   identifier; it is not trusted from the request body. Delivery is best effort: if the target cannot
   be reached, the sender gets a clear error. There is no store-and-forward queue in this version.</p>
@@ -350,11 +350,11 @@ Can you run the integration tests on your branch?
     </thead>
     <tbody>
       <tr><td>Address another agent</td><td>By public key (long, opaque)</td><td>By identifier (short prefix), or name</td><td class="yes">Comparable</td></tr>
-      <tr><td>Discover who exists</td><td>Join a gossip swarm</td><td><code>cc-sessions</code>, relayed to the directory</td><td class="yes">Yes</td></tr>
-      <tr><td>Send a direct message</td><td>Direct connection or gossip</td><td><code>cc-send</code>, relayed to the prompt route</td><td class="yes">Yes</td></tr>
-      <tr><td>Broadcast to many</td><td>Gossip publish to a topic</td><td><code>cc-send all</code>, relayed to broadcast</td><td class="yes">Yes</td></tr>
+      <tr><td>Discover who exists</td><td>Join a gossip swarm</td><td><code>cc-devthrottle session list</code>, relayed to the directory</td><td class="yes">Yes</td></tr>
+      <tr><td>Send a direct message</td><td>Direct connection or gossip</td><td><code>cc-devthrottle message send</code>, relayed to the prompt route</td><td class="yes">Yes</td></tr>
+      <tr><td>Broadcast to many</td><td>Gossip publish to a topic</td><td><code>cc-devthrottle message send all</code>, relayed to broadcast</td><td class="yes">Yes</td></tr>
       <tr><td>Know who a message is from</td><td>Carried in the payload</td><td>Stamped by the relaying Director</td><td class="yes">Yes</td></tr>
-      <tr><td>Reply to a sender</td><td>Dial the sender back</td><td><code>cc-send</code> to the sender's id (one-way today)</td><td class="no">One-way now</td></tr>
+      <tr><td>Reply to a sender</td><td>Dial the sender back</td><td><code>cc-devthrottle message send</code> to the sender's id</td><td class="yes">Yes</td></tr>
       <tr><td>Ask and get an answer back</td><td>Open a stream and read it</td><td>Separate increment (section 7)</td><td class="no">Not yet</td></tr>
       <tr><td>Transfer large files</td><td>Built-in resumable transfer</td><td>Not in this version</td><td class="no">Not yet</td></tr>
       <tr><td>Shared synced state</td><td>Built-in synced documents</td><td>Not in this version</td><td class="no">Not yet</td></tr>
@@ -377,7 +377,7 @@ Can you run the integration tests on your branch?
       <ul>
         <li>Director-side relay endpoints: list the fleet, send to one, broadcast to all.</li>
         <li>The fleet token stays on the Director, never exposed to a session.</li>
-        <li><code>cc-sessions</code>, <code>cc-whoami</code>, <code>cc-send</code> (to one and to all).</li>
+        <li><code>cc-devthrottle</code> for session list, whoami, and message send.</li>
         <li>Sender framing on every delivered message, stamped by the Director.</li>
         <li>A one-line reminder at spawn so each session knows the capability exists.</li>
         <li>Addressing by identifier (short prefix) or name.</li>

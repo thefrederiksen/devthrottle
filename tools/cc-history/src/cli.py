@@ -68,7 +68,10 @@ def _run(
 
     matches = director.resolve_target(sessions, target)
     if not matches:
-        console.print(f"[red]No session matches '{target}'.[/red] Run cc-sessions to see the fleet.")
+        console.print(
+            f"[red]No session matches '{target}'.[/red] "
+            "Run cc-devthrottle session list to see the fleet."
+        )
         raise typer.Exit(1)
     if len(matches) > 1:
         console.print(f"[yellow]'{target}' is ambiguous - {len(matches)} matches.[/yellow] Use a longer id prefix.")

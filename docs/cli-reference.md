@@ -682,93 +682,102 @@ OPTIONS:
 
 ---
 
-## Fleet messaging (cc-sessions, cc-whoami, cc-send)
+## Fleet Messaging (cc-devthrottle)
 
-Session-to-session messaging across the fleet (issue #705). These tools run INSIDE a
-cc-director session and talk only to that session's own Director (via `CC_DIRECTOR_API`);
-the Director relays to the Gateway, so the tools never need the Gateway URL or the fleet
-token. Address another session by a short id prefix or by name; `all` broadcasts.
+Session-to-session messaging across the fleet (issue #705). `cc-devthrottle` runs inside a
+DevThrottle session and talks only to that session's own Director through `CC_DIRECTOR_API`.
+The Director relays to the Gateway, so the command never needs the Gateway URL or the fleet token.
+Address another session by a short id prefix or exact name; `all` broadcasts for message send.
 
-### cc-sessions
+### cc-devthrottle
 
-List every session running across the fleet.
+Unified DevThrottle command surface for fleet, session, and message management.
 
 ```
-USAGE: cc-sessions [OPTIONS]
+USAGE: cc-devthrottle [OPTIONS] COMMAND [ARGS]...
+
+COMMANDS:
+  actions          List agent-discoverable actions.
+  session list     List every session in the fleet.
+  session whoami   Show this session's own fleet identity.
+  session rename   Rename a session, defaulting to the current session.
+  session spawn    Open a new session on the local Director.
+  message send     Send a message to one session, or broadcast with all.
+  message ask      Ask one session a question and print its answer.
+  selftest         Run an end-to-end fleet messaging smoke test.
+
+OPTIONS:
+  --version -v
+```
+
+```
+USAGE: cc-devthrottle session rename TARGET_OR_NAME [NEW_NAME]
+
+ARGUMENTS:
+  TARGET_OR_NAME  New name for this session, or a target when NEW_NAME is also provided [required]
+  NEW_NAME        New name when an explicit target is provided
+```
+
+`cc-devthrottle session rename "New Name"` renames the current session using `CC_SESSION_ID`.
+`cc-devthrottle session rename 9b2f "New Name"` renames an explicit target.
+
+### Session List
+
+```
+USAGE: cc-devthrottle session list [OPTIONS]
 
 OPTIONS:
   --json  -j  Output raw JSON
-  --version -v
 ```
 
-Output columns: short id, name, machine, repository, status (your own session is marked
-`(you)`).
+Output columns: short id, name, machine, repository, status. Your own session is marked `(you)`.
 
-### cc-whoami
-
-Show this session's own id, name, machine, and repository, plus how to message others.
+### Session Whoami
 
 ```
-USAGE: cc-whoami [OPTIONS]
-
-OPTIONS:
-  --version -v
+USAGE: cc-devthrottle session whoami
 ```
 
-### cc-send
+Shows this session's own id, name, machine, and repository.
 
-Send a message to another session, or to every session with `all`.
+### Message Send
 
 ```
-USAGE: cc-send [OPTIONS] TARGET MESSAGE
+USAGE: cc-devthrottle message send TARGET MESSAGE
 
 ARGUMENTS:
   TARGET   Session id, id prefix, or name - or 'all' to broadcast [required]
   MESSAGE  The message text to send [required]
-
-OPTIONS:
-  --version -v
 ```
 
 The recipient sees a framed message that names the sender and how to reply:
 
 ```
-[message from feature-work (machine-A), id 4c810000]
-run the integration tests on your branch
-
-(to reply: cc-send 4c810000 "<your reply>")
+[message from feature-work (machine-A), id 4c810000] run the integration tests on your branch  (to reply: cc-devthrottle message send 4c810000 "<your reply>")
 ```
 
-An ambiguous id prefix or name is refused with the list of candidates (no message is sent).
+An ambiguous id prefix or name is refused with the list of candidates. No message is sent.
 
-### cc-ask
-
-Ask one session a question and print its answer (the round-trip `cc-send` cannot do - issue #717).
-The question is delivered framed (like `cc-send`); the tool waits for the target to finish its turn
-and prints the captured answer.
+### Message Ask
 
 ```
-USAGE: cc-ask [OPTIONS] TARGET QUESTION
+USAGE: cc-devthrottle message ask [OPTIONS] TARGET QUESTION
 
 ARGUMENTS:
-  TARGET    Session id, id prefix, or name - a single session (not 'all') [required]
+  TARGET    Session id, id prefix, or name - a single session, not 'all' [required]
   QUESTION  The question to ask [required]
 
 OPTIONS:
   --timeout-ms INTEGER  How long to wait for the answer (default 120000)
-  --version -v
 ```
 
-If the target does not answer within the timeout, `cc-ask` prints a clear timeout message and exits
-non-zero; an unknown or unreachable target exits non-zero with a clear error. `cc-ask all` is not
-supported (ask is single-target).
+If the target does not answer within the timeout, the command prints a clear timeout message and
+exits non-zero. `message ask all` is not supported.
 
-### cc-spawn
-
-Open a session on the local Director from the command line, then message or ask it (issue #721).
+### Session Spawn
 
 ```
-USAGE: cc-spawn [OPTIONS] REPO
+USAGE: cc-devthrottle session spawn [OPTIONS] REPO
 
 ARGUMENTS:
   REPO  Absolute path to the repository / working directory for the session [required]
@@ -780,28 +789,22 @@ OPTIONS:
   --type TEXT           Session type: Developer, Implementation, Discuss, Product, QA, Support
   --command TEXT        For --agent RawCli: the executable to run (e.g. cmd, pwsh)
   --command-args TEXT   For --agent RawCli: arguments for the command
-  --version -v
 ```
 
-Prints the new session's short id and full GUID; the session then appears in `cc-sessions`. A
-non-existent repository path exits non-zero with a clear error.
+Prints the new session's short id and full GUID; the session then appears in
+`cc-devthrottle session list`. A non-existent repository path exits non-zero with a clear error.
 
-### cc-fleet-selftest
-
-Prove fleet session messaging works end to end on this machine (issue #722). Spawns two throwaway
-sessions, lists them, sends to one, asks the other (a deterministic marker responder), tears them
-down, and prints PASS/FAIL.
+### Selftest
 
 ```
-USAGE: cc-fleet-selftest [OPTIONS]
+USAGE: cc-devthrottle selftest [OPTIONS]
 
 OPTIONS:
   --timeout-ms INTEGER  How long the ask step waits for the responder (default 25000)
-  --version -v
 ```
 
-Exits 0 when every check passes, non-zero (with the failing step named) otherwise. Leaves no
-throwaway sessions behind. Useful as a post-deploy health check for the intercommunication feature.
+Spawns two throwaway sessions, lists them, sends to one, asks the other, tears them down, and prints
+PASS/FAIL.
 
 ---
 

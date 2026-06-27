@@ -28,6 +28,12 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | cc-gmail | Gmail CLI: read, send, search, labels, calendar, contacts | Google OAuth |
 | cc-outlook | Outlook CLI: email, calendar, attachments, folders | Azure OAuth |
 
+### Fleet and Sessions
+
+| Tool | Description | Requirements |
+|------|-------------|--------------|
+| cc-devthrottle | Unified DevThrottle command surface for fleet, session, and message management | Running Director session |
+
 ### Web and Social
 
 | Tool | Description | Requirements |

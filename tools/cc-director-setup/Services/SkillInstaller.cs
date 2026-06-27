@@ -19,9 +19,8 @@ public sealed class SkillInstaller
     public static readonly string[] SkillNames =
     [
         "cc-director",
-        // fleet-comms (issue #723): teaches an agent the session-to-session messaging verbs
-        // (cc-sessions / cc-whoami / cc-send / cc-ask / cc-spawn) so every machine's agents know
-        // the capability, not just the CC_FLEET_TOOLS env hint.
+        // fleet-comms (issue #723): teaches an agent the cc-devthrottle session/message verbs
+        // so every machine's agents know the capability, not just the CC_FLEET_TOOLS env hint.
         "fleet-comms",
     ];
 

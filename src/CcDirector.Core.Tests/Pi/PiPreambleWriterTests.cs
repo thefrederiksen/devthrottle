@@ -20,9 +20,14 @@ public class PiPreambleWriterTests
             var text = File.ReadAllText(path);
             Assert.Contains("abc12345", text);   // short id present
             Assert.Contains("myrepo", text);      // name present
-            Assert.Contains("cc-sessions", text); // the fleet commands present
-            Assert.Contains("cc-send", text);
-            Assert.Contains("cc-ask", text);
+            Assert.Contains("cc-devthrottle", text);
+            Assert.Contains("session list", text);
+            Assert.Contains("message send", text);
+            Assert.Contains("message ask", text);
+            Assert.DoesNotContain("cc-rename", text);
+            Assert.DoesNotContain("cc-sessions", text);
+            Assert.DoesNotContain("cc-send", text);
+            Assert.DoesNotContain("cc-ask", text);
         }
         finally
         {

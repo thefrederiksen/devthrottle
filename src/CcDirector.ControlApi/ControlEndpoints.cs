@@ -216,7 +216,7 @@ internal static class ControlEndpoints
         });
 
         // The launch-time "fleet awareness" preamble for a session: its own identity plus the
-        // cc-* commands to reach the rest of the fleet. The Claude SessionStart hook fetches this
+        // cc-devthrottle commands to reach the rest of the fleet. The Claude SessionStart hook fetches this
         // and injects it as additionalContext so the agent knows the fleet instantly, with no
         // skill lookup. Plain text (not JSON) so a hook can drop it straight into a context field.
         app.MapGet("/sessions/{sid}/fleet-preamble", (string sid) =>
@@ -242,7 +242,7 @@ internal static class ControlEndpoints
         // A session can only reach its OWN Director (CC_DIRECTOR_API); it never holds the Gateway
         // URL or the fleet token. These endpoints let a session list and message other sessions
         // across the fleet by relaying through this Director, which forwards to the Gateway using
-        // the token it already holds. The cc-sessions / cc-send / cc-whoami tools wrap these.
+        // the token it already holds. cc-devthrottle wraps these.
 
         // Resolve the sender's display name from THIS Director's own session record (never trusted
         // from the request body) and build the framed message the recipient sees.
@@ -434,7 +434,7 @@ internal static class ControlEndpoints
 
             // Prefer the transcript: a clean, parsed answer (the NEW assistant message) instead of a
             // scrape of the repainting TUI buffer. Crisp for Claude, Codex and Pi, and the clean text
-            // carries no TUI glyphs that could crash the cc-ask client print on a legacy Windows
+            // carries no TUI glyphs that could crash the message ask client print on a legacy Windows
             // console. A transcript can flush several seconds after Idle (Pi is the slowest), so poll
             // for an assistant message BEYOND preAssistantCount for up to ~12 s; fall back to the
             // buffer scrape only if no new answer appears (e.g. a turn that produced only tool calls).
@@ -480,7 +480,7 @@ internal static class ControlEndpoints
 
             var timeoutMs = req.TimeoutMs > 0 ? req.TimeoutMs : 120_000;
             // No reply hint for an ask: the asker is waiting and reads the answer from the target's
-            // output, so the target must answer directly rather than try to cc-send back.
+            // output, so the target must answer directly rather than try to send a separate reply.
             var framed = FrameForSender(req.FromSessionId, req.Question, includeReplyHint: false);
 
             var gw = gatewayClientProvider?.Invoke();

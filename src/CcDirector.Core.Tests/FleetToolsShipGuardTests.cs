@@ -5,16 +5,16 @@ using Xunit;
 namespace CcDirector.Core.Tests;
 
 /// <summary>
-/// Deployment guard (issue #719): the fleet-messaging tools must be both SHIPPED (ship:true python
+/// Deployment guard (issue #719): the fleet command must be SHIPPED (ship:true python
 /// in tools/registry.json, so the Python bundle builds them and the installer puts them on PATH)
 /// AND SELF-VERIFIED (present in the embedded Core tools-manifest.json the in-app doctor reads).
-/// Those two lists are hand-synced today; this guard fails if either drifts for the fleet tools, so
-/// they cannot silently half-ship again - the exact gap that left #705/#717 dead on arrival in the
+/// Those two lists are hand-synced today; this guard fails if either drifts for the fleet surface, so
+/// it cannot silently half-ship again - the exact gap that left #705/#717 dead on arrival in the
 /// installed product.
 /// </summary>
 public sealed class FleetToolsShipGuardTests
 {
-    private static readonly string[] FleetTools = { "cc-sessions", "cc-whoami", "cc-send", "cc-ask", "cc-spawn", "cc-fleet-selftest" };
+    private static readonly string[] FleetTools = { "cc-devthrottle" };
 
     [Fact]
     public void FleetTools_AreShippablePythonInRegistry()

@@ -48,7 +48,10 @@ def _run(
     if target.strip().lower() != "all":
         sessions = director.resolve_target(sessions, target)
         if not sessions:
-            console.print(f"[red]No session matches '{target}'.[/red] Run cc-sessions to see the fleet.")
+            console.print(
+                f"[red]No session matches '{target}'.[/red] "
+                "Run cc-devthrottle session list to see the fleet."
+            )
             raise typer.Exit(1)
 
     me = director.session_id()

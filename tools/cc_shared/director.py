@@ -1,13 +1,12 @@
-"""Shared helpers for cc-* tools that talk to their OWN Director's Control API (issue #705).
+"""Shared helpers for tools that talk to their OWN Director's Control API (issue #705).
 
 A cc-director session is launched with two environment values these tools rely on:
 
   CC_DIRECTOR_API  - the base URL of this session's own Director Control API (loopback)
   CC_SESSION_ID    - this session's GUID
 
-The fleet-messaging tools (cc-sessions, cc-whoami, cc-send) only ever call their own
-Director. The Director relays to the Gateway on their behalf, so these tools never need
-the Gateway URL or the fleet token. The fleet token stays on the Director.
+cc-devthrottle only ever calls its own Director. The Director relays to the Gateway on its
+behalf, so it never needs the Gateway URL or the fleet token. The fleet token stays on the Director.
 """
 
 import json

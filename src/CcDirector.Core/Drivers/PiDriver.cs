@@ -51,7 +51,7 @@ public sealed class PiDriver : IAgentDriver
     /// <summary>
     /// Echo-verified submit (shared helper): type the text, wait for pi's composer to echo it, then
     /// a separate Enter. This is the dropped-Enter guard that the blind submit lacked - a repainting
-    /// composer can swallow a blind Enter when driven programmatically (cc-send / cc-ask delivery).
+    /// composer can swallow a blind Enter when driven programmatically (fleet message delivery).
     /// Falls back to the backend's blind submit for non-buffering transports.
     /// </summary>
     public Task SubmitAsync(ISessionBackend backend, string text) =>

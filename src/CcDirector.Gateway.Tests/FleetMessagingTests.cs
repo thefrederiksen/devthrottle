@@ -31,7 +31,7 @@ public sealed class FleetMessagingFramingTests
 
         Assert.Contains("[message from feature-work (machine-A), id 4c810000]", framed);
         Assert.Contains("run the tests", framed);
-        Assert.Contains("(to reply: cc-send 4c810000", framed);
+        Assert.Contains("(to reply: cc-devthrottle message send 4c810000", framed);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class FleetMessagingFramingTests
             "9b2f0000-aaaa-bbbb-cccc-dddddddddddd", null, "machine-B", "hello");
 
         Assert.Contains("[message from session 9b2f0000 (machine-B)]", framed);
-        Assert.Contains("(to reply: cc-send 9b2f0000", framed);
+        Assert.Contains("(to reply: cc-devthrottle message send 9b2f0000", framed);
     }
 
     [Fact]

@@ -427,7 +427,7 @@ The shared Director endpoint `GET /sessions/{sid}/fleet-preamble` stays the sour
 text for whichever channel we use.
 
 Current gaps:
-- TranscriptRead capability is not declared for GenericDriver, so cross-agent `cc-ask` (Claude ->
+- TranscriptRead capability is not declared for GenericDriver, so cross-agent `cc-devthrottle message ask` (Claude ->
   Grok) still will not work even though `chat_history.jsonl`/`updates.jsonl` are parseable. A
   TranscriptFile history reader for Grok is a clear future win.
 - We do not preassign session ids or resume; Grok owns session state. Fine for v1.

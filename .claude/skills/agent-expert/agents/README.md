@@ -35,7 +35,7 @@ names, source links, and verification status. Ratings: Strong / Partial / None /
 - These hook systems are recent and churning (Gemini, Codex, Grok, Cursor, Copilot all have
   open issues). Every field name needs a live check against the installed binary before we
   depend on it. See each file's "Caveats and verification needed".
-- cc-ask (ask another session and read its reply) needs the TranscriptRead capability, which
+- `cc-devthrottle message ask` (ask another session and read its reply) needs the TranscriptRead capability, which
   today only ClaudeDriver declares. So cross-agent "ask" only works Claude -> Claude so far.
 - The shared piece for all families is the Director endpoint GET /sessions/{sid}/fleet-preamble,
   which already exists and is agent-agnostic.

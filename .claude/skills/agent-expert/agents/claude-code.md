@@ -193,7 +193,7 @@ Why this is the reference: SessionStart's four matchers cover every moment Claud
 Current gaps:
 - We parse the JSONL transcript directly, which the docs flag as internal/unstable. A Claude Code release can change the entry format and break ClaudeTranscriptReader. [VERIFIED concern - https://code.claude.com/docs/en/sessions]
 - The new-session-id-on-/clear and on-compact behavior is our operating assumption, not a documented guarantee; the hook's claude-hook POST is what actually keeps us correct, so we are covered as long as the hook fires. [INFERRED/UNCERTAIN]
-- cc-ask (ask another session and read its reply) needs TranscriptRead, which today only ClaudeDriver declares, so cross-agent ask is Claude -> Claude only. [VERIFIED from README matrix - agents/README.md]
+- `cc-devthrottle message ask` (ask another session and read its reply) needs TranscriptRead, which today only ClaudeDriver declares, so cross-agent ask is Claude -> Claude only. [VERIFIED from README matrix - agents/README.md]
 
 ## 11. Caveats and verification needed
 

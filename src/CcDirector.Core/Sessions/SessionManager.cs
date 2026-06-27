@@ -256,7 +256,7 @@ public sealed class SessionManager : IDisposable
             // one-line reminder, NOT a credential - the tools reach the fleet through CC_DIRECTOR_API
             // above (the Director relays to the Gateway), so the fleet token never enters the session.
             envVars["CC_FLEET_TOOLS"] =
-                "cc-sessions (list the fleet); cc-send <id|all> \"message\" (message a session); cc-whoami (your id)";
+                "cc-devthrottle actions --json (list DevThrottle actions); cc-devthrottle session list; cc-devthrottle session whoami; cc-devthrottle session rename \"name\"; cc-devthrottle message send <id|all> \"message\"; cc-devthrottle message ask <id> \"question\"";
 
             // Cursor authenticates via CURSOR_API_KEY (issue #517, assumption A5). Inject the
             // configured key into the session environment so cursor-agent picks it up. The key

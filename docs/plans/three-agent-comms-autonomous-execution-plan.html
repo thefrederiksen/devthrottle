@@ -141,15 +141,15 @@ round-trips, for each ordered pair).</p>
 <table>
 <thead><tr><th>#</th><th>Capability</th><th>How it is proven</th></tr></thead>
 <tbody>
-  <tr><td>C1</td><td>Discoverable - the agent appears in a peer's <code>cc-sessions</code></td><td>Spawn all three; assert each id/name shows in the fleet list returned to the others.</td></tr>
+  <tr><td>C1</td><td>Discoverable - the agent appears in a peer's <code>cc-devthrottle session list</code></td><td>Spawn all three; assert each id/name shows in the fleet list returned to the others.</td></tr>
   <tr><td>C2</td><td>Knows the fleet at launch - preamble injected</td><td>Inspect the agent's context (transcript / rollout / extension log) for the preamble marker after launch.</td></tr>
   <tr><td>C3</td><td>Re-knows after reset - preamble re-injected on clear and compact</td><td>Trigger clear and compact; count preamble injections (must increase).</td></tr>
-  <tr><td>C4</td><td>Receives a message - <code>cc-send</code> delivers and the agent processes it</td><td>cc-send a sentinel; assert the agent acts on it (turn runs / sentinel echoed).</td></tr>
-  <tr><td>C5</td><td>Answers a question - <code>cc-ask</code> returns the agent's answer</td><td>cc-ask a question with a known answer; assert the returned answer contains it.</td></tr>
+  <tr><td>C4</td><td>Receives a message - <code>cc-devthrottle message send</code> delivers and the agent processes it</td><td>cc-devthrottle message send a sentinel; assert the agent acts on it (turn runs / sentinel echoed).</td></tr>
+  <tr><td>C5</td><td>Answers a question - <code>cc-devthrottle message ask</code> returns the agent's answer</td><td>cc-devthrottle message ask a question with a known answer; assert the returned answer contains it.</td></tr>
   <tr><td>C6</td><td>Reports status - <code>cc-status</code> returns activity + a summary</td><td>Run cc-status against the agent mid-task; assert state + non-empty summary.</td></tr>
   <tr><td>C7</td><td>History readable - <code>cc-history</code> returns recent turns</td><td>Run a known turn, then cc-history; assert the turn appears.</td></tr>
-  <tr><td>C8</td><td>Sends to a peer - the agent itself runs <code>cc-send</code></td><td>Instruct agent A to cc-send agent B; assert B receives it.</td></tr>
-  <tr><td>C9</td><td>Asks a peer - the agent itself runs <code>cc-ask</code> and uses the answer</td><td>Instruct A to cc-ask B a question; assert A reports B's answer.</td></tr>
+  <tr><td>C8</td><td>Sends to a peer - the agent itself runs <code>cc-devthrottle message send</code></td><td>Instruct agent A to cc-devthrottle message send agent B; assert B receives it.</td></tr>
+  <tr><td>C9</td><td>Asks a peer - the agent itself runs <code>cc-devthrottle message ask</code> and uses the answer</td><td>Instruct A to cc-devthrottle message ask B a question; assert A reports B's answer.</td></tr>
   <tr><td>C10</td><td>Round-trip - A asks B, B answers, A acts - for all 6 ordered pairs</td><td>The six-pair matrix; every ordered pair of the three must pass.</td></tr>
 </tbody>
 </table>
@@ -200,7 +200,7 @@ round-trips, for each ordered pair).</p>
   <ol class="steps">
     <li>Extract the echo-verified submit into <code>TerminalSubmit.EchoVerifiedAsync(...)</code>; refactor ClaudeDriver and CodexDriver to call it (behaviour unchanged; tests stay green).</li>
     <li>Add a plugin-owned <code>FleetPreambleStrategy</code> + <code>Status</code> declaration so every agent states how it injects, or that it cannot, and surface it on the session DTO.</li>
-    <li>Add the cc-ask Windows print fix (ASCII-safe console) - small and unblocks clean ask output.</li>
+    <li>Add the cc-devthrottle message ask Windows print fix (ASCII-safe console) - small and unblocks clean ask output.</li>
   </ol>
   <div class="kv"><div class="k">Tests</div><div class="v">Unit: shared submit helper; strategy declaration present for all built-ins. Regression: existing Claude/Codex submit tests still pass.</div></div>
   <div class="kv"><div class="k">Gate</div><div class="v">Touched projects green; existing suites unbroken.</div></div>
@@ -275,7 +275,7 @@ masquerade as "the agent cannot":</p>
 </ul>
 <p>For these three agents we expect very few NOT-POSSIBLE cells - the inventory is achievable for Claude,
 Codex and Pi. The rule exists so that if, say, Pi's idle-detection proves fundamentally unreliable for a
-clean <code>cc-ask</code>, the report says exactly that, with the probe that shows it, rather than a green
+clean <code>cc-devthrottle message ask</code>, the report says exactly that, with the probe that shows it, rather than a green
 cell that is really flaky.</p>
 
 <h2 id="report">7. The final QA HTML report</h2>

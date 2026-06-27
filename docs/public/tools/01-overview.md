@@ -1,6 +1,6 @@
 # Tools Overview
 
-CC Director includes 33 command-line tools for document conversion, media processing, email, browser automation, social media, desktop automation, and AI workflows. All tools are installed to `%LOCALAPPDATA%\cc-director\bin\` and are available on your PATH.
+CC Director includes command-line tools for document conversion, media processing, email, browser automation, social media, desktop automation, fleet/session workflows, and AI workflows. All tools are installed to `%LOCALAPPDATA%\cc-director\bin\` and are available on your PATH.
 
 ## Quick Reference
 
@@ -20,6 +20,12 @@ CC Director includes 33 command-line tools for document conversion, media proces
 |------|-------------|--------------|
 | cc-gmail | Gmail CLI: read, send, search, labels, calendar, contacts | Google OAuth |
 | cc-outlook | Outlook CLI: email, calendar, attachments, folders | Azure OAuth |
+
+### Fleet and Sessions
+
+| Tool | Description | Requirements |
+|------|-------------|--------------|
+| cc-devthrottle | Unified DevThrottle command surface for fleet, session, and message management | Running Director session |
 
 ### Web and Social
 
@@ -171,6 +177,28 @@ cc-gmail stats
 cc-gmail calendar
 cc-gmail contacts
 ```
+
+---
+
+## Fleet and Sessions
+
+### cc-devthrottle
+
+Unified DevThrottle command surface.
+
+```bash
+cc-devthrottle actions --json
+cc-devthrottle session list
+cc-devthrottle session whoami
+cc-devthrottle session rename "Dev Throttle Review"
+cc-devthrottle session rename 9b2f "Frontend Review"
+cc-devthrottle message send 9b2f "Can you run the focused test?"
+cc-devthrottle message ask 9b2f "What is your status?"
+cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests."
+cc-devthrottle selftest
+```
+
+The one-argument rename form renames the current session using `CC_SESSION_ID`.
 
 ---
 

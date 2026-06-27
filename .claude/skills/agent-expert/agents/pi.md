@@ -369,7 +369,7 @@ Concrete fleet-preamble plan (Family C):
    Options: pass as environment variables to the pi process, or have the extension read them
    from a Director-written file. Exact wiring is TBD. [INFERRED/UNCERTAIN]
 
-History provider kind: none (TranscriptRead undeclared). cc-ask cross-agent reply does not work
+History provider kind: none (TranscriptRead undeclared). `cc-devthrottle message ask` cross-agent reply does not work
 to/from pi until the jsonl reader and TranscriptRead are added. [VERIFIED from code]
 
 Current gaps in our integration: no preassigned session id, no Director-initiated resume, no

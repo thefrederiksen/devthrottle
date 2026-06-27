@@ -379,7 +379,7 @@ public sealed class PythonToolsInstaller
 
             // ALSO write a bare-name (no extension) shell shim. CMD and PowerShell resolve the .cmd via
             // PATHEXT, but Git Bash does NOT - so an agent that drives Git Bash and runs a cc-* tool by
-            // bare name ("cc-ask") otherwise gets "command not found". Git Bash runs this extensionless
+            // bare name ("cc-devthrottle") otherwise gets "command not found". Git Bash runs this extensionless
             // file via its shebang and execs the same venv exe. CMD/PowerShell ignore it (no PATHEXT
             // match), so there is no conflict. This is what lets agents call each other from bash.
             var bare = Path.Combine(_layout.BinDir, script);

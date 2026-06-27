@@ -50,7 +50,7 @@
   <h2>Verdict: cross-communication is working.</h2>
   <p>All three agents start, discover each other, know the fleet at launch, receive messages, answer
   questions, report their status, and have their history read by others. An agent can drive the fleet
-  tools itself: <strong>Pi ran <code>cc-ask</code> against Claude and got the answer back</strong> -
+  tools itself: <strong>Pi ran <code>cc-devthrottle message ask</code> against Claude and got the answer back</strong> -
   a full agent-initiated round-trip. All ten capabilities now PASS for all three agents. The two gaps
   the first run found are both FIXED AND MERGED to main: bare-name shell shims for the cc-* tools so
   agents can call them from Git Bash, and clean inline delivery plus direct-answer framing so asking a
@@ -67,7 +67,7 @@
 <table>
 <thead><tr><th>#</th><th>Capability</th><th>Claude</th><th>Codex</th><th>Pi</th><th>How proven</th></tr></thead>
 <tbody>
-  <tr><th>C1</th><td>Discoverable - appears in a peer's <code>cc-sessions</code> / fleet list</td>
+  <tr><th>C1</th><td>Discoverable - appears in a peer's <code>cc-devthrottle session list</code> / fleet list</td>
     <td class="pass">PASS</td><td class="pass">PASS</td><td class="pass">PASS</td>
     <td>all three returned by GET /sessions and /fleet/sessions</td></tr>
   <tr><th>C2</th><td>Knows the fleet at launch - preamble injected (id + commands)</td>
@@ -76,7 +76,7 @@
   <tr><th>C3</th><td>Re-knows after a context reset (clear / compact)</td>
     <td class="pass">PASS</td><td class="pass">PASS</td><td class="pass">PASS</td>
     <td>Claude/Codex: SessionStart hook re-fires (proven earlier); Pi: the preamble is the launch system prompt, which persists across /new and /compact by construction</td></tr>
-  <tr><th>C4</th><td>Receives a message (<code>cc-send</code> / ask delivers and is processed)</td>
+  <tr><th>C4</th><td>Receives a message (<code>cc-devthrottle message send</code> / ask delivers and is processed)</td>
     <td class="pass">PASS</td><td class="pass">PASS</td><td class="pass">PASS</td>
     <td>each processed a delivered question and produced a turn</td></tr>
   <tr><th>C5</th><td>Answers a question (returns its answer)</td>
@@ -95,10 +95,10 @@
 <h2>2. Cross-talk - agents driving the fleet themselves (C8-C10)</h2>
 <div class="scroll">
 <table>
-<thead><tr><th>Direction</th><th>Asker runs cc-ask</th><th>Target answers</th><th>Result</th><th>Notes</th></tr></thead>
+<thead><tr><th>Direction</th><th>Asker runs cc-devthrottle message ask</th><th>Target answers</th><th>Result</th><th>Notes</th></tr></thead>
 <tbody>
   <tr><th>Pi &rarr; Claude</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
-    <td>Pi ran <code>cc-ask 47ff8567 "..."</code> and reported back <code>PONG-FROM-CLAUDE</code></td></tr>
+    <td>Pi ran <code>cc-devthrottle message ask 47ff8567 "..."</code> and reported back <code>PONG-FROM-CLAUDE</code></td></tr>
   <tr><th>Claude &rarr; Pi</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
     <td>after the fix (single-line inline delivery + no reply-hint on asks), Pi answers the question directly; the token is returned</td></tr>
   <tr><th>any &rarr; Claude / Codex</th><td class="pass">YES</td><td class="pass">YES</td><td class="pass">PASS</td>
@@ -118,18 +118,18 @@ answer (section 4).</p>
 <h2>3. Evidence (selected)</h2>
 <div class="card">
   <h3>C2 - each agent knows its identity and the fleet commands from launch context</h3>
-  <div class="ev">Claude: "My session id is 47ff8567, and the fleet commands are cc-sessions, cc-whoami, cc-send, cc-ask, cc-spawn."
+  <div class="ev">Claude: "My session id is 47ff8567, and the fleet commands are cc-devthrottle session list, cc-devthrottle session whoami, cc-devthrottle message send, cc-devthrottle message ask, cc-devthrottle session spawn."
 
-Pi:     "5e4e106e-24e8-4f9f-b91f-d783a18c38a4  cc-sessions cc-whoami cc-send cc-ask cc-spawn"
+Pi:     "5e4e106e-24e8-4f9f-b91f-d783a18c38a4  cc-devthrottle session list cc-devthrottle session whoami cc-devthrottle message send cc-devthrottle message ask cc-devthrottle session spawn"
 
 Codex (preamble injected as developer context in the rollout):
-  role:"developer"  "[CC Director fleet] You are session 98d2261c ... cc-sessions ... cc-send ... cc-ask ..."</div>
+  role:"developer"  "[CC Director fleet] You are session 98d2261c ... cc-devthrottle session list ... cc-devthrottle message send ... cc-devthrottle message ask ..."</div>
   <p class="sub">Full files: <code>docs/cencon/proof/three-agent-comms/evidence/C2-clean-*.txt</code></p>
 </div>
 <div class="card">
-  <h3>C8 / C9 - Pi drove cc-ask against Claude and got the answer</h3>
-  <div class="ev">Pi was told: run  cc-ask 47ff8567 "Reply with exactly PONG-FROM-CLAUDE"
-Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
+  <h3>C8 / C9 - Pi drove cc-devthrottle message ask against Claude and got the answer</h3>
+  <div class="ev">Pi was told: run  cc-devthrottle message ask 47ff8567 "Reply with exactly PONG-FROM-CLAUDE"
+Pi's report: ... cc-devthrottle message ask ...  -> PONG-FROM-CLAUDE</div>
   <p class="sub">File: <code>evidence/C8C9-Pi-asks-Claude.txt</code>. This only worked after the bash bare-name shim fix (section 4).</p>
 </div>
 <div class="card">
@@ -144,7 +144,7 @@ Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
 <div class="card">
   <h3>Gap A - cc-* tools not runnable by bare name in Git Bash <span style="color:var(--have)">(FIXED, merged)</span></h3>
   <p>The cc-* tools shipped only as <code>bin\&lt;name&gt;.cmd</code> shims. CMD and PowerShell resolve those
-  via PATHEXT, but Git Bash does not - so an agent driving Git Bash and running <code>cc-ask</code> by
+  via PATHEXT, but Git Bash does not - so an agent driving Git Bash and running <code>cc-devthrottle message ask</code> by
   bare name got <code>command not found</code>, which broke agent-initiated fleet messaging. This is the
   exact friction that started the whole effort. <code>PythonToolsInstaller</code> now writes a bare-name
   shell shim (<code>#!/bin/sh; exec ...exe "$@"</code>) next to each <code>.cmd</code> and removes it in
@@ -156,7 +156,7 @@ Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
   <p>Three root causes, all addressed and merged: (1) fleet messages are framed on a SINGLE line, so they
   are typed inline instead of routed through an <code>@</code>-temp-file reference that Pi did not expand
   (Pi had been echoing the file path instead of answering); (2) asks are framed WITHOUT the
-  "(to reply: cc-send ...)" hint, which had made Pi try to cc-send back instead of answering; (3) the ask
+  "(to reply: cc-devthrottle message send ...)" hint, which had made Pi try to cc-devthrottle message send back instead of answering; (3) the ask
   reads the NEW assistant message from the transcript (never a stale prior answer), waiting longer for
   Pi's slower flush while Claude and Codex return immediately. Result: delivery is clean for every agent,
   Pi answers the question directly, and the token is returned in every case.
@@ -171,7 +171,7 @@ Pi's report: ... cc-ask ...  -> PONG-FROM-CLAUDE</div>
   <li>Shared echo-verified submit (<code>TerminalSubmit</code>); Pi switched off its blind submit.</li>
   <li>Pi fleet preamble via a per-session file passed to <code>--append-system-prompt</code> (persists across reset).</li>
   <li>Per-plugin <code>FleetPreambleStrategy</code> declaration (the "how it injects, or that it can't" mechanism).</li>
-  <li>cc-ask UTF-8 print fix (repo source); G6 transcript-based ask answers (server-side).</li>
+  <li>cc-devthrottle message ask UTF-8 print fix (repo source); G6 transcript-based ask answers (server-side).</li>
   <li><code>cc-status</code> and <code>cc-history</code> tools; the history endpoint already existed (epic #733).</li>
   <li>Discovery: Pi and Codex transcript readers, and the agent-agnostic history endpoint, already existed - so "read each other's history" needed only the tools, not new readers.</li>
   <li>Bash bare-name shims for the cc-* tools (<code>PythonToolsInstaller</code>) so agents can call them from Git Bash (Gap A).</li>

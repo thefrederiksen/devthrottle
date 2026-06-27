@@ -26,10 +26,10 @@ internal static class FleetMessaging
     /// <param name="fromName">The sender's display name resolved by the Director, or null when unknown.</param>
     /// <param name="fromMachine">The sender's machine name.</param>
     /// <param name="text">The message body.</param>
-    /// <param name="includeReplyHint">True for cc-send (a one-way message: tell the recipient how to
-    /// reply with cc-send). FALSE for cc-ask: the asker is already waiting and reads the answer from
-    /// the target's output, so the recipient must answer DIRECTLY - a "reply with cc-send" hint makes
-    /// it try to cc-send back instead of answering, which the ask flow then misses.</param>
+    /// <param name="includeReplyHint">True for a one-way message: tell the recipient how to
+    /// reply with cc-devthrottle. FALSE for message ask: the asker is already waiting and reads the answer from
+    /// the target's output, so the recipient must answer DIRECTLY - a reply-command hint makes
+    /// it try to send a separate reply instead of answering, which the ask flow then misses.</param>
     public static string BuildFramedMessage(string? fromSessionId, string? fromName, string fromMachine, string text, bool includeReplyHint = true)
     {
         var shortId = ShortId(fromSessionId);
@@ -51,7 +51,7 @@ internal static class FleetMessaging
         var oneLine = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
 
         var reply = includeReplyHint && !string.IsNullOrWhiteSpace(shortId)
-            ? $"  (to reply: cc-send {shortId} \"<your reply>\")"
+            ? $"  (to reply: cc-devthrottle message send {shortId} \"<your reply>\")"
             : "";
 
         return $"{header} {oneLine}{reply}";

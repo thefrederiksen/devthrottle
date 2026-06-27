@@ -65,46 +65,11 @@
       "note": null
     },
     {
-      "name": "cc-sessions",
+      "name": "cc-devthrottle",
       "category": "Fleet",
-      "description": "List every session running across the fleet.",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
-    },
-    {
-      "name": "cc-whoami",
-      "category": "Fleet",
-      "description": "Show this session's own fleet identity.",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
-    },
-    {
-      "name": "cc-send",
-      "category": "Fleet",
-      "description": "Send a message to another session in the fleet (or all of them).",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
-    },
-    {
-      "name": "cc-ask",
-      "category": "Fleet",
-      "description": "Ask another session a question and get its answer back.",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
-    },
-    {
-      "name": "cc-spawn",
-      "category": "Fleet",
-      "description": "Open a session on the local Director from the command line.",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
-    },
-    {
-      "name": "cc-fleet-selftest",
-      "category": "Fleet",
-      "description": "End-to-end smoke test of fleet session messaging.",
-      "smoke": null,
-      "note": "Requires a live session environment (CC_DIRECTOR_API). Presence + version only."
+      "description": "Unified DevThrottle command surface for fleet, session, and message management.",
+      "smoke": { "args": ["actions", "--json"], "expectContains": "message-send" },
+      "note": null
     }
   ]
 }

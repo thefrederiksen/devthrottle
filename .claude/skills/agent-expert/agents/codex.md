@@ -486,7 +486,7 @@ Why `notify` is NOT how we inject a preamble:
 `CodexTranscriptReader` is fully functional, but `CodexDriver.Capabilities` does NOT include a
 TranscriptRead flag, and the driver's transcript methods throw NotSupported (history is read via
 the separate SessionHistoryReader path, not the driver). Consequence: cross-agent "ask another
-session and read its reply" (cc-ask, which needs TranscriptRead on the driver) does not work for
+session and read its reply" (`cc-devthrottle message ask`, which needs TranscriptRead on the driver) does not work for
 Codex yet, even though the reader exists. Wiring the existing reader into a declared
 TranscriptRead capability is a low-risk follow-up. [VERIFIED from source] CodexDriver.cs + README.md
 
@@ -530,7 +530,7 @@ be reused almost verbatim; only the hook REGISTRATION location and the stdin fie
 
 - DONE: the SessionStart fleet-preamble hook is wired (CodexHookInstaller + SessionManager flag) and
   the programmatic submit bug is fixed (CodexDriver echo-verified submit). See section 11.
-- TranscriptRead capability is not declared, so cc-ask does not reach Codex.
+- TranscriptRead capability is not declared, so `cc-devthrottle message ask` does not reach Codex.
 - We do not drive `--model` (ModelFlag empty), so model selection is whatever config.toml / the
   user picks via `/model`.
 - We do not preassign or resume session ids from the Director side.
@@ -550,8 +550,8 @@ separate, now-fixed submit bug.
   running our PowerShell preamble emitter, launched with `--dangerously-bypass-hook-trust`,
   FIRES and INJECTS in both `codex exec` AND the interactive TUI that CC Director drives. PROOF:
   the Codex rollout (`~/.codex/sessions/.../rollout-*.jsonl`) contains a `response_item` with
-  `role: "developer"` carrying the full preamble ("[CC Director fleet] You are session ... cc-sessions
-  ... cc-send ..."), and the assistant then answered the test prompt. So additionalContext from the
+  `role: "developer"` carrying the full preamble ("[CC Director fleet] You are session ... cc-devthrottle
+  ... message send ..."), and the assistant then answered the test prompt. So additionalContext from the
   hook genuinely lands in Codex's model context.
 - TIMING: in the interactive TUI, SessionStart fires at the FIRST TURN, not at idle process startup
   (the preamble developer message is timestamped ~4 s after launch, when the first prompt ran).

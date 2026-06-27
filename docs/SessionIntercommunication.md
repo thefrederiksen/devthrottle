@@ -144,7 +144,7 @@ The complete path of "a session on machine A messages a session on machine B."
 
 ```
   Agent in session A (machine A) runs:
-      cc-send 9b2f "run the tests"
+      cc-devthrottle message send 9b2f "run the tests"
             |
             |  calls its OWN Director only:
             |  POST $CC_DIRECTOR_API/fleet/send  { toSessionId: 9b2f..., text }
@@ -171,7 +171,7 @@ The complete path of "a session on machine A messages a session on machine B."
       Agent in the target session sees:
           [message from "feature-work" (machine-A), id 4c81]
           run the tests
-          (to reply: cc-send 4c81 "<your reply>")
+          (to reply: cc-devthrottle message send 4c81 "<your reply>")
 ```
 
 Every hop except the Director relay and the sender framing already exists in the
@@ -183,13 +183,13 @@ Director and the message framing.
 
 ## 6. What a session can do (the methods)
 
-Capabilities ship as small command-line tools on the path, so any agent in any
-session can call them directly. Each one calls the session's own Director
+Capabilities ship through `cc-devthrottle` on the path, so any agent in any
+session can call them directly. It calls the session's own Director
 (`CC_DIRECTOR_API`); the Director relays to the Gateway as needed.
 
 ### List the fleet
 
-    cc-sessions
+    cc-devthrottle session list
 
 Shows every session running anywhere in the fleet:
 
@@ -204,15 +204,15 @@ Gateway configured, it returns just its own sessions.
 
 ### Find out who you are
 
-    cc-whoami
+    cc-devthrottle session whoami
 
 Prints this session's own short id, name, machine, and repository, plus the
 one-line how-to for messaging others.
 
 ### Send a message to one session
 
-    cc-send 9b2f "Can you run the integration tests on your branch?"
-    cc-send docs "Please update the API page when you get a chance."
+    cc-devthrottle message send 9b2f "Can you run the integration tests on your branch?"
+    cc-devthrottle message send docs "Please update the API page when you get a chance."
 
 Address by short identifier (preferred) or by name. An ambiguous prefix or name
 is refused with the list of candidates. Calls
@@ -221,7 +221,7 @@ existing prompt route.
 
 ### Send a message to everyone
 
-    cc-send all "Heads up: I am about to merge to main in 5 minutes."
+    cc-devthrottle message send all "Heads up: I am about to merge to main in 5 minutes."
 
 Calls `POST $CC_DIRECTOR_API/fleet/broadcast`, which the Director relays to the
 Gateway's existing broadcast route.
@@ -236,7 +236,7 @@ framed message that tells it who is talking:
     [message from "feature-work" (machine-A), id 4c81]
     Can you run the integration tests on your branch?
 
-    (to reply: cc-send 4c81 "<your reply>")
+    (to reply: cc-devthrottle message send 4c81 "<your reply>")
 
 The sender identity is stamped by the relaying Director from the calling
 session's own identifier; it is not trusted from the request body. The framing
@@ -277,11 +277,11 @@ and our plumbing is simpler because we already have a hub and a private network.
 | Capability                         | Peer-to-peer library (video)              | Our approach (relay through the Director)             | Same for the agent?            |
 |------------------------------------|-------------------------------------------|-------------------------------------------------------|--------------------------------|
 | Address another agent              | By public key (long, opaque)              | By session identifier (short prefix), or name         | Comparable                     |
-| Discover who exists                | Join a gossip swarm on a topic            | cc-sessions, relayed to the Gateway directory         | Yes                            |
-| Send a direct message              | Direct connection or gossip               | cc-send, relayed to the existing prompt route         | Yes                            |
-| Broadcast to many                  | Gossip publish to a topic                 | cc-send all, relayed to the existing broadcast        | Yes                            |
+| Discover who exists                | Join a gossip swarm on a topic            | `cc-devthrottle session list`, relayed to the Gateway directory | Yes                   |
+| Send a direct message              | Direct connection or gossip               | `cc-devthrottle message send`, relayed to the existing prompt route | Yes                |
+| Broadcast to many                  | Gossip publish to a topic                 | `cc-devthrottle message send all`, relayed to the existing broadcast | Yes                |
 | Know who a message is from         | Carried in the payload                    | Sender stamped by the relaying Director               | Yes                            |
-| Reply to a sender                  | Dial the sender back                      | cc-send to the sender's id (one-way today)            | One-way now; ask-reply is next |
+| Reply to a sender                  | Dial the sender back                      | `cc-devthrottle message send` to the sender's id      | Yes                            |
 | Ask and get an answer back         | Open a stream and read the response       | Separate increment (section 8)                        | Not yet                        |
 | Transfer large files               | Built-in resumable transfer               | Not in this version                                   | Not yet                        |
 | Shared synced state                | Built-in synced documents                 | Not in this version                                   | Not yet                        |
@@ -305,7 +305,7 @@ build.
 
 - Director-side relay endpoints: list the fleet, send to one, broadcast to all.
 - The fleet token stays on the Director and is never exposed to a session.
-- Command-line tools: cc-sessions, cc-whoami, cc-send (to one, and to all).
+- Command-line surface: `cc-devthrottle session list`, `cc-devthrottle session whoami`, and `cc-devthrottle message send`.
 - Sender framing on every delivered message, stamped by the Director.
 - A one-line reminder at spawn so each session knows the capability exists.
 - Addressing by session identifier (short prefix) or name.

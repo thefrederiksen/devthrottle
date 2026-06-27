@@ -168,7 +168,7 @@ the programmatic prompt path: <span class="have">echo</span> = echo-verified (re
 </tbody>
 </table>
 </div>
-<p class="sub">Note: only ClaudeDriver declares <code>TranscriptRead</code>, so <code>cc-ask</code> (ask a session and
+<p class="sub">Note: only ClaudeDriver declares <code>TranscriptRead</code>, so <code>cc-devthrottle message ask</code> (ask a session and
 read its reply) only works when the target is Claude. Codex has a working transcript reader that is not
 yet declared as a capability - a cheap unlock (section 7).</p>
 
@@ -181,7 +181,7 @@ mechanism we will use (section 6); "Blocker" is what stands in the way.</p>
 <thead><tr>
   <th>Agent</th><th>Inject at launch (now)</th><th>Re-inject on reset (now)</th>
   <th>Target strategy</th><th>Inject at launch (target)</th><th>Re-inject on reset (target)</th>
-  <th>cc-ask (target)</th><th>Main blocker</th>
+  <th>cc-devthrottle message ask (target)</th><th>Main blocker</th>
 </tr></thead>
 <tbody>
   <tr><th>Claude Code</th><td class="have">DONE</td><td class="have">DONE</td><td class="fam">A native hook</td><td class="have">done</td><td class="have">done</td><td class="have">works</td><td class="na">none</td></tr>
@@ -290,7 +290,7 @@ shared preamble endpoint. The fifth case is the honest "cannot".</p>
   <div class="grid2">
     <div class="k">Strategy</div><div class="v"><span class="fam">A</span> - <code>CodexHookInstaller</code> merges SessionStart into <code>~/.codex/hooks.json</code>; SessionManager appends <code>--dangerously-bypass-hook-trust</code>.</div>
     <div class="k">State</div><div class="v">Wired and proven on 0.141.0: hook auto-installs, preamble injects at first turn, re-injects on clear and compact. Submit bug fixed (echo-verified).</div>
-    <div class="k">Remaining</div><div class="v">Declare <code>TranscriptRead</code> on CodexDriver (the reader exists) so <code>cc-ask</code> reaches Codex. For shipping, consider managed-hooks (<code>requirements.toml</code>) instead of writing the user's personal hooks.json.</div>
+    <div class="k">Remaining</div><div class="v">Declare <code>TranscriptRead</code> on CodexDriver (the reader exists) so <code>cc-devthrottle message ask</code> reaches Codex. For shipping, consider managed-hooks (<code>requirements.toml</code>) instead of writing the user's personal hooks.json.</div>
   </div>
 </div>
 
@@ -317,8 +317,8 @@ shared preamble endpoint. The fifth case is the honest "cannot".</p>
   </div>
   <ol class="steps">
     <li>Add <code>GrokDriver</code> (bespoke) - it has <code>/compact</code>, streaming-json output, ACP; declare what is real.</li>
-    <li>Write <code>GrokPreambleInstaller</code> (instruction-file flavour): write the preamble into a user/global instruction file Grok loads at session start. Because the preamble needs the per-session id, write it per launch into a Director-managed instruction path that Grok is told to read, or include a stable pointer and let the agent run <code>cc-whoami</code> for the live id.</li>
-    <li>Open question to resolve: the preamble is per-session (carries the session id), but instruction files are static/global. Options: (a) write a per-session file in the repo's <code>.grok/rules</code> at launch and remove on exit; (b) write a generic preamble (commands only) globally and rely on the env vars + a one-line "run cc-whoami for your id". Recommend (a) for full parity.</li>
+    <li>Write <code>GrokPreambleInstaller</code> (instruction-file flavour): write the preamble into a user/global instruction file Grok loads at session start. Because the preamble needs the per-session id, write it per launch into a Director-managed instruction path that Grok is told to read, or include a stable pointer and let the agent run <code>cc-devthrottle session whoami</code> for the live id.</li>
+    <li>Open question to resolve: the preamble is per-session (carries the session id), but instruction files are static/global. Options: (a) write a per-session file in the repo's <code>.grok/rules</code> at launch and remove on exit; (b) write a generic preamble (commands only) globally and rely on the env vars + a one-line "run cc-devthrottle session whoami for your id". Recommend (a) for full parity.</li>
     <li>Verify with <code>grok inspect</code> that the instruction file is loaded; confirm it is re-read on <code>/compact</code>.</li>
   </ol>
 </div>
@@ -345,10 +345,10 @@ shared preamble endpoint. The fifth case is the honest "cannot".</p>
   </div>
   <ol class="steps">
     <li>Write <code>CopilotPreambleInstaller</code> (instruction-file): write the preamble into a Director-controlled directory and point <code>COPILOT_CUSTOM_INSTRUCTIONS_DIRS</code> at it via the session environment (SessionManager already injects Copilot env).</li>
-    <li>Per-session id: same per-session-vs-static question as Grok - recommend a per-session file in the Director-owned instructions dir, named/scoped so only this session reads it (or accept commands-only + cc-whoami).</li>
+    <li>Per-session id: same per-session-vs-static question as Grok - recommend a per-session file in the Director-owned instructions dir, named/scoped so only this session reads it (or accept commands-only + cc-devthrottle session whoami).</li>
     <li>Detect compaction (optional) via a <code>preCompact</code> hook writing a marker; not required because the file is re-read per prompt.</li>
     <li>Verify live that the instruction file survives <code>/clear</code> and <code>/compact</code> (inferred from "re-read per prompt"; confirm).</li>
-    <li>Declare <code>TranscriptRead</code> if the SqliteStore reader is wired - unlocks cc-ask.</li>
+    <li>Declare <code>TranscriptRead</code> if the SqliteStore reader is wired - unlocks cc-devthrottle message ask.</li>
   </ol>
 </div>
 
@@ -392,7 +392,7 @@ shared preamble endpoint. The fifth case is the honest "cannot".</p>
   <li><strong>Raw CLI (structurally cannot):</strong> mark <code>FleetPreambleStrategy.None</code>,
   <code>Status.Unsupported</code>, with the reason "arbitrary command - no context-injection contract".
   The environment still carries <code>CC_SESSION_ID</code> / <code>CC_DIRECTOR_API</code> and the
-  <code>cc-*</code> tools still work, so a human at the terminal can run <code>cc-whoami</code>; we just
+  <code>cc-*</code> tools still work, so a human at the terminal can run <code>cc-devthrottle session whoami</code>; we just
   cannot pre-load the model's context.</li>
   <li><strong>Degraded agents (partially can):</strong> e.g. Grok and Copilot inject at launch via a file
   but get no reset signal; record <code>Status.Wired</code> with a note "re-injection is passive
@@ -415,7 +415,7 @@ resolves to a plugin" holds uniformly and the strategy declaration lives in one 
   <li><strong>Cross-cutting first (7.1, 7.2, 7.3 partial):</strong> the <code>FleetPreambleStrategy</code>
   declaration + the shared echo-verified submit helper. Small, unblocks everything, and immediately lets
   the UI tell the truth about all agents.</li>
-  <li><strong>Codex finish:</strong> declare <code>TranscriptRead</code> (cc-ask). Tiny.</li>
+  <li><strong>Codex finish:</strong> declare <code>TranscriptRead</code> (cc-devthrottle message ask). Tiny.</li>
   <li><strong>Grok (D):</strong> installed and understood; instruction-file flavour. No upgrade needed.</li>
   <li><strong>Copilot (D):</strong> instruction-file; same shape as Grok. Confirm install.</li>
   <li><strong>Gemini (A+D):</strong> after upgrading the binary; high value (hook parity with Claude/Codex).</li>
@@ -432,7 +432,7 @@ infrastructure (OpenCode event bus, Pi extension) for last.</p>
 <ul class="tight">
   <li><strong>Per-session id in instruction files (Grok, Copilot):</strong> the preamble carries the
   session id, but instruction files are static. Resolve per agent: per-session file written at launch
-  vs commands-only + <code>cc-whoami</code>. Recommended: per-session file for full parity.</li>
+  vs commands-only + <code>cc-devthrottle session whoami</code>. Recommended: per-session file for full parity.</li>
   <li><strong>Global config edits:</strong> the hook/instruction installers write the user's own agent
   config (Codex hooks.json, Gemini settings.json, etc.). For a shipped product, prefer managed/elevated
   config paths where they exist, and always merge (never clobber) the user's content.</li>
