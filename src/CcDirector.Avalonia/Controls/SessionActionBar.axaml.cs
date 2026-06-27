@@ -81,13 +81,9 @@ public partial class SessionActionBar : UserControl
 
         try
         {
-            var sid = session.ClaudeSessionId;
-            if (string.IsNullOrEmpty(sid))
-            {
-                RenderContextGauge(null);   // not linked to a transcript yet
-                return;
-            }
-
+            // Only Claude has a preassigned ClaudeSessionId; Codex and pi locate by repo path and
+            // have none, so don't gate the gauge on it - the driver returns null if it can't resolve.
+            var sid = session.ClaudeSessionId ?? "";
             var repoPath = session.RepoPath;
             // EffectiveLaunchArgs carries the launched --model ([1m]) even when it came from the
             // configured default; ClaudeArgs alone is null in that case (#803).

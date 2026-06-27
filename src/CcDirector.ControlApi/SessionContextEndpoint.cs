@@ -31,15 +31,16 @@ internal static class SessionContextEndpoint
             if (!driver.Capabilities.HasFlag(DriverCapabilities.ContextUsage))
                 return Results.NotFound(new { error = $"agent {driver.Kind} does not report context usage" });
 
-            if (string.IsNullOrEmpty(session.ClaudeSessionId))
-                return Results.NotFound(new { error = "session has no agent session id yet" });
-
+            // No agent-session-id guard here: only Claude carries a preassigned ClaudeSessionId.
+            // Codex and pi have none - they locate their rollout/session by repo path - so requiring
+            // it would make the gauge permanently dark for them. Each driver decides what it needs;
+            // a driver that cannot resolve a transcript yet returns null below (handled as 404).
             try
             {
                 // EffectiveLaunchArgs (the merged launch line) carries the launched --model even when
                 // it came from the configured default; ClaudeArgs alone is null in that case (#803).
                 var launchArgs = session.EffectiveLaunchArgs ?? session.ClaudeArgs;
-                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath, launchArgs);
+                var context = driver.ReadContextUsage(session.ClaudeSessionId ?? "", session.RepoPath, launchArgs);
                 if (context is null)
                     return Results.NotFound(new { error = "no context usage yet (no completed turn)" });
                 return Results.Json(context);
