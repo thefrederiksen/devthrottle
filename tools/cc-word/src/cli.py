@@ -9,6 +9,26 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+# --- ASCII-only output (project house rule): Rich truncates an overflowing table cell with the
+# Unicode ellipsis U+2026; emit ASCII "..." instead. Patched once at module import. ---
+def _install_ascii_truncation():
+    import rich.text
+    from rich.cells import set_cell_size
+    _orig = rich.text.Text.truncate
+    if getattr(_orig, "_ascii_ellipsis", False):
+        return
+    def truncate(self, max_width, *, overflow=None, pad=False):
+        _orig(self, max_width, overflow=overflow, pad=pad)
+        if "\u2026" in self.plain:
+            self.plain = set_cell_size(self.plain.replace("\u2026", ""), max(0, max_width - 3)) + "..."
+            if pad and len(self.plain) < max_width:
+                self.plain += " " * (max_width - len(self.plain))
+    truncate._ascii_ellipsis = True
+    rich.text.Text.truncate = truncate
+
+
+_install_ascii_truncation()
+
 # Handle imports for both package and frozen executable modes
 try:
     from . import __version__
