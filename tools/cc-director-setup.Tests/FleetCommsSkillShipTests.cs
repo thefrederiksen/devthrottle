@@ -20,6 +20,15 @@ public sealed class FleetCommsSkillShipTests
     }
 
     [Fact]
+    public void SkillNames_ShipDevThrottle_NotLegacyCcDirector()
+    {
+        // The product's main skill was renamed cc-director -> dev-throttle (DevThrottle rebrand).
+        // Guard so the installer never reverts to shipping the retired name.
+        Assert.Contains("dev-throttle", SkillInstaller.SkillNames);
+        Assert.DoesNotContain("cc-director", SkillInstaller.SkillNames);
+    }
+
+    [Fact]
     public void EverySkillName_HasASkillMdInTheRepo()
     {
         var skillsDir = FindRepoDir(Path.Combine(".claude", "skills"));

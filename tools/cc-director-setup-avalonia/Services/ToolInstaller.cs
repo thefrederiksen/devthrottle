@@ -21,7 +21,8 @@ public class ToolInstaller
 
     public static readonly string[] SkillNames =
     [
-        "cc-director",
+        // dev-throttle: the product's main skill (renamed from cc-director).
+        "dev-throttle",
     ];
 
     public ToolInstaller()
@@ -191,8 +192,10 @@ public class ToolInstaller
             Directory.CreateDirectory(skillDir);
             var skillPath = Path.Combine(skillDir, "SKILL.md");
 
+            // The canonical skill tree is .claude/skills/<name>/ (the stale root skills/ duplicate was
+            // removed in issue #396; fetching from skills/ here 404'd every install).
             var success = await _github.DownloadSkillFileAsync(
-                skillPath, $"skills/{skill.Name}/SKILL.md");
+                skillPath, $".claude/skills/{skill.Name}/SKILL.md");
             skill.Status = success ? "Done" : "Failed";
         }
 

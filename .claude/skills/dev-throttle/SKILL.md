@@ -1,19 +1,21 @@
 ---
-name: cc-director
-description: CC Director - "Mission Control for Claude Code". A desktop app that runs and supervises multiple Claude Code sessions, ships cc-* CLI tools on PATH, and exposes a REST Control API (default port 7879). Triggers on "/cc-director", "what cc tools", "list tools", "available tools", "control api", "cc-director api", "session manager", "mission control".
+name: dev-throttle
+description: DevThrottle - "Mission Control for Claude Code". A desktop app (binary cc-director.exe) that runs and supervises multiple Claude Code sessions, ships cc-* CLI tools on PATH, and exposes a REST Control API (default port 7879). Triggers on "/dev-throttle", "/devthrottle", "/cc-director", "what cc tools", "list tools", "available tools", "control api", "devthrottle api", "session manager", "mission control".
 ---
 
-# CC Director
+# Dev Throttle
 
-CC Director is a desktop application positioned as "Mission Control for Claude Code" - one place to run, observe, and orchestrate multiple Claude Code sessions side by side. It also installs a suite of `cc-*` command-line tools onto your PATH.
+DevThrottle is a desktop application positioned as "Mission Control for Claude Code" - one place to run, observe, and orchestrate multiple Claude Code sessions side by side. It also installs a suite of `cc-*` command-line tools onto your PATH.
 
-This skill orients a Claude Code session to what is available after CC Director is installed. It is written for the installed product, not for building from source.
+This skill orients a Claude Code session to what is available after DevThrottle is installed. It is written for the installed product, not for building from source.
 
-## What CC Director is, in three parts
+Naming note: DevThrottle is the product/brand. The application binary installed and launched on a machine is `cc-director.exe`, and the bundled command-line tools keep their `cc-*` names. So you will see the product called DevThrottle while the concrete on-disk app, process, and tools still carry `cc-` names.
+
+## What DevThrottle is, in three parts
 
 1. **Desktop app** - Windows (primary), with experimental Mac/Linux support. Runs and supervises multiple Claude Code sessions, one per repo, with real-time activity tracking, terminal buffers, voice input, and a web Manager UI.
 2. **Control API** - A REST/JSON API embedded in the desktop app, on port range 7879-7898 (default 7879). Lets external callers list sessions, send prompts, interrupt, fetch terminal buffers, perform programmatic handovers, and post voice commands.
-3. **`cc-*` tool suite** - CLI tools installed on PATH when CC Director is set up. Each tool supports `--help` for its full command syntax.
+3. **`cc-*` tool suite** - CLI tools installed on PATH when DevThrottle is set up. Each tool supports `--help` for its full command syntax.
 
 ## The cc-* tools (installed on PATH)
 
@@ -91,7 +93,7 @@ curl -X POST http://localhost:7879/sessions/<sid>/prompt \
 ## When this skill is the right thing to consult
 
 - "What cc-* tools do I have for X?" - look in the tool list above; run the tool with `--help` for syntax.
-- "How do I call CC Director from a script?" - point at the Control API section.
+- "How do I call DevThrottle from a script?" - point at the Control API section.
 - "Is the app running / what version?" - `curl http://localhost:7879/healthz`.
 
 ## What this skill does NOT do
@@ -101,5 +103,5 @@ curl -X POST http://localhost:7879/sessions/<sid>/prompt \
 
 ---
 
-**Skill Version:** 3.0 (end-user)
+**Skill Version:** 4.0 (end-user, DevThrottle rebrand)
 **Last Updated:** 2026-06-27

@@ -18,7 +18,9 @@ public sealed class SkillInstaller
     /// <summary>The skills the installer offers (SKILL.md is fetched per name).</summary>
     public static readonly string[] SkillNames =
     [
-        "cc-director",
+        // dev-throttle: the product's main skill (renamed from cc-director). DevThrottle is the brand;
+        // the skill teaches an agent the installed app, its Control API, and the cc-* tool surface.
+        "dev-throttle",
         // fleet-comms (issue #723): teaches an agent the cc-devthrottle session/message verbs
         // so every machine's agents know the capability, not just the CC_FLEET_TOOLS env hint.
         "fleet-comms",
