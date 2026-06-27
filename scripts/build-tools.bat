@@ -25,7 +25,7 @@ REM ============================================
 REM Python tools (built with PyInstaller)
 REM Directory names use underscores, exe names use dashes
 REM ============================================
-set "PYTHON_TOOLS=cc-comm-queue cc-crawl4ai cc-docgen cc-excel cc-facebook cc-gmail cc-hardware cc-html cc-image cc-outlook cc-pdf cc-playwright cc-photos cc-powerpoint cc-reddit cc-settings cc-setup cc-transcribe cc-twitter cc-vault cc-video cc-voice cc-whisper cc-word cc-youtube cc-youtube-info"
+set "PYTHON_TOOLS=cc-comm-queue cc-crawl4ai cc-devthrottle cc-docgen cc-excel cc-facebook cc-gmail cc-hardware cc-html cc-image cc-outlook cc-pdf cc-playwright cc-photos cc-powerpoint cc-reddit cc-settings cc-transcribe cc-twitter cc-vault cc-video cc-voice cc-whisper cc-word cc-youtube cc-youtube-info"
 
 for %%T in (%PYTHON_TOOLS%) do (
     echo.
@@ -45,18 +45,7 @@ for %%T in (%PYTHON_TOOLS%) do (
 
         if !errorlevel! equ 0 (
             REM Copy exe to install directory
-            REM Handle special case: cc-setup builds as cc-director-setup.exe
-            if "%%T"=="cc-setup" (
-                if exist "dist\cc-director-setup.exe" (
-                    copy /Y "dist\cc-director-setup.exe" "%INSTALL_DIR%\" >nul
-                    echo [OK] cc-director-setup.exe copied to %INSTALL_DIR%
-                    set /a SUCCESS_COUNT+=1
-                ) else (
-                    echo [FAIL] cc-director-setup.exe not found after build
-                    set "FAILED=!FAILED! %%T"
-                    set /a FAIL_COUNT+=1
-                )
-            ) else if exist "dist\!EXE_NAME!.exe" (
+            if exist "dist\!EXE_NAME!.exe" (
                 copy /Y "dist\!EXE_NAME!.exe" "%INSTALL_DIR%\" >nul
                 echo [OK] !EXE_NAME!.exe copied to %INSTALL_DIR%
                 set /a SUCCESS_COUNT+=1

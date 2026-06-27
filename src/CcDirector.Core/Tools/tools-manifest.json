@@ -67,8 +67,8 @@
     {
       "name": "cc-devthrottle",
       "category": "Fleet",
-      "description": "Unified DevThrottle command surface for fleet, session, and message management.",
-      "smoke": { "args": ["actions", "--json"], "expectContains": "message-send" },
+      "description": "Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup.",
+      "smoke": { "args": ["actions", "--json"], "expectContains": "setup-install" },
       "note": null
     }
   ]

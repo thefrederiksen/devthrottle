@@ -47,6 +47,7 @@ echo Available tools:
 echo.
 echo Python tools (compiled executables):
 if exist "%INSTALL_DIR%\cc-crawl4ai.exe" echo   - cc-crawl4ai
+if exist "%INSTALL_DIR%\cc-devthrottle.exe" echo   - cc-devthrottle
 if exist "%INSTALL_DIR%\cc-gmail.exe" echo   - cc-gmail
 if exist "%INSTALL_DIR%\cc-image.exe" echo   - cc-image
 if exist "%INSTALL_DIR%\cc-html.exe" echo   - cc-html
@@ -54,7 +55,6 @@ if exist "%INSTALL_DIR%\cc-pdf.exe" echo   - cc-pdf
 if exist "%INSTALL_DIR%\cc-word.exe" echo   - cc-word
 if exist "%INSTALL_DIR%\cc-outlook.exe" echo   - cc-outlook
 if exist "%INSTALL_DIR%\cc-reddit.exe" echo   - cc-reddit
-if exist "%INSTALL_DIR%\cc-director-setup.exe" echo   - cc-director-setup
 if exist "%INSTALL_DIR%\cc-transcribe.exe" echo   - cc-transcribe
 if exist "%INSTALL_DIR%\cc-vault.exe" echo   - cc-vault
 if exist "%INSTALL_DIR%\cc-video.exe" echo   - cc-video

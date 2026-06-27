@@ -22,14 +22,14 @@ The installer is intentionally boring. Boring is reliable.
 
 - **Auto-update does not reliably work** (Director builds set `UpdaterEnabled=true` but updates are not landing reliably; root cause TBD as part of this work).
 - **Gateway and Cockpit are not shipped** as release artifacts; today the Gateway only runs from source.
-- **Install is Windows-leaning and fragmented:** `cc-director-setup` (Windows wizard) + `cc-setup` (Python) + a Claude Code prompt that installs only the Director.
+- **Install is Windows-leaning and fragmented:** `cc-director-setup` (Windows wizard) + the retired Python setup command (now folded into `cc-devthrottle setup`) + a Claude Code prompt that installs only the Director.
 - **No single owner of versions** across Director / Gateway / Cockpit / tools.
 
 ## Target design
 
 ### 1. One cross-platform installer/updater tool
 
-Evolve the existing setup tooling (`cc-director-setup` / `cc-setup`) into a single cross-platform installer/updater that:
+Evolve the existing setup tooling (`cc-director-setup` plus `cc-devthrottle setup`) into a single cross-platform installer/updater that:
 
 - Detects OS + arch.
 - Reads one **release manifest** (versions + per-asset SHA-256 for Director, Gateway, Cockpit, tools).

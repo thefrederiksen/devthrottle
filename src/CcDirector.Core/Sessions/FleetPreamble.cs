@@ -36,6 +36,8 @@ public static class FleetPreamble
             "  cc-devthrottle message send <id|all> \"msg\"  send a message or broadcast",
             "  cc-devthrottle message ask <id> \"question\"  ask a session and wait for its answer",
             "  cc-devthrottle session spawn <repo>  open a new session on this Director",
+            "  cc-devthrottle schedule list       list Gateway schedules",
+            "  cc-devthrottle setup status        show local setup status",
             "Address a session by a short prefix of its id or by its name. You reach the fleet through your",
             "own Director (CC_DIRECTOR_API); no Gateway address or token is needed.",
         };

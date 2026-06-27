@@ -57,6 +57,15 @@ cc-devthrottle selftest
 
 This spawns two throwaway local sessions, proves list/send/ask works, then tears them down.
 
+## Related surfaces
+
+The same binary also owns Gateway schedules and local setup diagnostics:
+
+```
+cc-devthrottle schedule list
+cc-devthrottle setup status
+```
+
 ## Rules
 
 - Address a session by a short id prefix or by exact name.

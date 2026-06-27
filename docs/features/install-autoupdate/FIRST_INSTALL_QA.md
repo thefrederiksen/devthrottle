@@ -35,7 +35,7 @@ Gateway elevation guard refuses cleanly, and the `sc.exe` service command parses
 - New `build-gateway-win` job -> `cc-director-gateway-win-x64.exe` (self-contained single file).
 - New `build-cockpit-win` job -> `cc-director-cockpit-win-x64.zip` (self-contained publish folder).
 - Tools job converted to a 26-tool matrix (`fail-fast: false`); 6 heavyweight tools marked
-  `continue-on-error` until proven green. Excludes (`cc-setup`, the 5 Node tools) documented inline.
+  `continue-on-error` until proven green. Excludes for non-Python tool bundles documented inline.
 - Setup-wizard job now also publishes and ships the CLI as `cc-director-setup-cli-win-x64.exe`.
 - `create-release` wires all assets in; the manifest auto-discovers them with version + SHA-256.
 

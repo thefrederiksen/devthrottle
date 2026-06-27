@@ -1,6 +1,6 @@
 ---
 name: cc-director
-description: CC Director - "Mission Control for Claude Code". A desktop app that runs and supervises multiple Claude Code sessions, ships 30+ cc-* CLI tools on PATH, and exposes a REST Control API (default port 7879). Triggers on "/cc-director", "what cc tools", "list tools", "available tools", "control api", "cc-director api", "session manager", "mission control".
+description: CC Director - "Mission Control for Claude Code". A desktop app that runs and supervises multiple Claude Code sessions, ships cc-* CLI tools on PATH, and exposes a REST Control API (default port 7879). Triggers on "/cc-director", "what cc tools", "list tools", "available tools", "control api", "cc-director api", "session manager", "mission control".
 ---
 
 # CC Director
@@ -13,7 +13,7 @@ This skill orients a Claude Code session to what is available after CC Director 
 
 1. **Desktop app** - Windows (primary), with experimental Mac/Linux support. Runs and supervises multiple Claude Code sessions, one per repo, with real-time activity tracking, terminal buffers, voice input, and a web Manager UI.
 2. **Control API** - A REST/JSON API embedded in the desktop app, on port range 7879-7898 (default 7879). Lets external callers list sessions, send prompts, interrupt, fetch terminal buffers, perform programmatic handovers, and post voice commands.
-3. **`cc-*` tool suite** - 30 CLI tools installed on PATH when CC Director is set up. Each tool supports `--help` for its full command syntax.
+3. **`cc-*` tool suite** - CLI tools installed on PATH when CC Director is set up. Each tool supports `--help` for its full command syntax.
 
 ## The cc-* tools (installed on PATH)
 
@@ -35,9 +35,20 @@ All tools are on PATH after install. For exact flags and examples, run any tool 
 `cc-image`, `cc-voice` (text-to-speech), `cc-whisper` (audio transcription / translation), `cc-video`, `cc-transcribe`, `cc-photos`, `cc-youtube-info`.
 
 ### Data and utilities
-`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML), `cc-director-setup` (the installer/updater).
+`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML), `cc-settings` (configuration).
 
-A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-settings`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
+### DevThrottle fleet, schedules, and setup
+`cc-devthrottle` is the unified command for fleet/session operations, inter-session messages, Gateway schedules, and setup:
+
+```
+cc-devthrottle actions --json
+cc-devthrottle session list
+cc-devthrottle message send <target|all> "message"
+cc-devthrottle schedule list
+cc-devthrottle setup status
+```
+
+A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
 
 ## Control API at a glance
 
@@ -90,4 +101,4 @@ curl -X POST http://localhost:7879/sessions/<sid>/prompt \
 ---
 
 **Skill Version:** 3.0 (end-user)
-**Last Updated:** 2026-06-03
+**Last Updated:** 2026-06-27

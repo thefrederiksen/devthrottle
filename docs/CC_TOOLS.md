@@ -32,7 +32,7 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 
 | Tool | Description | Requirements |
 |------|-------------|--------------|
-| cc-devthrottle | Unified DevThrottle command surface for fleet, session, and message management | Running Director session |
+| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
 
 ### Web and Social
 
@@ -73,8 +73,6 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | cc-hardware | System hardware info (RAM, CPU, GPU, disk) | None |
 | cc-comm-queue | Communication Manager approval queue | None |
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz (not yet built) |
-| cc-director-setup | Windows installer for CC Director | None |
-| cc-cron | Manage Gateway cron jobs (schedule sessions / work-list drains) | Running Gateway |
 
 ---
 
@@ -979,40 +977,28 @@ cc-docgen validate
 
 ---
 
-### cc-director-setup
-
-Windows installer for the CC Director tools suite.
-
-```bash
-cc-director-setup
-```
-
-Downloads tools from GitHub releases, configures PATH, installs Claude Code skill. No admin privileges required.
-
----
-
-### cc-cron
+### cc-devthrottle schedule
 
 Manage cron jobs on the DevThrottle Gateway from the command line. A cron job schedules a
 session (a skill or prompt) or a named work-list drain to run on a chosen machine, either once
-(`--at`) or on a recurring cron expression (`--cron`). `cc-cron` is a thin REST consumer of the
+(`--at`) or on a recurring cron expression (`--cron`). `cc-devthrottle schedule` is a thin REST consumer of the
 Gateway's `/cron/jobs` surface: it owns no job state and runs no scheduler of its own - the
 Gateway is the single scheduler. It is the agent-facing counterpart of the human-facing Cockpit
 Schedule page.
 
 ```bash
 # List / inspect
-cc-cron list                       # every job: id, name, machine, schedule, next run, enabled
-cc-cron get <id>                   # one job in full
-cc-cron runs <id>                  # run history for a job (infra status vs task status)
+cc-devthrottle schedule list                       # every job: id, name, machine, schedule, next run, enabled
+cc-devthrottle schedule get <id>                   # one job in full
+cc-devthrottle schedule runs <id>                  # run history for a job (infra status vs task status)
 
 # Create a one-off (runs once at a local time in a time zone)
-cc-cron create --name "Help once" \
+cc-devthrottle schedule create --name "Help once" \
   --at "2026-06-28T18:00:00" --tz America/New_York \
   --machine <machine> --repo "D:\ReposFred\devthrottle" --seed "/help"
 
 # Create a recurring job (5-field cron expression)
-cc-cron create --name "Nightly drain" \
+cc-devthrottle schedule create --name "Nightly drain" \
   --cron "0 0 * * *" --tz America/Chicago \
   --machine <machine> --repo "D:\ReposFred\devthrottle" --worklist "Tonight"
 
@@ -1020,19 +1006,19 @@ cc-cron create --name "Nightly drain" \
 # none (default), always, or failure; an optional --notify-webhook also POSTs the
 # run summary to an external URL. The in-fleet notification rides the existing
 # needs-you / session-done channel (desktop + phone).
-cc-cron create --name "Nightly drain" \
+cc-devthrottle schedule create --name "Nightly drain" \
   --cron "0 0 * * *" --tz America/Chicago \
   --machine <machine> --repo "D:\ReposFred\devthrottle" --worklist "Tonight" \
   --notify-on always --notify-webhook "https://example.com/hook"
 
 # Fire / enable / disable / delete
-cc-cron run <id>                   # run now (fires immediately, independent of the schedule)
-cc-cron enable <id>                # re-arm a disabled job
-cc-cron disable <id>               # stop firing but keep the definition
-cc-cron delete <id>                # remove the job
+cc-devthrottle schedule run <id>                   # run now (fires immediately, independent of the schedule)
+cc-devthrottle schedule enable <id>                # re-arm a disabled job
+cc-devthrottle schedule disable <id>               # stop firing but keep the definition
+cc-devthrottle schedule delete <id>                # remove the job
 
 # Diagnostics
-cc-cron endpoint                   # show the Gateway base URL cc-cron resolves to
+cc-devthrottle schedule endpoint                   # show the Gateway base URL used by schedule commands
 ```
 
 **Flags for `create`:**
@@ -1048,11 +1034,11 @@ cc-cron endpoint                   # show the Gateway base URL cc-cron resolves 
 | `--seed` | Skill or prompt the session runs, e.g. `/help` (one of `--seed` / `--worklist`) |
 | `--worklist` | Named work list to drain (one of `--seed` / `--worklist`) |
 
-**Endpoint discovery (no hard-coded port):** `cc-cron` resolves the Gateway base URL from the
+**Endpoint discovery (no hard-coded port):** `cc-devthrottle schedule` resolves the Gateway base URL from the
 single configured source of truth - the `gateway.url` value in `config.json` (the same value the
 desktop app and the Cockpit use). When no `gateway.url` is configured, it uses the loopback
 default `http://127.0.0.1:7878` (correct for a same-machine install). Point it at a specific
-Gateway with the global `--gateway <url>` option. If the Gateway is not reachable, `cc-cron`
+Gateway with the schedule-level `--gateway <url>` option. If the Gateway is not reachable, `cc-devthrottle`
 prints a clear "Gateway not reachable" error (is the Gateway tray app running?), not a stack
 trace. An invalid schedule (bad cron expression, unparseable one-off time, unknown time zone)
 surfaces the Gateway's own validation message verbatim.
@@ -1061,6 +1047,24 @@ surfaces the Gateway's own validation message verbatim.
 
 **Requirements:** a running DevThrottle Gateway. No extra credentials for a same-machine
 loopback Gateway; a configured remote Gateway uses its `gateway.token` automatically.
+
+---
+
+### cc-devthrottle setup
+
+Install, update, repair, or inspect the local DevThrottle tool setup from the same command surface.
+
+```bash
+cc-devthrottle setup status
+cc-devthrottle setup status --json
+cc-devthrottle setup install
+cc-devthrottle setup update
+cc-devthrottle setup repair
+cc-devthrottle setup doctor
+```
+
+The install/update/repair forms download from GitHub releases, configure PATH, and install the
+Claude Code skill when alpha-mode tool installation is enabled. No admin privileges required.
 
 ---
 
@@ -1077,7 +1081,7 @@ is the only scheduler - neither front door owns job state):
   alpha-gated surfaces). The documented, discoverable opt-in is to navigate to it directly: open
   the Cockpit and go to **`/schedule`** (for a same-machine Gateway, `http://127.0.0.1:7878/schedule`).
   The page is fully functional from that URL; a later release can simply un-hide the nav item.
-- **Agents and scripts:** the `cc-cron` CLI documented above.
+- **Agents and scripts:** `cc-devthrottle schedule`, documented above.
 
 ---
 
@@ -1094,7 +1098,8 @@ set OPENAI_API_KEY=your-key-here
 
 | Requirement | Tools that need it |
 |-------------|-------------------|
-| None | cc-powerpoint, cc-vault, cc-hardware, cc-comm-queue, cc-youtube-info, cc-director-setup |
+| None | cc-powerpoint, cc-vault, cc-hardware, cc-comm-queue, cc-youtube-info |
+| Running Director session or Gateway | cc-devthrottle, depending on subcommand |
 | OPENAI_API_KEY | cc-image, cc-voice, cc-whisper, cc-transcribe, cc-photos, cc-computer |
 | FFmpeg | cc-video, cc-transcribe |
 | Chrome/Chromium | cc-markdown, cc-websiteaudit |

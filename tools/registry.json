@@ -260,15 +260,6 @@
       "requirements": ["Graphviz"]
     },
     {
-      "name": "cc-director-setup",
-      "category": "data-utilities",
-      "type": "python",
-      "source_dir": "cc-setup",
-      "description": "Windows installer for CC Director tools suite",
-      "built": true,
-      "requirements": []
-    },
-    {
       "name": "cc-settings",
       "category": "data-utilities",
       "type": "python",
@@ -281,7 +272,7 @@
       "name": "cc-devthrottle",
       "category": "fleet",
       "type": "python",
-      "description": "Unified DevThrottle command surface for fleet, session, and message management",
+      "description": "Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup",
       "built": true,
       "ship": true,
       "requirements": []
@@ -293,15 +284,6 @@
       "description": "PostHog analytics CLI: page views, funnels, events, recordings",
       "built": true,
       "requirements": ["PostHog account + API key"]
-    },
-    {
-      "name": "cc-cron",
-      "category": "data-utilities",
-      "type": "python",
-      "description": "Manage cron jobs on the DevThrottle Gateway (schedule sessions and work-list drains)",
-      "built": true,
-      "ship": true,
-      "requirements": []
     }
   ]
 }

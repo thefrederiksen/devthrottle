@@ -46,7 +46,7 @@ while IFS= read -r line; do TOOL_DIRS+=("$line"); done < <(python3 - <<'PY'
 import json, os
 reg = json.load(open("tools/registry.json"))
 for t in reg["tools"]:
-    if t.get("type") == "python" and t.get("ship") and t["name"] != "cc-director-setup":
+    if t.get("type") == "python" and t.get("ship"):
         print(os.path.join("tools", t.get("source_dir") or t["name"]))
 PY
 )
@@ -70,7 +70,7 @@ step "collecting third-party dependencies from tool pyprojects"
 python3 - "$WORK/thirdparty.in" <<'PY'
 import tomllib, glob, os, re, sys, json
 registry = json.load(open("tools/registry.json"))
-ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship") and t["name"]!="cc-director-setup"}
+ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship")}
 allcc = {t["name"] for t in registry["tools"]}     # every cc-* name (any type)
 ours = {"cc-shared", "cc-storage"} | allcc         # our own dists never come from PyPI
 norm = lambda r: re.split(r"[<>=!~ \[]", r.strip(), 1)[0].lower().replace("_", "-")
@@ -144,7 +144,7 @@ out, bundle, pyver = sys.argv[1], sys.argv[2], sys.argv[3]
 reg = json.load(open("tools/registry.json"))
 tools = []
 for t in reg["tools"]:
-    if not (t.get("type") == "python" and t.get("ship") and t["name"] != "cc-director-setup"):
+    if not (t.get("type") == "python" and t.get("ship")):
         continue
     d = os.path.join("tools", t.get("source_dir") or t["name"])
     pp = tomllib.load(open(os.path.join(d, "pyproject.toml"), "rb"))

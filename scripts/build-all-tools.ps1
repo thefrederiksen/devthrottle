@@ -71,6 +71,7 @@ Write-Host ""
 $pythonTools = @(
     "cc-comm-queue",
     "cc-crawl4ai",
+    "cc-devthrottle",
     "cc-docgen",
     "cc-excel",
     "cc-gmail",
@@ -83,7 +84,6 @@ $pythonTools = @(
     "cc-photos",
     "cc-powerpoint",
     "cc-reddit",
-    "cc-setup",
     "cc-transcribe",
     "cc-vault",
     "cc-video",
@@ -128,12 +128,7 @@ function Build-PythonTool {
             return $false
         }
 
-        # Determine exe name (cc-setup builds as cc-director-setup.exe)
-        if ($toolName -eq "cc-setup") {
-            $exeName = "cc-director-setup.exe"
-        } else {
-            $exeName = "$toolName.exe"
-        }
+        $exeName = "$toolName.exe"
 
         $exePath = Join-Path $toolDir "dist\$exeName"
         if (Test-Path $exePath) {

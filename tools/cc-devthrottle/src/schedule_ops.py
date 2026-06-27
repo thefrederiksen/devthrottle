@@ -1,85 +1,148 @@
-"""CLI interface for cc-cron.
+"""Gateway schedule operations for cc-devthrottle."""
 
-A thin REST consumer of the Gateway cron surface (epic #479). Every subcommand maps to
-exactly one Gateway call; cc-cron owns no job state and runs no scheduler of its own.
-
-    cc-cron list                       GET    /cron/jobs
-    cc-cron get <id>                   GET    /cron/jobs/{id}
-    cc-cron runs <id>                  GET    /cron/jobs/{id}/runs
-    cc-cron create ...                 POST   /cron/jobs
-    cc-cron run <id>                   POST   /cron/jobs/{id}/run
-    cc-cron enable <id>                PUT    /cron/jobs/{id}   (enabled = true)
-    cc-cron disable <id>               PUT    /cron/jobs/{id}   (enabled = false)
-    cc-cron delete <id>                DELETE /cron/jobs/{id}
-"""
+from __future__ import annotations
 
 import json
-from typing import Optional
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import requests
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__
-from .gateway import CronClient, GatewayError, resolve_base_url
+_tools_dir = str(Path(__file__).resolve().parent.parent.parent)
+if _tools_dir not in sys.path:
+    sys.path.insert(0, _tools_dir)
 
-app = typer.Typer(
-    name="cc-cron",
-    help="Manage cron jobs on the DevThrottle Gateway (schedule sessions and work-list drains).",
-    no_args_is_help=True,
-)
-console = Console()
-err_console = Console(stderr=True)
+from cc_shared.config import CCDirectorConfig  # noqa: E402
 
-# Schedule-kind values on the wire - must match CcDirector.Gateway.CronSchedule.
+LOOPBACK_DEFAULT = "http://127.0.0.1:7878"
+TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
-
-# Run-complete notification policy values on the wire - must match
-# CcDirector.Gateway.Contracts.CronNotify.
 NOTIFY_NONE = "none"
 NOTIFY_ALWAYS = "always"
 NOTIFY_FAILURE = "failure"
 NOTIFY_CHOICES = (NOTIFY_NONE, NOTIFY_ALWAYS, NOTIFY_FAILURE)
 
-# Set by the --gateway global option; None means "discover from config" (the default).
-_gateway_override: Optional[str] = None
+console = Console()
+err_console = Console(stderr=True)
+gateway_override: Optional[str] = None
 
 
-def version_callback(value: bool) -> None:
-    if value:
-        console.print(f"cc-cron v{__version__}")
-        raise typer.Exit()
+class GatewayError(Exception):
+    """A handled, user-facing failure talking to the Gateway."""
 
 
-@app.callback()
-def main(
-    version: bool = typer.Option(
-        None, "--version", "-v", callback=version_callback, help="Show version"
-    ),
-    gateway: Optional[str] = typer.Option(
-        None,
-        "--gateway",
-        help="Override the Gateway base URL (default: discover from config gateway.url, "
-        "else the loopback default).",
-    ),
-) -> None:
-    """Manage cron jobs on the DevThrottle Gateway."""
-    global _gateway_override
-    _gateway_override = gateway.rstrip("/") if gateway else None
+def set_gateway_override(value: Optional[str]) -> None:
+    global gateway_override
+    gateway_override = value.rstrip("/") if value else None
 
 
-# ---- helpers ----
+def resolve_base_url() -> str:
+    config = CCDirectorConfig().load()
+    url = (config.gateway.url or "").strip()
+    return url.rstrip("/") if url else LOOPBACK_DEFAULT
+
+
+def _auth_token() -> str:
+    config = CCDirectorConfig().load()
+    return (config.gateway.token or "").strip()
+
+
+class ScheduleClient:
+    """Talks to one Gateway's cron/schedule surface."""
+
+    def __init__(self, base_url: Optional[str] = None) -> None:
+        self.base_url = (base_url or resolve_base_url()).rstrip("/")
+        self._token = _auth_token()
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Accept": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        return headers
+
+    def _request(
+        self, method: str, path: str, json_body: Optional[Dict[str, Any]] = None
+    ) -> requests.Response:
+        url = f"{self.base_url}{path}"
+        try:
+            return requests.request(
+                method,
+                url,
+                json=json_body,
+                headers=self._headers(),
+                timeout=TIMEOUT_SECONDS,
+            )
+        except requests.exceptions.ConnectionError as exc:
+            raise GatewayError(
+                f"Gateway not reachable at {self.base_url}. "
+                "Is the Gateway tray app running on this machine? "
+                "If you target a remote Gateway, set gateway.url with "
+                "'cc-settings set gateway.url <url>'."
+            ) from exc
+        except requests.exceptions.Timeout as exc:
+            raise GatewayError(
+                f"Gateway at {self.base_url} did not respond within {TIMEOUT_SECONDS}s."
+            ) from exc
+
+    @staticmethod
+    def _gateway_message(resp: requests.Response) -> str:
+        try:
+            data = resp.json()
+            if isinstance(data, dict) and data.get("error"):
+                return str(data["error"])
+        except ValueError:
+            pass
+        text = (resp.text or "").strip()
+        return text if text else f"Gateway returned HTTP {resp.status_code}"
+
+    def _ok_or_raise(self, resp: requests.Response) -> Dict[str, Any]:
+        if 200 <= resp.status_code < 300:
+            if not resp.content:
+                return {}
+            return resp.json()
+        raise GatewayError(self._gateway_message(resp))
+
+    def list_jobs(self) -> List[Dict[str, Any]]:
+        data = self._ok_or_raise(self._request("GET", "/cron/jobs"))
+        return list(data.get("jobs", []))
+
+    def get_job(self, job_id: str) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}"))
+
+    def create_job(self, job: Dict[str, Any]) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("POST", "/cron/jobs", job))
+
+    def update_job(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("PUT", f"/cron/jobs/{job_id}", job))
+
+    def delete_job(self, job_id: str) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("DELETE", f"/cron/jobs/{job_id}"))
+
+    def run_now(self, job_id: str) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("POST", f"/cron/jobs/{job_id}/run"))
+
+    def list_runs(self, job_id: str) -> List[Dict[str, Any]]:
+        data = self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/runs"))
+        return list(data.get("runs", []))
+
+    def set_enabled(self, job_id: str, enabled: bool) -> Dict[str, Any]:
+        job = self.get_job(job_id)
+        job["enabled"] = enabled
+        return self.update_job(job_id, job)
 
 
 def _fail(message: str) -> None:
-    """Print a handled error to stderr (no stack trace) and exit non-zero."""
     err_console.print(f"[red]Error:[/red] {message}")
     raise typer.Exit(1)
 
 
-def _client() -> CronClient:
-    return CronClient(base_url=_gateway_override)
+def _client() -> ScheduleClient:
+    return ScheduleClient(base_url=gateway_override)
 
 
 def _fmt(value: Optional[str]) -> str:
@@ -110,14 +173,7 @@ def _notify_label(job: dict) -> str:
     return f"{base} + webhook {webhook}" if webhook else base
 
 
-# ---- read commands ----
-
-
-@app.command(name="list")
-def list_jobs(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """List every cron job on the Gateway."""
+def list_jobs(json_output: bool) -> None:
     try:
         jobs = _client().list_jobs()
     except GatewayError as ex:
@@ -129,7 +185,9 @@ def list_jobs(
         return
 
     if not jobs:
-        console.print("No cron jobs on the Gateway yet. Create one with 'cc-cron create'.")
+        console.print(
+            "No schedules on the Gateway yet. Create one with 'cc-devthrottle schedule create'."
+        )
         return
 
     table = Table(show_header=True, header_style="bold")
@@ -155,12 +213,7 @@ def list_jobs(
     console.print(table)
 
 
-@app.command()
-def get(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Show one cron job in full."""
+def get_job(job_id: str, json_output: bool) -> None:
     try:
         job = _client().get_job(job_id)
     except GatewayError as ex:
@@ -172,11 +225,9 @@ def get(
         return
 
     target = job.get("target") or {}
-    action = job.get("action") or {}
     console.print(f"[bold]{_fmt(job.get('name'))}[/bold]  ({_fmt(job.get('id'))})")
     console.print(f"  Enabled:    {'yes' if job.get('enabled') else 'no'}")
     console.print(f"  Machine:    {_fmt(target.get('machine'))}")
-    console.print(f"  Repo:       {_fmt(action.get('repoPath'))}")
     console.print(f"  Runs:       {_runs_label(job)}")
     console.print(f"  Schedule:   {_schedule_label(job)}  ({_fmt(job.get('timeZoneId'))})")
     console.print(f"  Notify:     {_notify_label(job)}")
@@ -185,12 +236,7 @@ def get(
     console.print(f"  Created:    {_fmt(job.get('createdUtc'))} UTC")
 
 
-@app.command()
-def runs(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Show the run history for a cron job (newest first as the Gateway returns it)."""
+def list_runs(job_id: str, json_output: bool) -> None:
     try:
         history = _client().list_runs(job_id)
     except GatewayError as ex:
@@ -202,7 +248,7 @@ def runs(
         return
 
     if not history:
-        console.print("No runs recorded yet for this job.")
+        console.print("No runs recorded yet for this schedule.")
         return
 
     table = Table(show_header=True, header_style="bold")
@@ -225,44 +271,19 @@ def runs(
     console.print(table)
 
 
-# ---- create ----
-
-
-@app.command()
-def create(
-    name: str = typer.Option(..., "--name", help="Human-readable label for the job"),
-    machine: str = typer.Option(..., "--machine", help="Target machine name (from 'GET /directors')"),
-    repo: str = typer.Option(..., "--repo", help="Working directory the fired session runs in"),
-    at: Optional[str] = typer.Option(
-        None, "--at", help="One-off local timestamp, e.g. 2026-06-28T18:00:00 (use with --tz)"
-    ),
-    cron: Optional[str] = typer.Option(
-        None, "--cron", help='Recurring 5-field cron expression, e.g. "0 0 * * *" (use with --tz)'
-    ),
-    tz: str = typer.Option(..., "--tz", help="IANA/Windows time zone id, e.g. America/New_York"),
-    seed: Optional[str] = typer.Option(
-        None, "--seed", help="Skill or prompt the session runs, e.g. /help (one of --seed/--worklist)"
-    ),
-    worklist: Optional[str] = typer.Option(
-        None, "--worklist", help="Named work list to drain (one of --seed/--worklist)"
-    ),
-    notify_on: str = typer.Option(
-        NOTIFY_NONE,
-        "--notify-on",
-        help="Run-complete notification: none (default), always, or failure. Opt-in per job - "
-        "rides the existing fleet channel (desktop + phone).",
-    ),
-    notify_webhook: Optional[str] = typer.Option(
-        None,
-        "--notify-webhook",
-        help="Optional outbound webhook URL that also receives the run-complete payload (with --notify-on).",
-    ),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the created job as JSON"),
+def create_job(
+    name: str,
+    machine: str,
+    repo: str,
+    at: Optional[str],
+    cron: Optional[str],
+    tz: str,
+    seed: Optional[str],
+    worklist: Optional[str],
+    notify_on: str,
+    notify_webhook: Optional[str],
+    json_output: bool,
 ) -> None:
-    """Create a cron job (one-off with --at, or recurring with --cron)."""
-    # Pre-flight the few client-side combinations that the Gateway cannot disambiguate from
-    # a bad payload. The schedule grammar itself (bad cron, past one-off, unknown tz) is left
-    # to the Gateway so its validation message is the single source of truth (AC4).
     if bool(at) == bool(cron):
         _fail("specify exactly one of --at (one-off) or --cron (recurring).")
         return
@@ -306,21 +327,13 @@ def create(
         console.print(json.dumps(created, indent=2))
         return
 
-    console.print("[green]Created cron job.[/green]")
+    console.print("[green]Created schedule.[/green]")
     console.print(f"  Id:        {_fmt(created.get('id'))}")
     console.print(f"  Name:      {_fmt(created.get('name'))}")
     console.print(f"  Next run:  {_fmt(created.get('nextRunUtc'))} UTC")
 
 
-# ---- firing + lifecycle ----
-
-
-@app.command()
-def run(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the run record as JSON"),
-) -> None:
-    """Fire a cron job immediately (run-now)."""
+def run_now(job_id: str, json_output: bool) -> None:
     try:
         record = _client().run_now(job_id)
     except GatewayError as ex:
@@ -331,7 +344,7 @@ def run(
         console.print(json.dumps(record, indent=2))
         return
 
-    console.print("[green]Fired the job.[/green]")
+    console.print("[green]Fired the schedule.[/green]")
     console.print(f"  Fired:   {_fmt(record.get('firedUtc'))} UTC")
     console.print(f"  Target:  {_fmt(record.get('targetDirectorId'))}")
     console.print(f"  Session: {_fmt(record.get('sessionId'))}")
@@ -339,11 +352,7 @@ def run(
     console.print(f"  Task:    {_fmt(record.get('taskStatus'))}")
 
 
-@app.command()
-def enable(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-) -> None:
-    """Enable a cron job so it fires on schedule again."""
+def enable_job(job_id: str) -> None:
     try:
         job = _client().set_enabled(job_id, True)
     except GatewayError as ex:
@@ -352,11 +361,7 @@ def enable(
     console.print(f"[green]Enabled[/green] {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
 
 
-@app.command()
-def disable(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-) -> None:
-    """Disable a cron job so it stops firing (the definition is kept)."""
+def disable_job(job_id: str) -> None:
     try:
         job = _client().set_enabled(job_id, False)
     except GatewayError as ex:
@@ -365,30 +370,18 @@ def disable(
     console.print(f"[yellow]Disabled[/yellow] {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
 
 
-@app.command()
-def delete(
-    job_id: str = typer.Argument(..., help="The cron job id"),
-) -> None:
-    """Delete a cron job from the Gateway."""
+def delete_job(job_id: str) -> None:
     try:
         _client().delete_job(job_id)
     except GatewayError as ex:
         _fail(str(ex))
         return
-    console.print(f"[green]Deleted[/green] cron job {job_id}.")
+    console.print(f"[green]Deleted[/green] schedule {job_id}.")
 
 
-@app.command()
-def endpoint(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Show the Gateway base URL cc-cron resolves to (for diagnostics)."""
-    base = _gateway_override or resolve_base_url()
+def endpoint(json_output: bool) -> None:
+    base = gateway_override or resolve_base_url()
     if json_output:
         console.print(json.dumps({"base_url": base}, indent=2))
     else:
         console.print(base)
-
-
-if __name__ == "__main__":
-    app()

@@ -682,12 +682,12 @@ OPTIONS:
 
 ---
 
-## Fleet Messaging (cc-devthrottle)
+## DevThrottle Command (cc-devthrottle)
 
-Session-to-session messaging across the fleet (issue #705). `cc-devthrottle` runs inside a
-DevThrottle session and talks only to that session's own Director through `CC_DIRECTOR_API`.
-The Director relays to the Gateway, so the command never needs the Gateway URL or the fleet token.
-Address another session by a short id prefix or exact name; `all` broadcasts for message send.
+Unified DevThrottle command surface for session-to-session messaging, session management, Gateway
+schedules, and local setup diagnostics. Fleet/session/message commands run inside a DevThrottle
+session and talk to that session's own Director through `CC_DIRECTOR_API`. Schedule commands talk
+to the Gateway using `gateway.url` and `gateway.token` from config.
 
 ### cc-devthrottle
 
@@ -704,6 +704,11 @@ COMMANDS:
   session spawn    Open a new session on the local Director.
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
+  schedule list    List every schedule on the Gateway.
+  schedule create  Create a schedule, one-off with --at or recurring with --cron.
+  schedule run     Fire a schedule immediately.
+  setup status     Show local DevThrottle setup status.
+  setup install    Install DevThrottle from the latest GitHub release.
   selftest         Run an end-to-end fleet messaging smoke test.
 
 OPTIONS:
@@ -805,6 +810,39 @@ OPTIONS:
 
 Spawns two throwaway sessions, lists them, sends to one, asks the other, tears them down, and prints
 PASS/FAIL.
+
+### Schedule
+
+```
+USAGE: cc-devthrottle schedule [--gateway URL] COMMAND [ARGS]...
+
+COMMANDS:
+  list
+  get ID
+  runs ID
+  create --name NAME --machine MACHINE --repo REPO (--at WHEN | --cron EXPR) --tz TZ (--seed TEXT | --worklist NAME)
+  run ID
+  enable ID
+  disable ID
+  delete ID
+  endpoint
+```
+
+`--json` is available on `list`, `get`, `runs`, `create`, `run`, and `endpoint`.
+`--notify-on none|always|failure` and `--notify-webhook URL` are available on `create`.
+
+### Setup
+
+```
+USAGE: cc-devthrottle setup COMMAND [ARGS]...
+
+COMMANDS:
+  status [--json]
+  install
+  update
+  repair
+  doctor [--json]
+```
 
 ---
 

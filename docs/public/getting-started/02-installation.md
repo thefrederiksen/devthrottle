@@ -95,7 +95,7 @@ Programs read your `PATH` **once at launch**. If you install a prerequisite (or 
 The fastest way to get the CLI tools is with the installer:
 
 ```bash
-cc-setup
+cc-devthrottle setup install
 ```
 
 This downloads all tools from GitHub releases, places them in `%LOCALAPPDATA%\cc-director\bin\`, and adds them to your PATH. No admin privileges required.

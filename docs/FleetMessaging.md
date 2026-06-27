@@ -18,6 +18,8 @@ cc-devthrottle message send 9b2f "Can you run the integration tests?"
 cc-devthrottle message send all "Heads up: I am about to merge to main in 5 minutes."
 cc-devthrottle message ask 9b2f "What database schema is loaded in your repo?"
 cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests and report failures."
+cc-devthrottle schedule list
+cc-devthrottle setup status
 cc-devthrottle selftest
 ```
 
@@ -34,6 +36,8 @@ cc-devthrottle selftest
 | `cc-devthrottle message send all "msg"` | Broadcasts a one-way message to every other session. |
 | `cc-devthrottle message ask <target> "question"` | Asks one session a question and waits for its answer. |
 | `cc-devthrottle session spawn <repo>` | Opens a new session on the local Director. |
+| `cc-devthrottle schedule list` | Lists Gateway schedules. |
+| `cc-devthrottle setup status` | Shows local setup status. |
 | `cc-devthrottle selftest` | Runs an end-to-end list/send/ask smoke test with throwaway sessions. |
 
 ## Targeting

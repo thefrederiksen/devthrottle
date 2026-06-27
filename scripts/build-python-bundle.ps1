@@ -71,7 +71,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 # Non-core tools stay in the repo (buildable for dev) but never enter the bundle.
 Step "reading tools/registry.json"
 $registry = Get-Content (Join-Path $repoRoot "tools/registry.json") -Raw | ConvertFrom-Json
-$pyTools = @($registry.tools | Where-Object { $_.type -eq "python" -and $_.ship -eq $true -and $_.name -ne "cc-director-setup" })
+$pyTools = @($registry.tools | Where-Object { $_.type -eq "python" -and $_.ship -eq $true })
 if ($pyTools.Count -eq 0) { Fail "no shipped python tools found in registry (set `"ship`": true on core tools)" }
 Step "selected $($pyTools.Count) shipped python tools: $(($pyTools | ForEach-Object { $_.name }) -join ', ')"
 
@@ -103,7 +103,7 @@ $collect = Join-Path $work "collect_thirdparty.py"
 @'
 import tomllib, glob, os, re, sys, json
 registry = json.load(open("tools/registry.json"))
-ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship") and t["name"]!="cc-director-setup"}
+ship = {t["name"] for t in registry["tools"] if t.get("type")=="python" and t.get("ship")}
 allcc = {t["name"] for t in registry["tools"]}     # every cc-* name (any type)
 ours = {"cc-shared","cc-storage"} | allcc          # our own dists never come from PyPI
 norm = lambda r: re.split(r"[<>=!~ \[]", r.strip(), 1)[0].lower().replace("_","-")

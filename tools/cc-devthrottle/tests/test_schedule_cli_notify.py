@@ -1,9 +1,4 @@
-"""Tests for the cc-cron run-complete notification flags (issue #622).
-
-These cover the CLI surface added by #622 - that `cc-cron create` builds the right notify payload,
-validates --notify-on, and that `cc-cron get` renders the notify policy - without reaching a live
-Gateway (the CronClient is patched to capture the posted job).
-"""
+"""Tests for cc-devthrottle schedule notification flags."""
 
 import sys
 from pathlib import Path
@@ -19,20 +14,31 @@ from src.cli import app  # noqa: E402
 runner = CliRunner()
 
 _BASE_ARGS = [
+    "schedule",
     "create",
-    "--name", "nightly",
-    "--machine", "workstation-A",
-    "--repo", r"D:\repo",
-    "--cron", "0 0 * * *",
-    "--tz", "America/Chicago",
-    "--seed", "/help",
+    "--name",
+    "nightly",
+    "--machine",
+    "workstation-A",
+    "--repo",
+    r"D:\repo",
+    "--cron",
+    "0 0 * * *",
+    "--tz",
+    "America/Chicago",
+    "--seed",
+    "/help",
 ]
 
 
 def _run_create(extra_args):
-    with patch("src.cli.CronClient") as client_cls:
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
         instance = client_cls.return_value
-        instance.create_job.return_value = {"id": "cj_abc123", "name": "nightly", "nextRunUtc": "2026-06-28T05:00:00Z"}
+        instance.create_job.return_value = {
+            "id": "cj_abc123",
+            "name": "nightly",
+            "nextRunUtc": "2026-06-28T05:00:00Z",
+        }
         result = runner.invoke(app, _BASE_ARGS + extra_args)
         posted = instance.create_job.call_args.args[0] if instance.create_job.call_args else None
     return result, posted
@@ -47,7 +53,9 @@ def test_create_defaults_notify_off():
 
 
 def test_create_notify_always_with_webhook():
-    result, posted = _run_create(["--notify-on", "always", "--notify-webhook", "https://example.com/hook"])
+    result, posted = _run_create(
+        ["--notify-on", "always", "--notify-webhook", "https://example.com/hook"]
+    )
     assert result.exit_code == 0
     assert posted["notifyOn"] == "always"
     assert posted["notifyWebhookUrl"] == "https://example.com/hook"
@@ -86,9 +94,9 @@ def test_get_renders_notify_policy():
         "notifyOn": "always",
         "notifyWebhookUrl": "https://example.com/hook",
     }
-    with patch("src.cli.CronClient") as client_cls:
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
         client_cls.return_value.get_job.return_value = job
-        result = runner.invoke(app, ["get", "cj_abc123"])
+        result = runner.invoke(app, ["schedule", "get", "cj_abc123"])
     assert result.exit_code == 0
     assert "Notify:" in result.output
     assert "always" in result.output

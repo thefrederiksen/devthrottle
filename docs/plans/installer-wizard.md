@@ -2,7 +2,7 @@
 
 ## Context
 
-Running `cc-transcribe` failed because FFmpeg wasn't installed. This exposed a larger problem: the CC Director installation experience is fragmented -- users must manually install prerequisites, run cc-setup (Python), configure PATH, and hope they didn't miss anything. We need a proper installer wizard: a single self-contained C# WPF application that walks users through every prerequisite one screen at a time, checking what's already installed and helping install what's missing.
+Running `cc-transcribe` failed because FFmpeg wasn't installed. This exposed a larger problem: the CC Director installation experience is fragmented -- users must manually install prerequisites, run the setup command, configure PATH, and hope they didn't miss anything. We need a proper installer wizard: a single self-contained C# WPF application that walks users through every prerequisite one screen at a time, checking what's already installed and helping install what's missing.
 
 ## What We're Building
 

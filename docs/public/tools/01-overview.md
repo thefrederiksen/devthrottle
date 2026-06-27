@@ -25,7 +25,7 @@ CC Director includes command-line tools for document conversion, media processin
 
 | Tool | Description | Requirements |
 |------|-------------|--------------|
-| cc-devthrottle | Unified DevThrottle command surface for fleet, session, and message management | Running Director session |
+| cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
 
 ### Web and Social
 
@@ -70,7 +70,6 @@ CC Director includes command-line tools for document conversion, media processin
 | cc-comm-queue | Communication Manager approval queue | None |
 | cc-settings | CC Director configuration management | None |
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz; not shipped (dev-only, build from repo) |
-| cc-director-setup | Windows installer for CC Director | None |
 | cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
 
 ---
@@ -195,10 +194,14 @@ cc-devthrottle session rename 9b2f "Frontend Review"
 cc-devthrottle message send 9b2f "Can you run the focused test?"
 cc-devthrottle message ask 9b2f "What is your status?"
 cc-devthrottle session spawn D:\path\to\repo --prompt "Run the tests."
+cc-devthrottle schedule list
+cc-devthrottle setup status
 cc-devthrottle selftest
 ```
 
 The one-argument rename form renames the current session using `CC_SESSION_ID`.
+Schedule commands manage Gateway cron jobs. Setup commands inspect, install, update, and repair
+the local DevThrottle tool installation.
 
 ---
 
@@ -549,16 +552,6 @@ cc-posthog export funnel --csv           # Export funnel data
 **Global options:** `--project` / `-p`, `--last` / `-l`, `--json` / `-j`, `--csv`, `--count` / `-n`
 
 **Setup:** Requires a PostHog account and Personal API Key. Run `cc-posthog init` to configure.
-
-### cc-director-setup
-
-Windows installer for the entire CC Director tools suite. Downloads from GitHub releases, no admin required.
-
-```bash
-cc-director-setup
-```
-
----
 
 ## Environment Variables
 

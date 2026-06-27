@@ -253,7 +253,7 @@ public sealed class ReleaseSource
         if (!urls.TryGetValue(assetName, out var source))
             throw new InvalidOperationException($"No source for asset '{assetName}'. Use latest or a release dir.");
 
-        var dest = Path.Combine(Path.GetTempPath(), $"cc-setup-{Guid.NewGuid():N}-{assetName}");
+        var dest = Path.Combine(Path.GetTempPath(), $"devthrottle-setup-{Guid.NewGuid():N}-{assetName}");
 
         if (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))

@@ -14,7 +14,7 @@ When you push a version tag (like `v1.2.0`), GitHub automatically builds everyth
    - Builds the main app, all Python tools, all .NET tools
    - Publishes everything to the Releases page automatically
 
-3. **Fix cc-setup** to download from the real GitHub Releases URL instead of the old repo reference
+3. **Fix setup downloads** to use the real GitHub Releases URL instead of the old repo reference
 
 4. **Add a build orchestration script** so all 24 tool builds can run in sequence from one command (useful both locally and in the GitHub workflow)
 

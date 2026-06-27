@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $exe    = "D:\ReposFred\devthrottle\tools\cc-director-setup\bin\Release\net10.0-windows\win-x64\publish\cc-director-setup.exe"
-$shotDir = Join-Path $env:TEMP "cc-setup-wstest"
+$shotDir = Join-Path $env:TEMP "devthrottle-setup-wstest"
 $capture = "D:\ReposFred\devthrottle\scripts\capture-window.ps1"
 New-Item -ItemType Directory -Force -Path $shotDir | Out-Null
 
@@ -59,7 +59,7 @@ function StepLabels($win) {
 # Force fresh-install mode so the role picker appears (this machine already has a real install).
 # The override changes ONLY the wizard's install DETECTION, pointed at an empty scratch root; it never
 # redirects an actual install, and this test never reaches the Install step anyway.
-$freshRoot = Join-Path $env:TEMP "cc-setup-wstest-emptyroot"
+$freshRoot = Join-Path $env:TEMP "devthrottle-setup-wstest-emptyroot"
 New-Item -ItemType Directory -Force -Path $freshRoot | Out-Null
 $env:CC_DIRECTOR_SETUP_INSTALL_ROOT = $freshRoot
 

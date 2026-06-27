@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
+from . import schedule_ops
+from . import setup_ops
 from .session_ops import (
     ask_session,
     list_sessions,
@@ -28,8 +30,16 @@ app = typer.Typer(
 )
 session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
 message_app = typer.Typer(help="Send messages between sessions.", add_completion=False)
+schedule_app = typer.Typer(
+    help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
+)
+setup_app = typer.Typer(
+    help="Install, update, and repair DevThrottle.", add_completion=False, no_args_is_help=True
+)
 app.add_typer(session_app, name="session")
 app.add_typer(message_app, name="message")
+app.add_typer(schedule_app, name="schedule")
+app.add_typer(setup_app, name="setup")
 console = Console()
 
 _ACTIONS = [
@@ -95,6 +105,48 @@ _ACTIONS = [
         "id": "fleet-selftest",
         "description": "Run an end-to-end fleet messaging smoke test.",
         "command": "cc-devthrottle selftest",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "schedule-list",
+        "description": "List Gateway schedules.",
+        "command": "cc-devthrottle schedule list",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "schedule-create",
+        "description": "Create a Gateway schedule.",
+        "command": "cc-devthrottle schedule create --name <name> --machine <machine> --repo <repo> --cron <expr> --tz <tz> --seed <prompt>",
+        "mutatesState": True,
+        "args": [
+            {"name": "name", "required": True},
+            {"name": "machine", "required": True},
+            {"name": "repo", "required": True},
+            {"name": "cron_or_at", "required": True},
+            {"name": "tz", "required": True},
+            {"name": "seed_or_worklist", "required": True},
+        ],
+    },
+    {
+        "id": "schedule-run",
+        "description": "Fire a Gateway schedule immediately.",
+        "command": "cc-devthrottle schedule run <id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "setup-status",
+        "description": "Show local DevThrottle setup status.",
+        "command": "cc-devthrottle setup status",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "setup-install",
+        "description": "Install or repair DevThrottle from the latest GitHub release.",
+        "command": "cc-devthrottle setup install",
         "mutatesState": True,
         "args": [],
     },
@@ -218,6 +270,151 @@ def selftest(
 ) -> None:
     """Run the fleet messaging self-test against the local Director."""
     run_selftest(timeout_ms)
+
+
+@schedule_app.callback()
+def schedule_main(
+    gateway: Optional[str] = typer.Option(
+        None,
+        "--gateway",
+        help="Override the Gateway base URL.",
+    ),
+) -> None:
+    """Manage Gateway schedules."""
+    schedule_ops.set_gateway_override(gateway)
+
+
+@schedule_app.command("list")
+def schedule_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """List every schedule on the Gateway."""
+    schedule_ops.list_jobs(json_output)
+
+
+@schedule_app.command("get")
+def schedule_get(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show one schedule in full."""
+    schedule_ops.get_job(job_id, json_output)
+
+
+@schedule_app.command("runs")
+def schedule_runs(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show run history for a schedule."""
+    schedule_ops.list_runs(job_id, json_output)
+
+
+@schedule_app.command("create")
+def schedule_create(
+    name: str = typer.Option(..., "--name", help="Human-readable label for the schedule."),
+    machine: str = typer.Option(..., "--machine", help="Target machine name."),
+    repo: str = typer.Option(..., "--repo", help="Working directory the fired session runs in."),
+    at: Optional[str] = typer.Option(None, "--at", help="One-off local timestamp."),
+    cron: Optional[str] = typer.Option(None, "--cron", help="Recurring 5-field cron expression."),
+    tz: str = typer.Option(..., "--tz", help="IANA/Windows time zone id."),
+    seed: Optional[str] = typer.Option(None, "--seed", help="Skill or prompt the session runs."),
+    worklist: Optional[str] = typer.Option(None, "--worklist", help="Named work list to drain."),
+    notify_on: str = typer.Option(
+        schedule_ops.NOTIFY_NONE,
+        "--notify-on",
+        help="Run-complete notification: none, always, or failure.",
+    ),
+    notify_webhook: Optional[str] = typer.Option(
+        None,
+        "--notify-webhook",
+        help="Optional outbound webhook URL.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the created schedule as JSON."),
+) -> None:
+    """Create a schedule, one-off with --at or recurring with --cron."""
+    schedule_ops.create_job(
+        name,
+        machine,
+        repo,
+        at,
+        cron,
+        tz,
+        seed,
+        worklist,
+        notify_on,
+        notify_webhook,
+        json_output,
+    )
+
+
+@schedule_app.command("run")
+def schedule_run(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the run record as JSON."),
+) -> None:
+    """Fire a schedule immediately."""
+    schedule_ops.run_now(job_id, json_output)
+
+
+@schedule_app.command("enable")
+def schedule_enable(job_id: str = typer.Argument(..., help="The schedule id.")) -> None:
+    """Enable a schedule so it fires on schedule again."""
+    schedule_ops.enable_job(job_id)
+
+
+@schedule_app.command("disable")
+def schedule_disable(job_id: str = typer.Argument(..., help="The schedule id.")) -> None:
+    """Disable a schedule while keeping its definition."""
+    schedule_ops.disable_job(job_id)
+
+
+@schedule_app.command("delete")
+def schedule_delete(job_id: str = typer.Argument(..., help="The schedule id.")) -> None:
+    """Delete a schedule from the Gateway."""
+    schedule_ops.delete_job(job_id)
+
+
+@schedule_app.command("endpoint")
+def schedule_endpoint(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show the Gateway base URL used by schedule commands."""
+    schedule_ops.endpoint(json_output)
+
+
+@setup_app.command("status")
+def setup_status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show local DevThrottle setup status."""
+    setup_ops.status(json_output)
+
+
+@setup_app.command("install")
+def setup_install() -> None:
+    """Install DevThrottle from the latest GitHub release."""
+    setup_ops.install()
+
+
+@setup_app.command("update")
+def setup_update() -> None:
+    """Update DevThrottle from the latest GitHub release."""
+    setup_ops.install()
+
+
+@setup_app.command("repair")
+def setup_repair() -> None:
+    """Repair the local DevThrottle install."""
+    setup_ops.install()
+
+
+@setup_app.command("doctor")
+def setup_doctor(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show setup diagnostics."""
+    setup_ops.status(json_output)
 
 
 if __name__ == "__main__":
