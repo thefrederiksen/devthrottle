@@ -242,6 +242,11 @@ public sealed class SessionManager : IDisposable
             GroupId = groupId,
             GroupRole = groupRole,
             GroupName = groupName,
+            // The EFFECTIVE launch line (userArgs merged with the configured agent defaults) is the
+            // authoritative source of the launched --model value for the context gauge (issue #803).
+            // `userArgs`/ClaudeArgs is null when the model comes from the default, not a per-session
+            // override, so persist the merged `args` from BuildLaunchSpec here.
+            EffectiveLaunchArgs = args,
         };
 
         // Issue #800: name the session AT BIRTH. The factory is invoked with the new id so the

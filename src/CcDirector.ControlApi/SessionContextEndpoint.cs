@@ -36,7 +36,10 @@ internal static class SessionContextEndpoint
 
             try
             {
-                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath, session.ClaudeArgs);
+                // EffectiveLaunchArgs (the merged launch line) carries the launched --model even when
+                // it came from the configured default; ClaudeArgs alone is null in that case (#803).
+                var launchArgs = session.EffectiveLaunchArgs ?? session.ClaudeArgs;
+                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath, launchArgs);
                 if (context is null)
                     return Results.NotFound(new { error = "no context usage yet (no completed turn)" });
                 return Results.Json(context);

@@ -1,3 +1,5 @@
+using CcDirector.Core.Agents;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -214,6 +216,46 @@ public sealed class ContextUsageTests
     public void WindowTokensForModel_Observed_UnmappedStaysNull()
     {
         Assert.Null(ClaudeContextWindow.WindowTokensForModel("gpt-4o", 999_999));
+    }
+
+    // ---- Issue #803 production path: the model comes from the configured DEFAULT, not per-session ----
+    //
+    // The real fleet bug: a session launched WITHOUT a per-session --model (so ClaudeArgs/userArgs is
+    // null) still runs opus[1m] because the model is in AgentOptions.DefaultClaudeArgs. The gauge must
+    // read the EFFECTIVE launch line (what SessionManager stores as Session.EffectiveLaunchArgs), which
+    // is the result of BuildLaunchSpec merging the default in - NOT the null per-session args. These
+    // tests prove that path end to end so a per-session-only fix can't masquerade as correct.
+
+    [Fact]
+    public void BuildLaunchSpec_ModelFromDefaultArgs_NoPerSessionArgs_EffectiveArgsCarryTheModel()
+    {
+        var agent = new ClaudeAgent(new AgentOptions { DefaultClaudeArgs = "--dangerously-skip-permissions --model opus[1m]" });
+
+        // userArgs null: the production default-launch path (no per-session override).
+        var spec = agent.BuildLaunchSpec(userArgs: null, resumeSessionId: null, studioMode: false);
+
+        Assert.Contains("--model opus[1m]", spec.Arguments);
+    }
+
+    [Fact]
+    public void ReadContextUsage_EffectiveArgsFromDefault_SizesOpusOneMillion()
+    {
+        // Simulate the stored Session.EffectiveLaunchArgs for a default-launched opus[1m] session.
+        var agent = new ClaudeAgent(new AgentOptions { DefaultClaudeArgs = "--dangerously-skip-permissions --model opus[1m]" });
+        var effectiveArgs = agent.BuildLaunchSpec(userArgs: null, resumeSessionId: null, studioMode: false).Arguments;
+
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 121_924,
+            ContextModel = "claude-opus-4-8", // transcript, [1m]-stripped
+            AssistantMessageCount = 5,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", effectiveArgs);
+
+        Assert.NotNull(ctx);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.InRange(ctx.PercentUsed!.Value, 11.0, 13.0); // ~12.2%, the bug's correct reading
     }
 
     // ---- The NotSupported guarantee on drivers without the flag ----
