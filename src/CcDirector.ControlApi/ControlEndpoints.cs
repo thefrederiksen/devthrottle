@@ -246,7 +246,7 @@ internal static class ControlEndpoints
 
         // Resolve the sender's display name from THIS Director's own session record (never trusted
         // from the request body) and build the framed message the recipient sees.
-        string FrameForSender(string? fromSessionId, string text)
+        string FrameForSender(string? fromSessionId, string text, bool includeReplyHint = true)
         {
             string? fromName = null;
             if (!string.IsNullOrWhiteSpace(fromSessionId) && Guid.TryParse(fromSessionId, out var fromGuid))
@@ -257,7 +257,7 @@ internal static class ControlEndpoints
                         ? Path.GetFileName(sender.RepoPath.TrimEnd('\\', '/'))
                         : sender.CustomName;
             }
-            return FleetMessaging.BuildFramedMessage(fromSessionId, fromName, Environment.MachineName, text);
+            return FleetMessaging.BuildFramedMessage(fromSessionId, fromName, Environment.MachineName, text, includeReplyHint);
         }
 
         // GET /fleet/sessions - the fleet directory. With a Gateway, relay its aggregated list;
@@ -411,6 +411,16 @@ internal static class ControlEndpoints
         async Task<(string answer, string status)> AskLocalAsync(Session target, string framed, int timeoutMs, CancellationToken ct)
         {
             var cursor = target.Buffer?.TotalBytesWritten ?? 0;
+
+            // For transcript-capable agents, remember how many assistant messages existed BEFORE the
+            // question, so afterwards we wait for a genuinely NEW one rather than returning a stale
+            // prior answer.
+            var supportsTranscript = CcDirector.Core.History.SessionHistoryReader.IsSupported(target);
+            var preAssistantCount = supportsTranscript
+                ? CcDirector.Core.History.SessionHistoryReader.Read(target).Messages
+                    .Count(m => m.Role == CcDirector.Core.History.ConversationRole.Assistant)
+                : 0;
+
             await target.SendTextAsync(framed);
 
             // Give the target a moment to leave Idle, then wait for it to settle back to Idle.
@@ -422,25 +432,28 @@ internal static class ControlEndpoints
             var timedOut = target.ActivityState != ActivityState.Idle;
             var answer = "";
 
-            // Prefer the transcript: a clean, parsed answer (the last assistant message) instead of a
-            // scrape of the repainting TUI buffer. This makes cross-agent cc-ask answers crisp for
-            // Claude, Codex and Pi - and because the returned text carries no TUI glyphs, the cc-ask
-            // client cannot crash printing it on a legacy Windows console. The transcript can flush a
-            // beat after Idle, so retry briefly. Fall back to the buffer scrape only when the
-            // transcript yields nothing (e.g. a turn that produced only tool calls).
-            if (CcDirector.Core.History.SessionHistoryReader.IsSupported(target))
+            // Prefer the transcript: a clean, parsed answer (the NEW assistant message) instead of a
+            // scrape of the repainting TUI buffer. Crisp for Claude, Codex and Pi, and the clean text
+            // carries no TUI glyphs that could crash the cc-ask client print on a legacy Windows
+            // console. A transcript can flush several seconds after Idle (Pi is the slowest), so poll
+            // for an assistant message BEYOND preAssistantCount for up to ~12 s; fall back to the
+            // buffer scrape only if no new answer appears (e.g. a turn that produced only tool calls).
+            if (supportsTranscript)
             {
-                for (var r = 0; r < 8 && answer.Length == 0; r++)
+                // Up to ~25 s. The loop exits the instant a new answer appears, so Claude/Codex return
+                // immediately; only Pi, whose session file flushes a few seconds after it goes idle,
+                // uses the longer tail. This stays well inside the ask's overall timeout.
+                for (var r = 0; r < 50 && answer.Length == 0; r++)
                 {
-                    var hist = CcDirector.Core.History.SessionHistoryReader.Read(target);
-                    var lastAssistant = hist.Messages.LastOrDefault(
-                        m => m.Role == CcDirector.Core.History.ConversationRole.Assistant);
-                    if (lastAssistant is not null)
-                        answer = string.Join("\n", lastAssistant.Parts
+                    var assistants = CcDirector.Core.History.SessionHistoryReader.Read(target).Messages
+                        .Where(m => m.Role == CcDirector.Core.History.ConversationRole.Assistant)
+                        .ToList();
+                    if (assistants.Count > preAssistantCount)
+                        answer = string.Join("\n", assistants[^1].Parts
                             .Where(p => p.Kind == CcDirector.Core.History.ConversationPartKind.Text)
                             .Select(p => p.Text)).Trim();
                     if (answer.Length == 0)
-                        await Task.Delay(400, ct);
+                        await Task.Delay(500, ct);
                 }
             }
 
@@ -466,7 +479,9 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = "invalid toSessionId format" });
 
             var timeoutMs = req.TimeoutMs > 0 ? req.TimeoutMs : 120_000;
-            var framed = FrameForSender(req.FromSessionId, req.Question);
+            // No reply hint for an ask: the asker is waiting and reads the answer from the target's
+            // output, so the target must answer directly rather than try to cc-send back.
+            var framed = FrameForSender(req.FromSessionId, req.Question, includeReplyHint: false);
 
             var gw = gatewayClientProvider?.Invoke();
             if (gw is { IsEnabled: true })
