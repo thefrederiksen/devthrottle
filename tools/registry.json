@@ -268,14 +268,6 @@
       "requirements": []
     },
     {
-      "name": "cc-personresearch",
-      "category": "data-utilities",
-      "type": "python",
-      "description": "Person research aggregation tool",
-      "built": true,
-      "requirements": []
-    },
-    {
       "name": "cc-settings",
       "category": "data-utilities",
       "type": "python",
