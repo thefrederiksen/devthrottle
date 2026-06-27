@@ -12,8 +12,8 @@ namespace CcDirector.ControlApi;
 /// (<see cref="Gateway.Contracts.ContextUsageDto"/>), via the session driver's
 /// <see cref="IAgentDriver.ReadContextUsage"/>. This is the always-visible "context gauge" data:
 /// used tokens, and where the model's window is known, the window size and percent. Only available
-/// for a driver that declares <see cref="DriverCapabilities.ContextUsage"/> (Claude today); any
-/// other agent returns 404, mirroring how the desktop gauge is capability-gated.
+/// for a driver that declares <see cref="DriverCapabilities.ContextUsage"/> (Claude, Codex, and pi);
+/// any other agent returns 404, mirroring how the desktop gauge is capability-gated.
 /// </summary>
 internal static class SessionContextEndpoint
 {
@@ -31,12 +31,12 @@ internal static class SessionContextEndpoint
             if (!driver.Capabilities.HasFlag(DriverCapabilities.ContextUsage))
                 return Results.NotFound(new { error = $"agent {driver.Kind} does not report context usage" });
 
-            if (string.IsNullOrEmpty(session.ClaudeSessionId))
-                return Results.NotFound(new { error = "session has no agent session id yet" });
-
+            // No agent-session-id guard here: Claude carries a preassigned id, but Codex and pi have
+            // none and locate their transcript by repo path instead. Each driver decides what it needs;
+            // a driver that cannot resolve a transcript yet returns null below (handled as 404).
             try
             {
-                var context = driver.ReadContextUsage(session.ClaudeSessionId, session.RepoPath);
+                var context = driver.ReadContextUsage(session.ClaudeSessionId ?? "", session.RepoPath);
                 if (context is null)
                     return Results.NotFound(new { error = "no context usage yet (no completed turn)" });
                 return Results.Json(context);

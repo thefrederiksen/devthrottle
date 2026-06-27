@@ -20,7 +20,8 @@ public sealed class CodexDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel
         | DriverCapabilities.Interrupt
-        | DriverCapabilities.ClearContext;
+        | DriverCapabilities.ClearContext
+        | DriverCapabilities.ContextUsage;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => CodexSlashCommands.All;
 
@@ -100,6 +101,17 @@ public sealed class CodexDriver : IAgentDriver
 
     public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException("[CodexDriver] Codex token usage reading is not implemented.");
+
+    /// <summary>
+    /// How full the Codex context window is right now (capability
+    /// <see cref="DriverCapabilities.ContextUsage"/>). Codex's rollout carries both the live usage and
+    /// the window in its <c>token_count</c> events, so this reads the newest rollout for the working
+    /// directory and returns the last one - no model-to-window guessing. The Director does not know the
+    /// rollout id at launch (Codex has no preassigned id), so the lookup is by repo, not by
+    /// <paramref name="agentSessionId"/>. Null until a turn has produced a token_count event.
+    /// </summary>
+    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory) =>
+        Codex.CodexContextUsage.ReadForRepo(workingDirectory);
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) =>
         throw new NotSupportedException(

@@ -309,7 +309,7 @@ public sealed class ClaudeDriver : IAgentDriver
         if (usage is null || usage.AssistantMessageCount == 0)
             return null;
 
-        var window = ClaudeContextWindow.WindowTokensForModel(usage.ContextModel);
+        var window = ClaudeContextWindow.WindowTokensForModel(usage.ContextModel, usage.ContextTokens);
         var percent = window is > 0
             ? Math.Round((double)usage.ContextTokens / window.Value * 100.0, 1)
             : (double?)null;

@@ -120,25 +120,57 @@ public sealed class ContextUsageTests
         Assert.Null(DriverReturning(null).ReadContextUsage("sid", "C:\\repo"));
     }
 
-    // ---- The NotSupported guarantee on drivers without the flag ----
+    // ---- ClaudeContextWindow self-correct (the [1m] fix): the transcript records the base model id
+    // without the [1m] alias, so a 1M session under 200k cannot be told apart from a standard one;
+    // once observed context exceeds 200k it cannot fit in the standard window, so we promote to 1M. ----
+
+    [Fact]
+    public void WindowTokensForModel_SelfCorrect_UnderStandard_StaysStandard()
+    {
+        // claude-opus-4-8 (the [1m] alias is stripped in the transcript) under 200k -> standard window.
+        Assert.Equal(200_000, ClaudeContextWindow.WindowTokensForModel("claude-opus-4-8", 57_000));
+    }
+
+    [Fact]
+    public void WindowTokensForModel_SelfCorrect_OverStandard_PromotesToOneMillion()
+    {
+        // Cannot fit 250k in a 200k window -> the session is on the extended window.
+        Assert.Equal(1_000_000, ClaudeContextWindow.WindowTokensForModel("claude-opus-4-8", 250_000));
+    }
+
+    [Fact]
+    public void WindowTokensForModel_SelfCorrect_ExplicitOneMillion_StaysOneMillion()
+    {
+        Assert.Equal(1_000_000, ClaudeContextWindow.WindowTokensForModel("claude-opus-4-8[1m]", 10_000));
+    }
+
+    [Fact]
+    public void WindowTokensForModel_SelfCorrect_UnmappedModel_StaysNull()
+    {
+        Assert.Null(ClaudeContextWindow.WindowTokensForModel("gpt-4o", 500_000));
+    }
+
+    // ---- Capability declarations: Claude, Codex, and pi report context usage; others do not ----
+
+    [Fact]
+    public void ContextUsageDeclaringDrivers_AreClaudeCodexAndPi()
+    {
+        Assert.True(new ClaudeDriver(new StubTranscriptReader(null)).Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.True(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.True(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+    }
 
     [Fact]
     public void ReadContextUsage_DriverWithoutFlag_Throws()
     {
-        Assert.False(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
-        Assert.False(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        // Drivers that do NOT declare ContextUsage still honor the NotSupported contract.
+        Assert.False(new CursorDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.False(new CopilotDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
 
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new CodexDriver()).ReadContextUsage("sid", "C:\\repo"));
+            () => ((IAgentDriver)new CursorDriver()).ReadContextUsage("sid", "C:\\repo"));
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new PiDriver()).ReadContextUsage("sid", "C:\\repo"));
-    }
-
-    [Fact]
-    public void ClaudeDriver_DeclaresContextUsage()
-    {
-        Assert.True(new ClaudeDriver(new StubTranscriptReader(null))
-            .Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+            () => ((IAgentDriver)new CopilotDriver()).ReadContextUsage("sid", "C:\\repo"));
     }
 
     /// <summary>A transcript reader that returns a fixed usage object - keeps the driver tests off

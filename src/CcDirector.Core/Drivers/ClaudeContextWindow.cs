@@ -45,4 +45,25 @@ public static class ClaudeContextWindow
 
         return null;
     }
+
+    /// <summary>
+    /// The context-window size for a model id, self-correcting against the observed context size.
+    /// Claude's transcript records the base model id WITHOUT the <c>[1m]</c> alias (a 1-million-token
+    /// Opus session is logged as <c>claude-opus-4-8</c>, identical to a standard one), so the model id
+    /// alone cannot tell a 200k window from a 1M window. When the observed context exceeds the standard
+    /// window it physically cannot fit there, which is proof the session is on the extended window - so
+    /// we promote the denominator to 1M. The denominator is therefore never smaller than the data and
+    /// the percent can never exceed 100. (Residual limit: a 1M session still UNDER 200k of context is
+    /// reported against 200k, because nothing in the transcript reveals the larger window until it is
+    /// used - an honest under-report, not a wrong percent.)
+    /// </summary>
+    public static long? WindowTokensForModel(string? modelId, long observedContextTokens)
+    {
+        var baseWindow = WindowTokensForModel(modelId);
+        if (baseWindow is null)
+            return null;
+        if (observedContextTokens > baseWindow.Value && baseWindow.Value < ExtendedWindowTokens)
+            return ExtendedWindowTokens;
+        return baseWindow;
+    }
 }
