@@ -78,6 +78,38 @@ def build_reply_all_recipients(
     return ", ".join(result)
 
 
+def _encode_address_header(value: str) -> str:
+    """Re-emit a To/Cc header value with only the display-name phrases
+    RFC 2047-encoded, leaving each addr-spec intact.
+
+    Assigning a flattened multi-address string straight to a message header
+    encodes the entire value (addresses included) as one blob when any display
+    name is non-ASCII, corrupting the addresses. getaddresses parses the
+    addresses; formataddr re-emits each one encoding only the phrase, producing
+    pure-ASCII output.
+    """
+    if not value:
+        return value
+    parts = []
+    for name, addr in getaddresses([value]):
+        if not name and not addr:
+            continue
+        parts.append(formataddr((name, addr)))
+    return ", ".join(parts)
+
+
+def _imap_quote(value: str) -> str:
+    """Return value as an IMAP quoted string, escaping backslash and quote.
+
+    IMAP quoted strings (RFC 3501) escape a backslash and a double-quote with a
+    backslash. Interpolating a raw user query into f'"{query}"' lets an embedded
+    double-quote terminate the string early, breaking the search or injecting
+    extra search tokens (X-GM-RAW). Escaping closes that hole.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _parse_uid_from_response(data: bytes) -> Optional[str]:
     """Extract UID from an IMAP FETCH response line."""
     match = re.search(rb"UID (\d+)", data)
@@ -244,7 +276,7 @@ class ImapClient:
             search_parts.append("UNSEEN")
         if query:
             # Use Gmail's X-GM-RAW extension for full Gmail search syntax
-            search_parts.append(f'X-GM-RAW "{query}"')
+            search_parts.append(f'X-GM-RAW {_imap_quote(query)}')
 
         # Handle category filtering from label_ids
         if label_ids:
@@ -254,9 +286,9 @@ class ImapClient:
                     cat_name = upper.replace("CATEGORY_", "").lower()
                     if search_parts:
                         # Combine with existing X-GM-RAW or add new one
-                        search_parts.append(f'X-GM-RAW "category:{cat_name}"')
+                        search_parts.append(f'X-GM-RAW {_imap_quote(f"category:{cat_name}")}')
                     else:
-                        search_parts.append(f'X-GM-RAW "category:{cat_name}"')
+                        search_parts.append(f'X-GM-RAW {_imap_quote(f"category:{cat_name}")}')
 
         if not search_parts:
             search_criteria = "ALL"
@@ -311,7 +343,7 @@ class ImapClient:
         if is_unread_filter:
             search_parts.append("UNSEEN")
         if query:
-            search_parts.append(f'X-GM-RAW "{query}"')
+            search_parts.append(f'X-GM-RAW {_imap_quote(query)}')
 
         if not search_parts:
             search_criteria = "ALL"
@@ -518,7 +550,7 @@ class ImapClient:
         if is_unread_filter:
             search_parts.append("UNSEEN")
         if query:
-            search_parts.append(f'X-GM-RAW "{query}"')
+            search_parts.append(f'X-GM-RAW {_imap_quote(query)}')
 
         if not search_parts:
             search_criteria = "ALL"
@@ -552,7 +584,10 @@ class ImapClient:
         # The message must be addressed within INBOX to be removed from it.
         uid = self._resolve_uid(message_uid, "INBOX", readonly=False)
         conn.uid("store", uid, "+FLAGS", "\\Deleted")
-        conn.expunge()
+        # UID EXPUNGE (RFC 4315 UIDPLUS; Gmail supports it) removes ONLY this
+        # UID. A bare expunge() would remove every \Deleted message in the
+        # mailbox, including ones another operation flagged.
+        conn.uid("EXPUNGE", uid)
         return {"id": message_uid}
 
     def batch_archive_messages(self, message_uids: List[str]) -> int:
@@ -592,7 +627,8 @@ class ImapClient:
             conn.uid("store", uid_set, "+FLAGS", "\\Deleted")
             archived += len(chunk)
 
-        conn.expunge()
+        # UID EXPUNGE only the messages we flagged, never the whole mailbox.
+        conn.uid("EXPUNGE", ",".join(inbox_uids))
         return archived
 
     def delete_message(self, message_uid: str, permanent: bool = False) -> None:
@@ -608,12 +644,14 @@ class ImapClient:
 
         if permanent:
             conn.uid("store", uid, "+FLAGS", "\\Deleted")
-            conn.expunge()
+            # UID EXPUNGE removes only this UID, not every \Deleted message.
+            conn.uid("EXPUNGE", uid)
         else:
             # Move to trash
             conn.uid("copy", uid, "[Gmail]/Trash")
             conn.uid("store", uid, "+FLAGS", "\\Deleted")
-            conn.expunge()
+            # UID EXPUNGE removes only this UID, not every \Deleted message.
+            conn.uid("EXPUNGE", uid)
 
     def untrash_message(self, message_uid: str) -> Dict[str, Any]:
         """Restore a message from trash by moving to INBOX."""
@@ -622,7 +660,8 @@ class ImapClient:
         uid = self._resolve_uid(message_uid, "TRASH", readonly=False)
         conn.uid("copy", uid, "INBOX")
         conn.uid("store", uid, "+FLAGS", "\\Deleted")
-        conn.expunge()
+        # UID EXPUNGE removes only this UID from Trash, not every \Deleted one.
+        conn.uid("EXPUNGE", uid)
         return {"id": message_uid}
 
     def modify_labels(
@@ -657,7 +696,8 @@ class ImapClient:
                     # delete it from there.
                     inbox_uid = self._resolve_uid(message_uid, "INBOX", readonly=False)
                     conn.uid("store", inbox_uid, "+FLAGS", "\\Deleted")
-                    conn.expunge()
+                    # UID EXPUNGE only this UID, not every \Deleted message.
+                    conn.uid("EXPUNGE", inbox_uid)
 
         return {"id": message_uid}
 
@@ -860,7 +900,7 @@ class ImapClient:
             try:
                 conn = self._connect()
                 self._select_folder("ALL", readonly=True)
-                status, data = conn.uid("search", None, f'X-GM-RAW "{cat_query}"')
+                status, data = conn.uid("search", None, f'X-GM-RAW {_imap_quote(cat_query)}')
                 if status == "OK":
                     uids = data[0].split()
                     categories[cat_name] = {
@@ -932,11 +972,11 @@ class ImapClient:
         import time
 
         msg = MIMEText(body, "html" if html else "plain")
-        msg["To"] = to
+        msg["To"] = _encode_address_header(to)
         msg["From"] = self.email_address
         msg["Subject"] = subject
         if cc:
-            msg["Cc"] = cc
+            msg["Cc"] = _encode_address_header(cc)
 
         conn = self._connect()
         self._select_folder("DRAFT", readonly=False)
@@ -1013,7 +1053,7 @@ class ImapClient:
 
         content_type = "html" if html else "plain"
         msg = MIMEText(body, content_type)
-        msg["To"] = reply_to
+        msg["To"] = _encode_address_header(reply_to)
         msg["From"] = self.email_address
         msg["Subject"] = reply_subject
         if original_message_id:

@@ -1,11 +1,13 @@
 """Tests for GmailClient._decode_base64 and _extract_body methods."""
 
 import base64
+import email
+from email.utils import getaddresses
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.gmail_api import GmailClient
+from src.gmail_api import GmailClient, _encode_address_header
 
 
 @pytest.fixture
@@ -186,3 +188,87 @@ class TestExtractBody:
         }
         result = gmail_client._extract_body(payload)
         assert result == html_text
+
+
+# -- _encode_address_header --
+
+
+class TestEncodeAddressHeader:
+    def test_non_ascii_name_keeps_addr_spec_and_is_ascii(self):
+        encoded = _encode_address_header("Jos\xe9 <jose@example.com>, plain@example.com")
+        # Pure ASCII output (house rule) - the phrase is RFC 2047-encoded.
+        encoded.encode("ascii")
+        addrs = [addr for _, addr in getaddresses([encoded])]
+        assert "jose@example.com" in addrs
+        assert "plain@example.com" in addrs
+
+    def test_empty_passthrough(self):
+        assert _encode_address_header("") == ""
+
+
+# -- send path: To/Cc headers must not blob the addresses --
+
+
+def _capture_sent_raw(gmail_client):
+    captured = {}
+
+    def fake_send(userId, body):
+        captured["raw"] = body["raw"]
+        result = MagicMock()
+        result.execute.return_value = {"id": "sent-1"}
+        return result
+
+    gmail_client.service.users().messages().send.side_effect = fake_send
+    return captured
+
+
+def _decode_raw(raw):
+    return email.message_from_bytes(base64.urlsafe_b64decode(raw))
+
+
+class TestSendMessageAddressHeaders:
+    def test_non_ascii_display_name_does_not_corrupt_to_header(self, gmail_client):
+        captured = _capture_sent_raw(gmail_client)
+        gmail_client.send_message(
+            to="Jos\xe9 <jose@example.com>, plain@example.com",
+            subject="Hi",
+            body="Body",
+        )
+        msg = _decode_raw(captured["raw"])
+        to_header = msg["to"]
+        # The header must be ASCII and the addresses must remain parseable.
+        to_header.encode("ascii")
+        addrs = [addr for _, addr in getaddresses([to_header])]
+        assert "jose@example.com" in addrs
+        assert "plain@example.com" in addrs
+
+    def test_cc_header_encoded_too(self, gmail_client):
+        captured = _capture_sent_raw(gmail_client)
+        gmail_client.send_message(
+            to="a@example.com",
+            subject="Hi",
+            body="Body",
+            cc="M\xfcller <muller@example.com>",
+        )
+        msg = _decode_raw(captured["raw"])
+        cc_header = msg["cc"]
+        cc_header.encode("ascii")
+        addrs = [addr for _, addr in getaddresses([cc_header])]
+        assert "muller@example.com" in addrs
+
+
+class TestSendMessageAttachmentDisposition:
+    def test_non_ascii_attachment_filename_keeps_disposition(self, gmail_client, tmp_path):
+        captured = _capture_sent_raw(gmail_client)
+        attachment = tmp_path / "r\xe9sum\xe9.pdf"
+        attachment.write_bytes(b"PDF-DATA")
+        gmail_client.send_message(
+            to="a@example.com",
+            subject="Hi",
+            body="Body",
+            attachments=[attachment],
+        )
+        msg = _decode_raw(captured["raw"])
+        part = msg.get_payload()[-1]
+        assert part.get_content_disposition() == "attachment"
+        assert part.get_filename() == "r\xe9sum\xe9.pdf"

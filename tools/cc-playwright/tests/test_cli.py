@@ -151,8 +151,9 @@ def test_terminate_process_forces_when_stuck(monkeypatch):
 
 
 def test_cmd_stop_reports_method(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_load_state", lambda conn: {"pid": 42})
-    monkeypatch.setattr(cli, "_is_running", lambda pid: True)
+    monkeypatch.setattr(cli, "_load_state",
+                        lambda conn: {"pid": 42, "port": 9333, "profile_dir": "C:/p"})
+    monkeypatch.setattr(cli, "_state_browser_alive", lambda state: True)
     monkeypatch.setattr(cli, "_clear_state", lambda conn: None)
     monkeypatch.setattr(cli, "_terminate_process", lambda pid: "graceful")
 
@@ -296,3 +297,179 @@ def test_main_routes_exception_through_err(monkeypatch, capsys):
     assert "error" in payload
     assert "RuntimeError" in payload["error"]
     assert err.isascii()
+
+
+# --------------------------------------------------------------------------
+# Review2 M5: a plain-text SystemExit is reshaped into the {"error"} JSON
+# contract, while an _err()-issued exit is passed through (not double-wrapped).
+# --------------------------------------------------------------------------
+
+def test_main_reshapes_plaintext_systemexit_to_json(monkeypatch, capsys):
+    # A former bare-text failure (e.g. _find_browser / _connect / _locate).
+    def plain_text_exit(args):
+        raise SystemExit("Need --selector, --text, or --role")
+
+    monkeypatch.setattr(sys, "argv", ["cc-playwright", "click"])
+    monkeypatch.setattr(cli, "cmd_click", plain_text_exit)
+
+    with pytest.raises(SystemExit) as ex:
+        cli.main()
+    assert ex.value.code == 1
+    err = capsys.readouterr().err
+    payload = json.loads(err)
+    assert payload["error"] == "Need --selector, --text, or --role"
+    assert err.isascii()
+
+
+def test_main_err_path_not_double_wrapped(monkeypatch, capsys):
+    # _err() prints JSON and exits with an integer code; main() must let that
+    # through unchanged and not emit a second JSON line.
+    def use_err(args):
+        cli._err("structured failure")
+
+    monkeypatch.setattr(sys, "argv", ["cc-playwright", "info"])
+    monkeypatch.setattr(cli, "cmd_info", use_err)
+
+    with pytest.raises(SystemExit) as ex:
+        cli.main()
+    assert ex.value.code == 1
+    err = capsys.readouterr().err.strip()
+    # Exactly one JSON object on stderr, not wrapped twice.
+    assert err.count("\n") == 0
+    payload = json.loads(err)
+    assert payload["error"] == "structured failure"
+
+
+# --------------------------------------------------------------------------
+# Review2 M6: PID-reuse safety - a recorded PID is trusted only after an
+# identity check (debug port or profile_dir), never on bare existence.
+# --------------------------------------------------------------------------
+
+def test_state_browser_alive_false_when_pid_dead(monkeypatch):
+    monkeypatch.setattr(cli, "_is_running", lambda pid: False)
+    assert cli._state_browser_alive({"pid": 1, "port": 9333}) is False
+
+
+def test_state_browser_alive_true_when_debug_port_responds(monkeypatch):
+    monkeypatch.setattr(cli, "_is_running", lambda pid: True)
+    monkeypatch.setattr(cli, "_debug_port_responds", lambda port: True)
+    state = {"pid": 1234, "port": 9333, "profile_dir": "C:/p"}
+    assert cli._state_browser_alive(state) is True
+
+
+def test_state_browser_alive_true_when_profile_dir_locked(monkeypatch):
+    monkeypatch.setattr(cli, "_is_running", lambda pid: True)
+    monkeypatch.setattr(cli, "_debug_port_responds", lambda port: False)
+    monkeypatch.setattr(cli, "_dir_locked_by_running_browser", lambda d: True)
+    state = {"pid": 1234, "port": 9333, "profile_dir": "C:/p"}
+    assert cli._state_browser_alive(state) is True
+
+
+def test_state_browser_alive_false_on_pid_reuse(monkeypatch):
+    # PID alive, but neither identity signal confirms our browser -> the OS
+    # reused the PID for an unrelated process.
+    monkeypatch.setattr(cli, "_is_running", lambda pid: True)
+    monkeypatch.setattr(cli, "_debug_port_responds", lambda port: False)
+    monkeypatch.setattr(cli, "_dir_locked_by_running_browser", lambda d: False)
+    state = {"pid": 1234, "port": 9333, "profile_dir": "C:/p"}
+    assert cli._state_browser_alive(state) is False
+
+
+def test_cmd_stop_pid_reuse_does_not_kill(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli, "_load_state",
+        lambda conn: {"pid": 42, "port": 9333, "profile_dir": "C:/p"},
+    )
+    monkeypatch.setattr(cli, "_state_browser_alive", lambda state: False)
+    cleared = {}
+    monkeypatch.setattr(cli, "_clear_state",
+                        lambda conn: cleared.setdefault("conn", conn))
+
+    def must_not_terminate(pid):
+        raise AssertionError("must not terminate an unidentified PID")
+
+    monkeypatch.setattr(cli, "_terminate_process", must_not_terminate)
+
+    cli.cmd_stop(types.SimpleNamespace(connection="work"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "not_running"
+    assert cleared["conn"] == "work"
+
+
+def test_cmd_start_pid_reuse_does_not_report_already_running(monkeypatch, capsys):
+    # PID recorded and alive, but identity check fails -> start must NOT short
+    # circuit on already_running. We stop it just past that branch to avoid
+    # launching a real browser.
+    monkeypatch.setattr(
+        cli, "_load_state",
+        lambda conn: {"pid": 42, "port": 9333, "profile_dir": "C:/p"},
+    )
+    monkeypatch.setattr(cli, "_state_browser_alive", lambda state: False)
+
+    sentinel = RuntimeError("reached launch path")
+
+    def stop_here(connection, override):
+        raise sentinel
+
+    monkeypatch.setattr(cli, "_resolve_profile_dir", stop_here)
+
+    with pytest.raises(RuntimeError) as ex:
+        cli.cmd_start(types.SimpleNamespace(
+            connection="work", profile=None, port=None, url=None,
+            browser_path=None))
+    assert ex.value is sentinel
+
+
+# --------------------------------------------------------------------------
+# Review2 L6/L7: messaging and the Windows lock pre-check no longer hardcode
+# "Brave" and the CIM filter now includes chromium.exe.
+# --------------------------------------------------------------------------
+
+def test_browser_command_lines_filter_includes_chromium(monkeypatch):
+    captured = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _Result()
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    cli._browser_command_lines()
+    joined = " ".join(captured["cmd"])
+    assert "chromium.exe" in joined
+    # The previously-listed images are still covered.
+    for name in ("brave.exe", "chrome.exe", "msedge.exe"):
+        assert name in joined
+
+
+def test_connect_error_message_does_not_say_brave(monkeypatch):
+    # State says running so we reach the connect attempt, which fails.
+    monkeypatch.setattr(cli, "_load_state",
+                        lambda conn: {"pid": 1, "port": 9999})
+    monkeypatch.setattr(cli, "_is_running", lambda pid: True)
+
+    class _Chromium:
+        def connect_over_cdp(self, url):
+            raise RuntimeError("no cdp here")
+
+    class _PW:
+        chromium = _Chromium()
+
+        def stop(self):
+            pass
+
+    sync_mod = types.ModuleType("playwright.sync_api")
+    sync_mod.sync_playwright = lambda: types.SimpleNamespace(start=lambda: _PW())
+    pkg = types.ModuleType("playwright")
+    monkeypatch.setitem(sys.modules, "playwright", pkg)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_mod)
+
+    with pytest.raises(SystemExit) as ex:
+        cli._connect("work")
+    msg = str(ex.value)
+    assert "Brave" not in msg
+    assert "9999" in msg

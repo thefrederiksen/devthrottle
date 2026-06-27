@@ -65,9 +65,16 @@ class SmtpClient:
                     part = MIMEBase("application", "octet-stream")
                     part.set_payload(f.read())
                     encoders.encode_base64(part)
+                    # Pass the disposition type and filename as separate
+                    # arguments so the email library performs RFC 2231
+                    # parameter encoding. Building the whole header value as one
+                    # pre-formatted string causes a non-ASCII filename to be
+                    # RFC 2047-encoded in full (mangling the "attachment" type)
+                    # and leaves a spaced ASCII filename unquoted.
                     part.add_header(
                         "Content-Disposition",
-                        f"attachment; filename={file_path.name}",
+                        "attachment",
+                        filename=file_path.name,
                     )
                     message.attach(part)
         else:

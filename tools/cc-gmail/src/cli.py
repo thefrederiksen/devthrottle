@@ -1935,7 +1935,7 @@ def recipients(
                 {"email": email, "name": data["name"], "sent_count": data["sent_count"]}
                 for email, data in sorted_recipients
             ]
-            sys.stdout.buffer.write(json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))
+            sys.stdout.buffer.write(json.dumps(output, indent=2, ensure_ascii=True).encode("utf-8"))
             sys.stdout.buffer.write(b"\n")
         else:
             acct_name = resolve_account(state.account)

@@ -244,21 +244,28 @@ class GmailClient:
                     part = MIMEBase("application", "octet-stream")
                     part.set_payload(f.read())
                     encoders.encode_base64(part)
+                    # Pass the disposition type and filename as separate
+                    # arguments so the email library performs RFC 2231
+                    # parameter encoding. Building the whole header value as one
+                    # pre-formatted string causes a non-ASCII filename to be
+                    # RFC 2047-encoded in full (mangling the "attachment" type)
+                    # and leaves a spaced ASCII filename unquoted.
                     part.add_header(
                         "Content-Disposition",
-                        f"attachment; filename={file_path.name}",
+                        "attachment",
+                        filename=file_path.name,
                     )
                     message.attach(part)
         else:
             message = MIMEText(body, "html" if html else "plain")
 
-        message["to"] = to
+        message["to"] = _encode_address_header(to)
         message["subject"] = subject
 
         if cc:
-            message["cc"] = cc
+            message["cc"] = _encode_address_header(cc)
         if bcc:
-            message["bcc"] = bcc
+            message["bcc"] = _encode_address_header(bcc)
 
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
         return (
@@ -290,11 +297,11 @@ class GmailClient:
             Created draft response.
         """
         message = MIMEText(body, "html" if html else "plain")
-        message["to"] = to
+        message["to"] = _encode_address_header(to)
         message["subject"] = subject
 
         if cc:
-            message["cc"] = cc
+            message["cc"] = _encode_address_header(cc)
 
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
         return (
@@ -364,7 +371,7 @@ class GmailClient:
         # Create the reply message
         content_type = "html" if html else "plain"
         message = MIMEText(body, content_type)
-        message["to"] = reply_to
+        message["to"] = _encode_address_header(reply_to)
         message["subject"] = reply_subject
 
         if original_message_id:
@@ -821,6 +828,27 @@ class GmailClient:
 
         logger.info("Unique recipients after filtering: %d", len(filtered))
         return filtered
+
+
+def _encode_address_header(value: str) -> str:
+    """Re-emit a To/Cc/Bcc header value with only the display-name phrases
+    RFC 2047-encoded, leaving each addr-spec intact.
+
+    Assigning a flattened multi-address string straight to a message header
+    causes the entire value (addresses included) to be encoded as one blob when
+    any display name is non-ASCII. On the Gmail API send path the raw message IS
+    the envelope, so that blob corrupts recipient parsing and the send can fail
+    or misroute. getaddresses parses the addresses; formataddr re-emits each one
+    encoding only the phrase, producing pure-ASCII output.
+    """
+    if not value:
+        return value
+    parts = []
+    for name, addr in getaddresses([value]):
+        if not name and not addr:
+            continue
+        parts.append(formataddr((name, addr)))
+    return ", ".join(parts)
 
 
 def _build_reply_all_recipients(

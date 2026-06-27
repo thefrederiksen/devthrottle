@@ -5,6 +5,7 @@ Bcc header would be delivered to every To/Cc recipient. Bcc must live ONLY in
 the SMTP envelope (the recipient list passed to sendmail), never in the headers.
 """
 
+import email
 from unittest.mock import patch, MagicMock
 
 from src.smtp_client import SmtpClient
@@ -84,3 +85,37 @@ class TestBccLeak:
         )
         assert "alice@example.com" in captured["recipients"]
         assert "Bcc" not in captured["message"]
+
+
+class TestAttachmentContentDisposition:
+    """The Content-Disposition must be built structurally so a non-ASCII or
+    spaced filename does not mangle the 'attachment' disposition type."""
+
+    def _send_with_attachment(self, tmp_path, filename):
+        attachment = tmp_path / filename
+        attachment.write_bytes(b"PDF-DATA")
+        captured = _run_send(
+            to="alice@example.com",
+            subject="Hello",
+            body="Body text",
+            attachments=[attachment],
+        )
+        return email.message_from_string(captured["message"])
+
+    def test_non_ascii_filename_keeps_attachment_disposition(self, tmp_path):
+        msg = self._send_with_attachment(tmp_path, "r\xe9sum\xe9.pdf")
+        part = msg.get_payload()[-1]
+        # The disposition type must stay the literal "attachment", not be
+        # swallowed into an RFC 2047-encoded blob covering the whole header.
+        assert part.get_content_disposition() == "attachment"
+        # The filename must be recoverable (RFC 2231 decodes back to the value).
+        assert part.get_filename() == "r\xe9sum\xe9.pdf"
+
+    def test_spaced_filename_is_quoted(self, tmp_path):
+        msg = self._send_with_attachment(tmp_path, "quarterly report.pdf")
+        part = msg.get_payload()[-1]
+        assert part.get_content_disposition() == "attachment"
+        assert part.get_filename() == "quarterly report.pdf"
+        # The raw header must not contain an unquoted, space-broken filename.
+        raw = part.get("Content-Disposition")
+        assert "filename=quarterly report.pdf" not in raw

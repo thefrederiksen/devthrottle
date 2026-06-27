@@ -747,7 +747,20 @@ class OutlookClient:
         forward.to.add(to)
 
         if body:
-            forward.body = body + "\n\n" + (forward.body or "")
+            existing = forward.body or ""
+            # The forwarded body is HTML for most messages. Prepending a plain
+            # -text note with "\n\n" collapses the newlines (HTML ignores them)
+            # and leaves any special characters in the note unescaped. When the
+            # body is HTML, escape the note and turn newlines into <br>; keep
+            # body_type aligned so the note renders as written.
+            body_type = str(getattr(forward, "body_type", "") or "")
+            if body_type.lower() == "html":
+                import html as _html
+                note = _html.escape(body).replace("\n", "<br>")
+                forward.body = note + "<br><br>" + existing
+                forward.body_type = "HTML"
+            else:
+                forward.body = body + "\n\n" + existing
 
         forward.send()
 

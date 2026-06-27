@@ -138,3 +138,36 @@ class TestTimezoneHelpers:
         start_iso = captured["data"]["startTime"]["dateTime"]
         # An offset-aware ISO string is produced (naive was localized + UTC-converted).
         assert "+00:00" in start_iso or start_iso.endswith("Z")
+
+
+class TestForwardMessageNote:
+    """A note prepended to a forwarded HTML body must be HTML-escaped and
+    <br>-wrapped (newlines collapse in HTML) with the body type kept aligned;
+    a plain-text body keeps its newlines."""
+
+    def _client_with_forward(self, body_type, original="<p>original</p>"):
+        account = MagicMock()
+        message = MagicMock()
+        forward = MagicMock()
+        forward.body = original
+        forward.body_type = body_type
+        message.forward.return_value = forward
+        account.mailbox.return_value.get_message.return_value = message
+        client = OutlookClient(account=account)
+        return client, forward
+
+    def test_html_body_escapes_and_brwraps_note(self):
+        client, forward = self._client_with_forward("HTML")
+        client.forward_message(
+            "id1", ["a@example.com"], body="Line1\nLine2 <tag> & more"
+        )
+        assert "Line1<br>Line2 &lt;tag&gt; &amp; more" in forward.body
+        assert forward.body.endswith("<p>original</p>")
+        assert forward.body_type == "HTML"
+        forward.send.assert_called_once()
+
+    def test_text_body_keeps_newlines(self):
+        client, forward = self._client_with_forward("text", original="original")
+        client.forward_message("id1", ["a@example.com"], body="Line1\nLine2")
+        assert forward.body.startswith("Line1\nLine2\n\n")
+        forward.send.assert_called_once()

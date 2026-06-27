@@ -62,6 +62,40 @@ class TestConvertHtmlToMarkdown:
         # Markdown should reference the extracted image
         assert "test_images/" in md
 
+    def test_extracts_svg_data_uri(self, tmp_path):
+        # An inline SVG data URI uses the "svg+xml" subtype; the regex must match
+        # it (plain \w+ stops at "+") and the file must be saved with a .svg ext,
+        # not left as a giant raw data: URI in the output.
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        encoded = base64.b64encode(svg).decode()
+        html = f'<img src="data:image/svg+xml;base64,{encoded}" alt="vector">'
+        output = tmp_path / "test.md"
+
+        md = convert_html_to_markdown(html, output)
+
+        images_dir = tmp_path / "test_images"
+        assert images_dir.exists()
+        svg_files = list(images_dir.glob("*.svg"))
+        assert svg_files, "SVG data URI should be extracted to a .svg file"
+        assert "test_images/" in md
+        # The raw data URI must not survive in the output.
+        assert "data:image/svg+xml" not in md
+
+    def test_force_clears_existing_images_dir(self, tmp_path):
+        pixel = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50).decode()
+        html = f'<img src="data:image/png;base64,{pixel}" alt="pixel">'
+        output = tmp_path / "test.md"
+
+        convert_html_to_markdown(html, output, force=True)
+        images_dir = tmp_path / "test_images"
+        first = sorted(p.name for p in images_dir.iterdir())
+
+        # A forced re-run must replace (not accumulate into) the images dir.
+        convert_html_to_markdown(html, output, force=True)
+        second = sorted(p.name for p in images_dir.iterdir())
+
+        assert first == second, "forced re-run must not accumulate duplicate images"
+
     def test_extracts_local_image(self, tmp_path):
         # Create a local image file
         img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50

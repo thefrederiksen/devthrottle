@@ -106,6 +106,27 @@ calendar_app = typer.Typer(help="Calendar operations")
 app.add_typer(accounts_app, name="accounts")
 app.add_typer(calendar_app, name="calendar")
 
+# Configure console to handle Unicode safely on Windows.
+# A non-Rich print() of a message body/subject containing characters outside the
+# legacy console code page would otherwise raise UnicodeEncodeError on a cp1252
+# console. Wrap stdout/stderr in a UTF-8 TextIOWrapper(errors='replace') so such
+# output never crashes. Only the streams whose encoding is not already UTF-8 are
+# re-wrapped: a console already on UTF-8 (or a redirected/captured stream) needs
+# no fix, and re-wrapping it would needlessly take ownership of its buffer.
+if sys.platform == "win32":
+    import io
+
+    for _stream_name in ("stdout", "stderr"):
+        _stream = getattr(sys, _stream_name)
+        _buffer = getattr(_stream, "buffer", None)
+        _encoding = (getattr(_stream, "encoding", "") or "").lower()
+        if _buffer is not None and _encoding not in ("utf-8", "utf8"):
+            setattr(
+                sys,
+                _stream_name,
+                io.TextIOWrapper(_buffer, encoding="utf-8", errors="replace"),
+            )
+
 console = Console()
 
 
@@ -1036,7 +1057,7 @@ def folders(
 
 @app.command()
 def recipients(
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table or json"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON for machine consumption"),
     count: int = typer.Option(0, "-n", "--count", help="Limit results (0 = all)"),
 ):
     """List all unique recipients from sent emails with send counts."""
@@ -1061,14 +1082,12 @@ def recipients(
         if count > 0:
             sorted_recipients = sorted_recipients[:count]
 
-        if format == "json":
-            import json
+        if json_output:
             output = [
                 {"email": email, "name": data["name"], "sent_count": data["sent_count"]}
                 for email, data in sorted_recipients
             ]
-            sys.stdout.buffer.write(json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))
-            sys.stdout.buffer.write(b"\n")
+            print(json.dumps(output, indent=2, ensure_ascii=True))
         else:
             acct = resolve_account(_current_account)
             table = Table(title=f"Sent Recipients ({acct}) - {len(sorted_recipients)} contacts")

@@ -1096,6 +1096,15 @@ def add_contact(email: str, name: str, account: str, **kwargs) -> int:
         raise ValueError(f"Invalid account '{account}'. Must be: consulting, personal, both")
 
     init_db(silent=True)
+
+    # The CLI exposes the job role as -r/--role, but the column is `title`
+    # (which is what `contacts edit --title` writes). Accept `role` as an alias
+    # so a role passed at creation is actually persisted instead of silently
+    # dropped. An explicit `title` wins if somehow both are supplied.
+    role_value = kwargs.pop('role', None)
+    if role_value is not None and kwargs.get('title') is None:
+        kwargs['title'] = role_value
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -4169,22 +4178,6 @@ def update_chunk_vector_id(chunk_id: int, vector_id: str) -> bool:
     return updated
 
 
-def _sanitize_fts_query(query: str) -> str:
-    """
-    Sanitize a query string for FTS5.
-
-    FTS5 has special syntax characters that need to be handled:
-    - Removes: ? ! . , ; : ( ) [ ] { } + - * / \\ ^ ~ @ # $ % & = < > | "
-    - Keeps: alphanumeric and spaces
-    """
-    import re
-    # Keep only alphanumeric, spaces, and basic quotes
-    sanitized = re.sub(r'[^\w\s]', ' ', query)
-    # Collapse multiple spaces
-    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
-    return sanitized
-
-
 def search_chunks_fts(query: str, limit: int = 20) -> List[dict]:
     """
     Search chunks using FTS5 full-text search with BM25 ranking.
@@ -4219,10 +4212,15 @@ def search_chunks_fts(query: str, limit: int = 20) -> List[dict]:
         """, (safe_query, limit))
 
         results = [dict(row) for row in cursor.fetchall()]
-    except sqlite3.OperationalError:
-        # FTS5 query syntax error - query was sanitized but still invalid
-        # This can happen with edge cases, return empty results
-        results = []
+    except sqlite3.OperationalError as exc:
+        # The query was sanitized but FTS5 still rejected it. Do not hide this
+        # behind an empty result set -- surface a clear error naming the query
+        # so the caller can see what failed instead of "no results".
+        conn.close()
+        raise ValueError(
+            f"Full-text search could not run for query {query!r} "
+            f"(sanitized as {safe_query!r}): {exc}"
+        ) from exc
 
     conn.close()
 
@@ -6030,19 +6028,21 @@ def list_catalog_entries(library_id: Optional[int] = None,
 def _sanitize_fts_query(query: str) -> str:
     """Sanitize a query string for FTS5 MATCH.
 
-    Wraps each whitespace-separated term in double quotes so that
-    special characters like hyphens are treated as literals instead
-    of FTS5 operators.
+    Each whitespace-separated term that contains any non-word character is
+    wrapped in double quotes so FTS5 treats it as a literal rather than as
+    operator syntax. This covers hyphens, '+', '*', '/', '^', '~',
+    parentheses, '&' (e.g. "SR&ED"), a column-filter colon (e.g. "term:value"),
+    and a stray double quote -- all of which would otherwise change the query's
+    meaning or raise a syntax error. Any double quote inside a term is doubled
+    per FTS5 string escaping so an unbalanced quote cannot break the query.
     """
     import re
     terms = query.split()
     quoted = []
     for term in terms:
-        # Already quoted - leave as-is
-        if term.startswith('"') and term.endswith('"'):
-            quoted.append(term)
-        # Contains characters that FTS5 interprets as operators
-        elif re.search(r'[-+*/^~()]', term):
+        # A term that is purely word characters (letters, digits, underscore,
+        # including Unicode letters) is already a safe bareword token.
+        if re.search(r'\W', term):
             quoted.append('"' + term.replace('"', '""') + '"')
         else:
             quoted.append(term)

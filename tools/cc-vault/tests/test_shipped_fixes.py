@@ -191,5 +191,145 @@ def test_validate_where_clause_blocks_injection(imported_modules):
         db_module.validate_where_clause("")
 
 
+# --------------------------------------------------------------------------
+# Second-pass fix: contacts add --role must persist (mapped to title)
+# --------------------------------------------------------------------------
+
+def _added_contact_id(stdout: str) -> str:
+    import re
+    m = re.search(r"#(\d+)", stdout)
+    assert m, f"could not find contact id in: {stdout}"
+    return m.group(1)
+
+
+def test_contacts_add_role_persists(tmp_path):
+    """contacts add --role must be stored (as title), not silently dropped."""
+    vault = tmp_path / "vault"
+    assert run_cli(["init"], vault).returncode == 0
+
+    add = run_cli(
+        ["contacts", "add", "Role Person", "-e", "role@x.com",
+         "-a", "personal", "-r", "Chief Widget Officer"],
+        vault,
+    )
+    assert add.returncode == 0, add.stdout + add.stderr
+    cid = _added_contact_id(add.stdout)
+
+    shown = run_cli(["contacts", "show", cid, "--format", "json"], vault)
+    assert shown.returncode == 0, shown.stdout + shown.stderr
+    data = json.loads(shown.stdout)
+    assert data.get("title") == "Chief Widget Officer", data
+
+
+def test_contacts_show_json_is_ascii(tmp_path):
+    """contacts show --format json must emit valid, ASCII-only JSON even for
+    a long non-ASCII name (no Rich wrapping, ensure_ascii=True)."""
+    vault = tmp_path / "vault"
+    assert run_cli(["init"], vault).returncode == 0
+
+    # A long name with genuine non-ASCII characters (built from escapes so this
+    # source file stays ASCII) exercises ensure_ascii and the no-Rich-wrap
+    # requirement at the same time. 0xE9=e-acute, 0xDC=U-umlaut, 0xF1=n-tilde.
+    name = ("Jos" + chr(0xE9) + " ") + (("" + chr(0xDC) + "ber ") * 20) + ("Mu" + chr(0xF1) + "oz")
+    add = run_cli(
+        ["contacts", "add", name, "-e", "ascii@x.com", "-a", "personal"],
+        vault,
+    )
+    assert add.returncode == 0, add.stdout + add.stderr
+    cid = _added_contact_id(add.stdout)
+
+    shown = run_cli(["contacts", "show", cid, "--format", "json"], vault)
+    assert shown.returncode == 0, shown.stdout + shown.stderr
+    # Valid JSON...
+    data = json.loads(shown.stdout)
+    # ...and the machine output line carrying the JSON must be ASCII-only.
+    json_line = shown.stdout.strip().splitlines()[0]
+    assert all(ord(ch) < 128 for ch in json_line), "machine JSON must be ASCII-only"
+    # The non-ASCII name round-trips through the escaped JSON.
+    assert data["name"] == name
+
+
+# --------------------------------------------------------------------------
+# Second-pass fix: single _sanitize_fts_query that neutralizes operator chars,
+# a column-filter colon, and a stray double quote; FTS errors are surfaced.
+# --------------------------------------------------------------------------
+
+def test_only_one_sanitize_fts_definition():
+    """The duplicate _sanitize_fts_query must be gone (only one def remains)."""
+    text = (SRC / "db.py").read_text(encoding="utf-8")
+    assert text.count("def _sanitize_fts_query(") == 1
+
+
+def test_sanitize_fts_quotes_special_terms(imported_modules):
+    """Operator chars, a colon, an ampersand, and a stray quote get quoted/escaped."""
+    _, db_module = imported_modules
+    s = db_module._sanitize_fts_query
+
+    # A plain word is left as a bareword token.
+    assert s("hello") == "hello"
+    # A column-filter colon is neutralized by quoting.
+    assert s("term:value") == '"term:value"'
+    # An ampersand (e.g. SR&ED) is quoted, not treated as syntax.
+    assert s("SR&ED") == '"SR&ED"'
+    # A hyphen is quoted.
+    assert s("multi-word") == '"multi-word"'
+    # A stray double quote is escaped (doubled) inside the quoted term, so it
+    # cannot terminate the FTS string early.
+    out = s('a"b')
+    assert out.startswith('"') and out.endswith('"')
+    assert '""' in out
+
+
+def test_search_chunks_fts_surfaces_error_not_empty(imported_modules, monkeypatch):
+    """A query FTS5 still rejects must raise a clear error, not return []."""
+    _, db_module = imported_modules
+    db_module.init_db(silent=True)
+    # Force the sanitizer to emit an FTS string that is still invalid.
+    monkeypatch.setattr(db_module, "_sanitize_fts_query", lambda q: '"')
+    with pytest.raises(ValueError):
+        db_module.search_chunks_fts("anything")
+
+
+# --------------------------------------------------------------------------
+# Second-pass fix: catalog embed failure is surfaced as a warning, not swallowed
+# --------------------------------------------------------------------------
+
+def test_embed_summary_returns_warning_on_failure(imported_modules):
+    """_embed_summary returns an error string (not None) when embedding fails,
+    so the caller can surface a warning instead of silently dropping it."""
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    import catalog
+    scanner = catalog.CatalogScanner()
+    warning = scanner._embed_summary(1, {"title": "t", "summary": "s", "tags": ""})
+    # embed_and_store does not exist in vectors, so this surfaces a real failure.
+    assert isinstance(warning, str) and warning, "embedding failure must be surfaced"
+
+
+# --------------------------------------------------------------------------
+# Second-pass fix: search semantic mode honors -n instead of hardcoding 5
+# --------------------------------------------------------------------------
+
+def test_search_semantic_honors_n(imported_modules, monkeypatch):
+    """Semantic search display must show up to -n items per collection, not 5."""
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    import rag as rag_module
+    from typer.testing import CliRunner
+    import cli as cli_module
+
+    class _FakeRag:
+        def semantic_search(self, query, collections=None, n_results=10):
+            return {"contacts": [{"id": i, "document": f"doc{i}"} for i in range(n_results)]}
+
+    monkeypatch.setattr(rag_module, "get_vault_rag", lambda: _FakeRag())
+
+    runner = CliRunner()
+    result = runner.invoke(cli_module.app, ["search", "anything", "-n", "8"])
+    assert result.exit_code == 0, result.output
+    # Eight items requested -> eight printed (previously capped at 5).
+    assert result.output.count("] doc") == 8, result.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

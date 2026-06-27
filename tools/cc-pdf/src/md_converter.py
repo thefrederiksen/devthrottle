@@ -6,7 +6,7 @@ from pathlib import Path
 import fitz as pymupdf
 
 try:
-    from cc_shared.image_extractor import ExtractedImage, save_extracted_images
+    from cc_shared.image_extractor import ExtractedImage, relative_paths_in_order
 except ImportError:
     import sys
     import os
@@ -14,7 +14,7 @@ except ImportError:
         sys.path.insert(0, os.path.join(sys._MEIPASS, 'cc_shared'))
     else:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "cc_shared"))
-    from image_extractor import ExtractedImage, save_extracted_images
+    from image_extractor import ExtractedImage, relative_paths_in_order
 
 
 # Font size thresholds for heading detection (relative to body text)
@@ -26,6 +26,7 @@ _HEADING3_RATIO = 1.15
 def convert_pdf_to_markdown(
     input_path: Path,
     output_path: Path,
+    force: bool = False,
 ) -> str:
     """Convert a PDF document to Markdown with image extraction.
 
@@ -35,6 +36,9 @@ def convert_pdf_to_markdown(
     Args:
         input_path: Path to the ``.pdf`` file.
         output_path: Path to the output ``.md`` file.
+        force: When True (a ``--force`` re-run), clear the sibling
+            ``{stem}_images/`` directory first so repeated conversions do not
+            accumulate duplicate image files.
 
     Returns:
         Markdown string.
@@ -128,12 +132,13 @@ def convert_pdf_to_markdown(
 
     markdown = "\n\n".join(pages_md)
 
-    # Replace image placeholders
+    # Replace image placeholders. Use index-aligned paths so two extracted
+    # images that happen to share an original_name do not collide onto one file.
     if images:
-        path_map = save_extracted_images(images, output_path)
-        for img_idx, img in enumerate(images):
+        ordered_paths = relative_paths_in_order(images, output_path, clear_existing=force)
+        for img_idx, _img in enumerate(images):
             placeholder = f"{{__pdf_image_{img_idx}__}}"
-            rel_path = path_map.get(img.original_name, placeholder)
+            rel_path = ordered_paths[img_idx]
             markdown = markdown.replace(placeholder, rel_path)
 
     # Clean up excessive blank lines

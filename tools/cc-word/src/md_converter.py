@@ -7,7 +7,7 @@ import mammoth
 from markdownify import markdownify
 
 try:
-    from cc_shared.image_extractor import ExtractedImage, save_extracted_images
+    from cc_shared.image_extractor import ExtractedImage, relative_paths_in_order
 except ImportError:
     import sys
     import os
@@ -15,12 +15,13 @@ except ImportError:
         sys.path.insert(0, os.path.join(sys._MEIPASS, 'cc_shared'))
     else:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "cc_shared"))
-    from image_extractor import ExtractedImage, save_extracted_images
+    from image_extractor import ExtractedImage, relative_paths_in_order
 
 
 def convert_docx_to_markdown(
     input_path: Path,
     output_path: Path,
+    force: bool = False,
 ) -> str:
     """Convert a Word document to Markdown, extracting embedded images.
 
@@ -31,6 +32,9 @@ def convert_docx_to_markdown(
         input_path: Path to the ``.docx`` file.
         output_path: Path to the output ``.md`` file (used to derive
             the image directory).
+        force: When True (a ``--force`` re-run), clear the sibling
+            ``{stem}_images/`` directory first so repeated conversions do not
+            accumulate duplicate image files.
 
     Returns:
         Markdown string with image references pointing to extracted files.
@@ -75,14 +79,17 @@ def convert_docx_to_markdown(
 
     html = result.value
 
-    # Save extracted images and build replacement map
+    # Save extracted images and build replacement map. Use index-aligned paths
+    # so two images that happen to share an original_name do not collide onto
+    # one extracted file.
     if images:
-        path_map = save_extracted_images(images, output_path)
+        ordered_paths = relative_paths_in_order(images, output_path, clear_existing=force)
 
-        # Replace placeholders with actual paths
-        for idx, img in enumerate(images, start=1):
+        # Replace placeholders with actual paths. Placeholders are 1-based; the
+        # ordered path list is 0-based and aligned with the images list.
+        for idx in range(1, len(images) + 1):
             placeholder = f"__docx_image_{idx}__"
-            rel_path = path_map.get(img.original_name, placeholder)
+            rel_path = ordered_paths[idx - 1]
             html = html.replace(placeholder, rel_path)
 
     # Convert HTML to Markdown

@@ -199,12 +199,23 @@ def convert_to_pdf(
             file_uri,
         ]
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        timeout_seconds = 60
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            # A wedged headless browser (profile lock, GPU init stall) would
+            # otherwise dump a raw traceback. Surface a clean, named error.
+            raise RuntimeError(
+                f"PDF conversion timed out after {timeout_seconds} seconds. "
+                "The headless browser did not finish printing - it may be wedged "
+                "(profile lock or initialization stall). Close any stray browser "
+                "processes and try again."
+            )
 
         if result.returncode != 0 or not os.path.exists(abs_output_path):
             error_msg = result.stderr if result.stderr else "Unknown error"

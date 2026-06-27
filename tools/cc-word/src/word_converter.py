@@ -450,14 +450,28 @@ def _process_blockquote(doc: Document, element, theme: Optional["CanonicalTheme"
 def _process_code_block(doc: Document, element, theme: Optional["CanonicalTheme"] = None):
     """Process code block with monospace font and background shading."""
     code_text = element.get_text()
-    para = doc.add_paragraph()
-    run = para.add_run(code_text)
+    # get_text() typically appends a trailing newline; drop one so a fenced block
+    # does not render with an extra blank line at the end.
+    if code_text.endswith("\n"):
+        code_text = code_text[:-1]
 
-    if theme:
-        run.font.name = theme.fonts.code
-    else:
-        run.font.name = "Consolas"
-    run.font.size = Pt(9)
+    para = doc.add_paragraph()
+
+    # Word does NOT render an embedded "\n" inside a single run as a line break,
+    # so a multi-line code block would collapse to one wrapped line. Split on
+    # newlines and emit an explicit break between lines (same approach the <br>
+    # handling in _render_inline uses).
+    font_name = theme.fonts.code if theme else "Consolas"
+    lines = code_text.split("\n")
+    runs = []
+    for index, line in enumerate(lines):
+        if index > 0:
+            para.add_run().add_break()
+        runs.append(para.add_run(line))
+
+    for run in runs:
+        run.font.name = font_name
+        run.font.size = Pt(9)
 
     para.paragraph_format.left_indent = Inches(0.25)
     para.paragraph_format.right_indent = Inches(0.25)
@@ -471,7 +485,8 @@ def _process_code_block(doc: Document, element, theme: Optional["CanonicalTheme"
 
         code_color = _hex_to_rgb(theme.colors.code_text)
         if code_color:
-            run.font.color.rgb = code_color
+            for run in runs:
+                run.font.color.rgb = code_color
 
 
 def _process_hr(doc: Document, theme: Optional["CanonicalTheme"] = None):

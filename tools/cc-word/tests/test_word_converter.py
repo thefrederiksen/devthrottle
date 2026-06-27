@@ -88,6 +88,31 @@ class TestConvertToWord:
         convert_to_word(html, output, theme_name="terminal")
         assert output.exists()
 
+    def test_multiline_code_block_keeps_line_breaks(self, tmp_path):
+        # A multi-line fenced code block must NOT collapse onto one wrapped line:
+        # each line goes into its own run and explicit line breaks separate them.
+        code = "line one\nline two\nline three"
+        html = f"<article><pre><code>{code}</code></pre></article>"
+        doc = _convert(html, tmp_path, theme_name="terminal")
+
+        # Locate the paragraph holding the code (the one whose run text matches a line).
+        code_para = None
+        for para in doc.paragraphs:
+            run_texts = [r.text for r in para.runs]
+            if "line one" in run_texts:
+                code_para = para
+                break
+        assert code_para is not None, "code block paragraph not found"
+
+        run_texts = [r.text for r in code_para.runs]
+        assert "line one" in run_texts
+        assert "line two" in run_texts
+        assert "line three" in run_texts
+
+        # Three lines means at least two explicit <w:br/> breaks between them.
+        break_count = code_para._p.xml.count("<w:br")
+        assert break_count >= 2, f"expected >=2 line breaks, found {break_count}"
+
     def test_with_list(self, tmp_path):
         html = "<article><ul><li>Item 1</li><li>Item 2</li></ul></article>"
         output = tmp_path / "list.docx"

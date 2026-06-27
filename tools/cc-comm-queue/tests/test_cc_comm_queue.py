@@ -223,6 +223,125 @@ def test_error_status_visible_in_stats(app_env):
     assert "Error" in status.output
 
 
+@pytest.fixture()
+def db_module(app_env):
+    """Import the Database layer (src is already on sys.path via app_env)."""
+    import database as database_module
+    import schema as schema_module
+    return database_module, schema_module
+
+
+def _make_db(db_module, tmp_path):
+    database_module, _ = db_module
+    return database_module.Database(tmp_path)
+
+
+def _make_item(schema_module, content="hello"):
+    return schema_module.ContentItem(
+        platform=schema_module.Platform.LINKEDIN,
+        type=schema_module.ContentType.POST,
+        content=content,
+    )
+
+
+def test_update_content_missing_ticket_returns_false(db_module, tmp_path):
+    """H1: editing a non-existent ticket must report failure, not success."""
+    db = _make_db(db_module, tmp_path)
+    try:
+        # A prior write bumps connection-cumulative total_changes above zero,
+        # which used to make every later update spuriously report success.
+        item = _make_item(db_module[1], "seed")
+        db.add_communication(item)
+        assert db.update_content(999999, "no such ticket") is False
+    finally:
+        db.close()
+
+
+def test_update_recipient_missing_ticket_returns_false(db_module, tmp_path):
+    """H1: update_recipient on a missing ticket must report failure."""
+    db = _make_db(db_module, tmp_path)
+    try:
+        db.add_communication(_make_item(db_module[1], "seed"))
+        assert db.update_recipient(999999, '{"name": "x"}') is False
+    finally:
+        db.close()
+
+
+def test_update_status_missing_ticket_returns_false(db_module, tmp_path):
+    """H1: update_status on a missing ticket must report failure."""
+    database_module, schema_module = db_module
+    db = _make_db(db_module, tmp_path)
+    try:
+        db.add_communication(_make_item(schema_module, "seed"))
+        assert db.update_status(999999, schema_module.Status.APPROVED) is False
+    finally:
+        db.close()
+
+
+def test_update_content_existing_ticket_returns_true(db_module, tmp_path):
+    """H1: a real edit must still report success."""
+    database_module, schema_module = db_module
+    db = _make_db(db_module, tmp_path)
+    try:
+        ticket = db.add_communication(_make_item(schema_module, "before"))
+        assert db.update_content(ticket, "after") is True
+        assert db.get_by_ticket(ticket)["content"] == "after"
+    finally:
+        db.close()
+
+
+def test_ticket_number_allocation_retries_on_collision(db_module, tmp_path):
+    """L10/#2: a colliding auto-allocated ticket number must be retried."""
+    database_module, schema_module = db_module
+    db = _make_db(db_module, tmp_path)
+    try:
+        first = db.add_communication(_make_item(schema_module, "first"))
+
+        # Force the allocator to hand out the already-used number once, then
+        # fall back to the real allocator -- simulating a concurrent add that
+        # grabbed our number between read and insert.
+        real_alloc = db._get_next_ticket_number
+        calls = {"n": 0}
+
+        def flaky_alloc():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return first  # collide with the existing row
+            return real_alloc()
+
+        db._get_next_ticket_number = flaky_alloc
+        second = db.add_communication(_make_item(schema_module, "second"))
+        assert second != first
+        assert calls["n"] >= 2  # it retried after the collision
+    finally:
+        db.close()
+
+
+def test_unknown_current_status_raises(db_module, tmp_path):
+    """L11/#3: an unrecognized current status must NOT silently pass the guard."""
+    database_module, _ = db_module
+    with pytest.raises(database_module.InvalidStatusTransition):
+        database_module._validate_status_transition("bogus_status", "approved", force=False)
+    # --force still overrides.
+    database_module._validate_status_transition("bogus_status", "approved", force=True)
+
+
+def test_status_check_constraint_rejects_bad_value(db_module, tmp_path):
+    """L11/#3: the schema CHECK constraint must reject an unknown status."""
+    import sqlite3
+    db = _make_db(db_module, tmp_path)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            db.conn.execute(
+                "INSERT INTO communications "
+                "(id, ticket_number, platform, type, persona, content, created_at, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("bad-1", 90001, "linkedin", "post", "personal", "x", "2026-01-01T00:00:00", "bogus"),
+            )
+    finally:
+        db.close()
+
+
 def _ticket_from_json(output: str) -> int:
     """Extract the ticket number from an add --json result's 'file' field."""
     data = json.loads(output.strip().splitlines()[-1])

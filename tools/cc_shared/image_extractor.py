@@ -5,6 +5,7 @@ across all cc-* document tools.
 """
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def sanitize_filename(name: str) -> str:
 def save_extracted_images(
     images: list[ExtractedImage],
     output_md_path: Path,
+    clear_existing: bool = False,
 ) -> dict[str, str]:
     """Save extracted images to a sibling directory and return markdown paths.
 
@@ -51,6 +53,10 @@ def save_extracted_images(
         images: List of extracted images to save.
         output_md_path: Path to the output ``.md`` file (used to derive the
             image directory name).
+        clear_existing: When True, delete any existing ``{stem}_images/``
+            directory before writing. Used on a forced (``--force``) re-run so
+            repeated conversions do not accumulate duplicate, index-renamed
+            files (``image_001_image_001.png``-style collisions).
 
     Returns:
         Mapping of unique key -> relative markdown path for use in
@@ -67,6 +73,8 @@ def save_extracted_images(
 
     stem = output_md_path.stem
     images_dir = output_md_path.parent / f"{stem}_images"
+    if clear_existing and images_dir.exists():
+        shutil.rmtree(images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # Count how often each original_name occurs so we can detect collisions.
@@ -116,6 +124,7 @@ def save_extracted_images(
 def relative_paths_in_order(
     images: list[ExtractedImage],
     output_md_path: Path,
+    clear_existing: bool = False,
 ) -> list[str]:
     """Save images and return their relative markdown paths in input order.
 
@@ -126,6 +135,9 @@ def relative_paths_in_order(
     Args:
         images: List of extracted images to save.
         output_md_path: Path to the output ``.md`` file.
+        clear_existing: When True, delete any existing ``{stem}_images/``
+            directory before writing (forced re-run; see
+            :func:`save_extracted_images`).
 
     Returns:
         List of relative markdown paths, one per image, in the same order as
@@ -134,7 +146,7 @@ def relative_paths_in_order(
     if not images:
         return []
 
-    path_map = save_extracted_images(images, output_md_path)
+    path_map = save_extracted_images(images, output_md_path, clear_existing=clear_existing)
 
     # Reconstruct per-index paths using the same keying rule as above.
     name_counts: dict[str, int] = {}

@@ -268,7 +268,7 @@ def to_markdown(
         _progress(f"[blue]Reading:[/blue] {input_file}", quiet)
 
         _progress("[blue]Converting:[/blue] DOCX to Markdown", quiet)
-        markdown = convert_docx_to_markdown(input_file, output)
+        markdown = convert_docx_to_markdown(input_file, output, force=force)
 
         _progress(f"[blue]Writing:[/blue] {output}", quiet)
         output.parent.mkdir(parents=True, exist_ok=True)

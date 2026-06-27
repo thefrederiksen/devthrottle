@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS communications (
     scheduled_for TEXT,
 
     -- Status workflow
-    status TEXT NOT NULL DEFAULT 'pending_review',
+    status TEXT NOT NULL DEFAULT 'pending_review'
+        CHECK (status IN ('pending_review', 'approved', 'rejected', 'posted', 'error')),
 
     -- Send options
     send_timing TEXT DEFAULT 'asap',
@@ -126,8 +127,14 @@ def _validate_status_transition(current: str, new_status: str, force: bool) -> N
         return
     allowed = _ALLOWED_TRANSITIONS.get(current)
     if allowed is None:
-        # Unknown current status -- be permissive rather than wedge the item.
-        return
+        # An unknown current status means the row escaped the workflow's known
+        # states. Refuse the change instead of silently disabling the guard --
+        # a bad status must be repaired explicitly (use --force to override).
+        raise InvalidStatusTransition(
+            f"Current status '{current}' is not a recognized workflow state. "
+            f"Recognized states: {', '.join(sorted(_ALLOWED_TRANSITIONS))}. "
+            f"Use --force to override the approval workflow."
+        )
     if new_status not in allowed:
         raise InvalidStatusTransition(
             f"Cannot change status from '{current}' to '{new_status}'. "
@@ -285,12 +292,12 @@ class Database:
         if not fields:
             return False
         values.append(ticket_number)
-        self.conn.execute(
+        cursor = self.conn.execute(
             f"UPDATE communications SET {', '.join(fields)} WHERE ticket_number = ?",
             values,
         )
         self.conn.commit()
-        return self.conn.total_changes > 0
+        return cursor.rowcount > 0
 
     def close(self) -> None:
         """Close database connection."""
@@ -325,9 +332,13 @@ class Database:
         if self.conn is None:
             raise RuntimeError("Database not connected")
 
-        # Assign ticket number if not set
-        if item.ticket_number is None:
-            item.ticket_number = self._get_next_ticket_number()
+        # When the caller did not pre-assign a ticket number we allocate one from
+        # MAX(ticket_number)+1. That read-then-insert is not atomic across
+        # processes (the desktop app and this CLI share the database), so two
+        # concurrent adds can pick the same number and one INSERT then trips the
+        # UNIQUE constraint. We re-allocate and retry on that collision rather
+        # than letting a spurious failure surface.
+        auto_assign_ticket = item.ticket_number is None
 
         # Convert complex fields to JSON
         tags_json = json.dumps(item.tags) if item.tags else None
@@ -342,8 +353,7 @@ class Database:
         recipient_json = item.recipient.model_dump_json() if item.recipient else None
         thread_json = json.dumps(item.thread_content) if item.thread_content else None
 
-        self.conn.execute(
-            """
+        insert_sql = """
             INSERT INTO communications (
                 id, ticket_number, platform, type, persona, persona_display, content,
                 created_at, created_by, posted_at, posted_by, posted_url, post_id,
@@ -357,52 +367,69 @@ class Database:
                 recipient, thread_content,
                 first_comment, first_comment_posted_at, first_comment_url
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item.id,
-                item.ticket_number,
-                item.platform.value,
-                item.type.value,
-                item.persona.value,
-                item.persona_display,
-                item.content,
-                item.created_at,
-                item.created_by,
-                item.posted_at,
-                item.posted_by,
-                item.posted_url,
-                item.post_id,
-                item.rejected_at,
-                item.rejected_by,
-                item.rejection_reason,
-                item.scheduled_for,
-                item.status.value,
-                item.send_timing.value,
-                item.send_from,
-                item.context_url,
-                item.context_title,
-                item.context_author,
-                item.destination_url,
-                item.campaign_id,
-                item.reason,
-                item.notes,
-                tags_json,
-                linkedin_json,
-                twitter_json,
-                reddit_json,
-                email_json,
-                article_json,
-                facebook_json,
-                whatsapp_json,
-                youtube_json,
-                recipient_json,
-                thread_json,
-                item.first_comment,
-                item.first_comment_posted_at,
-                item.first_comment_url,
-            ),
-        )
-        self.conn.commit()
+            """
+
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            if auto_assign_ticket:
+                item.ticket_number = self._get_next_ticket_number()
+            try:
+                self.conn.execute(
+                    insert_sql,
+                    (
+                        item.id,
+                        item.ticket_number,
+                        item.platform.value,
+                        item.type.value,
+                        item.persona.value,
+                        item.persona_display,
+                        item.content,
+                        item.created_at,
+                        item.created_by,
+                        item.posted_at,
+                        item.posted_by,
+                        item.posted_url,
+                        item.post_id,
+                        item.rejected_at,
+                        item.rejected_by,
+                        item.rejection_reason,
+                        item.scheduled_for,
+                        item.status.value,
+                        item.send_timing.value,
+                        item.send_from,
+                        item.context_url,
+                        item.context_title,
+                        item.context_author,
+                        item.destination_url,
+                        item.campaign_id,
+                        item.reason,
+                        item.notes,
+                        tags_json,
+                        linkedin_json,
+                        twitter_json,
+                        reddit_json,
+                        email_json,
+                        article_json,
+                        facebook_json,
+                        whatsapp_json,
+                        youtube_json,
+                        recipient_json,
+                        thread_json,
+                        item.first_comment,
+                        item.first_comment_posted_at,
+                        item.first_comment_url,
+                    ),
+                )
+                self.conn.commit()
+                break
+            except sqlite3.IntegrityError:
+                # A concurrent add grabbed the ticket number we just allocated.
+                # Roll back and try again with a freshly read number. If the
+                # caller supplied an explicit (colliding) ticket number we cannot
+                # silently change it, so re-raise immediately.
+                self.conn.rollback()
+                if not auto_assign_ticket or attempt == max_attempts - 1:
+                    raise
 
         # Add media if present
         if item.media:
@@ -696,12 +723,12 @@ class Database:
 
         values.append(ticket_number)
 
-        self.conn.execute(
+        cursor = self.conn.execute(
             f"UPDATE communications SET {', '.join(fields)} WHERE ticket_number = ?",
             values
         )
         self.conn.commit()
-        return self.conn.total_changes > 0
+        return cursor.rowcount > 0
 
     def update_content(self, ticket_number: int, content: str) -> bool:
         """Update communication content.
@@ -716,12 +743,12 @@ class Database:
         if self.conn is None:
             raise RuntimeError("Database not connected")
 
-        self.conn.execute(
+        cursor = self.conn.execute(
             "UPDATE communications SET content = ? WHERE ticket_number = ?",
             (content, ticket_number)
         )
         self.conn.commit()
-        return self.conn.total_changes > 0
+        return cursor.rowcount > 0
 
     def update_recipient(self, ticket_number: int, recipient_json: str) -> bool:
         """Update recipient field for a communication.
@@ -736,12 +763,12 @@ class Database:
         if self.conn is None:
             raise RuntimeError("Database not connected")
 
-        self.conn.execute(
+        cursor = self.conn.execute(
             "UPDATE communications SET recipient = ? WHERE ticket_number = ?",
             (recipient_json, ticket_number)
         )
         self.conn.commit()
-        return self.conn.total_changes > 0
+        return cursor.rowcount > 0
 
     def delete_communication(self, ticket_number: int) -> bool:
         """Delete a communication and its media.

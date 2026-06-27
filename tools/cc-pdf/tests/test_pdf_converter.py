@@ -1,6 +1,7 @@
 """Tests for cc-pdf PDF converter."""
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -66,6 +67,22 @@ class TestConvertToPdf:
                 # Error message must name the override env var so the user
                 # knows how to recover.
                 assert BROWSER_ENV_VAR in str(e)
+
+    def test_timeout_raises_clean_runtime_error(self, tmp_path):
+        """A wedged headless browser (TimeoutExpired) must surface as a clean
+        RuntimeError naming the timeout, not a raw traceback."""
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 60))
+
+        with patch("pdf_converter.find_chrome", return_value="chrome.exe"), \
+                patch("pdf_converter.subprocess.run", side_effect=fake_run):
+            try:
+                convert_to_pdf("<html><head></head><body>hi</body></html>",
+                               tmp_path / "out.pdf")
+                assert False, "Should have raised RuntimeError"
+            except RuntimeError as e:
+                assert "timed out" in str(e).lower()
+                assert "60 seconds" in str(e)
 
 
 class TestPageStyle:

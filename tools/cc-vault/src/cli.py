@@ -387,7 +387,7 @@ def search_cmd(
             if items:
                 found = True
                 console.print(f"\n[cyan]{coll.upper()} ({len(items)} results):[/cyan]")
-                for item in items[:5]:
+                for item in items[:n]:
                     doc = item.get('document', '')[:100]
                     console.print(f"  [{item['id']}] {doc}...")
 
@@ -1537,7 +1537,7 @@ def contacts_show(
                 result['recent_interactions'] = db.get_interactions(contact['email'], limit=5)
             result['email_activity'] = db.get_email_activity(contact_id=contact_id)
             result['emails'] = db.get_contact_emails(contact_id)
-            print(json_mod.dumps(result, indent=2, default=str, ensure_ascii=False))
+            print(json_mod.dumps(result, indent=2, default=str, ensure_ascii=True))
             return
 
         # Header
@@ -2104,7 +2104,7 @@ def contacts_email_activity(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps(results, indent=2, ensure_ascii=False))
+            print(json_mod.dumps(results, indent=2, ensure_ascii=True))
         else:
             title = f"Email Activity for Contact #{contact_id}" if contact_id else "All Email Activity"
             table = Table(title=title)
@@ -2166,7 +2166,7 @@ def contacts_last_comm(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps(result, indent=2, ensure_ascii=False, default=str))
+            print(json_mod.dumps(result, indent=2, ensure_ascii=True, default=str))
             return
 
         display_name = contact.get('name') or f"#{contact['id']}"
@@ -2265,7 +2265,7 @@ def contacts_merge(
 
         if format == "json" and not yes:
             import json as json_mod
-            console.print(json_mod.dumps(preview, indent=2, default=str))
+            print(json_mod.dumps(preview, indent=2, default=str))
             return
 
         target = preview['target']
@@ -2302,7 +2302,7 @@ def contacts_merge(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps(result, indent=2))
+            print(json_mod.dumps(result, indent=2))
         else:
             console.print(f"\n[green]OK:[/green] Merge complete!")
             console.print(f"  Interactions reassigned: {result['interactions']}")
@@ -2372,7 +2372,7 @@ def contacts_emails(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps(emails, indent=2, default=str))
+            print(json_mod.dumps(emails, indent=2, default=str))
             return
 
         display_name = contact.get('name') or f"#{contact_id}"
@@ -2453,7 +2453,7 @@ def contacts_log_interaction(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps({
+            print(json_mod.dumps({
                 "success": True,
                 "interaction_id": interaction_id,
                 "contact_id": contact['id'],
@@ -2741,7 +2741,7 @@ def contacts_scan_emails(
 
         if format == "json":
             import json as json_mod
-            console.print(json_mod.dumps({
+            print(json_mod.dumps({
                 "success": True,
                 "contact_id": contact['id'],
                 "contact_name": display_name,
@@ -3403,7 +3403,7 @@ def create_link(
                 "relationship": rel,
                 "strength": strength,
             }
-            console.print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2))
         else:
             console.print(f"[green]Linked[/green] {source_type}:{source_id} -> {target_type}:{target_id} ({rel}, strength={strength})")
 
@@ -3440,7 +3440,7 @@ def remove_link(
                 "target": {"type": target_type, "id": target_id},
                 "relationship": rel,
             }
-            console.print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2))
         else:
             if removed:
                 console.print(f"[green]Unlinked[/green] {source_type}:{source_id} -> {target_type}:{target_id}")
@@ -3474,7 +3474,7 @@ def get_links(
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2))
         else:
             entity = result.get('entity', {})
             console.print(f"\n[bold cyan]{entity.get('type', '')}:{entity.get('id', '')}[/bold cyan] - {entity.get('label', '')}")
@@ -3531,7 +3531,7 @@ def get_context(
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2))
         else:
             entity = result.get('entity', {})
             details = entity.get('details', {})
@@ -3583,7 +3583,7 @@ def graph_stats(
         stats = db.get_graph_stats()
 
         if json_output:
-            console.print(json.dumps(stats, indent=2))
+            print(json.dumps(stats, indent=2))
         else:
             # Entity counts
             table = Table(title="Graph Statistics")
@@ -3632,14 +3632,14 @@ def graph_path(
         if path is None:
             result = {"found": False, "path": None}
             if json_output:
-                console.print(json.dumps(result, indent=2))
+                print(json.dumps(result, indent=2))
             else:
                 console.print(f"[yellow]No path found[/yellow] between {from_type}:{from_id} and {to_type}:{to_id}")
             return
 
         if json_output:
             result = {"found": True, "path": path, "length": len(path)}
-            console.print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2))
         else:
             console.print(f"\n[cyan]Path ({len(path)} steps):[/cyan]\n")
 
@@ -3665,7 +3665,7 @@ def graph_sync_fk(
         stats = db.populate_links_from_fk(dry_run=dry_run)
 
         if json_output:
-            console.print(json.dumps(stats, indent=2))
+            print(json.dumps(stats, indent=2))
         else:
             mode = "[yellow]DRY RUN[/yellow] - " if dry_run else ""
             console.print(f"\n{mode}[cyan]FK Relationship Sync[/cyan]\n")

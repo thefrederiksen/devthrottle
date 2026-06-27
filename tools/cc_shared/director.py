@@ -5,8 +5,15 @@ A cc-director session is launched with two environment values these tools rely o
   CC_DIRECTOR_API  - the base URL of this session's own Director Control API (loopback)
   CC_SESSION_ID    - this session's GUID
 
-cc-devthrottle only ever calls its own Director. The Director relays to the Gateway on its
-behalf, so it never needs the Gateway URL or the fleet token. The fleet token stays on the Director.
+For the helpers in THIS module, cc-devthrottle only ever calls its own Director (loopback). The
+Director relays to the Gateway on its behalf, so these helpers need neither the Gateway URL nor the
+fleet token - the fleet token stays on the Director.
+
+Note: the separate schedule path (schedule_ops.py / the `schedule-*` commands) is deliberately
+different - it resolves the configured gateway.url and gateway.token and calls the Gateway's
+cron surface directly. That path therefore does need the Gateway URL and token; the
+"never needs the Gateway URL or the fleet token" rule above applies only to the Director-relay
+helpers defined here, not to schedule_ops.
 """
 
 import json

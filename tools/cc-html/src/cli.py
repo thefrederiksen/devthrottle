@@ -303,6 +303,7 @@ def to_markdown(
             html_content,
             output_path=output,
             input_dir=input_file.parent,
+            force=force,
         )
 
         _progress(f"[blue]Writing:[/blue] {output}", quiet)

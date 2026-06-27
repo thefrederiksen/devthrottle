@@ -23,6 +23,7 @@ def convert_html_to_markdown(
     html_content: str,
     output_path: Path,
     input_dir: Path | None = None,
+    force: bool = False,
 ) -> str:
     """Convert HTML content to Markdown, extracting embedded images.
 
@@ -32,6 +33,9 @@ def convert_html_to_markdown(
             the image output directory).
         input_dir: Directory of the source HTML file, used to resolve
             relative image paths.
+        force: When True (a ``--force`` re-run), clear the sibling
+            ``{stem}_images/`` directory first so repeated conversions do not
+            accumulate duplicate image files.
 
     Returns:
         Markdown text with image references pointing to extracted files.
@@ -52,7 +56,8 @@ def convert_html_to_markdown(
         alt = alt_match.group(1) if alt_match else ""
 
         # Data URI (base64 embedded)
-        data_uri_match = re.match(r"data:image/(\w+);base64,(.+)", src)
+        # Allow "+" in the subtype so "svg+xml" matches (plain \w+ stops at "+").
+        data_uri_match = re.match(r"data:image/([\w+]+);base64,(.+)", src)
         if data_uri_match:
             ext = data_uri_match.group(1)
             if ext == "svg+xml":
@@ -109,7 +114,7 @@ def convert_html_to_markdown(
     # (for example two different "logo.png" files) do not collide onto one
     # extracted file.
     if images:
-        ordered_paths = relative_paths_in_order(images, output_path)
+        ordered_paths = relative_paths_in_order(images, output_path, clear_existing=force)
         for placeholder, idx_str in img_placeholder_map.items():
             rel_path = ordered_paths[int(idx_str)]
             markdown = markdown.replace(placeholder, rel_path)

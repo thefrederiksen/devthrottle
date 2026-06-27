@@ -2,8 +2,6 @@
 
 __version__ = "0.1.0"
 
-from .config import CCDirectorConfig, get_config, get_config_path
-from .llm import LLMProvider, get_llm_provider
 from .themes import (
     CanonicalTheme,
     ThemeColors,
@@ -12,23 +10,38 @@ from .themes import (
     list_themes,
 )
 
-# NOTE: markdown_parser is imported lazily (PEP 562) rather than eagerly. It pulls in
-# markdown-it-py + mdit_py_plugins, which only cc-pdf / cc-html / cc-word need. Tools
-# like cc-devthrottle that import a sibling submodule (e.g. cc_shared.config) would
-# otherwise crash if those packages were not bundled into their frozen build. Accessing
-# cc_shared.parse_markdown / cc_shared.ParsedMarkdown still works on demand.
-_LAZY = {"ParsedMarkdown", "parse_markdown"}
+# NOTE: config, llm, and markdown_parser are imported lazily (PEP 562) rather
+# than eagerly. Each pulls in dependencies that only SOME consumers need:
+#   * config / llm  -> cc_storage (the credential/config store)
+#   * markdown_parser -> markdown-it-py + mdit_py_plugins
+# The three document tools (cc-pdf / cc-html / cc-word) never touch config or
+# llm, so importing cc_shared (or one of its sibling submodules) must NOT drag
+# cc_storage into their frozen builds. Keeping these lazy means
+# ``import cc_shared`` stays cheap, while ``cc_shared.get_config`` /
+# ``cc_shared.parse_markdown`` still resolve on first access, and the direct
+# submodule forms (``from cc_shared.config import get_config``) keep working.
+_LAZY_SUBMODULE = {
+    "ParsedMarkdown": "markdown_parser",
+    "parse_markdown": "markdown_parser",
+    "CCDirectorConfig": "config",
+    "get_config": "config",
+    "get_config_path": "config",
+    "LLMProvider": "llm",
+    "get_llm_provider": "llm",
+}
 
 
 def __getattr__(name):
-    if name in _LAZY:
-        from . import markdown_parser
-        return getattr(markdown_parser, name)
+    module_name = _LAZY_SUBMODULE.get(name)
+    if module_name is not None:
+        import importlib
+        module = importlib.import_module(f".{module_name}", __name__)
+        return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__():
-    return sorted(set(globals()) | _LAZY)
+    return sorted(set(globals()) | set(_LAZY_SUBMODULE))
 
 __all__ = [
     "CCDirectorConfig",

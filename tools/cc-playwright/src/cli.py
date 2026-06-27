@@ -2,13 +2,14 @@
 
 Drop-in replacement for cc-browser's command surface where reliable form fills,
 trusted clicks, and dropdown selection are required. Uses Playwright Python
-against a Brave (Chromium) instance launched with --remote-debugging-port,
-which produces isTrusted=true events that React forms accept.
+against a Chromium-family browser (Brave, Chrome, Edge, or Chromium) launched
+with --remote-debugging-port, which produces isTrusted=true events that React
+forms accept.
 
 Connections
 -----------
-Multiple cc-playwright Brave instances can run concurrently, each isolated by a
-named connection. Pass --connection <name> before any subcommand:
+Multiple cc-playwright browser instances can run concurrently, each isolated by
+a named connection. Pass --connection <name> before any subcommand:
 
     cc-playwright --connection linkedin start
     cc-playwright --connection linkedin navigate --url https://www.linkedin.com/feed/
@@ -233,7 +234,8 @@ def _browser_command_lines() -> list[str]:
             [
                 "powershell", "-NoProfile", "-Command",
                 "Get-CimInstance Win32_Process -Filter "
-                "\"Name='brave.exe' or Name='chrome.exe' or Name='msedge.exe'\" "
+                "\"Name='brave.exe' or Name='chrome.exe' or Name='msedge.exe' "
+                "or Name='chromium.exe'\" "
                 "| Select-Object -ExpandProperty CommandLine",
             ],
             capture_output=True, text=True, timeout=10,
@@ -262,6 +264,49 @@ def _is_running(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _debug_port_responds(port: int) -> bool:
+    """Return True if a Chromium debug endpoint answers /json/version on this port.
+
+    A positive result confirms the recorded browser is genuinely listening, which
+    distinguishes our live browser from an unrelated process that the OS happened
+    to hand the same PID after our browser died. This is an identity probe, not
+    core logic, so any failure resolves to False.
+    """
+    if not port:
+        return False
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+            f"http://localhost:{port}/json/version", timeout=1
+        ) as r:
+            data = json.loads(r.read())
+        return bool(data.get("webSocketDebuggerUrl"))
+    except Exception:
+        return False
+
+
+def _state_browser_alive(state: dict) -> bool:
+    """Return True only if the recorded PID is alive AND is really our browser.
+
+    Guards against PID reuse. After a launched browser dies the operating system
+    can reassign its PID to an unrelated process; a bare PID-existence check would
+    then make `start` falsely report already_running (refusing to launch) and let
+    `stop` taskkill an innocent process. Identity is confirmed against the state
+    we recorded at launch: the debug port must still answer, or a running browser
+    must still hold the recorded profile_dir. If neither confirms, the recorded
+    PID is treated as not-our-browser.
+    """
+    pid = state.get("pid")
+    if not pid or not _is_running(pid):
+        return False
+    if _debug_port_responds(state.get("port")):
+        return True
+    profile_dir = state.get("profile_dir")
+    if profile_dir and _dir_locked_by_running_browser(Path(profile_dir)):
+        return True
+    return False
 
 
 def _port_in_use(port: int) -> bool:
@@ -360,7 +405,7 @@ def _looks_locked(profile_dir: Path) -> bool:
 
 
 def _connect(connection: str):
-    """Connect Playwright to running Brave for this connection.
+    """Connect Playwright to the running browser for this connection.
     Returns (playwright, browser, context, page). The page is chosen by
     matching the connection's pinned_host (set on `start --url`); falls back
     to the most recent tab if no match exists."""
@@ -382,7 +427,7 @@ def _connect(connection: str):
     except Exception as e:
         pw.stop()
         raise SystemExit(
-            f"Could not connect to Brave for '{connection}' on port {port}: {e}"
+            f"Could not connect to the browser for '{connection}' on port {port}: {e}"
         )
 
     if not browser.contexts:
@@ -582,7 +627,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     connection = args.connection
     state = _load_state(connection)
     pid = state.get("pid")
-    if pid and _is_running(pid):
+    if _state_browser_alive(state):
         _ok({
             "status": "already_running",
             "connection": connection,
@@ -636,7 +681,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     if not ws_endpoint:
         proc.kill()
         _err(
-            f"Brave failed to expose debug port {port} within 15s for "
+            f"The browser failed to expose debug port {port} within 15s for "
             f"connection '{connection}'. Profile dir: {profile_dir}. "
             f"If cc-browser has the same profile open, close it and retry."
         )
@@ -673,7 +718,10 @@ def cmd_stop(args: argparse.Namespace) -> None:
     connection = args.connection
     state = _load_state(connection)
     pid = state.get("pid")
-    if not pid or not _is_running(pid):
+    if not _state_browser_alive(state):
+        # Either nothing is recorded, the PID is gone, or the PID is alive but
+        # is not our browser (PID reuse). In every case clear the stale record
+        # and report not_running rather than killing an unidentified process.
         _clear_state(connection)
         _ok({"status": "not_running", "connection": connection})
         return
@@ -1030,7 +1078,7 @@ def main() -> None:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("start", help="Launch Brave with remote debugging")
+    s = sub.add_parser("start", help="Launch the browser with remote debugging")
     s.add_argument("--profile", help=(
         "Override profile dir. Default for the implicit 'default' connection "
         "is cc-playwright's own profile; any named connection defaults to "
@@ -1048,7 +1096,7 @@ def main() -> None:
     ))
     s.set_defaults(func=cmd_start)
 
-    s = sub.add_parser("stop", help="Kill this connection's Brave instance")
+    s = sub.add_parser("stop", help="Kill this connection's browser instance")
     s.set_defaults(func=cmd_stop)
 
     s = sub.add_parser("status", help="Show this connection's running state")
@@ -1155,9 +1203,17 @@ def main() -> None:
     # action command would dump a raw traceback instead of {"error": ...}.
     try:
         args.func(args)
-    except SystemExit:
-        # _err()/_find_browser()/_connect() already emitted their own message
-        # and chose an exit code; let it through unchanged.
+    except SystemExit as se:
+        # Two kinds of SystemExit reach here and they must NOT be treated alike:
+        #   * _err() already printed a {"error": ...} JSON line and exited with an
+        #     integer code - se.code is that int (or None). Let it through so we
+        #     do not print the error twice.
+        #   * The discovery/connect/locate helpers raise SystemExit("plain text")
+        #     with a string payload. Reshape that into the same {"error": ...}
+        #     JSON contract before exiting, so a consumer sees one error shape
+        #     regardless of which failure fired.
+        if isinstance(se.code, str):
+            _err(se.code)
         raise
     except KeyboardInterrupt:
         _err("interrupted", code=130)

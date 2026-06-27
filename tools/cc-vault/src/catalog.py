@@ -45,7 +45,7 @@ def _hash_file(path: str, chunk_size: int = 8192) -> str:
 
 def _stream_event(event: dict) -> None:
     """Print a JSON event line to stdout for UI consumption."""
-    print(json.dumps(event, ensure_ascii=False), flush=True)
+    print(json.dumps(event, ensure_ascii=True), flush=True)
 
 
 def _derive_department(file_path: str, library_path: str) -> Optional[str]:
@@ -264,18 +264,26 @@ class CatalogScanner:
                         tags=result.get('tags', ''),
                     )
 
-                    # Embed summary into vector store
-                    self._embed_summary(entry['id'], result)
+                    # Embed summary into vector store. A failure here does not
+                    # lose the summary, but it does leave the search index stale
+                    # for this entry, so surface it as a warning rather than
+                    # swallowing it.
+                    embed_error = self._embed_summary(entry['id'], result)
 
                     counts["summarized"] += 1
+                    if embed_error:
+                        counts["embed_warnings"] = counts.get("embed_warnings", 0) + 1
                     if stream:
-                        _stream_event({
+                        event = {
                             "event": "progress",
                             "phase": "summarize",
                             "processed": processed_total,
                             "file": entry['file_name'],
                             "status": "summarized",
-                        })
+                        }
+                        if embed_error:
+                            event["warning"] = f"embedding failed: {embed_error}"
+                        _stream_event(event)
 
                 except Exception as e:
                     db.update_catalog_entry_status(entry['id'], 'error', str(e))
@@ -300,40 +308,45 @@ class CatalogScanner:
         return counts
 
     def _extract_text(self, file_path: str, file_ext: str) -> Optional[str]:
-        """Extract text from a file using converters."""
+        """Extract text from a file using converters.
+
+        Returns None only when the file type genuinely has no extractable text
+        (an unsupported extension). A real extraction failure -- missing
+        converter, unreadable file, corrupt document, parse error -- is allowed
+        to propagate so the caller records the actual cause instead of a generic
+        "No text extracted". Do not wrap this in a catch-all that hides the error.
+        """
         try:
-            try:
-                from .converters import convert_to_markdown, is_supported
-            except ImportError:
-                from converters import convert_to_markdown, is_supported
+            from .converters import convert_to_markdown, is_supported
+        except ImportError:
+            from converters import convert_to_markdown, is_supported
 
-            path = Path(file_path)
+        path = Path(file_path)
 
-            # Direct text-based files
-            text_extensions = {'.txt', '.md', '.csv', '.sql', '.json', '.xml'}
-            if file_ext in text_extensions:
-                return path.read_text(encoding='utf-8', errors='replace')
+        # Direct text-based files
+        text_extensions = {'.txt', '.md', '.csv', '.sql', '.json', '.xml'}
+        if file_ext in text_extensions:
+            return path.read_text(encoding='utf-8', errors='replace')
 
-            # HTML files
-            if file_ext in ('.html', '.htm'):
-                return self._extract_html(path)
+        # HTML files
+        if file_ext in ('.html', '.htm'):
+            return self._extract_html(path)
 
-            # PowerPoint
-            if file_ext == '.pptx':
-                return self._extract_pptx(path)
+        # PowerPoint
+        if file_ext == '.pptx':
+            return self._extract_pptx(path)
 
-            # Excel
-            if file_ext == '.xlsx':
-                return self._extract_xlsx(path)
+        # Excel
+        if file_ext == '.xlsx':
+            return self._extract_xlsx(path)
 
-            # Use existing converters for pdf, docx
-            if is_supported(path):
-                content, _meta = convert_to_markdown(path)
-                return content
+        # Use existing converters for pdf, docx
+        if is_supported(path):
+            content, _meta = convert_to_markdown(path)
+            return content
 
-            return None
-        except Exception:
-            return None
+        # Genuinely unsupported file type -- no text to extract.
+        return None
 
     def _extract_html(self, path: Path) -> str:
         """Extract text from HTML using built-in html.parser."""
@@ -440,8 +453,17 @@ class CatalogScanner:
         result_text = response.choices[0].message.content
         return json.loads(result_text)
 
-    def _embed_summary(self, entry_id: int, result: Dict[str, str]) -> None:
-        """Embed the summary into the vector store."""
+    def _embed_summary(self, entry_id: int, result: Dict[str, str]) -> Optional[str]:
+        """Embed the summary into the vector store.
+
+        Embedding failure is non-fatal to the summarize pass (the summary itself
+        is already stored), but it must not be hidden: the search index is now
+        out of date for this entry. Returns None on success, or a short
+        description of the failure (exception type and message) so the caller can
+        surface a warning instead of silently dropping it. The failure is
+        returned, not raised, so a stale search index for one entry does not
+        abort the whole summarize pass (the summary itself is already persisted).
+        """
         try:
             try:
                 from .vectors import embed_and_store
@@ -458,6 +480,6 @@ class CatalogScanner:
                     "tags": result.get('tags', ''),
                 }),
             )
-        except Exception:
-            # Vector embedding failure is non-fatal
-            pass
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+        return None
