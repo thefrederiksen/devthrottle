@@ -25,7 +25,7 @@ REM ============================================
 REM Python tools (built with PyInstaller)
 REM Directory names use underscores, exe names use dashes
 REM ============================================
-set "PYTHON_TOOLS=cc-comm-queue cc-crawl4ai cc-docgen cc-excel cc-facebook cc-gmail cc-hardware cc-html cc-image cc-outlook cc-pdf cc-personresearch cc-photos cc-powerpoint cc-reddit cc-settings cc-setup cc-spotify cc-transcribe cc-twitter cc-vault cc-video cc-voice cc-whisper cc-word cc-youtube cc-youtube-info"
+set "PYTHON_TOOLS=cc-comm-queue cc-crawl4ai cc-docgen cc-excel cc-facebook cc-gmail cc-hardware cc-html cc-image cc-outlook cc-pdf cc-playwright cc-photos cc-powerpoint cc-reddit cc-settings cc-setup cc-transcribe cc-twitter cc-vault cc-video cc-voice cc-whisper cc-word cc-youtube cc-youtube-info"
 
 for %%T in (%PYTHON_TOOLS%) do (
     echo.

@@ -31,7 +31,6 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-twitter | Twitter/X CLI: post, reply, thread, like, retweet, timeline | Twitter API v2 credentials |
 | cc-facebook | Facebook Page CLI: post, comment, reply, list via Graph API | Facebook App + Page Access Token |
 | cc-youtube | YouTube CLI: upload, comment, reply, list via Data API v3 | Google OAuth (YouTube Data API) |
-| cc-spotify | Spotify playback control via browser | cc-browser |
 | cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers; not shipped (dev-only, build from repo) |
 | cc-websiteaudit | Website SEO/security/AI readiness audit | Node.js, Chrome (not yet built) |
 | cc-brandingrecommendations | Branding action plans from audit data | Node.js |
@@ -66,7 +65,6 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-settings | CC Director configuration management | None |
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz; not shipped (dev-only, build from repo) |
 | cc-director-setup | Windows installer for CC Director | None |
-| cc-personresearch | Person research aggregation | (not yet built) |
 | cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
 
 ---
@@ -281,24 +279,6 @@ cc-youtube delete <video_id>                 # Delete a video
 ```
 
 **Setup:** Enable YouTube Data API v3 in Google Cloud Console, download `credentials.json` to the config directory. Run `cc-youtube auth` to complete OAuth flow.
-
-### cc-spotify
-
-Spotify playback control via browser automation.
-
-```bash
-cc-spotify config --connection edge-personal
-cc-spotify status
-cc-spotify now
-cc-spotify play / pause / next / prev
-cc-spotify shuffle --on
-cc-spotify search "Miles Davis"
-cc-spotify playlists
-cc-spotify volume 75
-cc-spotify recommend --mood "chill"
-```
-
-**Setup:** Requires a cc-browser connection with Spotify Web Player open and logged in.
 
 ### cc-crawl4ai
 

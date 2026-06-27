@@ -32,8 +32,8 @@ public static class ToolGroupRegistry
             ["cc-image", "cc-photos", "cc-video", "cc-voice", "cc-transcribe", "cc-whisper"],
             DefaultEnabled: true, IsRequired: false),
 
-        new("Browser", "Browser automation with Brave",
-            ["cc-browser"],
+        new("Browser", "Browser automation with Brave and Playwright",
+            ["cc-browser", "cc-playwright"],
             DefaultEnabled: true, IsRequired: false),
 
         new("Email", "Outlook and Gmail integration",
@@ -44,12 +44,12 @@ public static class ToolGroupRegistry
             ["cc-vault"],
             DefaultEnabled: true, IsRequired: false),
 
-        new("Social", "Reddit, Twitter, Facebook, LinkedIn, Spotify",
-            ["cc-reddit", "cc-twitter", "cc-facebook", "cc-linkedin", "cc-spotify"],
+        new("Social", "Reddit, Twitter, and Facebook",
+            ["cc-reddit", "cc-twitter", "cc-facebook"],
             DefaultEnabled: false, IsRequired: false),
 
-        new("Research", "Web crawling, person research, YouTube",
-            ["cc-crawl4ai", "cc-personresearch", "cc-youtube", "cc-youtube-info"],
+        new("Research", "Web crawling and YouTube",
+            ["cc-crawl4ai", "cc-youtube", "cc-youtube-info"],
             DefaultEnabled: false, IsRequired: false),
 
         new("Developer", "Documentation generation, hardware info, analytics",

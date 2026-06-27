@@ -26,7 +26,7 @@ All tools are on PATH after install. For exact flags and examples, run any tool 
 `cc-gmail`, `cc-outlook` - read, send, and search Gmail and Outlook from the CLI.
 
 ### Web and social
-`cc-browser` (cross-session browser automation with persistent connections), `cc-playwright` (Brave + remote-debug + CDP; the default for form fills, sign-in, OTP, and React forms), `cc-reddit` (human-paced Reddit), `cc-spotify`, `cc-crawl4ai` (clean markdown extraction for RAG), `cc-websiteaudit`, `cc-brandingrecommendations`.
+`cc-browser` (cross-session browser automation with persistent connections), `cc-playwright` (Brave + remote-debug + CDP; the default for form fills, sign-in, OTP, and React forms), `cc-reddit` (human-paced Reddit), `cc-crawl4ai` (clean markdown extraction for RAG), `cc-websiteaudit`, `cc-brandingrecommendations`.
 
 ### Desktop automation
 `cc-click` (Windows UI: click, type, screenshot, OCR), `cc-trisight` (3-tier UI element detection: UIA + OCR + pixel), `cc-computer` (AI desktop agent with screenshot-in-the-loop).
@@ -35,7 +35,7 @@ All tools are on PATH after install. For exact flags and examples, run any tool 
 `cc-image`, `cc-voice` (text-to-speech), `cc-whisper` (audio transcription / translation), `cc-video`, `cc-transcribe`, `cc-photos`, `cc-youtube-info`.
 
 ### Data and utilities
-`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML), `cc-director-setup` (the installer/updater), `cc-personresearch`.
+`cc-vault` (contacts, tasks, goals, docs, RAG), `cc-hardware`, `cc-comm-queue` (queue for outbound email / social with approval), `cc-docgen` (C4 architecture diagrams from YAML), `cc-director-setup` (the installer/updater).
 
 A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-settings`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
 

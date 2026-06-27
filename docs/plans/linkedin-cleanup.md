@@ -11,10 +11,6 @@ cc-linkedin CLI has been removed (issue #71), replaced by cc-browser connections
 | 1 | `src/CcDirector.CommunicationManager/ViewModels/MainViewModel.cs` | Replaced cc-linkedin.exe with cc-browser.exe | [x] |
 | 2 | `src/CcDirector.Wpf/AddConnectionDialog.xaml` | Removed cc-linkedin ComboBoxItem | [x] |
 | 3 | `scheduler/cc_director/dispatcher/linkedin_sender.py` | Rewritten to use cc-browser | [x] |
-| 4 | `tools/cc-personresearch/src/sources/linkedin.py` | Rewritten to use cc-browser | [x] |
-| 5 | `tools/cc-personresearch/src/runner.py` | Updated Phase 2 label | [x] |
-| 6 | `tools/cc-personresearch/src/cli.py` | Updated help text | [x] |
-| 7 | `tools/cc-personresearch/tests/test_sources.py` | Updated error mocks | [x] |
 | 8 | `tools/cc-vault/src/cli.py` | Updated source labels from "cc-linkedin enrich" to "linkedin-enrich" | [x] |
 | 9 | `tools/cc-director-setup/Models/InstallProfile.cs` | Removed from install list | [x] |
 | 10 | `tools/cc-browser/test/unit/connections.test.mjs` | Updated tool binding test data | [x] |

@@ -35,7 +35,6 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | cc-browser | Browser automation with persistent connections and navigation skills | Chrome Extension |
 | cc-playwright | Trusted-event browser CLI for React form fills, signin/OTP, dropdowns | Python, Playwright, Brave |
 | cc-reddit | Reddit automation with human-like delays | Playwright, cc-browser |
-| cc-spotify | Spotify playback control via browser | cc-browser |
 | cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers |
 | cc-websiteaudit | Website SEO/security/AI readiness audit | Node.js, Chrome (not yet built) |
 | cc-brandingrecommendations | Branding action plans from audit data | Node.js |
@@ -69,7 +68,6 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | cc-comm-queue | Communication Manager approval queue | None |
 | cc-docgen | C4 architecture diagrams from YAML | Graphviz (not yet built) |
 | cc-director-setup | Windows installer for CC Director | None |
-| cc-personresearch | Person research aggregation | (not yet built) |
 | cc-cron | Manage Gateway cron jobs (schedule sessions / work-list drains) | Running Gateway |
 
 ---
@@ -310,7 +308,7 @@ cc-browser status
 # Connection management
 cc-browser connections list                          # List all connections
 cc-browser connections add myconnection              # Add a connection
-cc-browser connections add spotify --tool cc-spotify # Add with tool binding
+cc-browser connections add myconnection --url https://example.com
 cc-browser connections open myconnection             # Launch Chrome
 cc-browser connections close myconnection            # Close Chrome
 cc-browser connections remove myconnection           # Delete connection
@@ -441,51 +439,6 @@ cc-reddit screenshot
 ```
 
 **Note:** NEVER use cc-browser directly with Reddit. Always use cc-reddit.
-
----
-
-### cc-spotify
-
-Spotify CLI via browser automation. Controls Spotify Web Player through a cc-browser connection.
-
-```bash
-# Setup
-cc-spotify config --connection edge-personal
-
-# Status
-cc-spotify status
-cc-spotify now
-
-# Playback
-cc-spotify play
-cc-spotify pause
-cc-spotify next
-cc-spotify prev
-
-# Controls
-cc-spotify shuffle --on / --off
-cc-spotify repeat off                    # off, context, track
-cc-spotify volume 75                     # 0-100
-cc-spotify like                          # Heart current track
-
-# Browse
-cc-spotify search "Miles Davis"
-cc-spotify playlists                     # List sidebar playlists
-cc-spotify playlist "Chill Vibes"        # Play by name
-cc-spotify queue                         # Show queue
-cc-spotify liked                         # List liked songs
-cc-spotify goto <url>
-
-# Recommendations
-cc-spotify recommend
-cc-spotify recommend --mood "chill jazz"
-
-# Config
-cc-spotify config --connection NAME
-cc-spotify config --show
-```
-
-**Setup:** Requires cc-browser daemon running with Spotify Web Player open and logged in.
 
 ---
 
@@ -1140,7 +1093,7 @@ set OPENAI_API_KEY=your-key-here
 | FFmpeg | cc-video, cc-transcribe |
 | Chrome/Chromium | cc-markdown, cc-websiteaudit |
 | Node.js + Playwright | cc-browser, cc-websiteaudit, cc-brandingrecommendations |
-| cc-browser | cc-reddit, cc-spotify |
+| cc-browser | cc-reddit |
 | Google OAuth | cc-gmail |
 | Azure OAuth | cc-outlook |
 | Windows + .NET | cc-click, cc-trisight, cc-computer |

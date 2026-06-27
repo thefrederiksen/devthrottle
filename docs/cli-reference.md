@@ -838,44 +838,6 @@ COMMANDS:
   screenshot  Take a screenshot
 ```
 
----
-
-## cc-spotify
-
-Spotify CLI via browser automation.
-
-```
-USAGE: cc-spotify [OPTIONS] COMMAND [ARGS]...
-
-OPTIONS:
-  --connection -c TEXT   cc-browser connection name
-  --workspace  -w TEXT   Deprecated: use --connection
-  --format     -f TEXT   Output: text, json [default: text]
-  --verbose    -v        Verbose output
-
-COMMANDS:
-  config     Configure cc-spotify settings
-  status     Check daemon and Spotify status
-  now        Show currently playing track
-  play       Resume playback
-  pause      Pause playback
-  next       Skip to next track
-  prev       Go to previous track
-  shuffle    Toggle shuffle (--on/--off)
-  repeat     Set repeat mode
-  volume     Set volume (0-100)
-  like       Heart/save current track
-  search     Search tracks, artists, albums
-  playlists  List library sidebar items
-  playlist   Play a playlist by name
-  queue      Show playback queue
-  liked      List Liked Songs
-  goto       Navigate to a Spotify URL
-  recommend  Get music recommendations via vault
-```
-
----
-
 ## cc-transcribe
 
 Transcribe video/audio with timestamps and screenshots.
