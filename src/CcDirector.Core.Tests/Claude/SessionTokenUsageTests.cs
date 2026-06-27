@@ -23,6 +23,33 @@ public sealed class SessionTokenUsageTests
            $"\"input_tokens\":{input},\"output_tokens\":{output}," +
            $"\"cache_read_input_tokens\":{cacheRead},\"cache_creation_input_tokens\":{cacheCreate}}}}}}}";
 
+    private static string AssistantLineWithModel(string model, long input, long output, string ts = "2026-06-05T03:30:22.547Z")
+        => $"{{\"type\":\"assistant\",\"timestamp\":\"{ts}\",\"message\":{{\"role\":\"assistant\",\"model\":\"{model}\",\"usage\":{{" +
+           $"\"input_tokens\":{input},\"output_tokens\":{output},\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}}}}";
+
+    [Fact]
+    public void Compute_ContextModel_IsLatestAssistantLineModel()
+    {
+        var lines = new[]
+        {
+            UserLine("go"),
+            AssistantLineWithModel("claude-sonnet-4-5-20250929", 10, 20, ts: "2026-06-05T01:00:00Z"),
+            AssistantLineWithModel("claude-opus-4-8[1m]", 5, 30, ts: "2026-06-05T01:01:00Z"),
+        };
+
+        var u = SessionTokenUsage.Compute(lines, "sid");
+
+        Assert.Equal("claude-opus-4-8[1m]", u.ContextModel); // the LATEST line wins
+    }
+
+    [Fact]
+    public void Compute_NoModelOnLines_ContextModelIsNull()
+    {
+        var lines = new[] { UserLine("go"), AssistantLine(1, 2, 0, 0) };
+        var u = SessionTokenUsage.Compute(lines, "sid");
+        Assert.Null(u.ContextModel);
+    }
+
     [Fact]
     public void Compute_SumsTotals_AndContextIsLatestLineInput()
     {

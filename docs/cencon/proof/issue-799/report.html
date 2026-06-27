@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #799 - Live context-usage gauge (Claude) - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; color: #1e1e1e; line-height: 1.5; padding: 0 16px; }
+  h1 { border-bottom: 2px solid #007ACC; padding-bottom: 6px; }
+  h2 { margin-top: 28px; color: #0a4f80; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 7px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #eef4fa; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background: #f4f4f4; }
+  pre { padding: 10px; border: 1px solid #ddd; overflow-x: auto; font-size: 13px; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  img { max-width: 100%; border: 1px solid #bbb; margin: 8px 0; }
+  .verdict { background: #e8f5e9; border: 1px solid #1a7f37; padding: 12px 16px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #799 - Live context-usage gauge in the SessionActionBar (Claude)</h1>
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method). <strong>Branch:</strong>
+<code>issue-799-context-gauge</code>. <strong>Build:</strong> <code>dotnet build cc-director.sln</code> =
+Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li>New driver capability flag <code>DriverCapabilities.ContextUsage</code> and interface method
+      <code>ContextUsageDto? ReadContextUsage(string, string)</code> on <code>IAgentDriver</code>, with a
+      default implementation that throws <code>NotSupportedException</code> so a driver that does not declare
+      the flag is honestly absent (same "declared or thrown" pattern as the other capabilities).</li>
+  <li>New agent-agnostic contract <code>ContextUsageDto</code> (<code>UsedTokens</code>,
+      <code>WindowTokens?</code>, <code>PercentUsed?</code>, <code>AsOfUtc</code>).</li>
+  <li><code>ClaudeDriver</code> declares <code>ContextUsage</code> and implements <code>ReadContextUsage</code>,
+      reusing the existing transcript token walk for the used count and the latest assistant line's model.
+      <code>ClaudeContextWindow</code> maps the model id to a window size (200,000 standard; 1,000,000 for the
+      <code>[1m]</code> Opus id; unmapped &rarr; null = raw-number fallback).</li>
+  <li><code>SessionTokenUsage</code> now also captures the latest assistant line's <code>message.model</code>
+      into <code>SessionUsageDto.ContextModel</code> (additive).</li>
+  <li>Control API <code>GET /sessions/{sid}/context</code> returning <code>ContextUsageDto</code>; the flag
+      flows into <code>GET /settings/agents/catalog</code> automatically via the existing capability-name list.</li>
+  <li>Desktop gauge in <code>SessionActionBar</code> (axaml + cs): capability-gated, a colour-banded thin bar
+      plus a <code>ctx &lt;used&gt; / &lt;window&gt; (&lt;pct&gt;%)</code> label, refreshed by a 4-second
+      background poll that reads off the user-interface thread. Band logic in the pure, unit-tested
+      <code>ContextGauge</code> helper.</li>
+  <li>Docs: agent-expert <code>README.md</code> gains a Context-usage reporting matrix; <code>claude-code.md</code>
+      documents the capability.</li>
+</ul>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+<tr><td>Catalog lists <code>ContextUsage</code> for ClaudeCode, not for Codex/Pi (or any other)</td>
+    <td class="pass">PASS</td>
+    <td>Live <code>GET /settings/agents/catalog</code>: ClaudeCode=True, all others=False. See
+        <code>catalog-capabilities.json</code>.</td></tr>
+<tr><td><code>GET /sessions/{sid}/context</code> on a live Claude session returns 200 with
+        <code>UsedTokens&gt;0</code>, <code>PercentUsed</code> 0-100, <code>WindowTokens</code> set</td>
+    <td class="pass">PASS</td>
+    <td><code>{"usedTokens":57843,"windowTokens":200000,"percentUsed":28.9,...}</code>. See
+        <code>context-endpoint.json</code>.</td></tr>
+<tr><td>Desktop SessionActionBar shows a gauge like <code>ctx 42k / 200k (21%)</code></td>
+    <td class="pass">PASS</td>
+    <td>Screenshot below reads <code>ctx 57k / 200k (29%)</code>.</td></tr>
+<tr><td>Bar colour: neutral &lt;70%, amber 70-90%, red &gt;90% (boundaries unit-tested + a coloured bar)</td>
+    <td class="pass">PASS</td>
+    <td><code>ContextGaugeTests.SelectBand_*</code> assert 69.9&rarr;Neutral, 70&rarr;Amber, 90&rarr;Amber,
+        90.1&rarr;Red, null&rarr;Neutral. Screenshot shows the green (neutral, 29%) bar.</td></tr>
+<tr><td>Window denominator: 1,000,000 for <code>[1m]</code>, 200,000 for standard ids</td>
+    <td class="pass">PASS</td>
+    <td><code>ContextUsageTests.WindowTokensForModel_*</code> over both bands.</td></tr>
+<tr><td>Raw-number fallback: unmapped model &rarr; null window/percent, raw count, neutral bar</td>
+    <td class="pass">PASS</td>
+    <td><code>ReadContextUsage_UnmappedModel_RawNumberFallback...</code> and
+        <code>FormatLabel_UnknownWindow_RawNumberFallback_NoPercent</code> ("ctx 12k").</td></tr>
+<tr><td>Non-Claude session shows NO gauge (catalog assertion accepted)</td>
+    <td class="pass">PASS</td>
+    <td>Catalog gate: only ClaudeCode carries the flag; the gauge panel is
+        <code>IsVisible=false</code> without it.</td></tr>
+<tr><td><code>ReadContextUsage</code> throws <code>NotSupportedException</code> on a driver without the flag</td>
+    <td class="pass">PASS</td>
+    <td><code>ReadContextUsage_DriverWithoutFlag_Throws</code> (CodexDriver, PiDriver).</td></tr>
+<tr><td>Off-thread refresh, value reflects a new turn within ~5s</td>
+    <td class="pass">PASS</td>
+    <td>Read runs under <code>Task.Run</code>; 4-second <code>DispatcherTimer</code> poll. Live gauge
+        showed the real number after the first turn completed.</td></tr>
+<tr><td>Clean build; agent-expert README matrix and claude-code.md updated</td>
+    <td class="pass">PASS</td>
+    <td>0 warnings/0 errors; both docs updated.</td></tr>
+</table>
+
+<h2>Proof 1 - Desktop gauge on a live Claude session</h2>
+<p>Slot-14 test Director (<code>SOREN_NORTH:7880</code>), session in <code>devthrottle-wt-799</code>. The action
+bar shows Stop / Interrupt / Clear context / History followed by a green bar and
+<strong><code>ctx 57k / 200k (29%)</code></strong>. The terminal shows the prompt was answered.</p>
+<img src="after-desktop-gauge.png" alt="Desktop SessionActionBar context gauge" />
+
+<h2>Proof 2 - Control API</h2>
+<pre>GET /sessions/b39e64c4-.../context
+{"usedTokens":57843,"windowTokens":200000,"percentUsed":28.9,"asOfUtc":"2026-06-27T07:48:28.164Z"}
+
+GET /settings/agents/catalog (driverCapabilities, contains "ContextUsage")
+ClaudeCode -> True | Pi/Codex/Gemini/OpenCode/Cursor/Grok/Copilot/RawCli -> False</pre>
+<p>(The live session's model resolved to <code>claude-opus-4-8</code> - no <code>[1m]</code> suffix - so the
+honest window is 200,000. The 1,000,000 case is covered by unit tests.)</p>
+
+<h2>Proof 3 - Unit tests</h2>
+<pre>Core.Tests (ContextUsage + SessionTokenUsage): Passed! Failed: 0, Passed: 31
+Avalonia.Tests (ContextGauge):                 Passed! Failed: 0, Passed: 19
+Core.Tests (all Drivers):                      Passed! Failed: 0, Passed: 90, Skipped: 1</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is additive within existing containers
+(<code>core_services</code>, <code>gateway_contracts</code>, <code>control_api</code>,
+<code>avalonia_ui</code>): one new capability flag, one new read-only DTO, one new read-only loopback GET
+endpoint, and a presentational gauge. No new external surface, no credential or data-flow change, no blocking
+security rule touched.</p>
+
+<h2 class="verdict">I believe this is finished.</h2>
+<p class="verdict">All ten acceptance criteria are met with a clean build, passing unit tests, a live Control API
+response, and a desktop screenshot of the gauge on a real Claude session. Ready for QA.</p>
+
+</body>
+</html>

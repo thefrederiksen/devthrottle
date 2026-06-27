@@ -46,5 +46,23 @@
                Text=""
                Foreground="#888888" FontSize="11"
                VerticalAlignment="Center" Margin="4,0,0,0" />
+
+    <!-- Live context-usage gauge (issue #799), shown only when the session's driver declares
+         DriverCapabilities.ContextUsage. A thin track with a colour-banded fill plus a compact
+         "ctx <used> / <window> (<pct>%)" label, refreshed off-thread by a low-frequency poll. -->
+    <StackPanel x:Name="ContextGaugePanel" Orientation="Horizontal" Spacing="6"
+                IsVisible="False" VerticalAlignment="Center" Margin="10,0,0,0"
+                ToolTip.Tip="How full the context window is right now (polled every few seconds)">
+      <Border Width="64" Height="6" CornerRadius="3"
+              Background="{DynamicResource ButtonBackground}" VerticalAlignment="Center">
+        <Border x:Name="ContextGaugeFill" CornerRadius="3"
+                HorizontalAlignment="Left" Width="0" Background="#22C55E" />
+      </Border>
+      <TextBlock x:Name="ContextGaugeText"
+                 Text=""
+                 Foreground="#AAAAAA" FontSize="11"
+                 FontFamily="Cascadia Mono, Consolas, Courier New"
+                 VerticalAlignment="Center" />
+    </StackPanel>
   </StackPanel>
 </UserControl>

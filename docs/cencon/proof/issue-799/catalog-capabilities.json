@@ -1,0 +1,68 @@
+[
+  {
+    "type": "ClaudeCode",
+    "driverCapabilities": [
+      "ClearContext",
+      "Cancel",
+      "TranscriptRead",
+      "PreassignedSessionId",
+      "Interrupt",
+      "History",
+      "ModelSelection",
+      "ContextUsage"
+    ]
+  },
+  {
+    "type": "Pi",
+    "driverCapabilities": [
+      "ClearContext",
+      "Cancel"
+    ]
+  },
+  {
+    "type": "Codex",
+    "driverCapabilities": [
+      "ClearContext",
+      "Cancel",
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "Gemini",
+    "driverCapabilities": [
+      "Cancel",
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "OpenCode",
+    "driverCapabilities": [
+      "Cancel",
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "Cursor",
+    "driverCapabilities": [
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "Grok",
+    "driverCapabilities": [
+      "Cancel",
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "Copilot",
+    "driverCapabilities": [
+      "PreassignedSessionId",
+      "Interrupt"
+    ]
+  },
+  {
+    "type": "RawCli",
+    "driverCapabilities": []
+  }
+]
