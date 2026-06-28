@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import shutil
+import sys
+import tempfile
 import urllib.error
 import urllib.request
-import zipfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -17,49 +19,29 @@ from rich.console import Console
 console = Console()
 
 GITHUB_API_BASE = "https://api.github.com"
-GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 REPO_OWNER = "thefrederiksen"
 REPO_NAME = "devthrottle"
 
-PYTHON_TOOLS = [
-    "cc-crawl4ai",
-    "cc-devthrottle",
-    "cc-docgen",
-    "cc-excel",
-    "cc-facebook",
-    "cc-gmail",
-    "cc-hardware",
-    "cc-html",
-    "cc-image",
-    "cc-outlook",
-    "cc-pdf",
-    "cc-playwright",
-    "cc-photos",
-    "cc-posthog",
-    "cc-powerpoint",
-    "cc-reddit",
-    "cc-transcribe",
-    "cc-twitter",
-    "cc-vault",
-    "cc-video",
-    "cc-voice",
-    "cc-whisper",
-    "cc-word",
-    "cc-youtube",
-    "cc-youtube-info",
+SETUP_CLI_ASSET_NAMES = [
+    "devthrottle-setup-cli-win-x64.exe",
+    "cc-director-setup-cli-win-x64.exe",
 ]
 
-NODE_TOOLS = [
-    "cc-browser",
-    "cc-fox-browser",
-    "cc-brandingrecommendations",
-    "cc-websiteaudit",
+SETUP_CLI_COMMAND_NAMES = [
+    "devthrottle-setup-cli",
+    "devthrottle-setup-cli.exe",
+    "cc-director-setup-cli",
+    "cc-director-setup-cli.exe",
 ]
 
-DOTNET_TOOLS = [
-    "cc-click",
-    "cc-computer",
-    "cc-trisight",
+LEGACY_ALIAS_NAMES = [
+    "cc-send",
+    "cc-ask",
+    "cc-spawn",
+    "cc-sessions",
+    "cc-whoami",
+    "cc-settings",
+    "cc-cron",
 ]
 
 
@@ -122,23 +104,20 @@ def _download_file(url: str, dest_path: str, show_progress: bool = True) -> bool
         return False
 
 
-def _download_raw_file(path: str, dest_path: str, branch: str = "main") -> bool:
-    url = f"{GITHUB_RAW_BASE}/{REPO_OWNER}/{REPO_NAME}/{branch}/{path}"
-    return _download_file(url, dest_path, show_progress=False)
-
-
 class DevThrottleInstaller:
-    """Installer for DevThrottle tools."""
+    """Local setup diagnostics and installer delegation for DevThrottle."""
 
     def __init__(self) -> None:
-        self.install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "cc-director" / "bin"
-        self.skill_dir = Path(os.environ.get("USERPROFILE", "")) / ".claude" / "skills" / "cc-director"
+        self.install_root = _install_root()
+        self.install_dir = self.install_root / "bin"
+        self.pyenv_dir = self.install_root / "pyenv"
+        self.pyenv_scripts_dir = self.pyenv_dir / ("Scripts" if _is_windows() else "bin")
+        self.setup_state_dir = self.install_root / "config" / "setup"
+        self.skill_dir = Path(os.environ.get("USERPROFILE", "")) / ".claude" / "skills" / "dev-throttle"
         self.alpha_mode = self._read_alpha_mode()
 
     def _read_alpha_mode(self) -> bool:
-        config_path = (
-            Path(os.environ.get("LOCALAPPDATA", "")) / "cc-director" / "config" / "config.json"
-        )
+        config_path = self.install_root / "config" / "config.json"
         if not config_path.exists():
             return False
         try:
@@ -147,241 +126,249 @@ class DevThrottleInstaller:
         except (OSError, ValueError, TypeError):
             return False
 
-    def install(self) -> bool:
-        console.print("=" * 60)
-        console.print("  DevThrottle Setup")
-        console.print("  https://github.com/thefrederiksen/devthrottle")
-        console.print("=" * 60)
-        console.print()
 
-        if self.alpha_mode:
-            console.print("Alpha mode: ON -- installing app + tools")
-        else:
-            console.print("Alpha mode: OFF -- installing app only (no tools)")
-
-        console.print("[1/5] Creating install directory...")
-        console.print(f"      {self.install_dir}")
-        self.install_dir.mkdir(parents=True, exist_ok=True)
-
-        console.print("[2/5] Checking for latest release...")
-        release = _latest_release()
-
-        if release:
-            version = release.get("tag_name", "unknown")
-            console.print(f"      Found release: {version}")
-            assets = _release_assets(release)
-
-            if self.alpha_mode:
-                console.print("[3/5] Downloading tools...")
-                downloaded, skipped = self._download_tools(assets)
-                console.print(f"      Downloaded: {downloaded}, Skipped (not yet released): {skipped}")
-            else:
-                console.print("[3/5] Skipping tools (alpha mode off)")
-
-            if "cc-director.exe" in assets:
-                dest_path = self.install_dir / "cc-director.exe"
-                console.print("      Downloading cc-director.exe...")
-                _download_file(assets["cc-director.exe"], str(dest_path))
-        else:
-            console.print("      No releases found. Skipping downloads.")
-            console.print("      Tools will be available after the first release.")
-
-        if self.alpha_mode:
-            console.print("[4/5] Configuring PATH...")
-            if self._add_to_path():
-                console.print(f"      Added {self.install_dir} to user PATH")
-            else:
-                console.print("      Already in PATH")
-
-            console.print("[5/5] Installing Claude Code skill...")
-            self.skill_dir.mkdir(parents=True, exist_ok=True)
-            skill_path = self.skill_dir / "SKILL.md"
-
-            if _download_raw_file(".claude/skills/cc-director/SKILL.md", str(skill_path)):
-                console.print(f"      Installed: {skill_path}")
-            else:
-                console.print("      WARNING: Could not download SKILL.md")
-                console.print("      Claude Code integration may not work until manually installed.")
-        else:
-            console.print("[4/5] Skipping PATH setup (alpha mode off)")
-            console.print("[5/5] Skipping skill install (alpha mode off)")
-
-        return True
-
-    def _download_tools(self, assets: dict) -> Tuple[int, int]:
-        downloaded = 0
-        skipped = 0
-
-        for tool in PYTHON_TOOLS:
-            asset_name = f"{tool}.exe"
-            if asset_name not in assets:
-                skipped += 1
-                continue
-
-            dest_path = self.install_dir / asset_name
-            console.print(f"      Downloading {asset_name}...")
-            if _download_file(assets[asset_name], str(dest_path)):
-                downloaded += 1
-            else:
-                console.print(f"      WARNING: Failed to download {tool}")
-
-        for tool in NODE_TOOLS:
-            asset_name = f"{tool}.zip"
-            if asset_name not in assets:
-                skipped += 1
-                continue
-            downloaded += self._install_zipped_tool(tool, assets[asset_name], "node")
-
-        for tool in DOTNET_TOOLS:
-            asset_name = f"{tool}.zip"
-            if asset_name not in assets:
-                skipped += 1
-                continue
-            downloaded += self._install_zipped_tool(tool, assets[asset_name], "dotnet")
-
-        return downloaded, skipped
-
-    def _install_zipped_tool(self, tool: str, url: str, tool_type: str) -> int:
-        zip_path = self.install_dir / f"{tool}.zip"
-        dest_dir = self.install_dir / f"_{tool}"
-
-        console.print(f"      Downloading {tool}.zip...")
-        if not _download_file(url, str(zip_path)):
-            console.print(f"      WARNING: Failed to download {tool}")
-            return 0
-
-        try:
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir)
-
-            with zipfile.ZipFile(str(zip_path), "r") as zip_file:
-                zip_file.extractall(str(dest_dir))
-
-            self._create_launchers(tool, tool_type)
-            zip_path.unlink()
-            return 1
-        except (zipfile.BadZipFile, OSError) as exc:
-            console.print(f"      WARNING: Failed to extract {tool}: {exc}")
-            if zip_path.exists():
-                zip_path.unlink()
-            return 0
-
-    def _create_launchers(self, tool: str, tool_type: str) -> None:
-        if tool_type == "node":
-            cmd_content = f'@node "%~dp0_{tool}\\src\\cli.mjs" %*\n'
-            bash_content = f'#!/bin/sh\nnode "$(dirname "$0")/_{tool}/src/cli.mjs" "$@"\n'
-        elif tool_type == "dotnet":
-            if tool == "cc-computer":
-                cmd_content = f'@"%~dp0_{tool}\\{tool}.exe" --cli %*\n'
-                bash_content = f'#!/bin/sh\n"$(dirname "$0")/_{tool}/{tool}.exe" --cli "$@"\n'
-                gui_cmd = self.install_dir / f"{tool}-gui.cmd"
-                gui_bash = self.install_dir / f"{tool}-gui"
-                gui_cmd.write_text(f'@"%~dp0_{tool}\\{tool}.exe" %*\n', encoding="utf-8")
-                gui_bash.write_text(
-                    f'#!/bin/sh\n"$(dirname "$0")/_{tool}/{tool}.exe" "$@"\n',
-                    encoding="utf-8",
-                )
-            else:
-                cmd_content = f'@"%~dp0_{tool}\\{tool}.exe" %*\n'
-                bash_content = f'#!/bin/sh\n"$(dirname "$0")/_{tool}/{tool}.exe" "$@"\n'
-        else:
-            return
-
-        (self.install_dir / f"{tool}.cmd").write_text(cmd_content, encoding="utf-8")
-        (self.install_dir / tool).write_text(bash_content, encoding="utf-8")
-
-    def _add_to_path(self) -> bool:
-        install_str = str(self.install_dir)
-        try:
-            import winreg
-
-            key = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Environment",
-                0,
-                winreg.KEY_READ | winreg.KEY_WRITE,
-            )
-
-            try:
-                current_path, _ = winreg.QueryValueEx(key, "Path")
-            except OSError:
-                current_path = ""
-
-            path_entries = [p.strip() for p in current_path.split(";") if p.strip()]
-            path_lower = [p.lower() for p in path_entries]
-
-            if install_str.lower() in path_lower:
-                winreg.CloseKey(key)
-                return False
-
-            new_path = current_path.rstrip(";") + ";" + install_str if current_path else install_str
-            winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-            winreg.CloseKey(key)
-
-            try:
-                import ctypes
-
-                hwnd_broadcast = 0xFFFF
-                wm_settingchange = 0x1A
-                smto_abortifhung = 0x0002
-                result = ctypes.c_long()
-                ctypes.windll.user32.SendMessageTimeoutW(
-                    hwnd_broadcast,
-                    wm_settingchange,
-                    0,
-                    "Environment",
-                    smto_abortifhung,
-                    5000,
-                    ctypes.byref(result),
-                )
-            except OSError:
-                pass
-
-            return True
-
-        except OSError as exc:
-            console.print(f"      WARNING: Could not modify PATH: {exc}")
-            console.print(f"      Please manually add {install_str} to your PATH")
-            return False
+def _is_windows() -> bool:
+    return os.name == "nt"
 
 
-def status(json_output: bool) -> None:
+def _install_root() -> Path:
+    override = os.environ.get("CC_DIRECTOR_ROOT")
+    if override:
+        return Path(override)
+    if _is_windows():
+        return Path(os.environ.get("LOCALAPPDATA", "")) / "cc-director"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "cc-director"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "cc-director"
+
+
+def _path_entries() -> list[str]:
+    return [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+
+
+def _path_contains(path: Path) -> bool:
+    target = str(path).rstrip("\\/")
+    if _is_windows():
+        target = target.lower()
+        return any(entry.rstrip("\\/").lower() == target for entry in _path_entries())
+    return any(entry.rstrip("/") == target for entry in _path_entries())
+
+
+def _read_json_file(path: Path, fallback):
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return fallback
+    return fallback
+
+
+def _expected_scripts(installer: DevThrottleInstaller) -> list[str]:
+    sidecar = installer.setup_state_dir / "python-tools-scripts.json"
+    value = _read_json_file(sidecar, [])
+    scripts = [str(v) for v in value if isinstance(v, str) and v.strip()]
+    if "cc-devthrottle" not in scripts:
+        scripts.insert(0, "cc-devthrottle")
+    return sorted(set(scripts))
+
+
+def _installed_bundle_version(installer: DevThrottleInstaller) -> Optional[str]:
+    manifest = _read_json_file(installer.setup_state_dir / "installed.json", {})
+    if isinstance(manifest, dict):
+        value = manifest.get("python-tools")
+        return str(value) if value else None
+    return None
+
+
+def _venv_script_path(installer: DevThrottleInstaller, script: str) -> Path:
+    suffix = ".exe" if _is_windows() else ""
+    return installer.pyenv_scripts_dir / f"{script}{suffix}"
+
+
+def _shim_paths(installer: DevThrottleInstaller, script: str) -> dict[str, str]:
+    if _is_windows():
+        return {
+            "cmd": str(installer.install_dir / f"{script}.cmd"),
+            "bare": str(installer.install_dir / script),
+        }
+    return {"link": str(Path.home() / ".local" / "bin" / script)}
+
+
+def _command_status(installer: DevThrottleInstaller, script: str) -> dict:
+    shim_paths = _shim_paths(installer, script)
+    venv_script = _venv_script_path(installer, script)
+    return {
+        "name": script,
+        "resolvedPath": shutil.which(script),
+        "venvScript": str(venv_script),
+        "venvScriptExists": venv_script.exists(),
+        "shims": {
+            name: {"path": path, "exists": Path(path).exists()} for name, path in shim_paths.items()
+        },
+    }
+
+
+def _legacy_alias_status() -> list[dict]:
+    return [{"name": name, "resolvedPath": shutil.which(name)} for name in LEGACY_ALIAS_NAMES]
+
+
+def doctor_data() -> dict:
     installer = DevThrottleInstaller()
-    data = {
-        "installDir": str(installer.install_dir),
-        "installDirExists": installer.install_dir.exists(),
+    expected = _expected_scripts(installer)
+    commands = [_command_status(installer, script) for script in expected]
+    missing = [
+        command["name"]
+        for command in commands
+        if not command["venvScriptExists"] or not any(s["exists"] for s in command["shims"].values())
+    ]
+    cc_resolved = shutil.which("cc-devthrottle")
+    problems = []
+    if not installer.install_dir.exists():
+        problems.append("install bin directory is missing")
+    if not _path_contains(installer.install_dir):
+        problems.append("install bin directory is not on PATH")
+    if cc_resolved is None:
+        problems.append("cc-devthrottle is not resolvable on PATH")
+    if missing:
+        problems.append(f"missing or incomplete tool shims: {', '.join(missing)}")
+
+    return {
+        "ok": not problems,
+        "needsRepair": bool(problems),
+        "installRoot": str(installer.install_root),
+        "binDir": str(installer.install_dir),
+        "binDirExists": installer.install_dir.exists(),
+        "binDirOnPath": _path_contains(installer.install_dir),
+        "pyenvDir": str(installer.pyenv_dir),
+        "pyenvScriptsDir": str(installer.pyenv_scripts_dir),
+        "setupStateDir": str(installer.setup_state_dir),
+        "installedBundleVersion": _installed_bundle_version(installer),
+        "expectedScripts": expected,
+        "commands": commands,
+        "ccDevThrottlePath": cc_resolved,
+        "legacyAliases": _legacy_alias_status(),
         "skillDir": str(installer.skill_dir),
         "skillInstalled": (installer.skill_dir / "SKILL.md").exists(),
         "alphaMode": installer.alpha_mode,
+        "problems": problems,
+        "repairCommand": "cc-devthrottle setup repair",
+        "repairDelegatesTo": "devthrottle-setup-cli install --role workstation",
     }
+
+
+def _select_setup_cli_asset(assets: dict) -> tuple[Optional[str], Optional[str]]:
+    for name in SETUP_CLI_ASSET_NAMES:
+        if name in assets:
+            return name, assets[name]
+    return None, None
+
+
+def _locate_setup_cli() -> Optional[str]:
+    for command in SETUP_CLI_COMMAND_NAMES:
+        found = shutil.which(command)
+        if found:
+            return found
+
+    installer = DevThrottleInstaller()
+    candidates = []
+    for command in SETUP_CLI_COMMAND_NAMES:
+        candidates.append(installer.install_dir / command)
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _download_setup_cli() -> Optional[str]:
+    release = _latest_release()
+    if not release:
+        return None
+    assets = _release_assets(release)
+    asset_name, url = _select_setup_cli_asset(assets)
+    if not asset_name or not url:
+        return None
+
+    cache_dir = Path(tempfile.gettempdir()) / "cc-devthrottle-setup-cli"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / asset_name
+    if _download_file(url, str(dest), show_progress=True):
+        return str(dest)
+    return None
+
+
+def _setup_cli_args(command: str, role: str, dry_run: bool, json_output: bool) -> list[str]:
+    setup_command = "update" if command == "update" else "install"
+    args = [setup_command, "--role", role]
+    if dry_run:
+        args.append("--dry-run")
     if json_output:
-        console.print(json.dumps(data, indent=2))
+        args.append("--json")
+    return args
+
+
+def run_setup_cli(command: str, role: str, dry_run: bool = False, json_output: bool = False) -> None:
+    if role not in {"workstation", "gateway"}:
+        console.print("[red]ERROR:[/red] --role must be workstation or gateway")
+        raise typer.Exit(2)
+
+    setup_cli = _locate_setup_cli()
+    if not setup_cli:
+        console.print("Setup CLI not found locally; downloading the latest release setup CLI...")
+        setup_cli = _download_setup_cli()
+    if not setup_cli:
+        console.print("[red]ERROR:[/red] Could not find or download devthrottle-setup-cli.")
+        console.print("Download and run devthrottle-setup-win-x64.exe from the latest GitHub release.")
+        raise typer.Exit(1)
+
+    args = [setup_cli, *_setup_cli_args(command, role, dry_run, json_output)]
+    console.print(f"Delegating to setup engine: {' '.join(args)}")
+    completed = subprocess.run(args, check=False)
+    if completed.returncode != 0:
+        raise typer.Exit(completed.returncode)
+
+
+def status(json_output: bool) -> None:
+    data = doctor_data()
+    if json_output:
+        print(json.dumps(data, indent=2))
         return
 
-    console.print(f"Install dir:      {data['installDir']}")
-    console.print(f"Install dir exists: {'yes' if data['installDirExists'] else 'no'}")
+    console.print(f"Install root:     {data['installRoot']}")
+    console.print(f"Bin dir:          {data['binDir']}")
+    console.print(f"Bin dir exists:   {'yes' if data['binDirExists'] else 'no'}")
+    console.print(f"Bin dir on PATH:  {'yes' if data['binDirOnPath'] else 'no'}")
+    console.print(f"cc-devthrottle:   {data['ccDevThrottlePath'] or 'not found'}")
+    console.print(f"Tools bundle:     {data['installedBundleVersion'] or 'not recorded'}")
     console.print(f"Skill dir:        {data['skillDir']}")
     console.print(f"Skill installed:  {'yes' if data['skillInstalled'] else 'no'}")
     console.print(f"Alpha mode:       {'on' if data['alphaMode'] else 'off'}")
+    if data["problems"]:
+        console.print("[red]Problems:[/red]")
+        for problem in data["problems"]:
+            console.print(f"  - {problem}")
+        console.print(f"Repair: {data['repairCommand']}")
+    else:
+        console.print("[green]Setup looks healthy.[/green]")
 
 
-def install() -> None:
+def doctor(json_output: bool) -> None:
+    status(json_output)
+
+
+def install(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
     try:
-        success = DevThrottleInstaller().install()
+        run_setup_cli("install", role, dry_run, json_output)
     except KeyboardInterrupt:
         console.print("\nInstallation cancelled by user.")
         raise typer.Exit(1)
-    except (OSError, RuntimeError, urllib.error.URLError) as exc:
+    except (OSError, RuntimeError, urllib.error.URLError, subprocess.SubprocessError) as exc:
         console.print(f"\n[red]ERROR:[/red] {exc}")
         raise typer.Exit(1)
 
-    if success:
-        console.print()
-        console.print("=" * 60)
-        console.print("  Installation complete.")
-        console.print("  Restart your terminal to use DevThrottle tools.")
-        console.print("=" * 60)
-        return
 
-    console.print("\nInstallation failed. See errors above.")
-    raise typer.Exit(1)
+def update(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
+    run_setup_cli("update", role, dry_run, json_output)
+
+
+def repair(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
+    run_setup_cli("repair", role, dry_run, json_output)

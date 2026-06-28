@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Review - cc-devthrottle</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1d212b;
+    --ink: #e6e9ef;
+    --muted: #9aa3b2;
+    --line: #2a2f3a;
+    --crit: #ff5d5d;
+    --high: #ff9f43;
+    --med: #ffd23f;
+    --low: #5db0ff;
+    --ok: #4ad991;
+    --accent: #7aa2ff;
+    --mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55; font-size: 15px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 28px 90px; }
+  header.title { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 28px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.3px; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: 13px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  h2 { font-size: 20px; margin: 42px 0 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  code { font-family: var(--mono); font-size: 12.5px; background: #11141a; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: #d7dcff; }
+  pre { background: #0b0d12; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; color: #cbd3e1; }
+  a { color: var(--accent); }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; }
+  .p-crit { background: rgba(255,93,93,.15); color: var(--crit); border: 1px solid rgba(255,93,93,.4); }
+  .p-high { background: rgba(255,159,67,.13); color: var(--high); border: 1px solid rgba(255,159,67,.4); }
+  .p-med  { background: rgba(255,210,63,.12); color: var(--med); border: 1px solid rgba(255,210,63,.4); }
+  .p-low  { background: rgba(93,176,255,.12); color: var(--low); border: 1px solid rgba(93,176,255,.4); }
+  .p-ok   { background: rgba(74,217,145,.12); color: var(--ok); border: 1px solid rgba(74,217,145,.4); }
+  .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 22px 0 8px; }
+  .scard { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; text-align: center; }
+  .scard .n { font-size: 26px; font-weight: 700; }
+  .scard .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+  .finding { background: var(--panel); border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
+  .finding.crit { border-left-color: var(--crit); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.med  { border-left-color: var(--med); }
+  .finding.low  { border-left-color: var(--low); }
+  .finding h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .finding h3 .id { color: var(--muted); font-family: var(--mono); font-size: 13px; }
+  .ev { margin: 10px 0; }
+  .ev .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); font-weight: 600; }
+  td.c { text-align: center; }
+  .yes { color: var(--ok); font-weight: 600; }
+  .no { color: var(--crit); font-weight: 600; }
+  .part { color: var(--med); font-weight: 600; }
+  .fileref { font-family: var(--mono); font-size: 12px; color: #b7c0d4; }
+  ul.tight { margin: 8px 0; padding-left: 22px; }
+  ul.tight li { margin: 4px 0; }
+  .callout { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 14px 0; color: var(--muted); font-size: 13.5px; }
+  .toc { columns: 2; column-gap: 30px; font-size: 13.5px; }
+  .toc a { display: block; padding: 3px 0; text-decoration: none; }
+  footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="title">
+  <h1>Independent Code Review &mdash; cc-devthrottle</h1>
+  <div class="sub">Unified DevThrottle command-line surface (fleet, sessions, messages, settings, Gateway schedules, setup)</div>
+  <div class="meta">
+    <span><b>Scope:</b> <code>tools/cc-devthrottle</code>, <code>tools/cc_shared/director.py</code>, Control API + Gateway endpoints, registry/manifest, settings/setup surfaces, UI overlap</span>
+  </div>
+  <div class="meta">
+    <span><b>Reviewer:</b> Claude (session 3429220a, SOREN_NORTH)</span>
+    <span><b>Date:</b> 2026-06-27</span>
+    <span><b>Tool version:</b> 1.3.0</span>
+    <span><b>Repo:</b> D:\ReposFred\devthrottle @ main</span>
+  </div>
+</header>
+
+<p>
+This review assesses the <code>cc-devthrottle</code> CLI for missing coverage, inconsistencies, bugs,
+install/path risk, incomplete action metadata, and gaps against what the Director, Gateway, and UI can do.
+The good news first: the <b>runtime wire contracts are sound</b>. Every fleet/session Control API call and every
+Gateway cron call the tool makes was traced to a matching backend route with matching request/response field names
+(camelCase or PascalCase tolerated via <code>director.field()</code>). The serious problems are concentrated in the
+<b>installer</b> (which does not work against the real release at all), in <b>drift from the tool registry</b>, and in
+<b>incomplete agent-facing action metadata</b>.
+</p>
+
+<div class="summary-grid">
+  <div class="scard"><div class="n" style="color:var(--crit)">1</div><div class="l">Critical</div></div>
+  <div class="scard"><div class="n" style="color:var(--high)">3</div><div class="l">High</div></div>
+  <div class="scard"><div class="n" style="color:var(--med)">4</div><div class="l">Medium</div></div>
+  <div class="scard"><div class="n" style="color:var(--low)">6</div><div class="l">Low</div></div>
+  <div class="scard"><div class="n" style="color:var(--ok)">OK</div><div class="l">Wire contracts</div></div>
+</div>
+
+<h2>Contents</h2>
+<div class="toc">
+  <a href="#c1">C1 &middot; setup install is broken against the real release</a>
+  <a href="#h1">H1 &middot; Installer duplicates and diverges from the real setup engine</a>
+  <a href="#h2">H2 &middot; Installer tool list ignores registry.json</a>
+  <a href="#h3">H3 &middot; Incomplete and incorrect actions metadata</a>
+  <a href="#m1">M1 &middot; director.py docstring contradicts schedule_ops</a>
+  <a href="#m2">M2 &middot; gateway settings are write-only until populated</a>
+  <a href="#m3">M3 &middot; No tests for session_ops, setup_ops, director, actions</a>
+  <a href="#m4">M4 &middot; No schedule update command</a>
+  <a href="#l1">L1 &middot; settings set coercion raises raw ValueError</a>
+  <a href="#l2">L2 &middot; settings set cannot set None/list/new keys</a>
+  <a href="#l3">L3 &middot; Three HTTP stacks in one tool</a>
+  <a href="#l4">L4 &middot; create sends empty seed with worklist</a>
+  <a href="#l5">L5 &middot; cc-shared declared as an uninstallable dependency</a>
+  <a href="#l6">L6 &middot; Minor UX / consistency notes</a>
+  <a href="#matrix">Coverage matrix</a>
+  <a href="#recs">Recommendations</a>
+</div>
+
+<h2>Critical</h2>
+
+<div class="finding crit" id="c1">
+  <h3><span class="pill p-crit">Critical</span> <span class="id">C1</span> &mdash; <code>setup install/update/repair</code> downloads nothing against the real release (asset-name mismatch)</h3>
+  <p>
+  The installer asks GitHub for the latest release and looks up assets by name. It expects a per-tool asset
+  <code>&lt;tool&gt;.exe</code> for every Python tool, <code>&lt;tool&gt;.zip</code> for every Node/.NET tool, and
+  the literal name <code>cc-director.exe</code> for the app. <b>None of those names exist in the published release.</b>
+  </p>
+  <div class="ev">
+    <div class="lbl">What the installer looks for</div>
+    <pre>for tool in PYTHON_TOOLS:
+    asset_name = f"{tool}.exe"        # e.g. "cc-gmail.exe"  -> never present
+    if asset_name not in assets: skipped += 1; continue
+...
+if "cc-director.exe" in assets:       # literal "cc-director.exe" -> never present
+    _download_file(assets["cc-director.exe"], ...)</pre>
+    <div class="fileref">tools/cc-devthrottle/src/setup_ops.py:181-184, 215-240</div>
+  </div>
+  <div class="ev">
+    <div class="lbl">What the release actually publishes</div>
+    <pre>cc-director-win-x64.exe          (the app  - NOT "cc-director.exe")
+cc-python-win-x64.zip            (shared CPython runtime)
+cc-tools-pyenv-win-x64.zip       (wheelhouse + requirements.lock + tools-manifest.json)
+devthrottle-gateway-win-x64.exe  cc-launcher-win-x64.exe
+devthrottle-cockpit-win-x64.zip  devthrottle-setup-win-x64.exe  ...</pre>
+    <div class="fileref">.github/workflows/release.yml:404-426 (Collect release files) and :437-451 (required assets)</div>
+  </div>
+  <p>
+  Consequences, against a genuine <code>releases/latest</code>:
+  </p>
+  <ul class="tight">
+    <li>Every Python tool is <b>skipped</b> (no <code>&lt;tool&gt;.exe</code> asset exists; Python ships as one shared-venv bundle).</li>
+    <li>Every Node/.NET tool is <b>skipped</b> (no <code>&lt;tool&gt;.zip</code> per-tool assets exist).</li>
+    <li>The app is <b>never downloaded</b> &mdash; the asset is <code>cc-director-win-x64.exe</code>, so the <code>"cc-director.exe" in assets</code> check is always false.</li>
+    <li>The installer has <b>no concept of the Python bundle</b> (runtime zip + wheelhouse + venv creation), which is the only way Python tools actually ship.</li>
+  </ul>
+  <p>
+  Net effect: <code>cc-devthrottle setup install</code> prints "Installation complete." while having installed nothing.
+  This is a silent no-op masquerading as success &mdash; the worst failure mode under the project's "no fallback / fail
+  explicitly" rule. The command is advertised to agents in the fleet preamble (<code>cc-devthrottle setup status</code>)
+  and exposed as the <code>setup-install</code> action, so it will be invoked.
+  </p>
+  <div class="callout"><b>Note:</b> the real, working installer is a separate component (see H1). The pragmatic fix may be
+  to make these subcommands defer to / delegate the setup engine rather than re-implement download logic that is already
+  out of step with the release format.</div>
+</div>
+
+<h2>High</h2>
+
+<div class="finding high" id="h1">
+  <h3><span class="pill p-high">High</span> <span class="id">H1</span> &mdash; The installer duplicates and contradicts the canonical setup engine</h3>
+  <p>
+  The product already has a dedicated installer pipeline: the setup wizard (<code>devthrottle-setup-win-x64.exe</code>),
+  the setup CLI (<code>devthrottle-setup-cli-win-x64.exe</code>), and a <code>ComponentRegistry</code> that knows the real
+  asset names (<code>ComponentRegistry.Gateway.WindowsAsset = devthrottle-gateway-win-x64.exe</code>, etc.). Tool directories
+  <code>cc-director-setup</code>, <code>cc-director-setup-cli</code>, and <code>cc-director-setup-engine</code> exist for exactly this.
+  </p>
+  <p>
+  <code>setup_ops.py</code> is a <b>second, parallel installer</b> with its own hardcoded asset names, its own PATH logic,
+  and its own component model. It is unaware of the Gateway, Launcher, Cockpit, setup-CLI, and the Python shared-venv bundle.
+  Two installers with divergent asset-name expectations is a standing maintenance and correctness hazard: a release-format
+  change (as already happened, per C1) silently breaks one of them.
+  </p>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc-devthrottle/src/setup_ops.py:130-345 (DevThrottleInstaller) vs .github/workflows/release.yml:166-345 (gateway/launcher/cockpit/setup-cli/python-bundle); ComponentRegistry asset names referenced in release.yml:166-168, 202-204, 237-239</div>
+  </div>
+</div>
+
+<div class="finding high" id="h2">
+  <h3><span class="pill p-high">High</span> <span class="id">H2</span> &mdash; Installer tool list ignores <code>registry.json</code>, the documented single source of truth</h3>
+  <p>
+  <code>tools/registry.json</code> states plainly: "Single source of truth for all tools&hellip; A tool ships in the installed
+  product ONLY when <code>"ship": true</code>." The shipped allowlist is exactly nine tools: <code>cc-pdf, cc-html, cc-word,
+  cc-gmail, cc-outlook, cc-playwright, cc-vault, cc-comm-queue, cc-devthrottle</code>.
+  </p>
+  <p>
+  The installer's hardcoded <code>PYTHON_TOOLS</code> / <code>NODE_TOOLS</code> / <code>DOTNET_TOOLS</code> lists ignore that
+  flag entirely. They enumerate ~32 tools, most marked <code>ship: false</code> (e.g. <code>cc-crawl4ai</code>,
+  <code>cc-twitter</code>, <code>cc-computer</code>, <code>cc-browser</code>), and <b>omit a tool that IS shipped</b>:
+  <code>cc-comm-queue</code> (<code>ship: true</code>) is absent from the list.
+  </p>
+  <table>
+    <tr><th>Problem</th><th>Detail</th></tr>
+    <tr><td class="no">Missing (shipped)</td><td><code>cc-comm-queue</code> is <code>ship: true</code> but not in <code>PYTHON_TOOLS</code></td></tr>
+    <tr><td class="part">Over-broad</td><td>~23 <code>ship: false</code> tools are listed and would be downloaded in alpha mode</td></tr>
+    <tr><td class="part">Drift risk</td><td>Two lists to maintain; registry already exists for this purpose</td></tr>
+  </table>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc-devthrottle/src/setup_ops.py:24-63 vs tools/registry.json:3 (ship rule), :246-252 (cc-comm-queue ship:true), ship flags throughout</div>
+  </div>
+  <p>The list should be derived from <code>registry.json</code> (filter <code>ship == true</code>) rather than hand-maintained.</p>
+</div>
+
+<div class="finding high" id="h3">
+  <h3><span class="pill p-high">High</span> <span class="id">H3</span> &mdash; <code>actions</code> metadata is incomplete and partly incorrect</h3>
+  <p>
+  The <code>actions --json</code> output is the contract agents use to discover how to call the tool without hardcoding
+  syntax (it is advertised first in the fleet preamble). It must mirror the real command surface. It does not.
+  </p>
+  <h3>Missing actions (commands that exist but are not advertised)</h3>
+  <ul class="tight">
+    <li><code>settings list</code>, <code>settings path</code></li>
+    <li><code>schedule get</code>, <code>schedule runs</code>, <code>schedule enable</code>, <code>schedule disable</code>, <code>schedule delete</code>, <code>schedule endpoint</code></li>
+    <li><code>setup update</code>, <code>setup repair</code>, <code>setup doctor</code></li>
+    <li>the top-level <code>actions</code> command itself</li>
+  </ul>
+  <h3>Incorrect / stale action definitions</h3>
+  <ul class="tight">
+    <li><b><code>schedule-create</code> is wrong.</b> Metadata lists args <code>cron_or_at</code>, <code>tz</code>,
+      <code>seed_or_worklist</code> and a command string <code>--cron &lt;expr&gt; --tz &lt;tz&gt; --seed &lt;prompt&gt;</code>.
+      The real command uses distinct flags <code>--at</code>/<code>--cron</code> (mutually exclusive),
+      <code>--seed</code>/<code>--worklist</code> (mutually exclusive), plus <code>--notify-on</code> and
+      <code>--notify-webhook</code>. An agent following the metadata would build an invalid command.</li>
+    <li><b><code>session-spawn</code></b> advertises only the <code>repo</code> arg, omitting <code>--agent</code>,
+      <code>--prompt</code>, <code>--name</code>, <code>--type</code>, <code>--command</code>, <code>--command-args</code>.</li>
+    <li><b><code>message-ask</code></b> omits <code>--timeout-ms</code>.</li>
+  </ul>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc-devthrottle/src/cli.py:50-182 (_ACTIONS) vs the actual commands at cli.py:247-270 (spawn), :282-291 (ask), :388-423 (schedule create), :334-347 (settings list/path), :370-458 (schedule get/runs/enable/disable/delete/endpoint), :475-492 (setup update/repair/doctor)</div>
+  </div>
+  <div class="callout">The metadata is hand-maintained and will keep drifting. Consider generating <code>_ACTIONS</code> from the
+  Typer command tree, or adding a test that asserts every registered command has a corresponding action entry.</div>
+</div>
+
+<h2>Medium</h2>
+
+<div class="finding med" id="m1">
+  <h3><span class="pill p-med">Medium</span> <span class="id">M1</span> &mdash; <code>director.py</code> docstring contradicts how schedules actually talk to the Gateway</h3>
+  <p>
+  The shared helper states, as a design invariant: "cc-devthrottle only ever calls its own Director. The Director relays
+  to the Gateway on its behalf, so it never needs the Gateway URL or the fleet token. The fleet token stays on the Director&hellip;
+  The fleet token is deliberately never read here."
+  </p>
+  <p>
+  That is true for fleet/session commands, but <b><code>schedule_ops.py</code> does the opposite</b>: it reads
+  <code>config.gateway.url</code> and <code>config.gateway.token</code> from <code>config.json</code> and calls the Gateway
+  <b>directly</b> (default <code>http://127.0.0.1:7878</code>). There is no Director relay for cron (confirmed: cron routes
+  live only in <code>CcDirector.Gateway</code>, none in <code>CcDirector.ControlApi</code>). So the stated trust model
+  ("never reads a token, never knows the Gateway URL") is false for the entire schedule surface.
+  </p>
+  <p>
+  This is mainly a documentation/architecture inconsistency rather than a runtime bug &mdash; the schedule path works &mdash;
+  but the invariant as written is misleading and would steer a future maintainer wrong. Either route schedules through the
+  Director too, or correct the docstring to scope it to fleet/session calls and acknowledge the direct-to-Gateway schedule path.
+  </p>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc_shared/director.py:1-10, 38-52 vs tools/cc-devthrottle/src/schedule_ops.py:21,44-66 (reads gateway.url + gateway.token, calls Gateway directly)</div>
+  </div>
+</div>
+
+<div class="finding med" id="m2">
+  <h3><span class="pill p-med">Medium</span> <span class="id">M2</span> &mdash; The <code>gateway</code> section is write-only via the CLI until it already has a value</h3>
+  <p>
+  <code>CCDirectorConfig.to_dict()</code> only emits the <code>gateway</code> block when it is non-empty (by design, to
+  avoid injecting empty sections). But <code>settings</code> read paths are all built on <code>to_dict()</code>:
+  </p>
+  <ul class="tight">
+    <li><code>settings get gateway.url</code> &rarr; "Unknown key" (not in the flattened dict).</li>
+    <li><code>settings list</code> &rarr; no <code>gateway.*</code> rows.</li>
+    <li><code>settings show gateway</code> &rarr; "Unknown section: gateway".</li>
+  </ul>
+  <p>
+  Yet <code>settings set gateway.url &lt;url&gt;</code> works (it goes through <code>getattr(config, "gateway")</code>, which
+  always exists). The result is a confusing asymmetry precisely around the setting a user most needs to discover &mdash;
+  the Gateway URL/token that makes <code>schedule</code> commands reach a remote Gateway. A fresh install cannot
+  <i>read</i> or <i>list</i> the key it is supposed to set.
+  </p>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc_shared/config.py:497-501 (gateway emitted only when not is_empty) and :212-213 (is_empty); tools/cc-devthrottle/src/settings_ops.py:28-57 (read paths via to_dict) vs :59-91 (set_value via getattr)</div>
+  </div>
+</div>
+
+<div class="finding med" id="m3">
+  <h3><span class="pill p-med">Medium</span> <span class="id">M3</span> &mdash; No tests for the highest-risk modules</h3>
+  <p>
+  The project standard is "all public methods need unit tests." Tests exist for <code>schedule_ops</code> and
+  <code>settings_ops</code> (good, and the notify-flag tests are solid). But there are <b>no tests at all</b> for:
+  </p>
+  <ul class="tight">
+    <li><code>session_ops.py</code> &mdash; the core fleet messaging surface (list, whoami, rename, spawn, send, ask, selftest, target resolution).</li>
+    <li><code>setup_ops.py</code> &mdash; the installer. A single test asserting expected release asset names would have caught C1.</li>
+    <li><code>cc_shared/director.py</code> &mdash; <code>resolve_target</code> ambiguity/prefix/exact-name logic, <code>field()</code> casing.</li>
+    <li>the <code>cli.py</code> <code>_ACTIONS</code> metadata (no test ties it to the real command tree; would have caught H3).</li>
+  </ul>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc-devthrottle/tests/ contains only test_schedule_ops.py, test_settings_ops.py, test_schedule_cli_notify.py</div>
+  </div>
+</div>
+
+<div class="finding med" id="m4">
+  <h3><span class="pill p-med">Medium</span> <span class="id">M4</span> &mdash; No <code>schedule update</code> command (coverage gap vs the UI)</h3>
+  <p>
+  The CLI can create, list, get, run, enable, disable, and delete schedules, but cannot <b>edit</b> one. Enable/disable use
+  a get-then-PUT round-trip (<code>set_enabled</code>), so the underlying <code>PUT /cron/jobs/{id}</code> is available and the
+  Gateway supports full edits &mdash; the CLI simply does not expose them. To change a cron expression, seed, machine, time
+  zone, or notify policy, a user must delete and recreate, which discards run history. The Avalonia <code>SchedulerView</code>
+  and Cockpit <code>Schedule.razor</code> both allow editing, so the CLI is behind the UI here.
+  </p>
+  <div class="ev">
+    <div class="lbl">Evidence</div>
+    <div class="fileref">tools/cc-devthrottle/src/cli.py:362-458 (no update command); schedule_ops.py:120-121,133-136 (update_job exists, used only for enable/disable); src/CcDirector.Avalonia/Controls/SchedulerView.axaml, src/CcDirector.Cockpit/Components/Pages/Schedule.razor</div>
+  </div>
+</div>
+
+<h2>Low</h2>
+
+<div class="finding low" id="l1">
+  <h3><span class="pill p-low">Low</span> <span class="id">L1</span> &mdash; <code>settings set</code> coercion can raise a raw exception; bool coercion is silent</h3>
+  <p>
+  <code>set_value</code> coerces by the current value's type: <code>int(value)</code> / <code>float(value)</code> will raise an
+  uncaught <code>ValueError</code> (stack trace to the agent, violating the project's "fail with a clear message" rule) if a
+  non-numeric string is passed for a numeric field. Bool coercion (<code>value.lower() in ("true","1","yes")</code>) silently
+  maps any unrecognized string to <code>False</code> &mdash; e.g. <code>settings set ...enabled maybe</code> quietly disables it.
+  Currently latent (no reachable scalar int/float key in the schema), but it is a trap waiting for the first one.
+  </p>
+  <div class="ev"><div class="lbl">Evidence</div><div class="fileref">tools/cc-devthrottle/src/settings_ops.py:80-91</div></div>
+</div>
+
+<div class="finding low" id="l2">
+  <h3><span class="pill p-low">Low</span> <span class="id">L2</span> &mdash; <code>settings set</code> cannot set None-valued, list-valued, or new keys</h3>
+  <p>
+  <code>set_value</code> requires <code>hasattr(obj, attr)</code> and walks existing attributes, so it cannot set a value
+  whose intermediate node is <code>None</code>, cannot edit list-typed settings (e.g. <code>photos.sources</code>), and cannot
+  create a key that the dataclass does not already model. Acceptable for a guarded settings surface, but worth documenting as
+  a deliberate limitation so callers do not assume arbitrary keys are writable.
+  </p>
+  <div class="ev"><div class="lbl">Evidence</div><div class="fileref">tools/cc-devthrottle/src/settings_ops.py:59-91</div></div>
+</div>
+
+<div class="finding low" id="l3">
+  <h3><span class="pill p-low">Low</span> <span class="id">L3</span> &mdash; Three different HTTP stacks inside one tool</h3>
+  <p>
+  <code>director.py</code> and <code>setup_ops.py</code> use <code>urllib</code>; <code>schedule_ops.py</code> uses
+  <code>requests</code>. Same tool, three code paths for auth headers, timeouts, and error mapping &mdash; and
+  <code>requests</code> is pulled in only for the schedule surface. Standardizing on one client would simplify the tool and
+  unify the (currently duplicated) connection-error / timeout / "extract server error message" logic.
+  </p>
+  <div class="ev"><div class="lbl">Evidence</div><div class="fileref">tools/cc_shared/director.py:12-15,65-90; tools/cc-devthrottle/src/setup_ops.py:7-9,94-123; tools/cc-devthrottle/src/schedule_ops.py:10,68-108</div></div>
+</div>
+
+<div class="finding low" id="l4">
+  <h3><span class="pill p-low">Low</span> <span class="id">L4</span> &mdash; <code>schedule create --worklist</code> still sends an empty <code>seed</code></h3>
+  <p>
+  When a work list is specified, the job body sets <code>action.seed = seed or ""</code> &mdash; an empty string is sent
+  alongside <code>workListName</code>. The CLI already validates that exactly one of seed/worklist is given, so the empty seed
+  is redundant payload. Harmless today (the Gateway accepts it), but cleaner to send <code>None</code>/omit it for the
+  worklist branch.
+  </p>
+  <div class="ev"><div class="lbl">Evidence</div><div class="fileref">tools/cc-devthrottle/src/schedule_ops.py:290-318</div></div>
+</div>
+
+<div class="finding low" id="l5">
+  <h3><span class="pill p-low">Low</span> <span class="id">L5</span> &mdash; <code>cc-shared</code> declared as a dependency that cannot be resolved from an index</h3>
+  <p>
+  <code>pyproject.toml</code> and <code>requirements.txt</code> both list <code>cc-shared</code> as a dependency, but it is not
+  on any package index; at runtime the ops modules import it by inserting the tools directory onto <code>sys.path</code>. The
+  declared dependency is therefore decorative and would break a clean <code>pip install -r requirements.txt</code>. Either
+  package <code>cc-shared</code> properly (path/local dependency) or drop it from the requirement files and rely on the
+  documented <code>sys.path</code> mechanism consistently.
+  </p>
+  <div class="ev"><div class="lbl">Evidence</div><div class="fileref">tools/cc-devthrottle/pyproject.toml:6-11; tools/cc-devthrottle/requirements.txt:4; sys.path insert in session_ops.py:17-21, schedule_ops.py:15-19, settings_ops.py:14-18</div></div>
+</div>
+
+<div class="finding low" id="l6">
+  <h3><span class="pill p-low">Low</span> <span class="id">L6</span> &mdash; Minor UX / consistency notes</h3>
+  <ul class="tight">
+    <li><b><code>message-ask</code> marked <code>mutatesState: true</code></b> &mdash; defensible (it prompts the target) but inconsistent with treating queries as read-only; worth a deliberate decision. <span class="fileref">cli.py:100-108</span></li>
+    <li><b>Schedule fallback port</b> <code>http://127.0.0.1:7878</code> is correct for a local Gateway (confirmed default), but a local-only Director with no Gateway will always fail there with a "not reachable" message; that is acceptable, just noting the assumed-local behavior. <span class="fileref">schedule_ops.py:21,44-47</span></li>
+    <li><b>Message send/ask have no desktop UI counterpart</b> (only CLI). Not a defect, but the inter-session messaging surface is CLI-only while sessions/schedules/settings have UI. <span class="fileref">CcDirector.Avalonia, CcDirector.Cockpit</span></li>
+    <li><b>Selftest is Windows-only</b> (hardcodes <code>cmd</code> + <code>/k prompt</code>); fine for the platform, but it will fail noisily if ever run elsewhere. <span class="fileref">session_ops.py:291-303,311-385</span></li>
+  </ul>
+</div>
+
+<h2 id="matrix">Coverage matrix</h2>
+
+<h3>CLI command vs. action metadata vs. tests vs. UI</h3>
+<table>
+  <tr>
+    <th>Command</th><th class="c">In <code>actions</code></th><th class="c">Unit test</th><th class="c">Desktop UI</th><th class="c">Cockpit</th><th>Notes</th>
+  </tr>
+  <tr><td><code>actions</code></td><td class="c no">no</td><td class="c no">no</td><td class="c">-</td><td class="c">-</td><td>The discovery command is not in its own list</td></tr>
+  <tr><td><code>session list</code></td><td class="c yes">yes</td><td class="c no">no</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Endpoint verified</td></tr>
+  <tr><td><code>session whoami</code></td><td class="c yes">yes</td><td class="c no">no</td><td class="c part">n/a</td><td class="c part">n/a</td><td></td></tr>
+  <tr><td><code>session rename</code></td><td class="c yes">yes</td><td class="c no">no</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Endpoint verified</td></tr>
+  <tr><td><code>session spawn</code></td><td class="c part">partial</td><td class="c no">no</td><td class="c yes">yes</td><td class="c part">~</td><td>Options not in metadata (H3)</td></tr>
+  <tr><td><code>message send</code></td><td class="c yes">yes</td><td class="c no">no</td><td class="c no">no</td><td class="c part">~</td><td>Endpoint verified; CLI-primary</td></tr>
+  <tr><td><code>message ask</code></td><td class="c part">partial</td><td class="c no">no</td><td class="c no">no</td><td class="c no">no</td><td>Missing <code>--timeout-ms</code> (H3)</td></tr>
+  <tr><td><code>selftest</code></td><td class="c yes">yes</td><td class="c no">no</td><td class="c no">no</td><td class="c no">no</td><td>Windows-only</td></tr>
+  <tr><td><code>settings show/get/set</code></td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c part">~</td><td>gateway read/write asymmetry (M2)</td></tr>
+  <tr><td><code>settings list/path</code></td><td class="c no">no</td><td class="c part">~</td><td class="c">-</td><td class="c">-</td><td>Not in metadata (H3)</td></tr>
+  <tr><td><code>schedule list/get/runs</code></td><td class="c part">partial</td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c yes">yes</td><td>get/runs not in metadata (H3)</td></tr>
+  <tr><td><code>schedule create</code></td><td class="c no">wrong</td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Metadata args/command incorrect (H3)</td></tr>
+  <tr><td><code>schedule run</code></td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Endpoint verified</td></tr>
+  <tr><td><code>schedule enable/disable/delete/endpoint</code></td><td class="c no">no</td><td class="c part">~</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Not in metadata (H3)</td></tr>
+  <tr><td><code>schedule update</code></td><td class="c no">missing</td><td class="c no">no</td><td class="c yes">yes</td><td class="c yes">yes</td><td>Command does not exist (M4)</td></tr>
+  <tr><td><code>setup status/doctor</code></td><td class="c part">partial</td><td class="c no">no</td><td class="c part">~</td><td class="c no">no</td><td>doctor not in metadata</td></tr>
+  <tr><td><code>setup install/update/repair</code></td><td class="c part">partial</td><td class="c no">no</td><td class="c part">engine</td><td class="c no">no</td><td><b>Broken (C1)</b>; duplicates engine (H1)</td></tr>
+</table>
+
+<h3>Wire-contract verification (backend routes)</h3>
+<table>
+  <tr><th>CLI call</th><th>Backend route</th><th class="c">Match</th><th>Location</th></tr>
+  <tr><td><code>GET fleet/sessions</code></td><td><code>MapGet /fleet/sessions</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:265</td></tr>
+  <tr><td><code>POST fleet/send</code></td><td><code>MapPost /fleet/send</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:293</td></tr>
+  <tr><td><code>POST fleet/broadcast</code></td><td><code>MapPost /fleet/broadcast</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:351</td></tr>
+  <tr><td><code>POST fleet/ask</code></td><td><code>MapPost /fleet/ask</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:472</td></tr>
+  <tr><td><code>POST sessions</code></td><td><code>MapPost /sessions</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:2741</td></tr>
+  <tr><td><code>PATCH sessions/{id}</code></td><td><code>MapPatch /sessions/{sid}</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:928</td></tr>
+  <tr><td><code>DELETE sessions/{id}</code></td><td><code>MapDelete /sessions/{sid}</code></td><td class="c yes">OK</td><td class="fileref">ControlEndpoints.cs:2893</td></tr>
+  <tr><td><code>GET/POST /cron/jobs</code></td><td><code>MapGet/MapPost /cron/jobs</code></td><td class="c yes">OK</td><td class="fileref">CronJobEndpoints.cs:29,54</td></tr>
+  <tr><td><code>GET/PUT/DELETE /cron/jobs/{id}</code></td><td>matching maps</td><td class="c yes">OK</td><td class="fileref">CronJobEndpoints.cs:56,64,91</td></tr>
+  <tr><td><code>POST /cron/jobs/{id}/run</code></td><td><code>MapPost .../run</code></td><td class="c yes">OK</td><td class="fileref">CronRunEndpoints.cs:21</td></tr>
+  <tr><td><code>GET /cron/jobs/{id}/runs</code></td><td><code>MapGet .../runs</code></td><td class="c yes">OK</td><td class="fileref">CronRunEndpoints.cs:35</td></tr>
+</table>
+<div class="callout">
+  All request/response field names match (the C# DTOs serialize PascalCase with no <code>[JsonPropertyName]</code>; the CLI
+  tolerates both casings via <code>director.field()</code>). Default ports confirmed: Control API allocates from
+  <b>7879-7898</b> per Director and is injected as <code>CC_DIRECTOR_API</code>; the Gateway default is <b>7878</b>, which is
+  the schedule fallback. There is <b>no</b> Director-side relay for cron &mdash; schedules go straight to the Gateway (see M1).
+</div>
+
+<h2 id="recs">Recommendations (priority order)</h2>
+<ol>
+  <li><b>Fix or retire the installer (C1, H1).</b> The strongest option is to make <code>setup install/update/repair</code>
+    delegate to the existing setup engine / setup-CLI rather than re-download assets. If it must stay standalone, update it to
+    the real asset names (<code>cc-director-win-x64.exe</code>) and teach it the Python shared-venv bundle model
+    (<code>cc-python-win-x64.zip</code> + <code>cc-tools-pyenv-win-x64.zip</code> + venv creation). At minimum, do not print
+    "complete" when nothing was installed.</li>
+  <li><b>Derive the tool list from <code>registry.json</code> (H2).</b> Filter <code>ship == true</code> and read
+    <code>type</code> for build category; delete the hardcoded lists. This auto-fixes the missing <code>cc-comm-queue</code>
+    and the over-broad set.</li>
+  <li><b>Regenerate / validate <code>actions</code> metadata (H3).</b> Generate <code>_ACTIONS</code> from the Typer command
+    tree, or add a test asserting every command (and option) is represented; fix <code>schedule-create</code>,
+    <code>session-spawn</code>, <code>message-ask</code> immediately.</li>
+  <li><b>Correct the <code>director.py</code> invariant (M1)</b> to scope the "only ever calls its own Director" claim to
+    fleet/session calls, and document the direct-to-Gateway schedule path and its token use.</li>
+  <li><b>Make the <code>gateway</code> section readable (M2)</b> &mdash; surface <code>gateway.*</code> keys in
+    <code>list</code>/<code>get</code>/<code>show</code> even when empty (or special-case the section), so the Gateway URL/token
+    can be discovered before it is set.</li>
+  <li><b>Add tests for <code>session_ops</code>, <code>setup_ops</code>, <code>director</code>, and the action metadata (M3)</b>
+    &mdash; a setup test pinned to expected asset names would have prevented C1.</li>
+  <li><b>Add <code>schedule update</code> (M4)</b> to reach parity with the UI and avoid delete/recreate losing run history.</li>
+  <li>Address the Low items opportunistically: guard numeric coercion (L1), document settings-set limits (L2), unify on one
+    HTTP client (L3), omit the empty seed for worklists (L4), and reconcile the <code>cc-shared</code> dependency declaration (L5).</li>
+</ol>
+
+<footer>
+  Independent review of <code>cc-devthrottle</code> v1.3.0. Findings are evidence-based with file:line references; backend
+  route verification and registry/release cross-checks were performed against the source at
+  <code>D:\ReposFred\devthrottle</code> on branch <code>main</code>. No source files were modified by this review; the only
+  output is this report.
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cc-devthrottle Install Healing QA Report</title>
+  <style>
+    :root {
+      --bg: #f7f9fb;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #d9e1ea;
+      --pass: #166534;
+      --warn: #92400e;
+      --fail: #991b1b;
+      --chip: #e8eef5;
+      --blue: #1d4ed8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.55 "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+    header {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    h1, h2, h3 { line-height: 1.2; margin: 0; }
+    h1 { font-size: 30px; }
+    h2 { font-size: 19px; margin-bottom: 12px; }
+    h3 { font-size: 15px; margin-top: 8px; }
+    p { margin: 0 0 10px; }
+    code {
+      background: #eef2f7;
+      border: 1px solid #d8e0ea;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+      font-size: 12px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: var(--chip);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pass { color: var(--pass); background: #dcfce7; }
+    .warn { color: var(--warn); background: #fef3c7; }
+    .fail { color: var(--fail); background: #fee2e2; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px;
+      margin: 16px 0;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      overflow-wrap: anywhere;
+    }
+    th, td {
+      border-top: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #334155;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      background: #f8fafc;
+    }
+    ul {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfdff;
+    }
+    .big {
+      display: block;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    @media (max-width: 780px) {
+      main { padding: 22px 14px; }
+      .grid { grid-template-columns: 1fr; }
+      table { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>cc-devthrottle Install Healing QA Report</h1>
+    <div class="meta">
+      <span class="pill pass">Overall: PASS with caveats</span>
+      <span class="pill">Date: 2026-06-27</span>
+      <span class="pill">Repo: D:\ReposFred\devthrottle</span>
+      <span class="pill">Scope: install/tool-healing first slice</span>
+    </div>
+    <p>
+      This report validates the implementation of the first install-healing slice:
+      remove stale standalone setup logic, delegate setup actions to the setup engine,
+      expose setup diagnostics, improve action discovery, and lock the shipped-tool
+      source of truth with tests.
+    </p>
+  </header>
+
+  <section>
+    <h2>Implementation Summary</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="big">1</span>
+        <strong>Setup delegation</strong>
+        <p><code>cc-devthrottle setup install/update/repair</code> now delegates to the setup engine CLI instead of maintaining its own broad tool downloader.</p>
+      </div>
+      <div class="card">
+        <span class="big">2</span>
+        <strong>Diagnostics</strong>
+        <p><code>setup doctor --json</code> now reports install root, PATH state, expected scripts, venv targets, shims, legacy aliases, and repair guidance.</p>
+      </div>
+      <div class="card">
+        <span class="big">3</span>
+        <strong>Discovery</strong>
+        <p><code>actions --json</code> now includes the implemented settings, schedule, and setup commands that were previously missing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Files Changed</h2>
+    <table>
+      <thead>
+        <tr><th>File</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>tools/cc-devthrottle/src/setup_ops.py</code></td>
+          <td>Removed stale hard-coded tool lists; added setup diagnostics; delegated install/update/repair to <code>devthrottle-setup-cli</code>; kept JSON output unwrapped.</td>
+        </tr>
+        <tr>
+          <td><code>tools/cc-devthrottle/src/cli.py</code></td>
+          <td>Expanded action metadata; added setup command flags; routed <code>doctor</code> to diagnostics; printed JSON with plain stdout.</td>
+        </tr>
+        <tr>
+          <td><code>tools/cc-devthrottle/tests/test_actions_cli.py</code></td>
+          <td>Locks down action discovery for the commands that were implemented but missing from <code>actions --json</code>.</td>
+        </tr>
+        <tr>
+          <td><code>tools/cc-devthrottle/tests/test_setup_ops.py</code></td>
+          <td>Tests doctor output, recorded script detection, setup CLI delegation, asset selection, and removal of old tool-list constants.</td>
+        </tr>
+        <tr>
+          <td><code>src/CcDirector.Core.Tests/ShippedToolsManifestGuardTests.cs</code></td>
+          <td>Fails if <code>ship:true</code> Python tools in <code>tools/registry.json</code> drift from the embedded Core health manifest.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Acceptance Mapping</h2>
+    <table>
+      <thead>
+        <tr><th>Plan item</th><th>Status</th><th>Evidence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Stop using broad hard-coded install lists as the product setup source.</td>
+          <td><span class="pill pass">PASS</span></td>
+          <td><code>PYTHON_TOOLS</code>, <code>NODE_TOOLS</code>, and <code>DOTNET_TOOLS</code> were removed from <code>setup_ops.py</code>; test asserts they do not exist.</td>
+        </tr>
+        <tr>
+          <td>Make setup repair/update/install use the real setup engine path.</td>
+          <td><span class="pill pass">PASS</span></td>
+          <td><code>setup repair</code> delegates to <code>devthrottle-setup-cli install --role workstation</code>; tests verify repair maps to setup CLI install.</td>
+        </tr>
+        <tr>
+          <td>Make <code>setup doctor --json</code> stable enough for automated checks.</td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>Doctor JSON parses in source-level CLI smoke and reports expected scripts, shims, venv targets, PATH status, and repair command.</td>
+        </tr>
+        <tr>
+          <td>Lock shipped-tool source of truth.</td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>New Core guard compares <code>ship:true</code> Python registry entries with <code>src/CcDirector.Core/Tools/tools-manifest.json</code>.</td>
+        </tr>
+        <tr>
+          <td>Make action discovery cover implemented commands.</td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>Action tests verify settings list/path, schedule get/runs/enable/disable/delete/endpoint, and setup update/repair/doctor.</td>
+        </tr>
+        <tr>
+          <td>Prove clean-machine release repair end to end.</td>
+          <td><span class="pill warn">Deferred</span></td>
+          <td>This machine was intentionally not modified. Clean/stale-machine installer validation remains the release QA phase.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Test Results</h2>
+    <table>
+      <thead>
+        <tr><th>Command</th><th>Result</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>python -m pytest tools\cc-devthrottle\tests -q</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>46 passed in 0.45s.</td>
+        </tr>
+        <tr>
+          <td><code>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --filter ShippedToolsManifestGuardTests --no-restore</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>2 passed.</td>
+        </tr>
+        <tr>
+          <td><code>dotnet test tools\cc-director-setup-engine.Tests\CcDirector.Setup.Engine.Tests.csproj --filter "PythonToolsHealAndShimTests|BundleRefreshGateTests" --no-restore</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>13 passed.</td>
+        </tr>
+        <tr>
+          <td><code>dotnet test tools\cc-director-setup-cli.Tests\CcDirector.Setup.Cli.Tests.csproj --no-restore</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>17 passed.</td>
+        </tr>
+        <tr>
+          <td><code>dotnet test tools\cc-director-setup-engine.Tests\CcDirector.Setup.Engine.Tests.csproj --no-restore</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>182 passed in 3s.</td>
+        </tr>
+        <tr>
+          <td>Source-level Typer smoke: <code>actions --json</code>, <code>setup doctor --json</code>, <code>--version</code></td>
+          <td><span class="pill pass">PASS</span></td>
+          <td>Both JSON commands parsed successfully; version reported <code>cc-devthrottle v1.3.0</code>.</td>
+        </tr>
+        <tr>
+          <td><code>dotnet test src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj --no-restore</code></td>
+          <td><span class="pill warn">TIMEOUT</span></td>
+          <td>Timed out after 180s before producing a result. The targeted Core guard passed and is the relevant coverage for this change.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>QA Findings</h2>
+    <table>
+      <thead>
+        <tr><th>Finding</th><th>Status</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Rich console wrapped JSON output.</td>
+          <td><span class="pill pass">Fixed</span></td>
+          <td>The first test run caught invalid JSON from <code>actions --json</code>. JSON output now uses plain <code>print()</code> for action and setup diagnostics.</td>
+        </tr>
+        <tr>
+          <td>Legacy aliases can still exist on a machine.</td>
+          <td><span class="pill pass">Visible</span></td>
+          <td><code>setup doctor</code> reports legacy alias resolution so old wrappers cannot mask a missing <code>cc-devthrottle</code> silently.</td>
+        </tr>
+        <tr>
+          <td>Current shell may still lack installed <code>cc-devthrottle</code>.</td>
+          <td><span class="pill warn">Expected</span></td>
+          <td>This task explicitly avoided local machine repair. Source-level CLI tests prove the implementation; release/install QA must run on a clean or stale machine.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Release QA Still Required</h2>
+    <p>The code-level implementation is covered. The remaining proof must be run from a release artifact on machines that represent the real install states:</p>
+    <ul>
+      <li>Clean Windows install.</li>
+      <li>Stale Windows install with only old aliases present.</li>
+      <li>Install with missing <code>bin\cc-devthrottle.cmd</code>.</li>
+      <li>Install with stale or missing <code>pyenv\Scripts\cc-devthrottle.exe</code>.</li>
+      <li>Fresh shell after PATH update.</li>
+    </ul>
+    <p>Required smoke after install/update/repair:</p>
+    <ul>
+      <li><code>Get-Command cc-devthrottle</code></li>
+      <li><code>cc-devthrottle --version</code></li>
+      <li><code>cc-devthrottle actions --json</code></li>
+      <li><code>cc-devthrottle setup doctor --json</code></li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

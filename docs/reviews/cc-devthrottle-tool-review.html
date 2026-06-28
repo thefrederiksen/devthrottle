@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cc-devthrottle Tool Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --text: #202734;
+      --muted: #657184;
+      --line: #d8dee8;
+      --head: #eef2f7;
+      --critical-bg: #ffe8e8;
+      --critical-text: #8b1e1e;
+      --high-bg: #fff0d6;
+      --high-text: #865200;
+      --medium-bg: #eaf2ff;
+      --medium-text: #24538f;
+      --ok-bg: #e8f5ee;
+      --ok-text: #17623a;
+      --gap-bg: #fff5f5;
+      --gap-text: #8b2727;
+      --partial-bg: #fff7e6;
+      --partial-text: #805000;
+      --na-bg: #eef0f4;
+      --na-text: #4b5565;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 "Segoe UI", Arial, sans-serif;
+    }
+
+    main {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.22;
+    }
+
+    h1 { font-size: 30px; letter-spacing: 0; }
+    h2 { font-size: 20px; margin-top: 32px; }
+    h3 { font-size: 16px; margin-top: 0; }
+    p { margin: 8px 0 0; }
+    code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.95em; }
+
+    .lede {
+      color: var(--muted);
+      max-width: 980px;
+      margin-top: 8px;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 12px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .metric, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .metric { padding: 16px; }
+    .metric .value { display: block; font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .metric .label { color: var(--muted); font-size: 13px; }
+
+    .panel {
+      padding: 18px 20px;
+      margin-top: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--head);
+      color: #303846;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li + li { margin-top: 4px; }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .critical { background: var(--critical-bg); color: var(--critical-text); }
+    .high { background: var(--high-bg); color: var(--high-text); }
+    .medium { background: var(--medium-bg); color: var(--medium-text); }
+    .ok { background: var(--ok-bg); color: var(--ok-text); }
+    .gap { background: var(--gap-bg); color: var(--gap-text); }
+    .partial { background: var(--partial-bg); color: var(--partial-text); }
+    .na { background: var(--na-bg); color: var(--na-text); }
+
+    .muted { color: var(--muted); }
+    .nowrap { white-space: nowrap; }
+    .evidence { color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 980px) {
+      main { padding: 22px 14px 40px; }
+      .summary, .grid { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>cc-devthrottle Tool Review</h1>
+      <p class="lede">
+        Readiness and code-review report for the shipped Fleet tool. The review compares the current
+        Python CLI to the user-facing Director UI, Gateway Cockpit, Control API, Gateway API, docs,
+        shipped manifest, and tests. The goal is to turn <code>cc-devthrottle</code> into the one reliable
+        command surface for DevThrottle automation before reviewing the remaining tools.
+      </p>
+      <p class="meta">
+        Source snapshot: 2026-06-27, repo <code>D:\ReposFred\devthrottle</code>. Independent Claude Code
+        reviewer started as session <code>3429220a</code>; expected output:
+        <code>docs/reviews/cc-devthrottle-claude-review.html</code>.
+      </p>
+    </header>
+
+    <section class="summary" aria-label="Review summary">
+      <div class="metric"><span class="value">7</span><span class="label">Top findings</span></div>
+      <div class="metric"><span class="value">1</span><span class="label">Critical install/runtime risk</span></div>
+      <div class="metric"><span class="value">16</span><span class="label">CLI commands implemented</span></div>
+      <div class="metric"><span class="value">16</span><span class="label">Actions advertised</span></div>
+      <div class="metric"><span class="value">9+</span><span class="label">Major UI/API groups not wrapped</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>Executive Read</h2>
+      <div class="grid">
+        <div>
+          <h3>What Works</h3>
+          <ul>
+            <li>The source CLI cleanly groups Fleet sessions/messages, settings, Gateway schedules, and setup under one Typer app.</li>
+            <li>Gateway cron routes are mostly wrapped: list, get, runs, create, run, enable, disable, delete, endpoint.</li>
+            <li>Settings read/write was successfully folded into <code>cc-devthrottle settings</code>.</li>
+            <li>Focused Python schedule/settings tests pass in the current tree.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Readiness Judgment</h3>
+          <ul>
+            <li>Not ready to call complete as the one DevThrottle tool yet.</li>
+            <li>It is not installed on this live session's PATH even though older fleet aliases are.</li>
+            <li>The advertised agent action list is incomplete and diverges from the actual CLI.</li>
+            <li>Full UI/Gateway/Director parity requires new command groups and contract tests.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Findings</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Finding</th>
+            <th>Evidence</th>
+            <th>Impact</th>
+            <th>Recommendation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge critical">Critical</span></td>
+            <td><strong>The shipped command is not available on this live session's PATH.</strong></td>
+            <td class="evidence">
+              Verification command: <code>Get-Command cc-devthrottle</code> returned not found, while
+              <code>cc-spawn</code>, <code>cc-send</code>, <code>cc-ask</code>, and <code>cc-sessions</code> resolve from
+              <code>C:\Users\soren\AppData\Local\cc-director\bin</code>.
+            </td>
+            <td>Agents are told to use the unified command, but the current deployed environment still exposes the older split aliases. That reproduces the original confusion.</td>
+            <td>Fix the installed bundle/shims or deployment refresh so <code>cc-devthrottle</code> is present before removing aliases. Add an installer smoke check that fails if <code>cc-devthrottle --version</code> is absent.</td>
+          </tr>
+          <tr>
+            <td><span class="badge high">High</span></td>
+            <td><strong><code>actions --json</code> is incomplete and not tied to the real command surface.</strong></td>
+            <td class="evidence">
+              <code>tools/cc-devthrottle/src/cli.py:50</code> defines static <code>_ACTIONS</code>.
+              Actual command decorators include settings list/path (<code>cli.py:334</code>, <code>cli.py:342</code>),
+              schedule get/runs/enable/disable/delete/endpoint (<code>cli.py:370</code>, <code>379</code>,
+              <code>435</code>, <code>441</code>, <code>447</code>, <code>453</code>), and setup update/repair/doctor
+              (<code>cli.py:475</code>, <code>481</code>, <code>487</code>) that are not advertised.
+            </td>
+            <td>Agents using the discoverable action contract miss valid capabilities and will keep asking for or inventing helper tools.</td>
+            <td>Generate actions from a single declarative command registry or add a contract test that every Typer command has action metadata with mutability, args, required environment, and examples.</td>
+          </tr>
+          <tr>
+            <td><span class="badge high">High</span></td>
+            <td><strong>Setup/install logic conflicts with the shipped-tool contract.</strong></td>
+            <td class="evidence">
+              <code>tools/cc-devthrottle/src/setup_ops.py:24</code> lists many Python tools, including extra tools.
+              <code>setup_ops.py:52</code> lists Node tools including unregistered <code>cc-fox-browser</code>.
+              <code>scripts/build-tools.bat:28</code> also builds a broad tool list. Registry ship state says only 9 tools ship; the Avalonia profile now installs only <code>cc-devthrottle</code> at <code>tools/cc-director-setup-avalonia/Models/InstallProfile.cs:25</code>.
+            </td>
+            <td><code>cc-devthrottle setup install</code> can drift from the product allowlist and install tools that the catalog says are extra or not registered.</td>
+            <td>Make setup read the same shipped manifest/registry allowlist used by release packaging. Remove hard-coded tool arrays from the setup helper or mark them developer-only.</td>
+          </tr>
+          <tr>
+            <td><span class="badge high">High</span></td>
+            <td><strong>Settings writes bypass the live Control API path and lack Settings UI parity.</strong></td>
+            <td class="evidence">
+              <code>tools/cc-devthrottle/src/settings_ops.py:59</code> mutates config objects and calls <code>config.save()</code> at
+              <code>settings_ops.py:90</code>. The live Director API uses <code>PUT /settings</code> and re-applies Gateway changes through
+              <code>src/CcDirector.ControlApi/SettingsEndpoint.cs:39</code> and <code>ControlApiHost.cs:653</code>. The Agents settings API exposes full CRUD/detect/quick-check/catalog at <code>src/CcDirector.ControlApi/AgentsEndpoint.cs:25</code>-<code>44</code>.
+            </td>
+            <td>Changing <code>gateway.url</code> from the CLI can leave a running Director stale until restart, and the CLI cannot manage the Agents tab, detection wizard, quick checks, command-line previews, or catalog.</td>
+            <td>Default <code>cc-devthrottle settings</code> to <code>CC_DIRECTOR_API</code> when inside a session, with <code>--offline</code> for direct file edits. Add structured <code>settings agents</code>, <code>settings detect</code>, <code>settings test-gateway</code>, and <code>settings screenshots detect</code> subcommands.</td>
+          </tr>
+          <tr>
+            <td><span class="badge high">High</span></td>
+            <td><strong>Schedule command lacks full Cockpit parity because it cannot edit an existing job's fields.</strong></td>
+            <td class="evidence">
+              Cockpit's Schedule page uses edit/create modal behavior and calls <code>UpdateCronJobAsync</code> at
+              <code>src/CcDirector.Cockpit/Components/Pages/Schedule.razor:530</code>. Gateway exposes
+              <code>PUT /cron/jobs/{id}</code> at <code>src/CcDirector.Gateway/Api/CronJobEndpoints.cs:64</code>.
+              The CLI has enable/disable as narrow PUT wrappers, but no <code>schedule update</code> command.
+            </td>
+            <td>Agents can create or toggle jobs but cannot safely modify target machine, repo, prompt/worklist, cron, timezone, or notification policy after creation.</td>
+            <td>Add <code>cc-devthrottle schedule update &lt;id&gt;</code> with the same fields as create, plus optional patch-style flags that preserve unspecified values.</td>
+          </tr>
+          <tr>
+            <td><span class="badge high">High</span></td>
+            <td><strong>Director session UI controls are mostly not wrapped.</strong></td>
+            <td class="evidence">
+              Control API supports hold (<code>ControlEndpoints.cs:735</code>), wingman toggle (<code>763</code>),
+              prompt (<code>1890</code>), interrupt (<code>2044</code>), escape (<code>2068</code>),
+              upload image (<code>2203</code>), delete session (<code>2893</code>), history
+              (<code>SessionHistoryEndpoint.cs:25</code>), usage (<code>SessionUsageEndpoint.cs:19</code>),
+              recap (<code>ControlEndpoints.cs:1309</code>, <code>1346</code>), and queue routes
+              (<code>ControlEndpoints.cs:1954</code>, <code>1968</code>, <code>2006</code>).
+            </td>
+            <td>The CLI can list/rename/spawn/message/ask, but it cannot drive many operations users can perform from the Director or Cockpit UI.</td>
+            <td>Add a <code>cc-devthrottle session</code> expansion: <code>prompt</code>, <code>interrupt</code>, <code>escape</code>, <code>kill</code>, <code>hold</code>, <code>wingman</code>, <code>history</code>, <code>usage</code>, <code>recap</code>, <code>queue</code>, <code>upload-image</code>, and screenshot operations.</td>
+          </tr>
+          <tr>
+            <td><span class="badge medium">Medium</span></td>
+            <td><strong>Gateway/Cockpit pages expose major automation surfaces that are missing from the CLI.</strong></td>
+            <td class="evidence">
+              Work lists are exposed by <code>src/CcDirector.Gateway/Api/WorkListEndpoints.cs:32</code>-<code>145</code> and run via <code>WorkListRunnerEndpoints.cs:38</code>.
+              Account/telemetry/dictionary/transcripts/exes/wingman queue and wingman instructions are exposed in
+              <code>src/CcDirector.Cockpit/Services/GatewayClient.cs:176</code>, <code>219</code>, <code>252</code>,
+              <code>606</code>, <code>666</code>, <code>744</code>, and <code>src/CcDirector.Gateway/Api/WingmanInstructionsEndpoint.cs:29</code>.
+            </td>
+            <td>If the standard is "everything available in the UI/Gateway/Director", <code>cc-devthrottle</code> is missing whole product domains.</td>
+            <td>Define explicit groups: <code>gateway account</code>, <code>gateway telemetry</code>, <code>gateway dictionary</code>, <code>gateway transcripts</code>, <code>gateway exes</code>, <code>gateway wingman</code>, and <code>worklist</code>. If some are out of scope, document that boundary.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Coverage Matrix</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Product Surface</th>
+            <th>UI/API Source</th>
+            <th>Current cc-devthrottle Coverage</th>
+            <th>Status</th>
+            <th>Needed For Full Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Fleet directory</td><td><code>/fleet/sessions</code>, session roster</td><td><code>session list</code>, <code>whoami</code></td><td><span class="badge ok">Good</span></td><td>Add JSON contract tests against Control API DTO variants.</td></tr>
+          <tr><td>Fleet messaging</td><td><code>/fleet/send</code>, <code>/fleet/broadcast</code>, <code>/fleet/ask</code></td><td><code>message send</code>, <code>message ask</code>, <code>selftest</code></td><td><span class="badge partial">Partial</span></td><td>Installed binary smoke test; cross-agent ask limitations documented in help/actions.</td></tr>
+          <tr><td>Session lifecycle</td><td>Director/Cockpit session controls</td><td><code>spawn</code>, <code>rename</code></td><td><span class="badge partial">Partial</span></td><td>Prompt, interrupt, escape, kill, hold, wingman toggle, queue, upload, recap, history, usage.</td></tr>
+          <tr><td>Director settings</td><td>Settings dialog, <code>GET/PUT /settings</code></td><td>File-backed show/get/set/list/path</td><td><span class="badge partial">Partial</span></td><td>Control API mode, merge patch, live Gateway reapply, detect/test helpers.</td></tr>
+          <tr><td>Agent settings</td><td>Agents tab, <code>/settings/agents/*</code></td><td>None</td><td><span class="badge gap">Gap</span></td><td>Agent list/add/edit/remove/reorder/enable/detect/quick-check/catalog/command-line.</td></tr>
+          <tr><td>Gateway schedules</td><td>Schedule page, <code>/cron/jobs</code></td><td>List/get/runs/create/run/enable/disable/delete/endpoint</td><td><span class="badge partial">Partial</span></td><td>Update/edit command and action metadata for every subcommand.</td></tr>
+          <tr><td>Work lists</td><td>Lists page, <code>/lists</code></td><td>Only referenced as schedule action target</td><td><span class="badge gap">Gap</span></td><td>Create/list/get/add/remove/reorder/claim/release/run.</td></tr>
+          <tr><td>Gateway account/telemetry</td><td>Account and Telemetry pages</td><td>None</td><td><span class="badge gap">Gap</span></td><td>Status/logout and telemetry get/set commands.</td></tr>
+          <tr><td>Gateway dictionary/transcripts</td><td>Dictionary and Transcripts pages</td><td>None</td><td><span class="badge gap">Gap</span></td><td>Dictionary get/put/add-term; recordings list/read/delete/promote/update metadata.</td></tr>
+          <tr><td>Gateway exes/build slots</td><td>Exes page</td><td>None</td><td><span class="badge gap">Gap</span></td><td>List directors/slots, kill director, build-start slot, delete slot.</td></tr>
+          <tr><td>Wingman Gateway surfaces</td><td>Wingman Queue and Gateway Settings</td><td>None</td><td><span class="badge gap">Gap</span></td><td>Queue status, instructions get/put/revert/test/default/update records.</td></tr>
+          <tr><td>Setup/install</td><td>Installer profiles and Python bundle</td><td>Status/install/update/repair/doctor aliases</td><td><span class="badge partial">Partial</span></td><td>Use shipped manifest, avoid extra tools, stronger diagnostics, tests with fake release assets.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Tests And Proof Gaps</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Gap</th>
+            <th>Current Evidence</th>
+            <th>Recommended Test</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>No direct <code>session_ops</code> tests</td>
+            <td><code>tools/cc-devthrottle/tests</code> contains schedule and settings tests, but no dedicated tests for target resolution, rename, send, ask, spawn, or selftest cleanup.</td>
+            <td>Mock <code>cc_shared.director</code> and verify request paths, payloads, ambiguous target behavior, <code>all</code> rejection for ask, and error text.</td>
+          </tr>
+          <tr>
+            <td>No action metadata coverage test</td>
+            <td>Static <code>_ACTIONS</code> can silently drift from Typer decorators.</td>
+            <td>Enumerate command tree with Typer/Click and assert every public command has action metadata or an intentional exclusion.</td>
+          </tr>
+          <tr>
+            <td>No setup installer contract test</td>
+            <td><code>setup_ops.py</code> has hard-coded install lists and network/file IO.</td>
+            <td>Inject release asset provider and filesystem paths; assert only shipped tools are installed and missing assets are reported clearly.</td>
+          </tr>
+          <tr>
+            <td>No installed PATH proof in this environment</td>
+            <td>Current shell does not resolve <code>cc-devthrottle</code>.</td>
+            <td>Add an installer/e2e smoke: fresh terminal, <code>Get-Command cc-devthrottle</code>, <code>cc-devthrottle --version</code>, <code>cc-devthrottle actions --json</code>.</td>
+          </tr>
+          <tr>
+            <td>Settings tests cover offline model only</td>
+            <td>Settings tests validate flatten/get/set/save behavior, not live Control API behavior.</td>
+            <td>Add Control API tests for <code>cc-devthrottle settings set gateway.url</code> causing merge-patch and Gateway reapply when inside a Director session.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Recommended Implementation Path</h2>
+      <ol>
+        <li>Fix install/runtime first: make <code>cc-devthrottle</code> present on PATH in a live Director session and add a release smoke test for it.</li>
+        <li>Replace static action metadata with a declarative command registry and make <code>actions --json</code> complete.</li>
+        <li>Switch settings writes to Control API by default and add <code>settings agents</code> parity subcommands.</li>
+        <li>Add <code>schedule update</code> and full action metadata for all schedule commands.</li>
+        <li>Add session control parity commands for prompt/interrupt/escape/kill/hold/wingman/history/usage/recap/queue.</li>
+        <li>Add Gateway domain groups only after explicitly deciding that <code>cc-devthrottle</code> owns full Gateway/Cockpit coverage.</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

@@ -7,20 +7,23 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f9;
+      --bg: #f5f7fa;
       --panel: #ffffff;
-      --text: #1e2430;
-      --muted: #5c6575;
-      --line: #d9dee7;
-      --head: #edf1f6;
-      --ship-bg: #e8f5ee;
+      --text: #1f2633;
+      --muted: #657082;
+      --line: #dce2eb;
+      --head: #edf2f7;
+      --ink: #303947;
+      --ship-bg: #e7f5ee;
       --ship-text: #17623a;
-      --extra-bg: #fff4df;
+      --extra-bg: #fff4dc;
       --extra-text: #805000;
-      --built-bg: #eaf1ff;
-      --built-text: #234f91;
-      --warn-bg: #fff1f1;
-      --warn-text: #8b2727;
+      --ok-bg: #e9f5ff;
+      --ok-text: #174e82;
+      --risk-bg: #fff1f1;
+      --risk-text: #8b2727;
+      --neutral-bg: #eef0f4;
+      --neutral-text: #485263;
     }
 
     * {
@@ -31,18 +34,20 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.5 "Segoe UI", Arial, sans-serif;
+      font: 14px/1.48 "Segoe UI", Arial, sans-serif;
     }
 
     main {
-      max-width: 1280px;
+      max-width: 1360px;
       margin: 0 auto;
       padding: 32px 24px 56px;
     }
 
-    h1, h2, h3 {
+    h1,
+    h2,
+    h3 {
       margin: 0;
-      line-height: 1.2;
+      line-height: 1.22;
     }
 
     h1 {
@@ -52,12 +57,12 @@
 
     h2 {
       font-size: 20px;
-      margin-top: 30px;
+      margin-top: 32px;
     }
 
     h3 {
       font-size: 16px;
-      margin: 24px 0 10px;
+      margin-top: 0;
     }
 
     p {
@@ -71,29 +76,31 @@
 
     .lede {
       color: var(--muted);
-      max-width: 920px;
+      max-width: 980px;
       margin-top: 8px;
     }
 
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 18px 20px;
-      margin-top: 18px;
+    .meta {
+      color: var(--muted);
+      margin-top: 12px;
+      font-size: 13px;
     }
 
     .summary {
       display: grid;
-      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
       gap: 12px;
       margin-top: 22px;
     }
 
-    .metric {
+    .metric,
+    .panel {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
+    }
+
+    .metric {
       padding: 16px;
     }
 
@@ -109,6 +116,26 @@
       font-size: 13px;
     }
 
+    .panel {
+      padding: 18px 20px;
+      margin-top: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    ul {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+
+    li + li {
+      margin-top: 4px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -119,7 +146,8 @@
       overflow: hidden;
     }
 
-    th, td {
+    th,
+    td {
       border-bottom: 1px solid var(--line);
       padding: 10px 12px;
       text-align: left;
@@ -128,7 +156,7 @@
 
     th {
       background: var(--head);
-      color: #303846;
+      color: var(--ink);
       font-size: 12px;
       letter-spacing: 0.02em;
       text-transform: uppercase;
@@ -137,6 +165,10 @@
 
     tr:last-child td {
       border-bottom: 0;
+    }
+
+    .tool {
+      white-space: nowrap;
     }
 
     .badge {
@@ -158,38 +190,36 @@
       color: var(--extra-text);
     }
 
-    .built {
-      background: var(--built-bg);
-      color: var(--built-text);
+    .ok {
+      background: var(--ok-bg);
+      color: var(--ok-text);
     }
 
-    .todo {
-      background: var(--warn-bg);
-      color: var(--warn-text);
+    .risk {
+      background: var(--risk-bg);
+      color: var(--risk-text);
+    }
+
+    .neutral {
+      background: var(--neutral-bg);
+      color: var(--neutral-text);
     }
 
     .muted {
       color: var(--muted);
     }
 
-    .rules {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+    .tight {
+      margin-top: 6px;
     }
 
-    ul {
-      margin: 8px 0 0;
-      padding-left: 20px;
-    }
-
-    @media (max-width: 900px) {
+    @media (max-width: 980px) {
       main {
         padding: 22px 14px 40px;
       }
 
       .summary,
-      .rules {
+      .grid {
         grid-template-columns: 1fr;
       }
 
@@ -205,10 +235,15 @@
     <header>
       <h1>DevThrottle Tool Inventory Review</h1>
       <p class="lede">
-        Starting review document for every registered <code>cc-*</code> tool. Source of truth:
-        <code>tools/registry.json</code> as of 2026-06-27. This page separates tools that ship in
-        the installed product from extra repo tools that need an explicit ship decision and proof
-        before promotion.
+        Review artifact for the current <code>cc-*</code> command surface. It separates the
+        product tools shipped to users from extra repo tools, then calls out directories under
+        <code>tools/</code> that are not part of the registry and need an explicit keep, merge,
+        retire, or register decision.
+      </p>
+      <p class="meta">
+        Sources: <code>tools/registry.json</code>, <code>src/CcDirector.Core/Tools/tools-manifest.json</code>,
+        and the <code>tools/</code> directory. Last refreshed: 2026-06-27 after folding
+        <code>cc-settings</code> into <code>cc-devthrottle settings</code>.
       </p>
     </header>
 
@@ -219,37 +254,41 @@
       </div>
       <div class="metric">
         <span class="value">9</span>
-        <span class="label">Shipped tools</span>
+        <span class="label">Shipped product tools</span>
       </div>
       <div class="metric">
         <span class="value">23</span>
-        <span class="label">Extra repo tools</span>
+        <span class="label">Registered extra tools</span>
+      </div>
+      <div class="metric">
+        <span class="value">9</span>
+        <span class="label">Unregistered command-like dirs</span>
       </div>
       <div class="metric">
         <span class="value">7</span>
-        <span class="label">Tool categories</span>
+        <span class="label">Registry categories</span>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Review Rules</h2>
-      <div class="rules">
+      <h2>Current Read</h2>
+      <div class="grid">
         <div>
-          <h3>Shipped Tool Standard</h3>
+          <h3>What Ships</h3>
           <ul>
-            <li>Must appear in the install bundle and tools manifest intentionally.</li>
-            <li>Must have a reliable <code>--version</code> or equivalent health check.</li>
-            <li>Must have a zero-auth smoke test, or a documented reason why that is impossible.</li>
-            <li>Must have current docs matching the real command surface.</li>
+            <li>The product surface is the registry allowlist where <code>ship: true</code>.</li>
+            <li>The shipped manifest has the same 9 tools and owns catalog health checks.</li>
+            <li><code>cc-devthrottle</code> is the single shipped Fleet tool for sessions, messages, settings, schedules, and setup operations.</li>
+            <li><code>cc-settings</code> is no longer a standalone CLI. The separate <code>cc-settings-api</code> Claude skill remains because it drives live Control API writes.</li>
           </ul>
         </div>
         <div>
-          <h3>Extra Tool Standard</h3>
+          <h3>What Needs Review</h3>
           <ul>
-            <li>Stays buildable in the repo but is not promised to installed users.</li>
-            <li>Needs a clear owner, purpose, dependency list, and test/proof before shipping.</li>
-            <li>Tools that require personal API keys or heavyweight local dependencies should stay extra unless there is a product reason to ship them.</li>
-            <li>Promotion means updating registry ship status, manifest, docs, tests, and release bundle proof together.</li>
+            <li>Every extra registered tool needs a keep, merge, retire, or promote decision.</li>
+            <li>Promotion requires registry ship status, shipped manifest entry, docs, installer inclusion, and passing proof.</li>
+            <li>Unregistered command-like directories are the biggest cleanup gap because they are neither explicitly extra nor intentionally shipped.</li>
+            <li>Auth-heavy and platform-specific tools should stay extra unless the product has a clear reason to support them.</li>
           </ul>
         </div>
       </div>
@@ -268,10 +307,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr><td>Data Utilities</td><td>5</td><td>2</td><td>3</td><td>Data storage, system info, configuration, and developer support tools.</td></tr>
-          <tr><td>Desktop Automation</td><td>3</td><td>0</td><td>3</td><td>Windows UI automation and AI desktop agent tools.</td></tr>
+          <tr><td>Data Utilities</td><td>5</td><td>2</td><td>3</td><td>Data storage, system info, analytics, architecture docs, and developer support tools.</td></tr>
+          <tr><td>Desktop Automation</td><td>3</td><td>0</td><td>3</td><td>Windows UI automation and AI desktop agent experiments.</td></tr>
           <tr><td>Documents</td><td>5</td><td>3</td><td>2</td><td>Document conversion and generation.</td></tr>
-          <tr><td>Email</td><td>2</td><td>2</td><td>0</td><td>Email and calendar management.</td></tr>
+          <tr><td>Email</td><td>2</td><td>2</td><td>0</td><td>Email and calendar command surfaces.</td></tr>
           <tr><td>Fleet</td><td>1</td><td>1</td><td>0</td><td>DevThrottle fleet, session, message, settings, schedule, and setup operations.</td></tr>
           <tr><td>Media</td><td>7</td><td>0</td><td>7</td><td>Image, audio, video, photo, and transcript processing.</td></tr>
           <tr><td>Web/Social</td><td>9</td><td>1</td><td>8</td><td>Browser automation, crawling, website analysis, and social network tools.</td></tr>
@@ -280,42 +319,55 @@
     </section>
 
     <section>
-      <h2>Shipped Product Tools</h2>
-      <p class="muted">
-        These have <code>ship: true</code> in the registry. They should be treated as product
-        promises and reviewed first.
-      </p>
+      <h2>Consolidation Notes</h2>
       <table>
         <thead>
           <tr>
-            <th>Tool</th>
-            <th>Category</th>
-            <th>Runtime</th>
-            <th>Status</th>
-            <th>Built</th>
-            <th>Requirements</th>
-            <th>Review State</th>
+            <th>Surface</th>
+            <th>Current Command</th>
+            <th>Previous/Related Surface</th>
+            <th>Decision</th>
+            <th>Proof State</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>cc-comm-queue</code></td><td>Data Utilities</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-vault</code></td><td>Data Utilities</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-html</code></td><td>Documents</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-pdf</code></td><td>Documents</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>Chrome/Chromium</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-word</code></td><td>Documents</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-gmail</code></td><td>Email</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>Google OAuth</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-outlook</code></td><td>Email</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>Azure OAuth</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-devthrottle</code></td><td>Fleet</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
-          <tr><td><code>cc-playwright</code></td><td>Web/Social</td><td>python</td><td><span class="badge ship">Shipped</span></td><td><span class="badge built">Built</span></td><td>Python 3.10+, Playwright, Brave (Chromium)</td><td><span class="badge todo">Needs current smoke/proof review</span></td></tr>
+          <tr>
+            <td>Settings</td>
+            <td><code>cc-devthrottle settings show|get|set|list|path</code></td>
+            <td><code>cc-settings</code></td>
+            <td><span class="badge ship">Folded in</span></td>
+            <td>Python tests, wheel build, JSON manifests, and focused Core manifest/linking tests passed in the consolidation pass.</td>
+          </tr>
+          <tr>
+            <td>Gateway schedules</td>
+            <td><code>cc-devthrottle schedule ...</code></td>
+            <td>Gateway cron/schedule tooling</td>
+            <td><span class="badge ship">Folded in</span></td>
+            <td>Covered by existing <code>cc-devthrottle</code> schedule tests and shipped action metadata.</td>
+          </tr>
+          <tr>
+            <td>Setup helper</td>
+            <td><code>cc-devthrottle setup status|install|update|repair|doctor</code></td>
+            <td>Python setup helper</td>
+            <td><span class="badge ship">Folded in</span></td>
+            <td>Installer apps and setup engine remain separate release artifacts; the Python helper surface is unified.</td>
+          </tr>
+          <tr>
+            <td>Fleet sessions/messages</td>
+            <td><code>cc-devthrottle session ...</code>, <code>cc-devthrottle message ...</code></td>
+            <td>Ad hoc fleet aliases such as session listing and send/ask commands</td>
+            <td><span class="badge ship">Unified surface</span></td>
+            <td>Should be the preferred documented path for agents; aliases can remain compatibility shims only if still required.</td>
+          </tr>
         </tbody>
       </table>
     </section>
 
     <section>
-      <h2>Extra Repo Tools</h2>
+      <h2>Shipped Product Tools</h2>
       <p class="muted">
-        These are registered and marked built, but they are not shipped in the installed product.
-        They should be reviewed for keep/merge/retire/promote decisions.
+        These tools have <code>ship: true</code> in the registry and appear in the shipped tools manifest.
+        They are product promises, so their smoke checks should be kept current.
       </p>
       <table>
         <thead>
@@ -323,47 +375,124 @@
             <th>Tool</th>
             <th>Category</th>
             <th>Runtime</th>
-            <th>Status</th>
-            <th>Built</th>
+            <th>Purpose</th>
             <th>Requirements</th>
+            <th>Manifest Smoke</th>
             <th>Review State</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>cc-docgen</code></td><td>Data Utilities</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Graphviz</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-hardware</code></td><td>Data Utilities</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-posthog</code></td><td>Data Utilities</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>PostHog account + API key</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-click</code></td><td>Desktop Automation</td><td>dotnet</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Windows, .NET runtime</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-computer</code></td><td>Desktop Automation</td><td>dotnet</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Windows, .NET runtime, OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-trisight</code></td><td>Desktop Automation</td><td>dotnet</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Windows, .NET runtime</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-excel</code></td><td>Documents</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-powerpoint</code></td><td>Documents</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-image</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-photos</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-transcribe</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>FFmpeg, OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-video</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>FFmpeg</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-voice</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-whisper</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>OPENAI_API_KEY</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-youtube-info</code></td><td>Media</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>None</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-brandingrecommendations</code></td><td>Web/Social</td><td>nodejs</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Node.js, cc-websiteaudit JSON output</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-browser</code></td><td>Web/Social</td><td>nodejs</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Node.js, Playwright</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-crawl4ai</code></td><td>Web/Social</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Playwright browsers</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-facebook</code></td><td>Web/Social</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Facebook App + Page Access Token</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-reddit</code></td><td>Web/Social</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Playwright browsers, cc-browser</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-twitter</code></td><td>Web/Social</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Twitter API v2 credentials</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-websiteaudit</code></td><td>Web/Social</td><td>nodejs</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Node.js, Chrome/Chromium</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
-          <tr><td><code>cc-youtube</code></td><td>Web/Social</td><td>python</td><td><span class="badge extra">Extra</span></td><td><span class="badge built">Built</span></td><td>Google OAuth (YouTube Data API v3)</td><td><span class="badge todo">Needs ship decision + proof</span></td></tr>
+          <tr><td class="tool"><code>cc-comm-queue</code></td><td>Data Utilities</td><td>python</td><td>Communication Manager approval queue CLI.</td><td>None</td><td><code>status</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+          <tr><td class="tool"><code>cc-vault</code></td><td>Data Utilities</td><td>python</td><td>Personal data vault for contacts, tasks, goals, ideas, documents, and RAG search.</td><td>None</td><td><code>stats</code>, expects <code>Vault Statistics</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+          <tr><td class="tool"><code>cc-html</code></td><td>Documents</td><td>python</td><td>Convert between Markdown and HTML with themes.</td><td>None</td><td><code>--themes</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+          <tr><td class="tool"><code>cc-pdf</code></td><td>Documents</td><td>python</td><td>Convert between Markdown and PDF with themes.</td><td>Chrome/Chromium</td><td><code>--themes</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+          <tr><td class="tool"><code>cc-word</code></td><td>Documents</td><td>python</td><td>Convert between Markdown and Word documents with themes.</td><td>None</td><td><code>--themes</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+          <tr><td class="tool"><code>cc-gmail</code></td><td>Email</td><td>python</td><td>Gmail read, send, search, labels, calendar, and contacts.</td><td>Google OAuth</td><td>Auth gated; presence and version only.</td><td><span class="badge risk">Needs auth-gated proof note</span></td></tr>
+          <tr><td class="tool"><code>cc-outlook</code></td><td>Email</td><td>python</td><td>Outlook email, calendar, attachments, and folders.</td><td>Azure OAuth</td><td>Auth gated; presence and version only.</td><td><span class="badge risk">Needs auth-gated proof note</span></td></tr>
+          <tr><td class="tool"><code>cc-devthrottle</code></td><td>Fleet</td><td>python</td><td>Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup.</td><td>None</td><td><code>actions --json</code>, expects <code>settings-get</code></td><td><span class="badge ok">Current proof exists</span></td></tr>
+          <tr><td class="tool"><code>cc-playwright</code></td><td>Web/Social</td><td>python</td><td>Trusted-event browser automation via Playwright CDP with named, isolated connections.</td><td>Python 3.10+, Playwright, Brave/Chromium</td><td><code>list</code></td><td><span class="badge risk">Needs proof refresh</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Registered Extra Tools</h2>
+      <p class="muted">
+        These tools are registered and buildable, but they do not ship in the installed product.
+        They should stay out of the product manifest until their dependencies, tests, docs, and user value are proven.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Category</th>
+            <th>Runtime</th>
+            <th>Purpose</th>
+            <th>Requirements</th>
+            <th>Initial Disposition</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="tool"><code>cc-docgen</code></td><td>Data Utilities</td><td>python</td><td>C4 architecture diagram generator from YAML manifests.</td><td>Graphviz</td><td><span class="badge extra">Keep extra until dependency proof</span></td></tr>
+          <tr><td class="tool"><code>cc-hardware</code></td><td>Data Utilities</td><td>python</td><td>System hardware info for RAM, CPU, GPU, disk, network, and battery.</td><td>None</td><td><span class="badge extra">Promotion candidate after smoke proof</span></td></tr>
+          <tr><td class="tool"><code>cc-posthog</code></td><td>Data Utilities</td><td>python</td><td>PostHog analytics for page views, funnels, events, and recordings.</td><td>PostHog account + API key</td><td><span class="badge extra">Keep extra; credential gated</span></td></tr>
+          <tr><td class="tool"><code>cc-click</code></td><td>Desktop Automation</td><td>dotnet</td><td>Windows UI automation for click, type, screenshot, and read text.</td><td>Windows, .NET runtime</td><td><span class="badge extra">Keep extra; platform-specific</span></td></tr>
+          <tr><td class="tool"><code>cc-computer</code></td><td>Desktop Automation</td><td>dotnet</td><td>AI desktop automation agent with screenshot-in-the-loop.</td><td>Windows, .NET runtime, OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; platform and key gated</span></td></tr>
+          <tr><td class="tool"><code>cc-trisight</code></td><td>Desktop Automation</td><td>dotnet</td><td>UI element detection with UI Automation, OCR, and pixel analysis.</td><td>Windows, .NET runtime</td><td><span class="badge extra">Keep extra; platform-specific</span></td></tr>
+          <tr><td class="tool"><code>cc-excel</code></td><td>Documents</td><td>python</td><td>Convert between CSV, JSON, Markdown tables, and formatted Excel workbooks.</td><td>None</td><td><span class="badge extra">Promotion candidate after smoke proof</span></td></tr>
+          <tr><td class="tool"><code>cc-powerpoint</code></td><td>Documents</td><td>python</td><td>Convert between Markdown and PowerPoint presentations with themes.</td><td>None</td><td><span class="badge extra">Promotion candidate after smoke proof</span></td></tr>
+          <tr><td class="tool"><code>cc-image</code></td><td>Media</td><td>python</td><td>Image generation, analysis, and OCR using OpenAI.</td><td>OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; key gated</span></td></tr>
+          <tr><td class="tool"><code>cc-photos</code></td><td>Media</td><td>python</td><td>Photo organization, duplicate detection, screenshots, and AI descriptions.</td><td>OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; key gated</span></td></tr>
+          <tr><td class="tool"><code>cc-transcribe</code></td><td>Media</td><td>python</td><td>Video/audio transcription with timestamps and screenshots.</td><td>FFmpeg, OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; heavy deps</span></td></tr>
+          <tr><td class="tool"><code>cc-video</code></td><td>Media</td><td>python</td><td>Video info, audio extraction, screenshots, and frame utilities.</td><td>FFmpeg</td><td><span class="badge extra">Keep extra until FFmpeg proof</span></td></tr>
+          <tr><td class="tool"><code>cc-voice</code></td><td>Media</td><td>python</td><td>Text-to-speech using OpenAI TTS.</td><td>OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; key gated</span></td></tr>
+          <tr><td class="tool"><code>cc-whisper</code></td><td>Media</td><td>python</td><td>Audio transcription and translation using OpenAI Whisper.</td><td>OPENAI_API_KEY</td><td><span class="badge extra">Keep extra; key gated</span></td></tr>
+          <tr><td class="tool"><code>cc-youtube-info</code></td><td>Media</td><td>python</td><td>YouTube transcript, metadata, and chapter extraction.</td><td>None</td><td><span class="badge extra">Review for docs and smoke proof</span></td></tr>
+          <tr><td class="tool"><code>cc-brandingrecommendations</code></td><td>Web/Social</td><td>nodejs</td><td>Branding action plans from website audit data.</td><td>Node.js, cc-websiteaudit JSON output</td><td><span class="badge extra">Keep extra; depends on website audit</span></td></tr>
+          <tr><td class="tool"><code>cc-browser</code></td><td>Web/Social</td><td>nodejs</td><td>Persistent browser automation with workspaces and profiles.</td><td>Node.js, Playwright</td><td><span class="badge extra">Decide against cc-playwright overlap</span></td></tr>
+          <tr><td class="tool"><code>cc-crawl4ai</code></td><td>Web/Social</td><td>python</td><td>AI-ready web crawler that produces clean Markdown for LLM/RAG workflows.</td><td>Playwright browsers</td><td><span class="badge extra">Keep extra until browser proof</span></td></tr>
+          <tr><td class="tool"><code>cc-facebook</code></td><td>Web/Social</td><td>python</td><td>Facebook Page post, comment, reply, and list via Graph API.</td><td>Facebook App + Page Access Token</td><td><span class="badge extra">Keep extra; credential gated</span></td></tr>
+          <tr><td class="tool"><code>cc-reddit</code></td><td>Web/Social</td><td>python</td><td>Reddit automation with browser-backed human-like delays.</td><td>Playwright browsers, cc-browser</td><td><span class="badge extra">Keep extra; brittle automation</span></td></tr>
+          <tr><td class="tool"><code>cc-twitter</code></td><td>Web/Social</td><td>python</td><td>Twitter/X post, reply, thread, like, retweet, and timeline.</td><td>Twitter API v2 credentials</td><td><span class="badge extra">Keep extra; credential gated</span></td></tr>
+          <tr><td class="tool"><code>cc-websiteaudit</code></td><td>Web/Social</td><td>nodejs</td><td>Website SEO, security, and AI readiness audit.</td><td>Node.js, Chrome/Chromium</td><td><span class="badge extra">Promotion candidate only with browser proof</span></td></tr>
+          <tr><td class="tool"><code>cc-youtube</code></td><td>Web/Social</td><td>python</td><td>YouTube upload, comment, reply, and list via YouTube Data API v3.</td><td>Google OAuth</td><td><span class="badge extra">Keep extra; auth gated</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Unregistered Tool Directories</h2>
+      <p class="muted">
+        These directories exist under <code>tools/</code> but are not registered product tools.
+        Some are intentionally support code. Others look command-like and should be either merged,
+        registered as extra, or retired.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Directory</th>
+            <th>Kind</th>
+            <th>Why It Is Not In Registry</th>
+            <th>Recommended Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="tool"><code>cc-browser-archived</code></td><td>Archived command code</td><td>Archived browser implementation, not a current product surface.</td><td><span class="badge risk">Retire or move to docs/archive</span></td></tr>
+          <tr><td class="tool"><code>cc-director-setup</code></td><td>Installer UI</td><td>Release artifact, not a cc tool installed through the Python tool bundle.</td><td><span class="badge neutral">Keep unregistered</span></td></tr>
+          <tr><td class="tool"><code>cc-director-setup-avalonia</code></td><td>Installer UI</td><td>Cross-platform setup front end, not a registry tool.</td><td><span class="badge neutral">Keep unregistered</span></td></tr>
+          <tr><td class="tool"><code>cc-director-setup-cli</code></td><td>Installer CLI</td><td>Release/install artifact with its own lifecycle.</td><td><span class="badge neutral">Keep unregistered; document separately</span></td></tr>
+          <tr><td class="tool"><code>cc-director-setup-engine</code></td><td>Shared library</td><td>Engine used by setup front ends and tests.</td><td><span class="badge neutral">Keep unregistered</span></td></tr>
+          <tr><td class="tool"><code>cc-fox-browser</code></td><td>Node command</td><td>Camoufox anti-detection browser automation; not reviewed for product support.</td><td><span class="badge risk">Register extra or retire</span></td></tr>
+          <tr><td class="tool"><code>cc-history</code></td><td>Python command</td><td>Reads another Director session's recent conversation turns.</td><td><span class="badge risk">Merge into cc-devthrottle or register extra</span></td></tr>
+          <tr><td class="tool"><code>cc-launcher</code></td><td>macOS daemon</td><td>Localhost GUI-session launcher for macOS agent workflows.</td><td><span class="badge risk">Keep support-only until install story is clear</span></td></tr>
+          <tr><td class="tool"><code>cc-status</code></td><td>Python command</td><td>Shows fleet session state, repo, and last reason.</td><td><span class="badge risk">Merge into cc-devthrottle or register extra</span></td></tr>
+          <tr><td class="tool"><code>cc_shared</code>, <code>cc_storage</code></td><td>Python support packages</td><td>Shared libraries used by multiple tools.</td><td><span class="badge neutral">Keep unregistered</span></td></tr>
+          <tr><td class="tool"><code>*.Tests</code> setup directories</td><td>Test projects</td><td>Test projects for setup UI, CLI, and engine.</td><td><span class="badge neutral">Keep unregistered</span></td></tr>
+          <tr><td class="tool"><code>ConsoleDiagnostic</code>, <code>devthrottle-dev-signin</code>, <code>terminal-snapshot</code></td><td>Developer helpers</td><td>Non-cc helper projects, not product tool commands.</td><td><span class="badge neutral">Keep out of cc registry</span></td></tr>
         </tbody>
       </table>
     </section>
 
     <section class="panel">
       <h2>Next Review Pass</h2>
-      <p>
-        The next pass should replace the placeholder review state with evidence links:
-        command help output, version output, smoke test result, dependency proof, and the decision
-        to keep, merge, retire, or ship each tool.
-      </p>
+      <div class="grid">
+        <div>
+          <h3>Proof To Collect</h3>
+          <ul>
+            <li>For each shipped tool: exact version output, manifest smoke output, and install-bundle presence.</li>
+            <li>For auth-gated tools: presence/version proof plus a documented reason that zero-auth smoke is impossible.</li>
+            <li>For dependency-heavy tools: dependency detection behavior and failure messages.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Cleanup Decisions</h3>
+          <ul>
+            <li>Resolve <code>cc-history</code> and <code>cc-status</code> first because they overlap directly with <code>cc-devthrottle</code>.</li>
+            <li>Decide whether <code>cc-browser</code>, <code>cc-playwright</code>, and <code>cc-fox-browser</code> have distinct supported roles.</li>
+            <li>Move archived or unsupported folders out of the active <code>tools/</code> path once their decision is made.</li>
+          </ul>
+        </div>
+      </div>
     </section>
   </main>
 </body>

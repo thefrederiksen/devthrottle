@@ -138,11 +138,39 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "settings-list",
+        "description": "List all available CC Director setting keys.",
+        "command": "cc-devthrottle settings list",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "settings-path",
+        "description": "Show the local CC Director config file path.",
+        "command": "cc-devthrottle settings path",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
         "id": "schedule-list",
         "description": "List Gateway schedules.",
         "command": "cc-devthrottle schedule list",
         "mutatesState": False,
         "args": [],
+    },
+    {
+        "id": "schedule-get",
+        "description": "Show one Gateway schedule in full.",
+        "command": "cc-devthrottle schedule get <id>",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "schedule-runs",
+        "description": "Show run history for a Gateway schedule.",
+        "command": "cc-devthrottle schedule runs <id>",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
     },
     {
         "id": "schedule-create",
@@ -166,6 +194,34 @@ _ACTIONS = [
         "args": [{"name": "id", "required": True}],
     },
     {
+        "id": "schedule-enable",
+        "description": "Enable a Gateway schedule.",
+        "command": "cc-devthrottle schedule enable <id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "schedule-disable",
+        "description": "Disable a Gateway schedule.",
+        "command": "cc-devthrottle schedule disable <id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "schedule-delete",
+        "description": "Delete a Gateway schedule.",
+        "command": "cc-devthrottle schedule delete <id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "schedule-endpoint",
+        "description": "Show the Gateway endpoint used by schedule commands.",
+        "command": "cc-devthrottle schedule endpoint",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
         "id": "setup-status",
         "description": "Show local DevThrottle setup status.",
         "command": "cc-devthrottle setup status",
@@ -177,6 +233,27 @@ _ACTIONS = [
         "description": "Install or repair DevThrottle from the latest GitHub release.",
         "command": "cc-devthrottle setup install",
         "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "setup-update",
+        "description": "Update DevThrottle through the setup engine.",
+        "command": "cc-devthrottle setup update",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "setup-repair",
+        "description": "Repair DevThrottle through the setup engine.",
+        "command": "cc-devthrottle setup repair",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "setup-doctor",
+        "description": "Show local DevThrottle setup diagnostics and repair guidance.",
+        "command": "cc-devthrottle setup doctor --json",
+        "mutatesState": False,
         "args": [],
     },
 ]
@@ -203,7 +280,7 @@ def actions(
 ) -> None:
     """List agent-discoverable actions."""
     if json_output:
-        console.print(json.dumps({"actions": _ACTIONS}, indent=2))
+        print(json.dumps({"actions": _ACTIONS}, indent=2))
         return
 
     table = Table(show_header=True, header_style="bold")
@@ -473,21 +550,39 @@ def setup_status(
 
 
 @setup_app.command("install")
-def setup_install() -> None:
+def setup_install(
+    role: str = typer.Option(
+        "workstation", "--role", help="Install role: workstation or gateway."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; do not apply changes."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
     """Install DevThrottle from the latest GitHub release."""
-    setup_ops.install()
+    setup_ops.install(role, dry_run, json_output)
 
 
 @setup_app.command("update")
-def setup_update() -> None:
+def setup_update(
+    role: str = typer.Option(
+        "workstation", "--role", help="Install role: workstation or gateway."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; do not apply changes."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
     """Update DevThrottle from the latest GitHub release."""
-    setup_ops.install()
+    setup_ops.update(role, dry_run, json_output)
 
 
 @setup_app.command("repair")
-def setup_repair() -> None:
+def setup_repair(
+    role: str = typer.Option(
+        "workstation", "--role", help="Install role: workstation or gateway."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; do not apply changes."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
     """Repair the local DevThrottle install."""
-    setup_ops.install()
+    setup_ops.repair(role, dry_run, json_output)
 
 
 @setup_app.command("doctor")
@@ -495,7 +590,7 @@ def setup_doctor(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
     """Show setup diagnostics."""
-    setup_ops.status(json_output)
+    setup_ops.doctor(json_output)
 
 
 if __name__ == "__main__":
