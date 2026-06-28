@@ -90,6 +90,39 @@ curl -X POST http://localhost:7879/sessions/<sid>/prompt \
   -d "{\"text\": \"Fix the bug in auth.js\"}"
 ```
 
+## Creating a session correctly (always name it)
+
+When you create a session through `POST /sessions`, do these four things every time. The Control API
+applies NO defaults of its own - it uses exactly what you send - so an underspecified create produces
+a session that is unnamed, blocked on permission prompts, or on the wrong model.
+
+1. **Always give it a meaningful Name.** A session is how a human finds work in Mission Control. On a
+   fleet where many sessions run in the SAME repo, an unnamed session falls back to the bare repo
+   folder name (e.g. "devthrottle") and is indistinguishable from every other session in that repo.
+   The `Name` MUST describe what the session is FOR (e.g. "mobile PWA - impl loop #806"), and it must
+   not be blank or equal to the bare repo folder name. Never create a session without a name.
+2. **Carry the normal permission schema and model in `Args`.** The app's normal launch uses the
+   "Automatic (skip permissions)" preset; the Control API does not add it for you. Pass
+   `Args: "--dangerously-skip-permissions --model opus[1m]"` so the session can act without stopping
+   to ask permission for every read/edit/command, and runs on the model + 1M window you expect.
+   Omitting the preset leaves the session stuck at a "Do you want to proceed?" prompt.
+3. **Use `PrePrompt`** for the session's first task (dispatched once the agent is ready). For a long
+   instruction, write it to a file and make `PrePrompt` a short "read and follow <path>" pointer.
+4. **Verify the name persisted; PATCH if empty.** After creating, read the session back and confirm
+   `name` is set. Some running builds do not honor the create-time `Name` - if it came back empty,
+   set it explicitly: `PATCH /sessions/{sid}` with `{ "Name": "<meaningful name>" }`.
+
+```
+# Create a properly-named, autonomous-ready session (auth header only when the API requires a token)
+curl -X POST http://localhost:7879/sessions \
+  -H "Content-Type: application/json" \
+  -d "{\"RepoPath\":\"D:/Repos/myrepo\",\"Agent\":\"ClaudeCode\",\"Type\":\"Developer\",\"Name\":\"myrepo - fix auth bug #123\",\"Args\":\"--dangerously-skip-permissions --model opus[1m]\",\"PrePrompt\":\"Fix the bug in auth.js\"}"
+
+# Then verify the name, and PATCH it if the running build returned an empty name:
+curl -X PATCH http://localhost:7879/sessions/<sid> \
+  -H "Content-Type: application/json" -d "{\"Name\":\"myrepo - fix auth bug #123\"}"
+```
+
 ## When this skill is the right thing to consult
 
 - "What cc-* tools do I have for X?" - look in the tool list above; run the tool with `--help` for syntax.
@@ -103,5 +136,6 @@ curl -X POST http://localhost:7879/sessions/<sid>/prompt \
 
 ---
 
-**Skill Version:** 4.0 (end-user, DevThrottle rebrand)
-**Last Updated:** 2026-06-27
+**Skill Version:** 4.1 (end-user, DevThrottle rebrand)
+**Last Updated:** 2026-06-28
+**Changes in 4.1:** Added "Creating a session correctly (always name it)" - a created session MUST carry a meaningful Name, the normal permission preset + model in Args (--dangerously-skip-permissions --model opus[1m]), a PrePrompt for its first task, and a verify/PATCH of the name afterwards (the Control API applies no defaults; some running builds do not honor create-time Name).
