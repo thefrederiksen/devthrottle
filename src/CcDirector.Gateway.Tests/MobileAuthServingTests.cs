@@ -63,12 +63,18 @@ public sealed class MobileAuthServingTests : IAsyncLifetime
     public async Task Mobile_shell_is_public_and_not_login_gated_when_auth_is_on()
     {
         // The /m shell is exempt from the global gate, so it reaches the mobile handler instead of
-        // being 302-redirected to /login. In a Debug test build the app is not staged into
-        // wwwroot/m, so the handler answers 404 - which still proves it was NOT auth-gated.
+        // being 302-redirected to /login. Whether the mobile app is staged into wwwroot/m depends on
+        // the build: a bare test build serves nothing there (404), while a build that staged the app
+        // serves the shell (200). EITHER outcome proves the request was NOT auth-gated; the states
+        // this rules out are a redirect to /login or a 401. (Asserting 404 specifically was brittle -
+        // it broke once CI builds began staging the app, issue #818.)
         using var res = await _http.GetAsync("/m");
         Assert.NotEqual(HttpStatusCode.Redirect, res.StatusCode);
         Assert.NotEqual(HttpStatusCode.Found, res.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, res.StatusCode);
+        Assert.True(
+            res.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound,
+            $"/m must be served (200) or absent (404), never auth-gated; got {(int)res.StatusCode} {res.StatusCode}");
     }
 
     private static int FreePort()
