@@ -110,7 +110,7 @@ public partial class MainPage : ContentPage
             if (status != PermissionStatus.Granted)
             {
                 await DisplayAlert("Microphone needed",
-                    "CC Director Client needs microphone access to record.", "OK");
+                    "DevThrottle Client needs microphone access to record.", "OK");
                 return;
             }
 

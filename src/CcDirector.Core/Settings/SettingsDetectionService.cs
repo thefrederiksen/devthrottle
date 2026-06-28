@@ -64,7 +64,7 @@ public sealed class SettingsDetectionService
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (GetStringProp(root, "status") is null)
-                return new GatewayTestResult(false, $"{baseUrl} answered but does not look like a CC Director gateway.", null, 0, 0);
+                return new GatewayTestResult(false, $"{baseUrl} answered but does not look like a DevThrottle gateway.", null, 0, 0);
 
             var version = GetStringProp(root, "version") ?? "?";
             var directors = GetIntProp(root, "directors");

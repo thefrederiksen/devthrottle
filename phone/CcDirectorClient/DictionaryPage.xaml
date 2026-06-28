@@ -10,7 +10,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
-            <Label Text="CC Director Client"
+            <Label Text="DevThrottle Client"
                    FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
             <Label Text="One shared glossary, used by recording + voice. Edits apply on the next recording."
                    FontSize="13" TextColor="#8A93A6" />

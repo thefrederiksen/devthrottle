@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.SettingsDialog"
-        Title="CC Director Settings"
+        Title="Director Settings"
         Width="1040" Height="1010"
         MinWidth="760" MinHeight="560"
         WindowStartupLocation="CenterOwner"
@@ -99,7 +99,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="CC Director Settings"
+        <TextBlock Grid.Row="0" Text="Director Settings"
                    Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
                    Margin="0,0,0,8" />
 
@@ -336,7 +336,7 @@
                         <Border Classes="card">
                             <StackPanel Spacing="8">
                                 <TextBlock Classes="sectionTitle" Margin="0" Text="Network and Firewall" />
-                                <TextBlock Classes="hint" Text="The first time you run a new build, Windows pops up a dialog asking whether to allow CC Director on public and private networks. It appears because CC Director opens a network port so its tools can reach it. CC Director only needs that port on this same computer, so the block does no harm - but the dialog interrupts testing every time the build changes." />
+                                <TextBlock Classes="hint" Text="The first time you run a new build, Windows pops up a dialog asking whether to allow Director on public and private networks. It appears because Director opens a network port so its tools can reach it. Director only needs that port on this same computer, so the block does no harm - but the dialog interrupts testing every time the build changes." />
                                 <TextBlock Classes="hint" Text="The button below turns off that Windows notification. Windows will ask you for administrator approval once; after you approve it, the dialog stops appearing for good." />
                                 <Button x:Name="SuppressFirewallButton" Classes="dialogButton"
                                         Content="Stop the Windows firewall pop-up"
@@ -391,7 +391,7 @@
                     Background="Transparent" BorderThickness="0"
                     Foreground="#3B82F6" Cursor="Hand"
                     Padding="0" HorizontalAlignment="Left" VerticalAlignment="Center"
-                    ToolTip.Tip="Open the CC Director config.json in your default editor"
+                    ToolTip.Tip="Open the Director config.json in your default editor"
                     Click="BtnOpenConfig_Click" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button x:Name="SaveButton" Classes="primaryButton" Content="Save and Close"

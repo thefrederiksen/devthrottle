@@ -4,7 +4,7 @@
              x:Class="CcDirectorClient.MainPage"
              BackgroundColor="#0B1020"
              Shell.NavBarIsVisible="False"
-             Title="CC Director Client">
+             Title="DevThrottle Client">
 
     <Grid>
     <ScrollView>

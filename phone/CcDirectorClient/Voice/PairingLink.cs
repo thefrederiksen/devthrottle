@@ -30,7 +30,7 @@ public static class PairingLink
     public sealed record Result(bool Ok, string Url, string Token, string Error);
 
     private const string NotAPairingCode =
-        "Not a CC Director pairing code. Show the QR from the Cockpit \"Connect a phone\" panel and try again.";
+        "Not a DevThrottle pairing code. Show the QR from the Cockpit \"Connect a phone\" panel and try again.";
 
     /// <summary>
     /// Parse a scanned QR string into the gateway URL + token. Returns <see cref="Result.Ok"/> =

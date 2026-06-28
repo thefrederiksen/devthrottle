@@ -153,7 +153,7 @@ public static class CockpitProxy
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta http-equiv="refresh" content="2">
-        <title>CC Director - Cockpit starting</title>
+        <title>DevThrottle - Cockpit starting</title>
         <style>
           html, body { margin:0; height:100%; background:#1e1e1e; color:#cccccc;
             font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }

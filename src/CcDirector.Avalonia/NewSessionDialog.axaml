@@ -721,7 +721,7 @@
                         <TextBlock Text="Run this task on a GitHub-hosted runner"
                                    Foreground="#CCCCCC" FontSize="15" FontWeight="SemiBold" />
                         <TextBlock TextWrapping="Wrap" Foreground="#888888" FontSize="12"
-                                   Text="The work runs on GitHub's compute, not this machine. CC Director opens an issue (or attaches to one), drives it with @claude comments, and streams the run into this session window. Requires the Claude GitHub App and an @claude workflow on the target repo." />
+                                   Text="The work runs on GitHub's compute, not this machine. Director opens an issue (or attaches to one), drives it with @claude comments, and streams the run into this session window. Requires the Claude GitHub App and an @claude workflow on the target repo." />
 
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" Margin="0,4,0,0">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Owner / org"

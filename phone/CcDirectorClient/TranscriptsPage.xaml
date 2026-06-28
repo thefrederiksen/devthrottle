@@ -10,7 +10,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="14">
 
-            <Label Text="CC Director Client"
+            <Label Text="DevThrottle Client"
                    FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
             <Label Text="Recordings uploaded from the phone and transcribed. Read, edit, save to vault, or delete."
                    FontSize="13" TextColor="#8A93A6" />

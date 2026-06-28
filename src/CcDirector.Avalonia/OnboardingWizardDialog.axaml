@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.OnboardingWizardDialog"
-        Title="Welcome to CC Director"
+        Title="Welcome to Director"
         Width="620" Height="560"
         MinWidth="540" MinHeight="460"
         WindowStartupLocation="CenterOwner"
@@ -73,7 +73,7 @@
             <!-- STEP 1: Gateway URL -->
             <StackPanel x:Name="GatewayStep" Spacing="8" IsVisible="True">
                 <TextBlock Classes="hint"
-                           Text="Enter or detect the address of your CC Director Gateway so this Director shows up there. This wizard scans your tailnet and this machine for a gateway automatically when this step opens; you can also click Detect to scan again, or type the address and click Test to check it is reachable." />
+                           Text="Enter or detect the address of your DevThrottle Gateway so this Director shows up there. This wizard scans your tailnet and this machine for a gateway automatically when this step opens; you can also click Detect to scan again, or type the address and click Test to check it is reachable." />
 
                 <TextBlock Classes="fieldLabel" Text="Gateway URL" />
                 <TextBox x:Name="GatewayUrlBox" Classes="settingsInput"
@@ -100,7 +100,7 @@
             <!-- STEP 2: Agent check -->
             <StackPanel x:Name="AgentStep" Spacing="8" IsVisible="False">
                 <TextBlock Classes="hint"
-                           Text="CC Director runs command-line coding agents. To create a working session you need at least one agent installed. This step checks for Claude Code on your PATH." />
+                           Text="Director runs command-line coding agents. To create a working session you need at least one agent installed. This step checks for Claude Code on your PATH." />
 
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                     <ProgressBar x:Name="AgentCheckSpinner" Width="120" Height="4"

@@ -27,7 +27,7 @@ public sealed class RecorderForegroundService : Service
         CreateChannel();
 
         var notification = new NotificationCompat.Builder(this, ChannelId)
-            .SetContentTitle("CC Director Client")
+            .SetContentTitle("DevThrottle Client")
             .SetContentText("Recording in progress")
             .SetSmallIcon(global::Android.Resource.Drawable.PresenceAudioOnline)
             .SetOngoing(true)

@@ -28,7 +28,7 @@ def create_app(db: Database, running_jobs: Optional[set] = None) -> FastAPI:
         Configured FastAPI application
     """
     app = FastAPI(
-        title="CC Director",
+        title="DevThrottle",
         description="Job scheduler dashboard and REST API",
         version="0.1.0",
         docs_url="/api/docs",

@@ -6,7 +6,7 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public sealed class AboutDto
 {
-    public string Product { get; set; } = "CC Director";
+    public string Product { get; set; } = "Director";
 
     /// <summary>Full informational version, e.g. "0.6.15+sha".</summary>
     public string Version { get; set; } = "";

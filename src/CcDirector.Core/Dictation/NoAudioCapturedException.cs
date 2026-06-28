@@ -28,6 +28,6 @@ public sealed class NoAudioCapturedException : Exception
     private static string BuildMessage(string device)
         => $"No audio was captured from '{device}'. The microphone produced no sound for the "
            + "entire recording. Check that this is the right microphone, that it is connected and "
-           + "not muted, and that CC Director is allowed to use the microphone "
+           + "not muted, and that Director is allowed to use the microphone "
            + "(Windows Settings > Privacy & security > Microphone).";
 }

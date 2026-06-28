@@ -317,7 +317,7 @@ public partial class VoiceSessionView : ContentView
             if (status != PermissionStatus.Granted)
             {
                 await ShowAlert("Microphone needed",
-                    "CC Director Client needs microphone access to talk.");
+                    "DevThrottle Client needs microphone access to talk.");
                 return;
             }
 

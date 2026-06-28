@@ -133,7 +133,7 @@ public static class UpdateInstaller
                 var version = state.StagedVersion;
                 ClearStagedState();
                 failureNotice =
-                    $"CC Director could not finish updating to {version} after {MaxApplyAttempts} attempts, " +
+                    $"Director could not finish updating to {version} after {MaxApplyAttempts} attempts, " +
                     "so it has started on the current version instead. The pending update was cleared and " +
                     "will be retried later. See the log for details.";
                 return false;
@@ -292,7 +292,7 @@ public static class UpdateInstaller
             File.Copy(old, target);
             FileLog.Write($"[UpdateInstaller] RecoverHalfAppliedSwap: restored {target} from backup.");
 
-            return "CC Director detected a half-finished update and restored the previous working " +
+            return "Director detected a half-finished update and restored the previous working " +
                    "version so it could start. The interrupted update will be retried later. " +
                    "See the log for details.";
         }
@@ -350,7 +350,7 @@ public static class UpdateInstaller
             state.Save();
 
             FileLog.Write($"[UpdateInstaller] TryRollBackFailedUpdate: restored previous build at {target}; pinned bad version {pending}.");
-            return $"Update {pending} failed to start correctly, so CC Director rolled back to the " +
+            return $"Update {pending} failed to start correctly, so Director rolled back to the " +
                    "previous working version. That update has been blocked from retrying. " +
                    "See the log for details.";
         }

@@ -10,7 +10,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
-            <Label Text="CC Director Client"
+            <Label Text="DevThrottle Client"
                    FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
             <Label Text="Director executables running on the Gateway's PC, with their sessions, plus the local build slots 1-4."
                    FontSize="13" TextColor="#8A93A6" />

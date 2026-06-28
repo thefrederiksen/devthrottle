@@ -1,7 +1,7 @@
 <Window x:Class="CcDirector.Avalonia.HelpDialog"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="About CC Director"
+        Title="About Director"
         Width="600" Height="560"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
@@ -16,7 +16,7 @@
 
         <!-- Header -->
         <TextBlock Grid.Row="0"
-                   Text="About CC Director"
+                   Text="About Director"
                    Foreground="#CCCCCC"
                    FontSize="16"
                    FontWeight="SemiBold"

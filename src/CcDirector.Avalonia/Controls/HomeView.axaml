@@ -17,7 +17,7 @@
                     Spacing="0">
 
             <!-- Wordmark -->
-            <TextBlock Text="CC DIRECTOR"
+            <TextBlock Text="DIRECTOR"
                        HorizontalAlignment="Center"
                        Foreground="#D6D6D6"
                        FontSize="24" FontWeight="Light"

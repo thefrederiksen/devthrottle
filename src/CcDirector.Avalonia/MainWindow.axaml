@@ -6,7 +6,7 @@
         xmlns:mgr="clr-namespace:CcDirector.Avalonia.Controls.DirectorView"
         xmlns:md="https://github.com/whistyun/Markdown.Avalonia.Tight"
         x:Class="CcDirector.Avalonia.MainWindow"
-        Title="CC Director"
+        Title="Director"
         Width="1400" Height="900"
         MinWidth="800" MinHeight="500"
         Background="{DynamicResource PanelBackground}"
@@ -153,7 +153,7 @@
                     <!-- Settings -->
                     <Button x:Name="BtnSettings" Classes="toolbarBtn"
                             Click="BtnSettings_Click"
-                            ToolTip.Tip="CC Director settings">
+                            ToolTip.Tip="Director settings">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <Viewbox Width="15" Height="15">
                                 <Path Fill="#CCCCCC"

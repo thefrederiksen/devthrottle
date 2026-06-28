@@ -336,7 +336,7 @@ internal static class RecordingEndpoints
         // on this one machine.
         var url = baseUrl ?? "(unavailable - Tailscale was not detected on this machine, so the API has no remote URL)";
         return $$"""
-        # CC Director Transcripts - Agent API
+        # DevThrottle Transcripts - Agent API
 
         Base URL: {{url}}
 

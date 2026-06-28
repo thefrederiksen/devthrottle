@@ -30,7 +30,7 @@ public sealed class VoiceForegroundService : Service
         CreateChannel();
 
         var notification = new NotificationCompat.Builder(this, ChannelId)
-            .SetContentTitle("CC Director Client")
+            .SetContentTitle("DevThrottle Client")
             .SetContentText("Voice mode active")
             .SetSmallIcon(global::Android.Resource.Drawable.PresenceAudioOnline)
             .SetOngoing(true)

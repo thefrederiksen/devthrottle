@@ -83,7 +83,7 @@ public partial class HelpDialog : Window
         var rows = BuildInfoRows(controlEndpoint);
 
         var sb = new StringBuilder();
-        sb.AppendLine("CC Director - instance information");
+        sb.AppendLine("Director - instance information");
         foreach (var (label, value) in rows)
         {
             AboutPanel.Children.Add(MakeRow(label, value));
@@ -119,7 +119,7 @@ public partial class HelpDialog : Window
         var rows = new List<(string, string)>
         {
             ("Version", version),
-            ("CC Director ID", directorId),
+            ("Director ID", directorId),
             ("Process ID (PID)", Environment.ProcessId.ToString()),
             ("Process name", Path.GetFileName(processPath)),
             ("Location", processPath),

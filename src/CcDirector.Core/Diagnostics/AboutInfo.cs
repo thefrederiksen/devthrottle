@@ -13,7 +13,7 @@ namespace CcDirector.Core.Diagnostics;
 public static class AboutInfo
 {
     /// <summary>The product name shown everywhere.</summary>
-    public const string ProductName = "CC Director";
+    public const string ProductName = "Director";
 
     /// <summary>Version display form, e.g. "v0.6.15 (1a2b3c4)".</summary>
     public static string Version => AppVersion.Display;

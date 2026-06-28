@@ -143,7 +143,7 @@
                     <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10" Margin="0,6,0,0">
                         <StackPanel Spacing="6">
                             <TextBlock Classes="fieldLabel" Text="Detection" />
-                            <TextBlock Classes="hint" Text="Let CC Director scan this machine for the selected tool and fill in the executable path automatically." />
+                            <TextBlock Classes="hint" Text="Let Director scan this machine for the selected tool and fill in the executable path automatically." />
                             <Button x:Name="DetectButton" Classes="detectButton" Content="Detect this tool"
                                     HorizontalAlignment="Left" Click="BtnDetect_Click"
                                     ToolTip.Tip="Scan this machine for the selected agent tool" />
@@ -158,11 +158,11 @@
                                 <RadioButton x:Name="GuidedRadio" GroupName="launchMode" Content="Guided"
                                              IsChecked="True" Foreground="#CCCCCC" FontSize="12"
                                              IsCheckedChanged="LaunchMode_Changed"
-                                             ToolTip.Tip="CC Director builds the command line from a preset and a chosen model" />
+                                             ToolTip.Tip="Director builds the command line from a preset and a chosen model" />
                                 <RadioButton x:Name="CustomRadio" GroupName="launchMode" Content="Full custom command line"
                                              Foreground="#CCCCCC" FontSize="12"
                                              IsCheckedChanged="LaunchMode_Changed"
-                                             ToolTip.Tip="You type the whole argument string; CC Director appends nothing" />
+                                             ToolTip.Tip="You type the whole argument string; Director appends nothing" />
                             </StackPanel>
 
                             <!-- Guided: preset + model. -->
@@ -195,7 +195,7 @@
 
                             <!-- Full custom: args used verbatim. -->
                             <StackPanel x:Name="CustomPanel" Spacing="6" IsVisible="False">
-                                <TextBlock Classes="fieldLabel" Text="Command-line arguments (used verbatim - CC Director adds nothing)" />
+                                <TextBlock Classes="fieldLabel" Text="Command-line arguments (used verbatim - Director adds nothing)" />
                                 <TextBox x:Name="ArgsOverrideBox" Classes="settingsInput"
                                          Watermark="e.g. --sandbox danger-full-access --ask-for-approval never"
                                          TextChanged="ArgsOverrideBox_Changed"

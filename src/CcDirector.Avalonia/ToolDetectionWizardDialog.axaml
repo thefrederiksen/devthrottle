@@ -48,7 +48,7 @@
                    Margin="0,0,0,6" />
 
         <TextBlock Grid.Row="1" Classes="hint" Margin="0,0,0,8"
-                   Text="CC Director scanned this machine for the agent CLIs it knows about. The tools it found are pre-selected with their recommended command line and default model. Uncheck any you do not want, then click Add selected tools. You can change everything later on the Agents tab in Settings." />
+                   Text="Director scanned this machine for the agent CLIs it knows about. The tools it found are pre-selected with their recommended command line and default model. Uncheck any you do not want, then click Add selected tools. You can change everything later on the Agents tab in Settings." />
 
         <TextBlock Grid.Row="2" x:Name="ScanStatusText"
                    Text="Scanning for installed agent tools..."

@@ -48,9 +48,9 @@ internal static class Program
                 FileLog.Write($"[Program] ApplyUpdate FAILED: {ex}");
                 WriteCrashFile("apply-update", ex);
                 MessageBoxW(IntPtr.Zero,
-                    $"CC Director could not apply an update:\n\n{ex.Message}\n\n" +
+                    $"Director could not apply an update:\n\n{ex.Message}\n\n" +
                     "It will continue on the current version.",
-                    "CC Director - Update failed", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+                    "Director - Update failed", MB_OK | MB_ICONWARNING | MB_TOPMOST);
                 FileLog.Stop();
                 return 1;
             }
@@ -70,7 +70,7 @@ internal static class Program
         if (rollbackNotice is not null)
         {
             FileLog.Write("[Program] Rolled back a failed update; relaunching the restored build.");
-            MessageBoxW(IntPtr.Zero, rollbackNotice, "CC Director - Update rolled back", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            MessageBoxW(IntPtr.Zero, rollbackNotice, "Director - Update rolled back", MB_OK | MB_ICONWARNING | MB_TOPMOST);
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -93,7 +93,7 @@ internal static class Program
         UpdateInstaller.CleanupAfterUpdate();
 
         if (recoveryNotice is not null)
-            MessageBoxW(IntPtr.Zero, recoveryNotice, "CC Director - Update recovered", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            MessageBoxW(IntPtr.Zero, recoveryNotice, "Director - Update recovered", MB_OK | MB_ICONWARNING | MB_TOPMOST);
 
         // Apply a staged update at startup -- before any session exists, so no
         // running work is ever lost. If one is pending, the relauncher takes over
@@ -103,7 +103,7 @@ internal static class Program
         if (UpdateInstaller.TryApplyStagedUpdateAtStartup(out var updateNotice))
             return 0;
         if (updateNotice is not null)
-            MessageBoxW(IntPtr.Zero, updateNotice, "CC Director - Update", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            MessageBoxW(IntPtr.Zero, updateNotice, "Director - Update", MB_OK | MB_ICONWARNING | MB_TOPMOST);
 
         using var guard = SingleInstanceGuard.TryAcquire();
         if (guard is null)
@@ -119,12 +119,12 @@ internal static class Program
 
             var exe = Environment.ProcessPath ?? "(unknown)";
             var msg =
-                "CC Director is already running.\n\n" +
+                "Director is already running.\n\n" +
                 $"Exe: {exe}\n\n" +
                 "Only one instance per install location can run at a time. " +
                 "Identity, ports, and state files are keyed by the exe path -- " +
                 "running a second copy would collide with the existing one.";
-            MessageBoxW(IntPtr.Zero, msg, "CC Director", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            MessageBoxW(IntPtr.Zero, msg, "Director", MB_OK | MB_ICONWARNING | MB_TOPMOST);
             return 1;
         }
 
@@ -139,9 +139,9 @@ internal static class Program
             FileLog.Write($"[Program] FATAL startup error: {ex}");
             var crashPath = WriteCrashFile("startup", ex);
             MessageBoxW(IntPtr.Zero,
-                $"CC Director failed to start:\n\n{ex.Message}\n\n" +
+                $"Director failed to start:\n\n{ex.Message}\n\n" +
                 (crashPath is null ? "" : $"Details written to:\n{crashPath}"),
-                "CC Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+                "Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
             return 1;
         }
     }

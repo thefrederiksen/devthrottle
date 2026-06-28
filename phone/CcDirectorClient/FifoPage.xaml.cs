@@ -208,7 +208,7 @@ public partial class FifoPage : ContentPage
             if (status != PermissionStatus.Granted)
             {
                 await DisplayAlert("Microphone needed",
-                    "CC Director Client needs microphone access to answer sessions.", "OK");
+                    "DevThrottle Client needs microphone access to answer sessions.", "OK");
                 return;
             }
 

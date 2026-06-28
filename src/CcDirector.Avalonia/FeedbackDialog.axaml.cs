@@ -89,7 +89,7 @@ public partial class FeedbackDialog : Window
         ScreenshotPreview.Source = null;
         ScreenshotPreviewBorder.IsVisible = false;
         BtnRemoveScreenshot.IsVisible = false;
-        BtnAttachScreenshot.Content = "Attach screenshot of CC Director";
+        BtnAttachScreenshot.Content = "Attach screenshot of Director";
         StatusText.IsVisible = false;
     }
 
@@ -142,7 +142,7 @@ public partial class FeedbackDialog : Window
     {
         var sb = new StringBuilder();
         sb.AppendLine("Environment:");
-        sb.AppendLine($"- CC Director version: {AppVersion.Display}");
+        sb.AppendLine($"- Director version: {AppVersion.Display}");
         sb.AppendLine($"- Operating system: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
         return sb.ToString();
     }

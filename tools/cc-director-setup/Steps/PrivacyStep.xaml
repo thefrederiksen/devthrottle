@@ -32,7 +32,7 @@
                                FontWeight="Bold"
                                VerticalAlignment="Top"
                                Margin="0,0,10,0" />
-                    <TextBlock Text="We can see how many people use CC Director."
+                    <TextBlock Text="We can see how many people use Director."
                                Foreground="{StaticResource TextForeground}"
                                FontSize="14"
                                TextWrapping="Wrap"
@@ -78,7 +78,7 @@
                           Foreground="{StaticResource TextForeground}"
                           FontSize="14"
                           VerticalContentAlignment="Center">
-                    <TextBlock Text="Share anonymous usage information to help improve CC Director"
+                    <TextBlock Text="Share anonymous usage information to help improve Director"
                                TextWrapping="Wrap"
                                MaxWidth="400" />
                 </CheckBox>

@@ -353,7 +353,7 @@ public partial class TalkPage : ContentPage
             ShowScanStatus("Camera access is needed to scan the pairing QR. Enable it in Settings, "
                 + "or type the Gateway URL and token below.");
             await DisplayAlert("Camera needed",
-                "CC Director Client needs camera access to scan the pairing QR. You can still type "
+                "DevThrottle Client needs camera access to scan the pairing QR. You can still type "
                 + "the Gateway URL and token by hand below.", "OK");
             return false;
         }
@@ -642,7 +642,7 @@ public partial class TalkPage : ContentPage
             if (status != PermissionStatus.Granted)
             {
                 await DisplayAlert("Microphone needed",
-                    "CC Director Client needs microphone access to talk to the agent.", "OK");
+                    "DevThrottle Client needs microphone access to talk to the agent.", "OK");
                 return;
             }
             try
@@ -1409,7 +1409,7 @@ public partial class TalkPage : ContentPage
         if (status != PermissionStatus.Granted)
         {
             await DisplayAlert("Microphone needed",
-                "CC Director Client needs microphone access to dictate.", "OK");
+                "DevThrottle Client needs microphone access to dictate.", "OK");
             return;
         }
 
@@ -1539,7 +1539,7 @@ public partial class TalkPage : ContentPage
         if (status != PermissionStatus.Granted)
         {
             await DisplayAlert("Microphone needed",
-                "CC Director Client needs microphone access to dictate.", "OK");
+                "DevThrottle Client needs microphone access to dictate.", "OK");
             return;
         }
 

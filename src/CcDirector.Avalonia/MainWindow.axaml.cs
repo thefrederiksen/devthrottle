@@ -969,7 +969,7 @@ public partial class MainWindow : Window
         if (isLeader == _lastLeaderState) return;
 
         _lastLeaderState = isLeader;
-        Title = isLeader ? "CC Director -- Leader" : "CC Director";
+        Title = isLeader ? "Director -- Leader" : "Director";
     }
 
     private void SetBuildInfo()
@@ -1300,7 +1300,7 @@ public partial class MainWindow : Window
             FileLog.Write($"[MainWindow] CreateRemoteSessionAsync FAILED: {ex.Message}");
             await MessageBox.ShowAsync(this,
                 "Could not start remote session",
-                "CC Director could not start the GitHub Actions session.\n\n" + ex.Message);
+                "Director could not start the GitHub Actions session.\n\n" + ex.Message);
         }
     }
 
@@ -2209,7 +2209,7 @@ public partial class MainWindow : Window
                 await new MessageDialog(
                     "Cannot Open Cockpit",
                     "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
-                    "Cockpit. Bring Tailscale up and try again. CC Director never opens a localhost " +
+                    "Cockpit. Bring Tailscale up and try again. Director never opens a localhost " +
                     "URL because it would only work on this one machine.")
                     .ShowDialog<bool?>(this);
             }
@@ -2277,7 +2277,7 @@ public partial class MainWindow : Window
                 await new MessageDialog(
                     "Cannot Open Learning Page",
                     "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
-                    "Cockpit Learning page. Bring Tailscale up and try again. CC Director never opens " +
+                    "Cockpit Learning page. Bring Tailscale up and try again. Director never opens " +
                     "a localhost URL because it would only work on this one machine.")
                     .ShowDialog<bool?>(this);
             }
@@ -2947,14 +2947,14 @@ public partial class MainWindow : Window
             if (agentKind == AgentKind.RawCli)
             {
                 errorTitle = "Command not found";
-                errorBody = $"CC Director could not find '{agentExe}' on PATH.\n\n"
+                errorBody = $"Director could not find '{agentExe}' on PATH.\n\n"
                     + "Make sure the command is installed and on your PATH, or supply an absolute path.";
             }
             else
             {
                 var (agentName, installHint) = AgentInstallInfo(agentKind);
                 errorTitle = $"{agentName} is not installed";
-                errorBody = $"CC Director could not start a {agentName} session because its command line tool "
+                errorBody = $"Director could not start a {agentName} session because its command line tool "
                     + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
                     + "If it is installed in a non-standard location, set its path in config.json.";
             }
@@ -2978,7 +2978,7 @@ public partial class MainWindow : Window
             FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
             await MessageBox.ShowAsync(this,
                 "Could not start session",
-                "CC Director could not start the session.\n\n"
+                "Director could not start the session.\n\n"
                 + (_lastSessionCreateError ?? "See the Director log for details."));
             return;
         }
@@ -3226,7 +3226,7 @@ public partial class MainWindow : Window
         }));
         help.Menu.Items.Add(Item("Send Feedback...", () => BtnFeedback_Click(this, new RoutedEventArgs())));
         help.Menu.Items.Add(new NativeMenuItemSeparator());
-        help.Menu.Items.Add(Item("About CC Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
+        help.Menu.Items.Add(Item("About Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
         menu.Items.Add(help);
 
         NativeMenu.SetMenu(this, menu);
@@ -4889,7 +4889,7 @@ public partial class MainWindow : Window
     public void ShowUpdateReady(string version)
     {
         FileLog.Write($"[MainWindow] ShowUpdateReady: {version}");
-        ShowNotification($"CC Director {version} downloaded -- installs next time you open the app.");
+        ShowNotification($"Director {version} downloaded -- installs next time you open the app.");
     }
 
     /// <summary>
@@ -4931,7 +4931,7 @@ public partial class MainWindow : Window
                     _updateStaged = true;
                     SetUpdateIndicator(UpdateIconCheck, "#22C55E", "#1B3A2A", "#22C55E",
                         "UPDATE READY", $"{p.Version} - installs on restart",
-                        "Restarting CC Director will install this update.");
+                        "Restarting Director will install this update.");
                     HideDownloadProgress();
                     break;
 
@@ -4977,7 +4977,7 @@ public partial class MainWindow : Window
     private void ShowDownloadProgress(CcDirector.Core.Update.UpdateProgress p, int pct)
     {
         NotificationIcon.IsVisible = false;
-        NotificationText.Text = $"Downloading CC Director {p.Version}...";
+        NotificationText.Text = $"Downloading Director {p.Version}...";
         NotificationProgress.IsVisible = true;
         if (p.Fraction is not null)
         {

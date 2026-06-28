@@ -79,7 +79,7 @@
                        Margin="0,0,0,4" />
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="BtnAttachScreenshot"
-                        Content="Attach screenshot of CC Director"
+                        Content="Attach screenshot of Director"
                         Height="28"
                         Background="#3C3C3C" Foreground="#CCCCCC"
                         BorderThickness="0" Cursor="Hand"

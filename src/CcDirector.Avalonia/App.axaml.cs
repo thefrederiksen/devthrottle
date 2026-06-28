@@ -481,11 +481,11 @@ public partial class App : Application
 
         var logPath = FileLog.CurrentLogPath ?? "(log path unavailable)";
         MessageBoxW(IntPtr.Zero,
-            "CC Director failed to start:\n\n" +
+            "Director failed to start:\n\n" +
             $"{ex.Message}\n\n" +
             $"Log file:\n{logPath}\n\n" +
             (crashPath is null ? "" : $"Crash details:\n{crashPath}"),
-            "CC Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+            "Director - Startup error", MB_OK | MB_ICONERROR | MB_TOPMOST);
 
         desktop.Shutdown(1);
     }

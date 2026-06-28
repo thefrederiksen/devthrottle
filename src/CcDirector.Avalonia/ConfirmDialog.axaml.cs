@@ -11,7 +11,7 @@ namespace CcDirector.Avalonia;
 /// </summary>
 public partial class ConfirmDialog : Window
 {
-    public ConfirmDialog() : this("CC Director", "", "Remove", "Cancel") { }
+    public ConfirmDialog() : this("Director", "", "Remove", "Cancel") { }
 
     /// <param name="title">The window title.</param>
     /// <param name="message">The body question shown to the user.</param>

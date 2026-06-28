@@ -385,7 +385,7 @@ public sealed class GitHubActionsBackend : ISessionBackend
     {
         var firstLine = prompt.Replace("\r", " ").Replace("\n", " ").Trim();
         if (firstLine.Length > 72) firstLine = firstLine[..72].TrimEnd() + "...";
-        return string.IsNullOrEmpty(firstLine) ? "CC Director remote session" : firstLine;
+        return string.IsNullOrEmpty(firstLine) ? "Director remote session" : firstLine;
     }
 
     private void WriteUser(string text) => WriteRaw($"\r\n> {text.Trim()}\r\n");

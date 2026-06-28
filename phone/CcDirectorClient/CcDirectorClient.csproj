@@ -28,7 +28,7 @@
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
 		<!-- Display name -->
-		<ApplicationTitle>CC Director Client</ApplicationTitle>
+		<ApplicationTitle>DevThrottle Client</ApplicationTitle>
 
 		<!-- App Identifier -->
 		<ApplicationId>com.ccdirector.client</ApplicationId>
