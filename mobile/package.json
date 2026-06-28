@@ -12,6 +12,8 @@
     "gen:api": "openapi-typescript http://127.0.0.1:7878/openapi/v1.json --output src/api/schema.ts"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-router-dom": "6.28.0"

@@ -219,3 +219,141 @@ body {
   font-size: 13px;
   color: var(--text-dim);
 }
+
+/* ===== Session Terminal mode (issue #810) =====
+   A full-height column: the live mirror fills the scrollable middle; the control-key row and the
+   input row sit pinned beneath it, reachable on a phone viewport with no horizontal scrolling. */
+.terminal-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 12px 10px;
+}
+
+.term-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.term-sid {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 6px 2px 4px;
+  word-break: break-all;
+}
+
+/* The mirror. flex:1 + min-height:0 lets it shrink so the controls always stay on screen; xterm's
+   own viewport owns the scrollback inside. */
+.term-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #0b1020;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 4px 0 4px 6px;
+}
+
+.term-host .xterm {
+  height: 100%;
+}
+
+.term-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 2px 0;
+  min-height: 16px;
+}
+
+/* The control-key row wraps so all keys stay reachable without horizontal scroll on a phone. */
+.term-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.key-btn {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.key-btn:active {
+  background: var(--border);
+}
+
+.key-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.key-stop {
+  color: #ffb4b4;
+  border-color: rgba(241, 76, 76, 0.5);
+}
+
+.key-speak {
+  margin-left: auto;
+  color: #bcd0ff;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.term-input-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.term-input::placeholder {
+  color: var(--text-dim);
+}
+
+.term-send {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.term-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
