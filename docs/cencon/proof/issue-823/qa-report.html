@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #823 - QA proof - Broken cc-* legacy alias shims</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1d2330; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #1a7f37; padding-bottom: .4rem; }
+  h2 { color: #1a7f37; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1d2330; color: #e6edf3; padding: .8rem; overflow-x: auto; border-radius: 5px; font-size: .85rem; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .note { background: #fffbea; border-left: 4px solid #d69e2e; padding: .6rem .8rem; }
+</style>
+</head>
+<body>
+<h1>Issue #823 - QA Agent independent verification</h1>
+<p><strong>Title:</strong> [Installer] Broken cc-* shims (cc-send/cc-sessions/cc-whoami/cc-ask/cc-spawn/cc-settings/cc-cron/cc-fleet-selftest) point to missing exes; SessionStart banner advertises them</p>
+<p><strong>PR:</strong> #825 &nbsp;|&nbsp; <strong>Branch:</strong> issue-823-legacy-alias-shims &nbsp;|&nbsp; <strong>Verified by:</strong> QA Agent (independent context; built the PR branch in its own worktree, ran its own tests, reproduced the bug on this machine)</p>
+<p><strong>Full-solution build gate:</strong> <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<h2>How QA verified (own proof, dev report NOT trusted)</h2>
+<ul>
+  <li>Checked out PR branch into an isolated worktree (<code>devthrottle-wt-823</code>) and built it from source.</li>
+  <li>Independently ran the engine purge tests, the FleetPreamble/PiPreamble banner tests, and the cc-devthrottle Python tests - all green.</li>
+  <li>Reproduced the live bug on this machine (the 8 orphan shims are physically present and their pyenv\Scripts targets are missing) and exercised the advertised cc-devthrottle commands.</li>
+  <li>Read the production code paths (RemoveLegacyAliasShims, InstallAsync ordering, ToolUpdater install/repair callers, FleetPreamble.cs, SessionManager CC_FLEET_TOOLS) and swept the whole repo for any remaining live reference to the retired commands.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (QA proof)</th><th>Result</th></tr>
+<tr>
+  <td>AC1 - no shim points at a missing exe on a freshly installed/repaired machine</td>
+  <td>Install/repair leaves no bin\ shim resolving to a missing target</td>
+  <td>QA built and ran <code>InstallAsync_PurgesOrphanedLegacyAliasShims</code> (real InstallAsync deletes all 8 orphan .cmd + bare shims on a real on-disk bin\) and <code>InstallAsync_LeavesNonLegacyToolShimsAlone</code> (cc-pdf survives, cc-send removed) - both PASS. Code read confirms RemoveLegacyAliasShims runs at step 0 of InstallAsync, before the already-installed early-out, so fresh install, the on-demand "Fix it" repair (ToolUpdater.RepairPythonToolsAsync calls InstallAsync unconditionally), and the next version update all purge.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2 - each advertised read-only command runs and exits 0</td>
+  <td>Identity/list commands exit 0</td>
+  <td>QA ran on this machine: <code>cc-devthrottle session whoami</code> -&gt; exit 0; <code>session list</code> -&gt; exit 0; <code>setup status</code> -&gt; exit 0; <code>actions --json</code> -&gt; exit 0.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3 - banner / CC_FLEET_TOOLS contain only working commands</td>
+  <td>Only cc-devthrottle subcommand forms advertised</td>
+  <td>FleetPreamble.cs and SessionManager.cs (CC_FLEET_TOOLS) advertise cc-devthrottle exclusively (QA read both). Repo-wide sweep found no live reference advertising any retired command. FleetPreambleTests + PiPreambleWriterTests assert each old name (cc-send, cc-ask, cc-sessions, cc-whoami, cc-spawn, cc-rename) is ABSENT - QA ran all 5, PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC4 - previously-broken commands no longer give exit 127 / No such file or directory</td>
+  <td>The broken-shim symptom is eliminated</td>
+  <td>BEFORE (reproduced live by QA): <code>cc-send</code> -&gt; <code>...\pyenv\Scripts\cc-send.exe: No such file or directory</code>, all 8 targets confirmed MISSING. AFTER: the installer purge removes the orphan shim (proven by the engine test running real InstallAsync); the command becomes absent and the banner directs to <code>cc-devthrottle message send</code> - the proof-target-sanctioned "absent and replaced" outcome.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Test runs (executed by QA from the PR branch)</h2>
+<pre>
+PythonToolsHealAndShimTests (engine, incl. 3 new):  Passed! - Failed: 0, Passed: 12, Total: 12
+FleetPreamble + PiPreambleWriter (banner):          Passed! - Failed: 0, Passed: 5,  Total: 5
+cc-devthrottle setup_ops (python, incl. 2 new):     7 passed
+Full solution build:                                Build succeeded, 0 Warning(s), 0 Error(s)
+</pre>
+
+<h2>Live machine evidence</h2>
+<pre>
+=== AC4 BEFORE: orphan shims present, targets missing ===
+bin\ carries: cc-send, cc-ask, cc-spawn, cc-sessions, cc-whoami, cc-settings, cc-cron, cc-fleet-selftest (.cmd + bare)
+pyenv\Scripts\: MISSING cc-send.exe, cc-whoami.exe, cc-sessions.exe, cc-ask.exe, cc-spawn.exe, cc-settings.exe, cc-cron.exe, cc-fleet-selftest.exe
+cc-send -> "...\pyenv\Scripts\cc-send.exe: No such file or directory"
+
+=== AC2: advertised read-only commands on this machine ===
+cc-devthrottle session whoami  -> exit 0
+cc-devthrottle session list    -> exit 0
+cc-devthrottle setup status    -> exit 0
+cc-devthrottle actions --json  -> exit 0
+</pre>
+
+<h2>Regression / CenCon checks</h2>
+<ul>
+  <li>Purge is limited to the 8 retired names; <code>InstallAsync_LeavesNonLegacyToolShimsAlone</code> proves a live tool shim (cc-pdf) is not touched. No adjacency broken.</li>
+  <li>Best-effort deletion (try/catch, logged) - a non-deletable shim never throws the install.</li>
+  <li>No architecture or security drift: installer self-heal plus a diagnostic list addition and a doc-note correction. No architecture_manifest.yaml / security_profile.yaml edit required.</li>
+</ul>
+
+<p class="note"><strong>Scope note:</strong> existing machines that are version-current AND venv-healthy and are never repaired will keep the orphan shims until their next install/repair/update - that is an operational matter the issue explicitly calls out, and AC1 is scoped to a "freshly installed/repaired machine," which this fix satisfies.</p>
+
+<p class="pass">VERIFIED - all 4 acceptance criteria met. Squash-merged to main inside the implementation loop on a clean build.</p>
+</body>
+</html>
