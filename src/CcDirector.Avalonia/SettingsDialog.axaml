@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
         x:Class="CcDirector.Avalonia.SettingsDialog"
         Title="Director Settings"
         Width="1040" Height="1010"
@@ -375,6 +376,40 @@
 
                     </StackPanel>
                 </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Tools">
+                <!-- Consolidated Tools screen: the download-and-repair card on top, the full tool
+                     status dashboard (the same ToolsView the standalone page used) filling the rest.
+                     One place to SEE which tool is missing/failing and to repair it. The button calls
+                     the SAME shared engine routine (ToolUpdater.RepairPythonToolsAsync) the Home
+                     "Fix it" button and the setup application use, so all three repair identically. -->
+                <Grid RowDefinitions="Auto,*" Margin="0,4,0,0">
+                    <Border Grid.Row="0" Classes="card" Margin="0,0,14,10">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="sectionTitle" Margin="0" Text="DevThrottle tools" />
+                            <TextBlock Classes="hint"
+                                       Text="These cc-* command-line tools are what your sessions call. The list below shows each tool's status. If a tool is missing or stops working - for example after a new tool is added that this machine does not have yet - click Download and repair tools: it downloads the latest tool bundle and rebuilds everything in place, so you do not have to run a full reinstall. It can take a few minutes the first time, and you can keep using DevThrottle while it runs." />
+
+                            <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,0">
+                                <Button x:Name="FixToolsButton"
+                                        Content="Download and repair tools"
+                                        Background="#007ACC" Foreground="White"
+                                        FontSize="15" FontWeight="SemiBold"
+                                        Height="52" MinWidth="280"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                        BorderThickness="0" Cursor="Hand"
+                                        Click="BtnFixTools_Click"
+                                        ToolTip.Tip="Download the latest cc-* tool bundle and rebuild all tools in place" />
+                                <TextBlock x:Name="FixToolsStatus" Text="" Foreground="#888888"
+                                           FontSize="12" TextWrapping="Wrap" MaxWidth="420"
+                                           VerticalAlignment="Center" IsVisible="False" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <controls:ToolsView Grid.Row="1" x:Name="EmbeddedToolsView" Margin="0,0,14,0" />
+                </Grid>
             </TabItem>
 
         </TabControl>

@@ -106,18 +106,8 @@
                     <Border Width="1" Height="18" Background="#3C3C3C"
                             Margin="6,0" VerticalAlignment="Center" />
 
-                    <!-- Tools catalog -->
-                    <Button x:Name="BtnTools" Classes="toolbarBtn"
-                            Click="BtnTools_Click"
-                            ToolTip.Tip="Tools -- browse, test and showcase the cc-* toolset">
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Viewbox Width="15" Height="15">
-                                <Path Stroke="#CCCCCC" StrokeThickness="1.3" Fill="Transparent"
-                                      Data="M2,2 h5 v5 h-5 z M9,2 h5 v5 h-5 z M2,9 h5 v5 h-5 z M9,9 h5 v5 h-5 z" />
-                            </Viewbox>
-                            <TextBlock Text="Tools" FontSize="12" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
+                    <!-- The Tools catalog button was retired: the tool status + repair now live in
+                         Settings -> Tools (opened from the rail tools indicator). -->
 
                     <!-- Cockpit (asks the local gateway for the Tailscale URL, then opens it) -->
                     <Button x:Name="BtnCockpit" Classes="toolbarBtn"
@@ -277,6 +267,36 @@
                             <TextBlock x:Name="GatewayIndicatorSub"
                                        Text="click to set the Gateway URL in Settings"
                                        FontSize="10" Foreground="#666666"
+                                       TextWrapping="Wrap" MaxWidth="186"
+                                       MaxLines="3" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- cc-* tools health indicator (sits directly above the Gateway indicator).
+                     Visible ONLY when a tool is failing or not built - hidden when every tool
+                     passes - and shows the SAME message as the status screen's tools row (text
+                     set from the same readiness check in code-behind). Click opens Settings on the
+                     Tools tab, where one big button downloads and repairs the whole toolset. -->
+                <Border x:Name="ToolsIndicator" DockPanel.Dock="Bottom"
+                        Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
+                        Background="#3A331B" BorderBrush="#F0B848" BorderThickness="1"
+                        Cursor="Hand" IsVisible="False"
+                        PointerPressed="ToolsIndicator_PointerPressed">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Grid Width="22" Height="22" VerticalAlignment="Center">
+                            <Ellipse Fill="#F0B848" />
+                            <TextBlock Text="!" Foreground="#1E1E1E" FontWeight="Bold" FontSize="14"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="ToolsIndicatorLabel"
+                                       Text="cc-* tools"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#F0B848" />
+                            <TextBlock x:Name="ToolsIndicatorSub"
+                                       Text="click to download and repair the tools"
+                                       FontSize="10" Foreground="#B59868"
                                        TextWrapping="Wrap" MaxWidth="186"
                                        MaxLines="3" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
@@ -1676,38 +1696,9 @@
             </DockPanel>
         </Border>
 
-        <!-- ==================== TOOLS OVERLAY (covers main + right panel) ==================== -->
-        <Border x:Name="ToolsOverlay"
-                Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
-                Background="{DynamicResource PanelBackground}"
-                ZIndex="10"
-                IsVisible="False">
-            <DockPanel>
-                <Border DockPanel.Dock="Top"
-                        Background="{DynamicResource SidebarBackground}"
-                        BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
-                        Padding="12,8">
-                    <DockPanel>
-                        <Button x:Name="BtnToolsClose"
-                                DockPanel.Dock="Right"
-                                Content="[x] Close"
-                                Click="BtnToolsClose_Click"
-                                Background="Transparent"
-                                Foreground="#888888"
-                                BorderThickness="0"
-                                Cursor="Hand"
-                                Padding="8,4"
-                                FontSize="12" />
-                        <TextBlock Text="Tools"
-                                   Foreground="{DynamicResource TextForeground}"
-                                   FontSize="16" FontWeight="Bold"
-                                   VerticalAlignment="Center" />
-                    </DockPanel>
-                </Border>
-
-                <controls:ToolsView x:Name="ToolsView" />
-            </DockPanel>
-        </Border>
+        <!-- The Tools catalog is no longer a standalone in-window overlay: it now lives as the
+             Tools tab inside the Settings dialog (one screen, status + repair together). The
+             toolbar "Tools" button and the rail tools indicator both open Settings on that tab. -->
 
         <!-- ==================== PASTE-REMINDER CARD ====================
              Floating card shown after "create GitHub issue from screenshot" opens

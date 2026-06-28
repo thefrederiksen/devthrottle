@@ -740,6 +740,60 @@ public partial class SettingsDialog : Window
         SettingsTabs.SelectedIndex = gatewayTabIndex;
     }
 
+    /// <summary>Select the Tools tab so the download-and-repair button is visible. The main window's
+    /// rail tools indicator routes here when a tool is missing or failing.</summary>
+    public void SelectToolsTab()
+    {
+        // Tab order in SettingsDialog.axaml: Account(0), Gateway(1), Agents(2), Directories(3), Advanced(4), Tools(5).
+        const int toolsTabIndex = 5;
+        SettingsTabs.SelectedIndex = toolsTabIndex;
+    }
+
+    /// <summary>
+    /// Download and repair the whole cc-* toolset on demand. Calls the SAME shared engine routine the
+    /// Home "Fix it" button and the setup application use
+    /// (<see cref="CcDirector.Setup.Engine.ToolUpdater.RepairPythonToolsAsync"/>), which fetches the
+    /// latest release and rebuilds the shared Python venv in place - installing any tool the machine is
+    /// missing (e.g. a newly-shipped tool) without a full reinstall. Streams live progress onto the
+    /// status line and runs the slow download/pip work off the UI thread.
+    /// </summary>
+    private async void BtnFixTools_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnFixTools_Click: download and repair tools requested");
+        FixToolsButton.IsEnabled = false;
+        FixToolsStatus.IsVisible = true;
+        FixToolsStatus.Foreground = global::Avalonia.Media.Brushes.Gray;
+        FixToolsStatus.Text = "Starting...";
+        try
+        {
+            var progress = new Progress<string>(msg => FixToolsStatus.Text = msg);
+            var layout = CcDirector.Setup.Engine.InstallLayout.Default();
+            var result = await Task.Run(() =>
+                new CcDirector.Setup.Engine.ToolUpdater(layout).RepairPythonToolsAsync(progress));
+            FileLog.Write($"[SettingsDialog] Fix tools done: success={result.Success}, count={result.ToolCount}, msg={result.Message}");
+            FixToolsStatus.Foreground = result.Success
+                ? global::Avalonia.Media.Brushes.MediumSeaGreen
+                : global::Avalonia.Media.Brushes.IndianRed;
+            FixToolsStatus.Text = result.Success
+                ? $"Done - {result.ToolCount} tools downloaded and ready."
+                : $"Repair failed: {result.Message}";
+
+            // Refresh the embedded status dashboard so it reflects the freshly installed toolset.
+            if (result.Success)
+                await EmbeddedToolsView.ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnFixTools_Click FAILED: {ex.Message}");
+            FixToolsStatus.Foreground = global::Avalonia.Media.Brushes.IndianRed;
+            FixToolsStatus.Text = $"Repair failed: {ex.Message}";
+        }
+        finally
+        {
+            FixToolsButton.IsEnabled = true;
+        }
+    }
+
     /// <summary>
     /// Re-run the first-run tool-detection wizard on demand (issue #392). On accept it writes the
     /// selected tools to config.json (legacy <c>*_path</c> keys); we reload the agent list so any

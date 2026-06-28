@@ -45,6 +45,11 @@ public partial class ToolsView : UserControl
         await LoadCatalogAsync();
     }
 
+    /// <summary>Reload the catalog and re-run the checks. Called after a repair changes what is
+    /// installed (the Settings Tools tab hosts this view above its "Download and repair tools" button),
+    /// so the status list reflects the freshly installed toolset without reopening the dialog.</summary>
+    public Task ReloadAsync() => LoadCatalogAsync();
+
     private async Task LoadCatalogAsync()
     {
         FileLog.Write("[ToolsView] LoadCatalogAsync");

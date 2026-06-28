@@ -296,7 +296,7 @@ public partial class MainWindow : Window
         // Home page (empty-state): its actions route to the existing flows. Paint it now
         // so the very first frame at zero sessions is the home, not a blank content area.
         HomeView.NewSessionRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> New Session"); _ = ShowNewSessionDialog(); };
-        HomeView.OpenToolsRequested += (_, _) => BtnTools_Click(this, new RoutedEventArgs());
+        HomeView.OpenToolsRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> Tools tab in Settings"); _ = OpenSettingsAsync(onToolsTab: true); };
         HomeView.RepairToolsRequested += (_, _) => _ = RepairToolsAsync();
         HomeView.OpenSettingsRequested += (_, _) => BtnSettings_Click(this, new RoutedEventArgs());
         HomeView.GatewayClicked += (_, _) => OpenGatewayTroubleshooter();
@@ -741,7 +741,7 @@ public partial class MainWindow : Window
     /// consults this (issue #447).
     /// </summary>
     private bool IsContentOverlayOpen()
-        => ToolsOverlay.IsVisible || CommsOverlay.IsVisible
+        => CommsOverlay.IsVisible
            || ConnectionsOverlay.IsVisible || SchedulerOverlay.IsVisible;
 
     /// <summary>
@@ -942,6 +942,10 @@ public partial class MainWindow : Window
     /// </summary>
     private void ApplyHomeHealth()
     {
+        // The rail's cc-* tools indicator lives outside the home view, so paint it first and
+        // unconditionally (it must hide itself when there is no status yet, too).
+        UpdateToolsIndicator();
+
         if (_lastHomeStatus is not { } status) return;
 
         var healthy = status.AllReady && !_gatewayError;
@@ -957,6 +961,40 @@ public partial class MainWindow : Window
             if (h.NotBuilt > 0) summary += $" - {h.NotBuilt} not installed";
         }
         HomeView.SetStatus(status, healthy, _gatewayError, summary);
+    }
+
+    /// <summary>
+    /// Paint the rail's cc-* tools indicator from the same readiness data the status screen uses, so
+    /// the rail message matches the status page exactly. Visible ONLY when the tools check is not green
+    /// (a tool failing or not built); hidden when every tool passes. Clicking it opens Settings on the
+    /// Tools tab, where one button downloads and repairs the whole toolset.
+    /// </summary>
+    private void UpdateToolsIndicator()
+    {
+        var toolsCheck = _lastHomeStatus?.Checks.FirstOrDefault(c => c.Title == "cc-* tools");
+        if (toolsCheck is null || toolsCheck.Level == HomeCheckLevel.Ok)
+        {
+            ToolsIndicator.IsVisible = false;
+            return;
+        }
+
+        ToolsIndicator.IsVisible = true;
+        ToolsIndicatorSub.Text = toolsCheck.Detail;
+        ToolTip.SetTip(ToolsIndicator,
+            $"Some cc-* tools are missing or failing ({toolsCheck.Detail}).\nClick to open Settings and download/repair the tools.");
+    }
+
+    private async void ToolsIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            FileLog.Write("[MainWindow] ToolsIndicator clicked -> opening Settings on the Tools tab");
+            await OpenSettingsAsync(onToolsTab: true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ToolsIndicator_PointerPressed FAILED: {ex.Message}");
+        }
     }
 
     private global::Avalonia.Threading.DispatcherTimer? _schedulerLeaderTimer;
@@ -3324,9 +3362,9 @@ public partial class MainWindow : Window
     /// dialog is shown on the Gateway tab (issue #442: the no-Gateway needs-attention indicator
     /// routes here so the user lands on the field they must set).
     /// </summary>
-    private async Task OpenSettingsAsync(bool onGatewayTab)
+    private async Task OpenSettingsAsync(bool onGatewayTab = false, bool onToolsTab = false)
     {
-        FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}");
+        FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}, onToolsTab={onToolsTab}");
         var controlApi = (global::Avalonia.Application.Current as App)?.ControlApiHost;
         var dialog = new SettingsDialog(
             controlApi is not null ? controlApi.ReapplyGatewayAsync : null,
@@ -3334,7 +3372,14 @@ public partial class MainWindow : Window
             ReloadScreenshotsPanelAsync);
         if (onGatewayTab)
             dialog.SelectGatewayTab();
+        else if (onToolsTab)
+            dialog.SelectToolsTab();
         await dialog.ShowDialog<bool?>(this);
+
+        // The Tools tab can download/repair tools while the dialog is open, so re-run the health
+        // check on close - this clears the rail indicator once the toolset is whole again.
+        _lastToolHealth = null;
+        _ = RefreshToolHealthAsync(force: true);
     }
 
     private async void BtnHelp_Click(object? sender, RoutedEventArgs e)
@@ -4122,41 +4167,6 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = false;
         if (_schedulerInitialized)
             SchedulerView.StopPolling();
-        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
-    }
-
-    private void BtnTools_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnTools_Click: opening Tools overlay");
-
-        // Close other overlays first.
-        if (CommsOverlay.IsVisible)
-        {
-            CommsOverlay.IsVisible = false;
-            if (_commsInitialized)
-                CommManagerView.StopPolling();
-        }
-        if (ConnectionsOverlay.IsVisible)
-        {
-            ConnectionsOverlay.IsVisible = false;
-            if (_connectionsInitialized)
-                ConnectionsView.StopPolling();
-        }
-        if (SchedulerOverlay.IsVisible)
-        {
-            SchedulerOverlay.IsVisible = false;
-            if (_schedulerInitialized)
-                SchedulerView.StopPolling();
-        }
-
-        ToolsOverlay.IsVisible = true;
-        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
-    }
-
-    private void BtnToolsClose_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnToolsClose_Click: closing Tools overlay");
-        ToolsOverlay.IsVisible = false;
         UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 

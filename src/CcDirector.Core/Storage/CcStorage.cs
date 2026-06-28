@@ -105,12 +105,10 @@ public static class CcStorage
     /// </summary>
     public static string BriefFeedback() => Ensure(Path.Combine(Base(), "brief-feedback"));
 
-    /// <summary>Installed executables (tool binaries).</summary>
-    public static string Bin()
-    {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, "cc-director", "bin");
-    }
+    /// <summary>Installed executables (tool binaries). Honors the CC_DIRECTOR_ROOT override via
+    /// <see cref="Base"/> like every other path here, so an isolated root redirects the tool bin too
+    /// (previously this hardcoded %LOCALAPPDATA%\cc-director\bin and silently ignored the override).</summary>
+    public static string Bin() => Path.Combine(Base(), "bin");
 
     // -- Tool-specific shortcuts --
 
