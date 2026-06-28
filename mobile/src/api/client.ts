@@ -10,11 +10,10 @@ import type { components } from "./schema";
 export type SessionDto = components["schemas"]["SessionDto"];
 
 // Request bodies are typed from the generated OpenAPI schema (the C# DTOs stay the source of
-// truth). The buffer/escape/interrupt/tts responses are not declared in the schema (the Gateway
-// returns them via Results.Json/Results.Bytes without an [Produces] annotation), so they are
-// read with narrow local shapes for exactly the fields the Terminal view consumes.
+// truth). The buffer/escape/interrupt/transcription responses are not declared in the schema (the
+// Gateway returns them via Results.Json without a [Produces] annotation), so they are read with
+// narrow local shapes for exactly the fields the mobile views consume.
 type PromptRequest = components["schemas"]["PromptRequest"];
-type WingmanTtsRequest = components["schemas"]["WingmanTtsRequest"];
 
 // The injected token. A value still starting with "__" means the page was served without
 // injection (e.g. opened directly from the raw build) - treat that as absent.
@@ -24,9 +23,24 @@ function gatewayToken(): string {
   return raw.indexOf("__") === 0 ? "" : raw;
 }
 
-function authHeaders(): HeadersInit {
+// Exported so the dictation transcription calls (which post raw audio bytes and read a transcript)
+// attach the same Bearer the rest of the client uses - the app works with Gateway auth on or off.
+export function authHeaders(): HeadersInit {
   const token = gatewayToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Mirror the per-machine Gateway token into the cc-gateway-token cookie (issue #817). A browser
+// WebSocket cannot set an Authorization header, so the live terminal stream
+// (GET /sessions/{sid}/stream) authenticates via this cookie, which the same-origin handshake
+// carries and the Gateway's AuthMiddleware accepts (HasValidToken checks Bearer OR this cookie).
+// The token is already in the page (window.__GW_TOKEN__), so the cookie exposes nothing new; it is
+// scoped to this origin. A no-op when the page was served without an injected token (auth is then
+// off and the stream needs no credential anyway).
+export function ensureGatewayCookie(): void {
+  const token = gatewayToken();
+  if (!token) return;
+  document.cookie = `cc-gateway-token=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
 }
 
 export class GatewayError extends Error {
@@ -51,64 +65,6 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionDto[]> 
     throw new GatewayError(res.status, `GET /sessions failed: ${res.status}`);
   }
   return (await res.json()) as SessionDto[];
-}
-
-// One incremental read of the session's raw terminal buffer for the live mirror. The new bytes
-// since the previous cursor plus the cursor to pass on the next poll, so each poll fetches only
-// fresh output. Pass since=null on the first call to dump the whole buffer (the server returns the
-// full retained scrollback and the cursor at its end).
-export interface BufferSlice {
-  text: string;
-  newCursor: number;
-  totalBytes: number;
-}
-
-export async function getBuffer(
-  sessionId: string,
-  since: number | null,
-  signal?: AbortSignal,
-): Promise<BufferSlice> {
-  const sid = encodeURIComponent(sessionId);
-  // raw=true returns the verbatim PTY byte stream (ANSI/cursor control included) decoded as UTF-8,
-  // exactly what an xterm.js emulator consumes to render a coherent screen. since advances the
-  // cursor so the mirror is incremental, not a re-fetch of the whole buffer every poll.
-  const url = since !== null && since >= 0
-    ? `/sessions/${sid}/buffer?raw=true&since=${since}`
-    : `/sessions/${sid}/buffer?raw=true`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json", ...authHeaders() },
-    signal,
-  });
-  if (!res.ok) {
-    throw new GatewayError(res.status, `GET buffer failed: ${res.status}`);
-  }
-  const body = (await res.json()) as { text?: string; newCursor?: number; totalBytes?: number };
-  return {
-    text: body.text ?? "",
-    newCursor: Number(body.newCursor ?? 0),
-    totalBytes: Number(body.totalBytes ?? 0),
-  };
-}
-
-// The ANSI-cleaned tail of the buffer (escape codes stripped by the server's own cleaner) for
-// reading aloud - the raw mirror bytes carry control sequences that must not be spoken.
-export async function getCleanTail(
-  sessionId: string,
-  lines: number,
-  signal?: AbortSignal,
-): Promise<string> {
-  const sid = encodeURIComponent(sessionId);
-  const res = await fetch(`/sessions/${sid}/buffer?raw=false&lines=${lines}`, {
-    method: "GET",
-    headers: { Accept: "application/json", ...authHeaders() },
-    signal,
-  });
-  if (!res.ok) {
-    throw new GatewayError(res.status, `GET buffer (clean) failed: ${res.status}`);
-  }
-  const body = (await res.json()) as { text?: string };
-  return body.text ?? "";
 }
 
 // Write text (or a raw key escape sequence) to the session's PTY. appendEnter=true submits a typed
@@ -159,19 +115,68 @@ export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Pr
   }
 }
 
-// Text-to-speech of the latest output. POST /wingman/tts (the Gateway's OpenAI nova-voice proxy,
-// no voice override) returns audio/mpeg bytes over plain HTTP - not a SignalR frame - which the
-// caller plays in an <audio> element.
-export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
-  const body: WingmanTtsRequest = { text };
-  const res = await fetch(`/wingman/tts`, {
+// Dictation transcription (issue #817). Speech-to-text for the Speak dialog goes through the
+// EXISTING resilient batch-upload flow the Gateway exposes for the phone (register -> chunk ->
+// complete): the same record-then-ship-then-transcribe shape the native mobile app uses, resumable
+// on a poor phone network because each landed chunk stays landed. The Gateway transcribes the
+// reassembled clip with whatever transcription mode the machine is set to (Local Whisper in
+// process, or a remote OpenAI-compatible endpoint) and returns the transcript already run through
+// the SAME dictionary-correction engine every surface uses - so we prefer/return that cleaned text.
+//
+// The Director's own /voice/utterance flow is NOT proxied through the Gateway; this /wingman/
+// utterance flow is the Gateway-native equivalent and is reachable by the mobile app same-origin
+// with the Bearer, so no backend change is needed.
+export async function transcribeUtterance(wav: Blob, signal?: AbortSignal): Promise<string> {
+  // 1. Register the upload (mints an id the chunk + complete calls address).
+  const reg = await fetch(`/wingman/utterance/upload`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
+    headers: { Accept: "application/json", ...authHeaders() },
     signal,
   });
-  if (!res.ok) {
-    throw new GatewayError(res.status, `POST wingman/tts failed: ${res.status}`);
+  if (!reg.ok) {
+    throw new GatewayError(reg.status, `POST wingman/utterance/upload failed: ${reg.status}`);
   }
-  return await res.blob();
+  const regBody = (await reg.json()) as { upload_id?: string };
+  const uploadId = regBody.upload_id;
+  if (!uploadId) {
+    throw new GatewayError(reg.status, "transcription register returned no upload id");
+  }
+
+  // 2. Upload the whole WAV as chunk 0 (one short utterance per segment). The SHA256 lets the
+  //    server reject corruption and treat an identical retry as a free no-op.
+  const bytes = new Uint8Array(await wav.arrayBuffer());
+  const sha = await sha256Hex(bytes);
+  const id = encodeURIComponent(uploadId);
+  const put = await fetch(`/wingman/utterance/${id}/chunk/0`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/octet-stream", "X-Chunk-Sha256": sha, ...authHeaders() },
+    body: bytes,
+    signal,
+  });
+  if (!put.ok) {
+    throw new GatewayError(put.status, `PUT wingman/utterance chunk failed: ${put.status}`);
+  }
+
+  // 3. Complete -> the server reassembles the one chunk, transcribes it, applies the dictionary
+  //    correction, and returns the cleaned transcript.
+  const comp = await fetch(`/wingman/utterance/${id}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ totalChunks: 1, mime: "audio/wav", ext: "wav" }),
+    signal,
+  });
+  const compBody = (await comp.json().catch(() => ({}))) as { transcript?: string; error?: string };
+  if (!comp.ok) {
+    throw new GatewayError(comp.status, compBody.error ?? `transcription failed: ${comp.status}`);
+  }
+  return (compBody.transcript ?? "").trim();
+}
+
+// Hex SHA256 of the upload bytes via the Web Crypto API (available in any secure context, which a
+// microphone-capable page already is).
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
