@@ -70,6 +70,16 @@ public sealed class PythonToolsInstaller
         string? pyZip = null, toolsZip = null, bundleDir = null;
         try
         {
+            // 0. Heal: purge any orphaned legacy alias shims left by older installs (issue #823).
+            //    The retired per-tool fleet commands (cc-send, cc-whoami, ...) were consolidated into
+            //    the single cc-devthrottle command, so their venv exes no longer ship. A bin\cc-send.cmd
+            //    left over from an older install therefore points at a missing pyenv\Scripts\cc-send.exe
+            //    and fails with exit 127. These names are in no current manifest, so the managed-shim
+            //    removal below never touches them - we purge them explicitly. This runs BEFORE the
+            //    already-installed early-out so a "repair" on an up-to-date machine still heals them.
+            Step("removing orphaned legacy alias shims");
+            RemoveLegacyAliasShims();
+
             // 1. Download + verify both assets. Byte-level progress drives the row's status text
             //    ("Downloading 118.2 MB / 334.5 MB") and the 0-20% band of the bar. Both zips share
             //    one combined total (matching the size shown on the UI row) so the bar never resets
@@ -322,6 +332,58 @@ public sealed class PythonToolsInstaller
         foreach (var script in scripts)
             if (!File.Exists(ConsoleScriptPath(layout, script))) return false;
         return true;
+    }
+
+    /// <summary>
+    /// The retired per-tool fleet commands that were consolidated into the single cc-devthrottle command
+    /// (issue #823): cc-send, cc-ask, cc-spawn, cc-sessions, cc-whoami, cc-settings, cc-cron,
+    /// cc-fleet-selftest. Their executables no longer ship in the venv, so any bin shim an older install
+    /// left for them resolves to a missing target and fails with exit 127. The installer purges these on
+    /// every install/repair. Kept in sync with cc-devthrottle's setup_ops.LEGACY_ALIAS_NAMES (the doctor
+    /// diagnostic) so the same retired names are reported and cleaned. These names never overlap the
+    /// shipping tools, so purging them can never remove a live tool's shim.
+    /// </summary>
+    public static readonly IReadOnlyList<string> LegacyAliasShimNames = new[]
+    {
+        "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron", "cc-fleet-selftest",
+    };
+
+    /// <summary>
+    /// Delete any orphaned legacy alias shims from the install (issue #823). Each retired alias may have left
+    /// a bin\&lt;name&gt;.cmd, a bare-name bash shim, and (from an even older PyInstaller install) a
+    /// bin\&lt;name&gt;.exe on Windows, or a ~/.local/bin/&lt;name&gt; symlink on macOS - all pointing at a
+    /// venv exe that no longer exists. Removing them is what satisfies "no shim points at a missing exe":
+    /// the command becomes absent and the fleet banner directs the agent to the cc-devthrottle subcommand
+    /// instead. Best-effort: a shim we cannot delete is logged, never thrown.
+    /// </summary>
+    private void RemoveLegacyAliasShims()
+    {
+        foreach (var name in LegacyAliasShimNames)
+        {
+            var paths = OperatingSystem.IsWindows()
+                ? new[]
+                  {
+                      Path.Combine(_layout.BinDir, $"{name}.cmd"),
+                      Path.Combine(_layout.BinDir, $"{name}.exe"),
+                      Path.Combine(_layout.BinDir, name), // bare-name bash shim
+                  }
+                : new[] { Path.Combine(_layout.MacUserBinDir, name) };
+            foreach (var path in paths)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                        EngineLog.Write($"[PythonToolsInstaller] removed orphaned legacy alias shim {path}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    EngineLog.Write($"[PythonToolsInstaller] could not remove legacy alias shim {path}: {ex.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>

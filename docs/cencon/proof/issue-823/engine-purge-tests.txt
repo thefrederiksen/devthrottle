@@ -1,0 +1,24 @@
+Build started 2026-06-28 5:31:34 PM.
+Test run for D:\ReposFred\devthrottle-wt-823\tools\cc-director-setup-engine.Tests\bin\Debug\net10.0\CcDirector.Setup.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.04]   Discovering: CcDirector.Setup.Engine.Tests
+[xUnit.net 00:00:00.08]   Discovered:  CcDirector.Setup.Engine.Tests
+[xUnit.net 00:00:00.08]   Starting:    CcDirector.Setup.Engine.Tests
+[xUnit.net 00:00:00.16]   Finished:    CcDirector.Setup.Engine.Tests
+  Passed CcDirector.Setup.Engine.Tests.PythonToolsHealAndShimTests.InstallAsync_PurgesOrphanedLegacyAliasShims [32 ms]
+  Passed CcDirector.Setup.Engine.Tests.PythonToolsHealAndShimTests.InstallAsync_LeavesNonLegacyToolShimsAlone [9 ms]
+  Passed CcDirector.Setup.Engine.Tests.PythonToolsHealAndShimTests.LegacyAliasShimNames_AreTheEightRetiredFleetCommands [6 ms]
+
+Test Run Successful.
+Total tests: 3
+     Passed: 3
+ Total time: 0.4621 Seconds
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.82
+--- full engine suite total ---
+Passed!  - Failed:     0, Passed:   193, Skipped:     0, Total:   193, Duration: 3 s - CcDirector.Setup.Engine.Tests.dll (net10.0)

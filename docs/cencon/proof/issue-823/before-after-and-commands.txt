@@ -1,0 +1,16 @@
+=== AC4 BEFORE: orphaned cc-send shim (target pyenv/Scripts/cc-send.exe missing) ===
+<scratchpad>/shimdemo2/bin/cc-send: line 2: <scratchpad>/shimdemo2/bin/../pyenv/Scripts/cc-send.exe: No such file or directory
+[exit=127]  <-- the exit 127 / No such file or directory symptom
+
+=== AC1/AC4 AFTER: installer purge removes the orphan (production code proven by engine-purge-tests.txt) ===
+cc-send absent (OK): command retired; banner teaches 'cc-devthrottle message send'
+
+=== AC2: read-only commands the SessionStart banner / CC_FLEET_TOOLS advertise (real cc-devthrottle exe) ===
+  cc-devthrottle session whoami  -> [exit=0]
+  cc-devthrottle session list  -> [exit=0]
+  cc-devthrottle setup status  -> [exit=0]
+  cc-devthrottle actions --json  -> [exit=0]
+  cc-devthrottle schedule list  -> [exit=1]  (resolves+runs; exit 1 = this machine's remote-Gateway-token config, NOT a missing exe / not issue #823)
+
+=== shim target resolution: every advertised command points at the one present cc-devthrottle exe ===
+-rwxr-xr-x 1 <user> 197609 176 Jun 27 18:09 /c/Users/<user>/AppData/Local/cc-director/bin/cc-devthrottle*

@@ -191,6 +191,7 @@ The vanilla app stays as the behavioral spec until its behavior is ported.
 - **New toolchain:** this introduces Node/npm + a React/TS build to a C#-centric repo. The DEV phase
   installs Node on the build machine if absent and sets up the Vite project; the QA proof bar is
   satisfied with phone-viewport screenshots of the running page.
-- **`cc-spawn` CLI is currently broken** on this machine (shim points to a missing exe). Launching the
-  autonomous session uses the Control API `POST /sessions` on the loopback Director instead; the
-  broken CLI is reported separately so it gets fixed.
+- **`cc-spawn` is a retired command** (consolidated into `cc-devthrottle session spawn`; issue #823),
+  so the standalone `cc-spawn` shim was removed - older installs carried a stale shim that pointed at a
+  missing exe. Launching the autonomous session uses the Control API `POST /sessions` on the loopback
+  Director, which remains the mobile launch mechanism.
