@@ -1,0 +1,6 @@
+  Passed CcDirector.Core.Tests.Pi.PiPreambleWriterTests.WriteForSession_WritesPreambleFile_WithIdentityAndCommands [13 ms]
+  Passed CcDirector.Core.Tests.Pi.PiPreambleWriterTests.WriteForSession_UnnamedSession_StillWritesUsableFile [2 ms]
+  Passed CcDirector.Core.Tests.Sessions.FleetPreambleTests.Build_IsAsciiOnly [< 1 ms]
+  Passed CcDirector.Core.Tests.Sessions.FleetPreambleTests.Build_UnnamedSession_RendersUnnamedPlaceholder [< 1 ms]
+  Passed CcDirector.Core.Tests.Sessions.FleetPreambleTests.Build_NamedSession_IncludesIdentityAndFleetCommands [< 1 ms]
+Total tests: 5

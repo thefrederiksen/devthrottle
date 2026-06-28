@@ -108,3 +108,28 @@ def test_no_legacy_hard_coded_tool_lists_remain():
     assert not hasattr(setup_ops, "PYTHON_TOOLS")
     assert not hasattr(setup_ops, "NODE_TOOLS")
     assert not hasattr(setup_ops, "DOTNET_TOOLS")
+
+
+def test_legacy_alias_names_cover_all_retired_fleet_commands():
+    # The retired per-tool fleet commands consolidated into cc-devthrottle (issue #823). Kept in sync
+    # with the installer engine's PythonToolsInstaller.LegacyAliasShimNames so the same names the
+    # installer purges are the ones doctor reports. cc-fleet-selftest must be present (it was missing).
+    assert setup_ops.LEGACY_ALIAS_NAMES == [
+        "cc-send",
+        "cc-ask",
+        "cc-spawn",
+        "cc-sessions",
+        "cc-whoami",
+        "cc-settings",
+        "cc-cron",
+        "cc-fleet-selftest",
+    ]
+
+
+def test_doctor_reports_legacy_aliases(isolated_install):
+    data = setup_ops.doctor_data()
+
+    reported = {entry["name"] for entry in data["legacyAliases"]}
+    assert reported == set(setup_ops.LEGACY_ALIAS_NAMES)
+    # On a clean isolated install none of the retired aliases resolve on PATH.
+    assert all(entry["resolvedPath"] is None for entry in data["legacyAliases"])

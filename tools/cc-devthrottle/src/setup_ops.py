@@ -34,6 +34,11 @@ SETUP_CLI_COMMAND_NAMES = [
     "cc-director-setup-cli.exe",
 ]
 
+# Retired per-tool fleet commands that were consolidated into the single cc-devthrottle
+# command (issue #823). Their executables no longer ship, so any leftover bin shim pointing at
+# them fails with exit 127. The installer engine purges these (PythonToolsInstaller
+# .LegacyAliasShimNames - keep the two lists in sync); doctor reports their resolved path so a
+# machine that still carries one is visible.
 LEGACY_ALIAS_NAMES = [
     "cc-send",
     "cc-ask",
@@ -42,6 +47,7 @@ LEGACY_ALIAS_NAMES = [
     "cc-whoami",
     "cc-settings",
     "cc-cron",
+    "cc-fleet-selftest",
 ]
 
 

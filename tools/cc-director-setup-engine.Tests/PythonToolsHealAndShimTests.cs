@@ -206,6 +206,63 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Assert.Null(InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId));
     }
 
+    // --- Orphaned legacy alias shim purge (issue #823) --------------------------------------------
+
+    [Fact]
+    public void LegacyAliasShimNames_AreTheEightRetiredFleetCommands()
+    {
+        // The retired per-tool fleet commands that were consolidated into cc-devthrottle. Guards the list
+        // against accidental drift and against ever including a shipping tool name (which would be purged).
+        Assert.Equal(
+            new[] { "cc-send", "cc-ask", "cc-spawn", "cc-sessions", "cc-whoami", "cc-settings", "cc-cron", "cc-fleet-selftest" },
+            PythonToolsInstaller.LegacyAliasShimNames);
+        Assert.DoesNotContain("cc-devthrottle", PythonToolsInstaller.LegacyAliasShimNames);
+    }
+
+    [Fact]
+    public async Task InstallAsync_PurgesOrphanedLegacyAliasShims()
+    {
+        // A machine carrying orphaned legacy alias shims from an older install: each retired command has a
+        // bin\<name>.cmd and a bare-name bash shim whose pyenv\Scripts\<name>.exe target no longer ships, so
+        // running it fails with exit 127. InstallAsync must delete every one. The purge runs up front, so it
+        // happens even though this install then fails at SHA-verify (a network-free way to drive InstallAsync).
+        Directory.CreateDirectory(_layout.BinDir);
+        var orphans = new List<string>();
+        foreach (var name in PythonToolsInstaller.LegacyAliasShimNames)
+        {
+            var cmd = Path.Combine(_layout.BinDir, $"{name}.cmd");
+            var bare = Path.Combine(_layout.BinDir, name);
+            File.WriteAllText(cmd, "@echo off\r\n");
+            File.WriteAllText(bare, "#!/bin/sh\n");
+            orphans.Add(cmd);
+            orphans.Add(bare);
+        }
+
+        var result = await new PythonToolsInstaller(_layout).InstallAsync(StageBadShaRelease("1.0.0"), new ReleaseSource());
+
+        Assert.False(result.Success); // bad-SHA download fails the install, but the purge already ran
+        foreach (var path in orphans)
+            Assert.False(File.Exists(path), $"orphaned legacy alias shim survived the install: {path}");
+    }
+
+    [Fact]
+    public async Task InstallAsync_LeavesNonLegacyToolShimsAlone()
+    {
+        // The purge must remove ONLY the retired alias names. A live tool's shim (cc-pdf) sitting in bin\
+        // must survive - purging it would break a working command. cc-send (a retired alias) is removed.
+        Directory.CreateDirectory(_layout.BinDir);
+        var liveShim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
+        var legacyShim = Path.Combine(_layout.BinDir, "cc-send.cmd");
+        File.WriteAllText(liveShim, "@echo off\r\n");
+        File.WriteAllText(legacyShim, "@echo off\r\n");
+
+        var result = await new PythonToolsInstaller(_layout).InstallAsync(StageBadShaRelease("1.0.0"), new ReleaseSource());
+
+        Assert.False(result.Success);
+        Assert.True(File.Exists(liveShim), "purge wrongly removed a live tool shim (cc-pdf.cmd)");
+        Assert.False(File.Exists(legacyShim), "purge failed to remove a retired alias shim (cc-send.cmd)");
+    }
+
     // --- Self-checking Windows shim body -----------------------------------------------------------
 
     [Fact]

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #823 - Developer proof - Broken cc-* legacy alias shims</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1d2330; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { color: #2b6cb0; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #1d2330; color: #e6edf3; padding: .8rem; overflow-x: auto; border-radius: 5px; font-size: .85rem; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .note { background: #fffbea; border-left: 4px solid #d69e2e; padding: .6rem .8rem; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+<h1>Issue #823 - Developer Agent proof</h1>
+<p><strong>Title:</strong> [Installer] Broken cc-* shims (cc-send/cc-sessions/cc-whoami/cc-ask/cc-spawn/cc-settings/cc-cron/cc-fleet-selftest) point to missing exes; SessionStart banner advertises them</p>
+<p><strong>Branch:</strong> issue-823-legacy-alias-shims &nbsp;|&nbsp; <strong>Build:</strong> dotnet build cc-director.sln -> Build succeeded, 0 Warning(s), 0 Error(s)</p>
+
+<h2>Root cause</h2>
+<p>
+The eight retired per-tool fleet commands (<code>cc-send</code>, <code>cc-ask</code>, <code>cc-spawn</code>,
+<code>cc-sessions</code>, <code>cc-whoami</code>, <code>cc-settings</code>, <code>cc-cron</code>,
+<code>cc-fleet-selftest</code>) were consolidated into the single <code>cc-devthrottle</code> command, so their
+per-tool executables no longer ship in <code>pyenv\Scripts</code>. The installer
+(<code>tools/cc-director-setup-engine/PythonToolsInstaller.cs</code>) writes and removes <em>managed</em> shims
+only for tools listed in the bundle's <code>tools-manifest.json</code>. The retired aliases are in no current
+manifest, so the installer never cleaned them up - they survived as orphans in <code>bin\</code>, each pointing at
+a missing <code>pyenv\Scripts\&lt;name&gt;.exe</code> and failing with <code>exit 127 / No such file or directory</code>.
+</p>
+<p>
+The SessionStart fleet banner (<code>src/CcDirector.Core/Sessions/FleetPreamble.cs</code>) and the
+<code>CC_FLEET_TOOLS</code> environment value (<code>src/CcDirector.Core/Sessions/SessionManager.cs</code>) were
+<strong>already</strong> migrated to <code>cc-devthrottle</code> exclusively in current code (confirmed below); live
+sessions seeing the old banner were launched by stale Director builds, an operational matter, not a code defect.
+</p>
+
+<h2>Fix (direction: drop the legacy aliases - the proof-target-sanctioned "absent and replaced in the banner" outcome)</h2>
+<ul>
+  <li><strong>PythonToolsInstaller.cs</strong> - new <code>LegacyAliasShimNames</code> list + <code>RemoveLegacyAliasShims()</code>,
+      called at the very top of <code>InstallAsync</code> (before the already-installed early-out), so every install
+      <em>and repair</em> purges the orphan <code>.cmd</code>, bare-name bash, and stale <code>.exe</code> shims for the
+      eight retired aliases. The names never overlap the shipping tools, so a live tool's shim is never removed.</li>
+  <li><strong>setup_ops.py</strong> - added <code>cc-fleet-selftest</code> to <code>LEGACY_ALIAS_NAMES</code> so the
+      <code>cc-devthrottle setup status</code> doctor diagnostic reports all eight retired names and stays in sync with
+      the installer engine list.</li>
+  <li><strong>docs/architecture/mobile/IMPLEMENTATION.md</strong> - corrected the one live doc note that called
+      <code>cc-spawn</code> "broken" to describe it as a retired command (consolidated into
+      <code>cc-devthrottle session spawn</code>).</li>
+</ul>
+<p class="note"><strong>No banner code change.</strong> FleetPreamble.cs and SessionManager.cs already advertise only
+<code>cc-devthrottle</code> subcommands; the existing FleetPreamble / PiPreamble tests assert the old commands are
+absent and pass unchanged.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+<tr>
+  <td>AC1 - no shim points at a missing exe</td>
+  <td>Installer leaves no <code>bin\</code> shim resolving to a missing target</td>
+  <td><code>InstallAsync</code> purges all eight orphan aliases on disk; live tool shims preserved
+      (engine-purge-tests.txt: <code>InstallAsync_PurgesOrphanedLegacyAliasShims</code>,
+      <code>InstallAsync_LeavesNonLegacyToolShimsAlone</code>). Advertised commands all resolve to the one present
+      <code>cc-devthrottle</code> exe.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2 - each advertised command runs, exits 0 (read-only ones)</td>
+  <td>Identity/list commands exit 0</td>
+  <td><code>session whoami</code>, <code>session list</code>, <code>setup status</code>, <code>actions --json</code> -> exit 0
+      (before-after-and-commands.txt). <code>schedule list</code> resolves and runs; its exit 1 here is this machine's
+      remote-Gateway-token config state (clear actionable message), not a missing-exe failure and not in scope of #823.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3 - banner / CC_FLEET_TOOLS contain only working commands</td>
+  <td>Only <code>cc-devthrottle</code> subcommand forms advertised</td>
+  <td>FleetPreamble.cs and SessionManager.cs use <code>cc-devthrottle</code> exclusively; FleetPreambleTests +
+      PiPreambleWriterTests pass (banner-tests.txt).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC4 - previously-broken commands no longer give exit 127 / No such file or directory</td>
+  <td>The broken-shim symptom is eliminated</td>
+  <td>BEFORE: orphan <code>cc-send</code> shim -> <code>exit 127 / No such file or directory</code>. AFTER: the installer
+      purge removes it; the command is absent and the banner directs to <code>cc-devthrottle message send</code> (the
+      working replacement) - exactly the proof target's "absent and replaced in the banner" outcome
+      (before-after-and-commands.txt; production purge proven by engine-purge-tests.txt).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Key evidence</h2>
+<pre>
+=== AC4 BEFORE: orphaned cc-send shim (target pyenv/Scripts/cc-send.exe missing) ===
+.../bin/cc-send: line 2: .../pyenv/Scripts/cc-send.exe: No such file or directory
+[exit=127]  &lt;-- the exit 127 / No such file or directory symptom
+
+=== AC1/AC4 AFTER: installer purge removes the orphan ===
+cc-send absent (OK): command retired; banner teaches 'cc-devthrottle message send'
+
+=== AC2: read-only commands the banner / CC_FLEET_TOOLS advertise ===
+  cc-devthrottle session whoami  -> [exit=0]
+  cc-devthrottle session list    -> [exit=0]
+  cc-devthrottle setup status    -> [exit=0]
+  cc-devthrottle actions --json  -> [exit=0]
+  cc-devthrottle schedule list   -> [exit=1]  (resolves+runs; remote-Gateway-token config, not a missing exe)
+
+=== engine purge tests (real InstallAsync runs the purge against a real on-disk bin\) ===
+  Passed InstallAsync_PurgesOrphanedLegacyAliasShims
+  Passed InstallAsync_LeavesNonLegacyToolShimsAlone
+  Passed LegacyAliasShimNames_AreTheEightRetiredFleetCommands
+  Passed!  - Failed: 0, Passed: 193, Total: 193 (full engine suite)
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is an installer self-heal (purge orphaned shims) plus a diagnostic
+list update and a doc correction. No container boundary, data flow, or security control changes; no
+<code>architecture_manifest.yaml</code> / <code>security_profile.yaml</code> edit required.</p>
+
+<h2>Proof files</h2>
+<ul class="files">
+  <li><code>docs/cencon/proof/issue-823/engine-purge-tests.txt</code> - the three new engine tests + full 193-test suite PASS</li>
+  <li><code>docs/cencon/proof/issue-823/python-setup-tests.txt</code> - cc-devthrottle setup_ops tests PASS (incl. 2 new)</li>
+  <li><code>docs/cencon/proof/issue-823/banner-tests.txt</code> - FleetPreamble / PiPreamble tests PASS</li>
+  <li><code>docs/cencon/proof/issue-823/before-after-and-commands.txt</code> - AC4 before/after + AC2 command runs</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong> All four acceptance criteria are met with proof, the full solution and
+the installer-engine project build clean (0 warnings, 0 errors), and the new behavior is covered by automated tests.</p>
+</body>
+</html>
