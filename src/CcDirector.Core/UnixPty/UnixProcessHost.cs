@@ -7,11 +7,11 @@ namespace CcDirector.Core.UnixPty;
 
 /// <summary>
 /// Spawns a process attached to a <see cref="UnixPseudoConsole"/>, with the child's
-/// stdin/stdout/stderr bound to the PTY slave and a controlling terminal established,
+/// stdin/stdout/stderr bound to the PTY subordinate and a controlling terminal established,
 /// then manages async I/O loops for reading output and monitoring process exit.
 ///
 /// The previous implementation launched the child via the .NET <see cref="System.Diagnostics.Process"/>
-/// class with redirected pipes, which left the PTY slave completely unattached: the
+/// class with redirected pipes, which left the PTY subordinate completely unattached: the
 /// child's stdin was an anonymous pipe, not a terminal. Modern Claude Code detects a
 /// non-TTY stdin and switches to non-interactive (<c>--print</c>) mode, then exits with
 /// "Input must be provided either through stdin or as a prompt argument". This host
@@ -50,7 +50,7 @@ public sealed class UnixProcessHost : IDisposable
 
     /// <summary>
     /// Spawn a process attached to the pseudo console via posix_spawn. The child
-    /// runs as a new session leader with the PTY slave as its controlling terminal
+    /// runs as a new session leader with the PTY subordinate as its controlling terminal
     /// and stdin/stdout/stderr.
     /// </summary>
     public void Start(string exePath, string args, string? workingDir, Dictionary<string, string>? environmentVars = null)
@@ -69,13 +69,13 @@ public sealed class UnixProcessHost : IDisposable
 
         var envp = BuildEnvironment(environmentVars);
 
-        // The slave device path: the child opens this fresh (as session leader) so it
+        // The subordinate device path: the child opens this fresh (as session leader) so it
         // becomes the controlling terminal, then we dup it onto stdin/stdout/stderr.
         var ptsPtr = ptsname(_console.MasterFd);
         if (ptsPtr == IntPtr.Zero)
             throw new InvalidOperationException("ptsname returned null for the PTY master fd.");
         var ptsPath = Marshal.PtrToStringAnsi(ptsPtr)
-            ?? throw new InvalidOperationException("Could not marshal PTY slave device path.");
+            ?? throw new InvalidOperationException("Could not marshal PTY subordinate device path.");
 
         // Caller-allocated, zeroed buffers for the opaque spawn handles.
         IntPtr fileActions = AllocZeroed(1024);
@@ -93,9 +93,9 @@ public sealed class UnixProcessHost : IDisposable
                 "posix_spawn_file_actions_adddup2(stdout)");
             Check(posix_spawn_file_actions_adddup2(fileActions, STDIN_FILENO, STDERR_FILENO),
                 "posix_spawn_file_actions_adddup2(stderr)");
-            // Close the inherited master/slave fds in the child.
+            // Close the inherited master/subordinate fds in the child.
             posix_spawn_file_actions_addclose(fileActions, _console.MasterFd);
-            posix_spawn_file_actions_addclose(fileActions, _console.SlaveFd);
+            posix_spawn_file_actions_addclose(fileActions, _console.SubordinateFd);
             if (!string.IsNullOrEmpty(workingDir))
                 Check(posix_spawn_file_actions_addchdir_np(fileActions, workingDir),
                     "posix_spawn_file_actions_addchdir_np");
@@ -113,9 +113,9 @@ public sealed class UnixProcessHost : IDisposable
             Marshal.FreeHGlobal(attr);
         }
 
-        // The child holds its own copy of the slave; the parent must release the
-        // slave or reads on the master will never see EOF when the child exits.
-        _console.CloseSlave();
+        // The child holds its own copy of the subordinate; the parent must release the
+        // subordinate or reads on the master will never see EOF when the child exits.
+        _console.CloseSubordinate();
 
         FileLog.Write($"[UnixProcessHost] Started PID {_pid}: {resolvedExe} {args}");
     }
@@ -145,7 +145,7 @@ public sealed class UnixProcessHost : IDisposable
                     }
                     else
                     {
-                        // n == 0 from a blocking master read means the slave side
+                        // n == 0 from a blocking master read means the subordinate side
                         // closed (child exited) -- EOF.
                         break;
                     }
@@ -257,7 +257,7 @@ public sealed class UnixProcessHost : IDisposable
 
         _cts.Cancel();
 
-        // Force-kill a still-running child so waitpid returns and the slave closes,
+        // Force-kill a still-running child so waitpid returns and the subordinate closes,
         // which in turn unblocks the drain loop's master read.
         if (_started && !_hasExited && _pid > 0)
         {

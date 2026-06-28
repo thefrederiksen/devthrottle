@@ -46,7 +46,7 @@ internal static class UnixNativeMethods
     private const string LibC = "libc";
 
     [DllImport(LibC, SetLastError = true)]
-    public static extern int openpty(out int master, out int slave,
+    public static extern int openpty(out int master, out int subordinate,
         IntPtr name, IntPtr termios, IntPtr winsize);
 
     [DllImport(LibC, SetLastError = true)]
@@ -94,15 +94,15 @@ internal static class UnixNativeMethods
 public sealed class UnixPseudoConsole : IDisposable
 {
     public int MasterFd { get; }
-    public int SlaveFd { get; }
+    public int SubordinateFd { get; }
 
     public static UnixPseudoConsole Create(short cols, short rows)
     {
-        int master, slave;
-        if (UnixNativeMethods.openpty(out master, out slave, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) == -1)
+        int master, subordinate;
+        if (UnixNativeMethods.openpty(out master, out subordinate, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) == -1)
             throw new InvalidOperationException($"openpty failed: {Marshal.GetLastWin32Error()}");
 
-        var console = new UnixPseudoConsole(master, slave);
+        var console = new UnixPseudoConsole(master, subordinate);
         console.Resize(cols, rows);
         return console;
     }
@@ -116,7 +116,7 @@ public sealed class UnixPseudoConsole : IDisposable
     public void Dispose()
     {
         UnixNativeMethods.close(MasterFd);
-        UnixNativeMethods.close(SlaveFd);
+        UnixNativeMethods.close(SubordinateFd);
     }
 
     private static ulong GetTiocswinszValue()

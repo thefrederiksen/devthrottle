@@ -7,7 +7,7 @@ namespace CcDirector.Core.Tests;
 
 /// <summary>
 /// Regression tests for the macOS/Linux PTY backend. The original implementation
-/// spawned the child with redirected pipes and never attached the PTY slave, so the
+/// spawned the child with redirected pipes and never attached the PTY subordinate, so the
 /// child's stdin was not a terminal -- which made Claude Code drop into --print mode
 /// and exit with "Input must be provided either through stdin or as a prompt argument".
 /// The child MUST see a real TTY on stdin.

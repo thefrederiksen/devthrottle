@@ -28,12 +28,12 @@ internal static class UnixNativeMethods
 
     /// <summary>
     /// Create a pseudo-terminal pair.
-    /// On success, master and slave contain file descriptors for the PTY.
+    /// On success, master and subordinate contain file descriptors for the PTY.
     /// </summary>
     [DllImport(LibC, SetLastError = true)]
     public static extern int openpty(
         out int master,
-        out int slave,
+        out int subordinate,
         IntPtr name,      // char* name - can be null
         IntPtr termios,   // struct termios* - can be null
         IntPtr winsize);  // struct winsize* - can be null
@@ -131,7 +131,7 @@ internal static class UnixNativeMethods
     [DllImport(LibC, SetLastError = true)]
     public static extern int kill(int pid, int sig);
 
-    // ---- posix_spawn: launch a child with stdio bound to a PTY slave ----
+    // ---- posix_spawn: launch a child with stdio bound to a PTY subordinate ----
     //
     // We use posix_spawn rather than fork()+exec() because calling fork() in a
     // multi-threaded managed runtime (CoreCLR) is unsafe: only the calling
@@ -190,7 +190,7 @@ internal static class UnixNativeMethods
     [DllImport(LibC, SetLastError = true)]
     public static extern int posix_spawnattr_setflags(IntPtr attr, short flags);
 
-    /// <summary>Return the name of the slave PTY device for a master fd.</summary>
+    /// <summary>Return the name of the subordinate PTY device for a master fd.</summary>
     [DllImport(LibC, SetLastError = true)]
     public static extern IntPtr ptsname(int fd);
 

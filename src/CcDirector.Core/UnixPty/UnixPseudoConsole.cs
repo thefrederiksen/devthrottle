@@ -5,12 +5,12 @@ namespace CcDirector.Core.UnixPty;
 
 /// <summary>
 /// Managed wrapper around a Unix pseudo-terminal (PTY).
-/// Creates master/slave file descriptor pair for terminal emulation.
+/// Creates master/subordinate file descriptor pair for terminal emulation.
 /// </summary>
 public sealed class UnixPseudoConsole : IDisposable
 {
     private int _masterFd;
-    private int _slaveFd;
+    private int _subordinateFd;
     private bool _disposed;
 
     /// <summary>
@@ -21,15 +21,15 @@ public sealed class UnixPseudoConsole : IDisposable
     public int MasterFd => _masterFd;
 
     /// <summary>
-    /// Slave file descriptor - attached to child process.
+    /// Subordinate file descriptor - attached to child process.
     /// The child uses this as its stdin/stdout/stderr.
     /// </summary>
-    public int SlaveFd => _slaveFd;
+    public int SubordinateFd => _subordinateFd;
 
-    private UnixPseudoConsole(int masterFd, int slaveFd)
+    private UnixPseudoConsole(int masterFd, int subordinateFd)
     {
         _masterFd = masterFd;
-        _slaveFd = slaveFd;
+        _subordinateFd = subordinateFd;
     }
 
     /// <summary>
@@ -40,16 +40,16 @@ public sealed class UnixPseudoConsole : IDisposable
     /// <returns>A new UnixPseudoConsole instance.</returns>
     public static UnixPseudoConsole Create(short cols = 120, short rows = 30)
     {
-        int master, slave;
+        int master, subordinate;
 
-        int result = openpty(out master, out slave, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        int result = openpty(out master, out subordinate, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (result == -1)
         {
             int errno = Marshal.GetLastWin32Error();
             throw new InvalidOperationException($"openpty failed with errno {errno}");
         }
 
-        var console = new UnixPseudoConsole(master, slave);
+        var console = new UnixPseudoConsole(master, subordinate);
 
         // Set initial terminal size
         console.Resize(cols, rows);
@@ -128,7 +128,7 @@ public sealed class UnixPseudoConsole : IDisposable
             // EAGAIN/EWOULDBLOCK means no data available (non-blocking)
             if (errno == 11 || errno == 35) // EAGAIN on Linux/macOS
                 return 0;
-            // EIO (5) is how macOS/Linux report "slave side fully closed" once the
+            // EIO (5) is how macOS/Linux report "subordinate side fully closed" once the
             // child exits -- treat as EOF. EBADF (9) means the master was closed
             // out from under a blocking read during shutdown -- also EOF.
             if (errno == 5 || errno == 9)
@@ -139,17 +139,17 @@ public sealed class UnixPseudoConsole : IDisposable
     }
 
     /// <summary>
-    /// Close the slave file descriptor in this (parent) process.
+    /// Close the subordinate file descriptor in this (parent) process.
     /// Must be called after the child has been spawned with its own copy of the
-    /// slave: while the parent still holds the slave open, reads on the master
+    /// subordinate: while the parent still holds the subordinate open, reads on the master
     /// never see EOF when the child exits.
     /// </summary>
-    public void CloseSlave()
+    public void CloseSubordinate()
     {
-        if (_slaveFd != -1)
+        if (_subordinateFd != -1)
         {
-            close(_slaveFd);
-            _slaveFd = -1;
+            close(_subordinateFd);
+            _subordinateFd = -1;
         }
     }
 
@@ -164,10 +164,10 @@ public sealed class UnixPseudoConsole : IDisposable
             _masterFd = -1;
         }
 
-        if (_slaveFd != -1)
+        if (_subordinateFd != -1)
         {
-            close(_slaveFd);
-            _slaveFd = -1;
+            close(_subordinateFd);
+            _subordinateFd = -1;
         }
     }
 }
