@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevThrottle Mobile App - Architecture Report</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#131a2e; --panel2:#0f1626; --ink:#e7ecf5; --muted:#9aa6be;
+    --line:#26324d; --accent:#3b82f6; --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
+    --purple:#a855f7; --code:#0a0f1d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55; font-size:15px;
+  }
+  .wrap{max-width:1040px; margin:0 auto; padding:40px 24px 80px}
+  header.top{border-bottom:1px solid var(--line); padding-bottom:22px; margin-bottom:30px}
+  .brand{font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:700}
+  h1{font-size:30px; margin:10px 0 6px; font-weight:750}
+  .sub{color:var(--muted); font-size:15px}
+  .meta{color:var(--muted); font-size:13px; margin-top:14px}
+  h2{font-size:21px; margin:42px 0 8px; padding-top:14px; border-top:1px solid var(--line); font-weight:700}
+  h3{font-size:16px; margin:24px 0 6px; color:#cdd7ec; font-weight:700}
+  p{margin:10px 0}
+  .muted{color:var(--muted)}
+  .lead{font-size:16px}
+  code,kbd{font-family:"Cascadia Code",Consolas,monospace; font-size:13px; background:var(--code);
+    border:1px solid var(--line); border-radius:5px; padding:1px 6px; color:#d7e0f5}
+  pre{background:var(--code); border:1px solid var(--line); border-radius:10px; padding:16px 18px;
+    overflow:auto; font-family:"Cascadia Code",Consolas,monospace; font-size:12.5px; color:#cfe0ff; line-height:1.5}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:14px}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top}
+  th{background:var(--panel2); color:#cdd7ec; font-weight:700}
+  tr:nth-child(even) td{background:rgba(255,255,255,.012)}
+  .pill{display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px; font-weight:700; border:1px solid var(--line)}
+  .pill.win{background:rgba(34,197,94,.12); color:#86efac; border-color:rgba(34,197,94,.3)}
+  .pill.no{background:rgba(239,68,68,.12); color:#fca5a5; border-color:rgba(239,68,68,.3)}
+  .pill.meh{background:rgba(245,158,11,.12); color:#fcd34d; border-color:rgba(245,158,11,.3)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:16px 0}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .callout{border-left:3px solid var(--accent); background:var(--panel2); border-radius:0 10px 10px 0;
+    padding:12px 16px; margin:16px 0}
+  .callout.warn{border-left-color:var(--amber)}
+  .callout.good{border-left-color:var(--green)}
+  ul,ol{margin:10px 0; padding-left:22px}
+  li{margin:5px 0}
+  /* diagram boxes */
+  .diagram{background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:22px; margin:18px 0}
+  .node{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:6px 0}
+  .node .t{font-weight:700; font-size:14px}
+  .node .d{color:var(--muted); font-size:12.5px; margin-top:2px}
+  .node.gw{border-color:rgba(59,130,246,.5)}
+  .node.api{border-color:rgba(34,197,94,.45)}
+  .node.mob{border-color:rgba(168,85,247,.5)}
+  .node.desk{border-color:rgba(245,158,11,.45)}
+  .arrow{color:var(--muted); text-align:center; font-family:monospace; font-size:13px; margin:2px 0}
+  .row{display:flex; gap:14px; align-items:stretch}
+  .row>div{flex:1}
+  @media(max-width:760px){.row{flex-direction:column}}
+  .tag{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em}
+  footer{margin-top:50px; border-top:1px solid var(--line); padding-top:16px; color:var(--muted); font-size:13px}
+  .legend span{display:inline-block; margin-right:16px; font-size:12.5px; color:var(--muted)}
+  .dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="brand">DevThrottle / Architecture</div>
+  <h1>Mobile App - Architecture Report</h1>
+  <div class="sub">A new React + TypeScript Progressive Web App for the phone, served by the Gateway, talking to the existing REST API.</div>
+  <div class="meta">Status: proposal for sign-off &nbsp;|&nbsp; Date: 2026-06-28 &nbsp;|&nbsp; Supersedes: the Blazor <code>/mobile</code> page, the vanilla <code>/m/</code> app, and the <code>/voice/</code> page</div>
+</header>
+
+<p class="lead">
+This is the plan for one real mobile experience, built once. We pick <strong>React + TypeScript</strong>, ship it as
+an installable offline Progressive Web App, serve its static files <strong>directly from the Gateway</strong> (the
+always-on front door), and let it drive the <strong>existing</strong> Gateway REST API. The desktop Cockpit stays as it
+is. When a phone opens the Cockpit URL, the front door detects the device and redirects it to the mobile app
+automatically; flipping the browser to "Desktop site" is the deliberate escape hatch back to the full Cockpit.
+</p>
+
+<h2>1. The decision, and why</h2>
+<p>
+Three stacks were on the table. The deciding constraint is that the phone is often on a <strong>questionable network</strong>,
+and the app will grow to hold <strong>many features</strong> over time (the goal is to operate sessions from the phone, and
+to build the app itself from the phone).
+</p>
+
+<table>
+  <thead><tr><th>Option</th><th>Network resilience</th><th>Scales to a full app</th><th>First load</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Blazor Server</strong><br><span class="muted">what <code>/mobile</code> is today</span></td>
+      <td>Needs a live SignalR WebSocket; every tap round-trips; drops freeze the UI. No offline.</td>
+      <td>Yes</td>
+      <td>Light</td>
+      <td><span class="pill no">Rejected</span><br><span class="muted">wrong model for a phone</span></td>
+    </tr>
+    <tr>
+      <td><strong>Blazor WebAssembly</strong><br><span class="muted">C# to WASM</span></td>
+      <td>Client-side; offline-capable.</td>
+      <td>Yes</td>
+      <td>Heavy (multi-MB .NET runtime) - worst on the slow networks we care about.</td>
+      <td><span class="pill no">Rejected</span><br><span class="muted">"same code" is mostly illusory; Core cannot run in the browser</span></td>
+    </tr>
+    <tr>
+      <td><strong>Vanilla HTML/JS</strong><br><span class="muted">what <code>/m/</code> is today</span></td>
+      <td>Client-side; offline-capable; instant load.</td>
+      <td>No - manual DOM, no components/routing/state; one screen is already 530 lines.</td>
+      <td>Instant</td>
+      <td><span class="pill meh">Outgrown</span><br><span class="muted">great for 1-2 screens, not a full app</span></td>
+    </tr>
+    <tr>
+      <td><strong>React + TypeScript PWA</strong></td>
+      <td>Client-side; offline PWA; tiny bundle stays fast on a bad network.</td>
+      <td>Yes - components, routing, state, type-safety against the API.</td>
+      <td>Light (tens of KB gzipped, ~10x lighter than WASM)</td>
+      <td><span class="pill win">Chosen</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout good">
+<strong>The honest trade we accept:</strong> React adds a TypeScript/Node build toolchain to a repo that is otherwise pure C#.
+That is a one-time setup cost. We pay it because mobile is a real, growing, phone-first app, and React is the lightest,
+most resilient, most maintainable way to build it. The C# backend stays the single source of truth (see the typed client below).
+</div>
+
+<h2>1b. Pages and version scope</h2>
+<p>
+We start small and make each page genuinely good before adding the next - the phone app gets used and developed daily, so
+every screen has to earn its place. The shape mirrors the desktop Cockpit: a home that shows who needs attention, drill
+into a session, and operate it.
+</p>
+
+<table>
+  <thead><tr><th>Page</th><th>What it does</th><th>Reuses</th><th>Version</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Home / roster</strong></td>
+      <td>Looks like the current Cockpit home: who needs my attention, then the full session list. Tap a session to open it.</td>
+      <td>Gateway <code>/sessions</code> aggregator; the same triage ordering the Cockpit uses.</td>
+      <td><span class="pill win">V1</span></td>
+    </tr>
+    <tr>
+      <td><strong>Session - Terminal mode</strong></td>
+      <td>The fallback that works anywhere on the road: the full terminal for the session, with a Speak button, a Send
+          button, and a text box to type into. Not hands-free, but you can do almost anything from here. This is the
+          <strong>hero of V1</strong>. The Android (MAUI) app already has this screen - we re-create it closely.</td>
+      <td>MAUI Terminal tab (behavioral spec); <code>GET /buffer?raw&amp;since=</code>, <code>POST /prompt</code>,
+          <code>/escape</code>, <code>/interrupt</code>; TTS.</td>
+      <td><span class="pill win">V1</span></td>
+    </tr>
+    <tr>
+      <td><strong>Session - Chat mode</strong></td>
+      <td>Same powers as Terminal, but instead of the raw terminal it shows the nicer history (clean text). Listen to the
+          transcript of the assistant's latest reply (just listen), plus a Speak/Type box. "The nicer text instead of the
+          full terminal window" - terminal and chat can do exactly the same thing.</td>
+      <td>Existing pieces: <code>GET /turns</code>, <code>/summary</code>, <code>/wingman/explain</code>, history mapper, TTS.</td>
+      <td><span class="pill win">V1</span></td>
+    </tr>
+    <tr>
+      <td><strong>Session management</strong></td>
+      <td>Add a session (choose the agent and the repo), put a session on hold, remove a session, and see status. Normal
+          lifecycle management. The MAUI app does this well already.</td>
+      <td>MAUI add/remove flow; session create / <code>POST /hold</code> / kill endpoints; agent + repo lists.</td>
+      <td><span class="pill win">V1</span></td>
+    </tr>
+    <tr>
+      <td><strong>Hands-free mode</strong></td>
+      <td>Eyes-free / driving. We have pieces but not enough to define it well yet, so it is deliberately deferred.</td>
+      <td>The voice prototypes as a starting point.</td>
+      <td><span class="pill meh">V2</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout good">
+<strong>The V1 insight:</strong> Terminal mode and Chat mode are the <em>same</em> screen with a different rendering of the
+same session - raw terminal vs. cleaned history - and both offer type / Send / Speak. Most of this logic already exists in
+the MAUI app and the existing endpoints; V1 is largely re-creating proven behavior on the new React surface.
+</div>
+
+<h2>2. The big picture</h2>
+<p>Nothing about the backend changes. The mobile app is a new front-end on the same REST surface the desktop and the native MAUI client already use.</p>
+
+<div class="diagram">
+  <div class="row">
+    <div>
+      <div class="tag">Phone (mobile device)</div>
+      <div class="node mob"><div class="t">Mobile PWA (React + TypeScript)</div><div class="d">installable, offline-capable, client-side rendered</div></div>
+    </div>
+    <div>
+      <div class="tag">PC (desktop)</div>
+      <div class="node desk"><div class="t">Cockpit (Blazor Server)</div><div class="d">unchanged; the full desktop experience</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">|&nbsp;&nbsp; HTTPS over Tailscale (TLS terminates at the tailnet edge) &nbsp;&nbsp;|</div>
+  <div class="arrow">v</div>
+
+  <div class="node gw">
+    <div class="t">Gateway - the one-URL front door (always on)</div>
+    <div class="d">
+      device-aware redirect (mobile -&gt; <code>/m</code>) &nbsp;|&nbsp; serves the mobile static files at <code>/m</code>
+      &nbsp;|&nbsp; ~160 REST endpoints &nbsp;|&nbsp; OpenAPI document &nbsp;|&nbsp; fallback-proxies the rest to the Cockpit
+    </div>
+  </div>
+
+  <div class="arrow">|&nbsp;&nbsp; resolves the owning Director by session id, reverse-proxies per call &nbsp;&nbsp;|</div>
+  <div class="arrow">v</div>
+
+  <div class="node api">
+    <div class="t">Directors (one per machine) + Control API</div>
+    <div class="d">own the sessions and all backend logic in CcDirector.Core</div>
+  </div>
+
+  <div class="arrow">v</div>
+  <div class="node"><div class="t">Agent sessions (Claude Code, Codex, ...)</div></div>
+
+  <p class="legend" style="margin-top:14px">
+    <span><span class="dot" style="background:var(--purple)"></span>new (this project)</span>
+    <span><span class="dot" style="background:var(--accent)"></span>front door (small additions)</span>
+    <span><span class="dot" style="background:var(--green)"></span>existing, unchanged</span>
+    <span><span class="dot" style="background:var(--amber)"></span>existing desktop, unchanged</span>
+  </p>
+</div>
+
+<div class="callout">
+<strong>Why serve the mobile app from the Gateway, not the Cockpit?</strong> Today <code>/m/</code> is served by the Blazor
+Cockpit child process. We move serving to the Gateway because the Gateway is the always-on front door and the mobile app
+has nothing to do with Blazor. This makes the mobile app independent of the Cockpit process (it stays up even while the
+Cockpit is restarting or being retired) and lets the Gateway inject the auth token into the page directly.
+</div>
+
+<h2>3. Device detection and forwarding</h2>
+<p>
+The redirect lives at the Gateway front door, as a small middleware that runs <em>before</em> the fallback proxy - the same
+spot the existing browser-aware page routing already uses. On a browser navigation (a request that says
+<code>Accept: text/html</code>) whose path is not already under <code>/m</code>:
+</p>
+<ul>
+  <li>If the <code>User-Agent</code> looks like a phone (Android / iPhone / mobile), respond with <code>302 Found</code> to <code>/m/</code>.</li>
+  <li>Otherwise fall through unchanged to the desktop Cockpit.</li>
+</ul>
+<p>
+The escape hatch is free: Android's "Desktop site" toggle rewrites the User-Agent to a desktop signature, so that request
+no longer matches the phone test and falls straight through to the full Cockpit. No separate setting, no cookie to manage.
+</p>
+<div class="callout warn">
+<strong>Why User-Agent and not screen width?</strong> The redirect has to happen at the front door before any app loads,
+so we cannot measure the viewport in JavaScript first (that would mean loading the heavy desktop app and then bouncing).
+User-Agent is the only signal available server-side at navigation time, and it is exactly what the "Desktop site" toggle
+changes - so it doubles as the escape hatch. Width-based logic still applies <em>inside</em> the mobile app for layout.
+</div>
+
+<h2>4. Where it lives in the repo, and how it is built</h2>
+<p>The React project sits at the repo root, outside the C# <code>src/</code> tree so it does not confuse the .NET solution.</p>
+<pre>
+devthrottle/
+  mobile/                         &lt;- NEW: the React + TypeScript PWA (its own Node/Vite project)
+    src/
+      main.tsx                    app entry
+      app/                        routes, shell, navigation
+      features/                   sessions roster, session detail, voice, wingman, terminal mirror
+      api/                        GENERATED typed client (from the Gateway OpenAPI doc)
+      pwa/                        service worker, offline outbox (IndexedDB)
+    index.html
+    package.json
+    vite.config.ts                Vite build + vite-plugin-pwa
+    tsconfig.json
+  src/
+    CcDirector.Gateway/
+      wwwroot/m/                  &lt;- mobile build output lands here; Gateway serves it at /m
+</pre>
+<p><strong>Build wiring.</strong> An MSBuild target on the Gateway project runs the web build during a normal
+<code>dotnet build</code>/publish, so a developer (or CI) never has to remember a separate step:</p>
+<pre>
+&lt;!-- CcDirector.Gateway.csproj --&gt;
+&lt;Target Name="BuildMobilePwa" BeforeTargets="Build"&gt;
+  &lt;Exec Command="npm ci"          WorkingDirectory="$(SolutionDir)mobile" /&gt;
+  &lt;Exec Command="npm run build"   WorkingDirectory="$(SolutionDir)mobile" /&gt;
+  &lt;!-- vite outputs to mobile/dist; copy into the Gateway wwwroot it serves --&gt;
+  &lt;ItemGroup&gt;&lt;MobileDist Include="$(SolutionDir)mobile\dist\**\*" /&gt;&lt;/ItemGroup&gt;
+  &lt;Copy SourceFiles="@(MobileDist)" DestinationFolder="wwwroot\m\%(RecursiveDir)" /&gt;
+&lt;/Target&gt;
+</pre>
+<p class="muted">Vite content-hashes asset filenames, so cache-busting is automatic; the PWA service worker handles update-on-next-launch.</p>
+
+<div class="callout warn">
+<strong>Build-time only, release pipeline only - no new runtime dependency.</strong> Node.js and npm are needed
+<em>only</em> to turn the React/TypeScript source into static files. That happens <strong>once, on the machine that builds
+the release</strong> (the release pipeline / CI). It is the same category of tool as the .NET SDK you already need to compile
+at all.
+<ul>
+  <li><strong>Machines that RUN the Gateway</strong> (your dev VMs, end users): <strong>nothing extra to install.</strong> The
+  built static files ship inside the release bundle, and the Gateway already serves static files. The browser runs the
+  JavaScript, not the server. The auto-update path carries the pre-built files like any other release asset.</li>
+  <li><strong>Ordinary C# developers</strong> who never touch the mobile app: also <strong>no Node needed</strong>. The web
+  build is wired to run <strong>only at release/publish time</strong> (a <code>Condition</code> on the MSBuild target, or a
+  CI step), <em>not</em> on every local <code>dotnet build</code>. So a routine C# build stays Node-free.</li>
+  <li><strong>Only the release builder</strong> installs Node + npm, once.</li>
+</ul>
+The MSBuild target shown above is therefore gated to publish/release configurations rather than firing on every
+<code>Build</code>, so the dependency lives in the build pipeline alone.
+</div>
+
+<h2>5. The typed API client - C# stays the source of truth</h2>
+<p>
+The worry with a separate-language front-end is keeping the request/response shapes in sync. We remove that by hand by
+generating the client:
+</p>
+<ol>
+  <li>The Gateway emits an <strong>OpenAPI document</strong> describing its endpoints and the
+      <code>CcDirector.Gateway.Contracts</code> DTOs (built into .NET 10 via <code>Microsoft.AspNetCore.OpenApi</code> /
+      <code>MapOpenApi</code>).</li>
+  <li>A codegen step (<code>openapi-typescript</code>) turns that document into <strong>TypeScript types and a typed fetch
+      client</strong> under <code>mobile/src/api/</code>.</li>
+  <li>The React app calls the API through that client. If a C# DTO changes and the front-end is not updated, the TypeScript
+      build fails - the mismatch is caught at compile time, not in production.</li>
+</ol>
+<p>So the C# backend remains the one place a shape is defined; the front-end consumes a faithful, type-checked copy.</p>
+
+<h2>6. Authentication and trust boundary</h2>
+<p>
+The trust boundary is unchanged from the phone/voice surfaces today. The app is only reachable through the Gateway front
+door, which sits behind the Tailscale tailnet (authenticated, TLS). Some endpoints (for example the voice-turn endpoints)
+are token-gated even when global auth is off, so:
+</p>
+<ul>
+  <li>The Gateway serves the mobile <code>index.html</code> with the <strong>per-machine Gateway token injected</strong> -
+      the same pattern the <code>/voice</code> page already uses today.</li>
+  <li>The app sends that token as a <code>Bearer</code> header on its API calls.</li>
+</ul>
+<p>No new auth model; the mobile app reuses the one the phone already relies on.</p>
+
+<h2>7. Offline and "app-like" behavior (the PWA layer)</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>Installable + offline shell</h3>
+    <p class="muted"><code>vite-plugin-pwa</code> generates a web app manifest and a service worker that caches the app shell,
+    so it launches from the home screen and opens even with no connectivity (showing last-known state).</p>
+  </div>
+  <div class="card">
+    <h3>Offline outbox</h3>
+    <p class="muted">Voice recordings and prompts queue in IndexedDB and upload when connectivity returns - a clean
+    reimplementation of the behavior the vanilla <code>/m/</code> app proved (retry-forever upload, drive-safe).</p>
+  </div>
+</div>
+<div class="callout good">
+The existing vanilla app is not wasted - it is our <strong>behavioral spec</strong>. It already encodes the hard-won mobile
+details (gesture-safe autoplay, the session color logic, the offline upload outbox). We port the behavior, not the code.
+</div>
+
+<h2>8. What gets removed (once the new app is live)</h2>
+<table>
+  <thead><tr><th>Remove</th><th>What it was</th><th>Replaced by</th></tr></thead>
+  <tbody>
+    <tr><td><code>Components/Pages/Mobile.razor</code></td><td>Blazor Server mobile roster + history page</td><td>Mobile PWA roster + session detail</td></tr>
+    <tr><td><code>wwwroot/m/</code> (vanilla)</td><td>Wingman Voice static app</td><td>Mobile PWA voice feature</td></tr>
+    <tr><td><code>wwwroot/pages/voice/</code></td><td>Voice Mode static PWA</td><td>Mobile PWA voice feature</td></tr>
+    <tr><td>Cockpit nav "Mobile" item</td><td>manual menu entry</td><td>automatic device redirect</td></tr>
+  </tbody>
+</table>
+<p class="muted">Removal happens only after the new app reaches parity on the features that matter; it is the last phase, not the first.</p>
+
+<h2>9. Phased rollout</h2>
+<ol>
+  <li><strong>Scaffold.</strong> Create <code>mobile/</code> (Vite + React + TS + vite-plugin-pwa). Gateway emits OpenAPI; wire the codegen step and the MSBuild build/copy. Gateway serves the build at <code>/m</code> with token injection. Ship a one-screen "sessions roster" to prove the whole pipe end-to-end on the phone.</li>
+  <li><strong>Forwarding.</strong> Add the Gateway device-redirect middleware (mobile UA -&gt; <code>/m</code>) and confirm the Desktop-site escape hatch.</li>
+  <li><strong>Core features.</strong> Session detail / conversation history, voice (the current <code>/m/</code> behavior), then progressively the rest - built and tested from the phone.</li>
+  <li><strong>Cutover.</strong> Once parity is reached, delete the Blazor <code>/mobile</code> page, the vanilla <code>/m/</code>, and <code>/voice/</code>, and drop the Cockpit "Mobile" nav item.</li>
+</ol>
+
+<h2>10. Open decisions for sign-off</h2>
+<ul>
+  <li><strong>Path:</strong> keep the mobile app at <code>/m</code> (short, already in muscle memory), or give it a fresh path like <code>/app</code>? This report assumes <code>/m</code>.</li>
+  <li><strong>TypeScript:</strong> assumed yes (type-safety against the API is the main reason). Plain-JS React is possible but loses the compile-time DTO check.</li>
+  <li><strong>Component styling:</strong> hand-rolled CSS (matches the current dark look, zero deps) vs a small mobile component kit. Recommendation: start hand-rolled to keep the bundle tiny.</li>
+  <li><strong>Native MAUI client (<code>phone/CcDirectorClient</code>):</strong> out of scope here; it keeps using the same REST API. The PWA is the near-term path because it deploys and updates instantly.</li>
+</ul>
+
+<footer>
+  DevThrottle mobile architecture - prepared for review. The backend (Gateway REST + Directors + Core) is unchanged; this
+  project adds a front-end and a small front-door redirect. Decision: React + TypeScript Progressive Web App.
+</footer>
+
+</div>
+</body>
+</html>
