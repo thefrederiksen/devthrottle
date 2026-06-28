@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Terminal } from "./pages/Terminal";
+import { Chat } from "./pages/Chat";
 import "./styles.css";
 
 // The app is served under /m, so the router is rooted there. A hard navigation to a deep link
@@ -12,6 +13,7 @@ const router = createBrowserRouter(
   [
     { path: "/", element: <Home /> },
     { path: "/session/:sessionId", element: <Terminal /> },
+    { path: "/session/:sessionId/chat", element: <Chat /> },
   ],
   { basename: "/m" }
 );

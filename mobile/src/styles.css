@@ -357,3 +357,169 @@ body {
   opacity: 0.45;
   cursor: default;
 }
+
+/* ===== Session view toggle + Chat mode (issue #811) =====
+   The Chat / Terminal segmented toggle shown in both session views. */
+.view-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0 2px;
+}
+
+.view-tab {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 8px 10px;
+  min-height: 38px;
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.view-tab-active {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* The transcript fills the scrollable middle of the column; the controls stay pinned beneath it,
+   matching the Terminal layout so the two views are interchangeable. */
+.chat-transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-explain {
+  background: var(--surface);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.chat-explain-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.chat-explain-headline {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.chat-explain-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.chat-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chat-summary-state,
+.chat-summary-todos {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.chat-assistant {
+  align-items: flex-start;
+}
+
+.chat-user {
+  align-items: flex-end;
+}
+
+.chat-role {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 0 4px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-assistant .chat-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top-left-radius: 4px;
+}
+
+.chat-user .chat-bubble {
+  background: var(--accent);
+  color: #ffffff;
+  border-top-right-radius: 4px;
+}
+
+.chat-thinking {
+  max-width: 85%;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0 4px;
+}
+
+.chat-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.chat-action-error {
+  border-color: rgba(241, 76, 76, 0.5);
+}
+
+.chat-action-kind {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.chat-action-sub {
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  word-break: break-all;
+}

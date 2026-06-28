@@ -175,3 +175,152 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
   }
   return await res.blob();
 }
+
+// ===== Chat mode (#811): the cleaned conversation history =====
+// The /turns, /summary and /wingman/explain responses are served via Results.Json without a
+// [Produces] annotation, so (like buffer/escape/interrupt/tts above) they are not in the generated
+// OpenAPI schema. They are read here with narrow local shapes for exactly the fields the Chat view
+// consumes. .NET serialises minimal-API JSON camelCase, matching these property names.
+
+// One widget ("card") in the cleaned transcript, parsed by the Director from claude.exe's JSONL
+// log. kind is one of: Text, Thinking, UserMessage, Bash, Read, Write, Edit, Grep, Glob,
+// TodoWrite, Agent, Skill, GenericTool, ... (see TurnWidgetDto on the server).
+export interface TurnWidget {
+  kind: string;
+  header: string;
+  subheader: string | null;
+  content: string;
+  result: string;
+  isError: boolean;
+  isPending: boolean;
+  toolUseId: string;
+}
+
+export interface TurnsResult {
+  status: string;
+  widgets: TurnWidget[];
+  lineCount: number;
+  claudeSessionId: string | null;
+  error: string | null;
+}
+
+// GET /sessions/{sid}/turns - the cleaned conversation as chronological widgets (assistant Text,
+// user UserMessage, Thinking, and tool actions). status "ok" means widgets are populated; other
+// values ("no_session_id" / "no_jsonl" / "parse_error") carry an error string and no widgets.
+export async function getTurns(sessionId: string, signal?: AbortSignal): Promise<TurnsResult> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/turns`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET turns failed: ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    status?: string;
+    widgets?: Partial<TurnWidget>[];
+    lineCount?: number;
+    claudeSessionId?: string | null;
+    error?: string | null;
+  };
+  return {
+    status: body.status ?? "",
+    lineCount: Number(body.lineCount ?? 0),
+    claudeSessionId: body.claudeSessionId ?? null,
+    error: body.error ?? null,
+    widgets: (body.widgets ?? []).map((w) => ({
+      kind: w.kind ?? "",
+      header: w.header ?? "",
+      subheader: w.subheader ?? null,
+      content: w.content ?? "",
+      result: w.result ?? "",
+      isError: Boolean(w.isError),
+      isPending: Boolean(w.isPending),
+      toolUseId: w.toolUseId ?? "",
+    })),
+  };
+}
+
+export interface SessionSummary {
+  status: string;
+  lastUserPrompt: string | null;
+  lastAssistantText: string | null;
+  activityState: string;
+  turnCount: number;
+  openTodos: { status: string; content: string }[];
+  error: string | null;
+}
+
+// GET /sessions/{sid}/summary - a structured snapshot of the session (last prompt/reply, activity
+// state, open todos). Drives the Chat view's compact context strip above the transcript.
+export async function getSummary(sessionId: string, signal?: AbortSignal): Promise<SessionSummary> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/summary`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET summary failed: ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    status?: string;
+    lastUserPrompt?: string | null;
+    lastAssistantText?: string | null;
+    activityState?: string;
+    turnCount?: number;
+    openTodos?: { status?: string; content?: string }[];
+    error?: string | null;
+  };
+  return {
+    status: body.status ?? "",
+    lastUserPrompt: body.lastUserPrompt ?? null,
+    lastAssistantText: body.lastAssistantText ?? null,
+    activityState: body.activityState ?? "",
+    turnCount: Number(body.turnCount ?? 0),
+    error: body.error ?? null,
+    openTodos: (body.openTodos ?? []).map((t) => ({
+      status: t.status ?? "",
+      content: t.content ?? "",
+    })),
+  };
+}
+
+export interface SessionExplain {
+  mobileMode: boolean;
+  text: string | null;
+  headline: string | null;
+  whatHappened: string | null;
+  say: string | null;
+}
+
+// GET /sessions/{sid}/wingman/explain - the cached, cleaned explanation of the latest activity
+// (headline + "what happened" + a short spoken form). Returns instantly (no LLM call); text is
+// null when nothing is cached yet (mobile mode off, or the first turn has not finished). The Chat
+// view shows the headline as a "latest, explained" card when present and otherwise omits it.
+export async function getExplain(sessionId: string, signal?: AbortSignal): Promise<SessionExplain> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/explain`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET wingman/explain failed: ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    mobileMode?: boolean;
+    text?: string | null;
+    headline?: string | null;
+    whatHappened?: string | null;
+    say?: string | null;
+  };
+  return {
+    mobileMode: Boolean(body.mobileMode),
+    text: body.text ?? null,
+    headline: body.headline ?? null,
+    whatHappened: body.whatHappened ?? null,
+    say: body.say ?? null,
+  };
+}
