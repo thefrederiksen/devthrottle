@@ -100,10 +100,12 @@ public class DriverRegistryTests
     }
 
     [Fact]
-    public void PiDriver_DeclaresOnlyCancelAndClearContext()
+    public void PiDriver_DeclaresCancelClearContextAndContextUsage()
     {
         var caps = new PiDriver().Capabilities;
-        Assert.Equal(DriverCapabilities.Cancel | DriverCapabilities.ClearContext, caps);
+        Assert.Equal(
+            DriverCapabilities.Cancel | DriverCapabilities.ClearContext | DriverCapabilities.ContextUsage,
+            caps);
     }
 
     // ------------------------------------------------------------ Codex
@@ -113,6 +115,10 @@ public class DriverRegistryTests
     {
         var backend = new FakeBackend();
         backend.Start("x", "", ".", 80, 24);
+        // Codex's submit is echo-verified (TerminalSubmit): type the text, wait for the composer to
+        // echo it back, then a SEPARATE Enter. Simulate the TUI echoing typed characters so the
+        // verified submit completes instead of timing out.
+        backend.OnRawWrite = bytes => backend.EmitOutput(System.Text.Encoding.UTF8.GetString(bytes));
         var driver = new CodexDriver();
 
         await driver.CancelAsync(backend);
@@ -120,19 +126,22 @@ public class DriverRegistryTests
         await driver.ClearContextAsync(backend);
         await driver.SubmitAsync(backend, "hello");
 
-        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[0]);
-        Assert.Equal(new byte[] { 0x03 }, backend.RawWrites[1]);
-        Assert.Contains("/clear", backend.SentTexts);
-        Assert.Contains("hello", backend.SentTexts);
+        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[0]);   // Cancel = Esc
+        Assert.Equal(new byte[] { 0x03 }, backend.RawWrites[1]);   // Interrupt = Ctrl+C
+        Assert.Contains("/clear", backend.SentTexts);              // ClearContext = blind /clear submit
+        // SubmitAsync now types the text then Enter as separate raw writes (not a blind SendText).
+        Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(backend.RawWrites[2]));
+        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[3]);
     }
 
     [Fact]
-    public void CodexDriver_DeclaresCancelInterruptAndClearOnly()
+    public void CodexDriver_DeclaresCancelInterruptClearAndContextUsage()
     {
         var caps = new CodexDriver().Capabilities;
 
         Assert.Equal(
-            DriverCapabilities.Cancel | DriverCapabilities.Interrupt | DriverCapabilities.ClearContext,
+            DriverCapabilities.Cancel | DriverCapabilities.Interrupt | DriverCapabilities.ClearContext
+            | DriverCapabilities.ContextUsage,
             caps);
     }
 
