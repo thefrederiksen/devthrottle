@@ -1,0 +1,191 @@
+[
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/m/src/sessions/ordering.ts",
+    "bearer_present": false,
+    "bearer": "",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/m/src/sessions/ordering.ts",
+    "ctype": "text/javascript"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "POST",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/prompt",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/prompt",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/turns",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/summary",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "req",
+    "method": "GET",
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "bearer_present": true,
+    "bearer": "Bearer [redacted]",
+    "body": null
+  },
+  {
+    "t": "resp",
+    "status": 200,
+    "url": "/sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain",
+    "ctype": "application/json; charset=utf-8"
+  },
+  {
+    "t": "live",
+    "turns_before": 6,
+    "turns_after": 7
+  }
+]

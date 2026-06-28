@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #811 - Session: Chat mode - Developer Agent proof</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0b1020; color:#e6e9f2; margin:0; padding:24px; line-height:1.5; }
+  h1,h2,h3 { color:#fff; }
+  h1 { border-bottom:2px solid #28304a; padding-bottom:10px; }
+  code, pre { font-family: Consolas, "Cascadia Mono", monospace; }
+  pre { background:#141a2e; border:1px solid #28304a; border-radius:8px; padding:10px 12px; overflow-x:auto; font-size:12px; }
+  .ac { background:#141a2e; border:1px solid #28304a; border-radius:10px; padding:14px 18px; margin:16px 0; }
+  .pass { color:#7ee787; font-weight:700; }
+  .ev { color:#99a0b8; font-size:13px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; }
+  td,th { border:1px solid #28304a; padding:6px 10px; text-align:left; font-size:13px; vertical-align:top; }
+  img { max-width:300px; border:1px solid #28304a; border-radius:8px; margin:6px; }
+  .imgrow { display:flex; flex-wrap:wrap; gap:8px; }
+  .lbl { font-size:11px; color:#99a0b8; }
+  .accent { color:#3b82f6; }
+</style>
+</head>
+<body>
+<h1>Issue #811 - [Mobile] Session: Chat mode</h1>
+<p><b>Developer Agent proof report (CenCon Development Method).</b> Branch <code>issue-811-chat-mode</code>.
+Builds on the merged #806 foundation and the #810 Terminal mode. Front-end only - the new <code>mobile/</code>
+React PWA Chat view; no backend/Gateway change (all endpoints already exist, confirmed below).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Chat view</b> (<code>mobile/src/pages/Chat.tsx</code>) selectable alongside Terminal for the same session.
+      Renders the CLEANED history from <code>GET /sessions/{sid}/turns</code> (chronological widgets) as a readable
+      transcript - assistant (left, "Claude") vs user (right, blue "You") turns - plus a <code>/summary</code>
+      context strip and the <code>/wingman/explain</code> "latest, explained" card when the Director has one cached.
+      Polls every 2s so new turns appear live.</li>
+  <li><b>Shared input controls</b> factored out of #810 Terminal into <code>mobile/src/session/SessionControls.tsx</code>
+      (Type/Send via <code>POST /prompt</code> AppendEnter=true; Enter/arrows via <code>/prompt</code> AppendEnter=false;
+      Esc via <code>/escape</code>; Stop via <code>/interrupt</code>; Speak via the <code>/wingman/tts</code> nova proxy).
+      Terminal now consumes the same component - the keys are NOT duplicated.</li>
+  <li><b>View toggle</b> (<code>mobile/src/session/ViewTabs.tsx</code>) switches Chat &lt;-&gt; Terminal for one session id.</li>
+  <li><b>Typed client</b> additions in <code>mobile/src/api/client.ts</code>: <code>getTurns</code>, <code>getSummary</code>,
+      <code>getExplain</code>, all sending the injected <code>Bearer</code> token through the existing <code>authHeaders()</code>.</li>
+  <li><b>Speak</b> in Chat reads the latest assistant reply (most recent <code>Text</code> widget).</li>
+</ul>
+
+<h2>Endpoint confirmation (Assumptions resolved)</h2>
+<p>All required endpoints exist in <code>src/CcDirector.ControlApi/ControlEndpoints.cs</code> and were exercised live
+against a running Director: <code>GET /turns</code> (line 1044), <code>GET /summary</code> (1093),
+<code>GET /wingman/explain</code> (653), <code>POST /prompt</code> (1894), <code>POST /escape</code> (2072),
+<code>POST /interrupt</code> (2048), and the TTS proxy (<code>POST /tts</code>, 1662; the app's <code>/wingman/tts</code>
+maps to it). No missing endpoint - no Gateway change needed, matching the issue plan.</p>
+
+<h2>How it was proven</h2>
+<p>A test Director was launched in an isolated slot (<code>scripts/agent-session-isolation.ps1</code>, slot 15,
+Control API <code>http://127.0.0.1:7881</code>) and a real Claude Code session created with a controllable prompt so
+<code>/turns</code> returns genuine cleaned history. The real React app (dev build, no service worker) was served and
+driven by Playwright at a true phone viewport (390 x 844, deviceScaleFactor 3, mobile), with the per-machine token
+injected into the shell exactly as the Gateway's <code>MobileApp</code> does at runtime, and same-origin API calls
+reverse-proxied to the test Director (<code>/wingman/tts</code> -&gt; the Director's <code>/tts</code>). Every API call
+is logged server-side (method, path, bearer present, status) - the network capture. Two runs: global auth DISABLED
+(loopback Director does not enforce) and global auth ENABLED (the harness rejects any call lacking the bearer with 401,
+emulating the Gateway with auth on). Session id used: <code>1c301aba-1848-4855-95a3-67134edc5881</code>.</p>
+
+<h2>Acceptance criteria</h2>
+
+<div class="ac">
+<h3>AC1 - Chat renders cleaned history (turns + summary + wingman/explain), assistant vs user distinguishable, NOT the raw terminal <span class="pass">PASS</span></h3>
+<p class="ev">Expected: an ordered, readable transcript distinguishing assistant from user; side-by-side with the raw Terminal of the same session shows Chat is the cleaned form.</p>
+<p class="ev">Actual: the Chat view shows a blue right-aligned "You" bubble and a left "Claude" bubble for each turn, plus the
+<code>WaitingForInput</code> summary chip. The Terminal view of the SAME session id shows the dense raw ANSI mirror.
+Network shows <code>GET /turns</code>, <code>/summary</code>, and <code>/wingman/explain</code> all called and 2xx.</p>
+<div class="imgrow">
+  <div><div class="lbl">Chat - cleaned transcript</div><img src="off-01-chat-transcript.png"></div>
+  <div><div class="lbl">Terminal - raw mirror, SAME session</div><img src="off-02-terminal-raw-same-session.png"></div>
+</div>
+</div>
+
+<div class="ac">
+<h3>AC2 - Transcript reflects the live session (new turn appears without reload) <span class="pass">PASS</span></h3>
+<p class="ev">Expected: after a new assistant turn completes it appears in Chat without a manual reload.</p>
+<p class="ev">Actual: turn count grew from 4 to 6 (new user + new assistant turn) during a single page session; the
+client log records <code>{"t":"live","turns_before":4,"turns_after":6,"grew":true}</code>. The "Live update turn three."
+pair appended live below the earlier turns.</p>
+<div class="imgrow">
+  <div><div class="lbl">before send</div><img src="off-04-typed-before-send.png"></div>
+  <div><div class="lbl">after assistant reply (live, no reload)</div><img src="off-06-after-assistant-reply-live.png"></div>
+</div>
+</div>
+
+<div class="ac">
+<h3>AC3 - Type + Send submits the line; the session acts on it <span class="pass">PASS</span></h3>
+<p class="ev">Expected: typed text + Send reaches the session; the new user turn appears; <code>POST /prompt</code> returns 2xx.</p>
+<p class="ev">Actual: typing then Send produced a new "You" bubble and a Claude reply; server log:
+<code>POST /sessions/{sid}/prompt bearer=true -&gt; 200</code>.</p>
+<div class="imgrow">
+  <div><div class="lbl">after Send - user turn appended</div><img src="off-05-after-send-user-turn.png"></div>
+</div>
+</div>
+
+<div class="ac">
+<h3>AC4 - Control keys identical to Terminal (Enter / Esc / Stop / arrows), one call each, 2xx <span class="pass">PASS</span></h3>
+<p class="ev">Expected: Enter and each arrow send a raw key via <code>/prompt</code> (AppendEnter=false); Esc -&gt; <code>/escape</code>; Stop -&gt; <code>/interrupt</code>.</p>
+<p class="ev">Actual (server log, auth-off run): six <code>POST /prompt -&gt; 200</code> (1 Send + 1 Enter + 4 arrows),
+one <code>POST /escape -&gt; 200</code>, one <code>POST /interrupt -&gt; 200</code>. The shared SessionControls component
+means these are the exact same controls Terminal uses.</p>
+<pre>POST .../prompt   bearer=true -> 200   (Enter + 4 arrows, AppendEnter=false)
+POST .../escape   bearer=true -> 200   (Esc)
+POST .../interrupt bearer=true -> 200  (Stop)</pre>
+<div class="imgrow">
+  <div><div class="lbl">after Enter</div><img src="off-07-after-enter.png"></div>
+  <div><div class="lbl">after arrows</div><img src="off-08-after-arrows.png"></div>
+  <div><div class="lbl">after Esc</div><img src="off-09-after-esc.png"></div>
+  <div><div class="lbl">after Stop</div><img src="off-10-after-stop.png"></div>
+</div>
+</div>
+
+<div class="ac">
+<h3>AC5 - Speak reads the latest assistant reply via plain-HTTP TTS <span class="pass">PASS</span></h3>
+<p class="ev">Expected: Speak fetches TTS audio over plain HTTP (not a SignalR frame) for the latest assistant turn and plays it.</p>
+<p class="ev">Actual: the latest assistant bubble was "Live update turn three."; the Speak button POSTed
+<code>/wingman/tts</code> with body <code>{"text":"Live update turn three."}</code> - the exact latest reply - and the
+Director returned <code>200 audio/mpeg</code> (proxied to <code>/tts</code>). The page's &lt;audio&gt; element had its
+src set and played (<code>hasSrc:true</code>). This confirms the spoken text matches the latest assistant turn.</p>
+<pre>client: {"t":"latest_assistant_bubble","text":"Live update turn three."}
+client: req POST /wingman/tts  body={"text":"Live update turn three."}
+server: POST /tts bearer=true -> 200 audio/mpeg</pre>
+<div class="imgrow"><div><div class="lbl">after Speak</div><img src="off-11-after-speak.png"></div></div>
+</div>
+
+<div class="ac">
+<h3>AC6 - Every call carries the injected Bearer; view works with global auth ON and OFF <span class="pass">PASS</span></h3>
+<p class="ev">Expected: bearer present on turns/prompt calls returning 2xx in both auth modes.</p>
+<p class="ev">Actual: the app always attaches the injected token (single <code>authHeaders()</code> path). Auth-OFF run
+(<code>network-authoff.log</code>): every call <code>bearer=true -&gt; 200/2xx</code>. Auth-ON run
+(<code>network-authon.log</code>, harness enforces the bearer): every app call <code>bearer=true -&gt; 200</code>; a
+deliberate control probe WITHOUT the bearer returned <code>401</code>, proving enforcement is real and that the app's
+identical behaviour works regardless of the Gateway auth setting.</p>
+<pre>auth ON, app calls:   GET .../turns    bearer=true  -> 200
+                      GET .../summary  bearer=true  -> 200
+                      GET .../wingman/explain bearer=true -> 200
+                      POST .../prompt  bearer=true  -> 200
+auth ON, control probe (no bearer):    GET .../turns bearer=false -> 401</pre>
+<div class="imgrow"><div><div class="lbl">auth-ON: Chat renders + Send works</div><img src="on-02-authon-after-send.png"></div></div>
+</div>
+
+<div class="ac">
+<h3>AC7 - Move between Chat and Terminal for the same session; both control the same session <span class="pass">PASS</span></h3>
+<p class="ev">Expected: the user can switch views for one session id; a Send from either reaches the same session.</p>
+<p class="ev">Actual: the ViewTabs toggle navigates between <code>/session/{sid}</code> (Terminal) and
+<code>/session/{sid}/chat</code> (Chat) carrying the same id. The screenshots above show both views of session
+<code>1c301aba-...</code>; a prompt sent from the shared input is visible BOTH as a clean turn in Chat and as raw
+output in the Terminal mirror of the same session.</p>
+<div class="imgrow">
+  <div><div class="lbl">Chat (toggle active = Chat)</div><img src="off-03-back-to-chat.png"></div>
+  <div><div class="lbl">Terminal (toggle active = Terminal), same id</div><img src="off-02-terminal-raw-same-session.png"></div>
+</div>
+</div>
+
+<h2>Build &amp; CenCon</h2>
+<ul>
+  <li><code>npm run build</code> (tsc --noEmit + vite build) - succeeds, 0 TypeScript errors.</li>
+  <li><code>dotnet build cc-director.sln</code> - <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>, and stays Node-free
+      (the npm step on CcDirector.Gateway.csproj is release-gated; a routine build did not invoke npm).</li>
+  <li><b>CenCon impact:</b> No drift. Front-end only; no architecture/security change. No new endpoint. Same Bearer
+      pattern (no new secret, no new trust boundary).</li>
+  <li><b>PII:</b> the proof network JSON had its bearer values redacted (only a 7-char token fragment had appeared);
+      no token is visible in any screenshot (it lives in <code>window.__GW_TOKEN__</code>, never rendered).</li>
+</ul>
+
+<h2>Artifacts in this folder</h2>
+<p class="ev">off-01..off-11 (phone-viewport screenshots, auth-off run), on-01/on-02 (auth-on run),
+<code>network-authoff.log</code> / <code>network-authon.log</code> (server-side method/path/bearer/status capture),
+<code>client-network-authoff.json</code> / <code>client-network-authon.json</code> (browser-side request/response
+capture incl. the TTS body and live-update turn counts, bearer redacted).</p>
+
+<p style="margin-top:24px;font-size:16px;"><b class="accent">I believe this is finished.</b> All seven acceptance criteria are
+met and proven on a phone-sized viewport against a running Director, with screenshots and network captures committed
+alongside this report.</p>
+</body>
+</html>

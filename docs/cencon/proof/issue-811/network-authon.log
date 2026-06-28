@@ -1,0 +1,15 @@
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=false -> 401 (auth ON, rejected)
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=true -> 200 application/json; charset=utf-8
+GET /sessions bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=true -> 200 application/json; charset=utf-8
+GET /sessions bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/summary bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/summary bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain bearer=true -> 200 application/json; charset=utf-8
+POST /sessions/1c301aba-1848-4855-95a3-67134edc5881/prompt bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/turns bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/summary bearer=true -> 200 application/json; charset=utf-8
+GET /sessions/1c301aba-1848-4855-95a3-67134edc5881/wingman/explain bearer=true -> 200 application/json; charset=utf-8
