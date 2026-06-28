@@ -94,6 +94,23 @@ public sealed class GatewayTrayInstaller
             return Fail(steps, $"Cockpit extraction failed: {ex.Message}");
         }
 
+        // 3b. Extract the mobile app (issue #809) into wwwroot/m beside the Gateway exe so /m serves on
+        // a clean install with no manual copy. The single-file exe carries no loose content, so this
+        // side-car zip (the Cockpit-zip pattern) is the delivery. A release that predates the mobile
+        // app (#806) has no such asset and simply serves no /m (ExtractAsync returns null).
+        try
+        {
+            var mobileDir = await MobilePackage.ExtractAsync(_layout, release, source, ct);
+            steps.Add(mobileDir is null
+                ? "no mobile app asset in this release (no /m)"
+                : $"extracted {MobilePackage.AssetName} -> {mobileDir}");
+            EngineLog.Write($"[GatewayTrayInstaller] mobile app at {(mobileDir ?? "(none)")}");
+        }
+        catch (Exception ex)
+        {
+            return Fail(steps, $"Mobile app extraction failed: {ex.Message}");
+        }
+
         // 4. Start the tray app. It registers its own HKCU Run-key autostart (pointing at itself with
         // the same arguments) on startup, so install-time registration and app self-registration can
         // never disagree.

@@ -210,6 +210,40 @@ function Assert-RunningGatewaySha {
     throw "Assert-RunningGatewaySha: gave up after ${TimeoutSeconds}s waiting for $HealthzUrl to report a version (last: $lastError)"
 }
 
+# Copy the published Gateway PAYLOAD (the exe AND its wwwroot tree) from the publish stage dir into
+# the install dir. Issue #809: the single-file exe does NOT contain wwwroot, so copying ONLY the exe
+# drops the mobile app and GET /m/ 404s. A Release publish stages devthrottle-gateway.exe plus
+# wwwroot\m beside it, so we carry the whole wwwroot tree and /m serves with no manual copy. Asserts
+# wwwroot\m\index.html landed beside the exe (fail loud - a Release build must have staged the mobile
+# app). Replaces any prior wwwroot so a redeploy never leaves a stale hashed asset behind.
+function Copy-GatewayPayload {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StageDir,
+        [Parameter(Mandatory)][string]$GatewayDir
+    )
+    New-Item -ItemType Directory -Force $GatewayDir | Out-Null
+
+    $exe = Join-Path $StageDir 'devthrottle-gateway.exe'
+    if (-not (Test-Path $exe)) { throw "Copy-GatewayPayload: published exe not found at $exe" }
+    Copy-Item $exe $GatewayDir -Force
+
+    $srcWww   = Join-Path $StageDir 'wwwroot'
+    $srcIndex = Join-Path $srcWww 'm\index.html'
+    if (-not (Test-Path $srcIndex)) {
+        throw "Copy-GatewayPayload: mobile app missing in publish output ($srcIndex). A Release publish must stage wwwroot\m (issue #809)."
+    }
+    $dstWww = Join-Path $GatewayDir 'wwwroot'
+    if (Test-Path $dstWww) { Remove-Item -Recurse -Force $dstWww }
+    Copy-Item $srcWww $GatewayDir -Recurse -Force
+
+    $dstIndex = Join-Path $GatewayDir 'wwwroot\m\index.html'
+    if (-not (Test-Path $dstIndex)) {
+        throw "Copy-GatewayPayload: wwwroot\m\index.html not present beside the exe after copy ($dstIndex)"
+    }
+    Write-Host "[redeploy-gateway] copied Gateway payload (exe + wwwroot\m) -> $GatewayDir"
+}
+
 if ($DefineOnly) { return }
 
 # ---------------------------------------------------------------------------
@@ -237,14 +271,19 @@ try {
         Start-Sleep -Milliseconds 500
     }
 
-    New-Item -ItemType Directory -Force $gwDir | Out-Null
-    Copy-Item $stagedExe $gwDir -Force
+    # Issue #809: copy the exe AND its wwwroot tree (mobile app) - not just the exe - so /m serves.
+    Copy-GatewayPayload -StageDir $stage -GatewayDir $gwDir
     Start-Process -FilePath "$gwDir\devthrottle-gateway.exe" -ArgumentList '--managed' -WorkingDirectory $gwDir
 
     Start-Sleep 5
 
     # Smoke check: a Gateway answers /cockpit (existing gate, preserved).
     Invoke-RestMethod 'http://127.0.0.1:7878/cockpit'
+
+    # Issue #809: the mobile app must serve after the redeploy with no manual copy step.
+    $mobile = Invoke-WebRequest 'http://127.0.0.1:7878/m/' -UseBasicParsing -TimeoutSec 10
+    if ($mobile.StatusCode -ne 200) { throw "[redeploy-gateway] GET /m/ returned $($mobile.StatusCode); the mobile app did not deploy." }
+    Write-Host "[redeploy-gateway] GET /m/ -> 200 (mobile app served)"
 
     # Build-identity gate (issue #290): prove the RUNNING Gateway is the commit we just published,
     # not a stale one. Fails loud (non-zero exit via $ErrorActionPreference=Stop) on mismatch.

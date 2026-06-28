@@ -194,6 +194,32 @@ jobs:
           path: src/CcDirector.GatewayApp/bin/Release/net10.0-windows/win-x64/publish/devthrottle-gateway.exe
           if-no-files-found: error
 
+      # Issue #809: the single-file Gateway exe carries NO loose content, so the built mobile app
+      # (issue #806, staged into wwwroot/m by the release-gated MSBuild target during the Release
+      # publish above) must ship as its OWN asset - the setup engine unpacks it beside the exe on
+      # install + self-update. The zip's root is the CONTENTS of wwwroot/m (index.html + hashed
+      # assets/), matching MobilePackage's extract-into-wwwroot/m contract.
+      - name: Package mobile app (wwwroot/m) as zip
+        shell: pwsh
+        run: |
+          $pub = "src/CcDirector.GatewayApp/bin/Release/net10.0-windows/win-x64/publish"
+          $m = Join-Path $pub "wwwroot/m"
+          if (-not (Test-Path (Join-Path $m "index.html"))) {
+            Write-Error "Mobile app build missing: $m/index.html not found in the Gateway publish output. The release-gated mobile build (CcDirector.Gateway.csproj BuildMobileApp target) did not run."
+            exit 1
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Compress-Archive -Path (Join-Path $m '*') -DestinationPath "artifacts/devthrottle-gateway-mobile-win-x64.zip" -Force
+          Write-Host "Packaged mobile app files:"
+          Get-ChildItem -Recurse -File $m | ForEach-Object { $_.FullName.Substring($m.Length).TrimStart('\','/') }
+
+      - name: Upload gateway mobile artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: gateway-mobile-win
+          path: artifacts/devthrottle-gateway-mobile-win-x64.zip
+          if-no-files-found: error
+
   # ---------------------------------------------------------------
   # Job 1c2: Build the CC Launcher tray app (Windows)
   # ---------------------------------------------------------------
@@ -415,6 +441,10 @@ jobs:
           # Windows Gateway service (publish emits devthrottle-gateway.exe)
           cp release-artifacts/gateway-win/devthrottle-gateway.exe "$RELEASE_DIR/devthrottle-gateway-win-x64.exe"
 
+          # Windows Gateway mobile app (issue #809): the built React PWA (wwwroot/m), unpacked beside
+          # the Gateway exe by the setup engine on install + self-update so /m serves with no manual copy.
+          cp release-artifacts/gateway-mobile-win/devthrottle-gateway-mobile-win-x64.zip "$RELEASE_DIR/devthrottle-gateway-mobile-win-x64.zip"
+
           # Windows Launcher tray app (publish emits cc-launcher.exe)
           cp release-artifacts/launcher-win/cc-launcher.exe "$RELEASE_DIR/cc-launcher-win-x64.exe"
 
@@ -446,6 +476,7 @@ jobs:
             cc-director-win-x64.exe
             cc-director-mac-arm64.zip
             devthrottle-gateway-win-x64.exe
+            devthrottle-gateway-mobile-win-x64.zip
             cc-launcher-win-x64.exe
             devthrottle-cockpit-win-x64.zip
             devthrottle-setup-win-x64.exe
