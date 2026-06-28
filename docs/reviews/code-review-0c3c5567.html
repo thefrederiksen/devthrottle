@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Review 0c3c5567</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #20242c;
+      --muted: #5c6472;
+      --border: #d9dee8;
+      --head: #eef2f8;
+      --blocking: #7a1b1b;
+      --warning: #8a5a00;
+      --suggestion: #24527a;
+      --good: #1f6b3a;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.55 "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }
+    h1, h2 {
+      line-height: 1.2;
+      margin: 0 0 12px;
+    }
+    h1 {
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 18px;
+      margin-top: 28px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 16px;
+    }
+    .meta {
+      color: var(--muted);
+      margin: 4px 0 0;
+    }
+    .verdict {
+      border-left: 4px solid var(--warning);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--head);
+      font-weight: 600;
+      color: #273142;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+      background: #eef2f8;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .sev {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .blocking { color: var(--blocking); }
+    .warning { color: var(--warning); }
+    .suggestion { color: var(--suggestion); }
+    ul {
+      margin: 8px 0 0 22px;
+      padding: 0;
+    }
+    li {
+      margin: 6px 0;
+    }
+    .ok {
+      color: var(--good);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Code Review: 0c3c5567</h1>
+  <p class="meta">Commit title: feat: add History tab "Show:" filter to hide tool calls, results, and thinking</p>
+  <p class="meta">Repository area: DevThrottle / cc-director</p>
+
+  <section class="card verdict">
+    <h2>Overall Verdict</h2>
+    <p><strong>No blocking defects found.</strong> The core mapping behavior is coherent across desktop and Cockpit, the desktop handler is wired after persisted state is applied, the missing-transcript cache path is handled, and the filtered-empty copy is present. I would still address the warnings below before calling the feature polished, especially the Cockpit scroll-listener lifecycle regression that the new filters make easy to trigger.</p>
+  </section>
+
+  <section>
+    <h2>Findings</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th>Reference</th>
+          <th>Issue</th>
+          <th>Impact / Recommendation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="sev warning">Warning</td>
+          <td><code>src/CcDirector.Cockpit/Components/HistoryPane.razor:55</code><br><code>src/CcDirector.Cockpit/Components/HistoryPane.razor:323</code></td>
+          <td>The filter can remove every bubble, which removes the <code>.hist-scroll</code> element from the DOM. When bubbles later reappear, <code>_listenerAttached</code> is still true, so <code>init</code> is skipped for the new scroll element.</td>
+          <td>This breaks the sticky-bottom scroll listener after a common flow: hide results on a tool-result-only transcript, then show results again. Reset the listener bookkeeping when the scroll container is absent, or key listener attachment to the current element rather than a lifetime bool.</td>
+        </tr>
+        <tr>
+          <td class="sev warning">Warning</td>
+          <td><code>src/CcDirector.Avalonia/Controls/HistoryView.axaml.cs:121</code></td>
+          <td><code>LoadFilterIntoCheckboxes</code> catches any config read failure and silently falls back to <code>HistoryFilterConfig.Default</code>, logging only <code>ex.Message</code>.</td>
+          <td>This weakens the no-fallback rule in <code>docs/CodingStyle.md</code> and hides a malformed <code>config.json</code> from the user. If the UI must stay open, log the full exception and surface an explicit non-blocking config error instead of treating the bad persisted setting as "show all."</td>
+        </tr>
+        <tr>
+          <td class="sev suggestion">Suggestion</td>
+          <td><code>src/CcDirector.Core.Tests/Configuration/HistoryFilterConfigTests.cs:79</code></td>
+          <td>The new test uses the null-forgiving operator on <code>ReadRaw()["addressing_mode"]!</code>.</td>
+          <td>The coding style explicitly forbids <code>!</code>, including in tests. Store the node in a local, assert it is not null, then read the value.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>What Is Done Well</h2>
+    <ul>
+      <li><span class="ok">Desktop handler sequencing is correct.</span> The checkboxes are populated before <code>IsCheckedChanged</code> handlers are subscribed, which avoids overwriting persisted config during construction.</li>
+      <li><span class="ok">The desktop missing-transcript path clears cached history.</span> This prevents a later filter toggle from resurrecting a transcript after its path disappears.</li>
+      <li><span class="ok">The filtered-empty state is implemented on both surfaces.</span> A transcript with messages hidden by filters now reports "No messages match the current filters."</li>
+      <li><span class="ok">Desktop and Cockpit mapping are mostly kept in parity.</span> Text is preserved, tool calls/thinking/results are filtered per part, and pure tool-result bubbles disappear when results are hidden.</li>
+      <li><span class="ok">Persistence defaults are conservative.</span> Desktop config defaults to show-all, save uses merge-patch, and malformed typed keys in <code>HistoryFilterConfig.Get</code> throw rather than silently coercing.</li>
+      <li><span class="ok">The Cockpit render signature includes the filter.</span> A toggle re-renders cached history without waiting for a transcript change.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Test Gaps / Follow-ups</h2>
+    <ul>
+      <li>Add a Cockpit component or browser-level test for the empty-to-nonempty filter flow to catch the scroll-listener lifecycle issue.</li>
+      <li>Add UI-level desktop coverage that proves applying saved checkbox state during construction does not call <code>Save</code> and overwrite <code>config.json</code>.</li>
+      <li>Add Cockpit localStorage coverage for load, persist, invalid stored values, and the first-render re-map path.</li>
+      <li>Add component-level empty-state tests on both surfaces for "messages exist but filters hide all" versus "no history yet."</li>
+      <li>Add coverage for assistant-side <code>ToolResult</code> parts with results hidden, not only user-role tool-result bubbles.</li>
+      <li>I did not run the test suite during this review because the request was review-only and constrained commands to read-only inspection plus the single HTML artifact.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
