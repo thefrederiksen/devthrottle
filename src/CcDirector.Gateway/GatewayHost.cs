@@ -511,6 +511,10 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddRoutingCore();
         // Direct forwarding for the one-URL front door (CockpitProxy fallback route).
         builder.Services.AddHttpForwarder();
+        // Issue #806 (mobile foundation): emit an OpenAPI document at /openapi/v1.json. The mobile
+        // app's build-time codegen (openapi-typescript) turns it into a typed TypeScript client, so
+        // the C# DTOs stay the single source of truth for the front-end.
+        builder.Services.AddOpenApi();
 
         // Honor X-Forwarded-Proto/Host/For from a Tailscale Serve front-end so
         // ctx.Request.Scheme reflects the public scheme the user actually used.
@@ -586,6 +590,12 @@ public sealed class GatewayHost : IAsyncDisposable
             var requireToken = new AuthMiddleware.RequireToken { Token = Token, Devices = Devices };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
+
+        // Mobile front door (issue #806, docs/architecture/mobile/): a phone browser-navigation
+        // (Accept: text/html, phone User-Agent) not already under /m gets a 302 to the mobile app
+        // at /m/; a desktop UA falls through unchanged to the Cockpit. After auth, before the
+        // Cockpit's browser-page routes - so a phone never reaches the Cockpit sitemap.
+        Mobile.MobileRedirect.UseMobileRedirect(_app);
 
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
         // /directors, or /cockpit (Accept: text/html) gets the Cockpit page; programs keep
@@ -793,6 +803,12 @@ public sealed class GatewayHost : IAsyncDisposable
         TurnBriefGatewayEndpoints.Map(_app, _turnBriefStore,
             sid => _turnBriefStore.Latest(sid) is not null ? "Briefed" : "None",
             requestExplainAsync: null);
+
+        // Issue #806 (mobile foundation): the OpenAPI document the mobile codegen consumes, and the
+        // mobile app static serving at /m (built shell + token-injected index.html). Mapped before
+        // the fallback proxy so these explicit routes win over the Cockpit catch-all.
+        _app.MapOpenApi();
+        Mobile.MobileApp.Map(_app, Token);
 
         // One URL: everything no explicit endpoint above claimed falls through to the
         // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.

@@ -536,7 +536,10 @@ internal static class GatewayEndpoints
                 return Results.Json(new { sessions = all, machineErrors });
             }
             return Results.Json(all);
-        });
+        })
+        // Issue #806: advertise the default response shape (a SessionDto array) in the OpenAPI
+        // document so the mobile app's openapi-typescript codegen generates a typed roster client.
+        .Produces<List<SessionDto>>(StatusCodes.Status200OK);
 
         // Interrupted sessions (issue #212 W3): fan out to every Director for the crash
         // journals left on its machine by Directors that died abnormally, flatten to one row

@@ -36,6 +36,18 @@ internal static class AuthMiddleware
 
         if (PublicPaths.Contains(path)) { await next(); return; }
 
+        // Issue #806: the mobile app shell (/m and its built assets) carries no secret - the
+        // per-machine token is injected into its index.html and the app then authenticates its
+        // OWN API calls (e.g. /sessions) with that Bearer. Letting the shell load without the
+        // global gate is what makes the page render whether global Gateway auth is on or off,
+        // while the data endpoints stay token-gated.
+        if (string.Equals(path, "/m", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/m/", StringComparison.OrdinalIgnoreCase))
+        {
+            await next();
+            return;
+        }
+
         if (HasValidToken(ctx, cfg.Token, cfg.Devices))
         {
             await next();
