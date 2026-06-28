@@ -23,6 +23,13 @@ public sealed class GatewayUpdater
     /// <summary>The staging path the new Gateway exe is downloaded to before the swap.</summary>
     public string StagedExePath => Path.Combine(_layout.StateDir, "staged", "devthrottle-gateway.exe");
 
+    /// <summary>
+    /// The staging path the matching mobile app zip is downloaded to before a self-update (issue
+    /// #809), so the detached update helper can lay <c>wwwroot/m</c> beside the swapped exe with no
+    /// download. Staged + SHA-verified by <see cref="StageAsync"/>.
+    /// </summary>
+    public string StagedMobileZipPath => Path.Combine(_layout.StateDir, "staged", MobilePackage.AssetName);
+
     /// <summary>True when the release has a Gateway newer than the installed one (and it isn't pinned).</summary>
     public bool IsUpdateAvailable(ResolvedRelease release)
     {
@@ -60,7 +67,45 @@ public sealed class GatewayUpdater
             Directory.CreateDirectory(Path.GetDirectoryName(StagedExePath) ?? _layout.StateDir);
             File.Copy(downloaded, StagedExePath, overwrite: true);
             EngineLog.Write($"[GatewayUpdater] staged Gateway {asset.Version} -> {StagedExePath}");
+
+            // Issue #809: stage the matching mobile app zip next to the staged exe so the update helper
+            // can lay wwwroot/m beside the swapped Gateway with no download (the single-file exe carries
+            // no loose content). The exe and its mobile app ship from the SAME release, so they stage
+            // together.
+            await StageMobileZipAsync(release, source, ct);
             return (StagedExePath, asset.Version);
+        }
+        finally
+        {
+            try { if (File.Exists(downloaded)) File.Delete(downloaded); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Stage the matching mobile app zip (issue #809) to <see cref="StagedMobileZipPath"/>. SHA-verified
+    /// here (never stage a corrupt build). When the release carries no mobile asset (a release that
+    /// predates issue #806), any stale staged zip is removed so the helper never applies an out-of-date
+    /// mobile build over a newer one.
+    /// </summary>
+    private async Task StageMobileZipAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct)
+    {
+        var asset = release.Manifest.TryGetAsset(MobilePackage.AssetName);
+        if (asset is null)
+        {
+            try { if (File.Exists(StagedMobileZipPath)) File.Delete(StagedMobileZipPath); } catch { /* best effort */ }
+            EngineLog.Write($"[GatewayUpdater] release has no {MobilePackage.AssetName}; no mobile files staged");
+            return;
+        }
+
+        var downloaded = await source.DownloadAssetAsync(asset.Name, release.DownloadUrls, ct);
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(asset.Sha256) && !Hashing.Sha256Matches(downloaded, asset.Sha256))
+                throw new InvalidOperationException("Mobile app zip SHA-256 mismatch; not staging.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(StagedMobileZipPath) ?? _layout.StateDir);
+            File.Copy(downloaded, StagedMobileZipPath, overwrite: true);
+            EngineLog.Write($"[GatewayUpdater] staged {MobilePackage.AssetName} {asset.Version} -> {StagedMobileZipPath}");
         }
         finally
         {

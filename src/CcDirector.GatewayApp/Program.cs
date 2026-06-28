@@ -124,6 +124,31 @@ public static class Program
 
         FileLog.Write($"[Program] self-update outcome={result.Outcome}: {result.Message}");
         foreach (var step in result.Steps) FileLog.Write($"[Program]   {step}");
+
+        // Issue #809: lay the matching mobile app down beside the freshly swapped exe so /m keeps
+        // serving after a self-update (the single-file exe carries no loose content). The running
+        // Gateway staged + SHA-verified the zip before launching this helper, so we just extract it.
+        // ONLY after a successful exe update - a rollback leaves the prior wwwroot/m in place, matching
+        // the rolled-back exe. Boundary try/catch: the prior mobile build still serves /m if this step
+        // fails, so a failure is logged loudly (and the next self-update retries), never silently
+        // hidden, and it does not undo an already-successful exe update.
+        if (result.Outcome == SelfUpdateOutcome.Updated)
+        {
+            try
+            {
+                var layout = InstallLayout.Default();
+                var stagedMobileZip = new GatewayUpdater(layout).StagedMobileZipPath;
+                var appliedDir = MobilePackage.ExtractStagedZip(layout, stagedMobileZip);
+                FileLog.Write(appliedDir is null
+                    ? "[Program] no staged mobile zip to apply (release without the mobile app)"
+                    : $"[Program] applied mobile app -> {appliedDir}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[Program] mobile app apply FAILED (prior /m build still served): {ex.Message}");
+            }
+        }
+
         FileLog.Stop();
         return result.Outcome == SelfUpdateOutcome.Updated ? 0 : 1;
     }

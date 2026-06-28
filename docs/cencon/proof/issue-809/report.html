@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #809 - Developer Agent proof (mobile /m packaging/delivery)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #007ACC; padding-bottom: 8px; }
+  h2 { margin-top: 28px; color: #007ACC; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f6fb; }
+  code, pre { background: #f5f5f5; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 10px; overflow-x: auto; font-size: 13px; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .ac { background: #fafafa; }
+  img { max-width: 420px; border: 1px solid #ccc; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: 8px 12px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #809 - Mobile app (/m) deploy/packaging fix</h1>
+<p><strong>Title:</strong> [Deploy] Mobile app (/m) cannot be deployed to a running Gateway: redeploy ships only the exe, and self-update reverts unreleased builds<br>
+<strong>Branch:</strong> <code>issue-809-gateway-mobile-packaging</code><br>
+<strong>Type:</strong> packaging / delivery only - no change to what <code>/m</code> serves (issue #806 untouched).</p>
+
+<h2>What was implemented</h2>
+<p>The built mobile app (issue #806, staged into <code>wwwroot/m</code> by the release-gated MSBuild target) is a tree of
+loose static files that must sit <em>beside</em> the Gateway exe, because <code>MobileApp.WebRoot</code> resolves to
+<code>AppContext.BaseDirectory/wwwroot/m</code>. A single-file exe does <strong>not</strong> contain <code>wwwroot</code>,
+so the three delivery paths that carried only the exe dropped the mobile app and <code>/m</code> answered 404.</p>
+
+<h3>Design choice: Option 2 (ship/copy <code>wwwroot/m</code> beside the exe), not embed</h3>
+<p>The issue offered two options. I chose <strong>Option 2 - ship the mobile build as a side-car zip
+(<code>devthrottle-gateway-mobile-win-x64.zip</code>) the setup engine unpacks into <code>wwwroot/m</code> beside the exe</strong>,
+mirroring the existing <strong>Cockpit-zip</strong> pattern the Gateway role already uses. Reasons:</p>
+<ul>
+  <li><strong>It satisfies every acceptance criterion verbatim.</strong> AC1/AC4/AC5 and the proof target all describe loose
+      files ("<code>wwwroot/m/index.html</code> exists beside the exe", "the unpack output shows <code>wwwroot/m</code>"), which only the
+      unpacked-asset option produces. Embedding would change <code>MobileApp</code>'s serving semantics and contradict those ACs.</li>
+  <li><strong>It is idiomatic to how the setup engine already installs the Gateway.</strong> The Gateway role already downloads a
+      side-car zip (the Cockpit) and unpacks it beside the exe; this reuses that proven path (<code>CockpitPackage</code> -&gt; <code>MobilePackage</code>).</li>
+  <li><strong>Zero change to issue #806.</strong> <code>MobileApp.WebRoot</code> keeps resolving to <code>AppContext.BaseDirectory/wwwroot/m</code>;
+      no React/PWA code changes; the existing <code>MobileAuthServingTests</code> still pass unchanged.</li>
+</ul>
+
+<h3>Files changed</h3>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td><code>.github/workflows/release.yml</code></td><td><code>build-gateway-win</code> now zips the Release publish's <code>wwwroot/m</code> into <code>devthrottle-gateway-mobile-win-x64.zip</code> and uploads it; <code>create-release</code> collects it and lists it as a <strong>required</strong> asset.</td></tr>
+<tr><td><code>tools/.../MobilePackage.cs</code> (new)</td><td>Downloads + SHA-verifies + extracts the mobile zip into <code>wwwroot/m</code> beside the exe (clean-install path), plus <code>ExtractStagedZip</code> for the self-update path. Mirrors <code>CockpitPackage</code>.</td></tr>
+<tr><td><code>tools/.../InstallLayout.cs</code></td><td>New <code>GatewayMobileDir</code> = <code>gateway/wwwroot/m</code>.</td></tr>
+<tr><td><code>tools/.../GatewayTrayInstaller.cs</code></td><td>Clean install now extracts the mobile zip beside the exe (after the Cockpit zip).</td></tr>
+<tr><td><code>tools/.../GatewayUpdater.cs</code></td><td>Self-update now also stages the matching mobile zip (<code>StagedMobileZipPath</code>); a release without the asset clears any stale staged zip.</td></tr>
+<tr><td><code>src/CcDirector.GatewayApp/Program.cs</code></td><td>The <code>--apply-update</code> helper extracts the staged mobile zip into <code>wwwroot/m</code> after a successful exe swap.</td></tr>
+<tr><td><code>scripts/redeploy-gateway.ps1</code></td><td>New testable <code>Copy-GatewayPayload</code> copies the exe AND its <code>wwwroot</code> tree; the deploy now uses it and adds a <code>GET /m/</code> 200 smoke check.</td></tr>
+<tr><td>Tests (new)</td><td><code>MobilePackageTests</code>, <code>GatewayUpdaterMobileStagingTests</code>, <code>scripts/test/test-redeploy-gateway-mobile.ps1</code>.</td></tr>
+</table>
+
+<h2>Build &amp; tests</h2>
+<ul>
+  <li><span class="pass">PASS</span> <code>dotnet build cc-director.sln -c Debug</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s), and <strong>no npm invoked</strong> (the web build stays release-gated).</li>
+  <li><span class="pass">PASS</span> setup-engine tests: <code>Failed: 0, Passed: 190</code> (includes the 8 new MobilePackage/GatewayUpdater staging tests).</li>
+  <li><span class="pass">PASS</span> Gateway <code>MobileAuthServingTests</code>: 3/3 (serving semantics unchanged).</li>
+  <li><span class="pass">PASS</span> <code>scripts/test/test-redeploy-gateway-mobile.ps1</code>: <code>Copy-GatewayPayload</code> lands <code>wwwroot/m</code> beside the exe, removes stale files, fails loud when the publish has no <code>wwwroot/m</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<p class="note">Isolation: every check below ran against Gateways launched on FREE loopback ports with <code>CC_DIRECTOR_ROOT</code>
+redirected to a temp dir. The user's installed Gateway on 7878 (<code>0.9.27+85001073...</code>) was never touched and was
+confirmed still healthy afterward. A real GitHub release cannot be cut from here, so per the task's relaxation the
+release-asset layout is produced locally (the exact <code>release.yml</code> zip step) and a Gateway is launched from that
+packaged layout.</p>
+
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th></tr>
+
+<tr class="ac"><td>1</td><td>Release asset(s) include <code>wwwroot/m</code> (index.html + hashed assets).</td>
+<td>An asset listing shows <code>index.html</code> + <code>assets/</code>.</td>
+<td><span class="pass">PASS</span>. The Release publish staged 9 files into <code>wwwroot/m</code>; the release zip built exactly as <code>release.yml</code> does carries them at its root (<code>index.html</code>, <code>assets/index-*.js</code>, <code>assets/index-*.css</code>, icons, sw.js, manifest). See <code>proof-run.log</code> "AC1".</td></tr>
+
+<tr class="ac"><td>2</td><td>Fresh install from the release asset: <code>GET /m/</code> -&gt; 200, no "no wwwroot/m" log line.</td>
+<td>200 + the serving line, never the not-built 404.</td>
+<td><span class="pass">PASS</span>. From the packaged layout (zip delivered into <code>wwwroot/m</code> beside the host) <code>GET /m/</code> -&gt; <strong>200</strong>; the host logged <code>[MobileApp] serving /m from ...\wwwroot\m (exists=True)</code> and the "no wwwroot/m" message was NOT present. The exe-only layout (the old broken delivery) reproduced the <strong>404</strong> "Mobile app not built into this Gateway". See <code>proof-run.log</code> BUG/FIX.</td></tr>
+
+<tr class="ac"><td>3</td><td>Home roster renders at <code>/m/</code> (the #806 page from <code>/sessions</code>).</td>
+<td>Roster screenshot on the release-packaged Gateway.</td>
+<td><span class="pass">PASS</span>. <code>ac3-home-roster.png</code> shows the DevThrottle "Mission Control" roster served from the packaged build (empty "No sessions running" state, correct because the isolated test Gateway has no connected Directors; <code>/sessions</code> returned <code>[]</code>).</td></tr>
+
+<tr class="ac"><td>4</td><td><code>redeploy-gateway.ps1</code> copies <code>wwwroot/m</code> beside the exe; <code>/m/</code> 200 with no manual copy.</td>
+<td><code>wwwroot/m/index.html</code> beside the exe after the script's copy.</td>
+<td><span class="pass">PASS</span>. <code>test-redeploy-gateway-mobile.ps1</code> drives the REAL <code>Copy-GatewayPayload</code>: the exe and <code>wwwroot/m/index.html</code> + hashed asset land in the install dir; a re-copy removes stale files; a publish with no <code>wwwroot/m</code> fails loud. The deploy path also adds a live <code>GET /m/</code> 200 smoke check.</td></tr>
+
+<tr class="ac"><td>5</td><td>Clean install AND self-update both leave <code>/m</code> served; unpack lands <code>wwwroot/m</code> in both.</td>
+<td>Both paths place <code>wwwroot/m</code> beside the exe.</td>
+<td><span class="pass">PASS</span>. Clean install: <code>GatewayTrayInstaller</code> calls <code>MobilePackage.ExtractAsync</code> (unit-proven to land <code>wwwroot/m/index.html</code>). Self-update: <code>GatewayUpdater.StageAsync</code> stages the matching zip (<code>GatewayUpdaterMobileStagingTests</code>) and the <code>--apply-update</code> helper extracts it via <code>MobilePackage.ExtractStagedZip</code> (unit-proven). A Gateway launched from the resulting layout serves <code>/m</code> 200 (FIX above).</td></tr>
+
+<tr class="ac"><td>6</td><td>Self-update behavior resolved (opt-out OR normal release propagates <code>/m</code>).</td>
+<td>One of the two resolutions, proven.</td>
+<td><span class="pass">PASS</span> (per the issue's accepted Assumption). Gap 2 is resolved by the <strong>normal release pipeline</strong>: the mobile zip ships with every release and is carried forward by BOTH the clean-install and the self-update paths (AC5), so a published release carrying #806 propagates <code>/m</code> to a self-updating Gateway automatically - no opt-out needed. No self-update opt-out flag was added (it was the alternative, not a requirement).</td></tr>
+</table>
+
+<h2>Home roster on the release-packaged Gateway (AC3)</h2>
+<img src="ac3-home-roster.png" alt="DevThrottle Mission Control home roster">
+
+<h2>CenCon impact</h2>
+<p><strong>No architecture or security drift.</strong> This is packaging/delivery plumbing: a new side-car release asset and the
+unpack/copy steps that place it beside the exe. No new container, no trust-boundary change, no <code>security_profile.yaml</code>
+rule touched. The mobile zip is SHA-256 verified on every download (install, self-update) exactly like the Cockpit zip.</p>
+
+<h2>Proof artifacts (committed under <code>docs/cencon/proof/issue-809/</code>)</h2>
+<ul>
+  <li><code>report.html</code> - this report</li>
+  <li><code>proof-harness.ps1</code> - the isolated end-to-end harness (publish -&gt; AC1 -&gt; BUG 404 -&gt; FIX 200)</li>
+  <li><code>proof-run.log</code> - the full captured run output</li>
+  <li><code>fix-m-served.html</code> - the actual <code>/m/</code> shell served by the fixed Gateway (token injected)</li>
+  <li><code>ac3-home-roster.png</code> - the rendered Home roster</li>
+</ul>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> All six acceptance criteria are met, the solution builds clean with zero
+warnings and without invoking npm, all unit and script tests pass, and the end-to-end proof shows the delivery gap
+(exe-only -&gt; 404) and its fix (side-car zip delivered beside the exe -&gt; 200, real app shell, token injected) on an
+isolated Gateway, with the user's installed Gateway left untouched.</p>
+
+</body>
+</html>
