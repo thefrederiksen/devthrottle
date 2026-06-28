@@ -1,0 +1,146 @@
+[
+  {
+    "ac": "AC4",
+    "name": "controls hidden by default",
+    "pass": true,
+    "detail": "toggle label='Keys', .term-controls count=0"
+  },
+  {
+    "ac": "AC1",
+    "name": "live WebSocket stream, no /buffer poll",
+    "pass": true,
+    "detail": "sockets=1 binaryFrames=10 textFrames=1 bufferPolls=0"
+  },
+  {
+    "ac": "AC6",
+    "name": "Screen Wake Lock requested on view open",
+    "pass": true,
+    "detail": "wakeLock={'requests': 1, 'releases': 0}"
+  },
+  {
+    "ac": "AC2",
+    "name": "WS auto-reconnects after drop",
+    "pass": true,
+    "detail": "stub ws-open before=1 after=2 ws-close=1 (server observed a fresh reconnect)"
+  },
+  {
+    "ac": "AC3",
+    "name": "scrolled-up not yanked; at-bottom sticks (real overflow)",
+    "pass": true,
+    "detail": "overflow(max)=292; scrolledUp top0=0 top1=0 (not yanked); atBottom st=292 max=292 (sticks)"
+  },
+  {
+    "ac": "AC4b",
+    "name": "Keys toggle reveals controls",
+    "pass": true,
+    "detail": ".term-controls count after toggle=1"
+  },
+  {
+    "ac": "AC12",
+    "name": "button set & grouping match Android",
+    "pass": true,
+    "detail": "buttons=['Speak', 'Send', 'Enter', 'Esc', 'Stop', 'Up', 'Down', 'Left', 'Right']"
+  },
+  {
+    "ac": "AC5",
+    "name": "Fit/1:1 toggle + zoom changes size",
+    "pass": true,
+    "detail": "fitLabel 1:1->Fit; xterm-screen height 1800->2640"
+  },
+  {
+    "ac": "AC7-Send",
+    "name": "Send: prompt AppendEnter=true + input cleared",
+    "pass": true,
+    "detail": "sendPrompt found=True, inputAfter=''"
+  },
+  {
+    "ac": "AC7-Enter",
+    "name": "Enter: text=CR AppendEnter=false",
+    "pass": true,
+    "detail": "prompts=[{'text': 'hello world', 'appendEnter': True}, {'text': '\\r', 'appendEnter': False}, {'text': '\\x1b[A', 'appendEnter': False}, {'text': '\\x1b[B', 'appendEnter': False}, {'text': '\\x1b[D', 'appendEnter': False}, {'text': '\\x1b[C', 'appendEnter': False}]"
+  },
+  {
+    "ac": "AC7-Esc",
+    "name": "Esc: POST /escape",
+    "pass": true,
+    "detail": "escape calls=1"
+  },
+  {
+    "ac": "AC7-Stop",
+    "name": "Stop: POST /interrupt",
+    "pass": true,
+    "detail": "interrupt calls=1"
+  },
+  {
+    "ac": "AC7-Arrows",
+    "name": "arrows ESC[A/[B/[D(left)/[C(right) AppendEnter=false",
+    "pass": true,
+    "detail": "arrowSeqs=[\"'\\\\x1b[D'\", \"'\\\\x1b[B'\", \"'\\\\x1b[A'\", \"'\\\\x1b[C'\"]"
+  },
+  {
+    "ac": "AC8",
+    "name": "Speak opens dictation, RECORDING, 4 actions",
+    "pass": true,
+    "detail": "status=RECORDING buttonCount=4"
+  },
+  {
+    "ac": "AC8b",
+    "name": "PAUSED with editable transcript",
+    "pass": true,
+    "detail": "editable=True transcript='hello from qa dictation'"
+  },
+  {
+    "ac": "AC9-Send",
+    "name": "Dictation Send submits via prompt",
+    "pass": true,
+    "detail": "promptsBefore=6 after=7 sent={'text': 'hello from qa dictation', 'appendEnter': True}"
+  },
+  {
+    "ac": "AC9-Insert",
+    "name": "Dictation Insert fills input, no submit",
+    "pass": true,
+    "detail": "input='hello from qa dictation' promptsBefore=7 after=7"
+  },
+  {
+    "ac": "AC10",
+    "name": "utterance register->chunk->complete, bearer, NO /wingman/tts",
+    "pass": true,
+    "detail": "upload=2 chunk=2 complete=2 tts=0 bearerOk=True"
+  },
+  {
+    "ac": "AC10b",
+    "name": "chunk carries X-Chunk-Sha256",
+    "pass": true,
+    "detail": "chunkShas=['2c26fe2f0391f8d57be6f143d2d591d4b419c9fa054db5cd5e5a23f20042ce5d']"
+  },
+  {
+    "ac": "AC11-on",
+    "name": "auth ON: WS cookie present+accepted, HTTP Bearer",
+    "pass": true,
+    "detail": "wsUpgrades=2 cookieOk=True bearerOk=True"
+  },
+  {
+    "ac": "AC6b",
+    "name": "Wake Lock released on leave (unmount)",
+    "pass": true,
+    "detail": "wakeLock after leave={'requests': 1, 'releases': 1}"
+  },
+  {
+    "ac": "AC1",
+    "name": "live WebSocket stream, no /buffer poll",
+    "pass": true,
+    "detail": "sockets=1 binaryFrames=2 textFrames=1 bufferPolls=0"
+  },
+  {
+    "ac": "AC6",
+    "name": "Screen Wake Lock requested on view open",
+    "pass": true,
+    "detail": "wakeLock={'requests': 1, 'releases': 0}"
+  },
+  {
+    "ac": "AC11-off",
+    "name": "auth OFF: stream + calls work with no token",
+    "pass": true,
+    "detail": "wsUpgrades=1 accepted=True noBearer=True binaryFrames=30"
+  }
+]
