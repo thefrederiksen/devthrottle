@@ -1,0 +1,341 @@
+/* The Mobile view: a single-column, phone-first screen. Big touch targets, the dark VS Code
+   palette the rest of the Cockpit uses, and a layout that fills the viewport so the history
+   scrolls inside its own pane instead of the whole page. */
+
+.mob {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh; /* track the phone's dynamic viewport (URL bar show/hide) */
+    background: #1e1e1e;
+    color: #ddd;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+}
+
+/* ---------- top bar (roster + detail) ---------- */
+.mob-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #252526;
+    border-bottom: 1px solid #333;
+    flex: 0 0 auto;
+}
+
+.mob-top-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.mob-top-title.one-line {
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mob-top-badge {
+    background: #4a1d1f;
+    color: #ff9a9d;
+    border: 1px solid #E5484D;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.mob-top-live {
+    margin-left: auto;
+    font-size: 11px;
+    color: #6fae6f;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.mob-top.detail .mob-top-live { margin-left: 0; }
+
+.mob-back {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    font-size: 26px;
+    line-height: 1;
+    background: #333;
+    color: #ddd;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.mob-back:active { background: #3d3d3d; }
+
+/* ---------- status dot ---------- */
+.mob-dot {
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* ---------- notes / empty states ---------- */
+.mob-note {
+    padding: 22px 16px;
+    color: #999;
+    font-size: 14px;
+}
+.mob-note.err { color: #ff9a9d; }
+
+/* ---------- roster list ---------- */
+.mob-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mob-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    border-bottom: 1px solid #2a2a2a;
+    cursor: pointer;
+}
+.mob-card:active { background: #262626; }
+
+.mob-card.needs {
+    background: #2a1c1d;
+    border-left: 3px solid #E5484D;
+}
+
+.mob-card-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.mob-card-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mob-card-sub {
+    font-size: 12.5px;
+    color: #9a9a9a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.mob-card-ask {
+    font-size: 13px;
+    color: #ffb4b6;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mob-chev {
+    flex: 0 0 auto;
+    color: #666;
+    font-size: 22px;
+    line-height: 1;
+}
+
+/* ---------- speak buttons ---------- */
+.mob-speak {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: #333;
+    color: #cfd6dd;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+.mob-speak:active { background: #3d3d3d; }
+.mob-speak.sm { width: 38px; height: 38px; background: #4a1d1f; color: #ff9a9d; }
+.mob-speak.hot { background: #E5484D; color: #fff; }
+
+/* ---------- needs-you banner (detail) ---------- */
+.mob-needs {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #2a1c1d;
+    border-bottom: 1px solid #4a1d1f;
+}
+.mob-needs-label {
+    background: #E5484D;
+    color: #fff;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.mob-needs-ask {
+    font-size: 14px;
+    color: #ffb4b6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---------- history (detail) ---------- */
+.mob-hist {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 10px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mob-bubble {
+    max-width: 88%;
+    padding: 9px 12px;
+    border-radius: 12px;
+    font-size: 14.5px;
+    line-height: 1.45;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+
+.mob-bubble.user {
+    align-self: flex-end;
+    background: #0e4429;
+    color: #d7f5e3;
+    border-bottom-right-radius: 4px;
+}
+.mob-bubble.assistant {
+    align-self: flex-start;
+    background: #2d2d30;
+    color: #e4e4e4;
+    border-bottom-left-radius: 4px;
+}
+.mob-bubble.tool {
+    align-self: flex-start;
+    background: #2a2620;
+    color: #c9bda0;
+}
+
+.mob-bubble-who {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    opacity: .55;
+    margin-bottom: 3px;
+}
+
+.mob-bubble-raw {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: 'Cascadia Mono', Consolas, monospace;
+    font-size: 12.5px;
+}
+
+/* Markdown inside a bubble: keep it compact and contained. */
+.mob-bubble-md :first-child { margin-top: 0; }
+.mob-bubble-md :last-child { margin-bottom: 0; }
+.mob-bubble-md p { margin: 0 0 8px; }
+.mob-bubble-md pre {
+    background: #1b1b1b;
+    border-radius: 6px;
+    padding: 8px;
+    overflow-x: auto;
+    font-size: 12.5px;
+}
+.mob-bubble-md code {
+    font-family: 'Cascadia Mono', Consolas, monospace;
+    font-size: 12.5px;
+}
+.mob-bubble-md a { color: #6cb6ff; }
+.mob-bubble-md ul, .mob-bubble-md ol { margin: 4px 0 8px; padding-left: 20px; }
+.mob-bubble-md li { margin: 2px 0; }
+.mob-bubble-md h1, .mob-bubble-md h2, .mob-bubble-md h3,
+.mob-bubble-md h4, .mob-bubble-md h5, .mob-bubble-md h6 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 8px 0 4px;
+}
+.mob-bubble-md blockquote {
+    margin: 4px 0;
+    padding-left: 10px;
+    border-left: 3px solid #4a4a4a;
+    color: #b8b8b8;
+}
+/* Tables can be wide; let them scroll horizontally inside the bubble instead of overflowing it. */
+.mob-bubble-md table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin: 4px 0;
+}
+.mob-bubble-md th, .mob-bubble-md td {
+    border: 1px solid #3a3a3a;
+    padding: 3px 7px;
+    text-align: left;
+    white-space: nowrap;
+}
+.mob-bubble-md th { background: #333; }
+
+/* ---------- speech caption (what the voice is reading) ---------- */
+.mob-say {
+    flex: 0 0 auto;
+    background: #10243a;
+    border-top: 1px solid #1f4a73;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    max-height: 38vh;
+    overflow-y: auto;
+}
+.mob-say-head {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.mob-say-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #6cb6ff;
+}
+.mob-say-x {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+    line-height: 1;
+    background: transparent;
+    color: #9ec7ef;
+    border: none;
+    cursor: pointer;
+}
+.mob-say-text {
+    font-size: 14.5px;
+    line-height: 1.45;
+    color: #dce8f5;
+    white-space: pre-wrap;
+}
+.mob-say-err {
+    font-size: 13.5px;
+    color: #ffb4b6;
+}

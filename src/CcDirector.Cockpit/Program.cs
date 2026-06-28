@@ -76,6 +76,28 @@ app.Logger.LogInformation(
 
 app.UseForwardedHeaders();
 
+// Never let a browser cache the dynamically-rendered HTML document (the Blazor host page). A phone
+// that cached an OLD host page keeps showing stale markup and pulls stale ?v= asset URLs even after a
+// deploy - the "I already fixed this but the phone still shows the old version" trap. Marking only
+// text/html no-store forces a fresh document fetch on every navigation (the host page is tiny), while
+// the framework/js/css assets keep their own caching plus the App.razor ?v= cache-buster. Set in
+// OnStarting so the ContentType is known and headers are still mutable.
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        var contentType = context.Response.ContentType;
+        if (contentType is not null && contentType.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            context.Response.Headers.Expires = "0";
+        }
+        return Task.CompletedTask;
+    });
+    await next();
+});
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -154,7 +176,26 @@ static string ReadGatewayToken()
     return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path).Trim() : "";
 }
 
+// Mobile text-to-speech (the Mobile screen's Speak button). The browser fetches the synthesized
+// audio DIRECTLY over plain HTTP from here - deliberately NOT through the Blazor SignalR circuit,
+// which chokes when a multi-megabyte mp3 is marshalled as a base64 string. This endpoint proxies
+// the Gateway's OpenAI text-to-speech (model tts-1, voice "nova" - the natural voice the phone uses)
+// and streams the mp3 back same-origin. Returns 503 when the Gateway has no OpenAI key configured;
+// the page then shows a clear message rather than silently falling back to the robotic browser voice.
+app.MapPost("/api/tts", async (TtsRequest body, GatewayClient gateway, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(body?.Text))
+        return Results.BadRequest(new { error = "text is required" });
+    var audio = await gateway.SynthesizeSpeechAsync(body.Text, ct);
+    return audio is { Length: > 0 }
+        ? Results.Bytes(audio, "audio/mpeg")
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+}).DisableAntiforgery();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+/// <summary>Body of POST /api/tts: the text to synthesize into speech.</summary>
+internal sealed record TtsRequest(string Text);

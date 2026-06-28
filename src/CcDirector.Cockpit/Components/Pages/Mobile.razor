@@ -1,0 +1,496 @@
+@page "/mobile"
+@page "/mobile/{SidParam}"
+@implements IAsyncDisposable
+@inject GatewayClient Gateway
+@inject DirectorClient Director
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<Mobile> Log
+
+@* The Mobile view (issue: phone-friendly Cockpit). A single-column, big-touch-target screen built
+   for a phone held in one hand. It does two things and nothing else:
+
+   1. A roster of every session on the fleet, "needs you" first, each a tap-target card with a status
+      dot and one line of context. A red (needs-you) card carries a Speak button that reads its
+      one-line ask aloud, so the phone can be glanced at - or listened to - without opening anything.
+
+   2. Tapping a card opens that session's BASIC conversation history: just the back-and-forth between
+      the user and the agent. Tool calls, tool results, and the agent's thinking are filtered OUT (the
+      HistoryBubbleMapper filter is forced to conversation-only) so the reader sees the plain story, the
+      way the phone terminal shows it. A Speak button reads the agent's latest message aloud.
+
+   Both lists poll live (the roster and, when a session is open, its history). Speech is the browser's
+   built-in synthesis (window.cockpitVoice, loaded globally in App.razor); it never auto-plays - the
+   reader taps Speak. *@
+
+<PageTitle>Mobile - DevThrottle</PageTitle>
+
+<div class="mob">
+    @if (string.IsNullOrEmpty(SidParam))
+    {
+        @* ---------- Roster view ---------- *@
+        <div class="mob-top">
+            <span class="mob-top-title">Sessions</span>
+            @if (_needsYouCount > 0)
+            {
+                <span class="mob-top-badge">@_needsYouCount need you</span>
+            }
+            <span class="mob-top-live">live</span>
+        </div>
+
+        @if (_loadError is not null)
+        {
+            <div class="mob-note err">Could not reach the Gateway: @_loadError. Retrying...</div>
+        }
+        else if (_sessions.Count == 0)
+        {
+            <div class="mob-note">@(_loadedOnce ? "No sessions are running." : "Loading sessions...")</div>
+        }
+        else
+        {
+            <div class="mob-list">
+                @foreach (var s in _ordered)
+                {
+                    var red = SessionOrdering.EffectiveColor(s) == "red";
+                    <div class="mob-card @(red ? "needs" : "")" @onclick="() => Open(s.SessionId)">
+                        <span class="mob-dot" style="background:@DotColor(s)"></span>
+                        <div class="mob-card-body">
+                            <div class="mob-card-name">@DisplayName(s)</div>
+                            <div class="mob-card-sub">@SubLine(s)</div>
+                            @if (red && !string.IsNullOrWhiteSpace(s.RailLine))
+                            {
+                                <div class="mob-card-ask">@s.RailLine</div>
+                            }
+                        </div>
+                        @if (red)
+                        {
+                            <button class="mob-speak sm" @onclick:stopPropagation="true"
+                                    @onclick="() => SpeakAsync(AskLine(s))" title="Read the ask aloud">
+                                @SpeakIcon
+                            </button>
+                        }
+                        <span class="mob-chev">&rsaquo;</span>
+                    </div>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        @* ---------- Session detail view ---------- *@
+        <div class="mob-top detail">
+            <button class="mob-back" @onclick="Back" title="Back to sessions">&lsaquo;</button>
+            <span class="mob-dot" style="background:@(_selected is null ? "#666" : DotColor(_selected))"></span>
+            <span class="mob-top-title one-line">@(_selected is null ? "Session" : DisplayName(_selected))</span>
+            <button class="mob-speak @(_selectedNeedsYou ? "hot" : "")"
+                    @onclick="() => SpeakAsync(LatestAssistant())" title="Read the latest message aloud">
+                @SpeakIcon
+            </button>
+        </div>
+
+        @if (_selectedNeedsYou)
+        {
+            <div class="mob-needs">
+                <span class="mob-needs-label">Needs you</span>
+                @if (_selected is not null && !string.IsNullOrWhiteSpace(_selected.RailLine))
+                {
+                    <span class="mob-needs-ask">@_selected.RailLine</span>
+                }
+            </div>
+        }
+
+        @if (_historyError)
+        {
+            <div class="mob-note err">Could not read this session's history right now. Retrying...</div>
+        }
+        else if (_bubbles.Count == 0)
+        {
+            <div class="mob-note">@_emptyText</div>
+        }
+        else
+        {
+            <div class="mob-hist" @ref="_scrollEl">
+                @foreach (var (b, i) in _bubbles.Select((b, i) => (b, i)))
+                {
+                    <div class="mob-bubble @b.Bubble.Kind" @key="i">
+                        <div class="mob-bubble-who">@b.Bubble.Speaker</div>
+                        @if (b.Bubble.IsRawText)
+                        {
+                            <pre class="mob-bubble-raw">@b.Bubble.Body</pre>
+                        }
+                        else
+                        {
+                            <div class="mob-bubble-md">@b.Html</div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @* Speech caption: the exact words being read aloud, so you always SEE what the voice is saying.
+       Appears on both the roster and the detail view whenever Speak is tapped. *@
+    @if (_speaking is not null || _ttsError is not null)
+    {
+        <div class="mob-say">
+            <div class="mob-say-head">
+                <span class="mob-say-label">@(_ttsBusy ? "Preparing voice..." : (_ttsError is not null ? "Voice" : "Speaking"))</span>
+                <button class="mob-say-x" @onclick="StopSpeakAsync" title="Stop">&times;</button>
+            </div>
+            @if (_speaking is not null)
+            {
+                <div class="mob-say-text">@_speaking</div>
+            }
+            @if (_ttsError is not null)
+            {
+                <div class="mob-say-err">@_ttsError</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? SidParam { get; set; }
+
+    // ----- roster state -----
+    private List<SessionDto> _sessions = new();
+    private List<SessionDto> _ordered = new();
+    private int _needsYouCount;
+    private bool _loadedOnce;
+    private string? _loadError;
+
+    // ----- detail state -----
+    private SessionDto? _selected;
+    private bool _selectedNeedsYou;
+    private string? _openSid; // the sid the history loop is currently bound to
+
+    private sealed record RenderedBubble(HistoryBubble Bubble, MarkupString Html, string Clean);
+    private readonly List<RenderedBubble> _bubbles = new();
+    private string _emptyText = "Waiting for the conversation to start...";
+    private bool _historyError;
+    private string _historySignature = "";
+
+    // Conversation-only: hide tool calls, tool results, and thinking - the "basic history".
+    private static readonly HistoryBubbleFilter ConversationOnly = new(false, false, false);
+
+    // ----- scroll (reuse the History tab's tiny scroll module: scrollToBottom only) -----
+    private ElementReference _scrollEl;
+    private IJSObjectReference? _scrollModule;
+    private bool _scrollPending;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override Task OnInitializedAsync()
+    {
+        _ = RosterLoopAsync();
+        return Task.CompletedTask;
+    }
+
+    protected override Task OnParametersSetAsync()
+    {
+        // SidParam changed (navigation). Rebind the history view to the newly opened session.
+        if (_openSid != SidParam)
+        {
+            _openSid = SidParam;
+            _bubbles.Clear();
+            _historySignature = "";
+            _historyError = false;
+            _emptyText = "Waiting for the conversation to start...";
+            BindSelected();
+            if (!string.IsNullOrEmpty(SidParam))
+                _ = HistoryLoopAsync(SidParam);
+        }
+        return Task.CompletedTask;
+    }
+
+    private async Task RosterLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        do
+        {
+            await RefreshRosterAsync();
+        }
+        while (await SafeTickAsync(timer));
+    }
+
+    private async Task<bool> SafeTickAsync(PeriodicTimer timer)
+    {
+        try { return await timer.WaitForNextTickAsync(_cts.Token); }
+        catch (OperationCanceledException) { return false; }
+    }
+
+    private async Task RefreshRosterAsync()
+    {
+        try
+        {
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _loadedOnce = true;
+            _loadError = null;
+
+            // "Needs you" first (red, not parked), then the rest in the stable desktop order,
+            // then parked sessions last - the same triage the desktop rail uses.
+            _ordered = SessionOrdering.InBucket(_sessions, SessionOrdering.TriageBucket.NeedsYou)
+                .Concat(SessionOrdering.InBucket(_sessions, SessionOrdering.TriageBucket.Active))
+                .Concat(SessionOrdering.InBucket(_sessions, SessionOrdering.TriageBucket.OnHold))
+                .ToList();
+            _needsYouCount = _ordered.Count(s => SessionOrdering.EffectiveColor(s) == "red");
+
+            BindSelected();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            Log.LogDebug(ex, "Mobile roster refresh failed");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void BindSelected()
+    {
+        if (string.IsNullOrEmpty(SidParam))
+        {
+            _selected = null;
+            _selectedNeedsYou = false;
+            return;
+        }
+        _selected = _sessions.FirstOrDefault(s => s.SessionId == SidParam);
+        _selectedNeedsYou = _selected is not null && SessionOrdering.EffectiveColor(_selected) == "red";
+    }
+
+    private async Task HistoryLoopAsync(string sid)
+    {
+        await RefreshHistoryAsync(sid);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2.5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                // The user navigated away from this session: stop its loop.
+                if (_openSid != sid)
+                    return;
+                await RefreshHistoryAsync(sid);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshHistoryAsync(string sid)
+    {
+        try
+        {
+            var history = await Director.GetSessionHistoryAsync(sid, _cts.Token);
+            if (_openSid != sid)
+                return; // a late response for a session we already left
+            _historyError = false;
+            RenderHistory(history);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _historyError = true;
+            Log.LogDebug(ex, "Mobile history refresh failed for sid={Sid}", sid);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void RenderHistory(SessionHistoryDto? history)
+    {
+        var bubbles = HistoryBubbleMapper.Map(history, ConversationOnly);
+
+        if (history is { IsSupported: false })
+            _emptyText = "History is not available for this agent yet.";
+        else
+            _emptyText = "Waiting for the conversation to start...";
+
+        // Cheap change signature so an unchanged poll does not re-render or yank the scroll.
+        var sig = BuildSignature(bubbles);
+        if (sig == _historySignature)
+            return;
+        _historySignature = sig;
+
+        _bubbles.Clear();
+        foreach (var b in bubbles)
+        {
+            // Raw terminal scrollback (Gemini) is shown verbatim; everything else is cleaned of
+            // transcript machinery (command wrapper tags, system-reminder blocks, ANSI codes) so it
+            // reads as plain conversation.
+            if (b.IsRawText)
+            {
+                _bubbles.Add(new RenderedBubble(b, default, b.Body));
+                continue;
+            }
+            var clean = HistoryText.CleanForReading(b.Body);
+            if (clean.Length == 0)
+                continue; // the whole message was machinery - drop the empty bubble
+            var html = (MarkupString)HistoryMarkdown.ToHtml(clean);
+            _bubbles.Add(new RenderedBubble(b, html, clean));
+        }
+        _scrollPending = true;
+    }
+
+    private static string BuildSignature(List<HistoryBubble> bubbles)
+    {
+        if (bubbles.Count == 0)
+            return "0";
+        var total = 0;
+        foreach (var b in bubbles)
+            total += b.Body.Length;
+        var last = bubbles[^1].Body;
+        var tail = last.Length <= 64 ? last : last[^64..];
+        return $"{bubbles.Count}|{total}|{tail}";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _scrollModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-history-scroll.js");
+            }
+            catch (Exception ex)
+            {
+                Log.LogDebug(ex, "Mobile scroll module import failed");
+            }
+        }
+
+        if (_scrollPending && _scrollModule is not null && _bubbles.Count > 0)
+        {
+            _scrollPending = false;
+            try { await _scrollModule.InvokeVoidAsync("scrollToBottom", _scrollEl); }
+            catch (Exception ex) { Log.LogDebug(ex, "Mobile scrollToBottom failed"); }
+        }
+    }
+
+    // ----- navigation -----
+    private void Open(string sid) => Nav.NavigateTo($"/mobile/{sid}");
+    private void Back() => Nav.NavigateTo("/mobile");
+
+    // ----- speech (OpenAI text-to-speech via the Gateway, voice "nova" - same as the phone) -----
+    private const int MaxSpeakChars = 1000; // cap the read-aloud length (the full text stays readable)
+    private string? _speaking;   // the exact plain text currently being read, shown on screen
+    private bool _ttsBusy;       // synthesizing now (the network round-trip to OpenAI)
+    private string? _ttsError;   // a clear message when synthesis is unavailable (no silent fallback)
+
+    /// <summary>Trim to at most <paramref name="max"/> characters, cutting on a word boundary and
+    /// adding an ellipsis, so the spoken clip ends cleanly rather than mid-word.</summary>
+    private static string Clip(string text, int max)
+    {
+        if (text.Length <= max)
+            return text;
+        var cut = text.LastIndexOf(' ', Math.Min(max, text.Length - 1));
+        if (cut < max / 2) cut = max; // no nearby space: hard cut
+        return text[..cut].TrimEnd() + " ...";
+    }
+
+    private async Task SpeakAsync(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _ttsBusy)
+            return;
+
+        // Strip Markdown so the message reads as natural prose, and show that exact text on screen so
+        // the reader always SEES what is being spoken.
+        var plain = SpeechText.ToPlain(text);
+        if (string.IsNullOrWhiteSpace(plain))
+            return;
+
+        // Cap the spoken length: a phone glance wants the gist, not a multi-minute monologue, and a
+        // short input keeps OpenAI synthesis well within the Gateway client's timeout. The FULL text
+        // stays readable in the history bubble; we only bound what is read aloud (cut on a word).
+        plain = Clip(plain, MaxSpeakChars);
+
+        _speaking = plain;
+        _ttsError = null;
+        _ttsBusy = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            // The browser fetches the synthesized audio straight from the Cockpit's /api/tts proxy
+            // and plays it - the audio bytes never cross the Blazor circuit. Returns a status string.
+            var status = await JS.InvokeAsync<string>("cockpitVoice.speakViaServer", plain);
+            _ttsError = status switch
+            {
+                "ok" => null,
+                "nokey" => "Text-to-speech is unavailable - set the OpenAI key on the Gateway.",
+                _ => "Text-to-speech failed.",
+            };
+        }
+        catch (Exception ex)
+        {
+            _ttsError = "Text-to-speech failed.";
+            Log.LogDebug(ex, "Mobile speak failed");
+        }
+        finally
+        {
+            _ttsBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task StopSpeakAsync()
+    {
+        _speaking = null;
+        _ttsError = null;
+        try { await JS.InvokeVoidAsync("cockpitVoice.stop"); }
+        catch (Exception ex) { Log.LogDebug(ex, "Mobile stop speak failed"); }
+    }
+
+    /// <summary>The agent's latest message, for the detail Speak button.</summary>
+    private string? LatestAssistant()
+    {
+        for (var i = _bubbles.Count - 1; i >= 0; i--)
+            if (_bubbles[i].Bubble.Kind == "assistant")
+                return _bubbles[i].Clean;
+        return _selected is not null ? AskLine(_selected) : null;
+    }
+
+    /// <summary>The one-line "what this session wants from you", for a roster Speak button.</summary>
+    private static string AskLine(SessionDto s)
+        => !string.IsNullOrWhiteSpace(s.RailLine) ? s.RailLine!
+         : !string.IsNullOrWhiteSpace(s.LastStatusReason) ? s.LastStatusReason
+         : "This session needs you.";
+
+    // ----- display helpers -----
+    private static string DisplayName(SessionDto s)
+        => !string.IsNullOrWhiteSpace(s.Name) ? s.Name!
+         : SessionOrdering.RepoName(s) ?? (s.SessionId.Length >= 8 ? s.SessionId[..8] : s.SessionId);
+
+    private static string SubLine(SessionDto s)
+    {
+        var repo = SessionOrdering.RepoName(s);
+        var reason = !string.IsNullOrWhiteSpace(s.RailLine) ? s.RailLine!
+                   : !string.IsNullOrWhiteSpace(s.LastStatusReason) ? s.LastStatusReason
+                   : s.Status;
+        var machine = string.IsNullOrWhiteSpace(s.MachineName) ? "" : s.MachineName + " - ";
+        return repo is not null ? $"{machine}{repo} - {reason}" : $"{machine}{reason}";
+    }
+
+    private static string DotColor(SessionDto s) => SessionOrdering.EffectiveColor(s) switch
+    {
+        "red" => "#E5484D",
+        "blue" => "#3B82F6",
+        "yellow" => "#EAB308",
+        "orange" => "#F97316",
+        "purple" => "#A855F7",
+        "grey" => "#6B7280",
+        _ => "#6B7280",
+    };
+
+    private static readonly MarkupString SpeakIcon = (MarkupString)
+        "<svg viewBox=\"0 0 16 16\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 6v4h2.5L8 13V3L4.5 6H2z\"/><path d=\"M10.5 5.5a3.2 3.2 0 0 1 0 5M12.5 3.8a5.6 5.6 0 0 1 0 8.4\"/></svg>";
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        if (_scrollModule is not null)
+        {
+            try { await _scrollModule.DisposeAsync(); } catch { /* circuit gone */ }
+        }
+        _cts.Dispose();
+    }
+}

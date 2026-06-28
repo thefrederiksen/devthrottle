@@ -40,6 +40,27 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Synthesize natural-sounding speech for the given text via the Gateway's OpenAI text-to-speech
+    /// endpoint (POST /wingman/tts, model tts-1, voice "nova") - the SAME high-quality path the phone
+    /// uses, not the browser's robotic built-in voice. Returns the mp3 bytes, or null when the Gateway
+    /// has no OpenAI key configured / the call fails (the caller surfaces a clear message - there is no
+    /// silent fallback to the browser voice). The key lives in the Gateway vault and never reaches the
+    /// browser.
+    /// </summary>
+    public async Task<byte[]?> SynthesizeSpeechAsync(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        using var resp = await _http.PostAsJsonAsync("wingman/tts", new { text }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            _log.LogDebug("SynthesizeSpeechAsync: gateway tts returned {Status}", (int)resp.StatusCode);
+            return null;
+        }
+        return await resp.Content.ReadAsByteArrayAsync(ct);
+    }
+
+    /// <summary>
     /// Issue #531: drive ONE turn of a session through the wingman. Sends the person's message
     /// into the working session, waits for the agent to finish, and returns the agent's reply
     /// plus the wingman's faithful, speakable translation of it. Never throws on a handled error;
