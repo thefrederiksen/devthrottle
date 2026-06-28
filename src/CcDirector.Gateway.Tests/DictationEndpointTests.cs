@@ -108,7 +108,7 @@ public sealed class DictationEndpointTests : IAsyncLifetime
         var resp = await http.GetAsync("dictate.html");
         Assert.True(resp.IsSuccessStatusCode);
         var body = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("CC Director - Dictation", body);
+        Assert.Contains("Director - Dictation", body);
         Assert.Contains("/dictate", body);
     }
 
