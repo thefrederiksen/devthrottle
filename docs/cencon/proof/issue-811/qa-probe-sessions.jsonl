@@ -1,0 +1,4 @@
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}

@@ -1,0 +1,28 @@
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"Looks good, please ship it.\",\"appendEnter\":true}"}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"\\r\",\"appendEnter\":false}"}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/escape", "authorization": "Bearer qa-token-811", "body": ""}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/interrupt", "authorization": "Bearer qa-token-811", "body": ""}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"\\u001b[A\",\"appendEnter\":false}"}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"\\u001b[B\",\"appendEnter\":false}"}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"\\u001b[D\",\"appendEnter\":false}"}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"\\u001b[C\",\"appendEnter\":false}"}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "POST", "path": "/wingman/utterance/upload", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "PUT", "path": "/wingman/utterance/qa_up/chunk/0", "authorization": "Bearer qa-token-811", "body": "<bytes>"}
+{"method": "POST", "path": "/wingman/utterance/qa_up/complete", "authorization": "Bearer qa-token-811", "body": "{\"totalChunks\":1,\"mime\":\"audio/wav\",\"ext\":\"wav\"}"}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\": \"A NEW ASSISTANT-DRIVEN TURN\", \"appendEnter\": true}"}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "WS", "path": "/sessions/22222222-2222-2222-2222-222222222222/stream", "authorization": null, "body": null}
+{"method": "POST", "path": "/sessions/22222222-2222-2222-2222-222222222222/prompt", "authorization": "Bearer qa-token-811", "body": "{\"text\":\"sent from the Terminal view\",\"appendEnter\":true}"}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}
+{"method": "GET", "path": "/sessions/22222222-2222-2222-2222-222222222222/history", "authorization": "Bearer qa-token-811", "body": null}

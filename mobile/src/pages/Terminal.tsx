@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import "@xterm/xterm/css/xterm.css";
-import {
-  listSessions,
-  sendEscape,
-  sendInterrupt,
-  sendPrompt,
-} from "../api/client";
+import { listSessions } from "../api/client";
 import { TerminalMirror } from "../terminal/stream";
-import { DictationDialog } from "../dictation/DictationDialog";
-import {
-  KEY_ARROW_DOWN,
-  KEY_ARROW_LEFT,
-  KEY_ARROW_RIGHT,
-  KEY_ARROW_UP,
-  KEY_ENTER,
-} from "../terminal/keys";
+import { SessionControls } from "../components/SessionControls";
+import { ViewTabs } from "../components/ViewTabs";
 
 // Session Terminal mode (issue #817): a faithful 1:1 translation of the Android (MAUI) app's
 // Terminal tab into the React PWA. NOT a redesign - it replicates TalkPage.xaml's terminal section
@@ -25,11 +14,11 @@ import {
 //     with fit-width/1:1, A-/A+ and pinch zoom, sticky-bottom auto-scroll, ~1200ms reconnect.
 //   * Controls HIDDEN by default behind a Keys / Hide keys toggle, so the terminal fills the
 //     screen (matching the Android tab); toggling reveals the input row and the key rows.
-//   * The exact Android button set, grouping, and payloads: row (input + Speak + Send),
-//     row (Enter + Esc + Stop), row (Up + Down + Left + Right). Send -> POST /prompt AppendEnter
-//     true (clears input, flashes "Sent"); Enter -> "\r" AppendEnter false; Esc -> POST /escape;
-//     Stop -> POST /interrupt; arrows -> ESC[A/B/C/D via /prompt AppendEnter false.
-//   * Speak is DICTATION (the shared DictationDialog), never text-to-speech.
+//   * The exact Android control set, now shared with the Chat view (#811) via SessionControls:
+//     the input row (input + Speak + Send), Enter/Esc/Stop, and the four arrows, with the same
+//     payloads. Speak is DICTATION (the shared DictationDialog), never text-to-speech.
+//   * A Terminal/Chat toggle (ViewTabs, #811) switches to the cleaned-history Chat view of the
+//     same session.
 //   * Keep-screen-on via the Screen Wake Lock API while this view is open (the Android tab sets
 //     KeepScreenOn so the screen does not sleep while driving), released on leave.
 //
@@ -45,12 +34,10 @@ export function Terminal() {
   const mirrorRef = useRef<TerminalMirror | null>(null);
 
   const [name, setName] = useState<string | null>(null);
-  const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>(STATUS_BASE);
   const [showKeys, setShowKeys] = useState(false); // controls hidden by default (Android parity)
   const [fitLabel, setFitLabel] = useState<"Fit" | "1:1">("1:1");
-  const [dictating, setDictating] = useState(false);
 
   // One-shot fetch of the session's display name for the header (the mirror itself never needs it).
   useEffect(() => {
@@ -101,55 +88,12 @@ export function Terminal() {
     window.setTimeout(() => setStatus((cur) => (cur === message ? STATUS_BASE : cur)), 1500);
   }, []);
 
-  const sendKey = useCallback(async (seq: string, label: string) => {
-    if (!sessionId) return;
-    try { await sendPrompt(sessionId, seq, false); flash("Sent"); }
-    catch (err) { setError(err instanceof Error ? err.message : `${label} failed`); }
-  }, [sessionId, flash]);
-
-  const onSend = useCallback(async () => {
-    if (!sessionId) return;
-    const text = input;
-    if (text.trim().length === 0) return;
-    setInput(""); // clear immediately (Android clears the box before the call returns)
-    try { await sendPrompt(sessionId, text, true); flash("Sent"); }
-    catch (err) { setError(err instanceof Error ? err.message : "Send failed"); }
-  }, [sessionId, input, flash]);
-
-  const onEscape = useCallback(async () => {
-    if (!sessionId) return;
-    try { await sendEscape(sessionId); flash("Sent Esc"); }
-    catch (err) { setError(err instanceof Error ? err.message : "Esc failed"); }
-  }, [sessionId, flash]);
-
-  const onStop = useCallback(async () => {
-    if (!sessionId) return;
-    try { await sendInterrupt(sessionId); flash("Sent Stop (Ctrl+C)"); }
-    catch (err) { setError(err instanceof Error ? err.message : "Stop failed"); }
-  }, [sessionId, flash]);
-
-  // Speak opens the dictation dialog. Insert drops the transcript into the input (no submit, joined
-  // onto any existing text); Send submits it via the same POST /prompt path the Send button uses.
-  const onDictateInsert = useCallback((text: string) => {
-    setDictating(false);
-    if (text.trim().length === 0) return;
-    setInput((cur) => (cur.trim().length === 0 ? text : `${cur.trimEnd()} ${text}`));
-    flash("Inserted");
-  }, [flash]);
-
-  const onDictateSend = useCallback(async (text: string) => {
-    setDictating(false);
-    if (!sessionId || text.trim().length === 0) return;
-    try { await sendPrompt(sessionId, text, true); flash("Sent"); }
-    catch (err) { setError(err instanceof Error ? err.message : "Send failed"); }
-  }, [sessionId, flash]);
-
   return (
     <div className="terminal-screen">
       <header className="app-bar">
         <Link className="back-link" to="/">&larr; Roster</Link>
         <h1 className="term-title">{name ?? "Session"}</h1>
-        <span className="app-bar-sub">Terminal</span>
+        <ViewTabs sessionId={sessionId} active="terminal" />
       </header>
 
       <div className="term-statusbar">
@@ -177,52 +121,9 @@ export function Terminal() {
       </div>
 
       {/* Collapsible controls: hidden by default so the terminal is maximized. The Keys button
-          toggles this whole panel. Grouped exactly as the Android tab groups them. */}
+          toggles the whole shared control panel (input row + Speak + Send + key rows). */}
       {showKeys && (
-        <div className="term-controls">
-          <div className="term-row term-row-input">
-            <input
-              className="term-input"
-              type="text"
-              inputMode="text"
-              autoComplete="off"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="type / send..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void onSend(); } }}
-            />
-            <button type="button" className="term-btn term-speak" onClick={() => setDictating(true)} disabled={dictating}>
-              Speak
-            </button>
-            <button type="button" className="term-btn term-send" onClick={onSend}>
-              Send
-            </button>
-          </div>
-
-          <div className="term-row term-row-3">
-            <button type="button" className="term-btn term-enter" onClick={() => sendKey(KEY_ENTER, "Enter")}>Enter</button>
-            <button type="button" className="term-btn term-esc" onClick={onEscape}>Esc</button>
-            <button type="button" className="term-btn term-stop" onClick={onStop}>Stop</button>
-          </div>
-
-          <div className="term-row term-row-4">
-            <button type="button" className="term-btn term-arrow" onClick={() => sendKey(KEY_ARROW_UP, "Up")}>Up</button>
-            <button type="button" className="term-btn term-arrow" onClick={() => sendKey(KEY_ARROW_DOWN, "Down")}>Down</button>
-            <button type="button" className="term-btn term-arrow" onClick={() => sendKey(KEY_ARROW_LEFT, "Left")}>Left</button>
-            <button type="button" className="term-btn term-arrow" onClick={() => sendKey(KEY_ARROW_RIGHT, "Right")}>Right</button>
-          </div>
-        </div>
-      )}
-
-      {dictating && (
-        <DictationDialog
-          onInsert={onDictateInsert}
-          onSend={onDictateSend}
-          onClose={() => setDictating(false)}
-        />
+        <SessionControls sessionId={sessionId} onFlash={flash} onError={setError} showKeyRows />
       )}
     </div>
   );

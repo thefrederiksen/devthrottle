@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Report - Issue #811 Chat mode (independent verification)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #0b1020; color: #e7ecf5; }
+  header { padding: 24px 28px; border-bottom: 1px solid #243; background: #11182e; }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .sub { color: #9fb0cc; font-size: 14px; }
+  .verdict { display: inline-block; margin-top: 12px; padding: 8px 16px; border-radius: 8px; font-weight: 700; background: #163a1f; color: #6ee787; border: 1px solid #2e7d46; }
+  main { padding: 20px 28px 60px; max-width: 1100px; }
+  .ac { border: 1px solid #243; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #0f1730; }
+  .ac h2 { margin: 0; padding: 12px 16px; font-size: 16px; background: #14203f; border-bottom: 1px solid #243; }
+  .ac h2 .pass { color: #6ee787; }
+  .ac .body { padding: 14px 16px; }
+  .ac p { margin: 6px 0; line-height: 1.5; font-size: 14px; }
+  .lab { color: #9fb0cc; font-weight: 600; }
+  img { max-width: 360px; border: 1px solid #243; border-radius: 8px; margin: 8px 8px 0 0; vertical-align: top; background: #000; }
+  code { background: #1b2545; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .meta { font-size: 13px; color: #9fb0cc; }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  td, th { border: 1px solid #243; padding: 4px 8px; text-align: left; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QA Report - Issue #811: Chat mode (faithful translation of the desktop History tab)</h1>
+  <div class="sub">Independent verification by the QA Agent (separate identity from the Developer). PR #824, branch <code>issue-811-chat-history</code>, head <code>e84dca01</code>.</div>
+  <div class="sub">Method: fresh <code>npm ci &amp;&amp; npm run build</code> of the mobile bundle in an isolated worktree (my own build, hash <code>index-BlRU_xY0.js</code>), driven with Playwright/Chromium at a phone viewport (390x844), Chrome fake audio for dictation, against a QA fixture Gateway that seeds a session containing Text + Thinking + ToolUse + ToolResult parts. Every screenshot was read and judged. Screenshots prefixed <code>qa-</code>.</div>
+  <div class="verdict">VERIFIED - all 10 acceptance criteria met. I believe this is finished.</div>
+</header>
+<main>
+
+<div class="ac"><h2>Method checks <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">No backend change:</span> the PR changes 0 <code>.cs</code>/<code>.csproj</code>/<code>.razor</code> files (only <code>mobile/</code> and proof docs). The history endpoint <code>GET /sessions/{sid}/history</code> exists in <code>CcDirector.ControlApi/SessionHistoryEndpoint.cs</code> and is reachable through the Gateway catch-all <code>/sessions/{sid}/{**rest}</code> proxy (SessionWsProxyEndpoints.cs line 101) with the Bearer - confirmed by code read; no change asserted.</p>
+  <p><span class="lab">dotnet build does not invoke npm:</span> the <code>BuildMobileApp</code> target is gated <code>RunMobileBuild == 'Release' or BuildMobile=true</code>. Empirically: <code>dotnet build cc-director.sln -c Debug</code> => <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>, with no <code>[BuildMobileApp]</code>/<code>npm</code> lines.</p>
+  <p><span class="lab">TypeScript ports are 1:1 with the desktop C#:</span> 19 independent parity assertions (see <code>qa-parity-test.mts</code>) over <code>cleanForReading</code> (ANSI strip, wrapper-block drop, placeholder-chip, generics untouched, fenced-code skip), <code>extractLinks</code> (URLs + absolute paths only, dedup, trailing-punctuation), and <code>mapHistory</code> (default filter hides tool/result/thinking, per-part truncation caps 400/160/600/2000, speaker assignment You/Assistant/Tool result) - <b>ALL PASS</b>. Manual read of bubbleMapper.ts / historyText.ts / historyLinks.ts / historyMarkdown.ts against the C# originals confirms faithful translation.</p>
+</div></div>
+
+<div class="ac"><h2>AC1 - Terminal/Chat toggle shows cleaned history, not the raw terminal <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> a toggle switches to a Chat view of readable bubbles, distinct from the raw PTY mirror.</p>
+  <p><span class="lab">Actual:</span> Chat (qa-02) renders You/Assistant bubbles; the same session's Terminal tab (qa-14) shows the raw byte stream "RAW TERMINAL MIRROR / $ claude --resume". Clearly different surfaces for one session.</p>
+  <img src="qa-02-chat-default-hidden.png"><img src="qa-14-terminal-raw-mirror.png">
+</div></div>
+
+<div class="ac"><h2>AC2 - Default shows only You + Assistant; tool calls/results/thinking hidden <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> on a session that HAS tool calls/results/thinking, none appear by default.</p>
+  <p><span class="lab">Actual:</span> all three "Show" boxes unchecked; the assistant bubble carries no <code>(thinking)</code>, <code>[tool]</code>, or <code>[result]</code> text, and the pure tool-result "Tool result" bubble is omitted entirely. Only You + Assistant prose render.</p>
+  <img src="qa-02-chat-default-hidden.png">
+</div></div>
+
+<div class="ac"><h2>AC3 - Filter reveals Tool calls / Results / Thinking <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> each toggle independently includes/excludes its part kind, matching HistoryBubbleMapper.</p>
+  <p><span class="lab">Actual:</span> Tool calls on => <code>[tool] Read {"file_path":...}</code> appears (qa-03). +Results => <code>[result] ...</code> and the gold "Tool result" bubble appear (qa-04). +Thinking => <code>(thinking) ...</code> appears (qa-05). Unchecking hides each again (qa-02/qa-06).</p>
+  <img src="qa-03-toggle-toolcalls.png"><img src="qa-04-toggle-results.png"><img src="qa-05-toggle-thinking-all-on.png">
+</div></div>
+
+<div class="ac"><h2>AC4 - Desktop-parity rendering (You/Assistant, Markdown, HTML disabled, ANSI/wrapper cleaned, links) <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> Markdown rendered, raw HTML inert, ANSI/system-reminder stripped, links clickable with copy buttons.</p>
+  <p><span class="lab">Actual</span> (qa-06): heading "Summary", bold, bullet list, fenced code block rendered; <code>&lt;script&gt;alert('xss')&lt;/script&gt;</code> shown as inert literal text; ANSI codes stripped ("ran the tests"); <code>&lt;system-reminder&gt;</code> block dropped; <code>&lt;/task-id&gt;</code> placeholder rendered as a monospace chip; the github URL is a clickable link and both the URL and <code>D:\repo\src\LinkDetector.cs</code> path have Copy buttons. You vs Assistant visually distinct (blue vs green speaker).</p>
+  <img src="qa-06-rendering-parity.png">
+</div></div>
+
+<div class="ac"><h2>AC5 - Live update (~2.5s) without yanking a scrolled-up reader <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> a new turn appends live; a scrolled-up reader is not moved.</p>
+  <p><span class="lab">Actual:</span> with the view scrolled to the top, a new turn arrived during a &gt;2.5s wait and the scroll did NOT move (qa-ac5-scroll.txt: <code>scrollTop before=0, after=0, no-yank PASS=True</code>, qa-12). Scrolling to the bottom shows the live-appended "A NEW ASSISTANT-DRIVEN TURN" (qa-13).</p>
+  <img src="qa-12-liveupdate-scrolled-up-not-yanked.png"><img src="qa-13-liveupdate-bottom-shows-new-turn.png">
+</div></div>
+
+<div class="ac"><h2>AC6 - Type + Send submits and the new user turn appears <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> POST /prompt 2xx; the user turn appears.</p>
+  <p><span class="lab">Actual:</span> wire log (qa-requests-auth-on.jsonl): <code>POST /sessions/.../prompt body={"text":"Looks good, please ship it.","appendEnter":true}</code> with Bearer, 200; status flashes "Sent" (qa-07) and the "You: Looks good, please ship it." bubble appears in the transcript (qa-10/qa-11 background, qa-13).</p>
+  <img src="qa-07-send-new-turn.png">
+</div></div>
+
+<div class="ac"><h2>AC7 - Control keys identical to Terminal <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> Enter "\r" (AppendEnter=false), Esc /escape, Stop /interrupt, arrows ESC[A/[B/[C/[D via /prompt AppendEnter=false.</p>
+  <p><span class="lab">Actual</span> (wire log): Enter <code>{"text":"\r","appendEnter":false}</code>; Esc <code>POST /escape</code>; Stop <code>POST /interrupt</code>; Up <code>ESC[A</code>; Down <code>ESC[B</code>; Left <code>ESC[D</code>; Right <code>ESC[C</code> - all AppendEnter=false, all Bearer, all 2xx. Byte-exact match to the issue.</p>
+  <table><tr><th>Key</th><th>Request</th></tr>
+  <tr><td>Enter</td><td>POST /prompt {"text":"\r","appendEnter":false}</td></tr>
+  <tr><td>Esc</td><td>POST /escape</td></tr>
+  <tr><td>Stop</td><td>POST /interrupt</td></tr>
+  <tr><td>Up / Down / Left / Right</td><td>POST /prompt ESC[A / ESC[B / ESC[D / ESC[C, appendEnter:false</td></tr></table>
+  <img src="qa-08-control-keys.png">
+</div></div>
+
+<div class="ac"><h2>AC8 - Speak opens the shared dictation dialog; Insert/Send work <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> the SAME dialog (Cancel/Pause-Resume/Insert/Send, RECORDING-&gt;TRANSCRIBING-&gt;PAUSED); Insert places, Send submits.</p>
+  <p><span class="lab">Actual:</span> RECORDING with timer + waveform + Cancel/Pause/Insert/Send (qa-09); PAUSED with the transcribed text and Cancel/Resume/Insert/Send (qa-10); Insert drops "hello from dictation" into the input box, status "Inserted" (qa-11). The utterance flow fired with Bearer: <code>POST /wingman/utterance/upload</code>, <code>PUT .../chunk/0</code>, <code>POST .../complete</code>.</p>
+  <img src="qa-09-dictation-recording.png"><img src="qa-10-dictation-paused.png"><img src="qa-11-dictation-inserted.png">
+</div></div>
+
+<div class="ac"><h2>AC9 - Move between Chat and Terminal; both control the same session <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> a Send from one view is visible from the other for the same session id.</p>
+  <p><span class="lab">Actual:</span> from the Terminal tab a Send of "sent from the Terminal view" was issued; switching back to Chat, that turn appears in the same session's history (qa-15), alongside the Chat-sent and live-appended turns.</p>
+  <img src="qa-15-crossview-terminal-send-in-chat.png">
+</div></div>
+
+<div class="ac"><h2>AC10 - Bearer on history + control calls; works auth on and off <span class="pass">PASS</span></h2><div class="body">
+  <p><span class="lab">Expected:</span> every history/control call carries the Bearer; the view works with global Gateway auth on or off.</p>
+  <p><span class="lab">Actual:</span> auth-ON wire log shows EVERY history GET, prompt/escape/interrupt POST, and utterance call carries <code>Bearer</code> and returns 2xx (the roster and full Chat rendered, qa-01/qa-02..qa-15). A focused response probe (qa-probe-sessions.jsonl) confirms all <code>/sessions</code> data calls return 200 with Bearer (the service worker even re-issues the call with the Bearer preserved); no 401. Auth-OFF: the page is served without an injected token, so calls carry no Bearer and the server does not require one - the Chat renders the full cleaned history regardless (qa-16).</p>
+  <img src="qa-16-chat-auth-off.png">
+</div></div>
+
+</main>
+</body>
+</html>

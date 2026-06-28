@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Terminal } from "./pages/Terminal";
+import { Chat } from "./pages/Chat";
 import { ensureGatewayCookie } from "./api/client";
 import "./styles.css";
 
@@ -18,6 +19,7 @@ const router = createBrowserRouter(
   [
     { path: "/", element: <Home /> },
     { path: "/session/:sessionId", element: <Terminal /> },
+    { path: "/session/:sessionId/chat", element: <Chat /> },
   ],
   { basename: "/m" }
 );
