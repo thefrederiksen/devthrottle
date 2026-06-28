@@ -1,0 +1,14 @@
+AC5 - The app loads /sessions through the generated typed client with the injected Bearer token,
+and renders with global Gateway auth either ON or OFF.
+
+===== AUTH OFF (running dev Gateway, in-browser fetch with window.__GW_TOKEN__) =====
+{"tokenInjected":true,"tokenLen":43,"sentBearer":"Bearer wCGo...(redacted)","status":200,"sessionCount":5}
+
+===== Token actually injected into the served /m/ shell (placeholder replaced) =====
+occurrences of __GATEWAY_TOKEN__ placeholder in served /m/ : 0  (0 = injected)
+injected window.__GW_TOKEN__ length in served /m/         : 43
+
+===== AUTH ON (xUnit integration tests, deterministic) =====
+MobileAuthServingTests.Sessions_requires_bearer_when_auth_is_on        -> /sessions without Bearer = 401
+MobileAuthServingTests.Sessions_returns_200_with_the_injected_bearer   -> /sessions with Bearer    = 200
+MobileAuthServingTests.Mobile_shell_is_public_and_not_login_gated...   -> /m shell reachable (not 302 to /login)

@@ -1,0 +1,28 @@
+AC1 - mobile/ is a Vite + React + TypeScript + vite-plugin-pwa project; npm ci && npm run build produces dist/.
+
+$ npm ci && npm run build   (in mobile/)
+computing gzip size...
+[2mdist/[22m[32mregisterSW.js              [39m[1m[2m  0.14 kB[22m[1m[22m
+[2mdist/[22m[32mmanifest.webmanifest       [39m[1m[2m  0.38 kB[22m[1m[22m
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  1.08 kB[22m[1m[22m[2m │ gzip:  0.60 kB[22m
+[2mdist/[22m[35massets/index-cDIqSwKn.css  [39m[1m[2m  2.59 kB[22m[1m[22m[2m │ gzip:  0.99 kB[22m
+[2mdist/[22m[36massets/index-DNsaXDpr.js   [39m[1m[2m213.30 kB[22m[1m[22m[2m │ gzip: 69.87 kB[22m
+[32m✓ built in 512ms[39m
+
+PWA v0.21.1
+mode      generateSW
+precache  7 entries (222.16 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-efbd304a.js
+
+===== dist/ listing =====
+dist/assets/index-DNsaXDpr.js
+dist/assets/index-cDIqSwKn.css
+dist/icon-192.png
+dist/icon-512.png
+dist/index.html
+dist/manifest.webmanifest
+dist/registerSW.js
+dist/sw.js
+dist/workbox-efbd304a.js

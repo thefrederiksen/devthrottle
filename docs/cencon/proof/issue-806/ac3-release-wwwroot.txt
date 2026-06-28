@@ -1,0 +1,27 @@
+AC3 - A publish/release build runs the web build and stages the Gateway's wwwroot/m with the
+built index.html + hashed assets (and flows them to the build output).
+
+===== Release build target output =====
+[BuildMobileApp] building the mobile PWA (Release) ... npm ci ... npm run build ... staged 9 file(s)
+
+===== src wwwroot/m (staged) =====
+wwwroot/m/assets/index-DNsaXDpr.js
+wwwroot/m/assets/index-cDIqSwKn.css
+wwwroot/m/icon-192.png
+wwwroot/m/icon-512.png
+wwwroot/m/index.html
+wwwroot/m/manifest.webmanifest
+wwwroot/m/registerSW.js
+wwwroot/m/sw.js
+wwwroot/m/workbox-efbd304a.js
+
+===== bin/Release/net10.0/wwwroot/m (flows to output) =====
+wwwroot/m/assets/index-DNsaXDpr.js
+wwwroot/m/assets/index-cDIqSwKn.css
+wwwroot/m/icon-192.png
+wwwroot/m/icon-512.png
+wwwroot/m/index.html
+wwwroot/m/manifest.webmanifest
+wwwroot/m/registerSW.js
+wwwroot/m/sw.js
+wwwroot/m/workbox-efbd304a.js

@@ -1,0 +1,10 @@
+AC2 - A routine 'dotnet build' (Debug) does NOT invoke npm: the BuildMobileApp target is gated
+to a publish/release configuration. Proof: RunMobileBuild=false in Debug and zero npm invocations.
+
+$ dotnet build src/CcDirector.Gateway -c Debug -t:Rebuild -v diagnostic   (filtered)
+
+RunMobileBuild property value in Debug:
+RunMobileBuild = false
+
+Count of 'npm ci' / 'npm run build' invocations in the Debug build log:
+  npm invocations = 0
