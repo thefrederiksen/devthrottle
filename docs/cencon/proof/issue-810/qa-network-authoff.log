@@ -1,0 +1,68 @@
+[2026-06-28T17:46:36.174Z] gw-proxy listening on http://127.0.0.1:5399 (AUTH_MODE=off, director=7881, dist=D:\ReposFred\wt-qa-810\mobile\dist)
+[2026-06-28T17:46:53.346Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:12.665Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:14.878Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:14.972Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:15.989Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=200 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:17.004Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=200 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:18.022Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=200 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:19.040Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=200 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:20.048Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=200 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:21.060Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=297 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:22.073Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=297 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:22.962Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"echo PHONE_AC4_OK\",\"appendEnter\":true}"
+[2026-06-28T17:47:23.086Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=297 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:24.093Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=382 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:25.106Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=382 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:26.047Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"\\u001b[A\",\"appendEnter\":false}"
+[2026-06-28T17:47:26.113Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=382 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:26.575Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"\\u001b[B\",\"appendEnter\":false}"
+[2026-06-28T17:47:27.090Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"\\u001b[D\",\"appendEnter\":false}"
+[2026-06-28T17:47:27.122Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=421 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:27.607Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"\\u001b[C\",\"appendEnter\":false}"
+[2026-06-28T17:47:28.132Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=448 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:29.139Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=448 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:29.727Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"\\r\",\"appendEnter\":false}"
+[2026-06-28T17:47:30.152Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=448 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:31.165Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=477 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:32.083Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/escape bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:32.170Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=477 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:33.186Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=489 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:34.198Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=489 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:35.219Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=639 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:36.232Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=688 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:37.210Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/interrupt bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:37.239Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=737 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:38.253Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:39.260Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:40.273Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:40.345Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=false&lines=30 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:41.325Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:42.337Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:43.342Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:44.359Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:45.372Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:46.386Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:47.404Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:48.415Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:47:53.830Z] API POST /wingman/tts bearer=yes -> 200 ct=audio/mpeg body="{\"text\":\"PS D:\\\\ReposFred\\\\wt-qa-810> echo QA_LIVE_MIRROR_AC3\\r\\nQA_LIVE_MIRROR_AC3\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> echo PHONE_AC4_OK\\r\\nPHONE_AC4_OK\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> echo PHONE_AC4_OK\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> ping -n 15 127.0.0.1\\r\\n\\r\\nPingin
+[2026-06-28T17:48:48.017Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:48.027Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:49.040Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:50.049Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:51.062Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:51.594Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=false&lines=30 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:52.079Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:53.092Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:54.102Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:55.111Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:56.122Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:57.134Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:58.148Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:48:59.157Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:00.168Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:01.178Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:02.195Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:03.207Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:03.521Z] API POST /wingman/tts bearer=yes -> 200 ct=audio/mpeg body="{\"text\":\"PS D:\\\\ReposFred\\\\wt-qa-810> echo QA_LIVE_MIRROR_AC3\\r\\nQA_LIVE_MIRROR_AC3\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> echo PHONE_AC4_OK\\r\\nPHONE_AC4_OK\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> echo PHONE_AC4_OK\\r\\nPS D:\\\\ReposFred\\\\wt-qa-810> ping -n 15 127.0.0.1\\r\\n\\r\\nPingin
+[2026-06-28T17:49:04.214Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8

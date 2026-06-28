@@ -1,0 +1,14 @@
+[2026-06-28T17:49:22.358Z] gw-proxy listening on http://127.0.0.1:5400 (AUTH_MODE=on, director=7881, dist=D:\ReposFred\wt-qa-810\mobile\dist)
+[2026-06-28T17:49:28.282Z] API GET /sessions bearer=no -> 401 (front-door auth, token mismatch/absent)
+[2026-06-28T17:49:28.315Z] API GET /sessions bearer=yes -> 401 (front-door auth, token mismatch/absent)
+[2026-06-28T17:49:28.356Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:49.591Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:52.150Z] API GET /sessions bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:52.170Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:53.176Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:54.186Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:55.190Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:55.277Z] API POST /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/prompt bearer=yes -> 200 ct=application/json; charset=utf-8 body="{\"text\":\"echo AUTHON_AC10_OK\",\"appendEnter\":true}"
+[2026-06-28T17:49:56.197Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1013 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:57.205Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1102 bearer=yes -> 200 ct=application/json; charset=utf-8
+[2026-06-28T17:49:58.219Z] API GET /sessions/2764bf31-04cf-4829-a62d-1568c5f7aea6/buffer?raw=true&since=1102 bearer=yes -> 200 ct=application/json; charset=utf-8

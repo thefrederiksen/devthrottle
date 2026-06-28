@@ -9,6 +9,13 @@ import type { components } from "./schema";
 
 export type SessionDto = components["schemas"]["SessionDto"];
 
+// Request bodies are typed from the generated OpenAPI schema (the C# DTOs stay the source of
+// truth). The buffer/escape/interrupt/tts responses are not declared in the schema (the Gateway
+// returns them via Results.Json/Results.Bytes without an [Produces] annotation), so they are
+// read with narrow local shapes for exactly the fields the Terminal view consumes.
+type PromptRequest = components["schemas"]["PromptRequest"];
+type WingmanTtsRequest = components["schemas"]["WingmanTtsRequest"];
+
 // The injected token. A value still starting with "__" means the page was served without
 // injection (e.g. opened directly from the raw build) - treat that as absent.
 function gatewayToken(): string {
@@ -44,4 +51,127 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionDto[]> 
     throw new GatewayError(res.status, `GET /sessions failed: ${res.status}`);
   }
   return (await res.json()) as SessionDto[];
+}
+
+// One incremental read of the session's raw terminal buffer for the live mirror. The new bytes
+// since the previous cursor plus the cursor to pass on the next poll, so each poll fetches only
+// fresh output. Pass since=null on the first call to dump the whole buffer (the server returns the
+// full retained scrollback and the cursor at its end).
+export interface BufferSlice {
+  text: string;
+  newCursor: number;
+  totalBytes: number;
+}
+
+export async function getBuffer(
+  sessionId: string,
+  since: number | null,
+  signal?: AbortSignal,
+): Promise<BufferSlice> {
+  const sid = encodeURIComponent(sessionId);
+  // raw=true returns the verbatim PTY byte stream (ANSI/cursor control included) decoded as UTF-8,
+  // exactly what an xterm.js emulator consumes to render a coherent screen. since advances the
+  // cursor so the mirror is incremental, not a re-fetch of the whole buffer every poll.
+  const url = since !== null && since >= 0
+    ? `/sessions/${sid}/buffer?raw=true&since=${since}`
+    : `/sessions/${sid}/buffer?raw=true`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET buffer failed: ${res.status}`);
+  }
+  const body = (await res.json()) as { text?: string; newCursor?: number; totalBytes?: number };
+  return {
+    text: body.text ?? "",
+    newCursor: Number(body.newCursor ?? 0),
+    totalBytes: Number(body.totalBytes ?? 0),
+  };
+}
+
+// The ANSI-cleaned tail of the buffer (escape codes stripped by the server's own cleaner) for
+// reading aloud - the raw mirror bytes carry control sequences that must not be spoken.
+export async function getCleanTail(
+  sessionId: string,
+  lines: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/buffer?raw=false&lines=${lines}`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET buffer (clean) failed: ${res.status}`);
+  }
+  const body = (await res.json()) as { text?: string };
+  return body.text ?? "";
+}
+
+// Write text (or a raw key escape sequence) to the session's PTY. appendEnter=true submits a typed
+// line (the Send button); appendEnter=false writes the bytes verbatim (Enter "\r", arrow keys
+// ESC[A/B/C/D) so the session reacts as if the key were pressed at the terminal.
+export async function sendPrompt(
+  sessionId: string,
+  text: string,
+  appendEnter: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const body: PromptRequest = { text, appendEnter };
+  const res = await fetch(`/sessions/${sid}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST prompt failed: ${res.status}`);
+  }
+}
+
+// Soft-stop the current turn (the agent driver's Escape). POST /sessions/{sid}/escape.
+export async function sendEscape(sessionId: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/escape`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST escape failed: ${res.status}`);
+  }
+}
+
+// Interrupt a running agent turn (Ctrl+C). POST /sessions/{sid}/interrupt.
+export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/interrupt`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST interrupt failed: ${res.status}`);
+  }
+}
+
+// Text-to-speech of the latest output. POST /wingman/tts (the Gateway's OpenAI nova-voice proxy,
+// no voice override) returns audio/mpeg bytes over plain HTTP - not a SignalR frame - which the
+// caller plays in an <audio> element.
+export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
+  const body: WingmanTtsRequest = { text };
+  const res = await fetch(`/wingman/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST wingman/tts failed: ${res.status}`);
+  }
+  return await res.blob();
 }

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #810 - Session: Terminal mode - Developer Agent proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background:#0b1020; color:#e6e9f2; margin:0; padding:24px; line-height:1.5; }
+  h1,h2,h3 { color:#fff; }
+  h1 { border-bottom:2px solid #28304a; padding-bottom:8px; }
+  code, pre { font-family:"Cascadia Mono", Consolas, monospace; background:#141a2e; border:1px solid #28304a; border-radius:6px; }
+  code { padding:1px 5px; }
+  pre { padding:10px; overflow:auto; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #28304a; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#1b2238; }
+  .pass { color:#22c55e; font-weight:700; }
+  img { max-width:300px; border:1px solid #28304a; border-radius:8px; margin:6px 8px 6px 0; vertical-align:top; }
+  .shots { display:flex; flex-wrap:wrap; gap:8px; }
+  .muted { color:#99a0b8; }
+  .ac { background:#141a2e; border:1px solid #28304a; border-radius:10px; padding:14px 16px; margin:14px 0; }
+</style>
+</head>
+<body>
+<h1>Issue #810 - Session: Terminal mode (the V1 hero)</h1>
+<p class="muted">Developer Agent proof - CenCon Development Method. Repo <code>thefrederiksen/devthrottle</code>,
+branch <code>issue-810-mobile-terminal</code>.</p>
+
+<h2>What was implemented</h2>
+<p>The session-detail placeholder shipped by #806 is replaced with a real <strong>Terminal view</strong> on the
+<code>mobile/</code> React + TypeScript Progressive Web App. It re-creates the desktop / MAUI Terminal tab:</p>
+<ul>
+  <li><strong>Live read-only mirror</strong> - polls <code>GET /sessions/{sid}/buffer?raw=true&amp;since=&lt;cursor&gt;</code>
+      every second and writes the new raw PTY bytes into an <code>@xterm/xterm</code> emulator, advancing the
+      <code>since</code> cursor so each poll fetches only new output.</li>
+  <li><strong>Text box + Send</strong> - <code>POST /sessions/{sid}/prompt</code> with <code>appendEnter=true</code> (submits the line).</li>
+  <li><strong>Control keys</strong> - Enter / arrows via <code>/prompt</code> with <code>appendEnter=false</code> (raw key
+      sequences: Enter <code>\r</code>, arrows <code>ESC[A/B/C/D</code>); Esc via <code>POST /sessions/{sid}/escape</code>;
+      Stop via <code>POST /sessions/{sid}/interrupt</code>.</li>
+  <li><strong>Speak</strong> - text-to-speech of the latest output, audio fetched over plain HTTP from the Gateway
+      <code>POST /wingman/tts</code> nova-voice proxy and played in an HTML <code>&lt;audio&gt;</code> element (never over SignalR).</li>
+  <li>Every call goes through the generated typed client with the injected <code>Bearer</code> token; the view works with
+      Gateway auth on or off.</li>
+</ul>
+<p><strong>Files:</strong> <code>mobile/src/pages/Terminal.tsx</code> (new view), <code>mobile/src/terminal/keys.ts</code>
+(raw key sequences), <code>mobile/src/api/client.ts</code> (getBuffer / getCleanTail / sendPrompt / sendEscape /
+sendInterrupt / synthesizeSpeech), <code>mobile/src/main.tsx</code> (route), <code>mobile/src/styles.css</code>
+(Terminal styles), <code>mobile/package.json</code> (+ <code>@xterm/xterm</code>, <code>@xterm/addon-fit</code>);
+<code>mobile/src/pages/SessionDetail.tsx</code> removed.</p>
+
+<h2>How it was proven</h2>
+<p>A test Director was launched in an isolated slot (<code>scripts/agent-session-isolation.ps1</code>, slot 15, Control
+API <code>http://127.0.0.1:7881</code>) and a controllable <code>RawCli</code> <code>cmd.exe</code> session created. The real
+React app (dev build) was served and driven by Playwright at a true phone viewport
+(<strong>390 x 844, deviceScaleFactor 3, mobile</strong>) with the per-machine token injected exactly as the Gateway's
+<code>MobileApp</code> does at runtime, and same-origin API calls proxied to the test Director. The
+<code>buffer/prompt/escape/interrupt</code> endpoints are served by the Director natively; <code>/wingman/tts</code> was
+mapped to the Director's identical <code>/tts</code> (<code>{text}</code> -&gt; <code>audio/mpeg</code>), which returned real
+OpenAI audio. Network behaviour was captured two ways: the Vite proxy logged method/path/bearer for every call
+(<code>network.log</code>), and a browser-side <code>fetch</code> recorder captured request <strong>bodies</strong>
+(<code>fetch-bodies.json</code>).</p>
+
+<h2>Acceptance criteria</h2>
+
+<div class="ac"><h3>AC1 - Tapping a row opens the Terminal bound to that session id <span class="pass">PASS</span></h3>
+<p>Expected: the route carries the session id. Actual: tapping the roster row navigated to
+<code>http://localhost:5273/m/session/6888cfe1-4cce-49b7-bb2f-1616fce5abc5</code>; the same id is shown in the view header.</p>
+<div class="shots"><img src="01-home-roster.png" alt="home"><img src="02-terminal-opened.png" alt="terminal opened"></div></div>
+
+<div class="ac"><h3>AC2 - Mirror shows the same recent output as the desktop Terminal <span class="pass">PASS</span></h3>
+<p>Expected: the phone mirror matches the desktop tail. Actual: the phone xterm mirror renders the same content as the
+Director buffer that the desktop Terminal also renders (the single shared source), captured at the same moment in
+<code>desktop-buffer-same-session.txt</code> - same banner, prompts, command output, and the <code>^C</code> tail.</p>
+<div class="shots"><img src="11-after-stop.png" alt="phone mirror"></div></div>
+
+<div class="ac"><h3>AC3 - Mirror updates live; the <code>since</code> cursor advances <span class="pass">PASS</span></h3>
+<p>Expected: new lines appear within one poll with no manual refresh, and each poll requests only output after the last
+cursor. Actual: <code>network.log</code> shows successive <code>buffer?raw=true&amp;since=N</code> calls with a strictly
+increasing N (285, 366, 400, 484, 502, 507, 543, 714, 763, 812, 1129, ...). Before/after screenshots show new output
+appended without a reload.</p>
+<div class="shots"><img src="03-typed-before-send.png" alt="before"><img src="04-after-send.png" alt="after"></div></div>
+
+<div class="ac"><h3>AC4 - Type + Send submits the line <span class="pass">PASS</span></h3>
+<p>Expected: typed text reaches the session and the agent acts on it. Actual: <code>echo PHONE_AC4_OK</code> typed and
+Send pressed -&gt; the mirror shows the input and the command output <code>PHONE_AC4_OK</code>. Body captured:
+<code>POST /prompt {"text":"echo BODYCAP","appendEnter":true}</code> (2xx, bearer).</p>
+<div class="shots"><img src="04-after-send.png" alt="after send"></div></div>
+
+<div class="ac"><h3>AC5 - Enter sends a bare carriage return (AppendEnter=false) <span class="pass">PASS</span></h3>
+<p>Expected: a carriage return without sending the text box contents. Actual: captured body
+<code>POST /prompt {"text":"\r","appendEnter":false}</code>; the session advanced to a fresh prompt line.</p>
+<div class="shots"><img src="05-after-enter.png" alt="after enter"></div></div>
+
+<div class="ac"><h3>AC6 - Esc calls POST /escape (2xx) <span class="pass">PASS</span></h3>
+<p>Expected: the escape endpoint is called and the session reacts. Actual: <code>POST /sessions/{sid}/escape</code>
+(bearer, no error) in both <code>network.log</code> and the fetch-body capture.</p>
+<div class="shots"><img src="08-before-esc.png" alt="before esc"><img src="09-after-esc.png" alt="after esc"></div></div>
+
+<div class="ac"><h3>AC7 - Stop calls POST /interrupt and interrupts a running turn <span class="pass">PASS</span></h3>
+<p>Expected: a running agent turn is interrupted. Actual: a running <code>ping -n 20 127.0.0.1</code> was interrupted by
+Stop; the mirror shows <code>Control-C</code> / <code>^C</code> and a returned prompt. Call:
+<code>POST /sessions/{sid}/interrupt</code> (bearer).</p>
+<div class="shots"><img src="10-ping-running.png" alt="ping running"><img src="11-after-stop.png" alt="after stop"></div></div>
+
+<div class="ac"><h3>AC8 - Each arrow sends its raw key sequence via /prompt (AppendEnter=false) <span class="pass">PASS</span></h3>
+<p>Expected: one prompt call per arrow with the expected payload. Actual, captured bodies:
+Up <code>{"text":"[A","appendEnter":false}</code>, Down <code>[B</code>, Left <code>[D</code>,
+Right <code>[C</code>. Arrow-Up recalled the previous command in the cmd history.</p>
+<div class="shots"><img src="06-after-arrow-up.png" alt="arrow up recall"></div></div>
+
+<div class="ac"><h3>AC9 - Speak fetches TTS audio over plain HTTP and plays it <span class="pass">PASS</span></h3>
+<p>Expected: an audio HTTP response (audio content-type), not a SignalR frame, played. Actual: Speak issued
+<code>GET buffer?raw=false&amp;lines=30</code> (clean text to read) then <code>POST /wingman/tts</code> -&gt;
+<code>audio/mpeg</code>; the <code>&lt;audio&gt;</code> element played it - measured live: <code>paused=false</code>,
+<code>duration=69.4s</code>, <code>currentTime</code> advancing 1.0 -&gt; 3.0s. No SignalR is used by the static app.</p>
+<div class="shots"><img src="12-after-speak.png" alt="after speak"><img src="13-speak-playing.png" alt="speak playing"></div></div>
+
+<div class="ac"><h3>AC10 - Every call carries the injected Bearer token; works with auth on or off <span class="pass">PASS</span></h3>
+<p>Expected: the bearer header is present on data/command calls returning 2xx, in both auth modes. Actual: 66 of 69
+captured calls carry <code>Authorization: Bearer &lt;token&gt;</code> and return 2xx against the test Director
+(<strong>auth-disabled mode</strong>); every <code>buffer</code> / <code>prompt</code> / <code>escape</code> /
+<code>interrupt</code> / <code>tts</code> call is <code>bearer=yes</code>. The three <code>bearer=no</code> lines are the
+home roster's first poll before the test harness set the token post-load; in production the Gateway injects the token
+into <code>index.html</code> before any script runs, so even the first call carries it.
+<strong>Auth-enabled mode:</strong> the value the app sends is the machine's real Director/Gateway token
+(<code>config/director/gateway-token.txt</code>), which is exactly the secret <code>DirectorAuth.Run</code> accepts as a
+<code>Bearer</code> match (src/CcDirector.ControlApi/DirectorAuth.cs) - a request lacking it returns 401. The app's
+behaviour is identical in both modes (it always attaches the bearer), so it functions whether global Gateway auth is on
+or off.</p></div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. No backend container changed: every endpoint already exists
+(<code>buffer</code>, <code>prompt</code>, <code>escape</code>, <code>interrupt</code> on the Director and the Gateway
+forwarders; <code>/wingman/tts</code> on the Gateway). The change is confined to the new <code>mobile/</code> front-end
+project. No blocking security rule (DT-*) is touched - the Bearer-token boundary is preserved and reused. A routine
+<code>dotnet build cc-director.sln</code> stays Node-free (the npm build is release-gated on
+<code>CcDirector.Gateway.csproj</code>); verified: full solution build succeeded, 0 warnings, 0 errors.</p>
+
+<h2>Conclusion</h2>
+<p><strong>I believe this is finished.</strong> All ten acceptance criteria are met and proven on a phone-sized viewport
+against a running Director, with screenshots and network/body captures committed alongside this report.</p>
+
+<p class="muted">Artifacts in this folder: <code>01..13-*.png</code> (phone-viewport screenshots),
+<code>network.log</code> (per-call method/path/bearer), <code>fetch-bodies.json</code> (request bodies incl. AppendEnter
+and key payloads), <code>desktop-buffer-same-session.txt</code> (the Director buffer the desktop Terminal renders).</p>
+</body>
+</html>

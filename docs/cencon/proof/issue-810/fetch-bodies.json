@@ -1,0 +1,50 @@
+[
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"echo BODYCAP\",\"appendEnter\":true}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"\\r\",\"appendEnter\":false}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"\\u001b[A\",\"appendEnter\":false}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"\\u001b[B\",\"appendEnter\":false}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"\\u001b[D\",\"appendEnter\":false}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/prompt",
+    "body": "{\"text\":\"\\u001b[C\",\"appendEnter\":false}",
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/escape",
+    "body": null,
+    "bearer": true
+  },
+  {
+    "method": "POST",
+    "url": "/sessions/6888cfe1-4cce-49b7-bb2f-1616fce5abc5/interrupt",
+    "body": null,
+    "bearer": true
+  }
+]

@@ -1,0 +1,40 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PS D:\ReposFred\wt-qa-810> echo QA_LIVE_MIRROR_AC3
+QA_LIVE_MIRROR_AC3
+PS D:\ReposFred\wt-qa-810> echo PHONE_AC4_OK
+PHONE_AC4_OK
+PS D:\ReposFred\wt-qa-810> echo PHONE_AC4_OK
+PS D:\ReposFred\wt-qa-810> ping -n 15 127.0.0.1
+
+Pinging 127.0.0.1 with 32 bytes of data:
+Reply from 127.0.0.1: bytes=32 time<1ms TTL=128
+Reply from 127.0.0.1: bytes=32 time<1ms TTL=128
+Reply from 127.0.0.1: bytes=32 time<1ms TTL=128
+Reply from 127.0.0.1: bytes=32 time<1ms TTL=128
+
+Ping statistics for 127.0.0.1:
+    Packets: Sent = 4, Received = 4, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 0ms, Maximum = 0ms, Average = 0ms
+Control-C
+PS D:\ReposFred\wt-qa-810> echo AUTHON_AC10_OK
+AUTHON_AC10_OK
+PS D:\ReposFred\wt-qa-810> 
