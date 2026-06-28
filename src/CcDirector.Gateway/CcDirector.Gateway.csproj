@@ -27,6 +27,10 @@
          Cronos is a pure parser/calculator (no scheduler/threading model), UTC-first and used by
          Hangfire - it slots into the Gateway's own hosted loop without fighting it. -->
     <PackageReference Include="Cronos" Version="0.8.4" />
+    <!-- Issue #806 (mobile foundation): emit an OpenAPI document the mobile app's codegen
+         (openapi-typescript) consumes. Pinned to the installed ASP.NET Core runtime (10.0.9) so
+         there is no framework/package version skew under TreatWarningsAsErrors. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,5 +52,46 @@
          lives in the Cockpit; only the token login page remains here. -->
     <EmbeddedResource Include="Web\login.html" />
   </ItemGroup>
+
+  <!-- ============================================================================
+       Issue #806 (mobile foundation): build the React PWA and stage it under wwwroot/m.
+
+       BUILD-TIME ONLY and RELEASE-ONLY. Node.js + npm are needed only to compile the React
+       sources to static files, and only on the machine that builds the release. The target is
+       gated to a publish/release configuration (or an explicit -p:BuildMobile=true), so a
+       routine `dotnet build` (Debug) does NOT invoke npm and ordinary C# developers need no
+       Node. Machines that only RUN the Gateway need nothing extra - the built files ship in
+       the release and the Gateway serves them as static files.
+
+       The freshly built dist/** is copied into wwwroot/m and added to Content INSIDE the target
+       (BeforeTargets="AssignTargetPaths"), so it flows to this project's output - and, since
+       content flows transitively, into the GatewayApp tray exe that references this project.
+       ============================================================================ -->
+  <PropertyGroup>
+    <MobileDir>$(MSBuildProjectDirectory)\..\..\mobile\</MobileDir>
+    <MobileWwwroot>$(MSBuildProjectDirectory)\wwwroot\m</MobileWwwroot>
+    <!-- Run the web build for a publish/release configuration, or on explicit opt-in. -->
+    <RunMobileBuild Condition="'$(RunMobileBuild)' == '' and ('$(Configuration)' == 'Release' or '$(BuildMobile)' == 'true')">true</RunMobileBuild>
+    <RunMobileBuild Condition="'$(RunMobileBuild)' == ''">false</RunMobileBuild>
+  </PropertyGroup>
+
+  <Target Name="BuildMobileApp" BeforeTargets="AssignTargetPaths" Condition="'$(RunMobileBuild)' == 'true'">
+    <Message Importance="high" Text="[BuildMobileApp] building the mobile PWA ($(Configuration)) from $(MobileDir)" />
+    <Exec Command="npm ci" WorkingDirectory="$(MobileDir)" />
+    <Exec Command="npm run build" WorkingDirectory="$(MobileDir)" />
+    <RemoveDir Directories="$(MobileWwwroot)" />
+    <ItemGroup>
+      <_MobileDistFiles Include="$(MobileDir)dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_MobileDistFiles)"
+          DestinationFiles="@(_MobileDistFiles->'$(MobileWwwroot)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
+    <Message Importance="high" Text="[BuildMobileApp] staged @(_MobileDistFiles->Count()) file(s) into $(MobileWwwroot)" />
+    <ItemGroup>
+      <Content Include="wwwroot\m\**\*" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Keep the generated wwwroot out of source control via the project-local .gitignore. -->
 
 </Project>

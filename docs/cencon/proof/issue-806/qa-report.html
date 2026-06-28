@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Proof Report - Issue #806 (Mobile Foundation)</title>
+<style>
+  body { font-family: system-ui, Arial, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #14181f; }
+  h1 { border-bottom: 3px solid #0B1020; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; background: #0B1020; color: #fff; padding: .5rem .8rem; border-radius: 6px; }
+  .pass { color: #0a7a28; font-weight: bold; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  td, th { border: 1px solid #ccc; padding: .5rem .6rem; vertical-align: top; text-align: left; }
+  th { background: #eef1f6; width: 9rem; }
+  pre { background: #11151c; color: #d6e2f0; padding: .7rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+  img { max-width: 360px; border: 1px solid #ccc; border-radius: 8px; }
+  .imgrow { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+  .verdict { font-size: 1.2rem; padding: 1rem; background: #e6f6ea; border: 2px solid #0a7a28; border-radius: 8px; }
+  code { background: #eef1f6; padding: .1rem .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #806</h1>
+<p><strong>[Mobile] Foundation: React+TypeScript PWA served by the Gateway + Home roster + mobile redirect</strong></p>
+<p>Independent verification by the QA Agent. The Developer Agent's report and screenshots were treated as
+context only; every result below was reproduced from scratch in the QA Agent's own checkout of the PR branch
+(<code>issue-806-mobile-foundation</code>, head <code>e08f39e6</code>), with the Gateway built and run by the QA Agent.</p>
+
+<h3>Verification environment</h3>
+<ul>
+  <li>Own git worktree of the PR branch; Release-built CcDirector.Gateway run on an isolated free port via a
+      QA harness, with <code>CC_GATEWAY_NO_TAILSCALE=1</code> (no impact on the production Gateway on 7878 or
+      its Tailscale 443 front door).</li>
+  <li>Aggregated against an isolated copy of the live instances directory, so <code>/sessions</code> returned
+      the real fleet roster.</li>
+  <li>Phone-viewport screenshots captured with Playwright using the Pixel 5 device profile (393x851, mobile UA).</li>
+  <li>node v22.17.0, npm 10.9.2, .NET SDK 10.0.301.</li>
+</ul>
+
+<h2>AC1 - mobile/ is Vite+React+TypeScript+vite-plugin-pwa; npm ci && npm run build -> dist/</h2>
+<table>
+<tr><th>Expected</th><td>A Vite + React + TypeScript project with vite-plugin-pwa; a clean build yields a dist/ of static files.</td></tr>
+<tr><th>Actual</th><td>package.json declares react/react-dom/react-router-dom + @vitejs/plugin-react + vite-plugin-pwa + typescript. <code>npm ci</code> (378 packages) then <code>npm run build</code> (tsc --noEmit && vite build) produced dist/ with index.html, hashed assets (index-*.js, index-*.css), manifest.webmanifest, and a generated service worker (sw.js, workbox-*.js) via "PWA v0.21.1 generateSW".</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<pre>dist/index.html  dist/manifest.webmanifest  dist/registerSW.js  dist/sw.js  dist/workbox-efbd304a.js
+dist/assets/index-DNsaXDpr.js (213 kB)  dist/assets/index-cDIqSwKn.css
+PWA v0.21.1 / mode generateSW / precache 7 entries (222 KiB)</pre>
+
+<h2>AC2 - routine dotnet build (Debug) does NOT invoke npm</h2>
+<table>
+<tr><th>Expected</th><td>The web-build MSBuild target is skipped outside publish/release config; a Debug build runs no npm.</td></tr>
+<tr><th>Actual</th><td>The target <code>BuildMobileApp</code> is gated <code>Condition="'$(RunMobileBuild)' == 'true'"</code>, and RunMobileBuild is true only for Release or explicit <code>-p:BuildMobile=true</code>. A clean Debug rebuild (<code>dotnet build CcDirector.Gateway.csproj -c Debug -t:Rebuild</code>) succeeded with 0 errors; the captured binary log contains 0 occurrences of "npm ci"/"npm run build"; and no <code>wwwroot/m</code> directory was produced.</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<pre>Build succeeded.  0 Warning(s)  0 Error(s)
+binlog scan: "npm ci" -> 0   "npm run build" -> 0
+wwwroot/m after Debug rebuild: (does not exist)</pre>
+
+<h2>AC3 - a publish/release build runs the web build and populates wwwroot/m</h2>
+<table>
+<tr><th>Expected</th><td>A Release build runs the web build; wwwroot/m contains the built index.html + hashed assets.</td></tr>
+<tr><th>Actual</th><td>A Release build logged "[BuildMobileApp] building the mobile PWA (Release)", invoked npm, and "[BuildMobileApp] staged 9 file(s) into ...\wwwroot\m". The directory then held index.html, manifest.webmanifest, registerSW.js, sw.js, workbox-*.js, icon-192/512.png, and assets/ with the content-hashed index-DNsaXDpr.js + index-cDIqSwKn.css.</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<pre>wwwroot/m/index.html  wwwroot/m/manifest.webmanifest  wwwroot/m/sw.js  ...
+wwwroot/m/assets/index-DNsaXDpr.js  wwwroot/m/assets/index-cDIqSwKn.css</pre>
+
+<h2>AC4 - phone-viewport Home roster from live /sessions (needs-you group above the full list)</h2>
+<table>
+<tr><th>Expected</th><td>A phone-sized viewport at /m/ renders a "needs you" group (when any) above the full session list; each row shows name, status dot, and one context line; matches the live /sessions data.</td></tr>
+<tr><th>Actual</th><td>The Pixel 5 viewport rendered a "NEEDS YOU" group (cc-consult - gu, cc-consult - business, both red/"needs you") above an "ALL SESSIONS" list (10 rows), each row showing a colored status dot, the session name, a context line (needs you / On hold / working / ready), and the repo leaf chip. The two needs-you sessions match exactly the desktop Cockpit "NEEDS YOU" panel for the same live fleet (see the side-by-side).</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<div class="imgrow">
+  <figure><figcaption>Phone /m/ (Pixel 5)</figcaption><img src="qa-ac4-phone-roster.png" alt="phone roster"></figure>
+  <figure><figcaption>Desktop Cockpit (same fleet)</figcaption><img src="qa-ac4-desktop-cockpit.png" alt="desktop cockpit"></figure>
+</div>
+
+<h2>AC5 - typed client + injected Bearer; renders with global Gateway auth on or off</h2>
+<table>
+<tr><th>Expected</th><td>The page loads /sessions through the generated typed client with the injected Bearer token, and renders whether global auth is on or off; /sessions returns 200 with the bearer.</td></tr>
+<tr><th>Actual</th><td>With global auth ON: GET /m/ returned 200 text/html with <code>window.__GW_TOKEN__ = "qa-token-806"</code> injected (the <code>__GATEWAY_TOKEN__</code> placeholder fully replaced, 0 remaining), i.e. the shell is exempt from the login gate. GET /sessions without a bearer returned 401; with the injected bearer returned 200 with the populated roster. The hashed asset bundle and /openapi/v1.json both returned 200. With auth OFF the roster rendered identically (the screenshots above). The 19 mobile xUnit tests (auth-on serving + redirect policy + openapi) all pass.</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<pre># auth ON
+GET /m/                          -> 200 text/html, token injected (placeholder replaced)
+GET /sessions  (no bearer)       -> 401
+GET /sessions  (Bearer injected) -> 200 [ {"sessionId":"23164fc8-...","name":"cc-consult - business", ...} ]
+GET /m/assets/index-DNsaXDpr.js  -> 200
+GET /openapi/v1.json             -> 200</pre>
+
+<h2>AC6 - phone UA at root -> 302 /m/; desktop UA -> Cockpit (no redirect)</h2>
+<table>
+<tr><th>Expected</th><td>A phone browser-navigation to the Gateway root gets 302 to /m/; a desktop navigation gets the Cockpit (200), no redirect.</td></tr>
+<tr><th>Actual</th><td>Tested in the production-representative config (auth off, as the live Gateway runs). A GET to / with an Android UA + Accept: text/html returned 302 Location: /m/. The same GET with a Windows desktop UA returned 200 served from the Cockpit (body title "DevThrottle - Cockpit", Blazor) - no redirect to /m/.</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<pre>PHONE   GET /  Accept:text/html  UA:Android  -> 302  Location: /m/
+DESKTOP GET /  Accept:text/html  UA:Windows  -> 200  &lt;title&gt;DevThrottle - Cockpit&lt;/title&gt;  (no /m/ redirect)</pre>
+<p>Note: <code>curl -I</code> (HEAD) against the desktop path returns 405 from the Cockpit proxy (HEAD not allowed there); a real browser issues GET, which returns the Cockpit 200 shown above. The phone HEAD still 302s to /m/ identically.</p>
+
+<h2>AC7 - installable; offline open shows the last-known roster (offline shell)</h2>
+<table>
+<tr><th>Expected</th><td>After one load, the app opens with no network and shows the last-known roster.</td></tr>
+<tr><th>Actual</th><td>vite-plugin-pwa generates a service worker that precaches the app shell and (per vite.config.ts) NetworkFirst-caches /sessions. After one online load, the Playwright context was switched offline and the page reloaded: the React app shell loaded from the service worker and the full 10-row roster rendered from the cached /sessions (no error banner). A non-cached offline reload would have failed to load the JS bundle entirely, so a fully-rendered roster proves the offline shell + data cache work.</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<div class="imgrow"><figure><figcaption>Offline reload (network disabled)</figcaption><img src="qa-ac7-offline.png" alt="offline roster"></figure></div>
+
+<h2>AC8 - tapping a session row -> session-detail placeholder bound to that id</h2>
+<table>
+<tr><th>Expected</th><td>Tapping a row navigates to a session-detail placeholder route bound to that session id.</td></tr>
+<tr><th>Actual</th><td>Tapping the "cc-consult - gu" row navigated to <code>/m/session/d596ac11-fa20-42a6-9a80-95514835743b</code>; the detail view showed that exact session id, the session name, its status/context, repo path, "Agent: ClaudeCode", and the placeholder note "Terminal and Chat modes arrive in later issues. This placeholder confirms the roster tap is wired to this session."</td></tr>
+<tr><th>Verdict</th><td class="pass">PASS</td></tr>
+</table>
+<div class="imgrow"><figure><figcaption>Session-detail placeholder</figcaption><img src="qa-ac8-detail.png" alt="session detail"></figure></div>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>Gateway test suite: <strong>989 passed</strong>, 1 failed (<code>DictationEndpointTests.DictatePage_is_served</code>), of 990.</li>
+  <li>The single failure is <strong>pre-existing on main and unrelated</strong> to this issue: the rebrand commit
+      <code>0e6febed</code> (on both main and this PR branch) renamed the dictate.html title from "CC Director" to
+      the DevThrottle brand but did not update that test's assertion <code>Assert.Contains("CC Director - Dictation", body)</code>.
+      This PR touches no dictation file (verified via <code>git diff --name-only origin/main...HEAD</code>). Not a defect of #806; a separate rebrand cleanup.</li>
+  <li>New tests added by the PR cover the new behavior: 7 redirect-policy + live-middleware tests, 3 auth-serving tests, 1 openapi test (all pass).</li>
+  <li>Method/security: the AuthMiddleware /m exemption is justified - the shell carries only the injected per-machine
+      token (not a secret) and the data endpoint /sessions stays Bearer-gated; the token is never logged. Architecture
+      documented under docs/architecture/mobile/. No blocking security rule broken.</li>
+  <li>Debug and Release builds of the Gateway both succeed with 0 errors.</li>
+</ul>
+
+<h2>Verdict</h2>
+<p class="verdict">VERIFIED - all 8 acceptance criteria met (AC1-AC8 PASS). The one failing test is pre-existing
+on main from the rebrand and unrelated to this issue. Recommended: PASS / merge.</p>
+</body>
+</html>

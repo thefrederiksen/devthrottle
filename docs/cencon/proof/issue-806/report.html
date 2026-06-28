@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #806 - Mobile Foundation - Developer Proof Report</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         max-width: 1100px; margin: 0 auto; padding: 24px; color: #1b2230; background: #f7f8fb; }
+  h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 32px; border-bottom: 2px solid #e2e6ef; padding-bottom: 6px; }
+  code, pre { font-family: Consolas, "Courier New", monospace; }
+  pre { background: #0b1020; color: #e6e9f2; padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #d7dced; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #eef1f8; }
+  .pass { color: #137333; font-weight: 700; }
+  .note { background: #fff7e6; border: 1px solid #f0d28a; border-radius: 8px; padding: 10px 14px; }
+  .shots { display: flex; gap: 16px; flex-wrap: wrap; }
+  .shots figure { margin: 0; max-width: 320px; }
+  .shots img { width: 100%; border: 1px solid #ccd; border-radius: 8px; }
+  figcaption { font-size: 12px; color: #555; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>Issue #806 - Mobile Foundation: React + TypeScript PWA served by the Gateway</h1>
+<p><strong>Developer Agent proof report.</strong> Branch <code>issue-806-mobile-foundation</code>.
+Repo <code>thefrederiksen/devthrottle</code>. This is Issue 1 (foundation) of the mobile app plan
+(<code>docs/architecture/mobile/IMPLEMENTATION.md</code>).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>New <code>mobile/</code> project</strong> at the repo root: Vite + React + TypeScript +
+      <code>vite-plugin-pwa</code>. Outside the C# <code>src/</code> tree (not in the .NET solution).</li>
+  <li><strong>Release-gated MSBuild target</strong> (<code>BuildMobileApp</code>) on
+      <code>CcDirector.Gateway.csproj</code> that runs <code>npm ci &amp;&amp; npm run build</code> and stages
+      <code>mobile/dist/**</code> into the Gateway's <code>wwwroot/m/</code>. Gated by
+      <code>RunMobileBuild</code> (Release / publish or explicit <code>-p:BuildMobile=true</code>), so a
+      routine Debug <code>dotnet build</code> never runs npm.</li>
+  <li><strong>Gateway serves <code>/m</code></strong> as static files with the per-machine token injected
+      into <code>index.html</code> (the <code>/voice</code> <code>__GATEWAY_TOKEN__</code> pattern); a single
+      catch-all handler also does SPA deep-link fallback. The shell is exempt from the global auth gate
+      (it carries no secret), so it loads with auth on or off.</li>
+  <li><strong>OpenAPI document</strong> at <code>/openapi/v1.json</code> (<code>AddOpenApi</code> /
+      <code>MapOpenApi</code>); <code>/sessions</code> annotated <code>.Produces&lt;List&lt;SessionDto&gt;&gt;</code>.
+      <code>openapi-typescript</code> generates the typed client into <code>mobile/src/api/schema.ts</code>.</li>
+  <li><strong>Home / roster page</strong>: a "needs you" group above the full session list, using the
+      Gateway <code>/sessions</code> aggregator and a faithful TypeScript port of the C#
+      <code>SessionOrdering</code> triage. Tapping a row opens a session-detail placeholder bound to the id.</li>
+  <li><strong>Mobile-redirect middleware</strong>: a phone <code>User-Agent</code> browser-navigation
+      (Accept: text/html), not already under <code>/m</code>, gets a <code>302</code> to <code>/m/</code>;
+      a desktop UA falls through to the Cockpit unchanged.</li>
+  <li><strong>PWA</strong>: installable (web app manifest), service worker precaches the app shell and
+      caches the last <code>/sessions</code> so a cold offline open renders the last-known roster.</li>
+</ul>
+
+<h2>Build status</h2>
+<p><span class="pass">PASS</span> <code>dotnet build cc-director.sln</code> (Debug) succeeds, 0 warnings, 0 errors.
+A routine Debug build does NOT invoke npm. The Gateway test project: <strong>989 passed</strong>, 1
+pre-existing failure (<code>DictationEndpointTests.DictatePage_is_served</code>) unrelated to this issue -
+see the note below.</p>
+<div class="note">
+  <strong>Pre-existing unrelated failure.</strong> <code>DictationEndpointTests.DictatePage_is_served</code>
+  asserts the ControlApi <code>dictate.html</code> contains "CC Director - Dictation", but the most recent
+  commit on main (<code>0e6febed</code>, "rename product user interface text to the Director and DevThrottle
+  brand hierarchy") renamed that title to "Director - Dictation". This issue touches no ControlApi or
+  dictation file; the test is red on main independent of #806 and is out of scope here.
+</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+  <tr><td>1</td><td><code>mobile/</code> Vite+React+TS+vite-plugin-pwa; <code>npm ci &amp;&amp; npm run build</code> produces a <code>dist/</code></td><td class="pass">PASS</td><td><code>ac1-mobile-build.txt</code></td></tr>
+  <tr><td>2</td><td>Routine <code>dotnet build</code> does NOT invoke npm (target skipped outside release)</td><td class="pass">PASS</td><td><code>ac2-debug-skips-npm.txt</code> (<code>RunMobileBuild=false</code>, 0 npm invocations)</td></tr>
+  <tr><td>3</td><td>Release build runs the web build; <code>wwwroot/m/</code> has the built index.html + hashed assets</td><td class="pass">PASS</td><td><code>ac3-release-wwwroot.txt</code></td></tr>
+  <tr><td>4</td><td>Phone-viewport <code>/m/</code> renders the Home roster: "needs you" group above the full list, each row name + status dot + context line, matching live <code>/sessions</code></td><td class="pass">PASS</td><td><code>ac4-phone-roster.png</code> beside <code>ac4-desktop-cockpit-roster.png</code></td></tr>
+  <tr><td>5</td><td>Loads data through the generated typed client with the injected Bearer; renders with Gateway auth on or off</td><td class="pass">PASS</td><td><code>ac5-bearer-auth.txt</code> (in-app fetch 200 with Bearer; auth-on integration tests)</td></tr>
+  <tr><td>6</td><td>Phone UA -&gt; <code>302 /m/</code>; desktop UA -&gt; Cockpit (no redirect)</td><td class="pass">PASS</td><td><code>ac6-redirect.txt</code></td></tr>
+  <tr><td>7</td><td>Installable; after one load, opens offline with the last-known roster</td><td class="pass">PASS</td><td><code>ac7-offline-shell.png</code> (Gateway stopped; SW cache renders the roster)</td></tr>
+  <tr><td>8</td><td>Tapping a row navigates to a session-detail placeholder bound to that session id</td><td class="pass">PASS</td><td><code>ac8-session-detail.png</code> (URL <code>/m/session/&lt;id&gt;</code>)</td></tr>
+</table>
+
+<h2>Screenshots</h2>
+<div class="shots">
+  <figure><img src="ac4-phone-roster.png" alt="phone roster" /><figcaption>AC4 - phone-viewport Home roster (needs-you group + full list)</figcaption></figure>
+  <figure><img src="ac4-desktop-cockpit-roster.png" alt="desktop cockpit roster" /><figcaption>AC4 - desktop Cockpit roster, same fleet sessions (desktop UA, no /m redirect)</figcaption></figure>
+  <figure><img src="ac7-offline-shell.png" alt="offline shell" /><figcaption>AC7 - offline shell: Gateway stopped, roster served from the service-worker cache</figcaption></figure>
+  <figure><img src="ac8-session-detail.png" alt="session detail" /><figcaption>AC8 - session-detail placeholder bound to the tapped session id</figcaption></figure>
+</div>
+
+<h2>How the live proof was run</h2>
+<p>The Release Gateway dev-console host was run from the worktree on a non-default port
+(<code>--port 7906</code>) with <code>CC_GATEWAY_NO_TAILSCALE=1</code> so it never touches the production
+Tailscale Serve front door, discovering the live fleet for real <code>/sessions</code> data.
+Phone-viewport screenshots were captured at 390x844 (deviceScaleFactor 3) via CDP device-metrics override.</p>
+
+<h2>CenCon impact</h2>
+<p>Affected container: <code>CcDirector.Gateway</code> (new static serving at <code>/m</code>, token-injected
+index.html, OpenAPI document, mobile-redirect middleware, release-gated MSBuild web-build target) plus the
+new repo-root <code>mobile/</code> project (not a .NET container). No security posture change: the
+<code>/m</code> shell carries no secret and the data endpoints stay token-gated (the injected Bearer is the
+credential). No new egress, no new persisted data. No architecture/security drift requiring a
+<code>docs/cencon/</code> manifest change beyond this proof.</p>
+
+<h2>Verdict</h2>
+<p><strong>I believe this is finished.</strong> Every acceptance criterion is met and proven on a running
+Gateway with committed proof. The build is clean and npm-free for routine Debug builds. The one failing
+Gateway test is a pre-existing rebrand staleness unrelated to this issue.</p>
+</body>
+</html>

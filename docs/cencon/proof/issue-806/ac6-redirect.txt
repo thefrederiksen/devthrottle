@@ -1,0 +1,12 @@
+AC6 - Mobile redirect (User-Agent based), against the running Gateway on 127.0.0.1:7906
+
+===== PHONE User-Agent, GET / -> expect 302 Location /m/ =====
+HTTP/1.1 302 Found
+Location: /m/
+
+===== DESKTOP User-Agent, GET / -> expect Cockpit 200 (no /m redirect) =====
+HTTP/1.1 200 OK
+
+===== literal curl -I (HEAD), PHONE -> 302 Location /m/ =====
+HTTP/1.1 302 Found
+Location: /m/

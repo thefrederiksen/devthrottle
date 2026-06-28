@@ -1,0 +1,5 @@
+# Mobile app build output and dependencies are never committed.
+node_modules/
+dist/
+*.local
+.vite/
