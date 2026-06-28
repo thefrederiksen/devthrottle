@@ -6,6 +6,7 @@
 // and sent as a Bearer header, so the app authenticates whether global Gateway auth is on or
 // off (the /sessions endpoint is reachable either way once the bearer is attached).
 import type { components } from "./schema";
+import type { SessionHistoryDto } from "../history/types";
 
 export type SessionDto = components["schemas"]["SessionDto"];
 
@@ -65,6 +66,29 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionDto[]> 
     throw new GatewayError(res.status, `GET /sessions failed: ${res.status}`);
   }
   return (await res.json()) as SessionDto[];
+}
+
+// GET /sessions/{sid}/history - the parsed, agent-agnostic conversation history for one session
+// (issue #811). The Director's SessionHistoryEndpoint returns SessionHistoryDto; the Gateway
+// forwards it verbatim through the catch-all /sessions/{sid}/{**rest} proxy with the injected
+// Bearer (no backend change), exactly the way Terminal reaches /prompt. The shape is not declared
+// in the OpenAPI schema (it rides the generic per-session proxy), so it is read with the narrow
+// local SessionHistoryDto type. A 404 (old Director / unknown session) is surfaced as a
+// GatewayError so the caller can treat it as "nothing yet" rather than a hard failure.
+export async function getSessionHistory(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionHistoryDto> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/history`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET history failed: ${res.status}`);
+  }
+  return (await res.json()) as SessionHistoryDto;
 }
 
 // Write text (or a raw key escape sequence) to the session's PTY. appendEnter=true submits a typed
