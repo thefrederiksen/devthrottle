@@ -4930,7 +4930,8 @@ public partial class MainWindow : Window
                 case CcDirector.Core.Update.UpdatePhase.Staged:
                     _updateStaged = true;
                     SetUpdateIndicator(UpdateIconCheck, "#22C55E", "#1B3A2A", "#22C55E",
-                        "UPDATE READY", $"{p.Version} - installs on restart");
+                        "UPDATE READY", $"{p.Version} - installs on restart",
+                        "Restarting CC Director will install this update.");
                     HideDownloadProgress();
                     break;
 
@@ -4953,7 +4954,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetUpdateIndicator(string icon, string accent, string bg, string border, string label, string sub)
+    /// <summary>
+    /// Update the sidebar indicator. When <paramref name="hint"/> is null the indicator is
+    /// clickable to run a manual check now; pass a hint to make it purely informational (used
+    /// once an update is staged, where there is nothing left to check for).
+    /// </summary>
+    private void SetUpdateIndicator(string icon, string accent, string bg, string border, string label, string sub, string? hint = null)
     {
         UpdateIndicatorIcon.Data = Geometry.Parse(icon);
         UpdateIndicatorIcon.Fill = Brush.Parse(accent);
@@ -4962,7 +4968,9 @@ public partial class MainWindow : Window
         UpdateIndicatorLabel.Text = label;
         UpdateIndicatorLabel.Foreground = Brush.Parse(accent);
         UpdateIndicatorSub.Text = sub;
-        ToolTip.SetTip(UpdateIndicator, $"{label}\n{sub}\nClick to check for updates now.");
+        ToolTip.SetTip(UpdateIndicator, $"{label}\n{sub}\n{hint ?? "Click to check for updates now."}");
+        // A staged update is informational only (hint set), so drop the clickable hand cursor.
+        UpdateIndicator.Cursor = new Cursor(hint is null ? StandardCursorType.Hand : StandardCursorType.Arrow);
         UpdateIndicator.IsVisible = true;
     }
 
@@ -5000,6 +5008,13 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Once an update is staged there is nothing left to check for -- the indicator is
+            // purely informational and a click must not kick off another check.
+            if (_updateStaged)
+            {
+                FileLog.Write("[MainWindow] UpdateIndicator clicked while update staged - ignoring (informational only)");
+                return;
+            }
             var updater = (global::Avalonia.Application.Current as App)?.Updater;
             if (updater is null)
             {
