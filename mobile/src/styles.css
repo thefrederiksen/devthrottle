@@ -220,9 +220,10 @@ body {
   color: var(--text-dim);
 }
 
-/* ===== Session Terminal mode (issue #810) =====
-   A full-height column: the live mirror fills the scrollable middle; the control-key row and the
-   input row sit pinned beneath it, reachable on a phone viewport with no horizontal scrolling. */
+/* ===== Session Terminal mode (issue #817, faithful 1:1 with the Android tab) =====
+   A full-height column: a status row (status + Keys toggle), the live mirror filling all remaining
+   space, and the collapsible controls panel (hidden by default) beneath it. Mirrors the Android
+   TalkPage terminal section and RawTerminalPage.cs. */
 .terminal-screen {
   display: flex;
   flex-direction: column;
@@ -243,117 +244,360 @@ body {
   min-width: 0;
 }
 
-.term-sid {
-  display: block;
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 6px 2px 4px;
-  word-break: break-all;
+/* Status row: "Live terminal (read-only)" / flashed action text on the left, Keys toggle right. */
+.term-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
 }
 
-/* The mirror. flex:1 + min-height:0 lets it shrink so the controls always stay on screen; xterm's
-   own viewport owns the scrollback inside. */
-.term-host {
+.term-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-keys-toggle {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  background: #1a2236;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* The terminal stage fills all remaining vertical space; .term-wrap is the single scroll container
+   (vertical scrollback + horizontal pan) and the Fit / zoom controls float over its corners. */
+.term-stage {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  background: #0b1020;
+  background: #1e1e1e;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  padding: 4px 0 4px 6px;
 }
 
-.term-host .xterm {
-  height: 100%;
+.term-wrap {
+  position: absolute;
+  inset: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
-.term-note {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 4px 2px 0;
-  min-height: 16px;
+/* The grid renders at the PTY's exact geometry; bottom padding reserves a strip so the live input
+   row scrolls clear of the floating Fit / zoom controls instead of hiding under them. */
+.term-xterm {
+  padding: 6px 0 56px 8px;
+  width: max-content;
 }
 
-/* The control-key row wraps so all keys stay reachable without horizontal scroll on a phone. */
+.term-fit-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  background: rgba(20, 27, 46, 0.92);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 13px;
+  padding: 9px 13px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.term-zoom {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.term-zoom-btn {
+  background: rgba(20, 27, 46, 0.92);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 16px;
+  line-height: 1;
+  padding: 8px 15px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* Collapsible controls (hidden by default). Three rows matching the Android grouping. */
 .term-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 2px;
 }
 
-.key-btn {
+.term-row {
+  display: flex;
+  gap: 8px;
+}
+
+.term-row-input > .term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The Enter/Esc/Stop and the four arrow keys share their row width equally, like the Android grid. */
+.term-row-3 > .term-btn,
+.term-row-4 > .term-btn {
+  flex: 1 1 0;
+}
+
+.term-input {
+  min-height: 46px;
+  padding: 10px 12px;
+  background: #0f1626;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.term-input::placeholder {
+  color: #5a6378;
+}
+
+.term-btn {
   flex: 0 0 auto;
-  min-width: 44px;
-  min-height: 40px;
-  padding: 8px 12px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.term-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Button colours match the Android tab (TalkPage.xaml). */
+.term-speak { background: #0e7c6b; color: #ffffff; }
+.term-send  { background: #2b6cb0; color: #ffffff; }
+.term-enter { background: #5fd08a; color: #06210f; }
+.term-esc   { background: #e8b339; color: #221a06; }
+.term-stop  { background: #e5484d; color: #ffffff; }
+.term-arrow { background: #1a2236; color: var(--text); font-weight: 600; }
+
+/* ===== Dictation dialog (issue #817) =====
+   The shared Speak control: a phone-sized modal that captures the mic, shows a live RECORDING /
+   TRANSCRIBING / PAUSED state with an equalizer + timer, then an editable transcript and the four
+   actions Cancel / Pause-Resume / Insert / Send. Colours come from the theme tokens; the recording
+   red reuses --attention and the commit accent reuses --accent. */
+.dictate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dictate-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.dictate-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dictate-status {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.dictate-status-recording {
+  color: var(--attention);
+}
+
+.dictate-status-transcribing,
+.dictate-status-paused {
+  color: #dcdcaa;
+}
+
+.dictate-status-error {
+  color: var(--attention);
+}
+
+.dictate-timer {
+  margin-left: auto;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.dictate-eq {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: 72px;
+  margin: 14px 0 6px;
+}
+
+.dictate-eq-well {
+  width: 10px;
+  height: 100%;
+  background: var(--surface-2);
+  border-radius: 3px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.dictate-eq-bar {
+  width: 100%;
+  background: var(--attention);
+  border-radius: 3px;
+  transition: height 60ms linear;
+}
+
+.dictate-eq-bar-idle {
+  background: #6a6a6a;
+}
+
+.dictate-hint {
+  min-height: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: #dcdcaa;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+.dictate-transcript {
+  width: 100%;
+  min-height: 96px;
+  max-height: 200px;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
-  cursor: pointer;
-  touch-action: manipulation;
+  resize: vertical;
+  white-space: pre-wrap;
 }
 
-.key-btn:active {
-  background: var(--border);
-}
-
-.key-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.key-stop {
-  color: #ffb4b4;
-  border-color: rgba(241, 76, 76, 0.5);
-}
-
-.key-speak {
-  margin-left: auto;
-  color: #bcd0ff;
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.term-input-row {
-  display: flex;
-  gap: 8px;
-  padding-top: 2px;
-}
-
-.term-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 44px;
-  padding: 10px 12px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 15px;
-}
-
-.term-input::placeholder {
+.dictate-transcript::placeholder {
   color: var(--text-dim);
 }
 
-.term-send {
-  flex: 0 0 auto;
-  min-height: 44px;
-  padding: 10px 18px;
-  background: var(--accent);
-  color: #ffffff;
-  border: none;
+.dictate-transcript[readonly] {
+  color: var(--text-dim);
+}
+
+.dictate-error {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(241, 76, 76, 0.12);
+  border: 1px solid rgba(241, 76, 76, 0.4);
   border-radius: 8px;
-  font-size: 15px;
+  color: #ffb4b4;
+  font-size: 13px;
+}
+
+.dictate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.dictate-spacer {
+  flex: 1 1 auto;
+}
+
+.dictate-btn {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
 }
 
-.term-send:disabled {
-  opacity: 0.45;
+.dictate-btn:disabled {
+  opacity: 0.5;
   cursor: default;
+}
+
+.dictate-cancel {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.dictate-pause {
+  background: var(--surface-2);
+  color: var(--text);
+  min-width: 64px;
+}
+
+.dictate-insert {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #16a34a;
+}
+
+.dictate-send {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.dictate-pause-glyph {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+
+.dictate-pause-glyph i {
+  width: 4px;
+  height: 14px;
+  background: var(--text);
+  display: block;
+  border-radius: 1px;
 }

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Proof Report - Issue #817 (Terminal mode 1:1 parity)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1b1f24; }
+  h1 { border-bottom: 2px solid #0b62d6; padding-bottom: 8px; }
+  .verdict { background: #e6f4ea; border: 1px solid #34a853; padding: 12px 16px; border-radius: 8px; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #cfd6dd; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f1f4f8; }
+  .pass { color: #137333; font-weight: 700; }
+  .note { color: #9a6700; font-weight: 700; }
+  code { background: #f4f6f8; padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+  img { max-width: 230px; border: 1px solid #cfd6dd; border-radius: 6px; }
+  .shots img { max-width: 200px; margin: 4px; }
+  .meta { color: #57606a; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #817</h1>
+<p class="meta">Terminal mode: faithful 1:1 translation of the Android terminal tab. PR #819, branch
+<code>issue-817-mobile-speak-dictation</code>. Verified independently by the QA Agent - the Developer's report
+and screenshots were not trusted; every criterion was reproduced with a fresh harness.</p>
+
+<p class="verdict">VERIFIED - all 12 acceptance criteria met (24 of 24 automated checks passed). PASS.</p>
+
+<h2>How this was verified (independent harness)</h2>
+<ul>
+<li>The mobile PWA was built independently from the PR branch (<code>npm run build</code>: <code>tsc --noEmit</code> +
+<code>vite build</code>, clean).</li>
+<li>An independent Node stub Gateway was written that serves the freshly built <code>dist/</code> under <code>/m/</code>
+(injecting the per-machine token exactly as the Gateway does), and implements the EXACT contract the code depends on:
+the live WebSocket session-stream <code>/sessions/{sid}/stream</code> (cookie-authenticated), the
+<code>/prompt</code>, <code>/escape</code>, <code>/interrupt</code> verbs, and the dictation utterance flow
+(<code>/wingman/utterance/upload</code> -> <code>/chunk/0</code> -> <code>/complete</code>). It records every request
+(method, body, auth header, WS cookie) for assertion, and exposes a <code>/qa/drop</code> trigger to force a stream
+drop for the reconnect test.</li>
+<li>Chromium was driven by Playwright at a phone viewport (390x844) with fake media
+(<code>--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=known.wav</code>),
+so dictation runs end to end without a real microphone. Each criterion was reproduced, asserted from the recorded
+request log, and screenshotted.</li>
+<li>The whole flow was run twice: with global Gateway auth ON (Bearer + cookie) and OFF (no token).</li>
+<li>Gateway/Director C# contract dependencies were verified by source inspection:
+<code>SessionWsProxyEndpoints.cs</code> (proxies <code>/sessions/{sid}/stream</code>),
+<code>AuthMiddleware.cs</code> (<code>HasValidToken</code> accepts the <code>cc-gateway-token</code> cookie),
+and <code>GatewayWingmanVoiceEndpoint.cs</code> (the utterance register/chunk/complete flow returns the
+dictionary-cleaned <code>{transcript}</code>).</li>
+<li>Build hygiene: a routine <code>dotnet build cc-director.sln</code> (Debug) succeeded with 0 errors / 0 warnings and
+did NOT invoke npm (the mobile build target is gated to Release / <code>BuildMobile=true</code>). The PR changes zero
+C# files.</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th><th>Proof</th></tr>
+
+<tr><td>1</td><td>Live WebSocket mirror, not 1s polling</td>
+<td>A WebSocket carries terminal output; no <code>/buffer?raw&since=</code> poll loop.</td>
+<td>WS opened; 10+ binary PTY frames received; <b>0</b> <code>/buffer</code> requests.</td>
+<td class="pass">PASS</td><td>qa-02-streaming.png</td></tr>
+
+<tr><td>2</td><td>Auto-reconnect after a drop</td>
+<td>On a dropped connection the client reconnects (~1200ms) and resumes.</td>
+<td>After <code>/qa/drop</code>: stub observed ws-close then a fresh ws-open (open count 1 -&gt; 2); mirror resumed.</td>
+<td class="pass">PASS</td><td>qa-05-reconnected.png</td></tr>
+
+<tr><td>3</td><td>xterm rendering, 5000 scrollback, sticky-bottom not yanked when scrolled up</td>
+<td>Scrolled up &gt;48px the view is NOT yanked by new output; at bottom it sticks.</td>
+<td>Real overflow (292px). Scrolled to top: stayed at top while new output streamed (no yank). At bottom: stayed pinned (scrollTop==max) while new output streamed. <code>scrollback:5000</code> set in code.</td>
+<td class="pass">PASS</td><td>qa-03-scrolled-up.png, qa-04-at-bottom.png</td></tr>
+
+<tr><td>4</td><td>Controls hidden by default; Keys toggle</td>
+<td>Controls hidden on load; "Keys" reveals them; terminal fills the screen.</td>
+<td>On load: toggle label "Keys", <code>.term-controls</code> absent. After tap: controls present, label "Hide keys".</td>
+<td class="pass">PASS</td><td>qa-01-default-controls-hidden.png, qa-06-controls-shown.png</td></tr>
+
+<tr><td>5</td><td>Fit/1:1 toggle + zoom</td>
+<td>Fit/1:1 toggles column fit; A-/A+ change font within ~6-48px.</td>
+<td>Fit button label flipped <code>1:1</code> -&gt; <code>Fit</code>; two A+ taps grew the xterm screen height 495 -&gt; 528px.</td>
+<td class="pass">PASS</td><td>qa-07-fit-toggle.png, qa-08-zoomed-in.png</td></tr>
+
+<tr><td>6</td><td>Screen stays awake (Wake Lock)</td>
+<td>Wake lock acquired on view open; released on leave.</td>
+<td>Instrumented <code>navigator.wakeLock</code>: <code>request("screen")</code> called once on mount; <code>release()</code> called once on unmount. Real hardware grant cannot be tested in headless automation - confirmed the request/release code path is exercised.</td>
+<td class="note">PASS (code path verified; real-device grant noted)</td><td>(instrumented; see notes)</td></tr>
+
+<tr><td>7</td><td>Exact per-button payloads</td>
+<td>Send: prompt AppendEnter=true + input cleared. Enter: <code>\r</code> AppendEnter=false. Esc: /escape. Stop: /interrupt. Arrows: ESC[A/[B/[D(left)/[C(right) AppendEnter=false.</td>
+<td>Recorded bodies: Send <code>{text:"hello world",appendEnter:true}</code>, input cleared; Enter <code>{text:"\r",appendEnter:false}</code>; one POST /escape; one POST /interrupt; arrows <code>\x1b[A</code>/<code>\x1b[B</code>/<code>\x1b[D</code>/<code>\x1b[C</code> all AppendEnter=false (Left=[D, Right=[C confirmed).</td>
+<td class="pass">PASS</td><td>qa-06-controls-shown.png + recorded log</td></tr>
+
+<tr><td>8</td><td>Speak = dictation dialog with the four actions and the state machine</td>
+<td>Dialog (no audio playback) with Cancel / Pause(Resume) / Insert / Send; RECORDING -&gt; TRANSCRIBING -&gt; PAUSED with an editable transcript.</td>
+<td>Speak opened the dialog showing RECORDING + exactly 4 actions. Pause -&gt; TRANSCRIBING -&gt; PAUSED; transcript textarea became editable and showed the returned text. No TTS audio.</td>
+<td class="pass">PASS</td><td>qa-09-dictate-recording.png, qa-10-dictate-paused-editable.png</td></tr>
+
+<tr><td>9</td><td>Insert vs Send vs Cancel vs Pause behavior</td>
+<td>Insert fills the input without sending; Send fills and submits; Pause checkpoints/appends.</td>
+<td>Insert: input filled with transcript, prompt-call count unchanged (no submit). Send: new prompt <code>{text:"hello from qa dictation",appendEnter:true}</code> fired. Pause produced the appended editable transcript.</td>
+<td class="pass">PASS</td><td>qa-11-after-insert-no-send.png, qa-12-after-dictate-send.png</td></tr>
+
+<tr><td>10</td><td>STT uses the utterance register-&gt;chunk-&gt;complete flow with Bearer; cleaned transcript; NO /wingman/tts</td>
+<td>register -&gt; chunk (X-Chunk-Sha256) -&gt; complete returning the cleaned transcript; no TTS call from Speak.</td>
+<td>Recorded: <code>/wingman/utterance/upload</code> -&gt; <code>/chunk/0</code> (SHA-256 header present) -&gt; <code>/complete</code> returning the transcript; every call carried <code>Bearer</code>; <b>0</b> <code>/wingman/tts</code> calls. Source: the Gateway <code>/complete</code> runs the transcript through the dictionary-correction engine (the "cleaned transcript").</td>
+<td class="pass">PASS</td><td>recorded log + GatewayWingmanVoiceEndpoint.cs</td></tr>
+
+<tr><td>11</td><td>Bearer on every HTTP call and the WS; works with auth on and off</td>
+<td>HTTP carries Bearer; the WS authenticates (cookie); both auth modes work.</td>
+<td>Auth ON: WS handshake carried <code>cc-gateway-token</code> cookie (accepted); HTTP carried <code>Bearer</code>. Auth OFF: stream + prompt worked with no token at all (30 binary frames received).</td>
+<td class="pass">PASS</td><td>qa-13-authoff-streaming.png</td></tr>
+
+<tr><td>12</td><td>Button set + grouping match the Android tab</td>
+<td>Speak, Send, Enter, Esc, Stop, Up, Down, Left, Right in the Android grouping (row: input+Speak+Send; row: Enter+Esc+Stop; row: Up+Down+Left+Right).</td>
+<td>All nine buttons present in the three Android-grouped rows; status row "Live terminal (read-only)".</td>
+<td class="pass">PASS</td><td>qa-06-controls-shown.png</td></tr>
+</table>
+
+<h2>Note on AC10 endpoint path (accepted deviation)</h2>
+<p>The issue body named the Director route <code>/sessions/{sid}/voice/utterance</code>. The Developer instead used the
+Gateway-native <code>/wingman/utterance/upload -&gt; /chunk/0 -&gt; /complete</code> flow. This is explicitly sanctioned by
+the issue (the Director's <code>/voice/utterance</code> is not proxied through the Gateway; the Gateway-native equivalent
+is reachable same-origin with the Bearer and needs no backend change). Verified in
+<code>GatewayWingmanVoiceEndpoint.cs</code>: the route exists, accepts the register/chunk(SHA-256)/complete shape the
+client sends, and returns the dictionary-cleaned <code>{transcript}</code>. The SUBSTANCE of AC10 (a resumable
+register-&gt;chunk-&gt;complete utterance batch flow, Bearer-authenticated, cleaned transcript, and NO TTS on Speak) holds.</p>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Every screenshot was read; all are real renders (no blank/garbled output).</li>
+<li>Mobile build clean; Debug solution build clean (0/0) with no npm invocation.</li>
+<li>No CenCon security rule implicated; no architecture/security docs needed changing (mobile-only PWA change, no C#).</li>
+</ul>
+
+<div class="shots">
+<h2>Screenshots</h2>
+<img src="qa-01-default-controls-hidden.png"><img src="qa-02-streaming.png"><img src="qa-03-scrolled-up.png">
+<img src="qa-04-at-bottom.png"><img src="qa-05-reconnected.png"><img src="qa-06-controls-shown.png">
+<img src="qa-07-fit-toggle.png"><img src="qa-08-zoomed-in.png"><img src="qa-09-dictate-recording.png">
+<img src="qa-10-dictate-paused-editable.png"><img src="qa-11-after-insert-no-send.png"><img src="qa-12-after-dictate-send.png">
+<img src="qa-13-authoff-streaming.png">
+</div>
+
+<p class="meta">Raw machine-readable results: qa-results.json (24/24 checks passed).</p>
+</body>
+</html>
