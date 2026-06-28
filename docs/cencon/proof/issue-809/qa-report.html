@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #809 (Mobile app /m delivery beside the Gateway exe)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; }
+  .pass { color: #1b7837; font-weight: bold; }
+  .fail { color: #b2182b; font-weight: bold; }
+  code, pre { background: #f6f8fa; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { padding: .7rem; overflow-x: auto; }
+  .verdict { background: #e6f4ea; border: 2px solid #1b7837; padding: 1rem; margin: 1.5rem 0; font-size: 1.1rem; }
+  img { max-width: 360px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report &mdash; Issue #809</h1>
+<p><strong>Title:</strong> [Deploy] Mobile app (/m) cannot be deployed to a running Gateway &mdash; redeploy ships only the exe, and self-update reverts unreleased builds</p>
+<p><strong>Pull request:</strong> #813 &nbsp; <strong>Branch:</strong> issue-809-gateway-mobile-packaging &nbsp; <strong>Design chosen:</strong> Option 2 (side-car mobile zip the setup engine unpacks into <code>wwwroot/m</code> beside the exe, mirroring the Cockpit-zip pattern).</p>
+<p><strong>Verifier:</strong> QA Agent (independent). All evidence below was reproduced by QA in an isolated worktree and isolated Gateways on free loopback ports. The user's installed Gateway on port 7878 and <code>%LOCALAPPDATA%\cc-director</code> were NOT touched.</p>
+
+<h2>Method checks (measurable bar)</h2>
+<table>
+<tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>Routine <code>dotnet build cc-director.sln -c Debug</code> does NOT invoke npm</td>
+  <td>Build succeeds; npm / BuildMobileApp never runs (web build is Release-gated)</td>
+  <td><code>Build succeeded. 0 Warning(s) 0 Error(s)</code>; zero <code>npm</code>/<code>BuildMobileApp</code> lines in the build log. Confirmed by code: <code>CcDirector.Gateway.csproj</code> gates <code>RunMobileBuild</code> to <code>Configuration==Release or BuildMobile==true</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Negative control: exe-only delivery (no <code>wwwroot</code>) still 404s</td>
+  <td><code>GET /m/</code> returns 404 with "not built into this host" when <code>wwwroot/m</code> is absent beside the exe</td>
+  <td>Proof harness reproduced it: <code>GET /m/ -&gt; 404 : Mobile app not built into this Gateway (release build only).</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Setup-engine unit tests (mobile + updater staging)</td>
+  <td>All pass</td>
+  <td><code>Passed! - Failed: 0, Passed: 10</code> (MobilePackageTests + GatewayUpdaterMobileStagingTests)</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected vs Actual (QA evidence)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>Release asset includes <code>wwwroot/m</code> (index.html + hashed assets)</td>
+  <td>Expected: a release-built asset carries the mobile app. Actual: the proof harness Release-published the Gateway (ran the mobile npm build), then built <code>devthrottle-gateway-mobile-win-x64.zip</code> exactly as <code>release.yml</code> does &mdash; zip root entries are <code>index.html</code>, <code>assets/...</code>, <code>manifest.webmanifest</code>, <code>sw.js</code>, etc. <code>release.yml</code> uploads this zip and <code>create-release</code> lists it as a required asset.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>Freshly-installed (packaged-layout) Gateway: <code>GET /m/</code> returns 200, no "no wwwroot/m" log</td>
+  <td>Expected: 200 from the release layout. Actual: harness delivered the side-car zip into <code>wwwroot/m</code> beside the published host and served <code>GET /m/ -&gt; 200</code>; the Gateway log shows <code>[MobileApp] serving /m from ...\wwwroot\m (exists=True)</code> and the "no wwwroot/m" message is ABSENT. QA's own probe: <code>STATUS=200</code>, content-type <code>text/html</code>, hashed asset <code>/m/assets/index-DNsaXDpr.js -&gt; 200</code> (immutable cache).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Home roster (#806 page) renders at <code>/m/</code></td>
+  <td>Expected: the React Home roster renders. Actual: QA captured a phone-viewport (390&times;844, dpr 3) screenshot of the running release-layout Gateway. Page title <code>DevThrottle Mobile</code>; the React shell rendered the Home roster ("DevThrottle / Mission Control" header, "No sessions running" &mdash; correctly empty because the isolated temp Gateway has no live sessions). Token injected (<code>__GW_TOKEN__</code> present, raw <code>__GATEWAY_TOKEN__</code> placeholder absent).<br><img src="qa-ac3-home-roster.png" alt="phone-viewport Home roster"></td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td><code>scripts/redeploy-gateway.ps1</code> copies <code>wwwroot/m</code> beside the exe; 200 with no manual copy</td>
+  <td>Expected: the redeploy payload copy lands <code>wwwroot/m/index.html</code> beside the exe. Actual: <code>scripts/test/test-redeploy-gateway-mobile.ps1</code> (loads the REAL <code>Copy-GatewayPayload</code> via <code>-DefineOnly</code>, never touches 7878) &mdash; <code>RESULT: PASS</code>: exe + <code>wwwroot/m/index.html</code> + hashed asset land in the install dir, a stale <code>wwwroot</code> file does not survive a re-copy, and a stage missing <code>wwwroot/m</code> fails loud. The live deploy path additionally adds a <code>GET /m/ -&gt; 200</code> smoke gate (code-reviewed); the same serving code is proven 200 in AC2.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>Clean install AND self-update both leave <code>/m</code> served (no manual copy)</td>
+  <td>Expected: both delivery paths land <code>wwwroot/m</code>. Actual: clean install &mdash; <code>GatewayTrayInstaller</code> calls <code>MobilePackage.ExtractAsync</code> (download + SHA-verify + extract into <code>GatewayMobileDir</code>); verified by <code>ExtractAsync_PlacesIndexAndAssets_BesideTheExe</code>. Self-update &mdash; <code>GatewayUpdater.StageAsync</code> stages the matching mobile zip beside the staged exe (<code>StageAsync_StagesMobileZip_AlongsideExe</code>), and <code>Program.cs --apply-update</code> calls <code>MobilePackage.ExtractStagedZip</code> after the exe swap (<code>ExtractStagedZip_AppliesStagedZip_IntoWwwrootM</code>). Resulting layout serves <code>/m/ 200</code> per AC2.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>6</td>
+  <td>Gap 2 resolved: a published release carrying #806 propagates <code>/m</code> automatically via install + self-update</td>
+  <td>Expected: the normal release pipeline carries the mobile zip forward (no special opt-out needed). Actual: the exe and its mobile zip ship from the SAME release; <code>StageAsync</code> stages both, and a release WITHOUT the mobile asset clears any stale staged zip (<code>StageAsync_NoMobileAsset_RemovesStaleStagedZip</code>) so no out-of-date mobile build is applied over a newer exe. Thus a release including #806 propagates <code>/m</code> on both clean install and self-update with no manual step.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Full-solution Debug build clean: 0 errors, 0 warnings &mdash; no adjacent breakage.</li>
+<li><code>MobileApp.WebRoot</code> unchanged (<code>AppContext.BaseDirectory/wwwroot/m</code>) &mdash; no change to #806 serving; React/PWA code untouched.</li>
+<li>Mobile zip is SHA-256 verified on both the clean-install and self-update staging paths (no silent degrade), matching the existing Cockpit-zip security posture. No new blocking CenCon (DT) rule implicated; change is packaging/delivery only.</li>
+<li>Isolation honored: all Gateways launched by QA ran on free loopback ports under a temp <code>CC_DIRECTOR_ROOT</code>; the user's installed Gateway (pid on port 7878) and <code>config.json</code> were never touched; <code>redeploy-gateway.ps1</code> was never run against the live install.</li>
+</ul>
+
+<div class="verdict">
+VERIFIED &mdash; all 6 acceptance criteria met, plus the measurable bar (routine Debug build does not invoke npm; packaged release layout serves <code>/m</code> 200 with the Home roster; exe-only layout 404s). QA PASS.
+</div>
+
+</body>
+</html>
