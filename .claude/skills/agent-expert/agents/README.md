@@ -25,14 +25,14 @@ transcript parser. Ratings: Strong / Partial / None.
 
 | Agent | Context-usage reporting | Mechanism | Our driver |
 |-------|-------------------------|-----------|------------|
-| [Claude Code](claude-code.md) | Strong (implemented) | Transcript: latest assistant line's input + cache tokens; model-id -> window table for the percent | ClaudeDriver |
-| [Codex](codex.md) | None yet (planned) | Rollout transcript carries a usage block; extractor not written | CodexDriver |
-| [pi](pi.md) | None yet (planned) | In-process extension `ctx.getContextUsage()` (no transcript parse needed) | PiDriver |
+| [Claude Code](claude-code.md) | Strong (implemented) | Transcript: latest assistant line's input + cache tokens; model-id -> window table for the percent (self-corrects to 1M once context exceeds 200k, because the transcript strips the `[1m]` alias) | ClaudeDriver |
+| [Codex](codex.md) | Strong (implemented) | Rollout `token_count` event: `last_token_usage.input_tokens` for the used count and `model_context_window` for the window - Codex gives us the denominator, so nothing is guessed. Located by repo (no preassigned id). | CodexDriver |
+| [pi](pi.md) | Strong (implemented) | Session jsonl: latest assistant message's `usage.input`; window mapped from the model id (`PiContextWindow`: gpt-5.5 -> 272000, reuses the Claude table for Claude models). Located by repo. | PiDriver |
 | Gemini / Grok / opencode / Cursor / Copilot | None | not declared | GenericDriver / per-driver |
 
-Only ClaudeDriver declares `ContextUsage` today; Codex and pi are deliberately separate follow-up
-issues. A driver that does not declare the flag throws `NotSupportedException` from
-`ReadContextUsage`, and the desktop gauge / `GET /sessions/{sid}/context` are simply absent for it.
+ClaudeDriver, CodexDriver, and PiDriver declare `ContextUsage`. A driver that does not declare the
+flag throws `NotSupportedException` from the default `ReadContextUsage`, and the desktop gauge /
+`GET /sessions/{sid}/context` are simply absent for it.
 The window denominator is a driver-owned per-model table (200,000 tokens for the standard Claude
 models, 1,000,000 for the `[1m]` Opus id); an unmapped model falls back to the raw used-token count
 with no percent.

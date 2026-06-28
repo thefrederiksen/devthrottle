@@ -299,7 +299,10 @@ overrides -> stored credentials -> environment variables -> fallback resolver. [
   is not yet reverse-engineered, so PiDriver does not declare TranscriptRead. [VERIFIED from code]
   (PiDriver.cs: ReadWidgets/ReadUsage/ListTranscripts throw NotSupportedException).
 - Token usage: available live in the interactive footer and via RPC `get_state` /
-  `ctx.getContextUsage()`; not extracted from the jsonl by us. [VERIFIED from docs/code]
+  `ctx.getContextUsage()`. For the context gauge we DO extract it from the jsonl now:
+  `PiContextUsage` reads the latest assistant message's `message.usage.input` and maps the window from
+  `message.model` (`PiContextWindow`); `PiDriver` declares `ContextUsage`. Full transcript parsing
+  (ReadWidgets/ReadUsage) is still unimplemented. [VERIFIED from source] PiContextUsage.cs, PiDriver.cs
 
 ## 9. Session semantics
 

@@ -431,9 +431,11 @@ Why `notify` is NOT how we inject a preamble:
 - Codex appends to the rollout live; reads must use shared read access and tolerate a truncated
   final line. [VERIFIED from source] CodexTranscriptReader.cs
 - `--ephemeral` (exec) runs without persisting a rollout file. [VERIFIED from docs] cli/reference
-- Token usage: the rollout has `turn_context` and usage data, but our reader does NOT extract it;
-  CodexDriver.ReadUsage throws NotSupported. [VERIFIED from source] CodexDriver.cs
-- Parseable: yes. We do not yet expose it as a declared driver capability (see section 10).
+- Token usage: the rollout's `token_count` event carries `last_token_usage.input_tokens` (the live
+  context fullness) and `model_context_window` (the window). `CodexContextUsage` extracts the last one
+  for the context gauge; `CodexDriver.ReadUsage` (the full per-turn usage object) still throws
+  NotSupported. [VERIFIED from source] CodexContextUsage.cs, CodexDriver.cs
+- Parseable: yes, and exposed - `CodexDriver` declares `ContextUsage` (see section 10).
 
 ---
 
@@ -464,8 +466,9 @@ Why `notify` is NOT how we inject a preamble:
 ### Current classes
 
 - Driver: `CodexDriver` (src/CcDirector.Core/Drivers/CodexDriver.cs). Declared capabilities:
-  `Cancel | Interrupt | ClearContext`. Cancel = send Esc (0x1B); Interrupt = send Ctrl+C (0x03);
-  ClearContext = submit the literal `/clear`. ShowHistory, ReadWidgets, ReadUsage, and
+  `Cancel | Interrupt | ClearContext | ContextUsage`. Cancel = send Esc (0x1B); Interrupt = send Ctrl+C
+  (0x03); ClearContext = submit the literal `/clear`; ContextUsage = `CodexContextUsage.ReadForRepo`
+  (newest rollout for the cwd -> last `token_count`). ShowHistory, ReadWidgets, ReadUsage, and
   ListTranscripts all throw NotSupported. ModelFlag is empty and KnownModels is empty (we do not
   drive `--model`). [VERIFIED from source] CodexDriver.cs
 - Agent: `CodexAgent` (src/CcDirector.Core/Agents/CodexAgent.cs). SupportsPreassignedSessionId =
