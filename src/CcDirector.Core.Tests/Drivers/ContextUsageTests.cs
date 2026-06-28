@@ -1,3 +1,5 @@
+using CcDirector.Core.Agents;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -62,7 +64,7 @@ public sealed class ContextUsageTests
             LastMessageUtc = new DateTime(2026, 6, 27, 8, 0, 0, DateTimeKind.Utc),
         };
 
-        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", null);
 
         Assert.NotNull(ctx);
         Assert.Equal(42_000, ctx.UsedTokens);
@@ -81,7 +83,7 @@ public sealed class ContextUsageTests
             AssistantMessageCount = 1,
         };
 
-        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", null);
 
         Assert.NotNull(ctx);
         Assert.Equal(1_000_000, ctx.WindowTokens);
@@ -98,7 +100,7 @@ public sealed class ContextUsageTests
             AssistantMessageCount = 2,
         };
 
-        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo");
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", null);
 
         Assert.NotNull(ctx);
         Assert.Equal(12_345, ctx.UsedTokens);
@@ -111,27 +113,171 @@ public sealed class ContextUsageTests
     {
         // Transcript exists but carries no usage-bearing assistant line.
         var usage = new SessionUsageDto { AssistantMessageCount = 0 };
-        Assert.Null(DriverReturning(usage).ReadContextUsage("sid", "C:\\repo"));
+        Assert.Null(DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", null));
     }
 
     [Fact]
     public void ReadContextUsage_NoTranscript_ReturnsNull()
     {
-        Assert.Null(DriverReturning(null).ReadContextUsage("sid", "C:\\repo"));
+        Assert.Null(DriverReturning(null).ReadContextUsage("sid", "C:\\repo", null));
     }
 
-    // ---- The NotSupported guarantee on drivers without the flag ----
+    // ---- Issue #803: the launch model id is the authoritative window signal ----
+
+    [Fact]
+    public void ReadContextUsage_LaunchModelOneMillion_TranscriptStripped_SizesAgainstMillion()
+    {
+        // The real-world #803 case: the session was launched as opus[1m] but Claude's transcript
+        // records the model WITHOUT the [1m] suffix, so the transcript model alone would size it to
+        // 200k and read 61%. The launch args carry the authoritative [1m] window.
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 121_924,
+            ContextModel = "claude-opus-4-8", // stripped, as the real transcript records it
+            AssistantMessageCount = 5,
+        };
+
+        var ctx = DriverReturning(usage)
+            .ReadContextUsage("sid", "C:\\repo", "--dangerously-skip-permissions --model opus[1m]");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(121_924, ctx.UsedTokens);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.InRange(ctx.PercentUsed!.Value, 11.0, 13.0); // ~12.2%, NOT ~61%
+    }
+
+    [Theory]
+    [InlineData("--model claude-opus-4-8[1m]")] // equals-less, full transcript-style id
+    [InlineData("--model=opus[1m]")]            // equals form
+    public void ReadContextUsage_LaunchModelParsing_BothFlagForms_FindMillion(string launchArgs)
+    {
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 100_000,
+            ContextModel = "claude-opus-4-8",
+            AssistantMessageCount = 2,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", launchArgs);
+
+        Assert.NotNull(ctx);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.Equal(10.0, ctx.PercentUsed);
+    }
+
+    [Fact]
+    public void ReadContextUsage_StandardLaunchModel_StaysTwoHundredThousand()
+    {
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 30_000,
+            ContextModel = "claude-sonnet-4-5-20250929",
+            AssistantMessageCount = 1,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", "--model sonnet");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(200_000, ctx.WindowTokens);
+        Assert.Equal(15.0, ctx.PercentUsed);
+    }
+
+    [Fact]
+    public void ReadContextUsage_NoLaunchModel_FallsBackToTranscriptSelfCorrection()
+    {
+        // No --model in the launch args (provider default): fall back to the transcript model with
+        // observed-size self-correction. 250k observed cannot fit a 200k window, so it promotes to 1M.
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 250_000,
+            ContextModel = "claude-opus-4-8", // stripped; no [1m] signal except the observed size
+            AssistantMessageCount = 4,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", "--dangerously-skip-permissions");
+
+        Assert.NotNull(ctx);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.Equal(25.0, ctx.PercentUsed);
+    }
+
+    // ---- ClaudeContextWindow self-correcting (two-arg) fallback overload ----
+
+    [Theory]
+    [InlineData("claude-opus-4-8", 250_000, 1_000_000)] // over 200k -> promoted to 1M
+    [InlineData("claude-opus-4-8", 50_000, 200_000)]    // under 200k -> stays 200k (honest under-report)
+    [InlineData("sonnet", 50_000, 200_000)]             // standard family, low usage
+    public void WindowTokensForModel_Observed_SelfCorrectsUpwardOnly(string modelId, long observed, long expected)
+    {
+        Assert.Equal(expected, ClaudeContextWindow.WindowTokensForModel(modelId, observed));
+    }
+
+    [Fact]
+    public void WindowTokensForModel_Observed_UnmappedStaysNull()
+    {
+        Assert.Null(ClaudeContextWindow.WindowTokensForModel("gpt-4o", 999_999));
+    }
+
+    // ---- Issue #803 production path: the model comes from the configured DEFAULT, not per-session ----
+    //
+    // The real fleet bug: a session launched WITHOUT a per-session --model (so ClaudeArgs/userArgs is
+    // null) still runs opus[1m] because the model is in AgentOptions.DefaultClaudeArgs. The gauge must
+    // read the EFFECTIVE launch line (what SessionManager stores as Session.EffectiveLaunchArgs), which
+    // is the result of BuildLaunchSpec merging the default in - NOT the null per-session args. These
+    // tests prove that path end to end so a per-session-only fix can't masquerade as correct.
+
+    [Fact]
+    public void BuildLaunchSpec_ModelFromDefaultArgs_NoPerSessionArgs_EffectiveArgsCarryTheModel()
+    {
+        var agent = new ClaudeAgent(new AgentOptions { DefaultClaudeArgs = "--dangerously-skip-permissions --model opus[1m]" });
+
+        // userArgs null: the production default-launch path (no per-session override).
+        var spec = agent.BuildLaunchSpec(userArgs: null, resumeSessionId: null, studioMode: false);
+
+        Assert.Contains("--model opus[1m]", spec.Arguments);
+    }
+
+    [Fact]
+    public void ReadContextUsage_EffectiveArgsFromDefault_SizesOpusOneMillion()
+    {
+        // Simulate the stored Session.EffectiveLaunchArgs for a default-launched opus[1m] session.
+        var agent = new ClaudeAgent(new AgentOptions { DefaultClaudeArgs = "--dangerously-skip-permissions --model opus[1m]" });
+        var effectiveArgs = agent.BuildLaunchSpec(userArgs: null, resumeSessionId: null, studioMode: false).Arguments;
+
+        var usage = new SessionUsageDto
+        {
+            ContextTokens = 121_924,
+            ContextModel = "claude-opus-4-8", // transcript, [1m]-stripped
+            AssistantMessageCount = 5,
+        };
+
+        var ctx = DriverReturning(usage).ReadContextUsage("sid", "C:\\repo", effectiveArgs);
+
+        Assert.NotNull(ctx);
+        Assert.Equal(1_000_000, ctx.WindowTokens);
+        Assert.InRange(ctx.PercentUsed!.Value, 11.0, 13.0); // ~12.2%, the bug's correct reading
+    }
+
+    // ---- Capability declaration: Claude, Codex, and pi report context usage; others do not ----
+
+    [Fact]
+    public void CodexAndPi_DeclareContextUsage()
+    {
+        Assert.True(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.True(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+    }
 
     [Fact]
     public void ReadContextUsage_DriverWithoutFlag_Throws()
     {
-        Assert.False(new CodexDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
-        Assert.False(new PiDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        // Drivers that do NOT declare ContextUsage inherit the throwing default - honestly absent.
+        Assert.False(new CopilotDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
+        Assert.False(new CursorDriver().Capabilities.HasFlag(DriverCapabilities.ContextUsage));
 
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new CodexDriver()).ReadContextUsage("sid", "C:\\repo"));
+            () => ((IAgentDriver)new CopilotDriver()).ReadContextUsage("sid", "C:\\repo", null));
         Assert.Throws<NotSupportedException>(
-            () => ((IAgentDriver)new PiDriver()).ReadContextUsage("sid", "C:\\repo"));
+            () => ((IAgentDriver)new CursorDriver()).ReadContextUsage("sid", "C:\\repo", null));
     }
 
     [Fact]

@@ -30,7 +30,7 @@ public sealed class PiDriver : IAgentDriver
     public AgentKind Kind => AgentKind.Pi;
 
     public DriverCapabilities Capabilities =>
-        DriverCapabilities.Cancel | DriverCapabilities.ClearContext;
+        DriverCapabilities.Cancel | DriverCapabilities.ClearContext | DriverCapabilities.ContextUsage;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => PiSlashCommands.All;
 
@@ -88,6 +88,14 @@ public sealed class PiDriver : IAgentDriver
 
     public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException("[PiDriver] pi transcript parsing is not implemented (v1).");
+
+    /// <summary>How full the pi context window is right now (capability
+    /// <see cref="DriverCapabilities.ContextUsage"/>). pi's session file carries per-message
+    /// <c>usage.input</c> and the model id; the window is mapped from the model via PiContextWindow
+    /// (pi does not record it). Located by repo path (pi has no Director-preassigned id); the launch
+    /// args are not used.</summary>
+    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory, string? launchArgs) =>
+        Pi.PiContextUsage.ReadForRepo(workingDirectory);
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) =>
         throw new NotSupportedException("[PiDriver] pi transcript listing is not implemented (v1).");

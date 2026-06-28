@@ -20,7 +20,8 @@ public sealed class CodexDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel
         | DriverCapabilities.Interrupt
-        | DriverCapabilities.ClearContext;
+        | DriverCapabilities.ClearContext
+        | DriverCapabilities.ContextUsage;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => CodexSlashCommands.All;
 
@@ -100,6 +101,13 @@ public sealed class CodexDriver : IAgentDriver
 
     public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException("[CodexDriver] Codex token usage reading is not implemented.");
+
+    /// <summary>How full the Codex context window is right now (capability
+    /// <see cref="DriverCapabilities.ContextUsage"/>). Codex writes its own <c>token_count</c> event
+    /// to the rollout carrying both the used tokens and the model window, so nothing is guessed - the
+    /// launch args are not needed. Located by repo path (Codex has no Director-preassigned id).</summary>
+    public ContextUsageDto? ReadContextUsage(string agentSessionId, string workingDirectory, string? launchArgs) =>
+        Codex.CodexContextUsage.ReadForRepo(workingDirectory);
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) =>
         throw new NotSupportedException(
