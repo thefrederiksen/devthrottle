@@ -161,7 +161,7 @@ public sealed class SessionManager : IDisposable
     /// Create a session by resolving the requested built-in CLI plugin and asking it for the
     /// launch strategy. This is the plugin-backed path new callers should use.
     /// </summary>
-    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null)
+    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
     {
         return CreateSession(
             repoPath,
@@ -173,7 +173,8 @@ public sealed class SessionManager : IDisposable
             groupId,
             groupRole,
             groupName,
-            nameFactory);
+            nameFactory,
+            controllerSessionId);
     }
 
     /// <summary>
@@ -193,7 +194,10 @@ public sealed class SessionManager : IDisposable
     /// <see cref="Session.CustomName"/>, so the session is named in the create call rather than
     /// only by a later rename. The id is passed in so the name can carry an id-derived
     /// disambiguator. Null leaves the session unnamed (legacy behavior).</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null)
+    /// <param name="controllerSessionId">The controlling session's id (issue #815) when this
+    /// session is spawned as a controlled sub-agent; null for a normal session. Set ONLY here at
+    /// birth and immutable afterwards. Drives the recessive "Supporting" status color.</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -242,6 +246,7 @@ public sealed class SessionManager : IDisposable
             GroupId = groupId,
             GroupRole = groupRole,
             GroupName = groupName,
+            ControllerSessionId = controllerSessionId,
             // The EFFECTIVE launch line (userArgs merged with the configured agent defaults) is the
             // authoritative source of the launched --model value for the context gauge (issue #803).
             // `userArgs`/ClaudeArgs is null when the model comes from the default, not a per-session
@@ -811,6 +816,7 @@ public sealed class SessionManager : IDisposable
                 GroupId = s.GroupId,
                 GroupRole = s.GroupRole,
                 GroupName = s.GroupName,
+                ControllerSessionId = s.ControllerSessionId,
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
                 WingmanEnabled = s.WingmanEnabled,
@@ -853,6 +859,7 @@ public sealed class SessionManager : IDisposable
         session.GroupId = ps.GroupId;
         session.GroupRole = ps.GroupRole;
         session.GroupName = ps.GroupName;
+        session.ControllerSessionId = ps.ControllerSessionId;
         session.WingmanEnabled = ps.WingmanEnabled;
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.

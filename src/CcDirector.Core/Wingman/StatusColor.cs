@@ -17,6 +17,10 @@ namespace CcDirector.Core.Wingman;
 ///   purple  = the Wingman read the screen and determined the session is parked on its OWN
 ///             background task (a long build, "N shell still running") and will resume on
 ///             its own - so it does NOT need the user. An overlay on top of a red turn-end.
+///   supporting = this session is a controlled sub-agent (issue #815): another session spawned
+///             it and is driving it, so it recedes to a muted slate (#64748B) rather than
+///             demanding the operator's attention. Honored only while the controlling session is
+///             still alive; a red "needs you" still breaks through (red > supporting > the rest).
 ///   unknown = process exited, or the data source is unreachable/unparseable.
 ///             Rendered as gray. NOT a session state per se.
 ///
@@ -37,6 +41,12 @@ public static class StatusColor
     public const string Green = "green";
     public const string Blue = "blue";
     public const string Purple = "purple";
+
+    /// <summary>A controlled sub-agent (issue #815): another session spawned and drives it, so it
+    /// recedes to a muted slate. Painted only while its controller is alive; red "needs you" wins
+    /// over it. Rendered as <c>#64748B</c> by every client.</summary>
+    public const string Supporting = "supporting";
+
     public const string Unknown = "unknown";
 
     /// <summary>

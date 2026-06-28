@@ -2783,6 +2783,15 @@ internal static class ControlEndpoints
             var explicitName = req.Name;
             var purpose = req.Purpose;
 
+            // Issue #815: a controlled "Supporting" sub-agent carries the spawning session's id.
+            // Parse it here; an absent or unparseable value leaves the session a normal
+            // (uncontrolled) session - the relationship is set only at birth, so there is no later
+            // toggle.
+            Guid? controllerSessionId = null;
+            if (!string.IsNullOrWhiteSpace(req.ControllerSessionId)
+                && Guid.TryParse(req.ControllerSessionId, out var parsedControllerId))
+                controllerSessionId = parsedControllerId;
+
             Session session;
             try
             {
@@ -2794,7 +2803,8 @@ internal static class ControlEndpoints
                     resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId,
                     sessionType: sessionType,
                     nameFactory: id => SessionName.Compose(
-                        repoFolderName, sessionType, explicitName, purpose, SessionName.Disambiguator(id)));
+                        repoFolderName, sessionType, explicitName, purpose, SessionName.Disambiguator(id)),
+                    controllerSessionId: controllerSessionId);
             }
             catch (Exception ex)
             {

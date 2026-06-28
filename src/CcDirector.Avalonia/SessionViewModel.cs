@@ -34,6 +34,10 @@ public class SessionViewModel : INotifyPropertyChanged
     // Purple "running in background" - the Wingman determined the session is parked on its own
     // background task, not on the user. Matches Web/directory.html --purple (#a855f7).
     private static readonly ISolidColorBrush PurpleStatusBrush  = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));
+    // Slate "Supporting" (issue #815) - a controlled sub-agent another session is driving. Recessive
+    // like the grays so it does not nag the operator, but its cool-blue tint sets it apart from the
+    // exited gray (#6a6a6a) and the on-hold light gray (#9ca3af).
+    private static readonly ISolidColorBrush SupportingStatusBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
     private static readonly ISolidColorBrush UnknownStatusBrush = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
 
     // Light gray shown when the user has manually parked a session on hold. Deliberately
@@ -111,6 +115,7 @@ public class SessionViewModel : INotifyPropertyChanged
                 "yellow" => YellowStatusBrush,
                 "red"    => RedStatusBrush,
                 "purple" => PurpleStatusBrush,
+                "supporting" => SupportingStatusBrush,
                 _        => UnknownStatusBrush,
             };
         }

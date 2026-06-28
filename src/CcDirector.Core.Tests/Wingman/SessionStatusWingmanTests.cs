@@ -1,3 +1,4 @@
+using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Memory;
@@ -426,6 +427,114 @@ public sealed class SessionStatusWingmanTests
             Assert.Equal(StatusColor.Red, session.StatusColor);
         }
         finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    // ---------- Supporting overlay (controlled sub-agent, issue #815) ----------
+    // A sub-agent another session spawned and drives recedes to slate "Supporting" while working,
+    // EXCEPT red "needs you" breaks through, and it reverts to normal once its controller is gone.
+
+    [Fact]
+    public void Controlled_subagent_while_working_is_supporting()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (controller, _) = CreateBufferSession(manager);   // the controlling session, alive
+            var (child, _) = CreateBufferSession(manager);
+            child.ControllerSessionId = controller.Id;
+            child.IsBrandNew = false;
+
+            // Working would normally be blue; the Supporting overlay recedes it to slate because a
+            // live controller is driving it.
+            child.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal(StatusColor.Supporting, child.StatusColor);
+            Assert.StartsWith("supporting", child.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Controlled_subagent_needing_user_shows_red_breaking_through()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (controller, _) = CreateBufferSession(manager);
+            var (child, _) = CreateBufferSession(manager);
+            child.ControllerSessionId = controller.Id;
+            child.IsBrandNew = false; // post-first-turn: a turn-end is red "needs you", not green "ready"
+
+            // A blocked sub-agent must still surface: red "needs you" wins over Supporting so the
+            // operator sees it even though another session is nominally in charge.
+            child.ApplyTerminalActivityState(ActivityState.Working);
+            child.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, child.StatusColor);
+            Assert.Equal("needs you", child.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Controlled_subagent_reverts_to_normal_when_controller_exits()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (controller, _) = CreateBufferSession(manager);
+            var (child, _) = CreateBufferSession(manager);
+            child.ControllerSessionId = controller.Id;
+            child.IsBrandNew = false;
+
+            child.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal(StatusColor.Supporting, child.StatusColor);
+
+            // The controller exits: the child loses its driver and reverts to its normal colour
+            // (blue "working") even though the child's own activity has not changed.
+            controller.ApplyTerminalActivityState(ActivityState.Exited);
+            Assert.Equal(StatusColor.Blue, child.StatusColor);
+            Assert.Equal("working", child.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Uncontrolled_session_is_never_supporting()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.False(session.IsControlled);
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void CreateSession_stamps_ControllerSessionId_and_IsControlled()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var controllerId = Guid.NewGuid();
+            var session = manager.CreateSession(
+                Path.GetTempPath(), AgentKind.ClaudeCode, null, SessionBackendType.ConPty,
+                resumeSessionId: null, controllerSessionId: controllerId);
+
+            Assert.Equal(controllerId, session.ControllerSessionId);
+            Assert.True(session.IsControlled);
+        }
+        finally { manager.Dispose(); }
     }
 
     [Fact]

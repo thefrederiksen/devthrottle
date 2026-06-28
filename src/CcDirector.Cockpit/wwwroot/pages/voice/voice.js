@@ -83,6 +83,7 @@
       case "yellow": return "#F59E0B";
       case "orange": return "#F97316";
       case "red":    return "#F14C4C";
+      case "supporting": return "#64748B"; // issue #815: controlled sub-agent, recessive slate
       default:       return "#6B7280"; // grey / unknown / on-hold
     }
   }

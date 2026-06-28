@@ -59,6 +59,7 @@ public sealed class SessionStatusWingman : IDisposable
         FileLog.Write("[SessionStatusWingman] Start");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
 
         // Wire existing sessions (restored from persistence on Director boot).
         foreach (var s in _sessionManager.ListSessions())
@@ -67,12 +68,70 @@ public sealed class SessionStatusWingman : IDisposable
 
     private void OnSessionCreated(Session session) => WireSession(session, isNew: true);
 
+    // Issue #815: a removed session can be the controller of one or more sub-agents. Repaint those
+    // children so they drop the Supporting color and revert to normal now that nobody drives them.
+    private void OnSessionRemoved(Session session) => RecomputeControlledChildren(session.Id);
+
+    /// <summary>
+    /// Resolve a session's colour through <see cref="ColorFor"/>, first looking up whether its
+    /// controlling session (issue #815) is still alive and its display name. For an uncontrolled
+    /// session this is just the plain activity/Wingman colour.
+    /// </summary>
+    private (string color, string reason) ComputeColor(Session session, bool isNew)
+    {
+        var (alive, name) = ResolveController(session);
+        return ColorFor(session, isNew, alive, name);
+    }
+
+    /// <summary>
+    /// Look up this session's controlling session (issue #815). Returns whether it is still alive
+    /// (exists in the manager AND has not exited) and its display name. A session with no controller,
+    /// or whose controller is gone, returns <c>(false, null)</c> so it paints normally.
+    /// </summary>
+    private (bool alive, string? name) ResolveController(Session session)
+    {
+        if (session.ControllerSessionId is not Guid controllerId)
+            return (false, null);
+
+        var controller = _sessionManager.GetSession(controllerId);
+        if (controller is null || controller.ActivityState == ActivityState.Exited)
+            return (false, null);
+
+        return (true, controller.CustomName);
+    }
+
+    /// <summary>
+    /// Repaint every controlled sub-agent (issue #815) whose controller is the given session id.
+    /// Called when that controller exits or is removed: the children's own activity has not changed,
+    /// so this is what flips them off the Supporting color back to their normal colour. Both callers
+    /// mean "this controller is definitively gone", so the children are repainted with the controller
+    /// treated as not alive - we do NOT re-resolve it (on the removal path it may still linger in the
+    /// roster for an instant, which would wrongly read as alive and keep the Supporting color).
+    /// </summary>
+    private void RecomputeControlledChildren(Guid controllerId)
+    {
+        foreach (var child in _sessionManager.ListSessions())
+        {
+            if (child.ControllerSessionId != controllerId) continue;
+            try
+            {
+                var (c, r) = ColorFor(child, isNew: false, controllerAlive: false);
+                child.SetStatusColor(c, r);
+                FileLog.Write($"[SessionStatusWingman] controller {controllerId} gone -> repaint sub-agent {child.Id} => {c} ({r})");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionStatusWingman] RecomputeControlledChildren failed for {child.Id}: {ex.Message}");
+            }
+        }
+    }
+
     private void WireSession(Session session, bool isNew)
     {
         if (_activityHandlers.ContainsKey(session.Id)) return;
 
         // Initialize colour from the current activity state.
-        var (color, reason) = ColorFor(session, isNew);
+        var (color, reason) = ComputeColor(session, isNew);
         session.SetStatusColor(color, reason);
         FileLog.Write($"[SessionStatusWingman] init {session.Id} -> {color} ({reason})");
 
@@ -92,7 +151,7 @@ public sealed class SessionStatusWingman : IDisposable
         {
             try
             {
-                var (c, r) = ColorFor(session, isNew: false);
+                var (c, r) = ComputeColor(session, isNew: false);
                 session.SetStatusColor(c, r);
                 FileLog.Write($"[SessionStatusWingman] {session.Id} activity {oldState}->{newState} => {c} ({r})");
 
@@ -108,6 +167,12 @@ public sealed class SessionStatusWingman : IDisposable
                 if (newState == ActivityState.WaitingForInput
                     && _injectionWatchers.TryGetValue(session.Id, out var w))
                     w.RequestImmediateScan();
+
+                // Issue #815: when THIS session exits, any sub-agents it was controlling lose their
+                // controller and must drop the recessive Supporting color, reverting to normal. Their
+                // own activity has not changed, so nothing else would repaint them - do it here.
+                if (newState == ActivityState.Exited)
+                    RecomputeControlledChildren(session.Id);
             }
             catch (Exception ex)
             {
@@ -126,7 +191,7 @@ public sealed class SessionStatusWingman : IDisposable
         {
             try
             {
-                var (c, r) = ColorFor(session, isNew: false);
+                var (c, r) = ComputeColor(session, isNew: false);
                 session.SetStatusColor(c, r);
                 FileLog.Write($"[SessionStatusWingman] {session.Id} explaining={isExplaining} => {c} ({r})");
             }
@@ -148,7 +213,7 @@ public sealed class SessionStatusWingman : IDisposable
         {
             try
             {
-                var (c, r) = ColorFor(session, isNew: false);
+                var (c, r) = ComputeColor(session, isNew: false);
                 session.SetStatusColor(c, r);
                 FileLog.Write($"[SessionStatusWingman] {session.Id} briefingState={state} => {c} ({r})");
             }
@@ -169,7 +234,7 @@ public sealed class SessionStatusWingman : IDisposable
         {
             try
             {
-                var (c, r) = ColorFor(session, isNew: false);
+                var (c, r) = ComputeColor(session, isNew: false);
                 session.SetStatusColor(c, r);
                 FileLog.Write($"[SessionStatusWingman] {session.Id} backgroundRunning={isBackground} => {c} ({r})");
             }
@@ -242,14 +307,48 @@ public sealed class SessionStatusWingman : IDisposable
     }
 
     /// <summary>
+    /// Resolve the dot colour for a session, layering the controlled-sub-agent "Supporting"
+    /// overlay (issue #815) on top of the activity/Wingman colour from <see cref="ResolveActivityColor"/>.
+    ///
+    /// Precedence: red "needs you" &gt; Supporting &gt; every other activity colour. A controlled
+    /// sub-agent recedes to slate while ANOTHER session drives it, so the operator is not nagged -
+    /// but only while that controller is still alive (<paramref name="controllerAlive"/>), and never
+    /// at the cost of hiding a genuinely blocked sub-agent: if the underlying colour is red the red
+    /// wins and breaks through. When the controller is gone the session paints normally again.
+    /// </summary>
+    /// <param name="controllerAlive">Whether this session's controlling session still exists and
+    /// has not exited. The caller resolves this (see <see cref="ResolveController"/>); pure unit
+    /// tests pass it explicitly. Defaults false so an uncontrolled session is unaffected.</param>
+    /// <param name="controllerName">Display name of the controlling session, for the tooltip reason
+    /// ("supporting &lt;name&gt;"). Null falls back to "another session".</param>
+    internal static (string color, string reason) ColorFor(Session session, bool isNew,
+        bool controllerAlive = false, string? controllerName = null)
+    {
+        var resolved = ResolveActivityColor(session, isNew);
+
+        // Supporting overlay (issue #815): recede a controlled sub-agent to slate while its
+        // controller drives it, EXCEPT red "needs you" breaks through so a blocked sub-agent still
+        // surfaces. Honored only while the controller is alive; otherwise the session paints normally.
+        if (session.IsControlled && controllerAlive
+            && !string.Equals(resolved.color, StatusColor.Red, StringComparison.OrdinalIgnoreCase))
+        {
+            var who = string.IsNullOrWhiteSpace(controllerName) ? "another session" : controllerName.Trim();
+            return (StatusColor.Supporting, $"supporting {who}");
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
     /// Resolve the dot colour for a session given its current ActivityState plus the
     /// Wingman overlays (BriefingState, IsExplaining, IsBackgroundRunning). Yellow is
     /// emitted only when the session is parked at a turn-end (WaitingForInput /
     /// WaitingForPerm) and a wingman read is in flight - either the turn-brief pipeline
     /// (BriefingState=Briefing, all sessions) or the legacy auto-explain (IsExplaining,
     /// WingmanEnabled only). Otherwise the colour is the plain activity-state mapping above.
+    /// This is the colour BEFORE the controlled-sub-agent overlay in <see cref="ColorFor"/>.
     /// </summary>
-    internal static (string color, string reason) ColorFor(Session session, bool isNew)
+    internal static (string color, string reason) ResolveActivityColor(Session session, bool isNew)
     {
         var baseColor = ColorFromActivityState(session.ActivityState, isNew);
 
@@ -295,6 +394,7 @@ public sealed class SessionStatusWingman : IDisposable
         _disposed = true;
 
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
         {
             if (_activityHandlers.TryRemove(s.Id, out var h))

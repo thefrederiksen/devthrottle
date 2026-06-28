@@ -28,7 +28,7 @@
   var current=null, spoken="", busy=false, audioUrl=null, audioReady=false, rec=null, blocked={};
   var CHUNK=64*1024;
   var T={ list:15000, explain:90000, direct:90000, turn:180000, http:30000, transcribe:90000 };
-  var COLORS={ red:"#F14C4C", yellow:"#F59E0B", orange:"#F97316", green:"#22C55E", blue:"#3B82F6", purple:"#A855F7" };
+  var COLORS={ red:"#F14C4C", yellow:"#F59E0B", orange:"#F97316", green:"#22C55E", blue:"#3B82F6", purple:"#A855F7", supporting:"#64748B" };
   function dotColor(c){ return COLORS[c]||"#6B7280"; }
   // The ONE effective color (mirrors gateway SessionOrdering.EffectiveColor): a session the
   // wingman is reading/summarizing shows yellow ("not ready yet"), a user-requested explain

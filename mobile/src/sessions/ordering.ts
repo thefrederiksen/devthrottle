@@ -66,6 +66,7 @@ const COLORS: Record<string, string> = {
   green: "#22C55E",
   blue: "#3B82F6",
   purple: "#A855F7",
+  supporting: "#64748B", // issue #815: controlled sub-agent, recessive slate
   grey: "#6B7280",
 };
 

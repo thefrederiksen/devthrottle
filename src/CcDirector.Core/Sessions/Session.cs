@@ -139,6 +139,18 @@ public sealed class Session : IDisposable
     /// group header. Same for every member of a group; null for a solo session.</summary>
     public string? GroupName { get; internal set; }
 
+    /// <summary>When this session was spawned to be controlled by ANOTHER session (issue #815) -
+    /// a "Supporting" sub-agent - the id of the controlling session; null for a normal session.
+    /// Set ONLY at birth and immutable afterwards (stamped by the create/restore paths, like
+    /// <see cref="GroupId"/>). Drives the recessive "Supporting" status color, which is honored
+    /// only while the controlling session still exists; a red "needs you" still breaks through.</summary>
+    public Guid? ControllerSessionId { get; internal set; }
+
+    /// <summary>True when this session is a controlled sub-agent (issue #815) - it carries a
+    /// <see cref="ControllerSessionId"/>. Whether the recessive "Supporting" color is actually
+    /// painted also depends on the controller still being alive; see the SessionStatusWingman.</summary>
+    public bool IsControlled => ControllerSessionId.HasValue;
+
     public Guid Id { get; }
     public string RepoPath { get; }
     public string WorkingDirectory { get; }

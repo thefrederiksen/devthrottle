@@ -49,6 +49,11 @@ public class PersistedSession
     /// <summary>The group's display name (issue #225), null for solo sessions.</summary>
     public string? GroupName { get; set; }
 
+    /// <summary>The controlling session's id (issue #815) when this session is a controlled
+    /// sub-agent; null for a normal session. Persisted so the controlled relationship survives a
+    /// restart - it is set only at birth and never changes.</summary>
+    public Guid? ControllerSessionId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>Order in the session list, used to restore UI order after restart.</summary>

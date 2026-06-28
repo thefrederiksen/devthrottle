@@ -84,6 +84,15 @@ public sealed class NewSessionRequest
     /// create a session with the Wingman experience on.
     /// </summary>
     public bool WingmanEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Optional id of the session that is spawning and controlling this one (issue #815). When set,
+    /// the new session is born as a controlled "Supporting" sub-agent of that session and shows the
+    /// recessive Supporting status color while its controller is alive (a red "needs you" still
+    /// breaks through). Set ONLY at birth - there is no way to mark/unmark control later. Must be a
+    /// session id (GUID string); an unparseable value is ignored and the session is born normal.
+    /// </summary>
+    public string? ControllerSessionId { get; set; }
 }
 
 /// <summary>

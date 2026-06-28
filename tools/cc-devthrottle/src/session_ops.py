@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
@@ -301,8 +302,24 @@ def spawn_session(
     session_type: Optional[str],
     command: Optional[str],
     command_args: Optional[str],
+    controlled_by: Optional[str] = None,
 ) -> None:
     """Open a new session on the local Director."""
+    # Issue #815: spawn the new session as a controlled "Supporting" sub-agent of another session.
+    # The literal "self" means "controlled by ME" - resolved from CC_SESSION_ID, the id this very
+    # session runs under. Any other value is used verbatim as the controlling session's id.
+    controller_session_id: Optional[str] = None
+    if controlled_by:
+        if controlled_by.lower() == "self":
+            controller_session_id = os.environ.get("CC_SESSION_ID")
+            if not controller_session_id:
+                console.print(
+                    "[red]Error:[/red] --controlled-by self requires CC_SESSION_ID to be set, but it "
+                    "is not. Run this from inside a session, or pass an explicit controlling session id."
+                )
+                raise typer.Exit(1)
+        else:
+            controller_session_id = controlled_by
     # Issue #800: always name your session. On this fleet many sessions run in the same
     # checkout, so a session with neither a name nor a purpose still gets an auto-composed
     # name from the Director, but it reads better when you describe what it is FOR.
@@ -325,6 +342,8 @@ def spawn_session(
         body["command"] = command
     if command_args:
         body["commandArgs"] = command_args
+    if controller_session_id:
+        body["controllerSessionId"] = controller_session_id
 
     try:
         resp = director.post_json("sessions", body)

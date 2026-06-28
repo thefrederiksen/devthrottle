@@ -26,6 +26,8 @@ public partial class TalkPage : ContentPage
     private static readonly Color DotBlue = Color.FromArgb("#2B6CB0");
     private static readonly Color DotYellow = Color.FromArgb("#E8B339");
     private static readonly Color DotRed = Color.FromArgb("#E5484D");
+    // Issue #815: a controlled sub-agent another session is driving - recessive slate.
+    private static readonly Color DotSupporting = Color.FromArgb("#64748B");
     private static readonly Color DotGray = Color.FromArgb("#5A6378");
 
     private readonly IUtteranceRecorder _recorder;
@@ -301,6 +303,7 @@ public partial class TalkPage : ContentPage
         "blue" => DotBlue,
         "yellow" => DotYellow,
         "red" => DotRed,
+        "supporting" => DotSupporting,
         _ => DotGray,
     };
 

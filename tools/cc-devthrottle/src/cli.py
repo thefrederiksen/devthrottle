@@ -348,9 +348,19 @@ def spawn(
     command_args: Optional[str] = typer.Option(
         None, "--command-args", help="For --agent RawCli: arguments for the command."
     ),
+    controlled_by: Optional[str] = typer.Option(
+        None,
+        "--controlled-by",
+        help="Spawn the new session as a controlled 'Supporting' sub-agent of another session "
+        "(issue #815). Pass 'self' to mean controlled by this session (resolved from CC_SESSION_ID), "
+        "or an explicit controlling session id. The sub-agent shows the recessive Supporting color "
+        "while its controller is alive; a red 'needs you' still breaks through.",
+    ),
 ) -> None:
     """Open a new session on the local Director and print its id."""
-    spawn_session(repo, agent, prompt, name, purpose, session_type, command, command_args)
+    spawn_session(
+        repo, agent, prompt, name, purpose, session_type, command, command_args, controlled_by
+    )
 
 
 @message_app.command("send")

@@ -96,9 +96,10 @@ public sealed class SessionDto
     /// from other fields.
     /// Values: "blue" (agent is working), "red" (needs the user - input/permission/idle),
     /// "yellow" (the Wingman is reading the screen and narrating), "purple" (parked on its
-    /// own background task, will resume itself), "unknown" (process exited, or source
-    /// unreachable/unparseable - rendered gray). On-hold is separate: see <see cref="OnHold"/>.
-    /// ("green" is legacy and no longer emitted.)
+    /// own background task, will resume itself), "supporting" (a controlled sub-agent another
+    /// session is driving - issue #815, rendered as a recessive slate #64748B), "unknown"
+    /// (process exited, or source unreachable/unparseable - rendered gray). On-hold is separate:
+    /// see <see cref="OnHold"/>. ("green" is legacy and no longer emitted.)
     /// </summary>
     public string StatusColor { get; set; } = "unknown";
 
