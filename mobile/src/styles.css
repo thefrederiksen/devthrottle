@@ -909,3 +909,207 @@ body {
   color: #57c77d;
   font-size: 11px;
 }
+
+/* ===== Add-session flow + session management (issue #812) =====
+   The "+ New session" roster entry, the machine/repo pickers on the add screen, and the large
+   Hold/Resume + Remove buttons (plus the Remove confirmation) on the session screen. All colors
+   come from the theme tokens or reuse the Android-tab palette already defined above. */
+
+/* "+ New session" entry on the Home roster: a prominent accent-bordered tap target. */
+.new-session-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  min-height: 52px;
+  background: var(--surface);
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+
+.new-session-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Machine / repo picker rows on the add screen. The row chrome reuses .row; .picker-link is the
+   full-width button inside it (the roster uses an <a>, the pickers use <button> for the tap). */
+.picker-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  min-height: 56px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.picker-link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.row-selected {
+  border-color: var(--accent);
+}
+
+.picker-check {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.newsession-manual-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.newsession-manual {
+  display: flex;
+  gap: 8px;
+}
+
+.newsession-manual > .term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.newsession-create {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* Hold/Resume + Remove: large buttons on the session screen (owner decision A). */
+.session-manage {
+  flex: 0 0 auto;
+  padding: 8px 2px 2px;
+}
+
+.session-manage-row {
+  display: flex;
+  gap: 8px;
+}
+
+.manage-btn {
+  flex: 1 1 0;
+  min-height: 50px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.manage-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Hold = amber (defer), Resume = green (re-activate), Remove = red (destructive) - matching the
+   Android-tab semantic palette already used by .term-esc / .term-enter / .term-stop. */
+.manage-hold { background: #e8b339; color: #221a06; }
+.manage-resume { background: #5fd08a; color: #06210f; }
+.manage-remove { background: #e5484d; color: #ffffff; }
+
+.manage-held-pill {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Remove confirmation: a phone-sized modal over the session screen. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.confirm-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: var(--text);
+}
+
+.confirm-text {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-btn {
+  flex: 1 1 0;
+  min-height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.confirm-cancel {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.confirm-remove {
+  background: #e5484d;
+  color: #ffffff;
+  border-color: #e5484d;
+}

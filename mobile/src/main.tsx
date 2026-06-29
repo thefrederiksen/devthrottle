@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Home } from "./pages/Home";
+import { NewSession } from "./pages/NewSession";
 import { Terminal } from "./pages/Terminal";
 import { Chat } from "./pages/Chat";
 import { ensureGatewayCookie } from "./api/client";
@@ -18,6 +19,7 @@ ensureGatewayCookie();
 const router = createBrowserRouter(
   [
     { path: "/", element: <Home /> },
+    { path: "/new", element: <NewSession /> },
     { path: "/session/:sessionId", element: <Terminal /> },
     { path: "/session/:sessionId/chat", element: <Chat /> },
   ],

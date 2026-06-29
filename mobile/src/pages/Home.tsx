@@ -54,6 +54,13 @@ export function Home() {
         </div>
       )}
 
+      {/* "+ New session" entry (issue #812): opens the add-session flow (machine -> repo -> create),
+          a faithful translation of the Android NewSessionPanel. */}
+      <Link className="new-session-entry" to="/new">
+        <span className="new-session-plus" aria-hidden="true">+</span>
+        New session
+      </Link>
+
       {sessions === null && error === null && <p className="status-line">Loading sessions...</p>}
 
       {sessions !== null && all.length === 0 && (
