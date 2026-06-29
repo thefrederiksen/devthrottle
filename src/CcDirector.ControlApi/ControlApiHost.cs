@@ -214,6 +214,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         // badge colour: a silent session could never flip to the red "needs you" state.
         StartSessionStateServices();
 
+        // Issue #846: one-time session-number backfill at Director startup. By this point every
+        // session the manager already tracks - sessions restored from persistence or carried over
+        // from a pre-#820 build - is in place, so a single pass numbers any that still lack a
+        // three-digit number (sessions created from now on are numbered at creation by
+        // RaiseSessionCreated -> AssignSessionNumber). Like the state services above, this runs
+        // BEFORE the port bind, so a Director whose Control API fails to bind still numbers its
+        // existing sessions. The method itself logs per-session; the count is logged here.
+        var backfilledAtStartup = _sessionManager.BackfillNumbers();
+        FileLog.Write($"[ControlApiHost] Startup session-number backfill assigned {backfilledAtStartup} number(s)");
+
         // Load the gateway config FIRST: the addressing mode (issue #457) decides the bind
         // interface below, and it is reused for the GatewayClient + session DTO mapper.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();

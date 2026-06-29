@@ -137,6 +137,39 @@ internal static class SessionWsProxyEndpoints
                 await ctx.Response.WriteAsJsonAsync(new { error = $"director unreachable ({error})" });
             }
         });
+
+        // Issue #846: DIRECTOR-scoped session-number backfill trigger. Like /directors/{id}/settings
+        // the routing key is the Director id (a plain registry lookup, no session-ownership fan-out),
+        // because the per-session /sessions/{sid}/{**rest} catch-all would treat "backfill-numbers"
+        // as a session id and 404. An operator POSTs here to number a chosen running Director's
+        // existing sessions with NO restart; the request forwards to that Director's
+        // /admin/backfill-numbers and the {"assigned":N} body streams back. 404 for an unknown
+        // Director id; a failed forward is 503, exactly like the settings leg.
+        app.MapPost("/directors/{id}/backfill-numbers", async (string id, HttpContext ctx) =>
+        {
+            FileLog.Write($"[SessionWsProxy] open leg=dirbackfill director={id} client={ctx.Connection.RemoteIpAddress}");
+            var d = registry.Get(id);
+            if (d is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                await ctx.Response.WriteAsJsonAsync(new { error = "no such director" });
+                return;
+            }
+            var destination = ForwardDestination(d);
+            if (destination is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await ctx.Response.WriteAsJsonAsync(new { error = "director has no reachable endpoint" });
+                return;
+            }
+            var error = await proxy.ForwardAsync(ctx, destination, "/admin/backfill-numbers");
+            if (error != ForwarderError.None && !ctx.Response.HasStarted)
+            {
+                FileLog.Write($"[SessionWsProxy] leg=dirbackfill director={id} -> 503 (forwarder error {error})");
+                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await ctx.Response.WriteAsJsonAsync(new { error = $"director unreachable ({error})" });
+            }
+        });
     }
 
     /// <summary>
