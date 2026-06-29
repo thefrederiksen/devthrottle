@@ -1,0 +1,31 @@
+{
+  "bearerSeen": "Bearer test-bearer-abc123",
+  "sessionsStatus": 200,
+  "sessionsCalls": 3,
+  "navUrlAfterTap": "http://127.0.0.1:4318/m/session/s-long-1",
+  "docRouteHits": 1,
+  "placeholderFound": true,
+  "allHeaders": {
+    "accept": "application/json",
+    "authorization": "Bearer test-bearer-abc123",
+    "cookie": "cc-gateway-token=test-bearer-abc123",
+    "referer": "http://127.0.0.1:4318/m/",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.6778.33 Safari/537.36",
+    "sec-ch-ua": "\"HeadlessChrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\""
+  },
+  "tokenInPage": "test-bearer-abc123",
+  "longName": {
+    "text": "mindzieWeb - a really long session name that wraps to a second line with no truncation whatsoever",
+    "clientHeight": 20,
+    "scrollHeight": 20,
+    "approxLines": 1,
+    "whiteSpace": "nowrap",
+    "textOverflow": "ellipsis",
+    "overflow": "hidden",
+    "fullTextRendered": true
+  },
+  "shortCardHeight": 68,
+  "longCardHeight": 68
+}

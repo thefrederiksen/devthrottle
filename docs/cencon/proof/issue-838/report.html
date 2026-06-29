@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #838 - Mobile roster cards: full-width wrapping name - QA proof</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; background: #0b1020; color: #e6e9f2; line-height: 1.55; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 22px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 30px 0 8px; border-bottom: 1px solid #28304a; padding-bottom: 6px; }
+  .sub { color: #99a0b8; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #28304a; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #141a2e; }
+  .pass { color: #57c77d; font-weight: 700; }
+  code { background: #1b2238; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .shots { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .shot { flex: 0 0 auto; }
+  .shot img { width: 320px; border: 1px solid #28304a; border-radius: 8px; background: #000; }
+  .shot figcaption { color: #99a0b8; font-size: 12.5px; margin-top: 6px; max-width: 320px; }
+  .verdict { margin-top: 28px; padding: 14px 16px; background: #14241b; border: 1px solid #2a6b46; border-radius: 8px; color: #b8f0cf; }
+  ul { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #838 - Mobile roster cards: full-width wrapping name (no truncation), repo moved below the name</h1>
+  <p class="sub">Developer Agent QA proof - CenCon Development Method. Surface: mobile PWA (<code>/m</code>), files <code>mobile/src/pages/Home.tsx</code> (<code>SessionRow</code>) and <code>mobile/src/styles.css</code>. Mobile-only layout change, owner-approved "Option A". No backend change.</p>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li><b>Name now wraps, full width, no truncation.</b> Removed the <code>white-space:nowrap; overflow:hidden; text-overflow:ellipsis</code> clamp on <code>.row-name</code>; added <code>overflow-wrap: anywhere</code> and an explicit <code>line-height</code>. The name now spends the full card width and wraps to as many lines as it needs.</li>
+    <li><b>Repo moved out of the right of the name row to below the name.</b> The <code>SessionRow</code> markup wraps the status text and the repo in a new <code>.row-meta</code> line under the name: <code>&lt;status&gt; | &lt;repo&gt;</code>. The repo is no longer a right-pinned pill - it is secondary text (smaller, dimmer via <code>opacity</code>) but fully readable. A thin CSS-drawn vertical divider (<code>.row-divider</code>, 1px, no glyph) separates the two.</li>
+    <li><b>Status dot top-aligned at the start of the first name line.</b> <code>.row-link</code> changed from <code>align-items:center</code> to <code>align-items:flex-start</code>, with a small <code>margin-top</code> on <code>.dot</code> so it centers on the first line's text even when the name wraps to several lines.</li>
+    <li><b>Everything else preserved:</b> the "Needs you" group above "All sessions", the needs-you attention border, the status dot colors, and tap-anywhere-to-open (the whole card is still the <code>&lt;a class="row-link"&gt;</code> link). No change to the data, ordering, or the <code>GET /sessions</code> typed client.</li>
+  </ul>
+
+  <h2>How it was verified</h2>
+  <p class="sub">The built mobile app (<code>tsc --noEmit</code> + <code>vite build</code>, clean) was served via <code>vite preview</code> and driven by a headless browser at a <b>390 x 844 phone viewport</b>. A crafted roster (short needs-you, medium needs-you, a long-named working session, a short working session) was returned for <code>GET /sessions</code>; the per-machine Gateway token was injected into <code>index.html</code> exactly as the Gateway does at serve time, so the typed client attached its <code>Authorization: Bearer</code> header. The "before" column is the unchanged <code>main</code> version of the same two files, built and screenshot identically.</p>
+
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th></tr>
+    <tr>
+      <td>1</td>
+      <td>Long name shows complete, wrapped, NO truncation/ellipsis, full card width.</td>
+      <td>Full text visible across multiple lines; no ellipsis clamp.</td>
+      <td>After: <code>white-space: normal</code>, <code>overflow: visible</code>, ~3 lines, full text rendered (<code>scrollHeight==clientHeight</code>, 59px). Before: <code>nowrap</code> + <code>ellipsis</code> + <code>overflow:hidden</code>, 1 line - truncated. See after-longcard vs before-roster.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Repo rendered below the name, on the same line as the status, e.g. <code>needs you | mindzieWeb</code>.</td>
+      <td>Repo under the name beside the status with a thin divider; not a right pill.</td>
+      <td>Each card shows the status text, a thin divider, then the repo on the line below the name. Before screenshot shows the old right-pinned repo pill for contrast.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Status / what-is-happening text remains visible on every card.</td>
+      <td>"needs you", "working", "thinking" visible on every card.</td>
+      <td>Roster shows "needs you" (red cards), "working" and "thinking" (green cards) - both a needs-you and a working card visible.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Short/medium names ~2 lines; long names ~3 lines; no card unnecessarily tall, none truncates.</td>
+      <td>Short card ~2 lines; long card ~3 lines.</td>
+      <td>Short "cockpit polish" card = 70px (2 lines: name + meta). Long card = 109px (3 lines: 2 name lines + meta). No truncation on either.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>"Needs you" group above "All sessions"; dot color + needs-you attention styling preserved; tapping a card opens that session.</td>
+      <td>Grouping + colors intact; tap navigates to the session.</td>
+      <td>"NEEDS YOU" group renders above "ALL SESSIONS"; red dots + red attention border on needs-you cards, green dots on working. Tapping the long card navigated to <code>/m/session/s-long-1</code> (session screen captured).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Roster loads from <code>GET /sessions</code> via the typed client with the injected Bearer token (no data regression).</td>
+      <td>2xx <code>/sessions</code> with the bearer header; roster populated.</td>
+      <td>Captured request header on <code>GET /sessions</code>: <code>Authorization: Bearer test-bearer-abc123</code>; response 200; roster populated. See after-metrics.json.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Screenshots (390px phone viewport)</h2>
+  <div class="shots">
+    <figure class="shot">
+      <img src="after-roster.png" alt="After roster" />
+      <figcaption><b>AFTER</b> - full grouped roster. Long name wraps to 3 lines with no truncation; repo sits under the name beside the status (<code>working | mindzieWeb</code>); groups, dot colors and attention border preserved. (AC2, AC3, AC4, AC5)</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="before-roster.png" alt="Before roster" />
+      <figcaption><b>BEFORE</b> (unchanged main) - long name truncated with an ellipsis ("...") and the repo pinned as a pill on the right of the name row. Contrast for AC1/AC2.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="after-longcard.png" alt="After long card close-up" />
+      <figcaption><b>AFTER</b> - close-up of the long-named card: the complete name wraps over the full width, status + divider + repo below. (AC1, AC2)</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="after-tap-session.png" alt="Session screen after tapping the card" />
+      <figcaption><b>AFTER</b> - tapping the long card opened its session screen (<code>/m/session/s-long-1</code>). Tap-to-open preserved. (AC5)</figcaption>
+    </figure>
+  </div>
+
+  <h2>CenCon impact</h2>
+  <p class="sub">No drift. This is a pure mobile front-end layout change to an existing surface. No architecture container is added or changed, no <code>security_profile.yaml</code> rule is touched, no backend / data / API change. The mobile asset build remains release-gated, so a routine <code>dotnet build cc-director.sln</code> (Debug) still does not invoke npm.</p>
+
+  <div class="verdict">
+    <b>I believe this is finished.</b> All six acceptance criteria are met and proven at a 390px phone viewport with Expected vs Actual evidence: the name wraps full-width with no truncation (AC1), the repo is rendered below the name beside the status with a thin divider (AC2), the status stays visible on every card (AC3), short cards stay ~2 lines and long cards expand to ~3 with no truncation (AC4), the grouping / dot colors / attention styling / tap-to-open are preserved (AC5), and the roster still loads from <code>GET /sessions</code> via the typed client with the injected Bearer token (AC6).
+  </div>
+</div>
+</body>
+</html>

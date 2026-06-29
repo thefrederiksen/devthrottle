@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #838 - QA independent verification - Mobile roster: full-width wrapping name</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; background: #0b1020; color: #e6e9f2; line-height: 1.55; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 22px 64px; }
+  h1 { font-size: 23px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 30px 0 8px; border-bottom: 1px solid #28304a; padding-bottom: 6px; }
+  .sub { color: #99a0b8; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #28304a; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #141a2e; }
+  .pass { color: #57c77d; font-weight: 700; }
+  code { background: #1b2238; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .shots { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .shot { flex: 0 0 auto; }
+  .shot img { width: 320px; border: 1px solid #28304a; border-radius: 8px; background: #000; }
+  .shot figcaption { color: #99a0b8; font-size: 12.5px; margin-top: 6px; max-width: 320px; }
+  .verdict { margin-top: 28px; padding: 14px 16px; background: #14241b; border: 1px solid #2a6b46; border-radius: 8px; color: #b8f0cf; }
+  ul { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #838 - QA independent verification</h1>
+  <p class="sub">Mobile roster cards: full-width wrapping name (no truncation), repo moved below the name with the status. QA Agent (CenCon Development Method), independent of the Developer Agent's binary, screenshots, and harness. PR #840, branch <code>issue-838-roster-wrap-name</code>.</p>
+
+  <h2>How QA verified (independent harness)</h2>
+  <p class="sub">QA built the mobile app from the PR branch in its own worktree (<code>npm ci</code> + <code>npm run build</code> = <code>tsc --noEmit</code> + <code>vite build</code>, clean). The built <code>dist/</code> was served by a QA-written Node static server that mirrors the Gateway: it injects the per-machine token in place of the <code>__GATEWAY_TOKEN__</code> placeholder in <code>index.html</code>, answers <code>GET /sessions</code> with a crafted roster (a LONG-named needs-you session, a short needs-you, a short working session, a medium working session), and does the SPA fallback for <code>/m/session/&lt;id&gt;</code>. A headless Chromium (Playwright) drove it at a <b>390 x 844 phone viewport</b>, captured screenshots, and measured live DOM/computed-style metrics per criterion. The bearer header on <code>GET /sessions</code> was captured off the wire.</p>
+
+  <h2>Acceptance criteria - Expected vs Actual (measured by QA)</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA measured)</th><th>Result</th></tr>
+    <tr>
+      <td>1</td>
+      <td>Long name shows complete, wrapped, NO truncation/ellipsis, full card width.</td>
+      <td>Full text across multiple lines; no ellipsis clamp; name spans full width.</td>
+      <td><code>white-space: normal</code>, <code>overflow: visible</code>, <code>text-overflow: clip</code>; name client height 59px = 3 lines; <code>scrollHeight == clientHeight</code> (full text rendered, not clipped); <code>scrollWidth &le; clientWidth</code> (no horizontal truncation); name width 304px = full card body width. The complete 96-character name is visible in qa-after-roster.png / qa-after-longcard.png.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Repo rendered below the name, on the same line as the status (e.g. <code>needs you | mindzieWeb</code>); not a right pill.</td>
+      <td>Repo under the name beside the status with a thin divider.</td>
+      <td>For every card the repo element's top is at/below the name's bottom (<code>repoBelowName = true</code>) and the status text and repo share one line (<code>contextRepoSameLine = true</code>), separated by a 1px CSS divider. The old right-pinned pill styling is gone. Screenshot shows <code>needs you | mindzieWeb</code>, <code>working | mindzieWeb</code>, etc.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Status / what-is-happening text stays visible on every card.</td>
+      <td>"needs you", "working", "thinking" visible on each card.</td>
+      <td>Measured context text present and rendered on all six rows: "needs you" (x2), "working", "thinking". Both a needs-you (red) and a working (green) card are visible together.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Short/medium ~2 lines; long ~3 lines; no card unnecessarily tall, none truncates.</td>
+      <td>Short card ~2 lines; long card ~3 lines; nothing clipped.</td>
+      <td>Card heights: short "impl-loop 823" and "cockpit polish" = 70px (1 name line + meta); medium "docs refresh..." = 89px (2 name lines + meta); long card = 109px (3 name lines + meta). Every row reports <code>nameTruncated = false</code> and <code>fullTextRendered = true</code>.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>"Needs you" group above "All sessions"; dot color + needs-you attention styling preserved; tap opens the session.</td>
+      <td>Grouping + colors intact; tap navigates to the session.</td>
+      <td>Group titles in DOM order = ["Needs you", "All sessions"]. Red dots and a red attention border render on needs-you cards; green dots on working cards (qa-after-roster.png). The dot is top-aligned to the first name line even when the name wraps to 3 lines. Tapping the long card navigated to <code>/m/session/s-long-1</code> and the session detail screen rendered (qa-after-tap-session.png).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Roster loads from <code>GET /sessions</code> via the typed client with the injected Bearer (no data regression).</td>
+      <td>2xx <code>/sessions</code> with the bearer header; roster populated.</td>
+      <td>Captured request header on <code>GET /sessions</code>: <code>Authorization: Bearer test-bearer-abc123</code>; response status 200; roster populated with all four sessions. <code>window.__GW_TOKEN__</code> present in the served page. The data path (<code>listSessions()</code> typed client) is unchanged by this PR.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Screenshots (390px phone viewport, QA-captured)</h2>
+  <div class="shots">
+    <figure class="shot">
+      <img src="qa-after-roster.png" alt="QA roster" />
+      <figcaption><b>QA roster</b> - long name wraps to 3 lines, no truncation; repo under the name beside the status with a thin divider; "NEEDS YOU" group above "ALL SESSIONS"; red dots + red attention border preserved, green dots on working. (AC1-AC5)</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="qa-after-longcard.png" alt="QA long card close-up" />
+      <figcaption><b>QA long card</b> - the complete 96-char name spans the full width over 3 lines; status + divider + repo below. (AC1, AC2)</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="qa-after-tap-session.png" alt="QA session screen after tap" />
+      <figcaption><b>QA tap-to-open</b> - tapping the long card opened its session screen (<code>/m/session/s-long-1</code>). (AC5)</figcaption>
+    </figure>
+  </div>
+
+  <h2>Regression and method checks</h2>
+  <ul>
+    <li><b>Scope:</b> only <code>mobile/src/pages/Home.tsx</code> (SessionRow) and <code>mobile/src/styles.css</code> changed. No backend, data, ordering, or API change; the <code>/sessions</code> typed client is untouched.</li>
+    <li><b>Build gate:</b> <code>dotnet build cc-director.sln -c Debug</code> succeeded in the QA worktree.</li>
+    <li><b>npm not invoked by Debug build:</b> the mobile build target (<code>npm ci</code> + <code>npm run build</code>) in <code>CcDirector.Gateway.csproj</code> is gated by <code>RunMobileBuild</code>, true only for <code>Configuration=Release</code> or <code>-p:BuildMobile=true</code>. The Debug build output shows no <code>BuildMobileApp</code> / <code>npm</code> step.</li>
+    <li><b>CenCon:</b> no architecture container added/changed, no <code>security_profile.yaml</code> rule touched - pure mobile front-end layout change. No CenCon doc drift.</li>
+    <li><b>Negative sweep:</b> the New session entry, grouping, dot colors, and attention border all still render correctly; nothing adjacent visibly broke.</li>
+  </ul>
+
+  <div class="verdict">
+    <b>VERIFIED - all acceptance criteria met.</b> Independently reproduced at a 390px phone viewport: the name wraps full-width with no truncation (AC1), the repo sits below the name beside the status with a thin divider (AC2), the status stays visible on every card (AC3), short cards stay ~2 lines and the long card expands to 3 with no truncation (AC4), the "Needs you"/"All sessions" grouping, dot colors, attention styling, and tap-to-open are preserved (AC5), and the roster still loads from <code>GET /sessions</code> via the typed client with the injected Bearer (AC6). PASS.
+  </div>
+</div>
+</body>
+</html>
