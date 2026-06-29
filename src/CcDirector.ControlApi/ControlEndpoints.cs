@@ -2991,6 +2991,25 @@ internal static class ControlEndpoints
             return removed ? Results.Json(new { removed = true }) : Results.NotFound(new { error = "no such interrupted session" });
         });
 
+        // ===== Admin: session-number backfill (issue #846) =====
+        // Trigger SessionManager.BackfillNumbers() on a RUNNING Director - no restart - so an
+        // operator can number sessions that predate #820 (or were restored without a number).
+        // Returns the count newly numbered. Idempotent: a second call returns assigned=0 because
+        // BackfillNumbers skips sessions that already carry a number; numbers stay unique among
+        // this Director's active sessions and within 100-999 (the existing SessionNumberAllocator).
+        // Not in DirectorAuth.PublicPaths, so the Bearer token (or login cookie) is required when
+        // auth is enabled. Reached through the Gateway via POST /directors/{id}/backfill-numbers,
+        // which forwards here (a Director-id-keyed route, since the per-session /sessions/{sid}
+        // catch-all would treat a non-session path segment as a session id).
+        app.MapPost("/admin/backfill-numbers", (HttpContext ctx) =>
+        {
+            var caller = Core.Network.LoopbackPeerResolver.Describe(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            FileLog.Write($"[ControlEndpoints] POST admin/backfill-numbers requested caller={caller}");
+            var assigned = sessionManager.BackfillNumbers();
+            FileLog.Write($"[ControlEndpoints] admin/backfill-numbers assigned {assigned} number(s)");
+            return Results.Json(new { assigned });
+        });
+
         // ===== Shutdown =====
         app.MapPost("/shutdown", (HttpContext ctx) =>
         {

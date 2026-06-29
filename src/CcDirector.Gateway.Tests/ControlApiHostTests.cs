@@ -472,3 +472,143 @@ public sealed class ControlApiHostEphemeralFallbackTests : IDisposable
         }
     }
 }
+
+/// <summary>
+/// Issue #846: the session-number backfill is now wired into production. These tests prove the two
+/// wirings that were missing (BackfillNumbers had no caller before): (1) a single backfill pass runs
+/// at Director startup (ControlApiHost.StartAsync), numbering any tracked session that lacks a number;
+/// and (2) the POST /admin/backfill-numbers endpoint triggers the same backfill on a RUNNING Director
+/// (no restart), returns the count newly numbered, is idempotent (a second call returns 0), and the
+/// assigned numbers are unique and within the 100-999 range.
+/// </summary>
+[Collection("DirectorRoot")]
+public sealed class SessionNumberBackfillTests
+{
+    private sealed record BackfillResult(int Assigned);
+
+    [Fact]
+    public async Task StartAsync_NumbersTrackedSessionsThatLackANumber()
+    {
+        // Arrange: a session that is tracked but carries NO number (the pre-#820 / restored-without-a
+        // -number state). CreatePipeModeSession numbers it at creation, so clear it to simulate the gap.
+        var sm = new SessionManager(new AgentOptions());
+        var session = sm.CreatePipeModeSession(Path.GetTempPath());
+        session.Number = null;
+
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        try
+        {
+            // Act: starting the Director runs the one-time startup backfill.
+            await host.StartAsync();
+
+            // Assert: the previously-unnumbered session now has a number in range.
+            Assert.NotNull(session.Number);
+            Assert.InRange(session.Number.Value, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+            try
+            {
+                var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{host.DirectorId}.json");
+                if (File.Exists(f)) File.Delete(f);
+            }
+            catch { /* test cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task BackfillEndpoint_NumbersUnnumberedSessions_AndIsIdempotent()
+    {
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        try
+        {
+            var port = await host.StartAsync();
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", DirectorAuth.LoadOrCreateToken());
+
+            // Arrange: two tracked sessions, both made unnumbered (the gap the backfill closes).
+            var a = sm.CreatePipeModeSession(Path.GetTempPath());
+            var b = sm.CreatePipeModeSession(Path.GetTempPath());
+            a.Number = null;
+            b.Number = null;
+
+            // Act: trigger the backfill on the running Director (no restart).
+            var resp = await client.PostAsync("admin/backfill-numbers", null);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            var result = await resp.Content.ReadFromJsonAsync<BackfillResult>();
+
+            // Assert: both were numbered and the count is reported.
+            Assert.NotNull(result);
+            Assert.Equal(2, result!.Assigned);
+            Assert.NotNull(a.Number);
+            Assert.NotNull(b.Number);
+
+            // GET /sessions now shows the numbers (proves the live roster reflects them, no restart).
+            var sessions = await client.GetFromJsonAsync<List<SessionDto>>("sessions?includeExited=true");
+            Assert.NotNull(sessions);
+            foreach (var s in sessions!)
+                Assert.NotNull(s.Number);
+
+            // Uniqueness + range (AC5).
+            var numbers = sessions.Select(s => s.Number!.Value).ToList();
+            Assert.Equal(numbers.Count, numbers.Distinct().Count());
+            Assert.All(numbers, n =>
+                Assert.InRange(n, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber));
+
+            // Act + Assert: a SECOND call changes nothing (idempotent, AC4).
+            var resp2 = await client.PostAsync("admin/backfill-numbers", null);
+            Assert.Equal(HttpStatusCode.OK, resp2.StatusCode);
+            var result2 = await resp2.Content.ReadFromJsonAsync<BackfillResult>();
+            Assert.NotNull(result2);
+            Assert.Equal(0, result2!.Assigned);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+            try
+            {
+                var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{host.DirectorId}.json");
+                if (File.Exists(f)) File.Delete(f);
+            }
+            catch { /* test cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task BackfillEndpoint_RequiresBearerToken_WhenAuthEnabled()
+    {
+        // AC3: the endpoint is protected (not in DirectorAuth.PublicPaths). With auth enabled, a call
+        // WITHOUT the bearer token is rejected 401; WITH it, the call succeeds.
+        var sm = new SessionManager(new AgentOptions());
+        var host = new ControlApiHost(sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true, authEnabled: true);
+        try
+        {
+            var port = await host.StartAsync();
+            using var noAuth = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+            var denied = await noAuth.PostAsync("admin/backfill-numbers", null);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+
+            using var authed = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+            authed.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", DirectorAuth.LoadOrCreateToken());
+            var ok = await authed.PostAsync("admin/backfill-numbers", null);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+        finally
+        {
+            await host.StopAsync();
+            sm.Dispose();
+            try
+            {
+                var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{host.DirectorId}.json");
+                if (File.Exists(f)) File.Delete(f);
+            }
+            catch { /* test cleanup */ }
+        }
+    }
+}

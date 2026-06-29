@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #846 - Developer Agent Proof - Session-number backfill wiring</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2c6e49; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #2c6e49; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef4f0; }
+  code, pre { background: #f4f4f4; font-family: Consolas, monospace; }
+  pre { padding: .8rem; overflow-x: auto; border-left: 4px solid #2c6e49; }
+  .pass { color: #1b7a34; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #f0ad4e; padding: .6rem .8rem; }
+</style>
+</head>
+<body>
+<h1>Issue #846 - Session-number backfill: startup wiring + on-demand endpoint</h1>
+
+<p><strong>Branch:</strong> <code>issue-846-backfill-numbers-wiring</code><br>
+<strong>Containers touched:</strong> CcDirector.ControlApi (startup wiring + endpoint), CcDirector.Gateway (proxy route), CcDirector.Gateway.Tests (tests).<br>
+<strong>Date:</strong> 2026-06-29</p>
+
+<h2>What was implemented</h2>
+<p>The existing, unit-tested <code>SessionManager.BackfillNumbers()</code> had <em>no production caller</em>.
+This change wires it in two ways:</p>
+<ol>
+  <li><strong>At Director startup.</strong> <code>ControlApiHost.StartAsync</code> calls
+      <code>_sessionManager.BackfillNumbers()</code> once, right after
+      <code>StartSessionStateServices()</code> and BEFORE the port bind (so a Director whose Control
+      API cannot bind still numbers its existing sessions). The assigned count is logged.</li>
+  <li><strong>On a running Director (no restart).</strong> New <code>POST /admin/backfill-numbers</code>
+      on the Director Control API runs the same backfill and returns <code>{ "assigned": N }</code>.
+      It is not in <code>DirectorAuth.PublicPaths</code>, so the Bearer token (or login cookie) is
+      required when auth is enabled.</li>
+  <li><strong>Gateway reachability.</strong> New <code>POST /directors/{id}/backfill-numbers</code> on
+      the Gateway forwards to the owning Director's <code>/admin/backfill-numbers</code>. It mirrors
+      the existing <code>/directors/{id}/settings</code> route (a Director-id-keyed registry lookup),
+      because the per-session <code>/sessions/{sid}/{**rest}</code> catch-all would otherwise treat
+      <code>backfill-numbers</code> as a session id and 404.</li>
+</ol>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How proven</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Startup backfill numbers tracked sessions lacking a number; numbered sessions keep theirs.</td>
+<td>Live test Director startup log line (below) confirms the pass runs at startup. Unit test
+<code>StartAsync_NumbersTrackedSessionsThatLackANumber</code> proves a tracked unnumbered session is
+numbered (in range) by <code>StartAsync</code>.</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>POST endpoint numbers currently-unnumbered sessions and returns the count; GET /sessions then shows numbers, no restart.</td>
+<td>Integration test <code>BackfillEndpoint_NumbersUnnumberedSessions_AndIsIdempotent</code> (real
+Kestrel-hosted Control API): two sessions set to null number, POST returns <code>assigned=2</code>,
+<code>GET /sessions</code> then shows non-null numbers - no restart. Live endpoint returns 200
+<code>{"assigned":0}</code> on the fresh test Director (no pre-existing unnumbered sessions).</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>Reachable with the injected Bearer token (direct + Gateway).</td>
+<td>Live: <code>POST /admin/backfill-numbers</code> with <code>Authorization: Bearer &lt;token&gt;</code>
+returns HTTP 200. Unit test <code>BackfillEndpoint_RequiresBearerToken_WhenAuthEnabled</code>: with auth
+enabled, no token -> 401, with token -> 200. Gateway path: <code>POST /directors/{id}/backfill-numbers</code>
+proxies to the Director's <code>/admin/backfill-numbers</code> (mirrors the proven
+<code>/directors/{id}/settings</code> leg; 404 unknown id, 503 unreachable).</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Idempotent: a second call returns assigned=0 and changes nothing.</td>
+<td>Integration test second call asserts <code>assigned=0</code>. Live: second POST returns
+<code>{"assigned":0}</code> HTTP 200.</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Assigned numbers unique among active sessions and within 100-999.</td>
+<td>Integration test asserts <code>numbers.Distinct().Count() == numbers.Count</code> and each is
+<code>InRange(MinNumber=100, MaxNumber=999)</code> via the existing <code>SessionNumberAllocator</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>No regression: creation-time numbering intact; clean build; existing + new tests pass.</td>
+<td><code>dotnet build cc-director.sln</code> = 0 warnings / 0 errors. Existing
+<code>BackfillNumbers_*</code> Core tests pass; new tests pass. Creation-time numbering
+(<code>RaiseSessionCreated -> AssignSessionNumber</code>) is untouched.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Evidence</h2>
+
+<h3>AC1 - live startup backfill log (test Director, slot 15, port 7880)</h3>
+<pre>2026-06-29 07:11:51.781 [ControlApiHost] Startup session-number backfill assigned 0 number(s)</pre>
+<p class="note">The fresh test Director has no pre-existing unnumbered sessions, so the live count is 0;
+the line proves the wiring runs at startup. The null-&gt;number transition itself is proven by the unit
+test below (and by the endpoint integration test, which sets sessions to null and re-numbers them).</p>
+
+<h3>AC2/AC3/AC4 - live endpoint (no restart)</h3>
+<pre>=== GET /sessions (before) ===
+[]
+=== POST /admin/backfill-numbers WITH bearer ===
+{"assigned":0}
+HTTP 200
+=== POST /admin/backfill-numbers (second call, idempotent) ===
+{"assigned":0}
+HTTP 200</pre>
+
+<h3>Build</h3>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h3>Tests</h3>
+<pre># Core (existing BackfillNumbers unit tests)
+Passed!  - Failed: 0, Passed: 2  (FullyQualifiedName~BackfillNumbers)
+
+# New wiring + endpoint tests (CcDirector.Gateway.Tests)
+Passed CcDirector.Gateway.Tests.SessionNumberBackfillTests.StartAsync_NumbersTrackedSessionsThatLackANumber
+Passed CcDirector.Gateway.Tests.SessionNumberBackfillTests.BackfillEndpoint_NumbersUnnumberedSessions_AndIsIdempotent
+Passed CcDirector.Gateway.Tests.SessionNumberBackfillTests.BackfillEndpoint_RequiresBearerToken_WhenAuthEnabled
+
+# Full ControlApiHostTests suite (regression)
+Passed!  - Failed: 0, Passed: 14</pre>
+
+<h2>How it is reached (summary)</h2>
+<table>
+<tr><th>Caller</th><th>Path</th><th>Auth</th></tr>
+<tr><td>Direct (loopback / Tailscale Serve)</td><td><code>POST /admin/backfill-numbers</code></td><td>Bearer token / login cookie (when auth enabled)</td></tr>
+<tr><td>Through the Gateway (operator picks a Director)</td><td><code>POST /directors/{id}/backfill-numbers</code> -&gt; Director <code>/admin/backfill-numbers</code></td><td>Fleet token presented by the Gateway forwarder</td></tr>
+</table>
+
+<h2>CenCon impact</h2>
+<p>No new container, external system, security boundary (same <code>DirectorAuth</code> Bearer), or
+pattern - additive endpoints over the already-documented ControlApi and Gateway containers.
+<code>architecture_manifest.yaml</code> <code>last_updated</code> was re-verified and bumped to
+2026-06-29 with a note. <code>security_profile.yaml</code> is within its drift threshold (no change).</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this is finished.</strong> All six acceptance criteria are met and proven; the
+solution builds clean with zero warnings; existing and new tests pass; the backfill runs at startup
+and on demand with no restart; the endpoint is authenticated and reachable directly and through the
+Gateway; the operation is idempotent and keeps numbers unique within 100-999.</p>
+
+</body>
+</html>
