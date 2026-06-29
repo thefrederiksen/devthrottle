@@ -1,0 +1,23 @@
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/directors", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/directors/dir-north/repos", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "POST", "path": "/directors/dir-north/sessions", "authorization": "Bearer test-gateway-token-812", "body": "{\"repoPath\":\"D:\\\\ReposFred\\\\devthrottle\",\"agent\":\"ClaudeCode\",\"wingmanEnabled\":false}"}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "WS", "path": "/sessions/812c0000-0000-0000-0000-000000000001/stream", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "WS", "path": "/sessions/812e0000-0000-0000-0000-000000000001/stream", "authorization": null, "body": null}
+{"method": "POST", "path": "/sessions/812e0000-0000-0000-0000-000000000001/hold", "authorization": "Bearer test-gateway-token-812", "body": "{\"onHold\":true}"}
+{"method": "POST", "path": "/sessions/812e0000-0000-0000-0000-000000000001/hold", "authorization": "Bearer test-gateway-token-812", "body": "{\"onHold\":false}"}
+{"method": "POST", "path": "/sessions/812e0000-0000-0000-0000-000000000001/hold", "authorization": "Bearer test-gateway-token-812", "body": "{\"onHold\":true}"}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "WS", "path": "/sessions/812e0000-0000-0000-0000-000000000001/stream", "authorization": null, "body": null}
+{"method": "DELETE", "path": "/sessions/812e0000-0000-0000-0000-000000000001", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}
+{"method": "GET", "path": "/sessions", "authorization": "Bearer test-gateway-token-812", "body": null}

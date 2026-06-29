@@ -1,0 +1,9 @@
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/directors", "authorization": null, "body": null}
+{"method": "GET", "path": "/directors/dir-north/repos", "authorization": null, "body": null}
+{"method": "POST", "path": "/directors/dir-north/sessions", "authorization": null, "body": "{\"repoPath\":\"D:\\\\ReposFred\\\\devthrottle\",\"agent\":\"ClaudeCode\",\"wingmanEnabled\":false}"}
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "GET", "path": "/sessions", "authorization": null, "body": null}
+{"method": "WS", "path": "/sessions/812c0000-0000-0000-0000-000000000001/stream", "authorization": null, "body": null}
+{"method": "POST", "path": "/sessions/812c0000-0000-0000-0000-000000000001/hold", "authorization": null, "body": "{\"onHold\":true}"}
