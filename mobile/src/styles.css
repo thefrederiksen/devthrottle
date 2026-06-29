@@ -126,9 +126,11 @@ body {
   border-color: rgba(241, 76, 76, 0.55);
 }
 
+/* Issue #838: the dot is top-aligned at the start of the FIRST name line (align-items:
+   flex-start) so a name that wraps to several lines keeps the dot beside its first line. */
 .row-link {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 14px 14px;
   min-height: 56px;
@@ -138,6 +140,8 @@ body {
   flex: 0 0 auto;
   width: 12px;
   height: 12px;
+  /* Nudge down so the dot centers on the first name line's text (15px / 1.3 line-height). */
+  margin-top: 4px;
   border-radius: 50%;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
 }
@@ -147,36 +151,48 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
+/* The name spends the full card width and WRAPS to as many lines as it needs - no ellipsis,
+   no overflow clamp (issue #838). overflow-wrap breaks an over-long unbroken token too. */
 .row-name {
   font-size: 15px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* The secondary line below the name: status text + thin divider + repo, wrapping as a group
+   only if the viewport is too narrow to hold both. */
+.row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 .row-context {
   font-size: 12px;
   color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.row-repo {
+/* Thin vertical divider drawn in CSS (no glyph) between the status text and the repo. */
+.row-divider {
   flex: 0 0 auto;
-  font-size: 11px;
+  width: 1px;
+  height: 11px;
+  background: var(--border);
+}
+
+/* The repo is no longer a right-pinned pill: it sits inline after the divider as secondary,
+   readable text - smaller and dimmer than the status, but not clamped. */
+.row-repo {
+  font-size: 12px;
   color: var(--text-dim);
-  background: var(--surface-2);
-  border-radius: 6px;
-  padding: 3px 7px;
-  max-width: 40%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
 }
 
 .detail {

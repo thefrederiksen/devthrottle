@@ -102,10 +102,16 @@ function SessionRow({ session }: { session: SessionDto }) {
       <Link className="row-link" to={`/session/${encodeURIComponent(session.sessionId ?? "")}`}>
         <span className="dot" style={{ backgroundColor: dotColor(color) }} aria-hidden="true" />
         <span className="row-body">
+          {/* The name uses the full card width and WRAPS (no truncation) - issue #838. */}
           <span className="row-name">{name}</span>
-          <span className="row-context">{contextLine(session)}</span>
+          {/* The status / what-is-happening text and the repo share one line BELOW the name,
+              separated by a thin divider, with the repo kept visually secondary. */}
+          <span className="row-meta">
+            <span className="row-context">{contextLine(session)}</span>
+            {repo && <span className="row-divider" aria-hidden="true" />}
+            {repo && <span className="row-repo">{repo}</span>}
+          </span>
         </span>
-        {repo && <span className="row-repo">{repo}</span>}
       </Link>
     </li>
   );
