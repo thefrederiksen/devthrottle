@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #826 ToolReconciler</title>
+<style>
+ body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+ h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+ table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+ th, td { border: 1px solid #bbb; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+ th { background: #f0f0f0; }
+ .pass { color: #0a7d28; font-weight: bold; }
+ code { background: #f4f4f4; padding: 0 .2rem; }
+ .verdict { margin-top: 1.5rem; padding: 1rem; background: #e8f6ec; border: 1px solid #0a7d28; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #826</h1>
+<p><strong>Title:</strong> [Tools] Add ToolReconciler - manifest-driven automatic drift reconcile (engine + tests)</p>
+<p><strong>PR:</strong> #831 (branch <code>issue-826-tool-reconciler</code>)</p>
+<p><strong>QA method:</strong> Independent verification in a separate QA worktree. Branch checked out fresh,
+solution built from scratch (<code>dotnet build cc-director.sln</code>), and the engine test project executed
+by the QA agent (not reusing the developer's binary or report). Scope is engine + tests only (no UI / lifecycle /
+config), so there is no app surface to drive - verification is the build gate plus the offline test suite.</p>
+
+<h2>Build gate</h2>
+<p><code>dotnet build cc-director.sln</code> -> <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+
+<h2>Test gate</h2>
+<p><code>dotnet test CcDirector.Setup.Engine.Tests.csproj</code> -> <span class="pass">Passed! Failed: 0, Passed: 201,
+Skipped: 0</span> (8 new ToolReconciler tests + 193 existing engine tests). All tests use a temp/fake install
+layout and an injected heavy-repair delegate; no network or real machine-install dependence
+(grep for http/HttpClient/github in the reconciler and its tests returns NONE).</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (verified)</th><th>Result</th></tr>
+<tr><td>1</td><td>New public ToolReconciler.ReconcileAsync with XML-doc as automatic Fix-Tools equivalent</td>
+<td>Public operation with descriptive XML doc</td>
+<td>ToolReconciler.cs: public sealed class, ReconcileAsync(CancellationToken), XML doc explicitly names it the
+"automatic, idempotent equivalent of the manual Fix Tools repair"</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Reuses existing detection (catalog + GetUnmanagedBinaries + legacy-shim presence); covers (a) missing shims, (b) orphaned legacy, (c) broken venv; no duplicated legacy list</td>
+<td>No parallel comparison; reuses RemoveLegacyAliasShims/LegacyAliasShimNames</td>
+<td>Uses ToolCatalogService.GetCatalog + GetUnmanagedBinaries + PythonToolsInstaller.FindOrphanedLegacyAliasShims +
+VenvHasAllTools. RemoveLegacyAliasShims refactored to share one path-set; legacy name list not duplicated.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Structured result (InSync / Reconciled / Failed) + human-readable actions list</td>
+<td>Richer than a bool</td>
+<td>record ReconcileResult(ReconcileOutcome Outcome, IReadOnlyList&lt;string&gt; Actions, string? Error); enum has
+InSync/Reconciled/Failed</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Idempotent and cheap: no-drift -> zero FS mutation, no network, InSync; second call no-op</td>
+<td>Happy path mutates nothing</td>
+<td>Test ReconcileAsync_NoDrift_ReturnsInSync_NoMutation asserts bin snapshot unchanged + heavy.Calls==0.
+Test ..._CalledTwice_SecondCallIsInSyncNoOp asserts second call InSync, empty actions, no mutation. Both PASS.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Scales action to drift; heavy RepairPythonToolsAsync only on broken venv</td>
+<td>Shim drift never rebuilds venv</td>
+<td>WriteShims/RemoveLegacyAliasShims called directly; heavy path gated on venvBroken only. Test
+..._ShimOnlyDrift_DoesNotEnterHeavyPath asserts heavy.Calls==0. PASS.</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Heavy path guarded by machine-wide named mutex; if held, returns without forcing; light path may proceed without it (documented)</td>
+<td>No concurrent venv rebuild</td>
+<td>Global\cc-director-tool-reconcile mutex via WaitOne(Zero); on contention logs "reconcile skipped - another
+Director is reconciling" and returns. Light shim path documented as taking no lock. Test
+..._AnotherDirectorHoldsMutex_SkipsHeavyRepair asserts heavy.Calls==0 + "skipped" action. PASS.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>7</td><td>FileLog.Write("[ToolReconciler] ...") at entry/decision/action/exit/error</td>
+<td>Project logging standard</td>
+<td>Logs present at entry, drift decision, each corrective action, exit, and catch block.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Tests cover a-e; offline, fake layout, no network/real install</td>
+<td>5 required cases + escalation coverage</td>
+<td>8 tests: no-drift, missing-shim, orphaned-legacy, idempotency, shim-only-no-heavy, broken-venv-escalates,
+heavy-fails, mutex-skip. Temp dir layout + injected delegate; no network refs. All PASS.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>9</td><td>Clean solution build (0 warnings introduced); all tests pass</td>
+<td>0 warnings / 0 errors; green suite</td>
+<td>Build succeeded, 0 Warning(s), 0 Error(s); 201/201 tests pass.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Change is confined to <code>tools/cc-director-setup-engine/</code> (ToolReconciler.cs new; PythonToolsInstaller.cs
+refactor that makes WriteShims/RemoveLegacyAliasShims public and extracts a shared legacy path-set) plus the test
+project and proof docs. No UI/lifecycle/config touched, matching the issue scope. Full 201-test engine suite green -
+the PythonToolsInstaller refactor broke no existing behavior.</p>
+
+<div class="verdict">VERIFIED - all 9 acceptance criteria met. PASS.</div>
+</body>
+</html>

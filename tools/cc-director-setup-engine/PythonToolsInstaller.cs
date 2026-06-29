@@ -349,39 +349,52 @@ public sealed class PythonToolsInstaller
     };
 
     /// <summary>
+    /// All possible on-disk shim file paths for one legacy alias name: on Windows a bin\&lt;name&gt;.cmd,
+    /// a bin\&lt;name&gt;.exe (from an even older PyInstaller install), and a bare-name bash shim; on macOS
+    /// a ~/.local/bin/&lt;name&gt; symlink. This is the single definition of WHERE a legacy alias shim can
+    /// live, shared by the detection (<see cref="FindOrphanedLegacyAliasShims"/>) and the purge
+    /// (<see cref="RemoveLegacyAliasShims"/>) so neither duplicates the path set.
+    /// </summary>
+    private IEnumerable<string> LegacyAliasShimPaths(string name) =>
+        OperatingSystem.IsWindows()
+            ? new[]
+              {
+                  Path.Combine(_layout.BinDir, $"{name}.cmd"),
+                  Path.Combine(_layout.BinDir, $"{name}.exe"),
+                  Path.Combine(_layout.BinDir, name), // bare-name bash shim
+              }
+            : new[] { Path.Combine(_layout.MacUserBinDir, name) };
+
+    /// <summary>
+    /// The orphaned legacy alias shim files that currently exist on disk (issue #823) - pure detection, no
+    /// mutation. Exposed so the reconciler (<see cref="ToolReconciler"/>) can decide whether a purge is even
+    /// needed BEFORE touching the filesystem (its happy path performs no mutation), reusing the same legacy
+    /// name list and path set the purge uses instead of re-deriving them.
+    /// </summary>
+    internal IReadOnlyList<string> FindOrphanedLegacyAliasShims() =>
+        LegacyAliasShimNames.SelectMany(LegacyAliasShimPaths).Where(File.Exists).ToList();
+
+    /// <summary>
     /// Delete any orphaned legacy alias shims from the install (issue #823). Each retired alias may have left
     /// a bin\&lt;name&gt;.cmd, a bare-name bash shim, and (from an even older PyInstaller install) a
     /// bin\&lt;name&gt;.exe on Windows, or a ~/.local/bin/&lt;name&gt; symlink on macOS - all pointing at a
     /// venv exe that no longer exists. Removing them is what satisfies "no shim points at a missing exe":
     /// the command becomes absent and the fleet banner directs the agent to the cc-devthrottle subcommand
-    /// instead. Best-effort: a shim we cannot delete is logged, never thrown.
+    /// instead. Best-effort: a shim we cannot delete is logged, never thrown. Public so the reconciler can
+    /// reuse it as the corrective action for orphaned-shim drift.
     /// </summary>
-    private void RemoveLegacyAliasShims()
+    public void RemoveLegacyAliasShims()
     {
-        foreach (var name in LegacyAliasShimNames)
+        foreach (var path in FindOrphanedLegacyAliasShims())
         {
-            var paths = OperatingSystem.IsWindows()
-                ? new[]
-                  {
-                      Path.Combine(_layout.BinDir, $"{name}.cmd"),
-                      Path.Combine(_layout.BinDir, $"{name}.exe"),
-                      Path.Combine(_layout.BinDir, name), // bare-name bash shim
-                  }
-                : new[] { Path.Combine(_layout.MacUserBinDir, name) };
-            foreach (var path in paths)
+            try
             {
-                try
-                {
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                        EngineLog.Write($"[PythonToolsInstaller] removed orphaned legacy alias shim {path}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    EngineLog.Write($"[PythonToolsInstaller] could not remove legacy alias shim {path}: {ex.Message}");
-                }
+                File.Delete(path);
+                EngineLog.Write($"[PythonToolsInstaller] removed orphaned legacy alias shim {path}");
+            }
+            catch (Exception ex)
+            {
+                EngineLog.Write($"[PythonToolsInstaller] could not remove legacy alias shim {path}: {ex.Message}");
             }
         }
     }
@@ -411,8 +424,13 @@ public sealed class PythonToolsInstaller
         }
     }
 
-    /// <summary>Create the tool shims: bin\&lt;script&gt;.cmd on Windows, ~/.local/bin symlinks on macOS.</summary>
-    private void WriteShims(IReadOnlyList<string> scripts)
+    /// <summary>
+    /// Create the tool shims: bin\&lt;script&gt;.cmd (plus a bare-name bash shim) on Windows, ~/.local/bin
+    /// symlinks on macOS. Public so the reconciler can reuse it to (re)create a single tool's missing shim
+    /// whose venv console-script target already exists - the lightweight corrective action for shim-only
+    /// drift, which must never duplicate the shim-body or path conventions defined here.
+    /// </summary>
+    public void WriteShims(IReadOnlyList<string> scripts)
     {
         if (OperatingSystem.IsWindows()) WriteWindowsShims(scripts);
         else WriteUnixShims(scripts);
