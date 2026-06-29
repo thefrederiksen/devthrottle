@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #829 (PR #836)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #e0e0e0; margin: 0; padding: 32px; }
+  h1 { color: #4ea3ff; }
+  h2 { color: #f0a040; border-bottom: 1px solid #333; padding-bottom: 6px; margin-top: 36px; }
+  .verdict { background: #14331a; border: 1px solid #2e7d32; padding: 16px; border-radius: 6px; font-size: 1.1em; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #333; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #2a2a2a; }
+  .pass { color: #6fcf6f; font-weight: bold; }
+  img { max-width: 900px; border: 1px solid #444; margin: 8px 0; display: block; }
+  pre { background: #111; padding: 12px; border-radius: 4px; overflow-x: auto; color: #c0c0c0; font-size: 0.85em; }
+  code { color: #f0a040; }
+  .cap { color: #999; font-size: 0.9em; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #829</h1>
+<p><strong>Title:</strong> [Tools] Active corner indicator: orange "Syncing tools..." state that auto-fixes drift<br>
+<strong>PR:</strong> #836 (branch <code>issue-829-active-tools-indicator</code>, commit 8b147834)<br>
+<strong>QA build:</strong> independently checked out, built (<code>dotnet build cc-director.sln</code> = 0 warnings / 0 errors),
+and run on slot 17 test Director (per-session isolation).<br>
+<strong>Date:</strong> 2026-06-29</p>
+
+<div class="verdict">VERIFIED - all 9 acceptance criteria met. PASS.</div>
+
+<h2>Method (independent reproduction)</h2>
+<p>Drift was created against the real install by injecting a known orphaned legacy alias shim
+(<code>%LOCALAPPDATA%\cc-director\bin\cc-send.cmd</code>, one of <code>PythonToolsInstaller.LegacyAliasShimNames</code>)
+and toggling <code>tools.autoUpdate.enabled</code>. To hold the orange state stable for capture and to drive the
+repeated-failure path, the injected shim was marked <em>read-only</em> so the reconcile's best-effort purge could
+not remove it; clearing the read-only attribute then let the next backoff retry self-heal to green. The user's
+config was backed up and restored afterward; all injected shims were removed.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Syncing state distinct from green/warning/red; state machine Green-&gt;Orange-&gt;Green, Orange-&gt;Red on repeated failure</td><td>Distinct states with the documented transitions</td><td><code>ToolsSyncStateMachine</code> + <code>ToolsIndicatorState</code> (InSync/Syncing/Warning/NeedsAttention); 12 state-machine unit tests pass; live log shows InSync-&gt;Syncing-&gt;InSync and Syncing-&gt;NeedsAttention</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Drift + autoUpdate=true auto-triggers ReconcileAsync, debounced, shows orange</td><td>Orange shown, reconcile runs, one in flight</td><td>Log: "tools auto-reconcile starting (indicator Syncing)"; orange badge captured; one reconcile in flight, retries gated by cooldown</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>On success returns to green and hides; no user click needed</td><td>Badge hides, home all-green</td><td>After clearing read-only, retry purged the shim; log "reconcile resolved drift"; badge hidden, "All systems go / 9 of 9 tools passing" (green-resolved.png)</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Red "Tools need attention" only after bounded failures with backoff</td><td>Red after 3 failed attempts; backoff between</td><td>Log: failures=1 (retry 5s), failures=2 (retry 10s), failures=3 -&gt; NeedsAttention; red badge captured (red-needs-attention.png)</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>autoUpdate=false stays passive, no auto-reconcile</td><td>No reconcile; opt-out honored</td><td>With autoUpdate=false + injected orphaned shim: only "tool health" snapshot logged, NO indicator transition, NO reconcile; shim survived on disk (passive-autoupdate-off.png)</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Orange styling per VisualStyle; responsive &lt;100ms; spinner not frozen</td><td>Orange + progress, shown fast</td><td>Orange painted at StartToolsReconcile before the background reconcile (UpdateToolsIndicator first); orange badge shows "Syncing tools... / reconciling cc-* tools" with indeterminate spinner row</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Logging records each transition (FileLog.Write)</td><td>Every transition logged</td><td>Every state change logged: "[MainWindow] tools indicator state: X -&gt; Y ..." (see log excerpt)</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Clean build; all tests pass; state-machine tests added</td><td>0 errors; suites green</td><td><code>dotnet build cc-director.sln</code> 0 warn/0 err; Core 2646 passed (6 env-skipped); setup-engine 217 passed; 12 state-machine + 4 HasDrift tests added</td><td class="pass">PASS</td></tr>
+<tr><td>9</td><td>Proven in running app: orange during reconcile + green after</td><td>Both states captured live</td><td>orange-syncing.png and green-resolved.png captured from the running slot-17 Director</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Screenshots (captured by QA from the running app)</h2>
+<p>Orange "Syncing tools..." (criteria 1, 2, 6, 9):</p>
+<img src="qa-orange-syncing.png" alt="orange syncing">
+<p class="cap">Bottom-left rail: orange dot, "Syncing tools...", "reconciling cc-* tools", indeterminate progress spinner.</p>
+
+<p>Green resolved / badge hidden (criterion 3, 9):</p>
+<img src="qa-green-resolved.png" alt="green resolved">
+<p class="cap">Tools badge gone after self-heal; home "All systems go / 9 of 9 tools passing".</p>
+
+<p>Red "Tools need attention" after 3 failed attempts (criterion 4):</p>
+<img src="qa-red-needs-attention.png" alt="red needs attention">
+<p class="cap">Red badge with "!" glyph, clickable (opens Settings).</p>
+
+<p>Passive with autoUpdate=false - no auto-reconcile (criterion 5):</p>
+<img src="qa-passive-autoupdate-off.png" alt="passive autoupdate off">
+<p class="cap">Orphaned shim present but reconcile never ran; badge stays passive.</p>
+
+<h2>Director log excerpt (state transitions)</h2>
+<pre>See qa-director-log-excerpt.txt in this directory.</pre>
+
+<h2>Regression sweep</h2>
+<p>Every screenshot read: home reads healthy ("All systems go / 9 of 9 tools passing"), gateway connected,
+no broken render, no adjacent breakage. Build clean (0 warnings). Full Core and setup-engine suites pass.</p>
+
+</body>
+</html>
