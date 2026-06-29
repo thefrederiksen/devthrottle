@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #820 (three-digit session number)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; max-width: 1000px; }
+  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; font-size: 12px; background: #f6f8fa; }
+  pre { padding: 8px; border: 1px solid #e1e4e8; overflow-x: auto; }
+  img { border: 1px solid #ccc; max-width: 100%; margin: 6px 0; }
+  .verdict { background: #e6f6ea; border: 1px solid #0a7d28; padding: 12px; font-size: 16px; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #820</h1>
+<p><b>Title:</b> Assign every session a unique three-digit number, shown wherever sessions are created and listed.<br>
+<b>PR:</b> #833 (branch <code>issue-820-session-number</code>) &nbsp; <b>QA verdict:</b> <span class="pass">PASS</span></p>
+
+<p><b>Independent verification.</b> All criteria were verified by the QA Agent in a freshly built,
+per-session-isolated single Director (slot 15, built from the PR branch), launched via its own
+scheduled task. To prove the Director-self-allocation design without touching the user's live fleet
+or live Gateway (fixed port 7878), the test Director ran with an isolated <code>CC_DIRECTOR_ROOT</code>
+and NO Gateway configured (<code>hasGatewayUrl=False</code> in the boot log), so its instance file
+never reached the live Gateway's discovery directory. This matches the recorded HUMAN DECISION on the
+issue: the Director self-allocates a number unique among its own active sessions; the Gateway is the
+fleet-wide authority only when reachable. PII (machine name, user, tailnet host, other sessions) was
+cropped/omitted from all committed artifacts.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>AC1</td><td>Desktop "new session" gives a 100-999 number, visible in the rail</td>
+<td>Each session shows a three-digit number in the rail</td>
+<td>Rail shows 100, 102, 103, 104 as muted prefixes (see qa-rail.png)</td><td class="pass">PASS</td></tr>
+<tr><td>AC2</td><td>Cockpit new-session flow shows the number in the Cockpit fleet list</td>
+<td>SessionDto.Number reaches and renders in the Cockpit surfaces</td>
+<td>Data spine proven (GET /fleet/sessions carries Number, below); Fleet.razor / Mobile.razor / SessionRail.razor / Cockpit.razor each bind <code>s.Number</code> (code-verified); Cockpit.Tests 118/118 pass. Verified by code-reading + proven data spine per the issue's HUMAN DECISION proof note (Cockpit is Gateway-hosted; standing up the live Gateway is forbidden here).</td><td class="pass">PASS</td></tr>
+<tr><td>AC3</td><td>POST /sessions returns the number; GET /sessions and GET /fleet/sessions show it</td>
+<td>number field populated on POST, GET /sessions, GET /fleet/sessions</td>
+<td>POST 201 returned number=100/101/102/103; both GET endpoints carry the same numbers (below)</td><td class="pass">PASS</td></tr>
+<tr><td>AC4</td><td>Two simultaneously-active sessions never share a number</td>
+<td>All-distinct numbers</td>
+<td>Four active sessions = 100, 101, 102, 103 (4 distinct of 4)</td><td class="pass">PASS</td></tr>
+<tr><td>AC5</td><td>Same number everywhere: rail, title, CLI, for the session's life</td>
+<td>Identical number in rail / header / CLI; stable across rename</td>
+<td>Rail "100", header title "100 qa820 alpha" (qa-header.png), CLI NO. column "100"; number 100 unchanged after renaming the session</td><td class="pass">PASS</td></tr>
+<tr><td>AC6</td><td>Backfill: pre-existing active sessions without a number get one</td>
+<td>Unnumbered active sessions become numbered</td>
+<td>Restore chokepoint: RestoreSession sets Number from persistence; AssignSessionNumber allocates a fresh number when it is null (code-verified). Unit tests BackfillNumbers_AssignsNumberToUnnumberedSession and SaveCurrentState_PersistsSessionNumber pass.</td><td class="pass">PASS</td></tr>
+<tr><td>AC7</td><td>Number released on session end and available to a later session</td>
+<td>Freed number leaves the active set; pool reuses it later</td>
+<td>Deleted session 101 -> 101 absent from active set; a new session was created and numbered (104; 101 held back briefly by design to avoid instant reuse, then reusable)</td><td class="pass">PASS</td></tr>
+<tr><td>+</td><td>Find a session by its number</td>
+<td>A number selects exactly the one session holding it</td>
+<td><code>session rename 100 ...</code> resolved to the correct session; <code>whoami</code> reports "number 100"</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>AC1 / AC5 - desktop rail and per-session title</h2>
+<p>Rail (numbers as muted prefixes, separate from the editable name):</p>
+<img src="qa-rail.png" alt="Desktop rail with numbers 100/102/103/104">
+<p>Per-session header title (same number 100 as the rail):</p>
+<img src="qa-header.png" alt="Header title showing 100 qa820 alpha">
+
+<h2>AC3 / AC4 - Control API (sanitized to the number-bearing fields)</h2>
+<p>POST /sessions responses (HTTP 201):</p>
+<pre>alpha -> {"number":100,"name":"qa820 alpha"}
+beta  -> {"number":101,"name":"qa820 beta"}
+gamma -> {"number":102,"name":"qa820 gamma"}
+delta -> {"number":103,"name":"qa820 delta"}</pre>
+<p>GET /sessions and GET /fleet/sessions (both carry the number; all distinct):</p>
+<pre>GET /sessions      : 100, 101, 102, 103
+GET /fleet/sessions: 100, 101, 102, 103   (standalone Director serves its own list with numbers)</pre>
+
+<h2>AC7 - release and reuse</h2>
+<pre>DELETE session 101 -> HTTP 200
+active numbers after delete: 100, 102, 103   (101 absent - released)
+new session created     -> number 104        (101 freed and in the pool; holdback delays instant reuse)</pre>
+
+<h2>AC5 / find-by-number - CLI (PR build of cc-devthrottle)</h2>
+<pre>+-----+----------+---------------+ ...
+| NO. | ID       | NAME          | ...
++-----+----------+---------------+ ...
+| 104 | 7ff44e3c | qa820 epsilon | ...
+| 102 | 87f4ba3f | qa820 gamma   | ...
+| 103 | 05e7a6c1 | qa820 delta   | ...
+| 100 | 6821ed07 | renamed-via-number-100 | ...
++-----+----------+---------------+ ...
+
+session rename 100 "..."  -> "Renamed 6821ed07 ..."   (number resolved to the right session)
+session whoami            -> "You are session number 100, 6821ed07 (...)"</pre>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>dotnet build cc-director.sln: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>CcDirector.Core.Tests: 2627 passed, 0 failed, 6 skipped.</li>
+<li>CcDirector.Cockpit.Tests: 118 passed, 0 failed.</li>
+<li>Negative sweep: number shows only as a separate muted prefix; rename does not alter the number; no adjacent rail/title regression observed.</li>
+<li>CenCon: additive field (SessionDto.Number, Session.Number) plus a Director-local allocator within existing containers - no architecture/security drift, no DT rule broken.</li>
+<li>No-fallback rule honored: the allocator returns null only on genuine pool exhaustion (documented) and throws on a true programming error; no silent degradation.</li>
+<li>No PII in committed artifacts (machine name / tailnet host / user paths cropped or omitted).</li>
+</ul>
+
+<p class="verdict">VERIFIED - all acceptance criteria met.</p>
+</body>
+</html>
