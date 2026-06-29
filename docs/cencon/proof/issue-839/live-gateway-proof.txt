@@ -1,0 +1,2 @@
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionLiveProofTests.PostTranscription_RemoteModeNoKey_Returns409_ThroughRealHost [201 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionLiveProofTests.RoutingEndpoint_ResolvesThroughSameOwner_ReturnsKeyOnceSet [136 ms]

@@ -1,0 +1,30 @@
+issue-839 build + test proof (captured Mon Jun 29 03:55:14 EDT 2026)
+
+dotnet build cc-director.sln -c Debug
+Build succeeded. 0 Warning(s) 0 Error(s)
+
+Gateway.Tests (transcription/voice/vault/routing filter):
+Passed!  - Failed:     0, Passed:   131, Skipped:     0, Total:   131, Duration: 30 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+Live Gateway end-to-end proof (real GatewayHost over loopback HTTP):
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionLiveProofTests.PostTranscription_RemoteModeNoKey_Returns409_ThroughRealHost [201 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionLiveProofTests.RoutingEndpoint_ResolvesThroughSameOwner_ReturnsKeyOnceSet [136 ms]
+
+New endpoint + service unit/wire tests:
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.13]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.14]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_ByoMode_NoKey_ReportsRemoteWithNoKey [23 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/mp4", expected: "m4a") [1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/webm;codecs=opus", expected: "webm") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/wav", expected: "wav") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "", expected: "webm") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeAsync_NoAudio_ReturnsNoAudioOutcome [22 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_ByoMode_WithKey_ComposesOpenAiTarget [5 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeSegmentRawAsync_RemoteModeNoKey_Throws [8 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeAsync_RemoteModeNoKey_ReturnsNoKeyOutcome_WithMode [2 ms]
+[xUnit.net 00:00:00.42]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_LocalMode_IsLocalWithNoKey [9 ms]
+  Passed CcDirector.Gateway.Tests.TranscriptionBatchEndpointTests.Transcription_KeySetButNoAudio_Returns400 [64 ms]
+  Passed CcDirector.Gateway.Tests.TranscriptionBatchEndpointTests.Transcription_NoKeyForRemoteMode_Returns409_WithMode [12 ms]

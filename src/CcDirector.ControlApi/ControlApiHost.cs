@@ -371,13 +371,13 @@ public sealed class ControlApiHost : IAsyncDisposable
         // provider, so they always use the current client even after a settings-change rebuild
         // (the field is replaced, not this lambda). The client is built later in this method.
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor, resolveTailnetEndpoint, () => _gatewayClient);
-        // Dictation key resolution: the Gateway vault when attached to a Gateway, the local
-        // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
-        // Pass GatewayConfig.Load (not the snapshot above) so the resolver re-reads config.json
-        // on every dictation: a Director that booted standalone and later had a gateway.url
-        // added self-heals into Gateway mode without a restart.
+        // Dictation key resolution: the Gateway vault when attached to a Gateway, the local key
+        // vault when standalone (issue #839: the vault is the single key store). Pass
+        // GatewayConfig.Load (not the snapshot above) so the resolver re-reads config.json on every
+        // dictation: a Director that booted standalone and later had a gateway.url added self-heals
+        // into Gateway mode without a restart.
         var openAiKeyResolver = new Core.Configuration.OpenAiKeyResolver(
-            _sessionManager.Options, Core.Configuration.GatewayConfig.Load);
+            Core.Configuration.GatewayConfig.Load);
         // Dictation glossary resolution mirrors the key resolver (#253): the Gateway's shared
         // dictionary when attached, the local cache when standalone. GatewayConfig.Load (not the
         // snapshot) is passed so the resolver re-reads config.json each dictation and self-heals

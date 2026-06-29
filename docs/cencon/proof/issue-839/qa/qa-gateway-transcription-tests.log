@@ -1,0 +1,25 @@
+  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj (in 73 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.AgentBrain\CcDirector.AgentBrain.csproj (in 73 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj (in 73 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Core\CcDirector.Core.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Engine\CcDirector.Engine.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.ControlApi\CcDirector.ControlApi.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway\CcDirector.Gateway.csproj (in 175 ms).
+  Restored D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj (in 852 ms).
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-wt-839-qa\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Tests -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll
+Test run for D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    14, Skipped:     0, Total:    14, Duration: 543 ms - CcDirector.Gateway.Tests.dll (net10.0)

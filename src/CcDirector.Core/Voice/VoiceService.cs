@@ -49,7 +49,7 @@ public sealed class VoiceService
     public async Task<VoiceCommandResponse> HandleAsync(
         Stream audio, string fileName, CancellationToken ct = default)
     {
-        var resolver = new OpenAiKeyResolver(_options);
+        var resolver = new OpenAiKeyResolver();
         var routing = await resolver.ResolveEndpointAsync(ct);
         if (routing is null)
         {
@@ -119,7 +119,7 @@ public sealed class VoiceService
     public async Task<VoiceCommandResponse> TranscribeAndCleanAsync(
         Stream audio, string fileName, string repoPath, CancellationToken ct = default)
     {
-        var routing = await new OpenAiKeyResolver(_options).ResolveEndpointAsync(ct);
+        var routing = await new OpenAiKeyResolver().ResolveEndpointAsync(ct);
         if (routing is null)
         {
             FileLog.Write("[VoiceService] TranscribeAndCleanAsync: no transcription routing available");

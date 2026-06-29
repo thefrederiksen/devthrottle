@@ -1,0 +1,23 @@
+Building CC Director Avalonia v0.9.29 (Release)
+  Mode: Framework-dependent (.NET 10 runtime required)
+  Cleaning previous build...
+  Pre-building Core dependency...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.94
+  Building Avalonia project...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:09.12
+  Publishing...
+MSBuild version 18.6.4+96856fd72 for .NET
+  CcDirector.Avalonia -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+
+Build complete: 37 MB
+  D:\ReposFred\devthrottle-wt-839-qa\local_builds\cc-director15.exe

@@ -7,6 +7,7 @@ using CcDirector.Core.Network;
 using CcDirector.Core.Recording;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Transcription;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -422,120 +423,26 @@ internal static class RecordingEndpoints
         // land on the server regardless of transcription: a missing key no longer fails ingest, it
         // just fails (and reschedules) the downstream transcription job.
         //
-        // It routes through the ONE shared batch pipeline using the user-SELECTED transcription
-        // method (issue #591), exactly as the Gateway's own /transcription/routing endpoint resolves
-        // it: the configured mode -> (baseUrl, keyName, model) from the single pure resolver, with the
-        // key read from the Gateway's own vault. So switching the mode in the Cockpit changes the base
-        // URL the recording transcription POSTs to (BYO -> api.openai.com, DevThrottle ->
-        // devthrottle.com), with no Gateway restart - the mode + key are re-read on every transcribe.
+        // It routes through the ONE Gateway transcription owner (issue #839): the single
+        // GatewayTranscriptionService resolves the configured mode and the key (from the Gateway
+        // vault) and picks the provider - in-process Whisper for on-device mode, or the resolved
+        // OpenAI-compatible batch endpoint for the remote modes. So switching the mode in the Cockpit
+        // changes how the recording is transcribed with no Gateway restart, and on-device mode now
+        // works for recordings too - the same single audio-to-text path every other batch caller uses.
         return new RecordingIngestService(
             root,
-            transcriberFactory: () => new SelectedMethodRecordingTranscriber(
-                routingResolver: _ => Task.FromResult(ResolveSelectedMethod()),
-                dictionaryResolver: _ => Task.FromResult(DictionaryLoader.LoadFromDisk(DictionaryFilePath()))),
+            transcriberFactory: () => new GatewayServiceRecordingTranscriber(
+                new GatewayTranscriptionService(new KeyVault())),
             filer,
             collectionDir);
     }
 
     /// <summary>
-    /// Resolve the user-selected transcription method in-process, the same way the Gateway's
-    /// <c>/transcription/routing</c> endpoint does (issue #591): the configured mode -> the
-    /// (baseUrl, keyName, transport, model) tuple from the single pure
-    /// <see cref="TranscriptionEndpointResolver"/>, with the credential read from the Gateway's own
-    /// vault. Re-read on every call so a mode switch or a key rotation in the Cockpit takes effect on
-    /// the next recording with no restart. Returns null when no key is set for the selected mode, so
-    /// the transcriber reports transcription unavailable (a retryable job failure) rather than guess a
-    /// baked-in URL. The bring-your-own OpenAI key is only ever paired with the OpenAI base URL because
-    /// the pair is composed from the one pure resolver - never crossed onto devthrottle.com.
+    /// The single shared dictation glossary file. Used by both the recording transcriber and the
+    /// dictionary editor endpoints. Defined once, in
+    /// <see cref="GatewayTranscriptionService.DictionaryPath"/>.
     /// </summary>
-    private static ResolvedTranscription? ResolveSelectedMethod()
-    {
-        var mode = TranscriptionModeConfig.Get();
-        var endpoint = TranscriptionEndpointResolver.Resolve(mode);
-
-        // Local mode (issue #541) is in-process with no remote endpoint and no key, so this
-        // remote-method resolver has nothing to resolve - the recording-ingest path is the
-        // OpenAI-compatible remote path only. Returning null reports it unavailable for local mode
-        // (the same contract this method already uses when a remote key is missing).
-        if (endpoint.IsLocal || endpoint.KeyName is null || endpoint.BaseUrl is null)
-        {
-            FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, no remote endpoint (local/in-process)");
-            return null;
-        }
-
-        var key = new KeyVault().Get(endpoint.KeyName);
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, no key for {endpoint.KeyName}");
-            return null;
-        }
-
-        FileLog.Write($"[RecordingEndpoints] ResolveSelectedMethod: mode={endpoint.Mode.ToConfigString()}, "
-            + $"transport={endpoint.Transport.ToConfigString()}, baseUrl={endpoint.BaseUrl}, model={endpoint.Model}");
-        return new ResolvedTranscription
-        {
-            BaseUrl = endpoint.BaseUrl,
-            ApiKey = key,
-            Transport = endpoint.Transport,
-            Model = endpoint.Model,
-            Mode = endpoint.Mode,
-        };
-    }
-
-    /// <summary>
-    /// The single shared dictation glossary file. Used by both the recording
-    /// transcriber and the dictionary editor endpoints so the path is defined
-    /// in exactly one place.
-    /// </summary>
-    private static string DictionaryFilePath()
-    {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, "cc-director", "dictation", "dictionary.yaml");
-    }
-
-    /// <summary>
-    /// Apply the validated dictionary corrector to a raw transcript using the user-SELECTED
-    /// transcription method, then return the corrected text. This is the SAME deterministic dictionary
-    /// find/replace (<see cref="CleanupOrchestrator"/> + TranscriptEditEngine) the recording-ingest
-    /// path uses - never a free-text rewrite - so the live <c>/wingman/transcribe</c> and
-    /// <c>/wingman/utterance/complete</c> paths produce the same term-corrected transcript every other
-    /// surface does (issue #587 follow-up). It is the one place these two endpoints reach the cleanup
-    /// engine; the resolver helpers (<see cref="ResolveSelectedMethod"/>, <see cref="DictionaryFilePath"/>)
-    /// stay defined once, here.
-    ///
-    /// Fails open to the RAW transcript (issue #190 contract): when the selected mode is local
-    /// (in-process Whisper - no chat endpoint or key), the dictionary is empty, or the corrector errors,
-    /// the raw transcript comes back byte-identical. The corrector talks to the SAME base URL + key the
-    /// transcription used, so a bring-your-own key is never crossed onto another provider's URL.
-    /// </summary>
-    internal static async Task<string> CleanTranscriptWithSelectedMethodAsync(string rawTranscript, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(rawTranscript))
-            return rawTranscript ?? "";
-
-        // Local mode (or a missing key) has no chat endpoint for the corrector - ship raw. This is the
-        // honest behavior: offline Whisper cannot run a dictionary-correction model, so the raw words
-        // stand, exactly as they did before this step existed.
-        var routing = ResolveSelectedMethod();
-        if (routing is null)
-        {
-            FileLog.Write("[RecordingEndpoints] CleanTranscript: no remote method (local/no key) - shipping raw");
-            return rawTranscript;
-        }
-
-        // CleanAsync itself short-circuits an empty dictionary to a verbatim passthrough (no model
-        // round-trip); the early check just avoids constructing the orchestrator for nothing.
-        var dictionary = DictionaryLoader.LoadFromDisk(DictionaryFilePath());
-        if (dictionary.Vocabulary.Count == 0 && dictionary.CommonMistranscriptions.Count == 0)
-            return rawTranscript;
-
-        using var cleanup = new CleanupOrchestrator(
-            apiKey: routing.ApiKey, model: CleanupOrchestrator.DefaultModel, baseUrl: routing.BaseUrl);
-        var outcome = await cleanup.CleanAsync(rawTranscript, dictionary, "default", ct);
-        FileLog.Write($"[RecordingEndpoints] CleanTranscript: applied={outcome.Applied}, "
-            + $"changed={outcome.ChangedWords.Count}, reason=\"{outcome.Reason}\"");
-        return outcome.Text;
-    }
+    private static string DictionaryFilePath() => GatewayTranscriptionService.DictionaryPath();
 
     private static DictionaryDto ToDto(DictationDictionary dict) => new(
         Vocabulary: dict.Vocabulary.ToList(),

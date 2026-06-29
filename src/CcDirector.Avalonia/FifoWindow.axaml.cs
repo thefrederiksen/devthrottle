@@ -283,7 +283,7 @@ public partial class FifoWindow : Window
         {
             if (string.IsNullOrWhiteSpace(_options.ResolveOpenAiKey()))
             {
-                SetStatus("Voice needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.", Red);
+                SetStatus("Voice needs an OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.", Red);
                 return;
             }
             try

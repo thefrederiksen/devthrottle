@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue 839 - Centralize transcription on the Gateway behind one endpoint</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1c2733; max-width: 980px; margin: 0 auto; padding: 28px; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2d6cdf; padding-bottom: 8px; }
+  h2 { font-size: 1.18rem; margin-top: 30px; color: #20436f; }
+  code { background: #f1f4f8; padding: 1px 5px; border-radius: 4px; font-family: Consolas, monospace; font-size: 0.9em; }
+  pre { background: #0f1622; color: #d7e2f0; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 0.84rem; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #d4dbe4; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 0.92rem; }
+  th { background: #eef3fb; }
+  .ok { color: #1a7f37; font-weight: 600; }
+  .files li { margin-bottom: 3px; }
+  .note { background: #fff8e6; border-left: 4px solid #e3b341; padding: 10px 14px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Issue 839 - Centralize all transcription on the Gateway behind one endpoint</h1>
+
+<h2>Release notes</h2>
+<p>The Gateway is now the single owner of speech-to-text. Every module that needs audio turned into
+text sends the audio to one Gateway endpoint, <code>POST /transcription</code>, and gets the text
+back. No module resolves the transcription mode, reads the key, picks a provider, or talks to OpenAI
+on its own. The duplicate "figure out the mode, then read the key" resolvers are collapsed into one
+owner, and the standalone <code>config.json Voice.OpenAiKey</code> copy is removed so the key vault is
+the only transcription key store. This closes the split that let a recorded note fail with "no key is
+set" even when a valid key was present.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>One owner:</b> <code>GatewayTranscriptionService</code> (new) is the single place that
+      resolves the configured mode and the key and runs the right provider - in-process Whisper for
+      on-device mode, or the resolved OpenAI-compatible batch endpoint for the remote modes - with an
+      optional validated dictionary-correction step. Resolution lives in one method, <code>Resolve()</code>.</li>
+  <li><b>One endpoint:</b> <code>POST /transcription</code> (new, <code>TranscriptionBatchEndpoint</code>)
+      is the single audio-to-text HTTP face: raw audio body, content-type header, optional
+      <code>?correct=true</code>; returns <code>{ text, mode, model }</code>.</li>
+  <li><b>Batch callers routed through it:</b> the phone Notes worker (via a thin
+      <code>GatewayServiceRecordingTranscriber</code>), the Settings "Test it" button (now posts to
+      <code>/transcription</code>), on-device mode (the Notes path now supports local Whisper too), and
+      the Gateway wingman-voice batch paths (<code>/wingman/transcribe</code>,
+      <code>/wingman/utterance/complete</code>) all use the one owner.</li>
+  <li><b>Duplicate resolvers removed:</b> <code>RecordingEndpoints.ResolveSelectedMethod</code>, the
+      <code>/transcription/test</code> inline block (<code>TranscriptionTestEndpoint</code> deleted),
+      and the wingman endpoint's own <code>TranscribeBytesByModeAsync</code>/<code>TranscribeBytesAsync</code>
+      (which had hardcoded the OpenAI URL/model and ignored DevThrottle) are gone.
+      <code>TranscriptionRoutingEndpoint</code> now resolves through the same single owner.</li>
+  <li><b>One key store:</b> the <code>config.json Voice.OpenAiKey</code> loading is removed;
+      <code>OpenAiKeyResolver</code> no longer reads an in-process key copy and instead reads the local
+      key vault when standalone, so the key vault is the only transcription key store (gateway-attached
+      pulls the remote vault via routing; standalone reads the local vault file).</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and proven</h2>
+<table>
+  <tr><th>Criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+  <tr>
+    <td>Exactly one Gateway endpoint turns audio into text; Notes worker, Settings test button, and on-device mode all go through it.</td>
+    <td><code>POST /transcription</code> wraps <code>GatewayTranscriptionService</code>. Notes uses
+        <code>GatewayServiceRecordingTranscriber</code> -&gt; the service; Settings posts to
+        <code>/transcription</code>; local mode runs Whisper inside the same service.</td>
+    <td><code>GatewayTranscriptionLiveProofTests.PostTranscription_RemoteModeNoKey_Returns409_ThroughRealHost</code>
+        (real <code>GatewayHost</code> over loopback HTTP); <code>TranscriptionBatchEndpointTests</code>.</td>
+  </tr>
+  <tr>
+    <td>Exactly one place resolves the mode and reads the key; duplicate resolvers gone.</td>
+    <td><code>GatewayTranscriptionService.Resolve()</code> is the only resolver. The three duplicates
+        and the wingman in-endpoint transcribe helpers were deleted; routing endpoint reuses the owner.</td>
+    <td>Code: deletions of <code>ResolveSelectedMethod</code>, <code>TranscriptionTestEndpoint</code>,
+        <code>TranscribeBytesByModeAsync</code>. <code>GatewayTranscriptionServiceTests.Resolve_*</code>.</td>
+  </tr>
+  <tr>
+    <td>The key lives in exactly one store (the vault); the config.json Voice.OpenAiKey copy is removed.</td>
+    <td><code>App.axaml.cs</code> no longer loads <code>Voice.OpenAiKey</code>;
+        <code>OpenAiKeyResolver</code> reads the local key vault standalone; the gateway-attached path
+        reads the remote vault via routing.</td>
+    <td><code>OpenAiKeyResolverEndpointTests.ResolveEndpoint_StandaloneByo_UsesLocalVaultKey</code>;
+        <code>VaultGatewayIntegrationTests.Standalone_resolver_uses_local_vault_key_no_gateway</code>.</td>
+  </tr>
+  <tr>
+    <td>A caller never sees or handles the key; only sends audio and receives text.</td>
+    <td>Callers call <code>TranscribeAsync</code>/<code>POST /transcription</code> with audio only; the
+        service holds the vault and the key.</td>
+    <td>Endpoint + service signatures; <code>TranscriptionBatchEndpointTests</code>.</td>
+  </tr>
+  <tr>
+    <td>On-device and bring-your-own-key modes both work through the same endpoint.</td>
+    <td><code>TranscribeRawCoreAsync</code> branches local (Whisper in-process) vs remote (batch
+        pipeline) inside the one service; the Notes path now supports local too.</td>
+    <td><code>GatewayTranscriptionServiceTests.Resolve_LocalMode_IsLocalWithNoKey</code> and
+        <code>Resolve_ByoMode_WithKey_ComposesOpenAiTarget</code>.</td>
+  </tr>
+  <tr>
+    <td>Dictionary correction available from the endpoint via the optional flag.</td>
+    <td><code>?correct=true</code> -&gt; <code>TranscribeAsync(applyCorrection: true)</code> runs the
+        validated <code>CleanupOrchestrator</code> (fails open in local/no-key). Callers no longer run it.</td>
+    <td>Service <code>CleanupCoreAsync</code>; transcription-integrity + architecture guards pass.</td>
+  </tr>
+  <tr>
+    <td>Live voice dictation still works (existing routing); realtime-proxy is a separate follow-up.</td>
+    <td><code>TranscriptionRoutingEndpoint</code> keeps its exact response shape (now sourced from the
+        single owner); the realtime transport/streaming path is untouched.</td>
+    <td><code>Issue506RoutingProofTests</code>, <code>Issue513TransportRoutingProofTests</code>,
+        <code>OpenAiKeyResolverEndpointTests</code>, and
+        <code>GatewayTranscriptionLiveProofTests.RoutingEndpoint_ResolvesThroughSameOwner_ReturnsKeyOnceSet</code>.</td>
+  </tr>
+</table>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security-posture drift. The change reduces surface (one resolver, one key store)
+and preserves the security invariants: the bring-your-own OpenAI key is still only ever paired with the
+OpenAI base URL (composed from the one pure <code>TranscriptionEndpointResolver</code>), and the
+transcription-integrity rule (CodingStyle section 16 - only <code>TranscriptEditEngine</code> /
+<code>CleanupOrchestrator</code> may change the words) is unchanged; the architecture guard still passes.
+The accepted tradeoff is stated: transcription is now Gateway/vault-owned, consistent with the
+thin-Director direction.</p>
+
+<div class="note"><b>Scoping note on criterion 3.</b> The transcription key now lives only in the key
+vault. The separate <code>AgentOptions.OpenAiKey</code> field used by desktop text-to-speech (a
+different OpenAI capability, not transcription) is retained but is no longer loaded from config.json;
+in production it is unset and the documented <code>OPENAI_API_KEY</code> seed is what feeds it. This
+keeps the live voice / TTS path the issue says to leave alone untouched.</div>
+
+<h2>Proof: running instance (loopback REST through a real Gateway host)</h2>
+<p>Because the transcription endpoints are Gateway-side (the Gateway tray host, not the Director the
+isolation script launches), the faithful running-instance proof boots a complete real
+<code>GatewayHost</code> on an ephemeral loopback port and drives <code>POST /transcription</code> and
+<code>GET /transcription/routing</code> over real HTTP through the whole host pipeline.</p>
+<pre id="evidence">See build-and-test-output.txt in this folder.</pre>
+
+<h2>Build + test evidence</h2>
+<pre>dotnet build cc-director.sln -c Debug   ->  Build succeeded.  0 Warning(s)  0 Error(s)
+
+Gateway.Tests (transcription / voice / vault / routing):   Passed: 131, Failed: 0
+Core.Tests   (transcription / voice / dictation / resolver): Passed: 354, Failed: 0
+Transcription integrity + architecture guards:               Passed: 7,   Failed: 0
+
+Live Gateway end-to-end (real GatewayHost over loopback HTTP):
+  Passed  PostTranscription_RemoteModeNoKey_Returns409_ThroughRealHost
+  Passed  RoutingEndpoint_ResolvesThroughSameOwner_ReturnsKeyOnceSet</pre>
+
+<h2>Changed / added files</h2>
+<ul class="files">
+  <li>NEW <code>src/CcDirector.Gateway/Transcription/GatewayTranscriptionService.cs</code> - the single owner</li>
+  <li>NEW <code>src/CcDirector.Gateway/Transcription/GatewayServiceRecordingTranscriber.cs</code> - Notes adapter</li>
+  <li>NEW <code>src/CcDirector.Gateway/Api/TranscriptionBatchEndpoint.cs</code> - <code>POST /transcription</code></li>
+  <li><code>src/CcDirector.Gateway/Api/RecordingEndpoints.cs</code> - Notes routed through the owner; duplicates removed</li>
+  <li><code>src/CcDirector.Gateway/Api/GatewayWingmanVoiceEndpoint.cs</code> - batch paths routed through the owner</li>
+  <li><code>src/CcDirector.Gateway/Api/TranscriptionRoutingEndpoint.cs</code> - resolves via the owner</li>
+  <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - maps the new endpoint</li>
+  <li>DELETED <code>src/CcDirector.Gateway/Api/TranscriptionTestEndpoint.cs</code>, <code>src/CcDirector.Core/Recording/SelectedMethodRecordingTranscriber.cs</code></li>
+  <li><code>src/CcDirector.Core/Configuration/OpenAiKeyResolver.cs</code> - vault is the single standalone store</li>
+  <li><code>src/CcDirector.Core/Configuration/AgentOptions.cs</code>, <code>src/CcDirector.Avalonia/App.axaml.cs</code> - config Voice.OpenAiKey loading removed</li>
+  <li><code>src/CcDirector.Cockpit/wwwroot/pages/settings.html</code> - "Test it" posts to <code>/transcription</code></li>
+  <li>Tests: NEW <code>GatewayTranscriptionServiceTests</code>, <code>TranscriptionBatchEndpointTests</code>, <code>GatewayTranscriptionLiveProofTests</code>; updated resolver/vault tests</li>
+</ul>
+
+<h2>How to test</h2>
+<ol>
+  <li><code>dotnet build cc-director.sln -c Debug</code> -&gt; clean.</li>
+  <li><code>dotnet test src/CcDirector.Gateway.Tests -c Debug --filter "FullyQualifiedName~GatewayTranscriptionLiveProofTests"</code>
+      boots a real Gateway and drives <code>POST /transcription</code> + <code>GET /transcription/routing</code> over HTTP.</li>
+  <li>In the Cockpit Settings &gt; Transcription tab, "Test it" records a clip and posts it to
+      <code>/transcription</code>; the returned text proves the single path.</li>
+</ol>
+
+<p class="ok">I believe this is finished.</p>
+</body>
+</html>

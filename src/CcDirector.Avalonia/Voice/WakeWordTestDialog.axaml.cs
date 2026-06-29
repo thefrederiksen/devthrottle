@@ -72,7 +72,7 @@ public partial class WakeWordTestDialog : Window
 
         if (string.IsNullOrWhiteSpace(_options.ResolveOpenAiKey()))
         {
-            AppendLog("ERROR: no OpenAI key. Set OPENAI_API_KEY or Voice.OpenAiKey.");
+            AppendLog("ERROR: no OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.");
             return;
         }
 

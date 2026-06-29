@@ -764,7 +764,9 @@
     btn.disabled = true;
     txTestState('Transcribing...');
     try {
-      const r = await fetch('/transcription/test', {
+      // The single Gateway speech-to-text endpoint (issue #839). No ?correct flag: the test proves
+      // the RAW transcription path works (a dictionary term swap would mask a transcription problem).
+      const r = await fetch('/transcription', {
         method: 'POST',
         headers: { 'Content-Type': blob.type || 'audio/webm' },
         body: blob,

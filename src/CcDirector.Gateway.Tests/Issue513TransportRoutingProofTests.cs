@@ -73,7 +73,7 @@ public sealed class Issue513TransportRoutingProofTests : IAsyncLifetime
         new KeyVault(_vaultPath).Set(TranscriptionEndpointResolver.DevThrottleKeyName, "dt_live_proof");
 
         var gateway = new GatewayConfig { Url = _baseUrl };
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => gateway);
+        var resolver = new OpenAiKeyResolver(() => gateway);
 
         // DevThrottle mode: batch transport + whisper-large-v3 + devthrottle.com.
         TranscriptionModeConfig.Set(TranscriptionMode.DevThrottle);

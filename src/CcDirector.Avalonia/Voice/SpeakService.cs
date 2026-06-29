@@ -70,9 +70,9 @@ public sealed class SpeakService : IAsyncDisposable
     public SpeakService(AgentOptions options, int micDeviceNumber = MicDevices.DefaultDeviceNumber)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        // Resolve the OpenAI key by mode: Gateway vault when attached to a Gateway, the local
-        // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
-        _keyResolver = new OpenAiKeyResolver(options);
+        // Resolve the OpenAI key by mode: Gateway vault when attached to a Gateway, the local key
+        // vault when standalone (issue #839: the vault is the single key store).
+        _keyResolver = new OpenAiKeyResolver();
         // Resolve the dictation dictionary the same way: the Gateway's shared glossary when
         // attached, the local cache when standalone (#253). A Cockpit edit reaches this Director.
         _dictionaryResolver = new DictionaryResolver(options);

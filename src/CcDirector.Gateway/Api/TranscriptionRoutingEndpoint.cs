@@ -35,18 +35,19 @@ internal static class TranscriptionRoutingEndpoint
             // message instead of silently using a baked-in URL (issue #506, no-fallback rule).
             ctx.Response.Headers["X-Transcription-Routing"] = "1";
 
-            // Resolve the Gateway's configured mode -> the (baseUrl, keyName, transport, model)
-            // tuple, from the single pure resolver. Composing URL+key here is what makes the
-            // never-cross invariant a server-side guarantee; the transport joins it in issue #513 so
-            // the Director honors the provider's wire (batch for DevThrottle/Groq, realtime for BYO).
-            var mode = TranscriptionModeConfig.Get();
-            var endpoint = TranscriptionEndpointResolver.Resolve(mode);
+            // Resolve the Gateway's configured mode -> (baseUrl, key, transport, model) through the
+            // SINGLE transcription owner (issue #839), the same resolve-mode-and-key path every batch
+            // caller uses. Composing URL+key here is what makes the never-cross invariant a
+            // server-side guarantee; the transport (issue #513) lets the Director honor the provider's
+            // wire (batch for DevThrottle/Groq, realtime for BYO).
+            var routing = new Transcription.GatewayTranscriptionService(vault).Resolve();
+            var endpoint = routing.Endpoint;
 
             // Local mode (issue #541): in-process Whisper.net, no key and no remote endpoint. Local
             // is ALWAYS available (the model is auto-downloaded on first use), so it NEVER hits the
             // key gate below - it returns 200 { mode: "local" } with no baseUrl/key. The 404-no-key
             // path is for the remote modes (byo, devthrottle) only.
-            if (endpoint.IsLocal)
+            if (routing.IsLocal)
             {
                 FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode=local (in-process), transport={endpoint.Transport.ToConfigString()}, model={endpoint.Model}");
                 return Results.Json(new
@@ -57,14 +58,11 @@ internal static class TranscriptionRoutingEndpoint
                 });
             }
 
-            // Remote modes carry a vault key name; RequireKeyName is non-null for byo/devthrottle.
-            var keyName = endpoint.RequireKeyName();
-            var key = vault.Get(keyName);
-            if (string.IsNullOrWhiteSpace(key))
+            if (routing.Key is null)
             {
                 // No silent default: the Gateway reachable but the key for this mode is not set yet.
                 // The Director reports transcription unavailable for the mode (never a baked-in URL).
-                FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, no key for {keyName}");
+                FileLog.Write($"[TranscriptionRoutingEndpoint] GET /transcription/routing: mode={endpoint.Mode.ToConfigString()}, no key for {endpoint.RequireKeyName()}");
                 return Results.NotFound(new { error = "no key set for the current transcription mode", mode = endpoint.Mode.ToConfigString() });
             }
 
@@ -75,7 +73,7 @@ internal static class TranscriptionRoutingEndpoint
                 transport = endpoint.Transport.ToConfigString(),
                 baseUrl = endpoint.BaseUrl,
                 model = endpoint.Model,
-                key,
+                key = routing.Key,
             });
         });
     }

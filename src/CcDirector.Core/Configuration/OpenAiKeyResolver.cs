@@ -11,12 +11,11 @@ namespace CcDirector.Core.Configuration;
 ///
 ///   * Connected to a Gateway -> pull the key from the Gateway's central vault
 ///     (GET /vault/keys/OPENAI_API_KEY) and cache it in memory. Never written to local disk.
-///   * Standalone (no gateway configured) -> use the local key from Settings &gt; Voice
-///     (config.json Voice.OpenAiKey, surfaced as <see cref="AgentOptions.OpenAiKey"/>).
+///   * Standalone (no gateway configured) -> read the key from the LOCAL key vault file (issue #839).
 ///
-/// There is no environment-variable fallback: the key comes from the vault when on a Gateway,
-/// or the local setting when standalone. When neither yields a key, dictation is unavailable
-/// and <see cref="UnavailableMessage"/> tells the user where to set it for their mode.
+/// The key vault is the single key store (issue #839): the old standalone config.json Voice.OpenAiKey
+/// copy is gone. When neither the Gateway vault nor the local vault yields a key, transcription is
+/// unavailable and <see cref="UnavailableMessage"/> tells the user where to set it for their mode.
 ///
 /// The gateway config is re-read on every resolve (not snapshotted at construction), so a
 /// Director that booted standalone and later had a <c>gateway.url</c> added to config.json
@@ -34,10 +33,10 @@ public sealed class OpenAiKeyResolver
 
     private static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
 
-    private readonly AgentOptions _options;
     private readonly Func<GatewayConfig> _gatewayProvider;
     private readonly Func<TranscriptionMode> _modeProvider;
     private readonly HttpClient _http;
+    private readonly KeyVault _localVault;
     private readonly object _gate = new();
     // Cache is keyed by vault key name so BYO and DevThrottle keys never clobber one another
     // when the user switches modes within a session.
@@ -54,11 +53,10 @@ public sealed class OpenAiKeyResolver
     /// Director booted) is honored without a restart. Production passes
     /// <see cref="GatewayConfig.Load"/>; tests pass a closure they can flip.
     /// </summary>
-    /// <param name="options">The running options carrying the local (standalone) key.</param>
     /// <param name="gatewayProvider">Supplies the current gateway config on demand.</param>
     /// <param name="http">HTTP client for the vault fetch (tests inject a stub).</param>
-    public OpenAiKeyResolver(AgentOptions options, Func<GatewayConfig> gatewayProvider, HttpClient? http = null)
-        : this(options, gatewayProvider, TranscriptionModeConfig.Get, http)
+    public OpenAiKeyResolver(Func<GatewayConfig> gatewayProvider, HttpClient? http = null)
+        : this(gatewayProvider, TranscriptionModeConfig.Get, http)
     {
     }
 
@@ -67,27 +65,28 @@ public sealed class OpenAiKeyResolver
     /// resolve, so a transcription-mode change in config.json is honored without a restart - the
     /// same live-read contract the gateway provider follows. Tests pass a closure they can flip.
     /// </summary>
-    /// <param name="options">The running options carrying the local (standalone) key.</param>
     /// <param name="gatewayProvider">Supplies the current gateway config on demand.</param>
     /// <param name="modeProvider">Supplies the current transcription mode on demand.</param>
     /// <param name="http">HTTP client for the vault fetch (tests inject a stub).</param>
-    public OpenAiKeyResolver(AgentOptions options, Func<GatewayConfig> gatewayProvider, Func<TranscriptionMode> modeProvider, HttpClient? http = null)
+    /// <param name="localVault">The standalone (no-Gateway) key store - the local key vault file
+    /// (issue #839: the vault is the single key store, replacing the old config.json Voice.OpenAiKey
+    /// copy). Defaults to the shared local <see cref="KeyVault"/>; tests inject a temp-file vault.</param>
+    public OpenAiKeyResolver(Func<GatewayConfig> gatewayProvider, Func<TranscriptionMode> modeProvider, HttpClient? http = null, KeyVault? localVault = null)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
         _gatewayProvider = gatewayProvider ?? throw new ArgumentNullException(nameof(gatewayProvider));
         _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _http = http ?? SharedHttp;
+        _localVault = localVault ?? new KeyVault();
     }
 
     /// <summary>
     /// Convenience constructor pinning a FIXED gateway config (tests that assert one mode). When
     /// <paramref name="gateway"/> is null, falls back to the dynamic <see cref="GatewayConfig.Load"/>.
     /// </summary>
-    /// <param name="options">The running options carrying the local (standalone) key.</param>
     /// <param name="gateway">A fixed gateway config, or null to read it live from config.json.</param>
     /// <param name="http">HTTP client for the vault fetch (tests inject a stub).</param>
-    public OpenAiKeyResolver(AgentOptions options, GatewayConfig? gateway = null, HttpClient? http = null)
-        : this(options, gateway is null ? GatewayConfig.Load : () => gateway, http)
+    public OpenAiKeyResolver(GatewayConfig? gateway = null, HttpClient? http = null)
+        : this(gateway is null ? GatewayConfig.Load : () => gateway, http)
     {
     }
 
@@ -189,12 +188,11 @@ public sealed class OpenAiKeyResolver
         if (gateway.IsEnabled)
             return await ResolveFromGatewayAsync(gateway, keyName, ct);
 
-        // Standalone: the local Settings > Voice key is the user's own OpenAI key, so it serves
-        // the bring-your-own (OPENAI_API_KEY) mode only. DevThrottle mode standalone has no local
-        // key field, so it resolves via the Gateway vault path above when attached.
-        if (!string.Equals(keyName, TranscriptionEndpointResolver.OpenAiKeyName, StringComparison.Ordinal))
-            return null;
-        var local = _options.OpenAiKey;
+        // Standalone (no Gateway): read the key from the LOCAL key vault file - the same single store
+        // the Gateway owns (issue #839). There is no second config.json copy anymore; the vault is the
+        // only place a key lives. Any vault key name resolves here (e.g. a DevThrottle key in the
+        // local vault), so both remote modes work standalone when a key is present.
+        var local = _localVault.Get(keyName);
         return string.IsNullOrWhiteSpace(local) ? null : local.Trim();
     }
 
