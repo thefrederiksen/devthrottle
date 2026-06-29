@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #839 / PR #841</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1b1b1b; line-height: 1.45; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .3rem; }
+  h2 { margin-top: 1.8rem; color: #2a2a2a; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; vertical-align: top; text-align: left; font-size: .92rem; }
+  th { background: #f0ecfb; }
+  .pass { color: #0e8a16; font-weight: bold; }
+  .fail { color: #c5221f; font-weight: bold; }
+  .note { background: #fff8e1; border-left: 4px solid #f4b400; padding: .6rem .9rem; margin: 1rem 0; }
+  code { background: #f4f4f4; padding: .05rem .3rem; border-radius: 3px; }
+  .verdict { font-size: 1.25rem; font-weight: bold; color: #0e8a16; background: #e7f6e7; padding: .8rem 1rem; border-radius: 6px; }
+  .meta td:first-child { font-weight: bold; width: 16rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #839</h1>
+<p><strong>Title:</strong> Centralize all transcription on the Gateway behind one endpoint (modules send audio, Gateway returns text)</p>
+
+<table class="meta">
+  <tr><td>Issue</td><td>#839</td></tr>
+  <tr><td>Pull request</td><td>#841 (branch <code>issue-839-gateway-transcription</code>)</td></tr>
+  <tr><td>Commit under test</td><td><code>33902b42</code> "feat(#839): centralize transcription on the Gateway behind one endpoint"</td></tr>
+  <tr><td>QA identity</td><td>Independent QA Agent session - fresh context, never saw the Developer's work</td></tr>
+  <tr><td>Isolation</td><td>Own detached worktree <code>D:\ReposFred\devthrottle-wt-839-qa</code>; own test slot 15; own scheduled task <code>cc-director15-launch</code>; Control API on loopback port 7880</td></tr>
+  <tr><td>Verified on</td><td>2026-06-29</td></tr>
+</table>
+
+<div class="verdict">VERDICT: PASS - all 7 acceptance criteria independently verified with proof. (Standalone QA + human-review hold: NOT merged; PR parked open for human merge.)</div>
+
+<h2>Build and run health (built from PR source, not the Developer's binary)</h2>
+<table>
+  <tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>Release build of slot 15 from the PR branch</td><td>Build succeeded, 0 warnings, 0 errors</td><td>Build succeeded. 0 Warning(s) 0 Error(s); <code>cc-director15.exe</code> (37 MB) produced. Evidence: <code>qa-build-slot15.log</code></td><td class="pass">PASS</td></tr>
+  <tr><td>Test Director boots and serves the Control API</td><td>Healthy loopback response</td><td><code>GET http://127.0.0.1:7880/healthz</code> -&gt; <code>{"status":"ok","directors":1,...,"version":"0.9.29"}</code></td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Acceptance criteria (each judged Expected vs Actual)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How verified (independent proof)</th><th>Result</th></tr>
+
+  <tr><td>1</td><td>Exactly one Gateway endpoint turns audio into text; phone Notes worker, Settings "Test it" button, and on-device mode all go through it.</td>
+  <td>Single endpoint <code>POST /transcription</code> mapped in <code>TranscriptionBatchEndpoint.cs:38</code>, wired in <code>GatewayHost.cs</code>; it constructs the one <code>GatewayTranscriptionService</code> and calls <code>TranscribeAsync</code>. Notes worker (<code>GatewayServiceRecordingTranscriber</code>), the Settings button (<code>settings.html:769</code> posts to <code>/transcription</code>), and the wingman batch paths all route through that one service. No other endpoint independently transcribes audio (confirmed by source sweep). On-device (local) and remote modes both flow through the same service/endpoint.</td><td class="pass">PASS</td></tr>
+
+  <tr><td>2</td><td>Exactly one place resolves the mode and reads the key; the duplicate resolvers are gone.</td>
+  <td><code>GatewayTranscriptionService.Resolve()</code> is the single resolver (delegates to the pure <code>TranscriptionEndpointResolver</code>). The three named duplicates are deleted: <code>TranscriptionTestEndpoint.cs</code> and <code>SelectedMethodRecordingTranscriber.cs</code> removed in HEAD (225 lines deleted), <code>ResolveSelectedMethod</code> and the wingman <code>TranscribeBytes*</code> helpers return zero source hits. No dangling references to the deleted classes remain in <code>src</code>.</td><td class="pass">PASS</td></tr>
+
+  <tr><td>3</td><td>The key lives in exactly one store (the Gateway vault); the <code>config.json Voice.OpenAiKey</code> copy is removed.</td>
+  <td><code>App.axaml.cs:852-861</code> now loads only <code>TtsVoice</code>/<code>TtsModel</code> from the config <code>Voice</code> section; the <code>Voice.OpenAiKey</code> load is gone (comment at :854). <code>OpenAiKeyResolver</code> reads the local key vault when standalone (vault = single transcription key store). No other config.json transcription-key load exists.</td><td class="pass">PASS</td></tr>
+
+  <tr><td>4</td><td>A caller never sees or handles the key; it only sends audio and receives text.</td>
+  <td>Notes adapter <code>GatewayServiceRecordingTranscriber</code> holds no key - it forwards audio only. Settings "Test it" (<code>settings.html:769</code>) POSTs the raw audio blob with only a Content-Type header; the key is resolved server-side. Live host proof: posting to <code>/transcription</code> with no key returns 409 (mode echoed) - the key never crosses to the caller.</td><td class="pass">PASS</td></tr>
+
+  <tr><td>5</td><td>On-device mode and bring-your-own-key mode both work through the same endpoint.</td>
+  <td>Single <code>Resolve()</code> routes local mode in-process (Whisper, keyless) and remote modes to the resolved OpenAI-compatible batch endpoint. Unit/integration proof: <code>Resolve_LocalMode_IsLocalWithNoKey</code>, <code>Resolve_ByoMode_WithKey_ComposesOpenAiTarget</code>, <code>Resolve_ByoMode_NoKey_ReportsRemoteWithNoKey</code> all pass. (Real-audio 200 needs a live key/model, not assertable in CI - routing for both modes is proven instead.)</td><td class="pass">PASS</td></tr>
+
+  <tr><td>6</td><td>The dictionary correction step is available from the endpoint (optional flag) so callers do not run it themselves.</td>
+  <td><code>POST /transcription?correct=true</code> read at <code>TranscriptionBatchEndpoint.cs:40</code> and passed as <code>applyCorrection</code>. Notes/wingman paths pass <code>correct: true</code>; the Settings test deliberately omits it to prove the raw path. The corrector is the single validated dictionary corrector reached through the one service.</td><td class="pass">PASS</td></tr>
+
+  <tr><td>7</td><td>Live voice dictation still works (existing routing arrangement); the realtime-proxy question is a separate follow-up, not done here.</td>
+  <td>Live realtime voice/dictation is left on its existing <code>OpenAiKeyResolver</code> routing arrangement (untouched batch consolidation). Gateway voice/vault/routing regression suite (128 tests) green. Realtime proxy is correctly deferred.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Live loopback REST proof (real GatewayHost over HTTP - I built and ran it myself)</h2>
+<p>The Director Control API does not host the Gateway endpoints (probing <code>/transcription</code> on port 7880 returns 404 - they live in the separate Gateway host). The live proof boots a REAL <code>GatewayHost</code> (the same host the Gateway tray runs) on an ephemeral loopback port with an isolated key-vault file and drives <code>POST /transcription</code> over real HTTP through the whole pipeline.</p>
+<table>
+  <tr><th>Scenario</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>Remote mode, no key -&gt; <code>POST /transcription</code></td><td>409 with <code>{ ..., mode }</code> (the exact "no key set" condition that caused the reported note failure)</td><td>409 Conflict, mode = "devthrottle"</td><td class="pass">PASS</td></tr>
+  <tr><td>Key set, empty body -&gt; <code>POST /transcription</code></td><td>400</td><td>400 BadRequest (no-audio)</td><td class="pass">PASS</td></tr>
+  <tr><td>Routing endpoint resolves through the same single owner once key set in vault</td><td>200 with byo base URL + key</td><td>200, mode "byo", baseUrl <code>https://api.openai.com/v1</code>, key echoed from vault</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression and CenCon / architecture / integrity guards</h2>
+<table>
+  <tr><th>Suite</th><th>Result</th><th>Evidence</th></tr>
+  <tr><td>Gateway live proof + service + batch endpoint tests</td><td class="pass">14 passed, 0 failed</td><td><code>qa-gateway-transcription-tests.log</code></td></tr>
+  <tr><td>Gateway transcription / voice / vault / routing (incl. Issue506/Issue513 routing proofs)</td><td class="pass">128 passed, 0 failed</td><td><code>qa-gateway-voice-vault-routing-tests.log</code></td></tr>
+  <tr><td>Core: TranscriptionIntegrity guard, AgentPlugin architecture guard, OpenAiKeyResolver, Transcription, Dictation, Recording</td><td class="pass">294 passed, 1 skipped, 0 failed</td><td><code>qa-core-guards-tests.log</code></td></tr>
+  <tr><td>CenCon docs: <code>architecture_manifest.yaml</code> updated to reflect the new <code>GatewayTranscriptionService</code> / <code>TranscriptionBatchEndpoint</code> and the removed components; no dangling references to deleted classes in <code>docs/cencon/*.yaml|*.md</code></td><td class="pass">PASS</td></tr>
+  <tr><td>Transcription integrity (CodingStyle section 16): the only post-transcription transform is the validated dictionary corrector; it fails open to raw text on local/no-key/empty-dictionary/error - no free-text LLM rewrite</td><td class="pass">PASS</td></tr>
+</table>
+
+<div class="note">
+<strong>Non-blocking observation (out of scope for #839, surfaced for the team):</strong> <code>src/CcDirector.Core/Voice/Services/OpenAiSttService.cs</code> remains an independent speech-to-text path (hardcoded <code>whisper-1</code> / <code>api.openai.com/v1/audio/transcriptions</code>, keyed off the <code>OPENAI_API_KEY</code> environment variable). It belongs to the desktop live-voice subsystem (alpha, hidden in v1) that this issue explicitly leaves on the existing arrangement, it is not one of the three batch callers #839 targets, the PR does not touch it, and it is currently unreferenced in the tree. It does not violate any #839 acceptance criterion (it does not resolve a mode and does not read a config.json/vault transcription key). It belongs with the same future follow-up as the realtime-proxy work the issue already defers.</div>
+
+<h2>Conclusion</h2>
+<p><strong>VERIFIED - all 7 acceptance criteria met, independently reproduced with proof.</strong> Build clean (0 warnings), live GatewayHost loopback REST contract holds, batch consolidation is real (the three duplicate resolvers deleted, one owner remains, one key store), and all transcription / voice / vault / routing / integrity / architecture-guard suites are green (436 tests passed across the three runs, 1 skipped, 0 failed). Per the human-review hold on this cross-cutting Gateway refactor, this PR is NOT merged - it is parked open for human merge.</p>
+</body>
+</html>

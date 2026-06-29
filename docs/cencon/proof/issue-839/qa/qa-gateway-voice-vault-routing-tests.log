@@ -1,0 +1,16 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-wt-839-qa\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Tests -> D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll
+Test run for D:\ReposFred\devthrottle-wt-839-qa\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   128, Skipped:     0, Total:   128, Duration: 29 s - CcDirector.Gateway.Tests.dll (net10.0)
