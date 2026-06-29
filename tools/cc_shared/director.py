@@ -128,13 +128,25 @@ def short_id(session_guid: str) -> str:
 def resolve_target(sessions: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
     """Resolve a user-typed target to matching sessions.
 
-    A full id match wins outright. Otherwise match by id prefix OR by exact (case-insensitive)
-    name. Returns the de-duplicated list of matches so the caller can detect ambiguity (more
-    than one) or no match (empty).
+    Issue #821: an exactly-three-digit token (the session number, 100-999 from issue #820) is
+    matched against session numbers first; if one or more active sessions hold that number, those
+    are returned. Numbers are unique among active sessions (#820), so this normally yields exactly
+    one match. When no active session holds the number, resolution falls back to id / name matching
+    as before, so a three-digit token that happens to be an id prefix still resolves.
+
+    Otherwise a full id match wins outright; failing that, match by id prefix OR by exact
+    (case-insensitive) name. Returns the de-duplicated list of matches so the caller can detect
+    ambiguity (more than one) or no match (empty).
     """
     q = query.strip().lower()
     if not q:
         return []
+
+    if q.isdigit() and 100 <= int(q) <= 999:
+        wanted = str(int(q))
+        by_number = [s for s in sessions if field(s, "number", "Number") == wanted]
+        if by_number:
+            return by_number
 
     for s in sessions:
         if field(s, "sessionId", "SessionId").lower() == q:

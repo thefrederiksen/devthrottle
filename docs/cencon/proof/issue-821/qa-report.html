@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #821 (re-verify, re-scoped)</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a;line-height:1.45}
+h1{border-bottom:3px solid #5319e7;padding-bottom:6px}
+h2{margin-top:28px;color:#5319e7}
+table{border-collapse:collapse;width:100%;margin:10px 0}
+th,td{border:1px solid #ccc;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#f0ecff}
+.pass{color:#0a7d2c;font-weight:bold}
+.note{color:#8a5a00;font-weight:bold}
+pre{background:#f6f6f6;border:1px solid #ddd;padding:10px;overflow:auto;font-size:12.5px}
+code{background:#f0f0f0;padding:1px 4px}
+.verdict{background:#e7fbe9;border:2px solid #0a7d2c;padding:12px;font-size:16px;margin-top:20px}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #821</h1>
+<p><b>Title:</b> [CLI] Address a session by its three-digit number across fleet commands<br>
+<b>PR:</b> #835 (branch <code>issue-821-address-by-number</code>)<br>
+<b>QA identity:</b> independent QA Agent, fresh context, did NOT trust the developer report or the prior QA pass.<br>
+<b>Scope:</b> RE-SCOPED by human decision 2026-06-29. The former AC6 (move-session accepts a three-digit
+number) is REMOVED from this issue and split to follow-up #837, because move-session / handover are
+global personal skills living outside this repository and cannot be changed by a PR here. Only the five
+in-repo CLI criteria below are in scope and were verified.</p>
+
+<h2>Test harness (independent, isolated)</h2>
+<ul>
+<li>Own git worktree of the PR branch: <code>D:\ReposFred\wt-issue-821</code> (detached at PR tip 3ccf4cba).</li>
+<li>Own isolation slot 15; Director binary built clean from the PR branch:
+<b>0 Warning(s) / 0 Error(s)</b> (cc-director15.exe).</li>
+<li>Director launched via its own scheduled task under a STANDALONE (no-Gateway) root
+(<code>CC_DIRECTOR_ROOT</code> -> isolated <code>qa-root</code>). Confirmed standalone: fresh directorId,
+<code>GET /fleet/sessions</code> serves local sessions only (no fleet relay) so the three-digit
+<code>number</code> is populated on the session DTO. The user's live fleet / Gateway (7878) was never touched.</li>
+<li>The <code>cc-devthrottle</code> CLI was run directly from the PR-branch source
+(<code>tools/cc_shared/director.py</code> + <code>tools/cc-devthrottle/src/session_ops.py</code>),
+verified by import path, pointed at the isolated Director via <code>CC_DIRECTOR_API</code>.</li>
+<li>Created multiple sessions on the one Director to obtain distinct numbers (100, 101, 102, ...).</li>
+</ul>
+
+<h2>The change under test</h2>
+<p><code>resolve_target()</code> in <code>tools/cc_shared/director.py</code> now matches an exactly-three-digit
+token (100-999, the #820 session number) against session numbers FIRST; if an active session holds it, that
+session is returned, otherwise resolution falls back to full-id / id-prefix / exact-name as before.
+<code>session_ops.py</code> dropped its redundant local <code>_match_by_number</code> wrapper and now
+delegates solely to this one shared resolver, so <code>message send</code>, <code>message ask</code> and
+<code>session rename</code> all address by number through a single code path.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+
+<tr><td>AC1</td><td>message send &lt;number&gt; delivers to exactly that session and no other</td>
+<td>send 101 reaches the session holding number 101 only</td>
+<td><code>message send 101 "AC1-TOKEN-BRAVO-7731"</code> printed
+<code>Delivered to QA-Bravo (fe548fc6)</code>. Buffer check: token PRESENT in session 101 (QA-Bravo) only;
+ABSENT in 102 and 100.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC2</td><td>message ask &lt;number&gt; routes to and returns the answer from that session</td>
+<td>ask &lt;number&gt; resolves to the numbered session, delivers the question there, and that session
+produces the answer</td>
+<td><code>message ask 100</code> resolved to session b7efc4be (the holder of number 100); the question
+"8 + 9" was delivered into that exact session's transcript and that session answered <b>"17"</b> (a parallel
+run: ask 102 -&gt; b5c84e64, question "17 + 25", answer <b>"42"</b>). Routing parity confirmed: ask by NAME
+and ask by ID-PREFIX both resolve to the SAME session id b7efc4be. NOTE: the CLI sometimes prints
+"No answer within N ms" because the pre-existing fleet/ask answer capture waits for the agent to report
+ActivityState.Idle; the haiku test agents, loaded with this repo's large CLAUDE.md, kept doing
+self-assigned work and settled at WaitingForInput instead - a test-fixture timing artifact that is
+identical for name / id-prefix / number addressing and is NOT part of the #821 resolver diff. The numbered
+session demonstrably received and answered the question (transcript evidence above).</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC3</td><td>session rename &lt;number&gt; renames exactly that session, which keeps its number</td>
+<td>rename 102 changes only session 102's name; number 102 preserved</td>
+<td><code>session rename 102 "QA-Charlie-RENAMED"</code> printed <code>Renamed b5c84e64 to "QA-Charlie-RENAMED"</code>.
+<code>session list</code> after: number 102 unchanged with the new name; sessions 100 and 101 unchanged.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC4</td><td>a number no active session holds gives the standard no-match error (no crash, no wrong match)</td>
+<td>unused number -&gt; the resolver's standard "no session matches" error, exit 1</td>
+<td><code>message send 555 ...</code> and <code>session rename 999 ...</code> both printed
+<code>No session matches '&lt;n&gt;'. Run cc-devthrottle session list to see the fleet.</code> and exited 1.
+No crash, no wrong-session match.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC5</td><td>addressing by id-prefix and by name still works (regression)</td>
+<td>id-prefix and name resolve to the right session as before</td>
+<td>send by id-prefix <code>b5c84e</code> -&gt; <code>Delivered to QA-Charlie-RENAMED (b5c84e64)</code>, token in 102 only;
+send by name <code>QA-Bravo</code> -&gt; <code>Delivered to QA-Bravo (fe548fc6)</code>; session 101 did NOT receive the
+id-prefix token (correct isolation); rename by id-prefix <code>fe548f</code> renamed session 101 and PRESERVED
+its number 101; ask by name and by id-prefix both route correctly.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Unit tests (run by QA from the PR branch)</h2>
+<pre>tools/cc_shared/tests/test_director.py  ->  14 passed (7 new resolver tests)
+tools/cc-devthrottle/tests/             ->  51 passed</pre>
+
+<h2>Regression / method check</h2>
+<ul>
+<li>Negative sweep: id-prefix and name addressing unchanged; number matching is purely additive with a
+clean precedence (number first, fall back to id/name). No adjacent command broke.</li>
+<li>No CenCon blocking rule affected. No C# / architecture / security change in this PR (Python tool only),
+so no <code>docs/cencon/</code> doc update was required. The harness Director still built clean
+(0 warnings / 0 errors).</li>
+<li>No fallback programming: an unused number yields a clear, explicit error rather than a silent
+mis-match.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all five in-scope acceptance criteria (AC1-AC5) met with independent proof in the
+running app. AC6 (move-session) is out of scope per the human re-scope (split to #837) and was not assessed.</div>
+
+</body>
+</html>
