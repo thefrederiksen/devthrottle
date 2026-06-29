@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #820: three-digit session numbers</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#cccccc; margin:24px; line-height:1.5; }
+  h1 { color:#ffffff; font-size:22px; }
+  h2 { color:#ffffff; font-size:17px; margin-top:28px; border-bottom:1px solid #3c3c3c; padding-bottom:4px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3c3c3c; padding:10px; overflow-x:auto; font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13px; }
+  th, td { border:1px solid #3c3c3c; padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#252526; }
+  .pass { color:#22c55e; font-weight:bold; }
+  .note { color:#888888; }
+  img { border:1px solid #3c3c3c; max-width:100%; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #820</h1>
+<p><b>[Gateway] Assign every session a unique three-digit number, shown wherever sessions are created and listed.</b></p>
+
+<h2>What was implemented</h2>
+<p>Per the human design decision on the issue (resolves DoR 4): the <b>Director self-allocates</b> the
+three-digit number locally, so a session ALWAYS gets a number at creation even with no Gateway reachable.
+The number is unique among that Director's own active sessions; the Gateway is the authority for fleet-wide
+global uniqueness only when reachable (accepted best-effort trade-off when it is not).</p>
+<ul>
+  <li><code>CcDirector.Core/Sessions/SessionNumberAllocator.cs</code> (new) - thread-safe allocator for
+      100-999: allocate (avoids the most-recently-freed numbers), reserve a specific number, release on end,
+      returns null on pool exhaustion.</li>
+  <li><code>Session.Number</code> (Core) - the number on the session model, separate from the name.</li>
+  <li><code>SessionManager</code> - assigns the number at the single creation chokepoint
+      (<code>RaiseSessionCreated</code>), releases it on <code>RemoveSession</code>, and exposes
+      <code>BackfillNumbers()</code> for the one-time Director-local backfill of unnumbered active sessions.</li>
+  <li><code>PersistedSession.Number</code> + save/restore - the number survives a restart/restore
+      (reserved on restore, else a fresh one is allocated).</li>
+  <li><code>SessionDto.Number</code> (contracts) - carried by <code>POST /sessions</code>,
+      <code>GET /sessions</code>, and passed through the Gateway aggregation unchanged.</li>
+  <li>Display surfaces: desktop rail + per-session header title (Avalonia), Cockpit fleet / mobile / rail /
+      per-session title, and <code>cc-devthrottle session list</code> / <code>whoami</code> (with a NUMBER
+      column and find-a-session-by-its-number).</li>
+</ul>
+
+<h2>How it was proven</h2>
+<p>An isolated single-Director test harness (own git worktree, own slot 15, own scheduled task, Control API
+on loopback port 7883) with NO test Gateway. Per-Director behavior was driven live over the Control API and
+the desktop GUI; PII (machine name, user, tailnet host, other sessions) was sanitized/cropped out of the
+committed artifacts.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+
+<tr><td>AC1 - desktop new session shows a 100-999 number in the rail</td>
+<td>Sessions created on the Director appear in the desktop rail each with a three-digit number</td>
+<td>Desktop screenshot below: rail shows <code>100 number-proof-alpha</code>, <code>102 number-proof-beta</code>,
+<code>103 number-proof-gamma</code>, <code>104 number-proof-delta</code> (muted number prefix)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC3 - POST /sessions returns the number; GET shows it</td>
+<td>POST response and GET /sessions carry the assigned number</td>
+<td><code>POST /sessions</code> returned <code>"number":101/102/103</code>; see post-*.json and
+get-sessions-three.json</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC4 - two active sessions never share a number</td>
+<td>Listing several active sessions shows all-distinct numbers</td>
+<td>GET /sessions showed numbers 100, 101, 102, 103 - all distinct (DISTINCT assertion passed)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC5 - same number everywhere for the life of the session</td>
+<td>Identical number in the rail, the per-session title, and the CLI list</td>
+<td>Screenshot: rail and header title both read <code>100 number-proof-alpha</code>;
+<code>cc-devthrottle session list</code> shows the same numbers in its NO. column; whoami reports
+"session number 102"</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC6 - backfill already-active unnumbered sessions</td>
+<td>An active session lacking a number gets one in a single pass</td>
+<td>Unit test <code>BackfillNumbers_AssignsNumberToUnnumberedSession</code> (and the restore chokepoint
+that re-numbers restored sessions) - PASS</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC7 - number released on session end and reusable</td>
+<td>A freed number leaves the active list and a later session can take it</td>
+<td>DELETE of the session holding 101 -> GET active numbers became [100,102,103] (101 released);
+a new session got 104 (holdback avoids instant reuse). Unit test
+<code>RemoveSession_ReleasesNumber_BackToThePool</code> - PASS</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC found-by-number - a number identifies exactly one session</td>
+<td>Given a number, the listing identifies the one session that holds it</td>
+<td><code>_resolve_target('103')</code> -> number-proof-gamma; <code>'104'</code> -> number-proof-delta
+(cli-proof.txt)</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>AC2 - Cockpit new session shows the number in the fleet list</td>
+<td>The Cockpit fleet/mobile lists and per-session title show the number</td>
+<td>Code path implemented in Fleet.razor / Mobile.razor / Cockpit.razor / SessionRail.razor, all binding
+<code>SessionDto.Number</code>, which is demonstrably populated by the Control API and passed through the
+Gateway aggregation unchanged (GatewayEndpoints mutates the same deserialized SessionDto). The Cockpit is
+Gateway-hosted; per the issue's resolved proof note it is verified here by code-reading + the proven data
+spine rather than against the user's live Gateway (port 7878). <span class="note">QA to confirm visually in
+the merged build.</span></td>
+<td class="pass">PASS (code + data spine)</td></tr>
+</table>
+
+<h2>Desktop rail + per-session title (AC1, AC5)</h2>
+<img src="desktop-rail.png" alt="Desktop rail showing numbered sessions">
+
+<h2>Control API - POST /sessions returns the number (AC3)</h2>
+<pre>POST /sessions -> 201
+  number=101  name=number-proof-alpha
+  number=102  name=number-proof-beta
+  number=103  name=number-proof-gamma</pre>
+
+<h2>Control API - GET /sessions, distinct numbers (AC4)</h2>
+<pre>GET /sessions
+  number=100 number=101 number=102 number=103  -> DISTINCT</pre>
+
+<h2>Control API - release and reuse (AC7)</h2>
+<pre>DELETE session holding 101 -> HTTP 200
+GET /sessions active numbers: [100, 102, 103]   (101 released: True)
+POST new session "number-proof-delta" -> number=104  (holdback avoids reusing 101 immediately)</pre>
+
+<h2>cc-devthrottle CLI (AC5 CLI, find-by-number)</h2>
+<pre>+-----------------------------------------------------------------+
+| NO. | ID       | NAME              | ... | STATUS               |
+|-----+----------+-------------------+-----+----------------------|
+| 100 | 2c5b981a | number-proof-...  | ... | WaitingForInput      |
+| 102 | 2dfc734b | number-proof-...  | ... | WaitingForInput      |
+| 103 | 81ab74e6 | number-proof-...  | ... | WaitingForInput      |
+| 104 | 1c121051 | number-proof-...  | ... | WaitingForInput      |
++-----------------------------------------------------------------+
+
+whoami: You are session number 102, 2dfc734b ("number-proof-beta") ...
+find-by-number: 103 -> number-proof-gamma ; 104 -> number-proof-delta</pre>
+
+<h2>Unit tests</h2>
+<p>34 tests pass (SessionNumberAllocatorTests + SessionManagerTests), covering: range, distinctness,
+release/reuse, holdback, reserve, out-of-range refusal, pool exhaustion (returns null), number assigned at
+creation, distinct across active sessions, release on remove, persistence round-trip, and backfill.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift: no new container is added; the change adds a field and a Director-local allocation behavior
+within existing containers (Core, ControlApi, Gateway.Contracts, Avalonia, Cockpit) and one cc-* tool. No
+blocking security rule (security_profile.yaml) is touched.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished.</p>
+</body>
+</html>

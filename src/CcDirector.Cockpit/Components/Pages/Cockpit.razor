@@ -183,6 +183,11 @@
                     }
                     else
                     {
+                        @* Issue #820: three-digit session number as a muted prefix on the per-session view title. *@
+                        @if (Selected.Number is int selNum)
+                        {
+                            <span class="detail-num" title="Session number">@selNum</span>
+                        }
                         <span class="detail-name">@SessionTitle(Selected)</span>
                     }
                     @* Session type (issue #211): the badge rides next to the name in the

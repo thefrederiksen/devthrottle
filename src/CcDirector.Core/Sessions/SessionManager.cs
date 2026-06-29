@@ -17,6 +17,17 @@ public sealed class SessionManager : IDisposable
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
     private readonly ConcurrentDictionary<string, Guid> _claudeSessionMap = new();
     private readonly AgentOptions _options;
+
+    /// <summary>
+    /// Allocates the short three-digit session numbers (issue #820). One allocator per Director,
+    /// so a session number is unique among THIS Director's active sessions. The Director always
+    /// numbers locally - it never depends on the Gateway being reachable.
+    /// </summary>
+    private readonly SessionNumberAllocator _numberAllocator = new();
+
+    /// <summary>The Director-local session-number allocator (issue #820). Exposed for tests.</summary>
+    internal SessionNumberAllocator NumberAllocator => _numberAllocator;
+
     private readonly Action<string>? _log;
 
     public AgentOptions Options => _options;
@@ -73,8 +84,77 @@ public sealed class SessionManager : IDisposable
         // downstream, so a duplicate announce of the same session does no harm.
         WireSessionReaper(session);
 
+        // Issue #820: every creation route funnels through here, so this is the one place to ensure
+        // the session carries a three-digit number BEFORE subscribers (the desktop UI, the web
+        // Control API mapper) read it to build their views.
+        AssignSessionNumber(session);
+
         try { OnSessionCreated?.Invoke(session); }
         catch (Exception ex) { _log?.Invoke($"OnSessionCreated handler threw: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Ensure the session carries a three-digit number (issue #820). A restore path pre-sets
+    /// <see cref="Session.Number"/> from persistence; reserve that exact number when it is still
+    /// free, otherwise allocate a fresh one. A brand-new session has no number yet, so allocate one.
+    /// When the pool is exhausted the session is left without a number (logged) - creation never
+    /// blocks on a cosmetic handle. Idempotent: a duplicate announce of an already-numbered session
+    /// (whose number this allocator already holds) is a no-op.
+    /// </summary>
+    private void AssignSessionNumber(Session session)
+    {
+        if (session.Number is int existing && _numberAllocator.IsReserved(existing))
+            return; // already numbered and registered by this Director - duplicate announce, no-op
+
+        if (session.Number is int preferred)
+        {
+            if (_numberAllocator.TryReserve(preferred))
+            {
+                _log?.Invoke($"[SessionManager] Reserved persisted session number {preferred} for {session.Id}.");
+                return;
+            }
+            _log?.Invoke($"[SessionManager] Persisted session number {preferred} for {session.Id} is taken; allocating a fresh one.");
+            session.Number = null;
+        }
+
+        var assigned = _numberAllocator.Allocate();
+        session.Number = assigned;
+        if (assigned is int n)
+            _log?.Invoke($"[SessionManager] Assigned session number {n} to {session.Id}.");
+        else
+            _log?.Invoke($"[SessionManager] No session number available for {session.Id} (number pool exhausted).");
+    }
+
+    /// <summary>
+    /// Assign a three-digit number to every tracked session that lacks one (issue #820 backfill).
+    /// Run once at Director startup so already-active sessions that predate this feature - or were
+    /// restored without a number - become numbered in a single pass, not only sessions created
+    /// afterward. Returns the count of sessions newly numbered.
+    /// </summary>
+    public int BackfillNumbers()
+    {
+        FileLog.Write("[SessionManager] BackfillNumbers: scanning active sessions for missing numbers");
+        var assigned = 0;
+        foreach (var session in _sessions.Values)
+        {
+            if (session.Number.HasValue)
+                continue;
+
+            var n = _numberAllocator.Allocate();
+            if (n is int num)
+            {
+                session.Number = num;
+                assigned++;
+                FileLog.Write($"[SessionManager] BackfillNumbers: assigned {num} to {session.Id}");
+            }
+            else
+            {
+                FileLog.Write($"[SessionManager] BackfillNumbers: number pool exhausted, {session.Id} left without a number");
+                break;
+            }
+        }
+        FileLog.Write($"[SessionManager] BackfillNumbers: assigned {assigned} number(s)");
+        return assigned;
     }
 
     /// <summary>
@@ -565,6 +645,11 @@ public sealed class SessionManager : IDisposable
             try { OnSessionRemoved?.Invoke(session); }
             catch (Exception ex) { _log?.Invoke($"OnSessionRemoved handler threw: {ex.Message}"); }
 
+            // Issue #820: return the session's three-digit number to the pool so it is no longer
+            // reported as in use and a later session can reuse it.
+            if (session.Number is int number)
+                _numberAllocator.Release(number);
+
             session.Dispose();
             _log?.Invoke($"Session {id} removed.");
         }
@@ -801,6 +886,7 @@ public sealed class SessionManager : IDisposable
                 ClaudeArgs = s.ClaudeArgs,
                 CustomName = s.CustomName,
                 CustomColor = s.CustomColor,
+                Number = s.Number,
                 PendingPromptText = s.PendingPromptText,
                 EmbeddedProcessId = s.ProcessId,
                 ConsoleHwnd = getHwnd != null && s.BackendType == SessionBackendType.Embedded ? getHwnd(s.Id) : 0,
@@ -861,6 +947,10 @@ public sealed class SessionManager : IDisposable
         session.GroupName = ps.GroupName;
         session.ControllerSessionId = ps.ControllerSessionId;
         session.WingmanEnabled = ps.WingmanEnabled;
+        // Issue #820: carry the persisted three-digit number in BEFORE RaiseSessionCreated so
+        // AssignSessionNumber reserves this exact number (keeping it across a restart) when it is
+        // still free, or backfills a fresh one when this session had none / it collides.
+        session.Number = ps.Number;
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.
         session.IsBrandNew = false;

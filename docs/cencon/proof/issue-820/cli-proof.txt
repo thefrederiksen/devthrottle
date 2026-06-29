@@ -1,0 +1,22 @@
+===== cc-devthrottle session list (NUMBER column, isolated Director data) =====
++-----------------------------------------------------------------------------+
+| NO. | ID       | NAME          | MACHINE     | REPOSITORY    | STATUS       |
+|-----+----------+---------------+-------------+---------------+--------------|
+| 100 | 2c5b981a | number-pro... | [machine] | devthrottl... | WaitingFo... |
+| 102 | 2dfc734b | number-pro... | [machine] | devthrottl... | WaitingFo... |
+| 103 | 81ab74e6 | number-pro... | [machine] | devthrottl... | WaitingFo... |
+| 104 | 1c121051 | number-pro... | [machine] | devthrottl... | WaitingFo... |
++-----------------------------------------------------------------------------+
+
+===== whoami as the session holding number 102 =====
+You are session number 102, 2dfc734b ("number-proof-beta") on [machine], repo
+devthrottle.
+To message another session:  cc-devthrottle message send <id> "<message>"
+To message everyone:         cc-devthrottle message send all "<message>"
+To see all sessions:         cc-devthrottle session list
+
+===== find-by-number: _resolve_target('103') -> exactly one session =====
+  number 103 -> number-proof-gamma 81ab74e6-de2a-42b0-8400-3773e23f0c7d
+
+===== find-by-number: _resolve_target('104') =====
+  number 104 -> number-proof-delta 1c121051-2507-4107-98a1-718bd0fcdc8d

@@ -82,6 +82,14 @@ public sealed class SessionDto
     public string? Name { get; set; }
 
     /// <summary>
+    /// The session's short, human-friendly three-digit number (100-999), or null when the session
+    /// has no number (issue #820). Allocated by the owning Director at creation and stable for the
+    /// life of the session - a separate field from <see cref="Name"/>, so a rename never changes it.
+    /// Passes through the Gateway aggregation unchanged. Null on Directors that predate this field.
+    /// </summary>
+    public int? Number { get; set; }
+
+    /// <summary>
     /// The session's position in its owning Director's list, mirroring
     /// <c>Session.SortOrder</c>. This is the user-controlled desktop order
     /// (set by drag-drop on the desktop and persisted), so a client that sorts

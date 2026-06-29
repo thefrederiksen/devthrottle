@@ -103,6 +103,8 @@
 .fl-dot.purple { background: #a855f7; }
 .fl-dot.unknown { background: #6a6a6a; }
 
+/* Issue #820: muted three-digit session number prefix. */
+.fl-num { color: #888888; font-weight: 600; font-size: 14px; margin-right: 6px; flex: 0 0 auto; }
 .fl-title {
     font-weight: 600; font-size: 14px; flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -144,6 +144,11 @@
               <article class="fl-card">
                 <div class="fl-card-head">
                   <span class="fl-dot @ColorClass(s)" title="@DotTooltip(s)"></span>
+                  @* Issue #820: three-digit session number, a muted prefix separate from the name. *@
+                  @if (s.Number is int num)
+                  {
+                    <span class="fl-num" title="Session number">@num</span>
+                  }
                   @if (_editingSid == s.SessionId)
                   {
                     <input class="fl-name-edit" @bind="_editName" @bind:event="oninput"

@@ -3232,6 +3232,7 @@ internal static class ControlEndpoints
             BackendType = s.BackendType.ToString(),
             DriverCapabilities = CapabilityNames(s),
             Name = s.CustomName,
+            Number = s.Number,
             SortOrder = s.SortOrder,
             StatusColor = s.StatusColor,
             LastStatusReason = s.LastStatusReason,

@@ -152,6 +152,16 @@ public sealed class Session : IDisposable
     public bool IsControlled => ControllerSessionId.HasValue;
 
     public Guid Id { get; }
+
+    /// <summary>
+    /// The session's short, human-friendly three-digit number (100-999), or null when the session
+    /// has no number (allocated before this feature ran, or the Director's number pool was exhausted
+    /// at creation). Issue #820. Assigned once by the <see cref="SessionManager"/> at creation (or
+    /// re-applied from persistence on restore) and stable for the life of the session - a rename
+    /// never changes it because the number is a separate field from the display name.
+    /// </summary>
+    public int? Number { get; internal set; }
+
     public string RepoPath { get; }
     public string WorkingDirectory { get; }
     public SessionStatus Status { get; internal set; }

@@ -438,14 +438,28 @@
                                                 VerticalAlignment="Center"
                                                 Cursor="SizeAll"
                                                 PointerPressed="ColorSquare_PointerPressed" />
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding DisplayName}"
-                                                   ToolTip.Tip="{Binding DisplayName}"
-                                                   Foreground="{DynamicResource TextForeground}"
-                                                   FontSize="13"
-                                                   FontWeight="Medium"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- Issue #820: three-digit session number as a muted
+                                             prefix (tertiary #888888), separate from the name so a
+                                             rename never affects it. -->
+                                        <Grid Grid.Column="1" ColumnDefinitions="Auto,*">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding NumberBadge}"
+                                                       IsVisible="{Binding HasNumber}"
+                                                       ToolTip.Tip="Session number"
+                                                       Foreground="#888888"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Margin="0,0,6,0"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding DisplayName}"
+                                                       ToolTip.Tip="{Binding DisplayName}"
+                                                       Foreground="{DynamicResource TextForeground}"
+                                                       FontSize="13"
+                                                       FontWeight="Medium"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </Grid>
                                         <!-- Queue count badge (click to preview queued prompts) -->
                                         <Button Grid.Column="2"
                                                 IsVisible="{Binding HasQueuedItems}"

@@ -457,8 +457,12 @@
 
     // ----- display helpers -----
     private static string DisplayName(SessionDto s)
-        => !string.IsNullOrWhiteSpace(s.Name) ? s.Name!
-         : SessionOrdering.RepoName(s) ?? (s.SessionId.Length >= 8 ? s.SessionId[..8] : s.SessionId);
+    {
+        var name = !string.IsNullOrWhiteSpace(s.Name) ? s.Name!
+            : SessionOrdering.RepoName(s) ?? (s.SessionId.Length >= 8 ? s.SessionId[..8] : s.SessionId);
+        // Issue #820: prefix the three-digit session number when present.
+        return s.Number is int num ? $"{num}  {name}" : name;
+    }
 
     private static string SubLine(SessionDto s)
     {

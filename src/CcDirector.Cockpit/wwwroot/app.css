@@ -257,6 +257,8 @@ body{background:var(--panel);color:var(--text);
 .sess-body{display:flex;flex-direction:column;min-width:0;flex:1}
 .sess-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
+/* Issue #820: muted three-digit session number prefix in the rail. */
+.sess-num{color:var(--text3);font-weight:600;margin-right:6px}
 .sess-state{font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
 .tag{font-size:9px;border-radius:6px;padding:0 5px;line-height:14px}
 .tag-hold{color:var(--text3);background:#404040}
@@ -394,6 +396,8 @@ body{background:var(--panel);color:var(--text);
 .detail-dot{width:11px;height:11px;border-radius:50%;flex:none}
 .detail-name{font-size:16px;font-weight:600;min-width:0;flex:0 1 auto;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Issue #820: muted three-digit session number prefix on the per-session view title. */
+.detail-num{font-size:16px;font-weight:600;color:var(--text3);flex:none;margin-right:6px}
 .detail-meta{color:var(--text3);font-size:12px;flex:none}
 .detail-state{margin-left:auto;font-size:11px;color:var(--text2);text-transform:uppercase;
   letter-spacing:.05em}
