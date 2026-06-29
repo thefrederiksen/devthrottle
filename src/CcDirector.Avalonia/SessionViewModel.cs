@@ -211,6 +211,14 @@ public class SessionViewModel : INotifyPropertyChanged
     public string DisplayName => Session.CustomName
         ?? Path.GetFileName(Session.RepoPath.TrimEnd('\\', '/'));
 
+    /// <summary>The session's three-digit number as text (issue #820), e.g. "412", or empty when
+    /// the session has no number. A separate field from <see cref="DisplayName"/> so it shows as a
+    /// muted prefix in the rail and header and a rename never affects it.</summary>
+    public string NumberBadge => Session.Number is int n ? n.ToString() : "";
+
+    /// <summary>True when the session has a three-digit number to show (issue #820).</summary>
+    public bool HasNumber => Session.Number.HasValue;
+
     public string? CustomColor
     {
         get => Session.CustomColor;

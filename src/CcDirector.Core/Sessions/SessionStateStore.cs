@@ -81,6 +81,14 @@ public class PersistedSession
     /// the new-session default.
     /// </summary>
     public bool WingmanEnabled { get; set; } = false;
+
+    /// <summary>
+    /// The session's three-digit number (issue #820), or null when it had none. Persisted so a
+    /// session keeps its number across a Director restart / session restore; on restore the
+    /// SessionManager reserves this exact number when it is still free, otherwise allocates a fresh
+    /// one. Null for sessions persisted before this field existed (they are backfilled on restore).
+    /// </summary>
+    public int? Number { get; set; }
 }
 
 public class PersistedPromptQueueItem

@@ -2361,7 +2361,10 @@ public partial class MainWindow : Window
         if (_activeSession == null) return;
 
         var session = _activeSession.Session;
-        HeaderSessionName.Text = _activeSession.DisplayName;
+        // Issue #820: prefix the per-session header title with the three-digit number when present.
+        HeaderSessionName.Text = _activeSession.HasNumber
+            ? $"{_activeSession.NumberBadge}  {_activeSession.DisplayName}"
+            : _activeSession.DisplayName;
         HeaderActivityLabel.Text = _activeSession.ActivityLabel;
 
         // GitHub Actions remote sessions get a links row (repo slug + thread + Actions).

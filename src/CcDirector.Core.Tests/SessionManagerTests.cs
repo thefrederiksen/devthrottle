@@ -334,6 +334,93 @@ public class SessionManagerTests : IDisposable
         Assert.Null(_manager.GetSession(session.Id)); // removal still completed
     }
 
+    // ===== Issue #820: three-digit session numbers =====
+
+    [Fact]
+    public void CreateSession_AssignsThreeDigitNumber()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+
+        Assert.NotNull(session.Number);
+        Assert.InRange(session.Number.Value, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber);
+    }
+
+    [Fact]
+    public void CreateSession_TwoActiveSessions_HaveDistinctNumbers()
+    {
+        var a = _manager.CreateSession(Path.GetTempPath());
+        var b = _manager.CreateSession(Path.GetTempPath());
+
+        Assert.NotNull(a.Number);
+        Assert.NotNull(b.Number);
+        Assert.NotEqual(a.Number!.Value, b.Number!.Value);
+    }
+
+    [Fact]
+    public void RemoveSession_ReleasesNumber_BackToThePool()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+        Assert.NotNull(session.Number);
+        var number = session.Number.Value;
+        Assert.True(_manager.NumberAllocator.IsReserved(number));
+
+        _manager.RemoveSession(session.Id);
+
+        Assert.False(_manager.NumberAllocator.IsReserved(number));
+    }
+
+    [Fact]
+    public void SaveCurrentState_PersistsSessionNumber()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"test_sessions_{Guid.NewGuid()}.json");
+        try
+        {
+            var store = new SessionStateStore(tempFile);
+            var session = _manager.CreateSession(Path.GetTempPath());
+            session.ClaudeSessionId = "test-claude-session-id";
+            Assert.NotNull(session.Number);
+
+            _manager.SaveCurrentState(store);
+
+            var result = store.Load();
+            Assert.True(result.Success);
+            Assert.Single(result.Sessions);
+            Assert.Equal(session.Number, result.Sessions[0].Number);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void BackfillNumbers_AssignsNumberToUnnumberedSession()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+        // Simulate a session that is active but carries no number (pre-feature / restored without one).
+        session.Number = null;
+
+        var assigned = _manager.BackfillNumbers();
+
+        Assert.Equal(1, assigned);
+        Assert.NotNull(session.Number);
+        Assert.InRange(session.Number.Value, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber);
+    }
+
+    [Fact]
+    public void BackfillNumbers_LeavesAlreadyNumberedSessionUnchanged()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+        var original = session.Number;
+        Assert.NotNull(original);
+
+        var assigned = _manager.BackfillNumbers();
+
+        Assert.Equal(0, assigned);
+        Assert.Equal(original, session.Number);
+    }
+
     public void Dispose()
     {
         _manager.Dispose();

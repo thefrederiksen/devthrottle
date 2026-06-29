@@ -48,7 +48,8 @@
               @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
             <span class="sess-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"></span>
             <span class="sess-body">
-                <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
+                <span class="sess-name">@* Issue #820: muted three-digit session number prefix. *@@if (s.Number is int num)
+                    {<span class="sess-num">@num</span>}@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
                 <span class="sess-state">
                     @* assessed-when-present (issue #186): the Gateway's brain may have
                        refuted the mechanical quiet signal; raw state is the fallback. *@

@@ -93,8 +93,24 @@ def _get_sessions() -> List[Dict[str, Any]]:
     return sessions
 
 
+def _match_by_number(sessions: List[Dict[str, Any]], target: str) -> Optional[Dict[str, Any]]:
+    """Issue #820: a three-digit session number selects exactly the session that holds it.
+    Returns the single match, or None when the target is not a number in range or does not match
+    exactly one session (so the caller falls through to id-prefix matching)."""
+    t = target.strip()
+    if not (t.isdigit() and 100 <= int(t) <= 999):
+        return None
+    wanted = str(int(t))
+    hits = [s for s in sessions if str(director.field(s, "number", "Number")) == wanted]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
     sessions = _get_sessions()
+    # Issue #820: prefer a three-digit session number match (the human-friendly handle).
+    by_number = _match_by_number(sessions, target)
+    if by_number is not None:
+        return by_number
     matches = director.resolve_target(sessions, target)
     if not matches:
         console.print(
@@ -144,6 +160,7 @@ def list_sessions(json_output: bool) -> None:
         return
 
     table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    table.add_column("NO.")
     table.add_column("ID")
     table.add_column("NAME")
     table.add_column("MACHINE")
@@ -153,12 +170,14 @@ def list_sessions(json_output: bool) -> None:
     me = director.session_id()
     for s in sessions:
         sid = director.field(s, "sessionId", "SessionId")
+        number = director.field(s, "number", "Number")
+        number_text = str(number) if number is not None else "-"
         name = director.field(s, "name", "Name") or "(unnamed)"
         machine = director.field(s, "machineName", "MachineName") or "-"
         repo = director.field(s, "repoPath", "RepoPath")
         status = director.field(s, "activityState", "ActivityState") or "-"
         marker = " (you)" if me and sid.lower() == me.lower() else ""
-        table.add_row(director.short_id(sid) + marker, name, machine, _repo_name(repo), status)
+        table.add_row(number_text, director.short_id(sid) + marker, name, machine, _repo_name(repo), status)
 
     console.print(table)
 
@@ -185,7 +204,9 @@ def whoami() -> None:
         name = director.field(me, "name", "Name") or "(unnamed)"
         machine = director.field(me, "machineName", "MachineName") or "this machine"
         repo = director.field(me, "repoPath", "RepoPath")
-        console.print(f'You are session {short} ("{name}") on {machine}, repo {_repo_name(repo)}.')
+        number = director.field(me, "number", "Number")
+        number_text = f"number {number}, " if number is not None else ""
+        console.print(f'You are session {number_text}{short} ("{name}") on {machine}, repo {_repo_name(repo)}.')
 
     console.print('To message another session:  cc-devthrottle message send <id> "<message>"')
     console.print('To message everyone:         cc-devthrottle message send all "<message>"')
