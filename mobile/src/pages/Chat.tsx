@@ -12,6 +12,7 @@ import { cleanForReading } from "../history/historyText";
 import { markdownToHtml } from "../history/historyMarkdown";
 import { extractLinks, type HistoryLink } from "../history/historyLinks";
 import { SessionControls } from "../components/SessionControls";
+import { SessionManageBar } from "../components/SessionManageBar";
 import { ViewTabs } from "../components/ViewTabs";
 
 // Session Chat mode (issue #811): the SAME screen and SAME controls as the Terminal (#817), with
@@ -228,6 +229,9 @@ export function Chat() {
         <h1 className="term-title">{name ?? "Session"}</h1>
         <ViewTabs sessionId={sessionId} active="chat" />
       </header>
+
+      {/* Hold/Resume + Remove management buttons on the session screen (issue #812). */}
+      <SessionManageBar sessionId={sessionId} />
 
       <div className="term-statusbar">
         <span className="term-status" role="status">{status}</span>

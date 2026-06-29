@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { listSessions } from "../api/client";
 import { TerminalMirror } from "../terminal/stream";
 import { SessionControls } from "../components/SessionControls";
+import { SessionManageBar } from "../components/SessionManageBar";
 import { ViewTabs } from "../components/ViewTabs";
 
 // Session Terminal mode (issue #817): a faithful 1:1 translation of the Android (MAUI) app's
@@ -95,6 +96,9 @@ export function Terminal() {
         <h1 className="term-title">{name ?? "Session"}</h1>
         <ViewTabs sessionId={sessionId} active="terminal" />
       </header>
+
+      {/* Hold/Resume + Remove management buttons on the session screen (issue #812). */}
+      <SessionManageBar sessionId={sessionId} />
 
       <div className="term-statusbar">
         <span className="term-status" role="status">{status}</span>

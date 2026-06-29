@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #812 - Mobile session management - Developer proof</title>
+<style>
+  :root { --bg:#0b1020; --surface:#141a2e; --border:#28304a; --text:#e6e9f2; --dim:#99a0b8; --accent:#3b82f6; --ok:#5fd08a; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; margin:0; padding:24px; line-height:1.5; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:28px 0 8px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--dim); font-size:13px; }
+  .ac { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin:14px 0; }
+  .ac h3 { margin:0 0 6px; font-size:15px; }
+  .pass { color:var(--ok); font-weight:700; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td,th { border:1px solid var(--border); padding:6px 9px; text-align:left; vertical-align:top; }
+  code { font-family:"Cascadia Mono",Consolas,monospace; background:#1b2238; padding:1px 5px; border-radius:4px; font-size:12px; }
+  img { max-width:300px; border:1px solid var(--border); border-radius:8px; margin:6px 8px 6px 0; vertical-align:top; }
+  .shots { display:flex; flex-wrap:wrap; gap:8px; }
+  .figcap { font-size:12px; color:var(--dim); }
+  figure { margin:0; }
+  .final { background:#13241a; border:1px solid #2a5a3a; border-radius:10px; padding:14px 16px; margin-top:24px; }
+</style>
+</head>
+<body>
+<h1>Issue #812 - Mobile session management (add + Hold/Resume + Remove)</h1>
+<p class="sub">Developer Agent proof - CenCon Development Method - <code>thefrederiksen/devthrottle</code></p>
+
+<h2>What was implemented</h2>
+<p>The Version 1 mobile experience is completed in the <code>mobile/</code> React PWA (served by the Gateway at <code>/m</code>):</p>
+<ul>
+  <li><strong>Add-session flow</strong> - a faithful 1:1 translation of the Android <code>phone/CcDirectorClient</code> NewSessionPanel: a "+ New session" entry on the Home roster opens <code>/new</code>; Step 1 picks a MACHINE from the live <code>GET /directors</code> (default-selecting the most-recently-seen); Step 2 picks a REPOSITORY from <code>GET /directors/{id}/repos</code> (newest-used first) or a manual path; create via <code>POST /directors/{id}/sessions</code> with body <code>{repoPath, agent:"ClaudeCode", wingmanEnabled:false}</code> (agent hardcoded, type omitted - exactly like Android), then open the new session on the Terminal view.</li>
+  <li><strong>Hold/Resume + Remove</strong> - large buttons on the session screen (Terminal and Chat), the owner's chosen placement. Hold/Resume toggles via <code>POST /sessions/{sid}/hold</code> and reflects the live held state; Remove shows a confirmation, and on confirm calls <code>DELETE /sessions/{sid}</code> then returns to the roster (the #545 pattern). Cancel does nothing.</li>
+  <li><strong>Status parity</strong> - the manage bar reads the same <code>SessionDto.onHold</code> the Home roster reads, so a held session shows "On hold" in both places.</li>
+  <li>Every call carries the injected <code>Bearer</code> token; the whole flow works with global Gateway auth on or off.</li>
+</ul>
+<p>New/changed files: <code>mobile/src/api/client.ts</code> (getDirectors, getRepos, createSession, holdSession, killSession + narrow DirectorInfo/RepoInfo types), <code>mobile/src/pages/NewSession.tsx</code>, <code>mobile/src/components/SessionManageBar.tsx</code>, <code>mobile/src/pages/Home.tsx</code> (+ New session entry), <code>mobile/src/pages/Terminal.tsx</code> &amp; <code>Chat.tsx</code> (render the manage bar), <code>mobile/src/main.tsx</code> (the <code>/new</code> route), <code>mobile/src/styles.css</code> (add-flow + manage + confirm styles).</p>
+
+<h2>Gateway reachability (verified - no proxy sub-task needed)</h2>
+<p><code>GET /directors</code> (GatewayEndpoints.cs:201), <code>GET /directors/{id}/repos</code> (:944) and <code>POST /directors/{id}/sessions</code> (:967) are mapped on the same Gateway pipeline behind the single global <code>AuthMiddleware</code>; the mobile redirect only rewrites <code>text/html</code> browser-navigations (never a JSON <code>fetch</code>). The per-session <code>/hold</code> and <code>DELETE /sessions/{sid}</code> ride the existing catch-all session proxy. So all five endpoints are already reachable by <code>/m</code> with the injected Bearer - no Gateway change was required, and none was made.</p>
+
+<h2>How it was proven</h2>
+<p>The established mobile-surface harness (the same one used for #810/#811): a mock Gateway (<code>mock_gateway.py</code>) serves the REAL built bundle from <code>mobile/dist</code> at <code>/m</code> and faithfully mocks the management endpoints with a mutable roster (a created session appears, a removed one is gone, a held one reads <code>onHold=true</code>). The PWA is driven (<code>drive_proof.py</code>) at a phone viewport (390x844 @2x) with Python Playwright, once with global auth ON and once OFF. Every request is logged to <code>requests-auth-on.jsonl</code> / <code>requests-auth-off.jsonl</code> so the list/create/hold/remove bodies and the Bearer come straight from the wire. <code>dotnet build cc-director.sln</code> = Build succeeded, 0 warnings, 0 errors (and does not invoke npm); <code>npm run build</code> in <code>mobile/</code> = type-check clean + bundle built.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+
+<div class="ac">
+  <h3>AC1 - "+ New session" opens the add flow; Step 1 lists live machines from GET /directors <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>A "+ New session" entry opens the flow; the machine list comes from the live <code>GET /directors</code> (2xx), not hard-coded.</td>
+  <td>The roster shows the "+ New session" entry; tapping it opens <code>/new</code> with both machines (soren-north default-selected, soren-south). Wire log: <code>GET /directors -> 200</code> with Bearer.</td></tr></table>
+  <div class="shots">
+    <figure><img src="01-roster.png"><figcaption class="figcap">01 - roster + New session entry</figcaption></figure>
+    <figure><img src="02-newsession-machines.png"><figcaption class="figcap">02 - machine list (GET /directors)</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC2 - Selecting a machine lists its repos from GET /repos; manual path entry available <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>The selected machine's repositories load from <code>GET /directors/{id}/repos</code>, newest-first, and a manual path entry is also present.</td>
+  <td>soren-north's three repos load newest-used first; the "Or enter a path" input + Create button are present. Wire log: <code>GET /directors/dir-north/repos -> 200</code> with Bearer.</td></tr></table>
+  <div class="shots">
+    <figure><img src="03-newsession-repos.png"><figcaption class="figcap">03 - repo list + manual entry</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC3 - Completing the flow creates a session and opens it; new session in roster <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>Machine + repo creates via <code>POST /directors/{id}/sessions</code> (2xx); the new session appears in the roster and opens into the session screen (Terminal).</td>
+  <td>Tapping the devthrottle repo POSTed <code>{"repoPath":"D:\\ReposFred\\devthrottle","agent":"ClaudeCode","wingmanEnabled":false}</code> -> 201; the app navigated to <code>/session/812c0000-...-000000000001</code> (Terminal), and "new devthrottle" appears in the roster.</td></tr></table>
+  <div class="shots">
+    <figure><img src="04-created-session-screen.png"><figcaption class="figcap">04 - opened session screen</figcaption></figure>
+    <figure><img src="05-roster-after-create.png"><figcaption class="figcap">05 - new session in roster</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC4 - Hold button toggles; button reads Resume; Resume clears the hold <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>A large Hold button calls <code>POST /sessions/{sid}/hold</code> (2xx); afterwards the session shows held and the button reads Resume; Resume clears the hold.</td>
+  <td>Hold POSTed <code>{"onHold":true}</code> -> 200; the button became Resume and an "On hold" pill appeared. Resume POSTed <code>{"onHold":false}</code> -> 200 and the button returned to Hold. Both captured in the wire log.</td></tr></table>
+  <div class="shots">
+    <figure><img src="06-held-resume-button.png"><figcaption class="figcap">06 - held; button reads Resume</figcaption></figure>
+    <figure><img src="07-resumed.png"><figcaption class="figcap">07 - resumed (button reads Hold)</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC5 - Remove confirms; confirm DELETEs and returns to roster (gone); cancel does nothing <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>Remove shows a confirmation; confirming calls <code>DELETE /sessions/{sid}</code> (2xx) and returns to the roster with the session gone; cancelling does nothing.</td>
+  <td>Remove opened the confirmation. Cancel closed it with <strong>0 DELETE calls sent</strong> (recorded in <code>ac5-cancel-and-remove.txt</code>) and stayed on the session. Confirming sent <code>DELETE /sessions/812e... -> 200 {killed,removed}</code>, navigated to the roster, and the session was absent (verified absent from <code>GET /sessions</code>).</td></tr></table>
+  <div class="shots">
+    <figure><img src="08-remove-confirm.png"><figcaption class="figcap">08 - confirmation dialog</figcaption></figure>
+    <figure><img src="09-after-cancel.png"><figcaption class="figcap">09 - after Cancel (nothing happened)</figcaption></figure>
+    <figure><img src="10-roster-after-remove.png"><figcaption class="figcap">10 - roster after remove (gone)</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC6 - Status consistent between the management actions and the roster <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>A held session shows held both on the session screen and on the Home roster.</td>
+  <td>With the session on hold, the session screen shows the "On hold" pill (and Resume button); the roster shows the same session with a grey dot and "On hold". Both read the same <code>SessionDto.onHold</code>.</td></tr></table>
+  <div class="shots">
+    <figure><img src="11-session-held.png"><figcaption class="figcap">11 - session screen, held</figcaption></figure>
+    <figure><img src="12-roster-held-parity.png"><figcaption class="figcap">12 - roster shows the same session held</figcaption></figure>
+  </div>
+</div>
+
+<div class="ac">
+  <h3>AC7 - Every call carries the Bearer; the flow works with auth ON and OFF <span class="pass">PASS</span></h3>
+  <table><tr><th>Expected</th><th>Actual</th></tr>
+  <tr><td>List/create/hold/remove all carry the <code>Bearer</code>; the flow works with global Gateway auth both enabled and disabled.</td>
+  <td>Auth-ON: every <code>/directors</code>, <code>/repos</code>, create, hold and DELETE call carried <code>Authorization: Bearer test-gateway-token-812</code> (see <code>requests-auth-on.jsonl</code>). Auth-OFF: the same flow ran end to end with no <code>Authorization</code> header and all 2xx (see <code>requests-auth-off.jsonl</code>).</td></tr></table>
+  <div class="shots">
+    <figure><img src="13-authoff-newsession.png"><figcaption class="figcap">13 - add flow, auth OFF</figcaption></figure>
+    <figure><img src="14-authoff-session-hold.png"><figcaption class="figcap">14 - created + held, auth OFF</figcaption></figure>
+  </div>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. The change is additive to the <code>mobile/</code> container only; it reuses existing Gateway endpoints with the existing global auth and the existing catch-all session proxy. No architecture or security posture change, and no blocking security rule is touched.</p>
+
+<div class="final">
+<strong>I believe this is finished.</strong> All seven acceptance criteria are met and proven on a phone-sized viewport with both the screenshots above and the on-the-wire request captures (Bearer + bodies + 2xx) in both auth modes. The mobile bundle type-checks and builds, and the full .NET solution builds clean without invoking npm.
+</div>
+</body>
+</html>

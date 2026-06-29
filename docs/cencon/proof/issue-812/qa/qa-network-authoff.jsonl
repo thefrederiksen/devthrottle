@@ -1,0 +1,40 @@
+{"phase": "roster", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "newsession-directors", "kind": "req", "method": "GET", "url": "/directors", "bearer": "Bearer iG--oHI..."}
+{"phase": "newsession-directors", "kind": "resp", "method": "GET", "url": "/directors", "status": 200}
+{"phase": "newsession-directors", "kind": "req", "method": "GET", "url": "/directors/ebf54b04-1a87-4c23-8b01-64404bbdd1f5/repos", "bearer": "Bearer iG--oHI..."}
+{"phase": "newsession-directors", "kind": "resp", "method": "GET", "url": "/directors/ebf54b04-1a87-4c23-8b01-64404bbdd1f5/repos", "status": 200}
+{"phase": "create", "kind": "req", "method": "POST", "url": "/directors/ebf54b04-1a87-4c23-8b01-64404bbdd1f5/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "create", "kind": "resp", "method": "POST", "url": "/directors/ebf54b04-1a87-4c23-8b01-64404bbdd1f5/sessions", "status": 201}
+{"phase": "create", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "create", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "create", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "create", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-after-create", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-after-create", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-after-create", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-after-create", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-after-create", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-after-create", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "hold-on", "kind": "req", "method": "POST", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3/hold", "bearer": "Bearer iG--oHI..."}
+{"phase": "hold-on", "kind": "resp", "method": "POST", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3/hold", "status": 200}
+{"phase": "hold-on", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "hold-on", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-held-parity", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-held-parity", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-held-parity", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-held-parity", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "roster-held-parity", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "roster-held-parity", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "hold-off", "kind": "req", "method": "POST", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3/hold", "bearer": "Bearer iG--oHI..."}
+{"phase": "hold-off", "kind": "resp", "method": "POST", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3/hold", "status": 200}
+{"phase": "hold-off", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "hold-off", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "cancel", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "cancel", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "remove-confirm-delete", "kind": "req", "method": "DELETE", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3", "bearer": "Bearer iG--oHI..."}
+{"phase": "remove-confirm-delete", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "remove-confirm-delete", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}
+{"phase": "remove-confirm-delete", "kind": "resp", "method": "DELETE", "url": "/sessions/9b626359-52e6-4b49-a030-d30532e513d3", "status": 200}
+{"phase": "remove-confirm-delete", "kind": "req", "method": "GET", "url": "/sessions", "bearer": "Bearer iG--oHI..."}
+{"phase": "remove-confirm-delete", "kind": "resp", "method": "GET", "url": "/sessions", "status": 200}

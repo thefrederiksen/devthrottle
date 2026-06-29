@@ -1,0 +1,16 @@
+AC7 - global Gateway auth ENABLED (GatewayHost authEnabled:true, isolated test instance, port 7951)
+Independent QA verification of every issue #812 verb, with and without the Bearer token.
+
+GET    /directors                          no bearer -> 401   valid bearer -> 200
+GET    /directors/{id}/repos               no bearer -> 401   valid bearer -> 200
+GET    /sessions                           (n/a)              valid bearer -> 200
+POST   /directors/{id}/sessions  (create)  no bearer -> 401   valid bearer -> 201
+POST   /sessions/{sid}/hold (onHold:true)  no bearer -> 401   valid bearer -> 200  body {"onHold":true}
+POST   /sessions/{sid}/hold (onHold:false) (resume)           valid bearer -> 200  body {"onHold":false}
+DELETE /sessions/{sid}        (remove)     no bearer -> 401   valid bearer -> 200  body {"killed":true}
+
+Conclusion: with auth enabled the Gateway rejects every unauthenticated call (401) and accepts
+the same injected Bearer the app attaches (2xx). In the auth-OFF live UI run (qa-network-authoff.jsonl)
+every list/create/hold/remove request carried the Bearer (0 requests missing it). The mobile app's
+only auth responsibility is attaching that Bearer, which it does unconditionally, so the identical
+flow succeeds whether global auth is on or off.

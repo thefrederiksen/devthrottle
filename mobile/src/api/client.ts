@@ -15,6 +15,29 @@ export type SessionDto = components["schemas"]["SessionDto"];
 // Gateway returns them via Results.Json without a [Produces] annotation), so they are read with
 // narrow local shapes for exactly the fields the mobile views consume.
 type PromptRequest = components["schemas"]["PromptRequest"];
+type NewSessionRequest = components["schemas"]["NewSessionRequest"];
+
+// One machine (Director) in the fleet, projected from GET /directors. The response is not declared
+// in the OpenAPI schema (the Gateway returns it via Results.Json without a [Produces] annotation),
+// so it is read with this narrow local shape - the exact subset the add-session flow consumes,
+// mirroring the Android phone/CcDirectorClient DirectorInfo.
+export interface DirectorInfo {
+  directorId: string;
+  machineName: string;
+  /** Best-effort version label for the picker subtitle. */
+  version: string;
+  /** When the Gateway last heard from this Director (ISO 8601), or empty. Used to default-select. */
+  lastSeen: string;
+}
+
+// One recently-used repository on a Director, projected from GET /directors/{id}/repos. Also not in
+// the OpenAPI schema; read with this narrow local shape, mirroring the Android RepoInfo.
+export interface RepoInfo {
+  name: string;
+  path: string;
+  /** When a session last used this repo (ISO 8601), or empty. The list is sorted newest-used first. */
+  lastUsed: string;
+}
 
 // The injected token. A value still starting with "__" means the page was served without
 // injection (e.g. opened directly from the raw build) - treat that as absent.
@@ -136,6 +159,133 @@ export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Pr
   });
   if (!res.ok) {
     throw new GatewayError(res.status, `POST interrupt failed: ${res.status}`);
+  }
+}
+
+// ===== Session management (issue #812): the add-session flow + Hold/Resume + Remove =====
+// A faithful 1:1 of the Android (MAUI) phone/CcDirectorClient "+ New session" flow and the
+// owner's Hold/Remove decision. Every call carries the same Bearer the rest of the client uses, so
+// the whole flow works with global Gateway auth on or off.
+
+// GET /directors - the fleet's machines (Directors). Sorted most-recently-seen first so the picker
+// can default-select the top one (matching FleetParser.ParseDirectors), tie-broken by machine name.
+// Entries with no directorId are dropped (they cannot be addressed). Throws GatewayError on non-2xx
+// so the picker shows the real reason instead of a silently empty list.
+export async function getDirectors(signal?: AbortSignal): Promise<DirectorInfo[]> {
+  const res = await fetch("/directors", {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET /directors failed: ${res.status}`);
+  }
+  const raw = (await res.json()) as Array<Record<string, unknown>>;
+  const list: DirectorInfo[] = raw
+    .map((d) => ({
+      directorId: String(d.directorId ?? ""),
+      machineName: String(d.machineName ?? ""),
+      version: String(d.version ?? ""),
+      lastSeen: String(d.lastSeen ?? ""),
+    }))
+    .filter((d) => d.directorId.length > 0);
+  list.sort((a, b) => {
+    const bySeen = b.lastSeen.localeCompare(a.lastSeen); // newest-seen first (ISO 8601 sorts lexically)
+    if (bySeen !== 0) return bySeen;
+    return a.machineName.localeCompare(b.machineName);
+  });
+  return list;
+}
+
+// GET /directors/{id}/repos - a machine's recently-used repositories, sorted newest-used first
+// (the server already sorts this way; we re-sort so a mixed body is still correct, matching
+// FleetParser.ParseRepos). Entries with no path are dropped. Throws GatewayError on non-2xx.
+export async function getRepos(directorId: string, signal?: AbortSignal): Promise<RepoInfo[]> {
+  const id = encodeURIComponent(directorId);
+  const res = await fetch(`/directors/${id}/repos`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET /directors/${directorId}/repos failed: ${res.status}`);
+  }
+  const raw = (await res.json()) as Array<Record<string, unknown>>;
+  const list: RepoInfo[] = raw
+    .map((r) => ({
+      name: String(r.name ?? ""),
+      path: String(r.path ?? ""),
+      lastUsed: String(r.lastUsed ?? ""),
+    }))
+    .filter((r) => r.path.length > 0);
+  list.sort((a, b) => b.lastUsed.localeCompare(a.lastUsed)); // newest-used first
+  return list;
+}
+
+// POST /directors/{id}/sessions - create a new session in repoPath. Agent is hardcoded "ClaudeCode"
+// and wingmanEnabled=false, type omitted, exactly like the Android NewSessionPanel
+// (FleetParser.BuildCreateBody). Returns the created SessionDto so the caller can open it. The
+// Gateway answers 201 on success; throws GatewayError on non-2xx with the server's reason.
+export async function createSession(
+  directorId: string,
+  repoPath: string,
+  signal?: AbortSignal,
+): Promise<SessionDto> {
+  const id = encodeURIComponent(directorId);
+  const body: NewSessionRequest = { repoPath: repoPath.trim(), agent: "ClaudeCode", wingmanEnabled: false };
+  const res = await fetch(`/directors/${id}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const err = (await res.json()) as { detail?: string; error?: string };
+      detail = err.detail ?? err.error ?? detail;
+    } catch {
+      /* non-JSON error body - keep the status code */
+    }
+    throw new GatewayError(res.status, `Create session failed: ${detail}`);
+  }
+  return (await res.json()) as SessionDto;
+}
+
+// POST /sessions/{sid}/hold - toggle the session's on-hold state. The desired state is sent
+// explicitly ({ onHold }) so the call is idempotent; the Director echoes the applied { onHold }.
+// Reaches the Director through the Gateway catch-all session proxy with the injected Bearer.
+export async function holdSession(
+  sessionId: string,
+  onHold: boolean,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/hold`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ onHold }),
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST hold failed: ${res.status}`);
+  }
+  const result = (await res.json().catch(() => ({}))) as { onHold?: boolean };
+  return result.onHold ?? onHold;
+}
+
+// DELETE /sessions/{sid} - kill the agent process and remove the session from the roster (the
+// Android kill/remove semantics, gated behind a confirmation per the owner's #545 request). Reaches
+// the Director through the Gateway catch-all session proxy with the injected Bearer.
+export async function killSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `DELETE session failed: ${res.status}`);
   }
 }
 

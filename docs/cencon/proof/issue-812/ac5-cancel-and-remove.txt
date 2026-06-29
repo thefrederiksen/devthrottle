@@ -1,0 +1,3 @@
+created session id = 812c0000-0000-0000-0000-000000000001 (opened at http://127.0.0.1:7868/m/session/812c0000-0000-0000-0000-000000000001)
+DELETE calls after Cancel (must be 0) = 0
+after Remove the app navigated to http://127.0.0.1:7868/m; existing session present in roster = False

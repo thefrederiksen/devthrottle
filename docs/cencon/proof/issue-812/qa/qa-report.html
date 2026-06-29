@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #812 Mobile Session Management</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1a1a2e; }
+  h1 { border-bottom: 3px solid #2b6cff; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #11305c; }
+  .verdict { background: #e9f7ec; border: 1px solid #2e7d32; padding: 14px 18px; border-radius: 8px; font-size: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccd; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f3fa; }
+  .pass { color: #1b7a2e; font-weight: bold; }
+  .ac { background: #fafbff; }
+  img { max-width: 280px; border: 1px solid #bbb; border-radius: 6px; display: block; margin: 6px 0; }
+  code { background: #f4f4f8; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .shots { display: flex; flex-wrap: wrap; gap: 16px; }
+  .shot { width: 280px; font-size: 12px; }
+  .meta { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #812</h1>
+<p class="meta"><b>Title:</b> [Mobile] Session management: add (machine + repo), Hold/Resume + Remove(confirm), status<br>
+<b>PR:</b> #830 (branch <code>issue-812-mobile-session-mgmt</code>) &middot; <b>Verifier:</b> QA Agent (independent) &middot;
+<b>Method:</b> the REAL built mobile bundle (<code>npm run build</code>) served by a REAL Gateway, driven by Playwright at a phone viewport (390x844) against a REAL isolated test Director (isolation slot 16, Control API 7884). NOT the developer's binary or screenshots.</p>
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. I believe this is finished. PASS.</div>
+
+<h2>Environment (independent)</h2>
+<ul>
+  <li>Mobile bundle rebuilt from source: <code>npm ci &amp;&amp; npm run build</code> (tsc clean, vite build OK).</li>
+  <li>Real Gateway: dev-console <code>GatewayHost</code> on an isolated <code>CC_DIRECTOR_ROOT</code> (port 7950, auth off) and a throwaway <code>GatewayHost(authEnabled:true)</code> (port 7951, auth on) serving the freshly built <code>/m</code> bundle, token injected into <code>index.html</code>.</li>
+  <li>Real test Director: own isolation slot 16 (<code>cc-director16.exe</code>), Control API 7884; created/held/removed sessions only against it; torn down after.</li>
+  <li>The installed Gateway (port 7878) and the user's Directors were never touched.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+<tr class="ac"><td>1</td><td>"+ New session" opens the add flow; Step 1 lists MACHINES from live <code>GET /directors</code> (not hard-coded).</td>
+<td>Roster shows the "+ New session" entry; tapping it opens "Start a session" with a Machine list (SOREN_NORTH, auto-selected). Capture: <code>GET /directors -&gt; 200</code> with Bearer. Screens 01, 02.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>2</td><td>Selecting a machine lists THAT machine's repos from <code>GET /directors/{id}/repos</code>; manual path entry also available.</td>
+<td>"2. Repository" shows "75 recent repo(s)" plus an "Or enter a path" input + Create button. Capture: <code>GET /directors/{id}/repos -&gt; 200</code> with Bearer. Screen 03.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>3</td><td>Completing machine+repo creates a session via <code>POST /directors/{id}/sessions</code> (2xx); it appears in the roster and opens the session screen (Terminal).</td>
+<td><code>POST /directors/{id}/sessions -&gt; 201</code> (body <code>{repoPath, agent:"ClaudeCode", wingmanEnabled:false}</code>); app navigated into the new session (live Claude Code terminal in the worktree); the session then shows in the roster. Screens 04, 05.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>4</td><td>Large Hold button calls <code>POST /sessions/{sid}/hold</code> (2xx); session shows held + button reads Resume; Resume clears the hold.</td>
+<td>Large yellow Hold -&gt; <code>hold -&gt; 200</code>; button becomes green Resume + "On hold" pill; Resume -&gt; <code>hold -&gt; 200</code> back to Hold. Screens 06, 07.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>5</td><td>Large Remove shows a confirmation; confirm calls <code>DELETE /sessions/{sid}</code> (2xx) and returns to the roster with the session gone; cancel does nothing.</td>
+<td>Remove shows "Remove this session? This will terminate it." Cancel closes the dialog with NO DELETE (capture shows only a <code>GET /sessions</code> during cancel) and stays on the session. Confirm -&gt; <code>DELETE -&gt; 200</code> -&gt; roster, "No sessions running." Screens 08, 09, 10.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>6</td><td>Held state consistent between the session screen and the roster.</td>
+<td>While held: session screen shows "On hold" pill; roster shows the same session with grey dot + "On hold" context line. Screens 11, 12.</td><td class="pass">PASS</td></tr>
+<tr class="ac"><td>7</td><td>Every list/create/hold/remove call carries the Bearer; flow works with global auth enabled AND disabled.</td>
+<td>Auth OFF: live UI run, every <code>/directors</code>, <code>/repos</code>, <code>/sessions</code>, create, hold, DELETE carried the Bearer (0 missing) - <code>qa-network-authoff.jsonl</code>. Auth ON: every verb 401 without Bearer / 2xx with valid Bearer - <code>qa-network-authon.txt</code>.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Method / regression checks</h2>
+<ul>
+  <li><b>No Gateway change needed (dev claim verified):</b> the PR diff is <code>mobile/</code> + proof only - NO backend <code>.cs</code> files. All five endpoints (<code>GET /directors</code>, <code>GET /directors/{id}/repos</code>, <code>POST /directors/{id}/sessions</code>, <code>POST /sessions/{sid}/hold</code>, <code>DELETE /sessions/{sid}</code>) already exist on the Gateway and were reachable by <code>/m</code> with the injected Bearer.</li>
+  <li><b>Routine build does not invoke npm:</b> <code>dotnet build cc-director.sln</code> = Build succeeded, 0 warnings/0 errors, with NO npm/vite/BuildMobileApp invocation (the mobile build is gated to Release/<code>BuildMobile=true</code>).</li>
+  <li>Mobile type-check (<code>tsc --noEmit</code>) clean; no console errors in the live run (only benign React Router v7 future-flag warnings).</li>
+  <li>Negative sweep: all screenshots render cleanly; no blank renders.</li>
+</ul>
+
+<h2>Screenshots (phone viewport 390x844)</h2>
+<div class="shots">
+  <div class="shot">01 roster + New session<br><img src="01-roster.png"></div>
+  <div class="shot">02 machines (AC1)<br><img src="02-newsession-machines.png"></div>
+  <div class="shot">03 repos + manual (AC2)<br><img src="03-newsession-repos.png"></div>
+  <div class="shot">04 created session screen (AC3)<br><img src="04-created-session-screen.png"></div>
+  <div class="shot">05 roster after create (AC3)<br><img src="05-roster-after-create.png"></div>
+  <div class="shot">06 held -> Resume + pill (AC4)<br><img src="06-held-resume-button.png"></div>
+  <div class="shot">07 resumed (AC4)<br><img src="07-resumed.png"></div>
+  <div class="shot">08 remove confirm (AC5)<br><img src="08-remove-confirm.png"></div>
+  <div class="shot">09 after cancel (AC5)<br><img src="09-after-cancel.png"></div>
+  <div class="shot">10 roster after remove (AC5)<br><img src="10-roster-after-remove.png"></div>
+  <div class="shot">11 session held (AC6)<br><img src="11-session-held.png"></div>
+  <div class="shot">12 roster held parity (AC6)<br><img src="12-roster-held-parity.png"></div>
+</div>
+
+</body>
+</html>
