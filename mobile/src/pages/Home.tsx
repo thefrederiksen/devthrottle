@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listSessions, type SessionDto } from "../api/client";
 import { classify, contextLine, dotColor, effectiveColor, inBucket, inDesktopOrder, repoLeaf } from "../sessions/ordering";
+import { useNow, waitingLabel } from "../sessions/waiting";
 
 // Home / roster. A "needs you" group first (when any session wants attention), then the full
 // session list, both using the live Gateway /sessions data and the shared triage ordering.
@@ -97,22 +98,44 @@ function SessionRow({ session }: { session: SessionDto }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
   const repo = repoLeaf(session);
   const attention = classify(session) === "needsYou";
+  // Issue #844: the session's short three-digit number (SessionDto.Number, #820) read from the
+  // regenerated typed client. Null on sessions/Directors without a number - then no prefix shows.
+  const num = session.number;
+  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
   return (
     <li className={`row${attention ? " row-attention" : ""}`}>
       <Link className="row-link" to={`/session/${encodeURIComponent(session.sessionId ?? "")}`}>
         <span className="dot" style={{ backgroundColor: dotColor(color) }} aria-hidden="true" />
         <span className="row-body">
-          {/* The name uses the full card width and WRAPS (no truncation) - issue #838. */}
-          <span className="row-name">{name}</span>
+          {/* The name uses the full card width and WRAPS (no truncation) - issue #838. A muted
+              three-digit number prefix sits before the bold name, matching the desktop SessionRail
+              (issue #844); when the session has no number, no prefix is rendered. */}
+          <span className="row-name">
+            {hasNum && <span className="row-num">{num}</span>}
+            {name}
+          </span>
           {/* The status / what-is-happening text and the repo share one line BELOW the name,
-              separated by a thin divider, with the repo kept visually secondary. */}
+              separated by a thin divider, with the repo kept visually secondary. On a needs-you
+              card the live "waiting <dur>" is pinned to the right of this same line (issue #844). */}
           <span className="row-meta">
             <span className="row-context">{contextLine(session)}</span>
             {repo && <span className="row-divider" aria-hidden="true" />}
             {repo && <span className="row-repo">{repo}</span>}
+            {attention && session.needsYouSince && <WaitingTime since={String(session.needsYouSince)} />}
           </span>
         </span>
       </Link>
     </li>
   );
+}
+
+// Issue #844: the live elapsed-waiting label for a needs-you card, right-aligned on the status
+// line. It ticks once a second by recomputing from the held needsYouSince (no roster refetch), and
+// renders nothing while the value is empty/unparseable. Only mounted for needs-you cards, so the
+// per-second re-render never touches working/other rows.
+function WaitingTime({ since }: { since: string }) {
+  const now = useNow(1000);
+  const label = waitingLabel(since, now);
+  if (label.length === 0) return null;
+  return <span className="row-waiting">{label}</span>;
 }

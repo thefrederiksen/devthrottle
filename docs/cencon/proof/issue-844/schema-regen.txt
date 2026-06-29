@@ -1,0 +1,26 @@
+AC2 evidence: the mobile typed client (mobile/src/api/schema.ts) was REGENERATED from a
+Gateway OpenAPI document built from current main, so SessionDto now carries `number`.
+
+How it was regenerated (isolated, no touching the user's installed Gateway on port 7878):
+  1. A current-main Gateway was booted in-process via the isolated test harness
+     (GatewayHost with a temp instances dir, a dead cockpit proxy port, auth off, a random
+     loopback port - the same harness MobileRedirectTests uses), and its /openapi/v1.json
+     was written to a file.
+  2. openapi-typescript 7.4.4 (the exact tool pinned by `npm run gen:api`) was run against
+     that document, producing mobile/src/api/schema.ts.
+
+Confirmation the document and the generated client carry `number`:
+
+  OpenAPI components.schemas.SessionDto.properties.number:
+    { "format": "int32", "type": ["null","integer","string"], "pattern": "^-?(?:0|[1-9]\d*)$" }
+
+  schema.ts SessionDto (regenerated):
+    name?: null | string;
+    /** Format: int32 */
+    number?: null | number | string;      <-- ADDED by the regen (predated #820 before)
+    /** Format: int32 */
+    sortOrder?: number | string;
+
+The regen also picked up two other current-main deltas the stale schema had missed
+(the #839 /transcription path rename and a controllerSessionId field) - the expected,
+faithful output of a real `gen:api` against current main.

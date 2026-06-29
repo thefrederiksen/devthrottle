@@ -1,0 +1,16 @@
+PASS | sub-minute (30s) | expected="just now" got="just now"
+PASS | exactly 0 | expected="just now" got="just now"
+PASS | 59s | expected="just now" got="just now"
+PASS | 60s | expected="waiting 1m" got="waiting 1m"
+PASS | 12m | expected="waiting 12m" got="waiting 12m"
+PASS | 59m | expected="waiting 59m" got="waiting 59m"
+PASS | 1h exactly | expected="waiting 1h 0m" got="waiting 1h 0m"
+PASS | 1h 4m | expected="waiting 1h 4m" got="waiting 1h 4m"
+PASS | 23h 59m | expected="waiting 23h 59m" got="waiting 23h 59m"
+PASS | 1d exactly | expected="waiting 1d 0h" got="waiting 1d 0h"
+PASS | 2d 3h | expected="waiting 2d 3h" got="waiting 2d 3h"
+PASS | future (negative) | expected="just now" got="just now"
+PASS | null/empty | expected="" got=""
+PASS | garbage | expected="" got=""
+
+TOTAL pass=14 fail=0

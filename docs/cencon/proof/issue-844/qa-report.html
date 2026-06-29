@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Report - Issue #844 (Mobile roster: number prefix + live waiting time)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1a1a2e; }
+  h1 { border-bottom: 3px solid #2d3a6b; padding-bottom: 8px; }
+  h2 { margin-top: 28px; color: #2d3a6b; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #eef1fa; }
+  .pass { color: #0a7d27; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code { background: #f3f3f7; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  img { max-width: 360px; border: 1px solid #ddd; margin: 6px 12px 6px 0; vertical-align: top; }
+  .verdict { background: #e8f6ec; border: 1px solid #0a7d27; padding: 14px; border-radius: 6px; font-size: 16px; }
+  pre { background: #f3f3f7; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #844</h1>
+<p><strong>Title:</strong> [Mobile] Roster card: muted three-digit session number prefix on the name +
+live "waiting Xm" (since needs-you) on the status line</p>
+<p><strong>Pull request:</strong> #845 &nbsp;|&nbsp; <strong>Branch:</strong>
+<code>issue-844-mobile-roster-number-waiting</code> &nbsp;|&nbsp; <strong>Verifier:</strong> QA Agent
+(independent) &nbsp;|&nbsp; <strong>Date:</strong> 2026-06-29</p>
+
+<h2>How this was verified (independent)</h2>
+<p>The QA Agent did not reuse the Developer's binary or screenshots. The PR branch was checked out into
+an isolated git worktree; the mobile Progressive Web App was built fresh
+(<code>npm install</code> -&gt; <code>npm run typecheck</code> -&gt; <code>npm run build</code>, both clean).
+A mock Gateway (a small Node server) served the freshly built <code>dist/</code> under <code>/m/</code> with the
+per-machine token injected into <code>index.html</code> exactly as the real Gateway does, and stubbed
+<code>GET /sessions</code> with fixtures carrying FIXED absolute <code>needsYouSince</code> timestamps and
+known <code>number</code> values - so both the duration ladder and the live tick can be observed
+deterministically. The roster was driven with Playwright at a phone-sized viewport
+(<strong>390 x 844, deviceScaleFactor 2</strong>). The pure duration formatter was additionally
+unit-tested with fixed clock values for boundary coverage (including the sub-minute case that timing
+can miss live).</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+
+<tr><td>1</td>
+<td>Three-digit number rendered as a muted prefix before the name; null-number session shows no prefix.</td>
+<td><code>042  &lt;name&gt;</code> muted prefix on numbered cards; no prefix when number is null.</td>
+<td>Cards <code>137</code>, <code>142</code>, <code>308</code>, <code>411</code>, <code>250</code> render a dim/muted
+number (<code>.row-num</code>, color <code>--text-dim</code>, weight 600) before the bold name. The
+"no-number needs-you session" card (number=null) renders the name with NO prefix and no placeholder.
+See <code>qa-roster-390px-t0.png</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td>
+<td>Number comes from <code>session.number</code> in the REGENERATED typed client, matching <code>/sessions</code>.</td>
+<td>Rendered number == <code>/sessions</code> <code>number</code>; <code>schema.ts</code> now contains <code>number</code>.</td>
+<td><code>mobile/src/api/schema.ts</code> SessionDto now declares
+<code>number?: null | number | string;</code> (added by the regen; it predated #820). Rendered values
+equal the stubbed payload exactly (137=137, 142=142, 308=308, 411=411, 250=250). <code>Home.tsx</code>
+reads <code>session.number</code> (not hardcoded). <code>npm run typecheck</code> passes, proving the field
+is typed, not derived.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td>
+<td>Needs-you card shows <code>waiting &lt;dur&gt;</code> on the right of the status line, from <code>needsYouSince</code>.</td>
+<td>A needs-you card ~12 min idle shows <code>waiting 12m</code> right-aligned.</td>
+<td>Card 137 (<code>needsYouSince</code> ~12m ago) shows <code>waiting 12m</code> right-aligned in the
+attention color (<code>.row-waiting</code>, <code>margin-left:auto</code>). Working card shows none.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td>
+<td>The waiting time ticks live without a page reload.</td>
+<td>Value advances over time with no reload; client-side tick from held <code>needsYouSince</code>.</td>
+<td>Two captures 65s apart, no reload: <code>137</code> 12m-&gt;13m, <code>142</code> 1h 4m-&gt;1h 5m,
+<code>411</code> just now-&gt;2m, no-number 7m-&gt;8m. Mechanism: <code>useNow(1000)</code> re-renders each
+second and recomputes from the held stamp (no roster refetch). See
+<code>qa-roster-390px-t0.png</code> vs <code>qa-roster-390px-t1-after-65s.png</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td>
+<td>Duration ladder: &lt;1m -&gt; "just now"; minutes -&gt; "Xm"; hours -&gt; "Xh Ym"; days -&gt; "Xd Yh".</td>
+<td>All four magnitudes correct.</td>
+<td>Live at 390px: <code>just now</code> (411), <code>waiting 12m</code> (137), <code>waiting 1h 4m</code> (142),
+<code>waiting 2d 3h</code> (308). Pure-function unit test: 14/14 cases pass incl. 59s-&gt;"just now",
+60s-&gt;"1m", 1h exact-&gt;"1h 0m", 1d exact-&gt;"1d 0h", future/negative-&gt;"just now", null/garbage-&gt;"".
+See <code>qa-ladder-unit-test.txt</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td>
+<td>Working/other (non-needs-you) cards show NO waiting time; status line stays <code>status . repo</code>.</td>
+<td>Working card has no waiting text.</td>
+<td>Card 250 (green/working) shows only <code>running tests . working</code> - no waiting element rendered
+(<code>WaitingTime</code> only mounts for <code>attention &amp;&amp; needsYouSince</code>). See
+<code>qa-roster-390px-t0.png</code> bottom card.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td>
+<td>#838 layout preserved; roster loads from <code>GET /sessions</code> via the typed client with Bearer.</td>
+<td>Full-width wrapping name with prefix, repo under name, dot, grouping, attention styling, tap-to-open;
+Bearer attached.</td>
+<td>Card 142's long name wraps onto a second line full-width AFTER the <code>142</code> prefix; repo sits on
+the second line beside the status; status dot at the start; "Needs you"/"All sessions" grouping intact;
+needs-you cards have the red attention border; each row links to <code>/m/session/&lt;id&gt;</code>. All 17
+browser <code>GET /sessions</code> requests carried <code>Authorization: Bearer qa844-bearer-token</code>
+(verified with the service worker both blocked and allowed). See <code>qa-sessions-bearer.txt</code>.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li><strong>Scope:</strong> diff touches only <code>mobile/</code> (schema.ts, Home.tsx, waiting.ts, styles.css)
+      plus proof. No .NET file changed.</li>
+  <li><strong>dotnet build does not invoke npm:</strong> the mobile build target
+      (<code>BuildMobileApp</code> in <code>CcDirector.Gateway.csproj</code>) is gated by <code>RunMobileBuild</code>,
+      true only for Release or explicit <code>-p:BuildMobile=true</code>. A routine Debug
+      <code>dotnet build cc-director.sln</code> does NOT run npm. This target is unchanged by the PR.</li>
+  <li><strong>Schema regen side-effects benign:</strong> the regen also reflected current-main OpenAPI
+      (path <code>/transcription/test</code>-&gt;<code>/transcription</code>, added <code>controllerSessionId</code>).
+      No mobile consumer relies on those path keys (transcription uses literal fetch URLs + local types);
+      <code>npm run typecheck</code> passes.</li>
+  <li><strong>Mobile build clean:</strong> <code>npm run typecheck</code> and <code>npm run build</code> both
+      succeed on the PR branch content.</li>
+</ul>
+
+<h2>Screenshots (390px viewport)</h2>
+<p>
+  <span>t0 (initial):<br><img src="qa-roster-390px-t0.png" alt="roster t0" /></span>
+  <span>t1 (after 65s, no reload):<br><img src="qa-roster-390px-t1-after-65s.png" alt="roster t1" /></span>
+</p>
+
+<h2>Ladder unit test output</h2>
+<pre>14/14 PASS - see qa-ladder-unit-test.txt</pre>
+
+<h2 class="verdict">VERIFIED - all 7 acceptance criteria met. Issue #844 PASSES QA.</h2>
+
+</body>
+</html>

@@ -3749,7 +3749,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/transcription/test": {
+    "/transcription": {
         parameters: {
             query?: never;
             header?: never;
@@ -5225,6 +5225,7 @@ export interface components {
             /** Format: int32 */
             prePromptWaitMs?: number | string;
             wingmanEnabled?: boolean;
+            controllerSessionId?: null | string;
         };
         PromptRequest: {
             text?: string;
@@ -5260,6 +5261,8 @@ export interface components {
             claudeSessionId?: null | string;
             claudeTranscriptPath?: null | string;
             name?: null | string;
+            /** Format: int32 */
+            number?: null | number | string;
             /** Format: int32 */
             sortOrder?: number | string;
             statusColor?: string;
