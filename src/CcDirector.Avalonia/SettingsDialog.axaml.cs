@@ -47,6 +47,11 @@ public partial class SettingsDialog : Window
     private string _loadedGatewayToken = "";
     private bool _loadedAlpha;
 
+    // Issue #828: while LoadAsync sets the toggle to the on-disk value, programmatically setting
+    // IsChecked fires IsCheckedChanged - this guard stops that initial set from re-writing the
+    // config. A genuine user toggle (guard false) persists immediately.
+    private bool _suppressAutoUpdateToolsWrite;
+
     // The user-defined ordered agent list (issue #489) bound to the CRUD list. The baseline
     // snapshot lets Save detect whether the list changed at all.
     private readonly ObservableCollection<AgentEntryRow> _agentRows = new();
@@ -76,6 +81,7 @@ public partial class SettingsDialog : Window
         try
         {
             var (screenshots, url, advertised, token) = await Task.Run(ReadConfigSnapshot);
+            var autoUpdateTools = await Task.Run(ToolAutoUpdateSetting.Get);
 
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
@@ -88,6 +94,14 @@ public partial class SettingsDialog : Window
             GatewayAdvertisedBox.Text = advertised;
             GatewayTokenBox.Text = token;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
+
+            // Tools auto-update opt-out (issue #828): reflect tools.autoUpdate.enabled (default ON).
+            // The read ran off the UI thread above; suppress the write that the programmatic set
+            // would otherwise trigger, then show the current on/off explanation.
+            _suppressAutoUpdateToolsWrite = true;
+            AutoUpdateToolsCheck.IsChecked = autoUpdateTools;
+            _suppressAutoUpdateToolsWrite = false;
+            UpdateAutoUpdateToolsStatus(autoUpdateTools);
 
             // Read-only Account tab (issue #651): the account is managed by the Gateway, so show the
             // configured Gateway URL immediately and fetch the signed-in identity from the Gateway's
@@ -1041,6 +1055,42 @@ public partial class SettingsDialog : Window
     private void AlphaCheck_Changed(object? sender, RoutedEventArgs e)
     {
         AlphaVoicePanel.IsVisible = AlphaFeaturesCheck.IsChecked == true;
+    }
+
+    /// <summary>
+    /// Tools auto-update opt-out (issue #828). Persists tools.autoUpdate.enabled IMMEDIATELY on
+    /// toggle (not on Save), so turning it off stops the lifecycle reconciler right away and the
+    /// choice survives a restart. The status line gives instant visual feedback. The write runs off
+    /// the UI thread; the initial programmatic set during load is suppressed.
+    /// </summary>
+    private async void AutoUpdateToolsCheck_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressAutoUpdateToolsWrite) return;
+
+        var enabled = AutoUpdateToolsCheck.IsChecked == true;
+        FileLog.Write($"[SettingsDialog] AutoUpdateToolsCheck_Changed: tools.autoUpdate.enabled -> {enabled}");
+        UpdateAutoUpdateToolsStatus(enabled); // immediate feedback before the disk write completes
+
+        try
+        {
+            await Task.Run(() => ToolAutoUpdateSetting.Set(enabled));
+            FileLog.Write($"[SettingsDialog] AutoUpdateToolsCheck_Changed: persisted tools.autoUpdate.enabled={enabled}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] AutoUpdateToolsCheck_Changed FAILED: {ex.Message}");
+            AutoUpdateToolsStatus.Text = $"Could not save this setting: {ex.Message}";
+            AutoUpdateToolsStatus.Foreground = global::Avalonia.Media.Brushes.IndianRed;
+        }
+    }
+
+    /// <summary>Reflect the current on/off choice in plain English under the toggle.</summary>
+    private void UpdateAutoUpdateToolsStatus(bool enabled)
+    {
+        AutoUpdateToolsStatus.Foreground = global::Avalonia.Media.Brushes.Gray;
+        AutoUpdateToolsStatus.Text = enabled
+            ? "On - the Director keeps its tools up to date automatically."
+            : "Off - tools change only when you click Download and repair tools.";
     }
 
     private void BtnClose_Click(object? sender, RoutedEventArgs e)

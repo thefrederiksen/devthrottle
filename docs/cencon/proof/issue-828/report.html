@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #828: Tools auto-update opt-out toggle</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#cccccc; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007acc; padding-bottom:8px; }
+  h2 { color:#fff; font-size:17px; margin-top:28px; }
+  code { background:#2d2d2d; padding:1px 5px; border-radius:3px; font-family:Consolas, monospace; color:#9cdcfe; }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22c55e; font-weight:bold; }
+  img { max-width:680px; border:1px solid #3c3c3c; border-radius:4px; display:block; margin:10px 0; }
+  .caption { color:#888; font-size:12px; margin-bottom:18px; }
+  .verdict { background:#0f2a1a; border:1px solid #22c55e; border-radius:6px; padding:14px 16px; margin-top:24px; }
+</style>
+</head>
+<body>
+  <h1>Issue #828 - Tools settings page: "Automatically keep cc-* tools up to date" opt-out toggle</h1>
+  <p>Developer Agent proof. A user-facing toggle was added to the Tools tab of the Director Settings
+     dialog, bound to the <code>tools.autoUpdate.enabled</code> config key (added in #827 and honored
+     by the lifecycle reconciler). ON by default; turning it off stops all automatic reconciles and
+     leaves the manual "Download and repair tools" button as the only path.</p>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li><code>src/CcDirector.Core/Configuration/ToolAutoUpdateSetting.cs</code> - new Core read/write
+        path for <code>tools.autoUpdate.enabled</code>. <code>Get()</code> reads via
+        <code>CcDirectorConfigService.ReadRaw()</code> (absent/non-bool falls back to enabled,
+        matching the setup engine's read path so the toggle and the lifecycle never disagree).
+        <code>Set(bool)</code> persists via <code>MergePatch</code>, preserving every other section.</li>
+    <li><code>src/CcDirector.Avalonia/SettingsDialog.axaml</code> - the toggle, helper text, and a
+        live on/off status line, placed in the Tools card under the repair button. Reuses the
+        dialog's existing style tokens (<code>Classes="hint"</code>, inline hex) per VisualStyle.md.</li>
+    <li><code>src/CcDirector.Avalonia/SettingsDialog.axaml.cs</code> - loads the value off the UI
+        thread, suppresses the initial programmatic set, and persists <em>immediately</em> on toggle
+        via <code>Task.Run(ToolAutoUpdateSetting.Set)</code> with <code>FileLog</code> entries. The
+        status line updates instantly for responsive-UI feedback.</li>
+    <li><code>src/CcDirector.Core.Tests/Configuration/ToolAutoUpdateSettingTests.cs</code> - 7
+        view-model-level tests: default ON, missing section/key -> ON, non-bool -> ON, explicit
+        false -> OFF, set persists and survives re-read, round-trips both ways, preserves unrelated
+        sections.</li>
+  </ul>
+
+  <h2>Acceptance criteria</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>1</td><td>Tools page shows a plainly-labelled toggle with helper line</td>
+        <td class="pass">PASS</td><td>"Automatically keep cc-* tools up to date" + helper hint, see screenshot 1.</td></tr>
+    <tr><td>2</td><td>Reflects/writes <code>tools.autoUpdate.enabled</code>; checked = true/absent; persists immediately; survives restart</td>
+        <td class="pass">PASS</td><td>Default read = On (no key). Toggling off wrote <code>{"autoUpdate":{"enabled":false}}</code>; after a full Director restart it re-loaded as Off (screenshot 2). Round-trip back to On wrote <code>enabled:true</code>.</td></tr>
+    <tr><td>3</td><td>When OFF, automatic reconciles do not run; manual button still works; when ON, maintenance active</td>
+        <td class="pass">PASS</td><td>The lifecycle gate honoring this key shipped in #827 (<code>ToolAutoUpdateConfig.Load</code> / <code>ToolAutoUpdateTrigger</code>); this toggle flips the same key both read paths share. The "Download and repair tools" button is untouched.</td></tr>
+    <tr><td>4</td><td>Complies with VisualStyle.md; immediate visual feedback</td>
+        <td class="pass">PASS</td><td>Reuses card/hint tokens and dialog spacing; the checkbox state and status line update instantly; the disk write runs off the UI thread.</td></tr>
+    <tr><td>5</td><td>Logging records toggle changes</td>
+        <td class="pass">PASS</td><td>Director log: <code>[SettingsDialog] AutoUpdateToolsCheck_Changed: tools.autoUpdate.enabled -&gt; False</code> then <code>persisted tools.autoUpdate.enabled=False</code>.</td></tr>
+    <tr><td>6</td><td>Clean build; tests pass; view-model-level test (default true)</td>
+        <td class="pass">PASS</td><td><code>dotnet build cc-director.sln</code> = 0 warnings / 0 errors. 7 new tests pass.</td></tr>
+    <tr><td>7</td><td>Proven in running app: default on, toggle off, restart, persisted off</td>
+        <td class="pass">PASS</td><td>Screenshots below, captured from an isolated slot-15 test Director via PrintWindow.</td></tr>
+  </table>
+
+  <h2>Screenshot 1 - default ON (fresh config, no key present)</h2>
+  <img src="tools-toggle-on-default.png" alt="Tools tab, toggle checked" />
+  <div class="caption">Toggle checked. Status line: "On - the Director keeps its tools up to date automatically."</div>
+
+  <h2>Screenshot 2 - OFF after a full app restart (persisted)</h2>
+  <img src="tools-toggle-off-after-restart.png" alt="Tools tab, toggle unchecked after restart" />
+  <div class="caption">After toggling off and restarting the Director, the toggle re-loads unchecked.
+     Status line: "Off - tools change only when you click Download and repair tools."</div>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift. This adds a UI control over an existing config key already
+     covered by the architecture manifest (introduced in #827). No new container, no security rule
+     touched.</p>
+
+  <div class="verdict">I believe this is finished. All seven acceptance criteria are met, the
+     solution builds clean with zero warnings, the seven new tests pass, and the on/off/restart
+     behavior is proven in the running app.</div>
+</body>
+</html>

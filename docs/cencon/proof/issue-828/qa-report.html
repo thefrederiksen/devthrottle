@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof Report - Issue #828 (Tools auto-update opt-out toggle)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#dddddd; margin:0; padding:24px; }
+  h1 { font-size:20px; } h2 { font-size:16px; margin-top:28px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#2a2a2a; }
+  .pass { color:#4caf50; font-weight:bold; }
+  .verdict { background:#15301a; border:1px solid #4caf50; padding:12px; margin-top:24px; font-size:15px; }
+  img { max-width:760px; border:1px solid #3c3c3c; margin-top:8px; display:block; }
+  code { background:#2a2a2a; padding:1px 4px; border-radius:3px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #828</h1>
+<p>Tools settings page opt-out toggle "Automatically keep cc-* tools up to date" (ON by default),
+bound to config key <code>tools.autoUpdate.enabled</code>. PR #834, branch
+<code>issue-828-tools-autoupdate-toggle</code> at commit 8f76696. Independently verified by the QA
+Agent in its own worktree on its own isolated slot 17 Director (Control API port 7883). The QA
+session did NOT reuse the developer's binary or screenshots.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Tools tab shows a plain-English toggle + helper line</td>
+<td>Checkbox "Automatically keep cc-* tools up to date" with explanatory helper text in the Tools card</td>
+<td>Present: checkbox plus helper line "When on, the Director repairs and updates its cc-* tools by itself in the background..." plus live status line (see qa-tools-default-on.png)</td>
+<td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Reflects/writes <code>tools.autoUpdate.enabled</code>; default ON; persists immediately; survives restart</td>
+<td>Checked when key true/absent; toggling off writes false immediately and survives an app restart</td>
+<td>No key in config.json -> shown checked (default ON). Toggling off wrote <code>tools.autoUpdate.enabled:false</code> to config/config.json within ~4ms; after a full Director stop+relaunch the toggle re-loaded UNCHECKED (qa-tools-off-after-restart.png). Unrelated sections (gateway, top-level autoUpdate self-update) preserved.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>3</td><td>OFF suppresses automatic reconciles; manual button still works</td>
+<td>With key false the lifecycle reconcile does not run; "Download and repair tools" works regardless</td>
+<td>Restarted Director log: <code>[ToolAutoUpdate] startup: tools.autoUpdate.enabled=false; skipping tool reconcile</code> (same key the #827 gate reads via ToolAutoUpdateConfig.Load). Manual button handler BtnFixTools_Click calls RepairPythonToolsAsync unconditionally (ungated by the toggle) and is enabled.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>4</td><td>VisualStyle.md compliance + immediate feedback</td>
+<td>Placement/labelling/spacing consistent with the Settings dialog; instant visual response</td>
+<td>Control sits in the Tools card under a separator border, reuses the existing "hint" text class and dark-theme tokens (#CCCCCC / #888888), 24px indent. Status line flips to "On - ..." / "Off - ..." instantly on toggle before the disk write completes.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Logging records toggle changes</td>
+<td>FileLog entry on each on/off change</td>
+<td>Director log: <code>AutoUpdateToolsCheck_Changed: tools.autoUpdate.enabled -&gt; False</code> and <code>persisted tools.autoUpdate.enabled=False</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Build clean, tests pass, view-model default-true test</td>
+<td><code>dotnet build cc-director.sln</code> clean; new VM-level test for default true</td>
+<td>Build: 0 Warning(s) / 0 Error(s). ToolAutoUpdateSettingTests: 7/7 pass (incl. default-true, missing/non-bool -&gt; on, explicit false -&gt; off, persistence round-trip, preserves unrelated sections). Full Core.Tests regression: 2616 passed, 0 failed, 6 skipped.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Proven in the running app; persisted off after restart</td>
+<td>Screenshot default-on, toggle off, restart, confirm persisted off</td>
+<td>qa-tools-default-on.png (default checked) and qa-tools-off-after-restart.png (unchecked after a full restart) captured from the QA-built slot 17 Director.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<p><strong>Tools tab - toggle ON by default (no config key present):</strong></p>
+<img src="qa-tools-default-on.png" alt="Tools tab toggle on by default" />
+<p><strong>Tools tab after toggling off and a full Director restart - persisted OFF:</strong></p>
+<img src="qa-tools-off-after-restart.png" alt="Tools tab toggle off after restart" />
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Tools dashboard still shows 9/9 tools PASS; other Settings tabs render normally - no adjacent breakage.</li>
+  <li>UI write path (ToolAutoUpdateSetting) and lifecycle gate (ToolAutoUpdateConfig) read the identical key with identical default-on semantics - toggle and reconciler agree.</li>
+  <li>No CenCon security rule affected; small additive config + UI change, no architecture/security doc drift.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. Issue #828 passes QA.</div>
+</body>
+</html>

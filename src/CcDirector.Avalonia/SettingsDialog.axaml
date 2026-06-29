@@ -405,6 +405,26 @@
                                            FontSize="12" TextWrapping="Wrap" MaxWidth="420"
                                            VerticalAlignment="Center" IsVisible="False" />
                             </StackPanel>
+
+                            <!-- Automatic-update opt-out (issue #828). ON by default; bound to the
+                                 config key tools.autoUpdate.enabled, which the lifecycle reconciler
+                                 honors. Turning it off stops all automatic reconciles and leaves the
+                                 manual "Download and repair tools" button above as the only path.
+                                 Persists immediately on toggle through the same config store. -->
+                            <Border BorderBrush="#3C3C3C" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,12,0,0">
+                                <StackPanel Spacing="4">
+                                    <CheckBox x:Name="AutoUpdateToolsCheck"
+                                              Content="Automatically keep cc-* tools up to date"
+                                              IsChecked="True"
+                                              Foreground="#CCCCCC" FontSize="13"
+                                              IsCheckedChanged="AutoUpdateToolsCheck_Changed"
+                                              ToolTip.Tip="When on, the Director repairs and updates its cc-* tools by itself in the background. Turn off to pin your tools and update only with the button above." />
+                                    <TextBlock Classes="hint" Margin="24,0,0,0"
+                                               Text="When on, the Director repairs and updates its cc-* tools by itself in the background, so you never have to maintain them. Turn it off to pin your tools; then they change only when you click Download and repair tools above." />
+                                    <TextBlock x:Name="AutoUpdateToolsStatus" Margin="24,2,0,0"
+                                               Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
 
