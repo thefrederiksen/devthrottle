@@ -274,32 +274,42 @@
                 </Border>
 
                 <!-- cc-* tools health indicator (sits directly above the Gateway indicator).
-                     Visible ONLY when a tool is failing or not built - hidden when every tool
-                     passes - and shows the SAME message as the status screen's tools row (text
-                     set from the same readiness check in code-behind). Click opens Settings on the
-                     Tools tab, where one big button downloads and repairs the whole toolset. -->
+                     Active, self-healing badge (issue #829): hidden when every tool passes (green),
+                     orange "Syncing tools..." with a progress spinner while an automatic reconcile
+                     runs, the legacy amber warning when auto-update is off, and red "Tools need
+                     attention" only after a reconcile fails repeatedly. All colors / text / the
+                     spinner visibility are set from code-behind off the ToolsSyncStateMachine; click
+                     opens Settings on the Tools tab (the actionable Warning / NeedsAttention states). -->
                 <Border x:Name="ToolsIndicator" DockPanel.Dock="Bottom"
                         Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
                         Background="#3A331B" BorderBrush="#F0B848" BorderThickness="1"
                         Cursor="Hand" IsVisible="False"
                         PointerPressed="ToolsIndicator_PointerPressed">
-                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <Grid Width="22" Height="22" VerticalAlignment="Center">
-                            <Ellipse Fill="#F0B848" />
-                            <TextBlock Text="!" Foreground="#1E1E1E" FontWeight="Bold" FontSize="14"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Grid>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="ToolsIndicatorLabel"
-                                       Text="cc-* tools"
-                                       FontSize="11" FontWeight="SemiBold"
-                                       Foreground="#F0B848" />
-                            <TextBlock x:Name="ToolsIndicatorSub"
-                                       Text="click to download and repair the tools"
-                                       FontSize="10" Foreground="#B59868"
-                                       TextWrapping="Wrap" MaxWidth="186"
-                                       MaxLines="3" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Vertical" Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Grid Width="22" Height="22" VerticalAlignment="Center">
+                                <Ellipse x:Name="ToolsIndicatorDot" Fill="#F0B848" />
+                                <TextBlock x:Name="ToolsIndicatorGlyph" Text="!" Foreground="#1E1E1E"
+                                           FontWeight="Bold" FontSize="14"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="ToolsIndicatorLabel"
+                                           Text="cc-* tools"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="#F0B848" />
+                                <TextBlock x:Name="ToolsIndicatorSub"
+                                           Text="click to download and repair the tools"
+                                           FontSize="10" Foreground="#B59868"
+                                           TextWrapping="Wrap" MaxWidth="186"
+                                           MaxLines="3" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
                         </StackPanel>
+                        <!-- Indeterminate progress while reconciling, so the orange state reads as live
+                             work in progress rather than a frozen badge. Shown only in the Syncing state. -->
+                        <ProgressBar x:Name="ToolsIndicatorSpinner" Height="3"
+                                     IsIndeterminate="True" IsVisible="False"
+                                     Foreground="#E0822E" Background="#2A2113" />
                     </StackPanel>
                 </Border>
 

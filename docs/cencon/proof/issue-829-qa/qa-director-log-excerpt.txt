@@ -1,0 +1,30 @@
+=== RUN A (slot 17, autoUpdate=true, read-only orphaned shim) -> drift to RED after 3 failures ===
+2026-06-29 02:38:36.219 [MainWindow] tools indicator state: InSync -> Syncing (drift=True, autoUpdate=True)
+2026-06-29 02:38:36.220 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:38:36.562 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:38:47.144 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=1, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:38:47.144 [MainWindow] tools auto-reconcile retry scheduled in 5s
+2026-06-29 02:38:52.290 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:38:52.392 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:39:02.310 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=2, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:39:02.310 [MainWindow] tools auto-reconcile retry scheduled in 10s
+2026-06-29 02:39:12.431 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:39:12.556 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:39:27.367 [MainWindow] tools indicator state: Syncing -> NeedsAttention (reconcile ineffective; failures=3, outcome=Reconciled, driftRemains=True)
+
+=== RUN B (slot 17 restart) -> orange Syncing, then read-only cleared -> self-heal to GREEN ===
+2026-06-29 02:41:51.570 [MainWindow] tools indicator state: InSync -> Syncing (drift=True, autoUpdate=True)
+2026-06-29 02:41:51.571 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:41:51.718 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:42:06.140 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=1, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:42:06.141 [MainWindow] tools auto-reconcile retry scheduled in 5s
+2026-06-29 02:42:11.207 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:42:11.261 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:42:24.103 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=2, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:42:24.103 [MainWindow] tools auto-reconcile retry scheduled in 10s
+2026-06-29 02:42:34.213 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:42:34.316 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:42:47.927 [MainWindow] tools indicator state: Syncing -> InSync (reconcile resolved drift)
+
+=== RUN C (slot 17 restart, autoUpdate=FALSE, deletable orphaned shim) -> passive, NO reconcile ===
+2026-06-29 02:43:37.156 [MainWindow] tool health: pass=9, fail=0, notBuilt=0, broken=0

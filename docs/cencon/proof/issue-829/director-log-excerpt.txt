@@ -1,0 +1,15 @@
+2026-06-29 02:21:51.821 [App] StartToolReconcile: scheduling background tool reconcile (trigger=startup)
+2026-06-29 02:21:51.900 [ToolReconciler] drift found: missingShims=0, orphanedLegacyShims=1, venvBroken=False
+2026-06-29 02:21:51.911 [ToolReconciler] purged 1 orphaned legacy alias shim(s)
+2026-06-29 02:21:58.955 [MainWindow] tools indicator state: InSync -> Syncing (drift=True, autoUpdate=True)
+2026-06-29 02:21:58.955 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:21:59.016 [ToolReconciler] drift found: missingShims=0, orphanedLegacyShims=1, venvBroken=False
+2026-06-29 02:21:59.017 [ToolReconciler] purged 1 orphaned legacy alias shim(s)
+2026-06-29 02:21:59.017 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:22:05.957 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=1, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:22:05.957 [MainWindow] tools auto-reconcile retry scheduled in 5s
+2026-06-29 02:22:11.032 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:22:11.105 [ToolReconciler] drift found: missingShims=0, orphanedLegacyShims=1, venvBroken=False
+2026-06-29 02:22:11.106 [ToolReconciler] purged 1 orphaned legacy alias shim(s)
+2026-06-29 02:22:11.106 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:22:17.938 [MainWindow] tools indicator state: Syncing -> InSync (reconcile resolved drift)

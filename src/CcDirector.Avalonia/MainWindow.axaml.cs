@@ -879,6 +879,18 @@ public partial class MainWindow : Window
     private CcDirector.Core.Tools.ToolHealthSummary? _lastToolHealth;
     private bool _toolHealthRunning;
 
+    // ---- Active cc-* tools indicator state machine (issue #829) ----
+    // The rail badge is no longer a passive "fix me" warning: when drift is detected and
+    // tools.autoUpdate.enabled is true it shows the orange "Syncing tools..." state, auto-runs
+    // ToolReconciler.ReconcileAsync (one at a time, with backoff), returns to green when in sync,
+    // and only falls to red "Tools need attention" after repeated failures. The pure transition
+    // rules live in ToolsSyncStateMachine; this window owns the in-flight guard, the cooldown, and
+    // the retry timer so reconcile is never thrashed.
+    private readonly ToolsSyncStateMachine _toolsSync = new();
+    private bool _toolsReconcileInFlight;
+    private DateTime _toolsReconcileCooldownUntil = DateTime.MinValue;
+    private DispatcherTimer? _toolsReconcileRetryTimer;
+
     /// <summary>
     /// Run every cc-* tool's checks off the UI thread and roll them up into pass/fail/not-built, then
     /// re-apply the home status so the tools row shows the real breakdown (the screenshot complaint:
@@ -886,7 +898,7 @@ public partial class MainWindow : Window
     /// concurrency, guarded against pile-up. Auth-gated tools declare no smoke test, so this is just
     /// their presence+version check; tools with a read-only smoke run that too.
     /// </summary>
-    private async Task RefreshToolHealthAsync(bool force = false)
+    private async Task RefreshToolHealthAsync(bool force = false, bool driveSync = true)
     {
         if (_toolHealthRunning) return;
         if (_lastToolHealth is not null && !force) return; // computed once this session; reuse the cache
@@ -932,6 +944,154 @@ public partial class MainWindow : Window
         {
             _toolHealthRunning = false;
         }
+
+        // Drive the active tools indicator off this fresh health snapshot (issue #829). Skipped on the
+        // post-reconcile re-probe (driveSync=false), where RunToolsReconcileAsync records the attempt
+        // outcome itself so the success/failure bookkeeping is not double-counted.
+        if (driveSync)
+            await DriveToolsSyncAsync();
+    }
+
+    /// <summary>
+    /// Evaluate the active cc-* tools indicator (issue #829) against the latest health snapshot and, when
+    /// warranted, start an automatic reconcile. "Drift" is the existing warning condition (the tools row is
+    /// not green) OR - when auto-update is on - reconcile-detectable drift (a missing shim, an orphaned legacy
+    /// alias shim, a broken venv) that the row alone would not show. When auto-update is OFF the indicator
+    /// behaves exactly as it did before this issue: a passive warning on the row, no auto-reconcile. Starting
+    /// a reconcile is debounced (one in flight) and cooldown-gated (backoff between attempts) so the badge
+    /// never thrashes the reconcile engine.
+    /// </summary>
+    private async Task DriveToolsSyncAsync()
+    {
+        var toolsCheck = _lastHomeStatus?.Checks.FirstOrDefault(c => c.Title == "cc-* tools");
+        var healthDrift = toolsCheck is not null && toolsCheck.Level != HomeCheckLevel.Ok;
+        var enabled = ToolAutoUpdateSetting.Get();
+
+        // Probe the reconciler only when auto-update is on and the row itself is green - that is the only case
+        // where reconcile-detectable drift would otherwise go unseen. The probe is pure reads, run off the UI
+        // thread. When auto-update is off we use ONLY the row signal, preserving the pre-issue passive behavior.
+        var hasDrift = healthDrift;
+        if (enabled && !healthDrift && !_toolsReconcileInFlight)
+        {
+            hasDrift = await Task.Run(() =>
+                new CcDirector.Setup.Engine.ToolReconciler(CcDirector.Setup.Engine.InstallLayout.Default()).HasDrift());
+        }
+
+        var previousState = _toolsSync.State;
+        var decision = _toolsSync.Evaluate(hasDrift, enabled, _toolsReconcileInFlight);
+        if (decision.State != previousState)
+            FileLog.Write($"[MainWindow] tools indicator state: {previousState} -> {decision.State} (drift={hasDrift}, autoUpdate={enabled})");
+
+        UpdateToolsIndicator();
+
+        // Start a reconcile only when the machine asks for one, nothing is in flight, no other tool repair is
+        // running, and the backoff cooldown has elapsed - the no-thrash guarantee.
+        if (decision.ShouldReconcile
+            && !_toolsReconcileInFlight
+            && !_repairingTools
+            && DateTime.UtcNow >= _toolsReconcileCooldownUntil)
+        {
+            StartToolsReconcile();
+        }
+    }
+
+    /// <summary>
+    /// Kick off a single automatic reconcile for the active indicator. The orange "Syncing tools..." state is
+    /// already set by <see cref="ToolsSyncStateMachine.Evaluate"/>; this renders it immediately (responsive
+    /// &lt;100ms, before any awaited work) and then runs the reconcile off the UI thread.
+    /// </summary>
+    private void StartToolsReconcile()
+    {
+        _toolsReconcileInFlight = true;
+        FileLog.Write("[MainWindow] tools auto-reconcile starting (indicator Syncing)");
+        UpdateToolsIndicator(); // paint orange now - the reconcile runs in the background
+        _ = RunToolsReconcileAsync();
+    }
+
+    /// <summary>
+    /// Run one reconcile, re-probe drift, and record the outcome on the state machine. Success (the reconcile
+    /// did not fail AND drift is gone) returns the badge to green; otherwise it counts a failed attempt and,
+    /// below the retry ceiling, schedules a backoff retry. At the ceiling the machine is already in
+    /// <see cref="ToolsIndicatorState.NeedsAttention"/> (red) and no further retry is scheduled.
+    /// </summary>
+    private async Task RunToolsReconcileAsync()
+    {
+        CcDirector.Setup.Engine.ReconcileOutcome outcome;
+        try
+        {
+            var result = await Task.Run(() =>
+                new CcDirector.Setup.Engine.ToolReconciler(CcDirector.Setup.Engine.InstallLayout.Default()).ReconcileAsync());
+            outcome = result.Outcome;
+            FileLog.Write($"[MainWindow] tools auto-reconcile done: outcome={outcome}, actions={result.Actions.Count}" +
+                          (result.Error is null ? "" : $", error={result.Error}"));
+        }
+        catch (Exception ex)
+        {
+            outcome = CcDirector.Setup.Engine.ReconcileOutcome.Failed;
+            FileLog.Write($"[MainWindow] tools auto-reconcile FAILED: {ex.Message}");
+        }
+        finally
+        {
+            _toolsReconcileInFlight = false;
+        }
+
+        // Re-probe health so we judge against the post-reconcile reality (driveSync:false - we record the
+        // outcome here rather than letting the snapshot path start another reconcile).
+        _lastToolHealth = null;
+        await RefreshToolHealthAsync(force: true, driveSync: false);
+
+        var toolsCheck = _lastHomeStatus?.Checks.FirstOrDefault(c => c.Title == "cc-* tools");
+        var healthDrift = toolsCheck is not null && toolsCheck.Level != HomeCheckLevel.Ok;
+        var reconcilerDrift = await Task.Run(() =>
+            new CcDirector.Setup.Engine.ToolReconciler(CcDirector.Setup.Engine.InstallLayout.Default()).HasDrift());
+        var driftRemains = healthDrift || reconcilerDrift;
+
+        var previousState = _toolsSync.State;
+        if (outcome != CcDirector.Setup.Engine.ReconcileOutcome.Failed && !driftRemains)
+        {
+            _toolsSync.OnReconcileSucceeded();
+            _toolsReconcileCooldownUntil = DateTime.MinValue;
+            FileLog.Write($"[MainWindow] tools indicator state: {previousState} -> {_toolsSync.State} (reconcile resolved drift)");
+        }
+        else
+        {
+            _toolsSync.OnReconcileFailed();
+            FileLog.Write($"[MainWindow] tools indicator state: {previousState} -> {_toolsSync.State} " +
+                          $"(reconcile ineffective; failures={_toolsSync.ConsecutiveFailures}, outcome={outcome}, driftRemains={driftRemains})");
+
+            if (_toolsSync.State == ToolsIndicatorState.Syncing)
+                ScheduleToolsReconcileRetry();
+        }
+
+        UpdateToolsIndicator();
+    }
+
+    /// <summary>
+    /// Schedule the next reconcile attempt after the state machine's backoff, so retries are spaced out
+    /// instead of tight-looped. One-shot: it fires once, then re-drives the indicator which (if drift still
+    /// stands and the cooldown has elapsed) starts the next reconcile.
+    /// </summary>
+    private void ScheduleToolsReconcileRetry()
+    {
+        var backoff = _toolsSync.NextBackoff();
+        _toolsReconcileCooldownUntil = DateTime.UtcNow + backoff;
+        FileLog.Write($"[MainWindow] tools auto-reconcile retry scheduled in {backoff.TotalSeconds:0}s");
+
+        _toolsReconcileRetryTimer?.Stop();
+        _toolsReconcileRetryTimer = new DispatcherTimer { Interval = backoff };
+        _toolsReconcileRetryTimer.Tick += async (_, _) =>
+        {
+            _toolsReconcileRetryTimer?.Stop();
+            try
+            {
+                await DriveToolsSyncAsync();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] tools auto-reconcile retry FAILED: {ex.Message}");
+            }
+        };
+        _toolsReconcileRetryTimer.Start();
     }
 
     /// <summary>
@@ -963,31 +1123,104 @@ public partial class MainWindow : Window
         HomeView.SetStatus(status, healthy, _gatewayError, summary);
     }
 
+    // Indicator palettes (issue #829). Inline one-off colors for this single rail control, as the
+    // VisualStyle guide permits for one-offs; kept here as named brushes so each state reads clearly.
+    private static readonly IBrush SyncOrangeBorder = new SolidColorBrush(Color.Parse("#E0822E"));
+    private static readonly IBrush SyncOrangeBackground = new SolidColorBrush(Color.Parse("#3A2B17"));
+    private static readonly IBrush SyncOrangeText = new SolidColorBrush(Color.Parse("#F0A040"));
+    private static readonly IBrush SyncOrangeSub = new SolidColorBrush(Color.Parse("#C99A6A"));
+    private static readonly IBrush WarnAmberBorder = new SolidColorBrush(Color.Parse("#F0B848"));
+    private static readonly IBrush WarnAmberBackground = new SolidColorBrush(Color.Parse("#3A331B"));
+    private static readonly IBrush WarnAmberText = new SolidColorBrush(Color.Parse("#F0B848"));
+    private static readonly IBrush WarnAmberSub = new SolidColorBrush(Color.Parse("#B59868"));
+    private static readonly IBrush AttentionRedBorder = new SolidColorBrush(Color.Parse("#E0574A"));
+    private static readonly IBrush AttentionRedBackground = new SolidColorBrush(Color.Parse("#3A1E1B"));
+    private static readonly IBrush AttentionRedText = new SolidColorBrush(Color.Parse("#F0746A"));
+    private static readonly IBrush AttentionRedSub = new SolidColorBrush(Color.Parse("#C98A82"));
+    private static readonly IBrush GlyphForeground = new SolidColorBrush(Color.Parse("#1E1E1E"));
+
     /// <summary>
-    /// Paint the rail's cc-* tools indicator from the same readiness data the status screen uses, so
-    /// the rail message matches the status page exactly. Visible ONLY when the tools check is not green
-    /// (a tool failing or not built); hidden when every tool passes. Clicking it opens Settings on the
-    /// Tools tab, where one button downloads and repairs the whole toolset.
+    /// Paint the rail's cc-* tools indicator from the active state machine (issue #829). InSync hides the
+    /// badge; Syncing shows the orange "Syncing tools..." state with a live progress spinner; Warning is the
+    /// legacy passive amber warning (auto-update off); NeedsAttention is the red "Tools need attention"
+    /// to-do after repeated reconcile failures. The Warning/NeedsAttention states are clickable (open
+    /// Settings on the Tools tab); the transient Syncing state is not a to-do, so its cursor is the arrow.
     /// </summary>
     private void UpdateToolsIndicator()
     {
         var toolsCheck = _lastHomeStatus?.Checks.FirstOrDefault(c => c.Title == "cc-* tools");
-        if (toolsCheck is null || toolsCheck.Level == HomeCheckLevel.Ok)
-        {
-            ToolsIndicator.IsVisible = false;
-            return;
-        }
+        var detail = toolsCheck?.Detail ?? "";
 
-        ToolsIndicator.IsVisible = true;
-        ToolsIndicatorSub.Text = toolsCheck.Detail;
-        ToolTip.SetTip(ToolsIndicator,
-            $"Some cc-* tools are missing or failing ({toolsCheck.Detail}).\nClick to open Settings and download/repair the tools.");
+        switch (_toolsSync.State)
+        {
+            case ToolsIndicatorState.Syncing:
+                ToolsIndicator.IsVisible = true;
+                ToolsIndicator.Background = SyncOrangeBackground;
+                ToolsIndicator.BorderBrush = SyncOrangeBorder;
+                ToolsIndicator.Cursor = new Cursor(StandardCursorType.Arrow);
+                ToolsIndicatorDot.Fill = SyncOrangeBorder;
+                ToolsIndicatorGlyph.IsVisible = false;
+                ToolsIndicatorLabel.Text = "Syncing tools...";
+                ToolsIndicatorLabel.Foreground = SyncOrangeText;
+                ToolsIndicatorSub.Text = "reconciling cc-* tools";
+                ToolsIndicatorSub.Foreground = SyncOrangeSub;
+                ToolsIndicatorSpinner.IsVisible = true;
+                ToolTip.SetTip(ToolsIndicator, "Bringing the cc-* tools back in sync...");
+                break;
+
+            case ToolsIndicatorState.NeedsAttention:
+                ToolsIndicator.IsVisible = true;
+                ToolsIndicator.Background = AttentionRedBackground;
+                ToolsIndicator.BorderBrush = AttentionRedBorder;
+                ToolsIndicator.Cursor = new Cursor(StandardCursorType.Hand);
+                ToolsIndicatorDot.Fill = AttentionRedBorder;
+                ToolsIndicatorGlyph.IsVisible = true;
+                ToolsIndicatorLabel.Text = "Tools need attention";
+                ToolsIndicatorLabel.Foreground = AttentionRedText;
+                ToolsIndicatorSub.Text = string.IsNullOrEmpty(detail) ? "click to open Settings and repair" : detail;
+                ToolsIndicatorSub.Foreground = AttentionRedSub;
+                ToolsIndicatorSpinner.IsVisible = false;
+                ToolTip.SetTip(ToolsIndicator,
+                    "Automatic tool sync did not resolve the problem.\nClick to open Settings and repair the tools.");
+                break;
+
+            case ToolsIndicatorState.Warning:
+                ToolsIndicator.IsVisible = true;
+                ToolsIndicator.Background = WarnAmberBackground;
+                ToolsIndicator.BorderBrush = WarnAmberBorder;
+                ToolsIndicator.Cursor = new Cursor(StandardCursorType.Hand);
+                ToolsIndicatorDot.Fill = WarnAmberBorder;
+                ToolsIndicatorGlyph.IsVisible = true;
+                ToolsIndicatorLabel.Text = "cc-* tools";
+                ToolsIndicatorLabel.Foreground = WarnAmberText;
+                ToolsIndicatorSub.Text = detail;
+                ToolsIndicatorSub.Foreground = WarnAmberSub;
+                ToolsIndicatorSpinner.IsVisible = false;
+                ToolTip.SetTip(ToolsIndicator,
+                    $"Some cc-* tools are missing or failing ({detail}).\nClick to open Settings and download/repair the tools.");
+                break;
+
+            case ToolsIndicatorState.InSync:
+            default:
+                ToolsIndicator.IsVisible = false;
+                ToolsIndicatorSpinner.IsVisible = false;
+                break;
+        }
     }
 
     private async void ToolsIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         try
         {
+            // The orange Syncing state is a transient progress signal, not a to-do - a click does nothing
+            // (the Director is already fixing the drift automatically). Only the actionable Warning /
+            // NeedsAttention states open Settings.
+            if (_toolsSync.State == ToolsIndicatorState.Syncing)
+            {
+                FileLog.Write("[MainWindow] ToolsIndicator clicked while Syncing - ignored (auto-reconcile in progress)");
+                return;
+            }
+
             FileLog.Write("[MainWindow] ToolsIndicator clicked -> opening Settings on the Tools tab");
             await OpenSettingsAsync(onToolsTab: true);
         }
