@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #827: Run tool reconcile automatically in the Director lifecycle</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem auto; max-width: 980px; color: #1c1c1c; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #007ACC; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #005a99; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f4f4f4; border: 1px solid #ddd; padding: .8rem; overflow-x: auto; font-size: .82rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .9rem; }
+  th { background: #eef6fc; }
+  .ok { color: #137333; font-weight: 600; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+  .files li { margin: .15rem 0; }
+</style>
+</head>
+<body>
+<h1>Proof - Issue #827</h1>
+<p><strong>[Tools] Run tool reconcile automatically in the Director lifecycle (startup + periodic + post-self-update), on by default.</strong></p>
+<p>Branch <code>issue-827-tool-reconcile-lifecycle</code> off <code>main</code> @ <code>735782e0</code> (which already contains #826's <code>ToolReconciler</code>).</p>
+
+<h2>What was implemented</h2>
+<p>Wired <code>ToolReconciler.ReconcileAsync</code> into the Director lifecycle so the Director self-heals its
+cc-* tools (install-missing, purge-drift, repair-broken) automatically and silently, instead of only when a
+human clicks Settings &rarr; "Fix Tools". A new <code>tools.autoUpdate.enabled</code> config key (default TRUE,
+distinct from the Director self-update <code>autoUpdate.enabled</code> switch) gates all three trigger points.</p>
+<ul class="files">
+  <li><code>tools/cc-director-setup-engine/ToolAutoUpdateConfig.cs</code> - NEW. Reads <code>tools.autoUpdate.enabled</code> from config.json, defaults to true (the read path, AC1).</li>
+  <li><code>tools/cc-director-setup-engine/ToolAutoUpdateTrigger.cs</code> - NEW. The single gating seam every trigger funnels through: reads the flag, logs the decision + result, runs an injected reconcile only when enabled, never throws (AC5/AC6/AC7; the unit-test seam for AC8).</li>
+  <li><code>src/CcDirector.Core/Update/UpdateInstaller.cs</code> - <code>MarkCurrentBuildHealthy()</code> now returns <code>bool</code> (true when it cleared a pending health check = a self-update just applied), the version-change signal for AC4.</li>
+  <li><code>src/CcDirector.Avalonia/App.axaml.cs</code> - <code>StartToolReconcile()</code> background fire-and-forget at boot (AC2/AC4) + the periodic reconcile in <code>StartUpdateService</code> (AC3).</li>
+  <li><code>tools/cc-director-setup-engine.Tests/ToolAutoUpdateConfigTests.cs</code> + <code>ToolAutoUpdateTriggerTests.cs</code> - NEW tests (AC8).</li>
+</ul>
+
+<h2>Acceptance criteria &rarr; how each is met &amp; proven</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+<tr><td>1</td><td><code>tools.autoUpdate.enabled</code> exists, read through config, defaults TRUE, distinct from <code>autoUpdate.enabled</code></td><td><code>ToolAutoUpdateConfig.Load</code> reads <code>tools.autoUpdate.enabled</code>; missing file/section/key/parse-error all fall back to enabled</td><td><code>ToolAutoUpdateConfigTests</code> (8 tests incl. <code>Load_IsDistinctFromDirectorSelfUpdateSwitch</code>) - all pass</td></tr>
+<tr><td>2</td><td>At startup, reconcile invoked in background, OFF the UI thread, never gating boot</td><td><code>StartToolReconcile()</code> is a fire-and-forget <code>Task.Run</code> called after the main window is shown; failures only log</td><td>Live log: <code>StartToolReconcile: scheduling background tool reconcile (trigger=startup)</code> appears AFTER <code>Main window shown</code> (see log below)</td></tr>
+<tr><td>3</td><td>Periodic loop in <code>StartUpdateService</code> invokes reconcile (installs-missing + purges-drift, not just refresh)</td><td>Added <code>ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, "periodic")</code> in the cycle, alongside the existing <code>RefreshAsync</code>, gated by its own switch</td><td>Code in <code>StartUpdateService</code>; gating proven by <code>ToolAutoUpdateTriggerTests</code>. (Periodic loop is release-build-gated by the existing <code>UpdaterEnabled</code> marker - see note.)</td></tr>
+<tr><td>4</td><td>Once right after a self-update applies, a reconcile is forced (version-change path near <code>MarkCurrentBuildHealthy()</code>)</td><td><code>MarkCurrentBuildHealthy()</code> returns true on the first healthy boot after a swap; the boot-time reconcile is then labeled <code>post-self-update</code></td><td><code>UpdateInstallerSelfHealTests</code> + Core update suite (78 pass); live boot logs the <code>trigger=startup</code> label on an ordinary boot (no pending update)</td></tr>
+<tr><td>5</td><td>All three triggers gated by <code>tools.autoUpdate.enabled</code>; when false NONE run</td><td>All three call the one <code>ToolAutoUpdateTrigger</code> gate</td><td><code>RunIfEnabledAsync_FlagFalse_DoesNotCallReconcile_ReturnsNull</code> (0 reconcile calls)</td></tr>
+<tr><td>6</td><td>Safe under multiple Directors via the engine's machine-wide mutex; no new lock</td><td>Reuses <code>ToolReconciler</code>'s existing <code>HeavyRepairMutexName</code>; no lock added here</td><td>No new mutex in the diff; <code>ToolReconcilerTests</code> mutex-skip test still passes</td></tr>
+<tr><td>7</td><td>Logging at each trigger records started / enabled-decision / result summary</td><td><code>ToolAutoUpdateTrigger</code> logs the enabled decision and the outcome+actions(+error) summary</td><td>Live log lines below</td></tr>
+<tr><td>8</td><td>Build clean, tests pass; add a test for the enabled-vs-disabled gating decision</td><td>Factored the testable <code>ToolAutoUpdateTrigger</code> seam with an injected reconcile delegate</td><td>Build: 0 warnings / 0 errors. Tests: 213 engine + 78 Core update, all pass</td></tr>
+</table>
+
+<h2>Live proof - startup reconcile in the running Director (slot 15, port 7883)</h2>
+<p>Expected: at boot the Director runs the reconcile in the background, gated on (default) true, off the UI thread,
+self-healing the install. Actual (Director log <code>director-2026-06-29-21464.log</code>):</p>
+<pre>2026-06-29 00:51:52.333 [CcDirector] Main window shown
+2026-06-29 00:51:52.334 [App] StartUpdateService: enabled=False, current=0.9.28.0, target=...\cc-director15.exe
+2026-06-29 00:51:52.356 [App] StartToolReconcile: scheduling background tool reconcile (trigger=startup)
+2026-06-29 00:51:52.363 [ToolAutoUpdate] startup: tools.autoUpdate.enabled=true; starting tool reconcile
+2026-06-29 00:51:52.364 [ToolReconciler] ReconcileAsync: detecting tool drift
+2026-06-29 00:51:52.446 [ToolReconciler] drift found: missingShims=0, orphanedLegacyShims=16, venvBroken=False
+2026-06-29 00:51:52.448 [ToolReconciler] purged 16 orphaned legacy alias shim(s)
+2026-06-29 00:51:52.449 [ToolReconciler] ReconcileAsync done: outcome=Reconciled, actions=1
+2026-06-29 00:51:52.449 [ToolAutoUpdate] startup: tool reconcile done - outcome=Reconciled, actions=1</pre>
+<p>The startup reconcile actually self-healed this machine - it purged 16 orphaned legacy alias shims with no
+human action (exactly the issue #823 class of problem the issue targets). The reconcile runs AFTER the main
+window is shown and on a thread-pool thread, so it never gates or delays boot.</p>
+<p><code>StartUpdateService: enabled=False</code> confirms this slot build does not run the periodic auto-update
+loop (the <code>UpdaterEnabled</code> marker is CI-release-only) - so the periodic trigger is verified by code +
+the gating unit test rather than live here; the startup trigger covers the running build.</p>
+
+<h2>Running Director after the self-heal</h2>
+<p>"All systems go - 9 of 9 tools passing" after the startup reconcile (feature is silent in the UI by design):</p>
+<img src="director-running.png" alt="Running Director, all tools passing" />
+
+<h2>Build &amp; test results</h2>
+<pre>dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test (engine)          ->  Passed! Failed: 0, Passed: 213
+dotnet test (Core ~Update)    ->  Passed! Failed: 0, Passed: 78
+new ToolAutoUpdate tests      ->  Passed! Failed: 0, Passed: 12</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. Reuses the existing setup engine, the existing machine-wide reconcile
+mutex, and the existing shared config.json store. No new container, no new global lock, no new external surface.</p>
+
+<h2>Conclusion</h2>
+<p class="ok">I believe this is finished. All eight acceptance criteria are met, the solution builds clean with
+zero warnings, all tests pass, and the startup trigger is proven live in the running Director.</p>
+</body>
+</html>

@@ -367,21 +367,29 @@ public static class UpdateInstaller
     /// successful update is no longer treated as pending and never rolls back. No-op when nothing
     /// is pending. Best-effort; never throws.
     /// </summary>
-    public static void MarkCurrentBuildHealthy()
+    /// <returns>
+    /// True when a pending health check was actually cleared - i.e. a Director self-update was just
+    /// applied and this is its first healthy boot. This is the version-change signal the lifecycle
+    /// uses to force a one-time tool reconcile (issue #827): a version bump is the strongest signal
+    /// the bundled tools manifest changed. False when nothing was pending (an ordinary boot).
+    /// </returns>
+    public static bool MarkCurrentBuildHealthy()
     {
         try
         {
             var state = UpdaterState.Load();
             if (string.IsNullOrEmpty(state.PendingHealthCheckVersion))
-                return;
+                return false;
 
             FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy: clearing pending health check for {state.PendingHealthCheckVersion}.");
             state.PendingHealthCheckVersion = null;
             state.Save();
+            return true;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy FAILED: {ex.Message}");
+            return false;
         }
     }
 

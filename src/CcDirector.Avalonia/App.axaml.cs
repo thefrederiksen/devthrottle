@@ -95,8 +95,15 @@ public partial class App : Application
                     splash.Close();
 
                     // The build came up healthy: clear any pending post-update health check so a
-                    // successful update is trusted and never rolled back (issue #242).
-                    UpdateInstaller.MarkCurrentBuildHealthy();
+                    // successful update is trusted and never rolled back (issue #242). The return value
+                    // is the version-change signal (issue #827): true means a Director self-update was
+                    // just applied on this boot, the strongest signal the bundled tools manifest changed.
+                    var selfUpdateApplied = UpdateInstaller.MarkCurrentBuildHealthy();
+
+                    // Self-heal the cc-* tools in the background (issue #827): install-missing,
+                    // purge-drift, repair-broken. Runs OFF the UI thread and fire-and-forget so it NEVER
+                    // gates or delays boot (failures only log), gated by tools.autoUpdate.enabled.
+                    StartToolReconcile(selfUpdateApplied);
                 }
                 catch (Exception ex)
                 {
@@ -324,6 +331,14 @@ public partial class App : Application
                             FileLog.Write($"[App] auto-update cycle FAILED: {ex.Message}");
                         }
                     }
+
+                    // Tool reconcile is governed by its OWN switch (tools.autoUpdate.enabled), independent
+                    // of the Director self-update switch above (issue #827): where RefreshAsync only
+                    // version-refreshes EXISTING tools, the reconcile also installs-missing, purges-drift,
+                    // and repairs a broken install. Gated + logged inside the helper; never throws. Safe
+                    // under multiple Directors via the engine's machine-wide mutex (no new lock here).
+                    await CcDirector.Setup.Engine.ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, "periodic");
+
                     // When enabled, wait the configured interval; when disabled, re-poll the config hourly.
                     await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1));
                 }
@@ -333,6 +348,28 @@ public partial class App : Application
         {
             FileLog.Write($"[App] StartUpdateService FAILED: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Kick off the startup tool reconcile in the background (issue #827). Runs off the UI thread and
+    /// fire-and-forget so it NEVER gates or delays boot - it follows the updater's "failures only log,
+    /// never block startup" discipline. The reconcile is gated by <c>tools.autoUpdate.enabled</c> inside
+    /// <see cref="CcDirector.Setup.Engine.ToolAutoUpdateTrigger"/>, so when that flag is false nothing
+    /// runs. When a Director self-update was just applied on this boot
+    /// (<paramref name="selfUpdateApplied"/> - the version bump is the strongest signal the bundled
+    /// tools manifest changed) the single boot-time reconcile is labeled "post-self-update" so the
+    /// forced-once-after-a-version-bump trigger is observable in the log; otherwise it is the ordinary
+    /// "startup" reconcile. Either way exactly one reconcile runs at boot - never throws.
+    /// </summary>
+    private static void StartToolReconcile(bool selfUpdateApplied)
+    {
+        var trigger = selfUpdateApplied ? "post-self-update" : "startup";
+        FileLog.Write($"[App] StartToolReconcile: scheduling background tool reconcile (trigger={trigger})");
+        _ = Task.Run(async () =>
+        {
+            var layout = CcDirector.Setup.Engine.InstallLayout.Default();
+            await CcDirector.Setup.Engine.ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, trigger);
+        });
     }
 
     private void StartScheduler(Action<string> log)
