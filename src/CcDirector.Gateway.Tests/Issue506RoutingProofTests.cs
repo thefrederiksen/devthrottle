@@ -68,7 +68,7 @@ public sealed class Issue506RoutingProofTests : IAsyncLifetime
         // The connected Director: ONE resolver instance, created once, never reconstructed. Its
         // gateway config points at our live Gateway. This is the "no Director rebuild or restart".
         var gateway = new GatewayConfig { Url = _baseUrl };
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => gateway);
+        var resolver = new OpenAiKeyResolver(() => gateway);
 
         // Gateway-side state: seed both keys, start in BYO mode.
         new KeyVault(_vaultPath).Set(TranscriptionEndpointResolver.OpenAiKeyName, "sk-proof-byo");

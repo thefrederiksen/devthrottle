@@ -121,10 +121,12 @@ public class AgentOptions
     public string TtsModel { get; set; } = "tts-1";
 
     /// <summary>
-    /// OpenAI API key used by the voice mode for Whisper transcription.
-    /// Loaded from appsettings.json "Voice.OpenAiKey" first, then falls back to
-    /// the OPENAI_API_KEY environment variable. Null/empty disables the voice
-    /// mode in the Director UI (the button is hidden / disabled).
+    /// OpenAI API key for the desktop voice / text-to-speech availability checks
+    /// (<see cref="ResolveOpenAiKey"/>). Issue #839 removed the config.json
+    /// Voice.OpenAiKey loading, so this is no longer populated from config and is
+    /// NOT the transcription key store - transcription reads the key vault only
+    /// (<see cref="OpenAiKeyResolver"/> / the Gateway transcription service). The
+    /// OPENAI_API_KEY environment variable remains as the documented seed.
     /// Never sent to browsers.
     /// </summary>
     public string? OpenAiKey { get; set; }
@@ -170,8 +172,14 @@ public class AgentOptions
     }
 
     /// <summary>
-    /// Resolve the effective OpenAI key: explicit config wins, then environment.
+    /// Resolve the effective OpenAI key for the desktop voice / text-to-speech availability checks:
+    /// the in-process <see cref="OpenAiKey"/> when set, then the OPENAI_API_KEY environment variable.
     /// Returns null if neither is set.
+    ///
+    /// Issue #839: this is NOT the transcription key path. Transcription reads the key vault only
+    /// (<see cref="OpenAiKeyResolver"/> and the Gateway transcription service); the config.json
+    /// Voice.OpenAiKey loading was removed, so in production <see cref="OpenAiKey"/> is unset and the
+    /// environment variable (the documented vault seed) is what this returns.
     /// </summary>
     public string? ResolveOpenAiKey()
     {

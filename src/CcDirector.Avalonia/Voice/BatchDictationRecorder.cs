@@ -102,9 +102,9 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         // Resolve the OpenAI key + transcription method by mode: Gateway vault when attached to a
-        // Gateway, the local Settings > Voice key when standalone. The user-selected method (base
-        // URL, key, model) governs every transcription path - there is no fixed realtime model.
-        _keyResolver = new OpenAiKeyResolver(options);
+        // Gateway, the local key vault when standalone (issue #839: the vault is the single key
+        // store). The user-selected method (base URL, key, model) governs every transcription path.
+        _keyResolver = new OpenAiKeyResolver();
         // Resolve the dictation dictionary the same way: the Gateway's shared glossary when
         // attached, the local cache when standalone (#253). A Cockpit edit reaches this Director.
         _dictionaryResolver = new DictionaryResolver(options);
@@ -125,7 +125,7 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         int micDeviceNumber = MicDevices.DefaultDeviceNumber)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _keyResolver = new OpenAiKeyResolver(options);
+        _keyResolver = new OpenAiKeyResolver();
         _dictionaryResolver = new DictionaryResolver(options);
         _micDeviceNumber = micDeviceNumber;
         _audioSourceFactory = audioSourceFactory ?? throw new ArgumentNullException(nameof(audioSourceFactory));

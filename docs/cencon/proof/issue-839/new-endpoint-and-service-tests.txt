@@ -1,0 +1,17 @@
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.13]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.14]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_ByoMode_NoKey_ReportsRemoteWithNoKey [23 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/mp4", expected: "m4a") [1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/webm;codecs=opus", expected: "webm") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "audio/wav", expected: "wav") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.ExtensionFor_MapsMimeToExtension(contentType: "", expected: "webm") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeAsync_NoAudio_ReturnsNoAudioOutcome [22 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_ByoMode_WithKey_ComposesOpenAiTarget [5 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeSegmentRawAsync_RemoteModeNoKey_Throws [8 ms]
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.TranscribeAsync_RemoteModeNoKey_ReturnsNoKeyOutcome_WithMode [2 ms]
+[xUnit.net 00:00:00.42]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.GatewayTranscriptionServiceTests.Resolve_LocalMode_IsLocalWithNoKey [9 ms]
+  Passed CcDirector.Gateway.Tests.TranscriptionBatchEndpointTests.Transcription_KeySetButNoAudio_Returns400 [64 ms]
+  Passed CcDirector.Gateway.Tests.TranscriptionBatchEndpointTests.Transcription_NoKeyForRemoteMode_Returns409_WithMode [12 ms]

@@ -103,7 +103,7 @@ public partial class VoiceView : UserControl
         {
             if (string.IsNullOrWhiteSpace(_options.ResolveOpenAiKey()))
             {
-                SetStatus("Voice needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.", "#F44747");
+                SetStatus("Voice needs an OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.", "#F44747");
                 return;
             }
             try

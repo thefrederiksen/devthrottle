@@ -323,7 +323,7 @@ public partial class ExpandedEditorDialog : Window
             if (options is null || string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
             {
                 FileLog.Write("[ExpandedEditorDialog] DictateButton_Click: no OpenAI key configured");
-                HeaderText.Text = "Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.";
+                HeaderText.Text = "Dictation needs an OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.";
                 return;
             }
 

@@ -851,8 +851,9 @@ public partial class App : Application
 
             if (doc.RootElement.TryGetProperty("Voice", out var voiceSection))
             {
-                if (voiceSection.TryGetProperty("OpenAiKey", out var keyProp))
-                    Options.OpenAiKey = keyProp.GetString();
+                // Issue #839: the standalone config.json Voice.OpenAiKey copy is removed - the key
+                // vault is the single transcription key store. Only the non-secret voice/TTS settings
+                // remain in config.
                 if (voiceSection.TryGetProperty("TtsVoice", out var voiceProp))
                     Options.TtsVoice = voiceProp.GetString() ?? Options.TtsVoice;
                 if (voiceSection.TryGetProperty("TtsModel", out var modelProp))
@@ -875,7 +876,6 @@ public partial class App : Application
 
             ApplyConfiguredToolPaths();
             ApplyConfiguredToolPresets();
-            ApplyConfiguredVoiceSettings();
         }
         catch (Exception ex)
         {
@@ -957,42 +957,6 @@ public partial class App : Application
         }
     }
 
-    /// <summary>
-    /// Overlay voice settings from cc-director config.json onto the running options. appsettings.json
-    /// (read in <see cref="LoadConfiguration"/>) is the install-dir default; config.json is the
-    /// user-editable runtime source that Settings > Voice writes to, so a key set in the UI survives
-    /// app updates that overwrite the install directory. config.json wins when present.
-    /// </summary>
-    private void ApplyConfiguredVoiceSettings()
-    {
-        FileLog.Write("[App] ApplyConfiguredVoiceSettings");
-        try
-        {
-            var root = CcDirectorConfigService.ReadRaw();
-            var voice = root["Voice"] as System.Text.Json.Nodes.JsonObject
-                ?? root["voice"] as System.Text.Json.Nodes.JsonObject;
-            if (voice is null)
-            {
-                FileLog.Write("[App] ApplyConfiguredVoiceSettings: no Voice section in config.json");
-                return;
-            }
-
-            if (voice["OpenAiKey"] is System.Text.Json.Nodes.JsonValue keyVal)
-            {
-                var key = keyVal.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(key))
-                    Options.OpenAiKey = key;
-            }
-
-            // Never log the key itself - only whether one is now configured.
-            FileLog.Write($"[App] ApplyConfiguredVoiceSettings: openAiKey={(string.IsNullOrWhiteSpace(Options.OpenAiKey) ? "<unset>" : "<set>")}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[App] ApplyConfiguredVoiceSettings FAILED: {ex.Message}");
-            throw;
-        }
-    }
 
     private static string? ReadToolPath(System.Text.Json.Nodes.JsonObject agent, string snakeKey, string pascalKey)
     {

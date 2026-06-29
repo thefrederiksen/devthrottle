@@ -750,10 +750,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // resolver, so the bring-your-own OpenAI key is never paired with the devthrottle.com URL.
         TranscriptionRoutingEndpoint.Map(_app, _keyVault);
 
-        // Transcription smoke test: the Cockpit Settings page records a short clip and posts it here;
-        // the Gateway transcribes it with the SAME configured mode + key the pipeline uses and returns
-        // the text. Proves the stored key actually works (the status dot only proves one is stored).
-        TranscriptionTestEndpoint.Map(_app, _keyVault);
+        // The single Gateway speech-to-text endpoint (issue #839): a caller POSTs raw audio and gets
+        // text back. The phone Notes worker, the Settings "Test it" button, and on-device mode all go
+        // through this one endpoint - it resolves the mode + key and runs the right provider (in-process
+        // Whisper, or the resolved OpenAI-compatible batch endpoint). Optional ?correct=true also runs
+        // the validated dictionary correction, keeping that out of the callers too.
+        TranscriptionBatchEndpoint.Map(_app, _keyVault);
 
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,

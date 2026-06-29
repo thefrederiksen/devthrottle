@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using Xunit;
 
@@ -59,7 +60,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("byo", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-from-gateway"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -82,7 +83,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("devthrottle", "batch", "https://devthrottle.com/api/v1", "whisper-large-v3", "dt_live_xyz"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.DevThrottle, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -102,7 +103,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("byo", "realtime", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-byo"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -121,7 +122,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("devthrottle", "https://devthrottle.com/api/v1", "whisper-large-v3", "dt_live_old"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.DevThrottle, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -143,7 +144,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("devthrottle", "https://devthrottle.com/api/v1", "gpt-4o-transcribe", "dt_live_old"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.DevThrottle, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -167,7 +168,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("devthrottle", "batch", "https://devthrottle.com/api/v1", "whisper-future-v9", "dt_live_new"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.DevThrottle, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -187,7 +188,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("byo", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-old"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -205,7 +206,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("devthrottle", "https://proxy.example.test/v9", "gpt-4o-transcribe", "dt_live_x"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.DevThrottle, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.DevThrottle, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -225,7 +226,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             StampRoutingHeader = true,
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -247,7 +248,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             StampRoutingHeader = false,
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -266,7 +267,7 @@ public sealed class OpenAiKeyResolverEndpointTests
             Body = RoutingJson("byo", "https://api.openai.com/v1", "gpt-4o-transcribe", "sk-byo"),
         };
         var http = new HttpClient(handler);
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), Gateway, () => TranscriptionMode.Byo, http);
+        var resolver = new OpenAiKeyResolver(Gateway, () => TranscriptionMode.Byo, http);
 
         var ep = await resolver.ResolveEndpointAsync();
 
@@ -275,33 +276,52 @@ public sealed class OpenAiKeyResolverEndpointTests
     }
 
     [Fact]
-    public async Task ResolveEndpoint_StandaloneByo_UsesLocalOpenAiKey()
+    public async Task ResolveEndpoint_StandaloneByo_UsesLocalVaultKey()
     {
-        // No gateway configured: the local Settings > Voice key serves the bring-your-own path,
-        // resolved locally (the standalone path is unchanged by issue #506).
-        var options = new AgentOptions { OpenAiKey = "sk-local-123" };
-        var standalone = new GatewayConfig();
-        var resolver = new OpenAiKeyResolver(options, () => standalone, () => TranscriptionMode.Byo);
+        // No gateway configured: the LOCAL key vault is the single key store (issue #839), so a BYO
+        // key seeded in the local vault serves the bring-your-own path, resolved locally. There is no
+        // config.json Voice.OpenAiKey copy anymore.
+        var vaultPath = Path.Combine(Path.GetTempPath(), "ccd-resolvertest-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var vault = new KeyVault(vaultPath);
+            vault.Set(TranscriptionEndpointResolver.OpenAiKeyName, "sk-local-123");
+            var standalone = new GatewayConfig();
+            var resolver = new OpenAiKeyResolver(() => standalone, () => TranscriptionMode.Byo, localVault: vault);
 
-        var ep = await resolver.ResolveEndpointAsync();
+            var ep = await resolver.ResolveEndpointAsync();
 
-        Assert.NotNull(ep);
-        Assert.Equal("https://api.openai.com/v1", ep.BaseUrl);
-        Assert.Equal("sk-local-123", ep.ApiKey);
-        Assert.Equal(TranscriptionEndpointResolver.OpenAiModel, ep.Model);
-        // Issue #513: standalone BYO carries the realtime transport.
-        Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
+            Assert.NotNull(ep);
+            Assert.Equal("https://api.openai.com/v1", ep.BaseUrl);
+            Assert.Equal("sk-local-123", ep.ApiKey);
+            Assert.Equal(TranscriptionEndpointResolver.OpenAiModel, ep.Model);
+            // Issue #513: standalone BYO carries the realtime transport.
+            Assert.Equal(TranscriptionTransport.Realtime, ep.Transport);
+        }
+        finally
+        {
+            try { if (File.Exists(vaultPath)) File.Delete(vaultPath); } catch { /* best effort */ }
+        }
     }
 
     [Fact]
     public async Task ResolveEndpoint_StandaloneDevThrottle_NoLocalKey_ReturnsNull()
     {
-        // DevThrottle mode has no local key field; standalone with no gateway yields no key.
-        var standalone = new GatewayConfig();
-        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => standalone, () => TranscriptionMode.DevThrottle);
+        // DevThrottle mode standalone with an empty local vault yields no key (issue #839: the vault
+        // is the only store, and there is none for this mode here).
+        var vaultPath = Path.Combine(Path.GetTempPath(), "ccd-resolvertest-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var standalone = new GatewayConfig();
+            var resolver = new OpenAiKeyResolver(() => standalone, () => TranscriptionMode.DevThrottle, localVault: new KeyVault(vaultPath));
 
-        var ep = await resolver.ResolveEndpointAsync();
+            var ep = await resolver.ResolveEndpointAsync();
 
-        Assert.Null(ep);
+            Assert.Null(ep);
+        }
+        finally
+        {
+            try { if (File.Exists(vaultPath)) File.Delete(vaultPath); } catch { /* best effort */ }
+        }
     }
 }

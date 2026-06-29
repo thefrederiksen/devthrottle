@@ -424,11 +424,11 @@ containers:
       - name: RecordingIngestService
         description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, then an audio completeness gate (issue #586) verifies every manifest segment is present, hash-matches, and byte-totals before transcription; an incomplete/empty upload is refused (state "incomplete" naming the missing/bad indices, or a loud empty-capture error) and never transcribed. Passing uploads transcribe each segment in batch via the IRecordingTranscriber, assemble the raw per-segment concatenation, apply the dictionary corrector once, write markdown, and optionally promote to vault (transient until promoted)
         file: Recording/RecordingIngestService.cs
-      - name: IRecordingTranscriber / SelectedMethodRecordingTranscriber
-        description: Transcriber abstraction and its production implementation (issue #591) that routes the phone recorder through the ONE shared BatchTranscriptionPipeline using the user-SELECTED transcription method - each segment is one whole-segment batch POST to the resolved method's base URL (BYO -> api.openai.com, DevThrottle -> devthrottle.com), and the assembled raw concatenation runs through the dictionary corrector only (no free-text cleanup), so the assembled transcript is the per-segment raw concatenation plus dictionary edits only. OpenAiRecordingTranscriber remains as an OpenAI-only transcriber used by the real-key end-to-end test
+      - name: IRecordingTranscriber / GatewayServiceRecordingTranscriber
+        description: Transcriber abstraction and its production implementation (issue #839) that routes the phone Notes worker through the ONE Gateway transcription owner (GatewayTranscriptionService) - the same resolve-mode-and-key path and provider choice (in-process Whisper for on-device mode, or the resolved OpenAI-compatible batch endpoint for the remote modes) every batch caller uses; each segment is transcribed raw, and the assembled raw concatenation runs through the dictionary corrector once (no free-text cleanup), so the assembled transcript is the per-segment raw concatenation plus dictionary edits only. The adapter holds no key. OpenAiRecordingTranscriber remains as an OpenAI-only transcriber used by the real-key end-to-end test
         files:
           - Recording/IRecordingTranscriber.cs
-          - Recording/SelectedMethodRecordingTranscriber.cs
+          - Gateway: Transcription/GatewayServiceRecordingTranscriber.cs
           - Recording/OpenAiRecordingTranscriber.cs
       - name: IVaultFiler / CcVaultFiler
         description: Vault filing abstraction and its implementation that files transcripts via the cc-vault CLI (idempotent)
@@ -709,7 +709,7 @@ containers:
         description: Gateway Centralization Phase 1 (#631) - the inbound Director-STARTUP telemetry endpoint POST /telemetry/director-startup accepting { director_id, machine_name, app_version }. RECORDS the event Gateway-side (a log line carrying director_id + app_version) so the startup is observable, then BEST-EFFORT forwards it to the cloud ONLY when a startup endpoint is configured via the DEVTHROTTLE_STARTUP_TELEMETRY_URL env var (no default - the backend startup endpoint is a flagged dependency). With no URL configured it records locally, logs that no cloud startup endpoint is configured, and still returns 202 Accepted (no error). When a URL IS configured the event is enqueued into the SAME durable TelemetryRetryQueue the login relay uses (#629), adding no new forwarder; startup carries no Bearer (unauthenticated to the cloud in Phase 1). Director-side firing is #632
         file: Api/DirectorStartupTelemetryEndpoint.cs
       - name: RecordingEndpoints
-        description: Phone-recorder ingest - register, upload audio chunks, complete (audio completeness gate #586, returns 409 naming missing/bad indices), transcribe via the user-selected method (resolves the configured mode + vault key in-process to the resolved base URL/key/model, exactly like /transcription/routing, then routes through SelectedMethodRecordingTranscriber + the shared BatchTranscriptionPipeline, issue #591), promote, status, and dictionary endpoints
+        description: Phone-recorder ingest - register, upload audio chunks, complete (audio completeness gate #586, returns 409 naming missing/bad indices), transcribe through the single Gateway transcription owner (GatewayServiceRecordingTranscriber -> GatewayTranscriptionService, issue #839: resolves the configured mode + vault key once, runs in-process Whisper for on-device mode or the resolved OpenAI-compatible batch endpoint for the remote modes), promote, status, and dictionary endpoints
         file: Api/RecordingEndpoints.cs
       - name: CommQueueEndpoints
         description: Read-only tailnet view of the local Communication Manager SQLite approval queue
@@ -746,9 +746,11 @@ containers:
       - name: TranscriptionRoutingEndpoint
         description: The Gateway as the single source of truth for the whole transcription routing target (issues #497/#506/#513). GET /transcription/routing composes the (mode, baseUrl, model, transport, key) tuple server-side from the one pure TranscriptionEndpointResolver, so the bring-your-own OpenAI key is only ever paired with the OpenAI URL and never with the devthrottle.com URL. 404 (with an X-Transcription-Routing marker header) when no key is set for the configured mode - never a baked-in fallback URL.
         file: Api/TranscriptionRoutingEndpoint.cs
-      - name: TranscriptionTestEndpoint
-        description: One-shot transcription smoke test backing the Cockpit Settings > Transcription "Test it" panel. POST /transcription/test takes a short recorded audio clip and runs it through the SAME configured mode + key the live pipeline uses (always the OpenAI-compatible batch /audio/transcriptions, which both OpenAI and the DevThrottle/Groq proxy implement), returning the transcribed text - so the user can prove the stored key actually works, not just that one is stored. 409 when no key is set for the mode, 400 when no audio, 502 when the provider rejects the request. Behind the host-wide auth middleware.
-        file: Api/TranscriptionTestEndpoint.cs
+      - name: GatewayTranscriptionService / TranscriptionBatchEndpoint
+        description: The single Gateway owner of speech-to-text (issue #839). GatewayTranscriptionService is the ONE place that resolves the configured mode + key (Resolve()) and runs the right provider - in-process Whisper for on-device mode, or the resolved OpenAI-compatible batch /audio/transcriptions for the remote modes - with an optional validated dictionary-correction step. TranscriptionBatchEndpoint exposes it as POST /transcription (raw audio body, content-type header, optional ?correct=true) returning { text, mode, model }; 409 when no key is set for the remote mode, 400 when no audio, 502 when the provider rejects. The phone Notes worker, the Cockpit Settings "Test it" button, and the Gateway wingman-voice batch paths all go through this one owner, so no caller resolves the mode, reads the key, or talks to a provider on its own (this replaced the three hand-kept-in-step resolvers and the old /transcription/test endpoint). Behind the host-wide auth middleware.
+        files:
+          - Gateway: Transcription/GatewayTranscriptionService.cs
+          - Gateway: Api/TranscriptionBatchEndpoint.cs
       - name: WorkListStore
         description: In-memory fleet-wide named work-list store (issue #273, child of #270). A named list is an ordered set of structured item refs { source, id, area? } plus a single-consumer claim; stores order + refs + claim ONLY (never item status). source github is runnable, devops/jira stored-only in v1; persistence across restart is OUT for v1.
         file: WorkListStore.cs
@@ -1136,7 +1138,7 @@ data_flows:
     path:
       - Phone uploads chunks -> Gateway RecordingEndpoints
       - "RecordingIngestService (SHA256-checked chunk store, state machine, audio completeness gate #586)"
-      - "SelectedMethodRecordingTranscriber -> BatchTranscriptionPipeline: each segment one batch POST to the user-selected method's base URL (issue #591), then the dictionary corrector only on the assembled raw concatenation (no free-text cleanup)"
+      - "GatewayServiceRecordingTranscriber -> GatewayTranscriptionService (issue #839): the single owner resolves the mode + key and runs in-process Whisper (on-device) or one batch POST to the resolved remote base URL per segment, then the dictionary corrector only on the assembled raw concatenation (no free-text cleanup)"
       - Assembled markdown transcript (raw per-segment concatenation + dictionary edits only)
       - "On promote: CcVaultFiler -> `cc-vault docs add`"
 

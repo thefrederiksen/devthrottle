@@ -2773,7 +2773,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
             {
                 FileLog.Write("[MainWindow] BtnSpeak_Click: no OpenAI key configured");
-                ShowNotification("Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.");
+                ShowNotification("Dictation needs an OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.");
                 return;
             }
             FileLog.Write("[MainWindow] BtnSpeak_Click: opening SpeakDialog");
@@ -4101,7 +4101,7 @@ public partial class MainWindow : Window
             var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
             if (options is null || string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
             {
-                ShowNotification("Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.");
+                ShowNotification("Dictation needs an OpenAI key. Set it in the Cockpit Settings > Transcription tab, or via the OPENAI_API_KEY environment variable.");
                 return;
             }
             var dlg = new global::CcDirector.Avalonia.Voice.SpeakDialog(options);

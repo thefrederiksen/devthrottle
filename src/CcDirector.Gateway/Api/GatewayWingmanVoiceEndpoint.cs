@@ -63,6 +63,13 @@ internal static class GatewayWingmanVoiceEndpoint
     {
         var translator = new WingmanTranslator(brainProvider, instructionsProvider: instructionsProvider);
 
+        // The single Gateway owner of speech-to-text (issue #839): both batch transcribe paths below
+        // (the resumable /wingman/utterance/complete and the one-shot /wingman/transcribe) go through
+        // it, so they resolve the mode + key and pick the provider (local Whisper or the resolved
+        // remote endpoint) exactly the same way every other batch caller does - no second resolver,
+        // and DevThrottle/on-device modes are honored, not just bring-your-own OpenAI.
+        var transcription = new Transcription.GatewayTranscriptionService(vault);
+
         // Which voice sessions have a ready, playable spoken summary right now (the phone's list
         // shows a play button on these and can play without entering).
         app.MapGet("/wingman/voice/ready", () => Results.Json(new { sids = voice.ReadySessionIds() }));
@@ -124,15 +131,12 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "unknown upload id (register it first)" }, statusCode: StatusCodes.Status404NotFound);
 
             // Mode-aware (issue #541): in Local mode there is NO key check - transcription runs
-            // in-process. In a remote mode (byo/devthrottle) the configured key must be present.
-            var endpoint = TranscriptionEndpointResolver.Resolve(TranscriptionModeConfig.Get());
-            string? key = null;
-            if (!endpoint.IsLocal)
-            {
-                key = vault.Get(endpoint.RequireKeyName());
-                if (string.IsNullOrWhiteSpace(key))
-                    return Results.Json(new { error = $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}" }, statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
+            // in-process. In a remote mode (byo/devthrottle) the configured key must be present. The
+            // single transcription owner resolves this; check it BEFORE assembling so a no-key request
+            // does not pay the reassembly cost.
+            var routing = transcription.Resolve();
+            if (!routing.IsLocal && routing.Key is null)
+                return Results.Json(new { error = $"no key configured for transcription mode {routing.Mode.ToConfigString()}" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 
             AssembleResult assembled;
             try { assembled = await uploads.AssembleAsync(uploadId, req.TotalChunks, ct); }
@@ -143,14 +147,22 @@ internal static class GatewayWingmanVoiceEndpoint
             if (assembled.Status == "incomplete")
                 return Results.Json(new { status = "incomplete", missing = assembled.Missing }, statusCode: StatusCodes.Status409Conflict);
 
-            var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, assembled.Audio!, "audio." + (req.Ext ?? "webm"), req.Mime ?? "audio/webm", key, ct);
+            var assembledAudio = assembled.Audio;
+            if (assembledAudio is null || assembledAudio.Length == 0)
+            {
+                uploads.Delete(uploadId);
+                return Results.Json(new { error = "assembled recording was empty" }, statusCode: StatusCodes.Status502BadGateway);
+            }
+
+            // Transcribe through the single owner WITH the validated dictionary correction applied (the
+            // SAME engine every other surface uses; fails open to raw in local mode or on any error).
+            var result = await transcription.TranscribeAsync(
+                assembledAudio, "audio." + (req.Ext ?? "webm"), req.Mime ?? "audio/webm", applyCorrection: true, ct);
             uploads.Delete(uploadId);
-            if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
-            // Apply the validated dictionary correction (the SAME engine every other surface uses);
-            // fails open to the raw transcript in local mode or on any cleanup error.
-            transcript = await RecordingEndpoints.CleanTranscriptWithSelectedMethodAsync(transcript, ct);
-            FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: mode={endpoint.Mode.ToConfigString()}, chars={transcript.Length}");
-            return Results.Json(new { transcript });
+            if (result.Outcome != Transcription.TranscriptionOutcome.Ok)
+                return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status502BadGateway);
+            FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: mode={result.Mode}, chars={result.Text?.Length ?? 0}");
+            return Results.Json(new { transcript = result.Text });
         });
 
         // OpenAI text-to-speech for the mobile Voice screen: turn the wingman's spoken summary into
@@ -295,28 +307,24 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "no audio in the upload" }, statusCode: StatusCodes.Status400BadRequest);
 
             // Mode-aware (issue #541): Local mode transcribes in-process with no key; remote modes
-            // (byo/devthrottle) require the configured key to be present in the vault.
-            var endpoint = TranscriptionEndpointResolver.Resolve(TranscriptionModeConfig.Get());
-            string? key = null;
-            if (!endpoint.IsLocal)
-            {
-                key = vault.Get(endpoint.RequireKeyName());
-                if (string.IsNullOrWhiteSpace(key))
-                    return Results.Json(new { error = $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}" },
-                        statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
+            // (byo/devthrottle) require the configured key to be present in the vault. The single
+            // transcription owner resolves this and runs the right provider.
+            var routing = transcription.Resolve();
+            if (!routing.IsLocal && routing.Key is null)
+                return Results.Json(new { error = $"no key configured for transcription mode {routing.Mode.ToConfigString()}" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
 
             byte[] bytes;
             using (var ms = new MemoryStream()) { await file.CopyToAsync(ms, ct); bytes = ms.ToArray(); }
             var fileName = string.IsNullOrWhiteSpace(file.FileName) ? "audio.webm" : file.FileName;
             var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
 
-            var (ok, transcript, error) = await TranscribeBytesByModeAsync(endpoint, bytes, fileName, contentType, key, ct);
-            if (!ok) return Results.Json(new { error }, statusCode: StatusCodes.Status502BadGateway);
-            // Apply the validated dictionary correction (the SAME engine every other surface uses);
-            // fails open to the raw transcript in local mode or on any cleanup error.
-            transcript = await RecordingEndpoints.CleanTranscriptWithSelectedMethodAsync(transcript, ct);
-            return Results.Json(new { transcript });
+            // Transcribe WITH the validated dictionary correction applied (the SAME engine every other
+            // surface uses; fails open to the raw transcript in local mode or on any cleanup error).
+            var result = await transcription.TranscribeAsync(bytes, fileName, contentType, applyCorrection: true, ct);
+            if (result.Outcome != Transcription.TranscriptionOutcome.Ok)
+                return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(new { transcript = result.Text });
         });
 
         // Read-only "explain what's happening" (issue #531): the wingman reads the session's
@@ -515,76 +523,6 @@ internal static class GatewayWingmanVoiceEndpoint
         submit = m.Submit,
         options = m.Options.Select(o => new { key = o.Key, send = o.Send, note = o.Note, recommended = o.Recommended }).ToList(),
     };
-
-    /// <summary>
-    /// Transcribe audio bytes using the machine's configured transcription mode (issue #541). In
-    /// Local mode the audio is transcribed IN-PROCESS with Whisper.net (no network, no key); in a
-    /// remote mode (byo/devthrottle) it is uploaded to the OpenAI-compatible endpoint with the key.
-    /// Shared by the one-shot /wingman/transcribe and the resumable /wingman/utterance/complete
-    /// paths so both honor the same mode.
-    /// </summary>
-    private static async Task<(bool ok, string transcript, string? error)> TranscribeBytesByModeAsync(
-        TranscriptionEndpoint endpoint, byte[] bytes, string fileName, string contentType, string? key, CancellationToken ct)
-    {
-        if (endpoint.IsLocal)
-        {
-            try
-            {
-                var transcript = await WhisperLocalStreamingService.TranscribeWavAsync(bytes, ct);
-                FileLog.Write($"[GatewayWingmanVoice] transcribe local ok: bytes={bytes.Length}, chars={transcript.Length}");
-                return (true, transcript, null);
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayWingmanVoice] transcribe local FAILED: {ex.Message}");
-                return (false, "", "local transcription failed: " + ex.Message);
-            }
-        }
-
-        // Remote mode: the key is required and validated by the caller before we get here.
-        if (string.IsNullOrWhiteSpace(key))
-            return (false, "", $"no key configured for transcription mode {endpoint.Mode.ToConfigString()}");
-        return await TranscribeBytesAsync(bytes, fileName, contentType, key, ct);
-    }
-
-    /// <summary>Send audio bytes to OpenAI transcription and return the text. Shared by the
-    /// one-shot /wingman/transcribe and the resumable /wingman/utterance/complete paths.</summary>
-    private static async Task<(bool ok, string transcript, string? error)> TranscribeBytesAsync(
-        byte[] bytes, string fileName, string contentType, string key, CancellationToken ct)
-    {
-        try
-        {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            using var req = new MultipartFormDataContent();
-            var audio = new ByteArrayContent(bytes);
-            // TryParse handles content types WITH parameters (e.g. "audio/webm;codecs=opus", which
-            // the phone records as) - the MediaTypeHeaderValue CONSTRUCTOR throws on those. This was
-            // the bug that 502'd every phone recording.
-            audio.Headers.ContentType = MediaTypeHeaderValue.TryParse(contentType, out var mt) && mt is not null
-                ? mt
-                : new MediaTypeHeaderValue("application/octet-stream");
-            req.Add(audio, "file", fileName);
-            req.Add(new StringContent("gpt-4o-transcribe"), "model");
-            using var resp = await http.PostAsync("https://api.openai.com/v1/audio/transcriptions", req, ct);
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode)
-            {
-                FileLog.Write($"[GatewayWingmanVoice] transcribe OpenAI {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
-                return (false, "", $"OpenAI transcription returned {(int)resp.StatusCode}");
-            }
-            string transcript = "";
-            try { using var doc = JsonDocument.Parse(body); if (doc.RootElement.TryGetProperty("text", out var t)) transcript = t.GetString() ?? ""; }
-            catch (JsonException) { }
-            FileLog.Write($"[GatewayWingmanVoice] transcribe ok: bytes={bytes.Length}, chars={transcript.Length}");
-            return (true, transcript, null);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[GatewayWingmanVoice] transcribe FAILED: {ex.Message}");
-            return (false, "", "transcription failed: " + ex.Message);
-        }
-    }
 
     /// <summary>How long the reply transcript must stop growing before we treat the turn as done.</summary>
     private static readonly TimeSpan ReplyStable = TimeSpan.FromSeconds(2.0);
