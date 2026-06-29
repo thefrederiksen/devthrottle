@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #827</title>
+<style>
+ body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+ h1 { border-bottom: 3px solid #2a6; padding-bottom: .3rem; }
+ table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+ th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+ th { background: #f0f0f0; }
+ .pass { color: #176d17; font-weight: bold; }
+ code, pre { background: #f5f5f5; font-family: Consolas, monospace; }
+ pre { padding: .6rem; overflow-x: auto; border: 1px solid #ddd; }
+ .verdict { background: #e7f7e7; border: 1px solid #2a6; padding: 1rem; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #827</h1>
+<p><strong>Title:</strong> Run tool reconcile automatically in the Director lifecycle (startup + periodic + post-self-update), on by default</p>
+<p><strong>PR:</strong> #832 (branch <code>issue-827-tool-reconcile-lifecycle</code>) &nbsp;|&nbsp; <strong>QA identity:</strong> independent context, own worktree <code>D:\ReposFred\devthrottle-qa-827</code>, own slot 17 Director</p>
+<p><strong>Method:</strong> The QA Agent built the PR branch itself, ran the tests itself, and drove a live slot-17 Director launched via the per-session isolation scheduled task. The developer's binary and screenshots were NOT reused.</p>
+
+<h2>Build and tests (own build)</h2>
+<pre>dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)
+ToolAutoUpdate tests           ->  Passed! 12/12 (8 config read-path + 4 gating decision)
+cc-director-setup-engine.Tests ->  Passed! 213/213
+CcDirector.Core.Tests (Update) ->  Passed! 78/78  (covers MarkCurrentBuildHealthy bool change)</pre>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (own proof)</th><th>Verdict</th></tr>
+<tr><td>1</td><td>Config key <code>tools.autoUpdate.enabled</code> exists, read via config, defaults TRUE when absent</td><td>Missing key/file/section -&gt; enabled=true</td><td>8 ToolAutoUpdateConfig unit tests pass (no-file, no-section, no-key, corrupt -&gt; true; distinct from top-level autoUpdate). Live: real config had no <code>tools</code> key and the startup reconcile logged <code>enabled=true</code>.</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Startup reconcile runs in background, off UI thread, never gates boot</td><td>Boot completes regardless; reconcile fire-and-forget</td><td>Live slot-17 log: <code>[App] StartToolReconcile: scheduling background tool reconcile (trigger=startup)</code> via <code>Task.Run</code>; Control API came up and served requests - boot not blocked.</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Periodic auto-update loop invokes reconcile (not just RefreshAsync)</td><td>Recurring cycle also installs-missing/purges-drift</td><td>Code: <code>StartUpdateService</code> loop now calls <code>ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, "periodic")</code> next to RefreshAsync. Gating seam covered by unit tests. (Interval-gated + UpdateService disabled in local build, so not live-tickable; verified by diff + test.)</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Forced reconcile once after a self-update applies</td><td>Version bump -&gt; one reconcile, labeled post-self-update</td><td>Code: <code>MarkCurrentBuildHealthy()</code> now returns bool (true on first healthy boot after a swap); <code>StartToolReconcile(selfUpdateApplied)</code> labels the single boot reconcile <code>post-self-update</code> on that signal. 78 Core update tests pass. Same code path as the live-proven startup trigger.</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>All three triggers gated by the flag; disabled =&gt; NO reconcile</td><td>enabled=false -&gt; no reconcile, only manual button</td><td>Live: set <code>tools.autoUpdate.enabled=false</code>, injected orphaned shim <code>cc-ask.cmd</code>, relaunched. Log: <code>[ToolAutoUpdate] startup: tools.autoUpdate.enabled=false; skipping tool reconcile</code>, no <code>[ToolReconciler]</code> line, and the orphan SURVIVED. Unit test <code>RunIfEnabledAsync_FlagFalse_DoesNotCallReconcile</code> passes.</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Safe under multiple Directors via engine machine-wide mutex; no new global lock</td><td>No new lock added here</td><td>Diff review: the lifecycle wiring adds no lock; it relies on <code>ToolReconciler</code> (issue #826) which holds the machine-wide mutex. Confirmed no new lock in the PR.</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Logging at each trigger: started, enabled/disabled decision, result summary</td><td>Observable in Director log</td><td>Live enabled run: <code>starting tool reconcile</code> then <code>tool reconcile done - outcome=Reconciled, actions=1</code>. Live disabled run: <code>skipping tool reconcile</code>. Both observed.</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Clean build, all tests pass, add enabled-vs-disabled gating test</td><td>0/0 build; gating test present</td><td>Build 0 Warn/0 Err; 12 ToolAutoUpdate + 213 engine + 78 Core tests pass; <code>ToolAutoUpdateTriggerTests</code> asserts the does/does-not-call-reconcile gating decision.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Self-heal reproduction (independent reproduction of the developer's claim)</h2>
+<p>To prove the headline behavior, QA injected a known retired legacy alias shim <code>cc-send.cmd</code> into the real install bin dir, relaunched the slot-17 Director, and observed the startup reconcile heal it with NO human action:</p>
+<pre>[App] StartToolReconcile: scheduling background tool reconcile (trigger=startup)
+[ToolAutoUpdate] startup: tools.autoUpdate.enabled=true; starting tool reconcile
+[ToolReconciler] ReconcileAsync: detecting tool drift
+[ToolReconciler] drift found: missingShims=0, orphanedLegacyShims=1, venvBroken=False
+[ToolReconciler] purged 1 orphaned legacy alias shim(s)
+[ToolReconciler] ReconcileAsync done: outcome=Reconciled, actions=1
+[ToolAutoUpdate] startup: tool reconcile done - outcome=Reconciled, actions=1</pre>
+<p>The injected <code>cc-send.cmd</code> was gone after boot. With the flag set false, an identically-injected orphan was left untouched - the gate works both ways.</p>
+
+<h2>Regression sweep</h2>
+<p>Full setup-engine suite (213) and Core update suite (78) green; build clean with zero warnings; the only behavior change to <code>MarkCurrentBuildHealthy</code> (void -&gt; bool) is covered and all callers compile. The real install environment was restored (config backup restored, both injected shims removed) and the slot-17 Director + scheduled task were torn down.</p>
+
+<div class="verdict">VERIFIED - all 8 acceptance criteria met. Independently built, tested, and proven in a running slot-17 Director by the QA Agent.</div>
+</body>
+</html>
