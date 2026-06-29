@@ -93,24 +93,11 @@ def _get_sessions() -> List[Dict[str, Any]]:
     return sessions
 
 
-def _match_by_number(sessions: List[Dict[str, Any]], target: str) -> Optional[Dict[str, Any]]:
-    """Issue #820: a three-digit session number selects exactly the session that holds it.
-    Returns the single match, or None when the target is not a number in range or does not match
-    exactly one session (so the caller falls through to id-prefix matching)."""
-    t = target.strip()
-    if not (t.isdigit() and 100 <= int(t) <= 999):
-        return None
-    wanted = str(int(t))
-    hits = [s for s in sessions if str(director.field(s, "number", "Number")) == wanted]
-    return hits[0] if len(hits) == 1 else None
-
-
 def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
     sessions = _get_sessions()
-    # Issue #820: prefer a three-digit session number match (the human-friendly handle).
-    by_number = _match_by_number(sessions, target)
-    if by_number is not None:
-        return by_number
+    # Issue #821: the shared resolver now understands the three-digit session number (#820) as a
+    # first-class target, preferring it over id-prefix / name matching, so message send / ask and
+    # session rename all address a session by its number through this one call.
     matches = director.resolve_target(sessions, target)
     if not matches:
         console.print(

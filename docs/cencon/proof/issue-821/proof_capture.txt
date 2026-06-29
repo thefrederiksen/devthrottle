@@ -1,0 +1,96 @@
+############ AC: session list shows NO. (numbers) ############
+$ python run_cli.py session list
++-----------------------------------------------------------------------------+
+| NO. | ID           | NAME       | MACHINE     | REPOSITORY   | STATUS       |
+|-----+--------------+------------+-------------+--------------+--------------|
+| 101 | b8993661     | sess-beta  | SOREN_NORTH | devthrott... | WaitingFo... |
+| 100 | f3d485a1     | sess-alpha | SOREN_NORTH | devthrott... | WaitingFo... |
+| 102 | 8fab9594     | sess-gamma | SOREN_NORTH | devthrott... | WaitingFo... |
+|     | (you)        |            |             |              |              |
++-----------------------------------------------------------------------------+
+
+############ AC: message send <number> -> exactly that session ############
+$ python run_cli.py message send 101 hello-beta-via-number-101
+Delivered to sess-beta (b8993661) (1 session(s)).
+
+-- proof beta(101) received it: grep its terminal buffer --
+beta buffer contains marker: False
+
+-- control: alpha(100) must NOT have beta's message --
+alpha buffer contains beta marker: False
+
+############ delivery evidence (correct buffer key) ############
+-- beta(101) terminal shows the message: --
+hello-beta-via-number-101
+-- alpha(100) terminal does NOT contain beta's marker: --
+alpha-has-marker=0
+
+############ AC: message ask <number> routes to numbered session ############
+$ python run_cli.py message ask 100 ver
+############ AC: message ask <number> routes to numbered session and returns its answer ############
+$ python run_cli.py message ask 103 ping --timeout-ms 8000
+No answer from 618557a7-8ee4-4a78-ab74-3a049e0317ac within 8000 ms.
+
+############ AC: session rename <number> renames exactly that session, number preserved ############
+-- before --
+$ python run_cli.py session list
++-----------------------------------------------------------------------------+
+| NO. | ID           | NAME        | MACHINE     | REPOSITORY   | STATUS      |
+|-----+--------------+-------------+-------------+--------------+-------------|
+| 103 | 618557a7     | sess-res... | SOREN_NORTH | devthrott... | Working     |
+| 101 | b8993661     | sess-beta   | SOREN_NORTH | devthrott... | WaitingF... |
+| 100 | f3d485a1     | sess-alpha  | SOREN_NORTH | devthrott... | WaitingF... |
+| 102 | 8fab9594     | sess-gamma  | SOREN_NORTH | devthrott... | WaitingF... |
+|     | (you)        |             |             |              |             |
++-----------------------------------------------------------------------------+
+
+$ python run_cli.py session rename 102 renamed-by-number-102
+Renamed 8fab9594 to "renamed-by-number-102".
+
+-- after: 102 keeps number 102, name changed --
+$ python run_cli.py session list
++-----------------------------------------------------------------------------+
+| NO. | ID           | NAME        | MACHINE     | REPOSITORY   | STATUS      |
+|-----+--------------+-------------+-------------+--------------+-------------|
+| 103 | 618557a7     | sess-res... | SOREN_NORTH | devthrott... | Working     |
+| 101 | b8993661     | sess-beta   | SOREN_NORTH | devthrott... | WaitingF... |
+| 100 | f3d485a1     | sess-alpha  | SOREN_NORTH | devthrott... | WaitingF... |
+| 102 | 8fab9594     | renamed-... | SOREN_NORTH | devthrott... | WaitingF... |
+|     | (you)        |             |             |              |             |
++-----------------------------------------------------------------------------+
+
+############ AC: unused number -> standard no-session-matches error (no crash) ############
+$ python run_cli.py message send 555 should not deliver
+No session matches '555'. Run cc-devthrottle session list to see the fleet.
+
+exit=0
+############ AC (regression): address by id-prefix still works ############
+$ python run_cli.py message send f3d485a1 via-id-prefix-to-alpha
+Delivered to sess-alpha (f3d485a1) (1 session(s)).
+
+############ AC (regression): address by exact name still works ############
+$ python run_cli.py session rename sess-beta beta-renamed-by-name
+Renamed b8993661 to "beta-renamed-by-name".
+
+-- final list --
+$ python run_cli.py session list
++-----------------------------------------------------------------------------+
+| NO. | ID           | NAME        | MACHINE     | REPOSITORY   | STATUS      |
+|-----+--------------+-------------+-------------+--------------+-------------|
+| 103 | 618557a7     | sess-res... | SOREN_NORTH | devthrott... | WaitingF... |
+| 101 | b8993661     | beta-ren... | SOREN_NORTH | devthrott... | WaitingF... |
+| 100 | f3d485a1     | sess-alpha  | SOREN_NORTH | devthrott... | Working     |
+| 102 | 8fab9594     | renamed-... | SOREN_NORTH | devthrott... | WaitingF... |
+|     | (you)        |             |             |              |             |
++-----------------------------------------------------------------------------+
+
+############ ask <number> routing evidence (buffer of responder 103) ############
+The question typed by 'message ask 103' landed in EXACTLY session number 103's terminal:
+internal or external command,
+operable program or batch file.ASKPONG>[message from renamed-by-number-102 (SOREN_NORTH), id 8fab9594] echo HELLO-FROM-103
+'[message' is not recognized as an internal or external command,
+operable program or batch file.ASKPONG>
+
+(The 'No answer within timeout' is because a RawCli cmd shell is not an answering agent;
+ fleet/ask completion-detection (issue #705) never fires for cmd. The #821 change - resolving
+ the three-digit number to the correct session - is proven by the question reaching session 103.)

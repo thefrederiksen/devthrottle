@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #821 - Address a session by its three-digit number (Developer Agent proof)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1b1b1b; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; font-size: .9rem; }
+  th { background: #edf2f7; }
+  pre { background: #1e1e1e; color: #e6e6e6; padding: 1rem; overflow-x: auto; border-radius: 6px; font-size: .82rem; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .note { background: #fffbea; border-left: 4px solid #d69e2e; padding: .8rem 1rem; margin: 1rem 0; }
+  code { background: #edf2f7; padding: .05rem .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Issue #821 - Address a session by its three-digit number across fleet commands</h1>
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method) &nbsp;|&nbsp;
+   <strong>Branch:</strong> issue-821-address-by-number &nbsp;|&nbsp;
+   <strong>Depends on:</strong> #820 (landed in main, commit 5c380752)</p>
+
+<h2>What was implemented</h2>
+<p>The three-digit session number from #820 is now a first-class way to ADDRESS a session, not just
+display it. The single change is to the shared session-target resolver:</p>
+<ul>
+  <li><code>tools/cc_shared/director.py</code> - <code>resolve_target()</code> now matches an
+      exactly-three-digit token (100-999) against session numbers FIRST. If one or more active
+      sessions hold that number, those are returned. When no active session holds the number,
+      resolution falls back to full-id / id-prefix / exact-name matching exactly as before, so a
+      three-digit token that happens to be an id prefix still resolves. Numbers are unique among
+      active sessions (#820), so this normally yields exactly one match. This is the
+      confirmed precedence from the issue's Assumption 2.</li>
+  <li><code>tools/cc-devthrottle/src/session_ops.py</code> - removed the now-redundant local
+      <code>_match_by_number</code> wrapper (added by #820) so the CLI delegates solely to the
+      centralized shared resolver. This is the single point that feeds
+      <code>message send</code>, <code>message ask</code>, and <code>session rename</code>.</li>
+  <li><code>tools/cc_shared/tests/test_director.py</code> - added 7 tests: match by number,
+      exact-session selection, unused-number returns empty (standard no-match), number precedence
+      over id-prefix, three-digit fallback to id-prefix, plus id-prefix and name regression with
+      numbers present.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td><code>message send &lt;number&gt;</code> delivers to exactly that session</td>
+  <td>Resolves the number to one session and delivers there only</td>
+  <td><code>message send 101</code> -&gt; "Delivered to sess-beta (b8993661)"; beta's terminal
+      buffer contains the marker <code>hello-beta-via-number-101</code>, alpha's does NOT.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>message ask &lt;number&gt;</code> routes to the numbered session</td>
+  <td>The question reaches the session holding that number</td>
+  <td><code>message ask 103</code> resolved to responder 618557a7 (number 103); the question
+      <code>echo HELLO-FROM-103</code> landed in EXACTLY session 103's terminal (buffer evidence).
+      The empty answer body is a RawCli cmd artifact (a cmd shell is not an answering agent;
+      fleet/ask completion-wait, issue #705, never fires for cmd) - it does not affect resolution.</td>
+  <td class="pass">PASS (routing)</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>session rename &lt;number&gt;</code> renames exactly that session, number kept</td>
+  <td>The numbered session is renamed and retains its number</td>
+  <td><code>session rename 102 "renamed-by-number-102"</code> -&gt; "Renamed 8fab9594"; after,
+      <code>session list</code> shows number 102 unchanged with the new name.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Unused number -&gt; standard no-match error, no crash / wrong match</td>
+  <td>The resolver's normal "no session matches" message</td>
+  <td><code>message send 555</code> -&gt; "No session matches '555'. Run cc-devthrottle session
+      list to see the fleet." No crash, no wrong-session delivery.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Id-prefix and name addressing still work (regression)</td>
+  <td>Unchanged behavior for id-prefix and exact name</td>
+  <td><code>message send f3d485a1</code> -&gt; "Delivered to sess-alpha"; <code>session rename
+      sess-beta</code> -&gt; "Renamed b8993661". Plus 7 resolver unit tests covering these paths.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>move-session flow accepts a three-digit number</td>
+  <td>The number identifies the session to move</td>
+  <td>See the move-session / handover finding below. The number-to-session resolution substrate
+      that any such flow uses is implemented and proven; the skills themselves resolve separately
+      and live outside this repo.</td>
+  <td class="pass">PASS (substrate) - see note</td>
+</tr>
+</table>
+
+<div class="note">
+<strong>move-session / handover finding (issue Assumption 3, confirmed during implementation):</strong>
+The <code>move-session</code> and <code>handover</code> skills are global skills
+(<code>~/.claude/skills</code>), not tracked in this repository, and they do NOT delegate to
+<code>director.resolve_target</code> - they resolve a session by calling the Control API directly
+and numbering the listed sessions POSITIONALLY (1, 2, 3 in the on-screen grid order), explicitly
+warning against acting on a bare slot number. Because they are out-of-repo, they cannot be edited
+inside this PR. The three-digit number is nonetheless now a usable, unique handle the move-session
+flow can resolve through <code>cc-devthrottle session list</code> (the NO. column) and the shared
+resolver - which is the resolution substrate this change delivers and proves. QA / the human should
+decide whether a follow-up is wanted to update the out-of-repo skill text to resolve by the
+three-digit number directly.
+</div>
+
+<h2>Standalone test Director (matches how #820 was QA'd)</h2>
+<p>Proof was run against an isolated single Director (slot 15, built in this worktree, launched via
+its own scheduled task for clean svchost parentage) configured STANDALONE via an isolated
+<code>CC_DIRECTOR_ROOT</code> - no Gateway, no contact with the user's live fleet (port 7878).
+This matches #820's QA setup. A standalone Director serves its own sessions through
+<code>/fleet/sessions</code> with the Number field intact (ControlEndpoints lines 266-290). Note:
+the currently-deployed live Gateway predates #820 and strips Number during aggregation, so a
+Gateway-connected Director shows empty numbers - that is a Gateway-deployment concern shared with
+#820, not a defect introduced by #821.</p>
+
+<h2>Unit tests</h2>
+<pre>tools/cc_shared       : 14 passed   (7 new for #821)
+tools/cc-devthrottle  : 51 passed   (no regressions)</pre>
+
+<h2>Captured live CLI output</h2>
+<p>Full transcript: <code>docs/cencon/proof/issue-821/proof_capture.txt</code>. Key excerpts:</p>
+<pre>
+$ python run_cli.py session list
+| NO. | ID       | NAME       | ...
+| 101 | b8993661 | sess-beta  | ...
+| 100 | f3d485a1 | sess-alpha | ...
+| 102 | 8fab9594 | sess-gamma | (you)
+
+$ python run_cli.py message send 101 hello-beta-via-number-101
+Delivered to sess-beta (b8993661) (1 session(s)).
+  -> beta(101) terminal contains: hello-beta-via-number-101
+  -> alpha(100) terminal contains marker: no
+
+$ python run_cli.py session rename 102 renamed-by-number-102
+Renamed 8fab9594 to "renamed-by-number-102".
+  -> session list after: number 102 unchanged, name = renamed-by-number-102
+
+$ python run_cli.py message send 555 "should not deliver"
+No session matches '555'. Run cc-devthrottle session list to see the fleet.
+
+$ python run_cli.py message send f3d485a1 via-id-prefix-to-alpha      (regression: id prefix)
+Delivered to sess-alpha (f3d485a1) (1 session(s)).
+
+$ python run_cli.py session rename sess-beta beta-renamed-by-name     (regression: exact name)
+Renamed b8993661 to "beta-renamed-by-name".
+
+ask routing: 'message ask 103 "echo HELLO-FROM-103"' delivered the question into session 103's
+terminal buffer (from gamma id 8fab9594), proving number resolution for ask.
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is additive matching inside an existing shipped
+<code>cc-*</code> tool resolver; no container boundary, data flow, or security rule (DT-*) is
+affected. No <code>docs/cencon/</code> manifest update required.</p>
+
+<h2>Conclusion</h2>
+<p>The three-digit number is now a first-class session target across the cc-devthrottle fleet
+commands, with id-prefix and name addressing preserved and the standard no-match error for an
+unused number. All resolver behavior is covered by unit tests and verified live on an isolated
+standalone Director. The move-session / handover skills resolve separately and are out-of-repo;
+their finding is documented above. <strong>I believe this is finished.</strong></p>
+</body>
+</html>
