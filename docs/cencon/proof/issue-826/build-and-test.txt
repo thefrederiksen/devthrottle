@@ -1,0 +1,12 @@
+=== Full solution build ===
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.29
+
+=== Engine test suite (incl. 8 new ToolReconciler tests) ===
+Test run for D:\ReposFred\devthrottle-wt-826\tools\cc-director-setup-engine.Tests\bin\Debug\net10.0\CcDirector.Setup.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   201, Skipped:     0, Total:   201, Duration: 3 s - CcDirector.Setup.Engine.Tests.dll (net10.0)

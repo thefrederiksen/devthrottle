@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #826 - ToolReconciler proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: .3rem; }
+  h2 { margin-top: 1.8rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #bbb; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  pre { background: #f4f4f4; padding: .8rem; overflow-x: auto; border-radius: 4px; }
+  .pass { color: #157f3b; font-weight: bold; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+<h1>Issue #826 - ToolReconciler: manifest-driven automatic drift reconcile (engine + tests)</h1>
+
+<p><strong>Branch:</strong> <code>issue-826-tool-reconciler</code> &nbsp; | &nbsp;
+   <strong>Scope:</strong> setup engine + tests only (no UI, no <code>App.axaml.cs</code> lifecycle, no settings/config key - those are follow-ups #827/#828/#829).</p>
+
+<h2>What was implemented</h2>
+<ul class="files">
+  <li><strong>New:</strong> <code>tools/cc-director-setup-engine/ToolReconciler.cs</code> - the <code>ToolReconciler.ReconcileAsync(...)</code> operation, the <code>ReconcileResult</code> record, and the <code>ReconcileOutcome</code> enum (<code>InSync</code> / <code>Reconciled</code> / <code>Failed</code>). It is the automatic, idempotent, lightweight equivalent of the manual "Fix Tools" repair.</li>
+  <li><strong>Edited:</strong> <code>tools/cc-director-setup-engine/PythonToolsInstaller.cs</code> - exposed existing reuse points without duplicating logic: made <code>RemoveLegacyAliasShims()</code> and <code>WriteShims(...)</code> public, and added <code>FindOrphanedLegacyAliasShims()</code> (pure detection) sharing one private path-set helper with the purge.</li>
+  <li><strong>New:</strong> <code>tools/cc-director-setup-engine.Tests/ToolReconcilerTests.cs</code> - 8 offline tests (temp/fake layout, injected fake heavy-repair, no network).</li>
+</ul>
+
+<h2>How it works (reusing existing detection, not a parallel comparison)</h2>
+<ul>
+  <li><strong>(a) Missing shim:</strong> enumerates the embedded manifest via <code>ToolCatalogService.GetCatalog()</code>; for a tool whose venv console-script exe exists (<code>PythonToolsInstaller.ConsoleScriptPath</code>) but whose <code>bin\&lt;name&gt;.cmd</code> shim is absent, it creates the shim directly via <code>PythonToolsInstaller.WriteShims</code>.</li>
+  <li><strong>(b) Orphaned legacy shims:</strong> detected with <code>PythonToolsInstaller.FindOrphanedLegacyAliasShims()</code> (reusing <code>LegacyAliasShimNames</code>) and purged with <code>RemoveLegacyAliasShims()</code> - the legacy list is never duplicated.</li>
+  <li><strong>(c) Broken/absent venv:</strong> detected with <code>PythonToolsState.LoadScripts</code> + <code>PythonToolsInstaller.VenvHasAllTools</code>; only this escalates to the heavy release-backed <code>ToolUpdater.RepairPythonToolsAsync</code>.</li>
+  <li><strong>Cheap happy path:</strong> drift is fully computed from reads first; with no drift the method performs zero filesystem mutation, never calls the heavy repair, and returns <code>InSync</code>.</li>
+  <li><strong>Mutex:</strong> the heavy escalation is guarded by the machine-wide named mutex <code>Global\cc-director-tool-reconcile</code> (same convention as <code>TailscaleCli.ServeMutexName</code> / <code>agent-session-isolation.ps1</code>). If another Director holds it, the call logs "reconcile skipped - another Director is reconciling" and returns without forcing. The light shim path does not take the heavy lock.</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met and verified</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+<tr><td>1</td><td>New public op with XML doc</td><td><code>ToolReconciler.ReconcileAsync</code> with summary calling it the automatic equivalent of Fix-Tools</td><td>Build; code</td></tr>
+<tr><td>2</td><td>Reuse existing detection</td><td>catalog + <code>GetUnmanagedBinaries()</code> + legacy-shim presence + <code>VenvHasAllTools</code>; no duplicated legacy list / comparison</td><td>Code review; tests b/c</td></tr>
+<tr><td>3</td><td>Structured result</td><td><code>ReconcileResult(Outcome, Actions, Error)</code>, enum InSync/Reconciled/Failed + action list</td><td>All 8 tests</td></tr>
+<tr><td>4</td><td>Idempotent &amp; cheap</td><td>No-drift =&gt; no FS mutation, no heavy call, InSync; second call is a no-op</td><td><code>...NoDrift_ReturnsInSync_NoMutation</code>, <code>...CalledTwice_SecondCallIsInSyncNoOp</code></td></tr>
+<tr><td>5</td><td>Scale action to drift</td><td>shim create/purge direct; heavy only on broken venv</td><td><code>...ShimOnlyDrift_DoesNotEnterHeavyPath</code>, <code>...BrokenVenv_EscalatesToHeavyRepair...</code></td></tr>
+<tr><td>6</td><td>Machine-wide mutex on heavy path</td><td><code>Global\cc-director-tool-reconcile</code>; held =&gt; skip without forcing; light path unlocked</td><td><code>...AnotherDirectorHoldsMutex_SkipsHeavyRepair</code></td></tr>
+<tr><td>7</td><td>Logging standard</td><td><code>FileLog.Write($"[ToolReconciler] ...")</code> at entry, drift decision, each action, exit, error</td><td>Code review</td></tr>
+<tr><td>8</td><td>Unit tests a-e</td><td>no-drift; missing shim; orphaned legacy; idempotency; heavy-not-entered for shim-only - plus broken-venv escalation, failure, and mutex-skip</td><td>8/8 pass (below)</td></tr>
+<tr><td>9</td><td>Clean build, all tests pass</td><td><code>dotnet build cc-director.sln</code> 0 warnings / 0 errors; 201 engine tests pass</td><td>Build &amp; test log</td></tr>
+</table>
+
+<h2>Proof: build and tests</h2>
+<p class="pass">Full solution build: Build succeeded. 0 Warning(s), 0 Error(s).</p>
+<p class="pass">Engine test suite: Passed! Failed: 0, Passed: 201, Skipped: 0 (includes the 8 new ToolReconciler tests).</p>
+
+<p>The 8 new tests (all <span class="pass">Passed</span>):</p>
+<pre>
+ReconcileAsync_NoDrift_ReturnsInSync_NoMutation                 (criterion 8a, 4)
+ReconcileAsync_MissingShim_CreatesShim_ReturnsReconciled       (criterion 8b)
+ReconcileAsync_OrphanedLegacyShim_Purged_ReturnsReconciled     (criterion 8c)
+ReconcileAsync_CalledTwice_SecondCallIsInSyncNoOp              (criterion 8d, 4)
+ReconcileAsync_ShimOnlyDrift_DoesNotEnterHeavyPath            (criterion 8e, 5)
+ReconcileAsync_BrokenVenv_EscalatesToHeavyRepair_ReturnsReconciled  (criterion 5)
+ReconcileAsync_BrokenVenv_HeavyRepairFails_ReturnsFailed            (criterion 3)
+ReconcileAsync_BrokenVenv_AnotherDirectorHoldsMutex_SkipsHeavyRepair (criterion 6)
+</pre>
+
+<p>Raw captured evidence: <code>docs/cencon/proof/issue-826/build-and-test.txt</code></p>
+
+<h2>CenCon impact</h2>
+<p>No drift. A new internal engine class within the existing <code>cc-director-setup-engine</code> container; no architecture or security-posture change. The three <code>PythonToolsInstaller</code> member visibility changes are additive (private -&gt; public) with no behavior change - all pre-existing installer tests still pass.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. The engine operation and its tests are complete, the full solution builds clean with zero warnings, and all 201 engine tests (including the 8 new ones covering every acceptance criterion) pass. No UI, lifecycle, or config changes were made, per the issue scope.</p>
+</body>
+</html>
