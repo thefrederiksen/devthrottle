@@ -1,0 +1,15 @@
+AC2 + AC7 evidence: the mobile roster loads from GET /sessions via the typed client with
+the per-machine Gateway Bearer token (window.__GW_TOKEN__ injected into index.html, sent as
+Authorization: Bearer ...). Captured from the proof harness server log while the running PWA
+polled /sessions (the harness injects the token exactly as the Gateway does and logs the
+Authorization header it receives):
+
+  token in page: window.__GW_TOKEN__ = "proof-bearer-844"
+
+  [/sessions] Authorization=Bearer proof-bearer-844
+  [/sessions] Authorization=Bearer proof-bearer-844
+  [/sessions] Authorization=Bearer proof-bearer-844
+  [/sessions] Authorization=Bearer proof-bearer-844
+
+The rendered three-digit number on each card equals the session.number in the /sessions
+payload (137, 142, 308, 411, 250), and the null-number session renders with NO prefix.

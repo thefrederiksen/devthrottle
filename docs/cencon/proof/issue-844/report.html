@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #844 - QA Proof - Mobile roster: session number prefix + live waiting time</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background:#0b1020; color:#e6e9f2; margin:0; padding:24px; line-height:1.5; }
+  h1 { font-size:22px; } h2 { font-size:17px; margin-top:28px; border-bottom:1px solid #28304a; padding-bottom:6px; }
+  code { background:#1b2238; padding:1px 5px; border-radius:4px; font-family:Consolas,monospace; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; }
+  th,td { border:1px solid #28304a; padding:7px 9px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#141a2e; }
+  .ok { color:#5fd08a; font-weight:700; }
+  img { max-width:390px; border:1px solid #28304a; border-radius:8px; display:block; margin:8px 0; }
+  .imgrow { display:flex; gap:18px; flex-wrap:wrap; }
+  .imgrow figure { margin:0; } figcaption { font-size:12px; color:#99a0b8; }
+  pre { background:#141a2e; border:1px solid #28304a; border-radius:8px; padding:12px; overflow-x:auto; font-size:12.5px; }
+  .muted { color:#99a0b8; }
+</style>
+</head>
+<body>
+<h1>Issue #844 - Mobile roster: muted three-digit session number prefix + live "waiting" time</h1>
+<p class="muted">Developer Agent proof. Surface: mobile PWA (<code>mobile/</code>), served by the Gateway at <code>/m</code>.
+Mobile-only; no backend/.NET contract change (<code>SessionDto.Number</code> #820 and <code>SessionDto.NeedsYouSince</code> #218 already exist).
+Built on the merged #838 full-width-wrapping roster layout, which is preserved.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Regenerated the mobile typed client.</b> <code>mobile/src/api/schema.ts</code> predated #820 and was missing <code>number</code>;
+      it was regenerated with <code>openapi-typescript</code> (the tool <code>npm run gen:api</code> pins) from a current-main Gateway OpenAPI document, so <code>SessionDto</code> now carries <code>number</code>. See <code>schema-regen.txt</code>.</li>
+  <li><b>Number prefix.</b> <code>mobile/src/pages/Home.tsx</code> (<code>SessionRow</code>) renders <code>session.number</code> as a muted three-digit
+      span before the bold name (<code>.row-num</code> in <code>mobile/src/styles.css</code>), matching the desktop <code>SessionRail</code> <code>.sess-num</code> convention. A null number renders no prefix. The name still wraps full-width after it (#838).</li>
+  <li><b>Live waiting time.</b> A new <code>mobile/src/sessions/waiting.ts</code> provides a pure <code>waitingLabel(needsYouSince, now)</code> formatter (ladder below) plus a <code>useNow(1000)</code> ticking hook. On needs-you cards only, <code>SessionRow</code> renders <code>&lt;WaitingTime&gt;</code> right-aligned on the status line (<code>.row-waiting</code>); it ticks once a second by recomputing from the held <code>needsYouSince</code> with no roster refetch. Working/other cards show no waiting time.</li>
+</ul>
+<p>Duration ladder: under 1 minute &rarr; <code>just now</code>; minutes &rarr; <code>waiting 12m</code>; hours &rarr; <code>waiting 1h 4m</code>; days &rarr; <code>waiting 2d 3h</code>.</p>
+
+<h2>How it was proven</h2>
+<p>The REAL built PWA (<code>mobile/dist</code>) was served through a harness that injects <code>window.__GW_TOKEN__</code> exactly as the Gateway does and stubs <code>/sessions</code> with an authored roster - the issue's stated proof vehicle, the only way to backdate <code>needsYouSince</code> to minute/hour/day magnitudes and to present a null-number session. The real typed client (<code>listSessions</code> &rarr; <code>fetch('/sessions')</code> with the Bearer) and the real rendering are exercised unchanged. Captured at a phone-sized <b>390 x 844</b> viewport (<code>Emulation.setDeviceMetricsOverride</code>, deviceScaleFactor 2).</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th></th></tr>
+<tr><td>AC1</td><td>Three-digit number as muted prefix before the name; null number = no prefix</td>
+  <td><code>137 mindzieWeb...</code> with muted prefix; the null-number card shows the name with no prefix</td>
+  <td>Cards 137/142/308/411/250 show the muted prefix; "session with no number (null)" shows no prefix (see <code>roster-390px-t0.png</code>)</td><td class="ok">PASS</td></tr>
+<tr><td>AC2</td><td>Number comes from <code>session.number</code> in the REGENERATED client and matches the <code>/sessions</code> payload</td>
+  <td>Rendered number == payload number; schema.ts regenerated with <code>number</code></td>
+  <td>Rendered 137/142/308/411/250 == payload; schema.ts now has <code>number?: null | number | string</code> (see <code>schema-regen.txt</code>, <code>sessions-bearer.txt</code>)</td><td class="ok">PASS</td></tr>
+<tr><td>AC3</td><td>Needs-you card shows <code>waiting &lt;dur&gt;</code> from <code>needsYouSince</code></td>
+  <td>A session ~12 min ago shows <code>waiting 12m</code></td>
+  <td>Card 137 (<code>needsYouSince</code> 12m ago) renders <code>waiting 12m</code>, right-aligned</td><td class="ok">PASS</td></tr>
+<tr><td>AC4</td><td>Waiting time ticks live (increases) without a page reload</td>
+  <td>Value advances over time; no reload</td>
+  <td>Over a 63s wait with no navigation: 137 <code>12m&rarr;13m</code>, 142 <code>1h 4m&rarr;1h 5m</code>, 411 <code>just now&rarr;waiting 1m</code>, null-card <code>7m&rarr;8m</code> (<code>tick-before.png</code> vs <code>tick-after.png</code>; <code>performance.now</code> confirmed no reload)</td><td class="ok">PASS</td></tr>
+<tr><td>AC5</td><td>Format ladder: &lt;1m &rarr; just now; minutes; hours; days</td>
+  <td><code>just now</code> / <code>Xm</code> / <code>Xh Ym</code> / <code>Xd Yh</code></td>
+  <td>411 <code>just now</code>; 137 <code>waiting 12m</code>; 142 <code>waiting 1h 4m</code>; 308 <code>waiting 2d 3h</code></td><td class="ok">PASS</td></tr>
+<tr><td>AC6</td><td>Working/other cards show NO waiting time; status line stays <code>status &middot; repo</code></td>
+  <td>Working card has no waiting text</td>
+  <td>Card 250 (working, blue) shows <code>working &middot; docs</code> only - no waiting text</td><td class="ok">PASS</td></tr>
+<tr><td>AC7</td><td>#838 layout preserved; roster still loads from <code>GET /sessions</code> via the typed client with the Bearer</td>
+  <td>Full-width wrapping name + prefix, repo under name, dot, grouping, attention styling, tap-to-open; Bearer attached</td>
+  <td>142 wraps to 3 lines after its prefix; repo under the name; Needs you / All sessions groups; red attention borders; rows are tap links. App polled <code>/sessions</code> with <code>Authorization: Bearer proof-bearer-844</code> (see <code>sessions-bearer.txt</code>)</td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>Screenshots (390px phone viewport)</h2>
+<figure><img src="roster-390px-t0.png" alt="roster at 390px">
+  <figcaption>Full roster: muted number prefixes (137/142/308/411/250), null-number card with no prefix, right-aligned waiting ladder (12m / 1h 4m / 2d 3h / just now / 7m), working card 250 with no waiting time, #838 wrapping layout + grouping.</figcaption></figure>
+<div class="imgrow">
+  <figure><img src="tick-before.png" alt="before"><figcaption>tick-before: 137 waiting 12m, 411 just now, null-card 7m</figcaption></figure>
+  <figure><img src="tick-after.png" alt="after"><figcaption>tick-after (+63s, no reload): 137 waiting 13m, 411 waiting 1m, null-card 8m</figcaption></figure>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. UI-only change in the <code>mobile/</code> container; no architecture or security change, no new endpoint, no contract change (both fields already on <code>SessionDto</code>). A routine <code>dotnet build cc-director.sln</code> does not invoke npm.</p>
+
+<h2>Builds</h2>
+<pre>mobile: npm run build (tsc --noEmit + vite build) -> built clean, schema number field typechecks
+.NET  : dotnet build cc-director.sln -> Build succeeded. 0 Warning(s) 0 Error(s)</pre>
+
+<p class="ok">I believe this is finished.</p>
+</body>
+</html>

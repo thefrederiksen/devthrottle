@@ -163,6 +163,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Issue #844: the muted three-digit session-number prefix before the name, matching the desktop
+   SessionRail .sess-num (dimmed text, weight 600, a small gap before the name). It is an inline
+   span inside .row-name so the name keeps wrapping full-width after it. */
+.row-num {
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
 /* The secondary line below the name: status text + thin divider + repo, wrapping as a group
    only if the viewport is too narrow to hold both. */
 .row-meta {
@@ -193,6 +202,19 @@ body {
   color: var(--text-dim);
   opacity: 0.85;
   overflow-wrap: anywhere;
+}
+
+/* Issue #844: the live "waiting <dur>" elapsed time on a needs-you card, pinned to the right of
+   the status line (margin-left:auto). Muted-red so it reads as a measurement of how long the
+   session has needed you, not another state chip - mirroring the desktop SessionRail .needs-wait.
+   white-space:nowrap keeps "1h 4m" on one piece; it wraps to its own line only if the row is far
+   too narrow to hold the status + repo + this together. */
+.row-waiting {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--attention);
+  white-space: nowrap;
 }
 
 .detail {
