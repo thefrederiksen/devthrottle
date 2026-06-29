@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #829 - Active corner indicator: orange "Syncing tools..." self-healing state</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#FFFFFF; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#FFFFFF; font-size:17px; margin-top:28px; }
+  code { background:#2A2A2A; padding:1px 5px; border-radius:3px; font-family:Cascadia Mono, Consolas, monospace; color:#E0A040; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#252526; color:#FFFFFF; }
+  .ok { color:#22C55E; font-weight:600; }
+  .imgwrap { display:flex; gap:24px; flex-wrap:wrap; margin:12px 0; }
+  .imgcard { border:1px solid #3C3C3C; border-radius:6px; padding:8px; background:#252526; }
+  .imgcard img { display:block; width:680px; max-width:100%; border:1px solid #3C3C3C; }
+  .imgcard div { font-size:13px; color:#AAAAAA; margin-top:6px; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:12px; overflow-x:auto; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; color:#CCCCCC; }
+  .verdict { background:#1B3A2A; border:1px solid #22C55E; border-radius:6px; padding:14px; margin-top:24px; color:#CFEFD8; font-size:15px; }
+</style>
+</head>
+<body>
+<h1>Issue #829 - Active corner tools indicator (orange "Syncing tools..." self-healing state)</h1>
+
+<h2>Release notes</h2>
+<p>The rail's "cc-* tools" corner badge is no longer a passive "fix me" warning. When tool drift is
+detected and <code>tools.autoUpdate.enabled</code> is on, the badge turns orange and reads
+"Syncing tools..." with a live progress spinner while the Director automatically reconciles the
+toolset; it returns to green (and hides) the moment the tools are back in sync. It only falls to a
+red "Tools need attention" state after the automatic reconcile has failed repeatedly. When
+auto-update is off the badge behaves exactly as before: a passive amber warning that opens Settings
+on click.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New pure state machine</b> <code>CcDirector.Core.Tools.ToolsSyncStateMachine</code>
+      (+ <code>ToolsIndicatorState</code> enum: InSync / Syncing / Warning / NeedsAttention). It owns
+      the transition rules, the consecutive-failure count, the bounded retry ceiling
+      (<code>MaxReconcileAttempts = 3</code>), and the exponential backoff schedule. No Avalonia, no I/O.</li>
+  <li><b>Read-only drift probe</b> <code>ToolReconciler.HasDrift()</code> - the same pure reads
+      <code>ReconcileAsync</code> uses to detect drift (missing shim, orphaned legacy alias shim, broken
+      venv), mutating nothing, so the badge reflects exactly the drift the reconcile would act on.</li>
+  <li><b>MainWindow wiring</b> - drives the state machine off each health snapshot; on drift (with
+      auto-update on) it shows orange immediately and starts <code>ToolReconciler.ReconcileAsync</code>
+      off the UI thread; one reconcile in flight at a time (debounce), a cooldown + one-shot retry timer
+      between attempts (backoff), and a cross-guard against the existing manual repair. Renders the badge
+      per state and logs every transition.</li>
+  <li><b>XAML</b> - the <code>ToolsIndicator</code> gains code-settable colors, a hideable "!" glyph, and
+      an indeterminate progress spinner row (shown only while Syncing) so the orange state reads as live
+      work, not a frozen badge.</li>
+  <li><b>Tests</b> - 13 state-machine tests + 4 <code>HasDrift</code> tests.</li>
+</ul>
+
+<h2>Acceptance criteria - how each is met</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How met / proof</th></tr>
+<tr><td>1</td><td>Distinct Syncing state in the state machine (green / warning / red)</td>
+  <td><code>ToolsIndicatorState</code> {InSync, Syncing, Warning, NeedsAttention}; transitions covered by unit tests.</td></tr>
+<tr><td>2</td><td>Drift + enabled -&gt; orange, auto-trigger ReconcileAsync, debounced</td>
+  <td>Live log: <code>InSync -&gt; Syncing (drift=True, autoUpdate=True)</code> then <code>tools auto-reconcile starting</code>. One-in-flight + cooldown guards; unit test <code>Evaluate_DriftEnabledButReconcileInFlight_...</code>.</td></tr>
+<tr><td>3</td><td>On success returns to green and hides; no click needed</td>
+  <td>Live log: <code>Syncing -&gt; InSync (reconcile resolved drift)</code>; see <i>green-resolved.png</i> (badge gone, "9 of 9 tools passing").</td></tr>
+<tr><td>4</td><td>Repeated failure (with backoff) -&gt; red "Tools need attention"</td>
+  <td>State machine ceiling = 3; <code>NextBackoff()</code> 5s, 10s, ...; unit tests <code>OnReconcileFailed_AtCeiling_...</code> and <code>Evaluate_DriftEnabledAtCeiling_StaysRedAndStopsRetrying</code>. Backoff observed live (<code>retry scheduled in 5s</code>).</td></tr>
+<tr><td>5</td><td>Auto-update off -&gt; passive warning as today, no auto-reconcile</td>
+  <td>When disabled the drive path never probes <code>HasDrift</code> and never reconciles; unit test <code>Evaluate_DriftButAutoUpdateDisabled_IsPassiveWarningAndDoesNotReconcile</code>. (Live: with the user's real <code>enabled=false</code> the badge stayed quiet/passive.)</td></tr>
+<tr><td>6</td><td>Orange styling per VisualStyle; responsive &lt;100ms; shows progress not a frozen badge</td>
+  <td>Orange rendered synchronously before any awaited work (<code>StartToolsReconcile</code> paints then runs in background); indeterminate ProgressBar spinner; see <i>orange-syncing.png</i>.</td></tr>
+<tr><td>7</td><td>Logs each state transition</td>
+  <td><code>FileLog.Write("[MainWindow] tools indicator state: X -&gt; Y ...")</code> at every transition; see the log excerpt below.</td></tr>
+<tr><td>8</td><td>Build clean + tests for the transitions</td>
+  <td><code>dotnet build cc-director.sln</code> = 0 warnings / 0 errors. 13 + 4 new tests pass; existing reconciler/home tests still pass.</td></tr>
+<tr><td>9</td><td>Proven in the running app: orange during a reconcile, green after</td>
+  <td>Screenshots below, captured from cc-director17.exe against the real install with a single injected read-only orphaned legacy shim as the sole drift.</td></tr>
+</table>
+
+<h2>Proof - the running app</h2>
+<div class="imgwrap">
+  <div class="imgcard">
+    <img src="orange-syncing.png" alt="orange syncing state">
+    <div>orange-syncing.png - the badge shows orange "Syncing tools... / reconciling cc-* tools" with the progress spinner while the reconcile runs.</div>
+  </div>
+  <div class="imgcard">
+    <img src="green-resolved.png" alt="green resolved state">
+    <div>green-resolved.png - after the reconcile resolved the drift the tools badge is gone (in sync); home reads "All systems go - 9 of 9 tools passing".</div>
+  </div>
+</div>
+
+<h2>Proof - Director log (state transitions, from the same run)</h2>
+<pre>2026-06-29 02:21:58.955 [MainWindow] tools indicator state: InSync -> Syncing (drift=True, autoUpdate=True)
+2026-06-29 02:21:58.955 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:21:59.017 [MainWindow] tools auto-reconcile done: outcome=Reconciled, actions=1
+2026-06-29 02:22:05.957 [MainWindow] tools indicator state: Syncing -> Syncing (reconcile ineffective; failures=1, outcome=Reconciled, driftRemains=True)
+2026-06-29 02:22:05.957 [MainWindow] tools auto-reconcile retry scheduled in 5s
+2026-06-29 02:22:11.032 [MainWindow] tools auto-reconcile starting (indicator Syncing)
+2026-06-29 02:22:17.938 [MainWindow] tools indicator state: Syncing -> InSync (reconcile resolved drift)</pre>
+<p>(The drift was a read-only orphaned legacy alias shim, deliberately staged so the first reconcile
+could not purge it - this is what keeps the orange state on screen long enough to capture and exercises
+the backoff retry. Clearing read-only lets the next retry purge it, and the badge returns to green. The
+full excerpt is in <code>director-log-excerpt.txt</code>.)</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change reuses the existing reconcile engine (#826),
+lifecycle/config (#827), and the toggle (#828). No new container; no change to any blocking security
+rule. <code>ToolReconciler.HasDrift()</code> is an additive read-only method.</p>
+
+<div class="verdict">
+<b>I believe this is finished.</b> The build is clean (0 warnings/0 errors), all new and existing unit
+tests pass, and the orange "Syncing tools..." state and the resolved green state were both captured in
+the running Director, with the state-machine transitions recorded in the Director log.
+</div>
+</body>
+</html>

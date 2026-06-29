@@ -166,6 +166,50 @@ public sealed class ToolReconciler
     }
 
     /// <summary>
+    /// Read-only drift probe: returns true when <see cref="ReconcileAsync"/> would have corrective work to
+    /// do right now - a manifest tool whose venv console-script exists but whose managed bin shim is missing
+    /// (a), an orphaned legacy/retired alias shim (b), or a broken/absent shared venv (c). It performs the
+    /// SAME pure reads <see cref="ReconcileAsync"/> uses to detect drift and mutates nothing (no shim writes,
+    /// no venv rebuild, no network). The active corner indicator (issue #829) calls this to decide whether to
+    /// show the orange "Syncing tools..." state and start a reconcile, so the badge reflects exactly the drift
+    /// the reconcile would act on. Never throws (the indicator must stay responsive): a probe failure is
+    /// logged and reported as "no drift".
+    /// </summary>
+    public bool HasDrift()
+    {
+        try
+        {
+            var installer = new PythonToolsInstaller(_layout);
+            var catalog = new ToolCatalogService(_layout.BinDir);
+            var descriptors = catalog.GetCatalog();
+
+            // (a) a manifest tool whose venv console-script exists but whose managed bin shim is absent.
+            var missingShim = descriptors.Any(d =>
+                File.Exists(PythonToolsInstaller.ConsoleScriptPath(_layout, d.Name))
+                && !File.Exists(ManagedShimPath(d.Name)));
+            if (missingShim)
+                return true;
+
+            // (b) orphaned legacy/retired alias shims left by older installs.
+            if (installer.FindOrphanedLegacyAliasShims().Count > 0)
+                return true;
+
+            // (c) a broken/absent shared venv (a recorded console script is missing). Only judged when there
+            //     is a recorded expectation, mirroring ReconcileAsync - never escalate on a guess.
+            var expectedScripts = PythonToolsState.LoadScripts(_layout);
+            if (expectedScripts.Count > 0 && !PythonToolsInstaller.VenvHasAllTools(_layout, expectedScripts))
+                return true;
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ToolReconciler] HasDrift FAILED (treated as no drift): {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Run the heavy release-backed venv repair under the machine-wide mutex. Returns null on success (the
     /// action is appended to <paramref name="actions"/>) or a skip-note; returns a Failed result when the
     /// repair itself failed. If another Director already holds the mutex, we do NOT force - we log the skip

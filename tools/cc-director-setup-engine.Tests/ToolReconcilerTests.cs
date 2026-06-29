@@ -232,4 +232,50 @@ public sealed class ToolReconcilerTests : IDisposable
             holderThread.Join();
         }
     }
+
+    // HasDrift: the read-only probe the active indicator uses (issue #829) --------------------------------
+
+    [Fact]
+    public void HasDrift_NoDrift_ReturnsFalseAndMutatesNothing()
+    {
+        // Every recorded tool is built AND shimmed - no orphans, no broken venv.
+        PlaceVenvScripts("cc-pdf");
+        RecordExpectedScripts("cc-pdf");
+        new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
+        var before = Directory.GetFileSystemEntries(_layout.BinDir).OrderBy(p => p).ToArray();
+
+        var drift = new ToolReconciler(_layout).HasDrift();
+
+        Assert.False(drift);
+        var after = Directory.GetFileSystemEntries(_layout.BinDir).OrderBy(p => p).ToArray();
+        Assert.Equal(before, after); // a probe never mutates the install
+    }
+
+    [Fact]
+    public void HasDrift_MissingShim_ReturnsTrue()
+    {
+        PlaceVenvScripts("cc-pdf");
+        RecordExpectedScripts("cc-pdf");
+        Assert.False(File.Exists(ShimPath("cc-pdf")));
+
+        Assert.True(new ToolReconciler(_layout).HasDrift());
+    }
+
+    [Fact]
+    public void HasDrift_OrphanedLegacyShim_ReturnsTrue()
+    {
+        Directory.CreateDirectory(_layout.BinDir);
+        File.WriteAllText(Path.Combine(_layout.BinDir, "cc-send.cmd"), "@echo off\r\n");
+
+        Assert.True(new ToolReconciler(_layout).HasDrift());
+    }
+
+    [Fact]
+    public void HasDrift_BrokenVenv_ReturnsTrue()
+    {
+        RecordExpectedScripts("cc-pdf", "cc-html");
+        PlaceVenvScripts("cc-pdf"); // cc-html missing -> venv unhealthy
+
+        Assert.True(new ToolReconciler(_layout).HasDrift());
+    }
 }
