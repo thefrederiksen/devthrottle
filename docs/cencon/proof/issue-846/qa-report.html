@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #846 - Session-number backfill wiring</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2b6cb0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #22643a; font-weight: bold; }
+  .fail { color: #9b2c2c; font-weight: bold; }
+  code, pre { background: #f5f5f5; font-family: Consolas, monospace; }
+  pre { padding: .8rem; border: 1px solid #e2e8f0; overflow-x: auto; white-space: pre-wrap; }
+  .verdict { background: #f0fff4; border: 2px solid #22643a; padding: 1rem; margin-top: 2rem; }
+  .note { background: #fffaf0; border: 1px solid #dd6b20; padding: .7rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #846</h1>
+<p><strong>Title:</strong> Wire #820 session-number backfill: run BackfillNumbers at startup + add an on-demand trigger endpoint (no restart)</p>
+<p><strong>PR:</strong> #847 (branch <code>issue-846-backfill-numbers-wiring</code>)</p>
+<p><strong>Verifier:</strong> QA Agent (independent) - built and ran the PR branch in an isolated worktree (<code>D:\ReposFred\devthrottle-wt-846</code>) and test Director slot 15 (Control API port 7880, PID 32324). Launched via the per-slot scheduled task; torn down after.</p>
+<p><strong>Date:</strong> 2026-06-29</p>
+
+<h2>Summary of verification method</h2>
+<ul>
+  <li>Clean checkout of the PR branch in a dedicated worktree; full <code>dotnet build cc-director.sln</code> from scratch.</li>
+  <li>Live Director (own slot 15) launched via its own scheduled task; verified the startup-backfill log line and exercised the new endpoint over HTTP with the Bearer token.</li>
+  <li>Ran the new tests, the existing #820 session-number/allocator tests, and the full Gateway.Tests project (1005 tests) as a regression sweep.</li>
+  <li>Reviewed the startup-wiring placement and the endpoint auth in source.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Evidence</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Startup backfill runs once after restore; unnumbered tracked sessions get a number, numbered ones keep theirs.</td>
+<td>A startup log shows the backfill pass; a unit test proves a null-numbered tracked session is numbered at StartAsync.</td>
+<td>
+Live Director startup log (director-2026-06-29-32324.log):
+<pre>[SessionManager] BackfillNumbers: scanning active sessions for missing numbers
+[SessionManager] BackfillNumbers: assigned 0 number(s)
+[ControlApiHost] Startup session-number backfill assigned 0 number(s)</pre>
+The pass runs (0 because this Director's session store is cleared by the workspaces design - no tracked sessions at boot). Placement verified: <code>ControlApiHost.StartAsync</code> calls <code>_sessionManager.BackfillNumbers()</code> after <code>StartSessionStateServices()</code> and before the port bind; <code>App.StartControlApi</code> is invoked after <code>SessionManager</code> creation/<code>ScanForOrphans</code>, so any tracked session is in place first.
+Unit test <code>StartAsync_NumbersTrackedSessionsThatLackANumber</code> creates a tracked session, nulls its Number, calls StartAsync, asserts the number is assigned and in range - PASS.
+</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>POST endpoint numbers currently-null sessions on a running Director, returns the count; GET /sessions then shows numbers; no restart.</td>
+<td>Endpoint returns <code>{assigned:N}</code>; before/after /sessions shows null -> numbers without a restart.</td>
+<td>
+Live (no restart) against the running Director:
+<pre>POST /admin/backfill-numbers (Bearer) -> {"assigned":0}</pre>
+Integration test <code>BackfillEndpoint_NumbersUnnumberedSessions_AndIsIdempotent</code> (real ControlApiHost over HTTP): two tracked sessions nulled, POST returns <code>assigned=2</code>, then <code>GET /sessions</code> shows every session with a non-null number - all in-process, no restart. PASS.
+<div class="note">Note: a live null-&gt;number transition cannot be produced through the HTTP create path because every session is numbered at creation (#820), and all body-bound POSTs (including the unrelated <code>/repos</code>) return a generic 400 in this single-file-publish test harness - a pre-existing environment artifact, not a #846 change. The bodyless backfill endpoint works live; the null-&gt;number transition is proven by the HTTP integration test.</div>
+</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>Endpoint reachable with the injected Bearer token - direct Control API and through the Gateway.</td>
+<td>A 2xx call with the bearer header; Gateway route present.</td>
+<td>
+Direct, live:
+<pre>POST http://127.0.0.1:7880/admin/backfill-numbers  (Authorization: Bearer ...) -> HTTP 200 {"assigned":0}</pre>
+<code>/admin/backfill-numbers</code> is NOT in <code>DirectorAuth.PublicPaths</code>, so it requires the token when auth is enabled. Test <code>BackfillEndpoint_RequiresBearerToken_WhenAuthEnabled</code>: no token -> 401, with token -> 200. PASS.
+Gateway leg: new <code>POST /directors/{id}/backfill-numbers</code> in <code>SessionWsProxyEndpoints</code> forwards to the Director's <code>/admin/backfill-numbers</code>, mirroring the proven <code>/directors/{id}/settings</code> route (404 unknown director, 503 on forward failure). Registered in the Gateway endpoint map; the full Gateway.Tests suite passes.
+</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Idempotent: a second call returns assigned:0 and changes nothing.</td>
+<td>Second call = 0.</td>
+<td>
+Live: a call against the already-consistent roster returned <code>{"assigned":0}</code>. Integration test asserts the second call returns <code>assigned=0</code> after the first numbered the sessions. PASS.
+</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Assigned numbers unique among active sessions and within 100-999.</td>
+<td>No duplicates; all in [100,999].</td>
+<td>
+Integration test asserts <code>numbers.Distinct().Count() == numbers.Count</code> and <code>InRange(n, SessionNumberAllocator.MinNumber=100, MaxNumber=999)</code> for the live roster after backfill. The 15 existing <code>SessionNumberAllocator</code>/<code>SessionManager</code> #820 tests (uniqueness, range, thread-safety, reuse) all pass. PASS.
+</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>6</td>
+<td>No regression: creation-time numbering still works; clean build; existing tests pass; new tests cover startup wiring + endpoint.</td>
+<td>Build clean; tests pass; new coverage present.</td>
+<td>
+<pre>dotnet build cc-director.sln  -> Build succeeded. 0 Warning(s) 0 Error(s)
+dotnet test ...SessionNumberBackfill   -> Passed! 3/3   (startup, endpoint+idempotency, auth)
+dotnet test Core.Tests ~SessionNumber  -> Passed! 15/15 (allocator + manager #820)
+dotnet test CcDirector.Gateway.Tests   -> Passed! 1005/1005 (full regression sweep)</pre>
+Creation-time numbering is unchanged (<code>RaiseSessionCreated -&gt; AssignSessionNumber</code>) and is exercised by the #820 manager tests and by the integration test (sessions are numbered at creation, then nulled to simulate the gap). PASS.
+</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>Diff is additive only: a single <code>BackfillNumbers()</code> call in StartAsync plus two new endpoints; no change to request middleware, the allocator, or creation-time assignment.</li>
+  <li>No new security boundary - same <code>DirectorAuth</code> Bearer; the new path is correctly excluded from <code>PublicPaths</code>.</li>
+  <li><code>docs/cencon/architecture_manifest.yaml</code> updated (last_updated + note) - additive endpoints over existing ControlApi + Gateway containers, no new container/pattern.</li>
+  <li>Full Gateway.Tests project (1005 tests) green - nothing adjacent broke.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - all 6 acceptance criteria met.</strong> The previously-uncalled <code>SessionManager.BackfillNumbers()</code> is now wired at Director startup (after restore, before bind) and exposed via a Bearer-protected <code>POST /admin/backfill-numbers</code> endpoint with a Gateway <code>POST /directors/{id}/backfill-numbers</code> proxy. It returns the count, is idempotent, keeps numbers unique and in 100-999, and introduces no regression. Build clean; 1023 relevant tests pass.
+</div>
+
+</body>
+</html>
