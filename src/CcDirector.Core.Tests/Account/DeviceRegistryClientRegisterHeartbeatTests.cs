@@ -28,11 +28,15 @@ public sealed class DeviceRegistryClientRegisterHeartbeatTests
     [Fact]
     public async Task RegisterAsync_PostsDocumentedBody_WithBearer_AndParsesKeyAndRecord()
     {
-        var registerBody =
-            $"{{\"id\":\"dev-857\",\"name\":\"GW-HOST\",\"platform\":\"windows\",\"device_type\":\"gateway\"," +
-            $"\"app_version\":\"9.9.9\",\"key_prefix\":\"dtk_\",\"key_last4\":\"ab12\"," +
-            $"\"created_at\":\"2026-06-30T00:00:00Z\",\"last_seen_at\":\"2026-06-30T00:00:00Z\"," +
-            $"\"device_key\":\"{DeviceKeyMarker}\"}}";
+        // The real cloud wraps the issued key and masked record under a "data" envelope
+        // (devthrottle_internal#81, website/api/v1/devices.js:
+        // `json({ data: { device_key: key.raw, record: toRecord(...) } })`). The stub MUST match that
+        // shape so this test guards the actual contract, not a flat shape the parser happened to accept.
+        var record =
+            "{\"id\":\"dev-857\",\"name\":\"GW-HOST\",\"platform\":\"windows\",\"device_type\":\"gateway\"," +
+            "\"app_version\":\"9.9.9\",\"key_prefix\":\"dtk_\",\"key_last4\":\"ab12\"," +
+            "\"created_at\":\"2026-06-30T00:00:00Z\",\"last_seen_at\":\"2026-06-30T00:00:00Z\"}";
+        var registerBody = $"{{\"data\":{{\"device_key\":\"{DeviceKeyMarker}\",\"record\":{record}}}}}";
         var handler = new CapturingHandler(HttpStatusCode.OK, registerBody);
         var client = ClientOver(handler);
 
@@ -60,7 +64,8 @@ public sealed class DeviceRegistryClientRegisterHeartbeatTests
     [Fact]
     public async Task RegisterAsync_OmitsOptionalFieldsWhenNull()
     {
-        var registerBody = $"{{\"id\":\"d\",\"name\":\"n\",\"device_key\":\"{DeviceKeyMarker}\"}}";
+        // Enveloped real-cloud shape: { data: { device_key, record } }.
+        var registerBody = $"{{\"data\":{{\"device_key\":\"{DeviceKeyMarker}\",\"record\":{{\"id\":\"d\",\"name\":\"n\"}}}}}}";
         var handler = new CapturingHandler(HttpStatusCode.OK, registerBody);
         var client = ClientOver(handler);
 
@@ -77,7 +82,8 @@ public sealed class DeviceRegistryClientRegisterHeartbeatTests
     [Fact]
     public async Task RegisterAsync_MissingDeviceKeyInResponse_Throws()
     {
-        var handler = new CapturingHandler(HttpStatusCode.OK, "{\"id\":\"d\",\"name\":\"n\"}");
+        // Enveloped record present but no device_key under data -> must throw (never fabricate a key).
+        var handler = new CapturingHandler(HttpStatusCode.OK, "{\"data\":{\"record\":{\"id\":\"d\",\"name\":\"n\"}}}");
         var client = ClientOver(handler);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -115,7 +121,10 @@ public sealed class DeviceRegistryClientRegisterHeartbeatTests
     [Fact]
     public async Task HeartbeatAsync_PostsInstallIdAndAppVersion_WithBearer_ReturnsTrueOn200()
     {
-        var handler = new CapturingHandler(HttpStatusCode.OK, "{}");
+        // Real cloud success shape (devthrottle_internal#83): { data: { recorded: true } }. The client
+        // reports advanced from the 200 status alone, so the body is informational, but the stub matches
+        // the contract.
+        var handler = new CapturingHandler(HttpStatusCode.OK, "{\"data\":{\"recorded\":true}}");
         var client = ClientOver(handler);
 
         var advanced = await client.HeartbeatAsync("access-xyz", "install-abc", "9.9.9");

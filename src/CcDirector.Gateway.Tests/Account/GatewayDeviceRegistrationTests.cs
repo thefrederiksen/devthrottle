@@ -94,11 +94,15 @@ public sealed class GatewayDeviceRegistrationTests
                 var platform = (string?)body["platform"] ?? "windows";
                 var deviceType = (string?)body["device_type"] ?? "gateway";
                 var appVersion = (string?)body["app_version"] ?? "";
-                var json =
+                // Real cloud register shape (devthrottle_internal#81, website/api/v1/devices.js:
+                // `json({ data: { device_key: key.raw, record: toRecord(...) } })`): key and masked
+                // record live under a "data" envelope. The stub matches the contract so this test guards
+                // the actual parse shape rather than a flat shape the parser happened to accept.
+                var record =
                     $"{{\"id\":\"{row.Id}\",\"name\":\"{name}\",\"platform\":\"{platform}\",\"device_type\":\"{deviceType}\"," +
                     $"\"app_version\":\"{appVersion}\",\"key_prefix\":\"dtk_\",\"key_last4\":\"ab12\"," +
-                    $"\"created_at\":\"2026-06-01T00:00:00Z\",\"last_seen_at\":\"seen-{row.LastSeen}\"," +
-                    $"\"device_key\":\"{row.DeviceKey}\"}}";
+                    $"\"created_at\":\"2026-06-01T00:00:00Z\",\"last_seen_at\":\"seen-{row.LastSeen}\"}}";
+                var json = $"{{\"data\":{{\"device_key\":\"{row.DeviceKey}\",\"record\":{record}}}}}";
                 return Json(HttpStatusCode.OK, json);
             }
 
@@ -110,7 +114,8 @@ public sealed class GatewayDeviceRegistrationTests
                 if (!_byInstall.TryGetValue(installId, out var row))
                     return Json(HttpStatusCode.NotFound, "{\"error\":\"unknown install\"}");
                 row.LastSeen++;
-                return Json(HttpStatusCode.OK, "{\"ok\":true}");
+                // Real cloud heartbeat success shape (devthrottle_internal#83): { data: { recorded: true } }.
+                return Json(HttpStatusCode.OK, "{\"data\":{\"recorded\":true}}");
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);

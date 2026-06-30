@@ -70,7 +70,11 @@ public sealed class AccountDevicesEndpointTests
 
             if (request.Method == HttpMethod.Get && path == DeviceRegistryClient.DevicesPath)
             {
-                var sb = new StringBuilder("[");
+                // Real cloud list shape (devthrottle_internal#82, website/api/v1/devices.js:
+                // `json({ data: (data || []).map(toRecord) })`): the masked records live under a
+                // top-level "data" envelope, not a bare array. The stub matches the contract so this test
+                // guards the actual parse shape.
+                var sb = new StringBuilder("{\"data\":[");
                 for (var i = 0; i < _devices.Count; i++)
                 {
                     var d = _devices[i];
@@ -79,7 +83,7 @@ public sealed class AccountDevicesEndpointTests
                     // app_version, key_prefix, key_last4, created_at, last_seen_at. No key_hash, no raw key.
                     sb.Append($"{{\"id\":\"{d.Id}\",\"name\":\"{d.Name}\",\"platform\":\"windows\",\"device_type\":\"gateway\",\"app_version\":\"1.2.3\",\"key_prefix\":\"dtk_\",\"key_last4\":\"ab12\",\"created_at\":\"2026-06-01T00:00:00Z\",\"last_seen_at\":\"2026-06-30T12:00:00Z\"}}");
                 }
-                sb.Append(']');
+                sb.Append("]}");
                 return Task.FromResult(Json(HttpStatusCode.OK, sb.ToString()));
             }
 
@@ -89,7 +93,8 @@ public sealed class AccountDevicesEndpointTests
                 var removed = _devices.RemoveAll(d => d.Id == id);
                 if (removed == 0)
                     return Task.FromResult(Json(HttpStatusCode.NotFound, "{\"error\":\"not found\"}"));
-                return Task.FromResult(Json(HttpStatusCode.OK, $"{{\"id\":\"{id}\",\"revoked\":true}}"));
+                // Real cloud revoke shape (devthrottle_internal#82): { data: { id, revoked: true } }.
+                return Task.FromResult(Json(HttpStatusCode.OK, $"{{\"data\":{{\"id\":\"{id}\",\"revoked\":true}}}}"));
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));

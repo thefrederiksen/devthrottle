@@ -155,11 +155,13 @@ public sealed class DeviceRegistryClient
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var root = JsonNode.Parse(json) as JsonArray
-            ?? throw new InvalidOperationException("devices response was not a JSON array");
+        // The cloud wraps the list under a top-level "data" envelope (devthrottle_internal#82,
+        // website/api/v1/devices.js: `json({ data: (data || []).map(toRecord) })`), so the array is
+        // read from data, never the root.
+        var data = DataArray(json, "devices");
 
-        var devices = new List<CloudDeviceRecord>(root.Count);
-        foreach (var item in root)
+        var devices = new List<CloudDeviceRecord>(data.Count);
+        foreach (var item in data)
         {
             if (item is not JsonObject obj)
                 throw new InvalidOperationException("devices response contained a non-object entry");
@@ -251,12 +253,17 @@ public sealed class DeviceRegistryClient
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var root = JsonNode.Parse(json) as JsonObject
-            ?? throw new InvalidOperationException("device register response was not a JSON object");
+        // The cloud wraps the issued key and the masked record under a top-level "data" envelope
+        // (devthrottle_internal#81, website/api/v1/devices.js:
+        // `json({ data: { device_key: key.raw, record: toRecord(...) } })`), so both are read from
+        // data, never the root.
+        var data = DataObject(json, "device register");
 
-        var deviceKey = StringField(root, "device_key")
-            ?? throw new InvalidOperationException("device register response had no string 'device_key'");
-        var device = ParseRecord(root);
+        var deviceKey = StringField(data, "device_key")
+            ?? throw new InvalidOperationException("device register response had no string 'data.device_key'");
+        var record = data["record"] as JsonObject
+            ?? throw new InvalidOperationException("device register response had no object 'data.record'");
+        var device = ParseRecord(record);
 
         // DT-05: log the registered device id only - NEVER the issued key.
         FileLog.Write($"[DeviceRegistryClient] RegisterAsync: registered device id={device.Id} (per-device key received, not logged)");
@@ -301,6 +308,34 @@ public sealed class DeviceRegistryClient
 
         response.EnsureSuccessStatusCode();
         return true;
+    }
+
+    /// <summary>
+    /// Unwraps the cloud's <c>{ "data": { ... } }</c> envelope and returns the inner object. Every device
+    /// endpoint in the cloud contract (devthrottle_internal#81/#82/#83, website/api/v1/devices.js) wraps
+    /// its success payload under a single top-level "data" key, so callers parse from this inner object,
+    /// never the raw root. Throws when the body is not a JSON object or carries no "data" object (so a
+    /// malformed or contract-violating response surfaces as a clear failure, never a silent misparse).
+    /// </summary>
+    private static JsonObject DataObject(string json, string what)
+    {
+        var root = JsonNode.Parse(json) as JsonObject
+            ?? throw new InvalidOperationException($"{what} response was not a JSON object");
+        return root["data"] as JsonObject
+            ?? throw new InvalidOperationException($"{what} response had no object 'data' envelope");
+    }
+
+    /// <summary>
+    /// Unwraps the cloud's <c>{ "data": [ ... ] }</c> envelope and returns the inner array. The list
+    /// endpoint (devthrottle_internal#82) returns its records under the same top-level "data" key as the
+    /// object-returning endpoints. Throws when the body is not a JSON object or carries no "data" array.
+    /// </summary>
+    private static JsonArray DataArray(string json, string what)
+    {
+        var root = JsonNode.Parse(json) as JsonObject
+            ?? throw new InvalidOperationException($"{what} response was not a JSON object");
+        return root["data"] as JsonArray
+            ?? throw new InvalidOperationException($"{what} response had no array 'data' envelope");
     }
 
     /// <summary>

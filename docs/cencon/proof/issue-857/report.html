@@ -24,6 +24,41 @@
 <p><strong>[Gateway] On sign-in, register this Gateway as a device with the cloud and store the per-device key</strong></p>
 <p>Branch <code>issue-857-register-on-signin</code> &middot; Repo <code>thefrederiksen/devthrottle</code> &middot; Built on the merged <code>DeviceRegistryClient</code> (#854) and the Gateway sign-in flow (#637).</p>
 
+<h2>QA bounce fix (2026-06-30) - cloud "data" envelope mismatch</h2>
+<div class="note">
+<p><strong>Defect (QA FAIL):</strong> <code>DeviceRegistryClient.RegisterAsync</code> parsed <code>device_key</code> and the
+record from the <em>root</em> of the JSON response, but the merged cloud endpoint
+(<code>devthrottle_internal: website/api/v1/devices.js</code>) returns them <strong>enveloped under <code>data</code></strong>:
+<code>{ "data": { "device_key": "...", "record": { ... } } }</code>. Against the real cloud, register threw
+<code>"device register response had no string 'device_key'"</code> on every call, so the key was never stored and
+the heartbeat short-circuited - failing all five acceptance criteria in production. The original stub tests
+passed only because they used the flat (buggy) shape.</p>
+
+<p><strong>Fix (verified against the merged cloud contract <code>devices.js</code>):</strong></p>
+<ul>
+  <li><code>RegisterAsync</code> now reads <code>device_key</code> from <code>data.device_key</code> and the masked record from
+  <code>data.record</code> (cloud <code>devices.js</code> lines 132/142: <code>json({ data: { device_key, record } })</code>).</li>
+  <li><code>ListDevicesAsync</code> (GET, merged in #854) had the <strong>same latent envelope bug</strong> - it parsed a
+  top-level JSON array, but the cloud returns <code>{ "data": [ ... ] }</code> (<code>devices.js</code> line 178). Fixed in this
+  PR for consistent envelope handling. <strong>This corrects merged #854 behaviour</strong> (the account device-list proxy
+  <code>GET /account/devices</code> would otherwise throw against the real cloud).</li>
+  <li><code>HeartbeatAsync</code> (POST, returns <code>{ "data": { "recorded": true } }</code>) and <code>RevokeDeviceAsync</code>
+  (DELETE, returns <code>{ "data": { "id":..., "revoked":true } }</code>) are <strong>status-code-only</strong> - they never parse the
+  response body (200 -&gt; true, 404 -&gt; false) - so they were already correct and needed no client change.</li>
+  <li>Introduced two shared helpers, <code>DataObject</code> / <code>DataArray</code>, that unwrap the <code>{ "data": ... }</code>
+  envelope and throw clearly when it is absent (no fallback - a contract-violating body surfaces as a clear failure).</li>
+  <li><strong>Stub fixtures corrected to the real enveloped shape</strong> so the tests now actually CATCH this mismatch:
+  <code>DeviceRegistryClientRegisterHeartbeatTests</code> (register -&gt; <code>{ data: { device_key, record } }</code>, heartbeat -&gt;
+  <code>{ data: { recorded: true } }</code>), <code>GatewayDeviceRegistrationTests</code> stub (same), and
+  <code>AccountDevicesEndpointTests.StubCloudHandler</code> (GET -&gt; <code>{ data: [ ... ] }</code>, DELETE -&gt;
+  <code>{ data: { id, revoked } }</code>). With the corrected parser these fixtures are required; reverting the parser to read
+  from root now fails the tests.</li>
+</ul>
+<p><strong>Result:</strong> build clean (0 warnings, 0 errors); 11 Core register/heartbeat tests + 30 Gateway device tests
+pass against the corrected real-cloud envelope fixtures (see <code>fix-test-output.txt</code>). The live signed-in
+real-cloud round-trip remains the QA gate.</p>
+</div>
+
 <h2>What was implemented</h2>
 <p>When the Gateway signs in (the #637 browser loopback completion path), and as a first-launch/retry safety
 net on the background heartbeat, the Gateway now registers itself as a device with the DevThrottle cloud
