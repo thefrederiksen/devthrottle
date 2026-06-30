@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #857: On sign-in, register this Gateway as a device and store the per-device key</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; max-width: 1100px; }
+  h1 { color: #007ACC; font-size: 1.5rem; }
+  h2 { color: #005a99; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.25rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; font-size: 0.92rem; }
+  th { background: #f0f6fb; }
+  code { background: #f4f4f4; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.88rem; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-size: 0.82rem; }
+  .pass { color: #157f3b; font-weight: bold; }
+  .gate { color: #b25000; font-weight: bold; }
+  .files li { margin: 0.2rem 0; }
+  .note { background: #fff8e1; border-left: 4px solid #f0a500; padding: 0.6rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #857</h1>
+<p><strong>[Gateway] On sign-in, register this Gateway as a device with the cloud and store the per-device key</strong></p>
+<p>Branch <code>issue-857-register-on-signin</code> &middot; Repo <code>thefrederiksen/devthrottle</code> &middot; Built on the merged <code>DeviceRegistryClient</code> (#854) and the Gateway sign-in flow (#637).</p>
+
+<h2>What was implemented</h2>
+<p>When the Gateway signs in (the #637 browser loopback completion path), and as a first-launch/retry safety
+net on the background heartbeat, the Gateway now registers itself as a device with the DevThrottle cloud
+account and stores the cloud-issued per-device key locally. A periodic heartbeat keeps the account device
+list's last-seen fresh. Every cloud call degrades gracefully: a failure leaves the Gateway signed in and
+running, logs the failure, and retries on the next heartbeat. The raw per-device key is never written to the
+log (security rule DT-05).</p>
+
+<h3>Files changed</h3>
+<ul class="files">
+  <li><code>src/CcDirector.Core/Account/DeviceRegistryClient.cs</code> - extended the existing injectable-HttpClient client with <code>RegisterAsync</code> (<code>POST /api/v1/devices/register</code>) and <code>HeartbeatAsync</code> (<code>POST /api/v1/devices/heartbeat</code>), plus the <code>CloudDeviceRegistrationRequest</code> / <code>CloudDeviceRegistrationResult</code> records. No second client or base URL - reuses the same <code>DEVTHROTTLE_API_URL</code> egress base.</li>
+  <li><code>src/CcDirector.Gateway/Account/GatewayInstallId.cs</code> (new) - the Gateway's single stable per-machine install id, persisted at <code>config/director/gateway-install-id.txt</code>. The idempotency anchor (no pre-existing Gateway install id existed to reuse; this establishes the one canonical id, not a competing one).</li>
+  <li><code>src/CcDirector.Gateway/Account/GatewayDeviceKeyStore.cs</code> (new) - stores the issued per-device key + its install id at <code>config/director/account-device-key.json</code> (the #469 device-key location). Key value never logged.</li>
+  <li><code>src/CcDirector.Gateway/Account/GatewayDeviceRegistrationService.cs</code> (new) - <code>EnsureRegisteredAsync</code> with the two idempotency guards (in-run + relaunch/key-present).</li>
+  <li><code>src/CcDirector.Gateway/Account/GatewayDeviceHeartbeatService.cs</code> (new) - the background heartbeat loop (mirrors <code>GatewayTokenRefreshService</code>): ensure-registered then advance last-seen; single boundary try/catch = graceful degradation.</li>
+  <li><code>src/CcDirector.Gateway/Account/GatewaySignInService.cs</code> - added an optional best-effort <code>onSignedIn</code> hook fired (detached) after a successful sign-in.</li>
+  <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - constructs the two services when the credential service is present, wires the sign-in hook, starts the heartbeat in <code>StartAsync</code>, disposes it in <code>StopAsync</code>.</li>
+  <li>Tests: <code>CcDirector.Core.Tests/Account/DeviceRegistryClientRegisterHeartbeatTests.cs</code>, <code>CcDirector.Gateway.Tests/Account/{GatewayDeviceRegistrationTests, GatewayInstallIdTests, GatewayDeviceKeyStoreTests}.cs</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (proven by)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>After a fresh sign-in, exactly one device record for this machine exists in the cloud.</td>
+    <td>Sign-in calls register exactly once; the stub cloud holds exactly one device.</td>
+    <td><code>EnsureRegistered_FreshSignIn_RegistersOnce_AndStoresKey</code>: <code>RegisterCallCount == 1</code>, <code>DeviceCount == 1</code>. Body asserted in <code>RegisterAsync_PostsDocumentedBody_WithBearer_AndParsesKeyAndRecord</code> (install_id, platform, name, device_type=gateway, app_version + Bearer).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>The cloud-issued per-device key is stored locally and present on disk after sign-in; value never written to the log (DT-05).</td>
+    <td>Key file exists and contains the key; no log line carries the raw key.</td>
+    <td><code>EnsureRegistered_StoresKeyOnDisk_ButNeverLogsTheRawKey</code>: file at <code>account-device-key.json</code> contains the key; <code>FileLog.RedirectForTests()</code> drained lines contain neither the key nor the <code>DEVICEKEY-PLAINTEXT-MARKER</code>, yet do contain the "registered device id=" line. Also <code>GatewayDeviceKeyStoreTests.Save_PersistsKeyToDisk_ButNeverLogsIt</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>A second sign-in or a relaunch does NOT create a duplicate device record.</td>
+    <td>A second call in the same run, and a fresh service over the same on-disk key store, do not register again; the cloud count stays 1.</td>
+    <td><code>EnsureRegistered_SecondCallSameRun_DoesNotRegisterTwice</code> (in-run guard, <code>RegisterCallCount == 1</code>) and <code>EnsureRegistered_Relaunch_DoesNotRegisterTwice</code> (relaunch/key-present guard, <code>RegisterCallCount == 1</code>, <code>DeviceCount == 1</code>). The same stable <code>GatewayInstallId</code> is sent every time (<code>GatewayInstallIdTests</code>).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>The device's last-seen advances on the heartbeat.</td>
+    <td>A heartbeat tick POSTs <code>/devices/heartbeat</code> with the right install id and the stub's last-seen increases.</td>
+    <td><code>Heartbeat_AfterRegistration_AdvancesLastSeen_WithCorrectInstallId</code>: <code>HeartbeatCallCount == 1</code>, <code>LastHeartbeatInstallId == InstallId</code>, last-seen strictly increased. Wire shape proven in <code>HeartbeatAsync_PostsInstallIdAndAppVersion_WithBearer_ReturnsTrueOn200</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>If the cloud call fails, the Gateway stays signed in and running (no block), logs the failure, and retries on the next heartbeat.</td>
+    <td>A failing register does not throw out of the tick or sign the Gateway out; the next tick retries and succeeds.</td>
+    <td><code>Heartbeat_CloudRegisterFails_NoCrash_StaysSignedIn_AndRetriesNextTick</code>: first tick (cloud 500) does not throw, <code>account.IsLoggedIn()</code> still true, log carries "retry on the next heartbeat"; second tick registers + heartbeats (<code>RegisterCallCount == 2</code>, <code>DeviceCount == 1</code>, <code>HeartbeatCallCount == 1</code>). The 404 path is covered by <code>Heartbeat_CloudReturns404_ResetsRegistration_AndReRegistersNextTick</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>+</td>
+    <td>First launch if already signed in but never registered.</td>
+    <td>The first heartbeat tick registers, then heartbeats.</td>
+    <td><code>Heartbeat_FirstTick_WhenSignedInButUnregistered_RegistersThenHeartbeats</code>: <code>RegisterCallCount == 1</code>, key stored, <code>HeartbeatCallCount == 1</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>+</td>
+    <td>Not signed in: no block, no cloud call.</td>
+    <td>Registration is a logged no-op touching no cloud.</td>
+    <td><code>EnsureRegistered_NotSignedIn_IsNoOp_AndCallsNoCloud</code>: <code>RegisterCallCount == 0</code>, <code>LastAuthorization == null</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Build &amp; test results</h2>
+<p><code>dotnet build cc-director.sln</code> &rarr; <strong>Build succeeded. 0 Warning(s), 0 Error(s).</strong></p>
+<p>New tests: <strong>26 passed, 0 failed</strong> (Core 11 + Gateway 15). Full per-test list captured in <code>test-output.txt</code> alongside this report.</p>
+<pre id="testout">See test-output.txt (committed next to this report) for the full per-test pass list.</pre>
+
+<h2 class="gate">QA gate - the one thing the automated proof cannot cover</h2>
+<div class="note">
+<p class="gate">Live real-cloud signed-in round-trip.</p>
+<p>The cloud device endpoints live in the separate, already-merged repo <code>thefrederiksen/devthrottle_internal</code>
+(#81 register, #83 heartbeat). The automated proof here drives a faithful in-process <strong>stub</strong> of that
+contract; staging a real signed-in DevThrottle account from automation is not available to this run, so the proof
+does <em>not</em> fake a live call. QA must verify, against the real cloud with a real signed-in Gateway:</p>
+<ol>
+  <li>A fresh sign-in creates exactly one device row (<code>GET /account/devices</code> or the cloud directly).</li>
+  <li>The stored key file appears under <code>%LOCALAPPDATA%\cc-director\config\director\account-device-key.json</code> (value redacted) and no Gateway log line carries the raw key.</li>
+  <li>A relaunch does not add a second row.</li>
+  <li>Two <code>GET /account/devices</code> reads a heartbeat apart show a newer last-seen.</li>
+  <li>Confirm the cloud's register response field name for the raw key. This implementation parses <code>device_key</code> (the one cloud-contract field-name assumption; the masked record fields <code>id/name/platform/.../key_prefix/key_last4</code> match the existing #854 list shape). If the cloud names it differently, only the one string constant in <code>RegisterAsync</code> needs to change.</li>
+</ol>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change reuses the existing single cloud egress
+(<code>DEVTHROTTLE_API_URL</code> + <code>GetAccessTokenForForwarding</code>), the existing per-user config root,
+and the existing security boundary; it honors DT-05 (no key/token in logs) and adds no new external system or
+pattern. The manifest (<code>last_updated 2026-06-30</code>) and security profile (<code>last_verified 2026-06-09</code>,
+21 days &lt; 30-day threshold) are both current, so no CenCon doc update is required.</p>
+
+<h2>I believe this is finished.</h2>
+<p>All five acceptance criteria are met and proven by stub-backed unit tests; the solution builds clean with zero
+warnings; the code was self-reviewed against <code>docs/CodingStyle.md</code> and passed the <code>review-code</code>
+skill (PII clean, 0 blocking). The single remaining verification - a live signed-in round-trip against the real
+cloud - is explicitly flagged above as the QA gate and was not faked.</p>
+
+</body>
+</html>
