@@ -173,6 +173,28 @@ public sealed class WingmanVoiceService
     public void Mark(string sid) { if (_voiceSessions.TryAdd(sid, 1)) SaveVoiceSessions(); }
 
     /// <summary>
+    /// Stop keeping voice for this session - it is no longer a voice session (issue #859). The user
+    /// turned voice off, so the gateway must stop spending the per-turn Opus translation + OpenAI
+    /// text-to-speech on it. Removes it from the persisted voice-session set (so the turn-end watcher
+    /// and the background sweep skip it - both gate on <see cref="IsVoiceSession"/> /
+    /// <see cref="VoiceSessionIds"/>), drops any cached spoken summary + audio (so the list stops
+    /// showing it "voice ready" and nothing stale is served), and clears the transient generating
+    /// marker. The removal is persisted, so a gateway restart does not bring the session back as a
+    /// voice session. Read-only: this changes only gateway-side voice marking; it sends nothing into
+    /// the session. Re-entering voice (the explain path calls <see cref="Mark"/>) starts it again.
+    /// </summary>
+    public void Unmark(string sid)
+    {
+        var wasVoice = _voiceSessions.TryRemove(sid, out _);
+        if (wasVoice) SaveVoiceSessions();
+        _generating.TryRemove(sid, out _);
+        if (_ready.TryRemove(sid, out _))
+            DeleteReadyAudio(sid);   // keep the durable cache in step so a stale tap can't 404
+        if (wasVoice)
+            FileLog.Write($"[WingmanVoiceService] voice unmarked (turned off): sid={sid}");
+    }
+
+    /// <summary>
     /// A new turn just started on this session, so the cached spoken summary + audio are now stale.
     /// Drop them immediately - the list stops showing it "voice ready", and nothing stale gets
     /// served or played. The session stays a voice session, so when the turn finishes the turn-end

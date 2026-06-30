@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #859 - Gateway voice unmark - Developer Proof</title>
+<style>
+  :root { --bg:#0b1020; --panel:#131a2e; --panel2:#1a2236; --border:#2a3550; --text:#e7ecf5; --dim:#93a0bd; --accent:#4f8cff; --green:#22c55e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:27px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:38px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  p,li { color:#d7deef; }
+  .sub { color:var(--dim); margin:0 0 8px; }
+  code { background:#0f1626; padding:1px 6px; border-radius:5px; font-family:Consolas,Menlo,monospace; font-size:13px; color:#cfe0ff; }
+  pre { background:#0f1626; border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; font-family:Consolas,Menlo,monospace; font-size:12.5px; color:#cfe0ff; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel2); color:#cdd8f0; }
+  .pill { display:inline-block; font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; background:#11331f; color:#5fd08a; border:1px solid #1f5c38; }
+  img { width:300px; border:1px solid var(--border); border-radius:12px; }
+  .cap { color:var(--dim); font-size:13px; margin-top:8px; max-width:300px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #859 - Stop turn-end re-narration when voice is turned off</h1>
+  <p class="sub">Developer Agent proof. Branch <code>issue-859-gateway-voice-unmark</code> (off <code>main</code> which already has #850).</p>
+  <p><span class="pill">I believe this is finished.</span></p>
+
+  <h2>1. What was implemented</h2>
+  <ul>
+    <li><b>Gateway service</b> (<code>src/CcDirector.Gateway/Wingman/WingmanVoiceService.cs</code>): new
+      <code>Unmark(sid)</code> - the counterpart to <code>Mark(sid)</code>. It removes the session from the
+      persisted voice-session set, drops the cached spoken summary + audio (and the durable copy on disk), and
+      clears the transient generating marker. Read-only: it sends nothing into the session.</li>
+    <li><b>Gateway endpoint</b> (<code>src/CcDirector.Gateway/Api/GatewayWingmanVoiceEndpoint.cs</code>):
+      <code>POST /sessions/{sid}/wingman/voice/stop</code> -> <code>{ stopped: true }</code>. Validates the session
+      id, calls <code>Unmark</code>; idempotent (stopping a non-voice session is a 200 no-op).</li>
+    <li><b>Mobile wiring</b> (<code>mobile/src/api/client.ts</code>, <code>mobile/src/pages/VoiceMode.tsx</code>):
+      a new <code>stopWingmanVoice()</code> call, and "Turn voice off" now calls it alongside the existing
+      Director <code>POST /voice-mode { enabled:false }</code>.</li>
+  </ul>
+  <p>Why this stops the spend without touching the watcher: the turn-end watcher
+  (<code>GatewayHost</code> turn-end handler) and the background voice sweep
+  (<code>SweepVoiceSessionsAsync</code>) already gate on <code>IsVoiceSession</code> / <code>VoiceSessionIds</code>.
+  Removing the session from the set makes both skip it - no code change needed there.</p>
+
+  <h2>2. Acceptance criteria - met</h2>
+  <table>
+    <tr><th>Criterion</th><th>How it is met / proof</th></tr>
+    <tr><td>New Gateway endpoint, 2xx</td><td><code>POST /sessions/{sid}/wingman/voice/stop</code> returns <code>{ stopped:true }</code>; full solution builds clean.</td></tr>
+    <tr><td>No longer listed in <code>/wingman/voice/ready</code> after the call</td><td><code>Unmark</code> removes from <code>_ready</code> (which backs <code>ReadySessionIds</code>). Unit test <code>Unmark_DropsTheReadyClip</code>.</td></tr>
+    <tr><td>No re-narration on the next turn-end</td><td>The watcher gates on <code>IsVoiceSession</code>; <code>Unmark</code> removes the session from the set. Unit test <code>Unmark_AfterMark_RemovesFromVoiceSessionSet</code> (the set no longer contains the sid, so the watcher's guard is false).</td></tr>
+    <tr><td>Voice sweep no longer pre-builds it</td><td>The sweep iterates <code>VoiceSessionIds()</code>; the unit test asserts the sid is absent from it.</td></tr>
+    <tr><td>Unmark persists across a Gateway restart</td><td><code>Unmark</code> calls <code>SaveVoiceSessions()</code> and deletes the durable audio. Unit test <code>Unmark_PersistsAcrossRestart</code> reloads a fresh service over the same path and asserts the session is not a voice session and has no ready clip.</td></tr>
+    <tr><td>Mobile "Turn voice off" hits the new endpoint</td><td>Network capture below: the tap fires <code>POST .../voice-mode</code> AND <code>POST .../wingman/voice/stop</code>; the screen returns to off.</td></tr>
+    <tr><td>Re-enabling resumes narration</td><td>"Switch to voice mode" still calls <code>explain</code> -> <code>Mark</code>, re-adding the session. Idempotency covered by <code>Unmark_UnknownSession_IsNoOp</code>.</td></tr>
+    <tr><td>Wingman stays read-only</td><td>The endpoint only clears gateway-side marking; it makes no Director write call and sends no keystrokes.</td></tr>
+  </table>
+
+  <h2>3. Unit tests (CcDirector.Gateway.Tests)</h2>
+  <p class="sub">Four new tests for <code>Unmark</code>, plus the eight existing voice tests, all pass.</p>
+  <pre>dotnet test --filter WingmanVoiceServiceTests
+Passed!  - Failed: 0, Passed: 12, Skipped: 0, Total: 12  - CcDirector.Gateway.Tests.dll (net10.0)
+
+New: Unmark_AfterMark_RemovesFromVoiceSessionSet
+     Unmark_DropsTheReadyClip
+     Unmark_PersistsAcrossRestart
+     Unmark_UnknownSession_IsNoOp</pre>
+
+  <h2>4. Build</h2>
+  <pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+mobile/: npm run typecheck - clean; npm run build - succeeded.</pre>
+
+  <h2>5. Mobile network capture</h2>
+  <p class="sub">The real Voice screen, Gateway mocked in-page (the shim records every POST). After tapping
+  "Turn voice off":</p>
+  <pre>POSTs after 'Turn voice off':
+  ["/sessions/&lt;sid&gt;/voice-mode", "/sessions/&lt;sid&gt;/wingman/voice/stop"]
+hit /voice-mode: true | hit /wingman/voice/stop: true
+PASS: both endpoints called</pre>
+  <div>
+    <img src="voice-off-network.png" alt="Off result after Turn voice off" />
+    <div class="cap">The screen after "Turn voice off" - returns to the off state (and the two POSTs above fired).</div>
+  </div>
+
+  <h2>6. CenCon impact</h2>
+  <p>Additive endpoint over the already-documented Tailnet Gateway container (<code>WingmanVoiceService</code> +
+  the Wingman voice endpoint surface) plus a one-call mobile wiring. No new container, external system, or
+  security boundary (same gateway auth), and no change to the read-only Wingman charter.</p>
+</div>
+</body>
+</html>
