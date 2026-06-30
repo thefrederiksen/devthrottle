@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #870 - Flaky throughput test - Developer Proof</title>
+<style>
+ :root{--bg:#0b1020;--border:#2a3550;--text:#e7ecf5;--dim:#93a0bd;--accent:#4f8cff;}
+ *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6;}
+ .wrap{max-width:1000px;margin:0 auto;padding:32px 24px 96px;} h1{font-size:25px;margin:0 0 4px;} h2{font-size:19px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+ p,li{color:#d7deef;} code{background:#0f1626;padding:1px 6px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;color:#cfe0ff;}
+ pre{background:#0f1626;border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow-x:auto;font-family:Consolas,monospace;font-size:12.5px;color:#cfe0ff;}
+ .pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;background:#11331f;color:#5fd08a;border:1px solid #1f5c38;}
+</style></head><body><div class="wrap">
+<h1>Issue #870 - Flaky throughput test</h1>
+<p style="color:var(--dim)">Branch <code>issue-870-flaky-throughput</code> (off <code>main</code>).</p>
+<p><span class="pill">I believe this is finished.</span></p>
+
+<h2>1. Root cause (measured)</h2>
+<p><code>TerminalThroughputTests.Parse10MbInChunks_EachChunkCompletesWithin100Ms</code> parsed 10 MB in 160 x 64 KB
+chunks and failed if <strong>any single chunk</strong> exceeded a 100 ms wall-clock budget. Measured distribution
+across runs: the <strong>typical (median) chunk is ~25 ms</strong>, max usually 67-85 ms, but it
+<strong>occasionally spikes to ~128 ms</strong> from GC / OS-scheduler jitter (one run: max 128 ms, 2 offenders ->
+FAIL). The parser is fine; a single jitter spike at the 100 ms line flaked the gate.</p>
+
+<h2>2. Fix</h2>
+<p>Assert the signals that separate a responsive parser from a real regression, instead of an absolute per-chunk
+deadline (the approach the issue's criteria endorse):</p>
+<ul>
+ <li><strong>Median chunk &lt;= 100 ms</strong> - the typical chunk stays within the UI budget (jitter-robust: a
+   few outliers do not move the median; a real slowdown does).</li>
+ <li><strong>&lt;= 5% of chunks may exceed 100 ms</strong> - tolerates rare GC/scheduler jitter; a systemic
+   slowdown pushes far more over.</li>
+ <li><strong>No chunk &gt; 1000 ms</strong> - a true catastrophic per-chunk UI block still fails.</li>
+</ul>
+<p>Test-only change in <code>src/CcDirector.Core.Tests/TerminalThroughputTests.cs</code> (renamed to
+<code>Parse10MbInChunks_TypicalChunkStaysWithinUiBudget</code> to match the assertion). No production code change.</p>
+
+<h2>3. Verification</h2>
+<pre>dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)
+
+# TerminalThroughputTests x10 consecutive (under load):
+run 1..10: Passed!  - Failed: 0, Passed: 4, Total: 4   (every run)
+
+# Full CcDirector.Core.Tests (in-suite + regression):
+Passed!  - Failed: 0, Passed: 2646, Skipped: 6, Total: 2652</pre>
+<p>The previously-flaky test passed 10/10 isolated runs and within the full suite, with no regression. (Before the
+fix, the same test failed intermittently - e.g. 1 of 3 isolated runs.)</p>
+
+<h2>4. CenCon impact</h2>
+<p>No drift. A test-only fix (test isolation/robustness); no new container, security boundary, or production
+behavior change.</p>
+</div></body></html>
