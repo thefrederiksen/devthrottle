@@ -185,18 +185,18 @@ public partial class MainWindow : Window
         BtnHandover.IsVisible = alpha;
         FileLog.Write($"[MainWindow] ApplyAlphaFeatureVisibility: alphaFeatures={alpha}");
 
-        // The Voice tab, Wingman tab, and "Open Wingman" button are alpha-gated for the
-        // v1 default install (issue 559). Re-evaluate them here so a live alpha toggle
-        // (AlphaMode.Changed) shows or hides them without a restart.
+        // The Wingman tab and "Open Wingman" button are alpha-gated for the v1 default install
+        // (issue 559); the Voice tab is shown in v1 regardless of alpha mode. Re-evaluate them
+        // here so a live alpha toggle (AlphaMode.Changed) shows or hides them without a restart.
         ApplyVoiceWingmanTabVisibility();
     }
 
     /// <summary>
     /// Single source of truth for the visibility of the Voice tab, the Wingman tab, and the
-    /// "Open Wingman" button. Alpha mode is a hard gate: when it is off, all three are hidden
-    /// regardless of the per-session Wingman state. When it is on, the pre-existing conditional
-    /// logic applies (Voice and "Open Wingman" follow whether a session is active; the Wingman
-    /// tab additionally requires the session's Wingman experience to be enabled). When the
+    /// "Open Wingman" button. The Voice tab ships in v1 and only requires an active session.
+    /// Alpha mode remains a hard gate for the Wingman tab and the "Open Wingman" button: when it
+    /// is off they are hidden regardless of the per-session Wingman state; when it is on, the
+    /// Wingman tab additionally requires the session's Wingman experience to be enabled. When the
     /// Voice or Wingman tab gets hidden out from under the active tab, fall back to Terminal so
     /// the session view is never stuck on a hidden tab.
     /// </summary>
@@ -206,7 +206,8 @@ public partial class MainWindow : Window
         var hasSession = _activeSession is not null;
 
         var openWingmanVisible = alpha && hasSession;
-        var voiceVisible = alpha && hasSession;
+        // Voice mode is a v1 feature (no longer alpha-gated); it only needs an active session.
+        var voiceVisible = hasSession;
         var wingmanVisible = alpha && hasSession && _activeSession is not null
             && _activeSession.Session.WingmanEnabled;
 
@@ -1713,11 +1714,9 @@ public partial class MainWindow : Window
             tabName = "Terminal";
         if (string.Equals(tabName, "Wingman", StringComparison.Ordinal) && !vm.Session.WingmanEnabled)
             tabName = "Terminal";
-        // When alpha mode is off, the Voice and Wingman tabs are hidden (issue 559); never
-        // open the session view on a hidden tab.
-        if (!AlphaMode.IsEnabled &&
-            (string.Equals(tabName, "Voice", StringComparison.Ordinal) ||
-             string.Equals(tabName, "Wingman", StringComparison.Ordinal)))
+        // When alpha mode is off, the Wingman tab is hidden (issue 559); never open the session
+        // view on a hidden tab. The Voice tab ships in v1, so a saved "Voice" tab is honored.
+        if (!AlphaMode.IsEnabled && string.Equals(tabName, "Wingman", StringComparison.Ordinal))
             tabName = "Terminal";
         if (string.IsNullOrEmpty(tabName)) tabName = "Terminal";
         if (tabName != _activeLeftTab)
@@ -3643,7 +3642,7 @@ public partial class MainWindow : Window
 
     private void VoiceTabButton_Click(object? sender, RoutedEventArgs e)
     {
-        // The Voice tab is alpha-gated (issue 559); ignore activation when it is hidden.
+        // The Voice tab is hidden when there is no active session; ignore activation when hidden.
         if (!VoiceTabButton.IsVisible) return;
         SwitchLeftTab("Voice");
     }
