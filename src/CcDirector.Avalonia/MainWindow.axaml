@@ -273,6 +273,41 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Account status indicator (issue #852). Sits directly above the Gateway box. A
+                     read-only, NON-BLOCKING nudge that mirrors the connected Gateway's
+                     GET /account/status - it is NOT a re-added sign-in gate (#651/#664 removed the
+                     Director's own account gate; the Director always boots regardless). Three states
+                     painted from code-behind off the GatewayAccountStatusClient via
+                     AccountIndicatorPresenter: GREEN "SIGNED IN" with the email, AMBER "NOT SIGNED IN"
+                     whose click opens the Cockpit Account page, and a MUTED unavailable state when no
+                     Gateway is configured or the read fails - never a false "signed out". The status
+                     read is asynchronous (heartbeat poll), so the sidebar paints immediately while the
+                     box is still resolving. Starts in the muted resolving state. -->
+                <Border x:Name="AccountIndicator" DockPanel.Dock="Bottom"
+                        Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
+                        Background="#2A2A2A" BorderBrush="#3C3C3C" BorderThickness="1"
+                        Cursor="Hand"
+                        PointerPressed="AccountIndicator_PointerPressed">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Viewbox Width="22" Height="22" VerticalAlignment="Center">
+                            <Path x:Name="AccountIndicatorIcon"
+                                  Fill="#777777"
+                                  Data="M8,2 A3,3 0 1 1 8,8 A3,3 0 1 1 8,2 Z M2,15 C2,11 5,9 8,9 C11,9 14,11 14,15 Z" />
+                        </Viewbox>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="AccountIndicatorLabel"
+                                       Text="ACCOUNT"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#777777" />
+                            <TextBlock x:Name="AccountIndicatorSub"
+                                       Text="reading account status..."
+                                       FontSize="10" Foreground="#666666"
+                                       TextWrapping="Wrap" MaxWidth="186"
+                                       MaxLines="3" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- cc-* tools health indicator (sits directly above the Gateway indicator).
                      Active, self-healing badge (issue #829): hidden when every tool passes (green),
                      orange "Syncing tools..." with a progress spinner while an automatic reconcile
