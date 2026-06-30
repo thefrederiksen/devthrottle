@@ -1,0 +1,48 @@
+{
+  "t0_machine_rows": [
+    {
+      "name": "SOREN_NORTH",
+      "subtitle": "up 1h 6m . started 00:03 . seen 01:08"
+    },
+    {
+      "name": "SOREN",
+      "subtitle": "up 2d 1h . started 28 Jun . seen 01:03"
+    },
+    {
+      "name": "SOREN_TICK",
+      "subtitle": "up 3m . started 01:05 . seen 00:48"
+    },
+    {
+      "name": "SOREN_LEGACY",
+      "subtitle": "last seen 00:08"
+    },
+    {
+      "name": "SOREN_BADTM",
+      "subtitle": "last seen 23:08"
+    }
+  ],
+  "t1_machine_rows": [
+    {
+      "name": "SOREN_NORTH",
+      "subtitle": "up 1h 7m . started 00:03 . seen 01:08"
+    },
+    {
+      "name": "SOREN",
+      "subtitle": "up 2d 1h . started 28 Jun . seen 01:03"
+    },
+    {
+      "name": "SOREN_TICK",
+      "subtitle": "up 5m . started 01:05 . seen 00:48"
+    },
+    {
+      "name": "SOREN_LEGACY",
+      "subtitle": "last seen 00:08"
+    },
+    {
+      "name": "SOREN_BADTM",
+      "subtitle": "last seen 23:08"
+    }
+  ],
+  "repo_status": "2 recent repo(s). Tap one to start.",
+  "after_create_url": "http://127.0.0.1:8850/m/session/stub-session-1"
+}

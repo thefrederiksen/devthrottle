@@ -7,6 +7,7 @@ import {
   type DirectorInfo,
   type RepoInfo,
 } from "../api/client";
+import { durationLabel, useNow } from "../sessions/waiting";
 
 // Add-session flow (issue #812): a faithful 1:1 translation of the Android (MAUI)
 // phone/CcDirectorClient NewSessionPanel (TalkPage.xaml ~287-345, TalkPage.xaml.cs
@@ -23,14 +24,49 @@ import {
 //
 // Every call carries the Bearer token, so the flow works with global Gateway auth on or off.
 
-function directorSubtitle(d: DirectorInfo): string {
-  const ver = d.version.trim() ? `v${d.version.trim()}` : "";
-  let seen = "not seen recently";
-  if (d.lastSeen) {
-    const t = new Date(d.lastSeen);
-    if (!Number.isNaN(t.getTime())) seen = `last seen ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+// The local time-of-day for an ISO 8601 stamp (e.g. "6:20 AM"), or "" if missing/unparseable.
+function timeOfDay(iso: string): string {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  return t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// Absolute start label: the time-of-day when the Director started today (e.g. "6:20 AM"), otherwise
+// a short date (e.g. "Jun 28"). Returns "" if the stamp is missing/unparseable so the caller omits
+// the "started" segment.
+function startedAbsolute(iso: string): string {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  const now = new Date();
+  const startedToday =
+    t.getFullYear() === now.getFullYear() &&
+    t.getMonth() === now.getMonth() &&
+    t.getDate() === now.getDate();
+  return startedToday
+    ? timeOfDay(iso)
+    : t.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+// Machine-row subtitle (issue #848). With a valid startedAt it reads
+// "up <uptime> . started <startTime> . seen <lastSeen>" - uptime climbs the shared duration ladder
+// and ticks live off `now`, started is absolute (time today / short date older), seen is the kept
+// last-seen. With no usable startedAt it degrades to the prior last-seen-only subtitle (never an
+// "up NaN" / "Invalid Date"). The " . " separator is ASCII per the approved layout.
+function directorSubtitle(d: DirectorInfo, now: number): string {
+  const seenTime = timeOfDay(d.lastSeen);
+  const up = durationLabel(d.startedAt, now);
+  if (up === "") {
+    // No usable startedAt: keep the existing last-seen rendering only.
+    return seenTime ? `last seen ${seenTime}` : "not seen recently";
   }
-  return ver ? `${ver} - ${seen}` : seen;
+
+  const parts: string[] = [up === "just now" ? "just now" : `up ${up}`];
+  const started = startedAbsolute(d.startedAt);
+  if (started) parts.push(`started ${started}`);
+  parts.push(seenTime ? `seen ${seenTime}` : "not seen recently");
+  return parts.join(" . ");
 }
 
 function directorLabel(d: DirectorInfo): string {
@@ -46,6 +82,10 @@ function repoLabel(r: RepoInfo): string {
 
 export function NewSession() {
   const navigate = useNavigate();
+
+  // Ticks once a second so each machine row's "up <uptime>" recomputes from its startedAt without
+  // refetching /directors (issue #848), matching the roster's needs-you cards (issue #844).
+  const now = useNow(1000);
 
   const [directors, setDirectors] = useState<DirectorInfo[] | null>(null);
   const [directorsError, setDirectorsError] = useState<string | null>(null);
@@ -153,7 +193,7 @@ export function NewSession() {
                 <button type="button" className="picker-link" onClick={() => setSelectedId(d.directorId)}>
                   <span className="row-body">
                     <span className="row-name">{directorLabel(d)}</span>
-                    <span className="row-context">{directorSubtitle(d)}</span>
+                    <span className="row-context">{directorSubtitle(d, now)}</span>
                   </span>
                   {d.directorId === selectedId && <span className="picker-check" aria-hidden="true">selected</span>}
                 </button>

@@ -26,6 +26,9 @@ export interface DirectorInfo {
   machineName: string;
   /** Best-effort version label for the picker subtitle. */
   version: string;
+  /** When the Director process started (ISO 8601 UTC), or empty. Drives the picker "up <uptime> /
+   *  started <when>" subtitle (issue #848); empty/unparseable degrades to last-seen only. */
+  startedAt: string;
   /** When the Gateway last heard from this Director (ISO 8601), or empty. Used to default-select. */
   lastSeen: string;
 }
@@ -186,6 +189,7 @@ export async function getDirectors(signal?: AbortSignal): Promise<DirectorInfo[]
       directorId: String(d.directorId ?? ""),
       machineName: String(d.machineName ?? ""),
       version: String(d.version ?? ""),
+      startedAt: String(d.startedAt ?? ""),
       lastSeen: String(d.lastSeen ?? ""),
     }))
     .filter((d) => d.directorId.length > 0);
