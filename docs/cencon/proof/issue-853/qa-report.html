@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #853 - Cockpit Account page redesign</title>
+<style>
+  body { background:#1e1e1e; color:#ccc; font-family:'Segoe UI',sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:24px; margin:0 0 6px; }
+  h2 { color:#fff; font-size:18px; margin:28px 0 10px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  .verdict { display:inline-block; background:#1b3a2a; color:#22c55e; border:1px solid #22c55e; padding:6px 14px; border-radius:6px; font-weight:600; margin:10px 0; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22c55e; font-weight:600; }
+  code { background:#252526; padding:1px 5px; border-radius:4px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; }
+  img { max-width:760px; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; display:block; }
+  .muted { color:#888; font-size:12px; }
+  .fig { margin:14px 0 22px; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #853</h1>
+<div class="muted">[Cockpit] Redesign Account page: real sign-in buttons + Your devices list with Remove &nbsp;|&nbsp; PR #869 &nbsp;|&nbsp; branch <code>issue-853-cockpit-account</code> &nbsp;|&nbsp; verified 2026-06-30</div>
+<div class="verdict">VERIFIED - all acceptance criteria met</div>
+
+<p>Independent verification by the QA Agent. The PR branch was checked out into a separate worktree,
+built clean (<code>dotnet build cc-director.sln</code>: Build succeeded, 0 warnings, 0 errors), and the
+new test suites run (8 bUnit Cockpit tests + 2 Gateway endpoint tests, all passing). Visual proof was
+produced independently by rendering the <em>real compiled</em> <code>Account</code> Razor component via
+its bUnit proof emitter (driven by a stubbed <code>GatewayClient</code>) and screenshotting each state -
+the QA Agent did not reuse the Developer's screenshots.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Signed-out page shows a working sign-in action (not static "use the tray" text); click starts the Gateway loopback sign-in and the page reflects signed-in on completion.</td>
+  <td>A real "Sign in" button; clicking POSTs <code>/account/sign-in</code> (wrapping the existing #637 loopback) and shows in-progress; the word "tray" is gone.</td>
+  <td>Button "Sign in to DevThrottle" rendered; bUnit test confirms the click calls the start endpoint and shows the <code>.acct-signin-progress</code> affordance ("Waiting for your browser..."). Endpoint <code>AccountSignInEndpoint</code> kicks <code>GatewaySignInService.RunSignInAsync</code> (#637) as a detached background task with the existing single-flight guard; it is NOT a new gate. No "tray" text. Live browser completion is the documented QA gate, judged on the component test + code review.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Signed-in page shows a "Your devices" list, one row per device from <code>GET /account/devices</code>, each with name, last-seen, and a Remove button.</td>
+  <td>Two-device list with name, platform/version, last-seen, and per-row Remove.</td>
+  <td>Both rows render (WORKSTATION-01, Galaxy Z Flip 4) with name, platform/type/version, "Last seen: ...", and a Remove button each. bUnit test asserts 2 rows with the expected fields.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>The current device is marked "This device".</td>
+  <td>A "This device" badge on the Gateway's own device only.</td>
+  <td>Green "This device" badge on WORKSTATION-01; absent on the phone row. bUnit test asserts the marker on row 0 and its absence on row 1.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Remove, after confirmation, calls <code>DELETE /account/devices/{id}</code> and the row disappears on refresh.</td>
+  <td>First click reveals a confirmation; confirming issues the DELETE and the row is gone after the list refresh.</td>
+  <td>Confirmation row ("Remove this device?" with Remove/Cancel) renders before any call. bUnit test proves no revoke happens until confirm, then DELETE is issued for the right id and the list refreshes to a single row. Live cloud revoke round-trip is the documented QA gate, judged on the component test + code review.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>When the device list cannot be fetched, the page shows an explicit error state, not an empty list presented as "no devices".</td>
+  <td>An explicit error banner on a 502; distinct from the empty-account state.</td>
+  <td>502 renders a red error banner ("Could not load your devices ... Try again shortly.") with a Try again button; the empty account renders a distinct "No devices are registered to this account yet." The client throws on a non-success status (no fallback to an empty list). bUnit tests assert error-not-empty and the distinct empty state.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Method &amp; regression checks</h2>
+<ul>
+  <li><span class="pass">PASS</span> - Build clean: <code>dotnet build cc-director.sln</code> Build succeeded, 0 warnings, 0 errors.</li>
+  <li><span class="pass">PASS</span> - Tests: 8 bUnit (<code>AccountPageTests</code>) + 2 Gateway (<code>AccountSignInEndpointTests</code>) all pass.</li>
+  <li><span class="pass">PASS</span> - <code>GET /account/status</code> and <code>POST /account/logout</code> unchanged (those endpoint files are not in the PR diff).</li>
+  <li><span class="pass">PASS</span> - Auth-appropriate: <code>POST /account/sign-in</code> is not on the public-paths allow-list, so it inherits the host-wide Gateway token middleware like the other <code>/account</code> routes.</li>
+  <li><span class="pass">PASS</span> - Security rule DT-05 (no token to the client): the new DTOs carry no token field; the endpoint test asserts the response never contains the access JWT or refresh token.</li>
+  <li><span class="pass">PASS</span> - Responsive UI: page renders immediately with a loading state; status + device list load async in <code>OnInitializedAsync</code>; the sign-in click returns at once and polls status in the background.</li>
+</ul>
+
+<h2>Evidence (independent QA screenshots of the real compiled component)</h2>
+<div class="fig"><div>AC1 - signed-out with the real "Sign in to DevThrottle" action (no tray text)</div><img src="qa-screenshots/account-signed-out.png" alt="signed out"></div>
+<div class="fig"><div>AC1 - sign-in in progress after click (background poll, responsive)</div><img src="qa-screenshots/account-signin-progress.png" alt="sign-in progress"></div>
+<div class="fig"><div>AC2 / AC3 - signed-in "Your devices" list with name, platform/version, last-seen, Remove, and the "This device" marker</div><img src="qa-screenshots/account-signed-in-devices.png" alt="devices list"></div>
+<div class="fig"><div>AC4 - per-row Remove confirmation step</div><img src="qa-screenshots/account-remove-confirm.png" alt="remove confirm"></div>
+<div class="fig"><div>AC5 - explicit error state on a failed device fetch (502), not an empty list</div><img src="qa-screenshots/account-devices-error.png" alt="devices error"></div>
+<div class="fig"><div>Distinct empty-account state (not an error)</div><img src="qa-screenshots/account-devices-empty.png" alt="devices empty"></div>
+
+<h2>Notes on the live gate</h2>
+<p>Per the issue and the Developer's hand-off, the live browser-loopback sign-in completion and the live
+cloud device-list / Remove round-trips require a real signed-in account with cloud devices, which is the
+agreed QA gate (the same boundary #637 and #854 draw for their live cloud paths). Those criteria were
+judged on the bUnit component tests that render the real compiled component, the two Gateway endpoint
+tests covering the deterministic decision paths, and a code review of the render and client logic - not
+on a live signed-in screenshot. The non-live decision paths (no-flow host, already-signed-in, error,
+empty, confirmation, refresh) are all reproduced above.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Recommended: flow:done.</div>
+</body>
+</html>
