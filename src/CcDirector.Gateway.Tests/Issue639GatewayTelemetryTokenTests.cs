@@ -192,13 +192,11 @@ public sealed class Issue639GatewayTelemetryTokenTests
     [Fact]
     public async Task Forward_NeverWritesTheGatewayTokenToTheLog()
     {
-        var logDir = CcStorage.ToolLogs("director");
-        var baseline = new Dictionary<string, int>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-                baseline[f] = ReadAllLinesShared(f).Count;
+        // Issue #862: capture FileLog in a private, synchronously-drained sink so we read exactly
+        // this test's lines - no carryover from the shared process-wide writer and no background-
+        // flush timing race (the old poll-the-shared-dir version was flaky in CI).
+        using var log = FileLog.RedirectForTests();
 
-        FileLog.Start();
         var (queue, handler, source, path) = NewQueue();
         try
         {
@@ -217,38 +215,7 @@ public sealed class Issue639GatewayTelemetryTokenTests
             Cleanup(path);
         }
 
-        // The shared FileLog writer flushes on a background thread, so poll (up to a generous
-        // deadline) for our line to land on disk rather than sleeping a fixed interval. The old
-        // fixed Task.Delay(500) raced the writer under load and made this test flaky in CI (it
-        // passed at 507 ms in one run and failed in another).
-        List<string> CollectNewLines()
-        {
-            var collected = new List<string>();
-            if (Directory.Exists(logDir))
-                foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-                {
-                    var lines = ReadAllLinesShared(f);
-                    var start = baseline.TryGetValue(f, out var n) ? n : 0;
-                    for (var i = start; i < lines.Count; i++)
-                        collected.Add(lines[i]);
-                }
-            return collected;
-        }
-
-        static bool HasQueueMarker(List<string> lines)
-        {
-            foreach (var l in lines)
-                if (l.Contains("[TelemetryRetryQueue]")) return true;
-            return false;
-        }
-
-        var newLines = CollectNewLines();
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!HasQueueMarker(newLines) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(25);
-            newLines = CollectNewLines();
-        }
+        var newLines = log.DrainAndReadLines();
 
         // The queue logged on this path (proves logging is wired)...
         Assert.Contains(newLines, l => l.Contains("[TelemetryRetryQueue]"));
@@ -451,16 +418,5 @@ public sealed class Issue639GatewayTelemetryTokenTests
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (captured.Count < count && DateTime.UtcNow < deadline)
             await Task.Delay(25);
-    }
-
-    private static List<string> ReadAllLinesShared(string path)
-    {
-        var lines = new List<string>();
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(fs);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
-            lines.Add(line);
-        return lines;
     }
 }

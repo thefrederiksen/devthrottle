@@ -230,19 +230,11 @@ public sealed class TelemetryRelayEndpointTests
     [Fact]
     public async Task PostLogin_NeverWritesAccessTokenToTheGatewayLog()
     {
-        // FileLog's sink directory is captured when the FileLog type first initializes, which may be
-        // before this test runs - so we read whatever real log directory it actually writes to. The
-        // live background writer holds the file open, so we read with a SHARED stream (FileShare.
-        // ReadWrite) instead of File.ReadAllLines, which would throw on the open handle.
-        var logDir = CcStorage.ToolLogs("director");
+        // Issue #862: capture FileLog in a private, synchronously-drained sink so we read exactly
+        // this test's lines - no carryover from the shared process-wide writer and no background-
+        // flush timing race (the old baseline + Task.Delay version was flaky in CI).
+        using var log = FileLog.RedirectForTests();
 
-        // Snapshot the line count per existing log file, so we only inspect the lines THIS test added.
-        var baseline = new Dictionary<string, int>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-                baseline[f] = ReadAllLinesShared(f).Count;
-
-        FileLog.Start();
         var (relay, captured, dispose) = await StartAsync(startStub: true);
         try
         {
@@ -254,42 +246,14 @@ public sealed class TelemetryRelayEndpointTests
         finally
         {
             await dispose();
-            // Give the background writer a moment to flush our lines to disk (it does NOT stop here:
-            // FileLog is a process-wide static other concurrent tests may still be using).
-            await Task.Delay(500);
         }
 
-        // Gather only the NEW lines (added after the baseline) across every log file.
-        var newLines = new List<string>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-            {
-                var lines = ReadAllLinesShared(f);
-                var start = baseline.TryGetValue(f, out var n) ? n : 0;
-                for (var i = start; i < lines.Count; i++)
-                    newLines.Add(lines[i]);
-            }
+        var newLines = log.DrainAndReadLines();
 
         // The relay must have logged SOMETHING on this path (proves logging is wired)...
         Assert.Contains(newLines, l => l.Contains("[TelemetryRelayEndpoint]"));
         // ...and the access token must appear in NONE of the log lines.
         Assert.DoesNotContain(newLines, l => l.Contains(AccessToken));
-    }
-
-    /// <summary>
-    /// Reads all lines from a file that another process/thread may have open for writing (the live
-    /// FileLog background writer). Uses <see cref="FileShare.ReadWrite"/> so the open handle does not
-    /// block the read.
-    /// </summary>
-    private static List<string> ReadAllLinesShared(string path)
-    {
-        var lines = new List<string>();
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(fs);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
-            lines.Add(line);
-        return lines;
     }
 
     // ----- ResolveTargetUrl -----
