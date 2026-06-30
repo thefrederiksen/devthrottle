@@ -162,6 +162,15 @@ internal static class DictationEndpoint
         var recordingStart = System.Diagnostics.Stopwatch.StartNew();
         long audioBytesReceived = 0;
 
+        // Client-measured capture-health carried on the stop frame (issue #863): the recording
+        // wall-clock the browser mic was open, the frame count, and the worst inter-frame gap.
+        // Comparing the client recording wall-clock to the bytes the SERVER actually received is the
+        // end-to-end audio deficit (capture loss plus any network loss); the gap tells a local stall
+        // apart from clean capture. Zero until a stop frame supplies them.
+        double clientRecordingMs = 0;
+        int clientFrames = 0;
+        double clientMaxGapMs = 0;
+
         await SendJsonAsync(ws, new { type = "started" }, ct);
 
         FileLog.Write($"[DictationEndpoint] session started: sid={sessionId} profile={profile} "
@@ -209,7 +218,11 @@ internal static class DictationEndpoint
                 if (doc is null) continue;
                 if (TryReadString(doc.RootElement, "type", out var t))
                 {
-                    if (t == "stop") break;
+                    if (t == "stop")
+                    {
+                        ReadCaptureHealth(doc.RootElement, ref clientRecordingMs, ref clientFrames, ref clientMaxGapMs);
+                        break;
+                    }
                     if (t == "abort")
                     {
                         FileLog.Write($"[DictationEndpoint] sid={sessionId} client aborted");
@@ -298,7 +311,8 @@ internal static class DictationEndpoint
             stopWatch.ElapsedMilliseconds, stopWatch.ElapsedMilliseconds, audioBytesReceived,
             raw: transcript?.RawTranscript, cleaned: transcript?.CorrectedTranscript,
             applied: transcript?.DictionaryApplied ?? false, reason: transcript?.Reason,
-            options, remoteIp, clientError);
+            options, remoteIp, clientError,
+            clientRecordedMs: clientRecordingMs, clientFrames: clientFrames, clientMaxGapMs: clientMaxGapMs);
 
         await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "done");
     }
@@ -323,8 +337,15 @@ internal static class DictationEndpoint
         string? reason,
         AgentOptions options,
         string? remoteIp,
-        string? clientError)
+        string? clientError,
+        double clientRecordedMs = 0,
+        int clientFrames = 0,
+        double clientMaxGapMs = 0)
     {
+        // Expected bytes from the CLIENT recording wall-clock (24 kHz mono PCM16 = 48000 bytes/sec);
+        // comparing it to the bytes the server actually received is the end-to-end audio deficit.
+        var expectedBytes = (long)(48000.0 * clientRecordedMs / 1000.0);
+
         var record = new DictationSessionRecord(
             TimestampUtc: sessionStartUtc.ToString("o"),
             SessionId: sessionId,
@@ -342,10 +363,28 @@ internal static class DictationEndpoint
             CleanupModel: options.DictationCleanupModel,
             RemoteIp: remoteIp,
             ClientError: clientError,
-            Source: "endpoint");
+            Source: "endpoint",
+            ExpectedAudioBytes: expectedBytes,
+            CaptureCallbackCount: clientFrames,
+            MaxCaptureCallbackGapMs: clientMaxGapMs,
+            RecordedWallMs: clientRecordedMs);
 
         // Off the WebSocket hot path; never block the close-out on disk I/O.
         Task.Run(() => DictationSessionLog.TryAppend(record));
+    }
+
+    /// <summary>
+    /// Read the optional capture-health object the client attaches to its stop frame
+    /// (<c>{"type":"stop","health":{"recordingMs":..,"frames":..,"maxFrameGapMs":..}}</c>). Missing or
+    /// malformed fields leave the outputs untouched (they stay 0) - it is diagnostics, never required.
+    /// </summary>
+    private static void ReadCaptureHealth(JsonElement stop, ref double recordingMs, ref int frames, ref double maxGapMs)
+    {
+        if (stop.ValueKind != JsonValueKind.Object) return;
+        if (!stop.TryGetProperty("health", out var h) || h.ValueKind != JsonValueKind.Object) return;
+        if (h.TryGetProperty("recordingMs", out var r) && r.ValueKind == JsonValueKind.Number) recordingMs = r.GetDouble();
+        if (h.TryGetProperty("frames", out var f) && f.ValueKind == JsonValueKind.Number) frames = f.GetInt32();
+        if (h.TryGetProperty("maxFrameGapMs", out var g) && g.ValueKind == JsonValueKind.Number) maxGapMs = g.GetDouble();
     }
 
     // ===== helpers ===========================================================

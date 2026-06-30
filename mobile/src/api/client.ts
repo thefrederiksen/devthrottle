@@ -304,7 +304,21 @@ export async function killSession(sessionId: string, signal?: AbortSignal): Prom
 // The Director's own /voice/utterance flow is NOT proxied through the Gateway; this /wingman/
 // utterance flow is the Gateway-native equivalent and is reachable by the mobile app same-origin
 // with the Bearer, so no backend change is needed.
-export async function transcribeUtterance(wav: Blob, signal?: AbortSignal): Promise<string> {
+// The optional client-measured capture-health sent with the complete call (issue #863), so the
+// Gateway can persist the audio-loss deficit (recording wall-clock vs decoded audio duration) into
+// the same dictation session log every other surface writes. Diagnostics only - omitting it changes
+// nothing about the transcription.
+export interface UtteranceCaptureHealth {
+  recordedMs: number;
+  decodedSeconds: number;
+  sourceBytes: number;
+}
+
+export async function transcribeUtterance(
+  wav: Blob,
+  health?: UtteranceCaptureHealth,
+  signal?: AbortSignal,
+): Promise<string> {
   // 1. Register the upload (mints an id the chunk + complete calls address).
   const reg = await fetch(`/wingman/utterance/upload`, {
     method: "POST",
@@ -340,7 +354,14 @@ export async function transcribeUtterance(wav: Blob, signal?: AbortSignal): Prom
   const comp = await fetch(`/wingman/utterance/${id}/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
-    body: JSON.stringify({ totalChunks: 1, mime: "audio/wav", ext: "wav" }),
+    body: JSON.stringify({
+      totalChunks: 1,
+      mime: "audio/wav",
+      ext: "wav",
+      clientRecordedMs: health?.recordedMs,
+      clientDecodedSeconds: health?.decodedSeconds,
+      clientSourceBytes: health?.sourceBytes,
+    }),
     signal,
   });
   const compBody = (await comp.json().catch(() => ({}))) as { transcript?: string; error?: string };

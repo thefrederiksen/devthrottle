@@ -4,6 +4,7 @@ using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Voice.Services;
 using CcDirector.Gateway.Contracts;
@@ -177,6 +178,13 @@ internal static class GatewayWingmanVoiceEndpoint
             if (result.Outcome != Transcription.TranscriptionOutcome.Ok)
                 return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status502BadGateway);
             FileLog.Write($"[GatewayWingmanVoice] utterance complete {uploadId}: mode={result.Mode}, chars={result.Text?.Length ?? 0}");
+
+            // Capture-health persistence (issue #863): when the mobile dialog sent its measurements,
+            // record the audio-loss deficit (recording wall-clock vs decoded audio duration) into the
+            // same dictation session log the desktop and overlay write, tagged Source="mobile". The
+            // assembled WAV byte count is the audio the server actually transcribed. Fire-and-forget.
+            PersistMobileCaptureHealth(uploadId, req, assembledAudio.Length, result.Text);
+
             return Results.Json(new { transcript = result.Text });
         });
 
@@ -528,6 +536,45 @@ internal static class GatewayWingmanVoiceEndpoint
 
     private static string Escape(string? s) => (s ?? "").Replace("\r", "\\r").Replace("\n", "\\n");
 
+    /// <summary>
+    /// Persist a mobile dictation capture-health record (issue #863) into the shared dictation
+    /// session log, but only when the client actually supplied its measurements. The record exists to
+    /// carry the audio-loss deficit (recording wall-clock vs decoded audio duration), so the
+    /// transcription-context fields a desktop record carries (dictionary counts, cleanup model) are
+    /// left at their defaults here. Fire-and-forget; a logging failure never affects the response.
+    /// </summary>
+    private static void PersistMobileCaptureHealth(string uploadId, UtteranceCompleteRequest req, int wavBytes, string? cleaned)
+    {
+        if (req.ClientRecordedMs is not { } recordedMs) return; // client did not opt in - nothing to persist
+
+        var decodedSeconds = req.ClientDecodedSeconds ?? 0;
+        FileLog.Write($"[GatewayWingmanVoice] capture-health mobile {uploadId}: recordedMs={recordedMs:F0}, "
+            + $"decodedSec={decodedSeconds:F2}, wavBytes={wavBytes}, sourceBytes={req.ClientSourceBytes ?? 0}");
+
+        var record = new DictationSessionRecord(
+            TimestampUtc: DateTime.UtcNow.ToString("o"),
+            SessionId: uploadId,
+            Profile: "default",
+            VocabularyTermCount: 0,
+            MistranscriptionPatternCount: 0,
+            RecordingDurationMs: (long)recordedMs,
+            StopToTranscribedMs: 0,
+            StopToCleanedMs: 0,
+            AudioBytesReceived: (int)Math.Min(wavBytes, int.MaxValue),
+            RawTranscript: "",
+            CleanedTranscript: cleaned ?? "",
+            CleanupApplied: false,
+            CleanupReason: null,
+            CleanupModel: "",
+            RemoteIp: null,
+            ClientError: null,
+            Source: "mobile",
+            RecordedWallMs: recordedMs,
+            DecodedAudioSeconds: decodedSeconds);
+
+        Task.Run(() => DictationSessionLog.TryAppend(record));
+    }
+
     /// <summary>Shape a <see cref="WingmanMenu"/> for the JSON response (camelCase the phone reads).</summary>
     private static object MenuJson(WingmanMenu m) => new
     {
@@ -653,4 +700,12 @@ public sealed class UtteranceCompleteRequest
     public int TotalChunks { get; set; }
     public string? Mime { get; set; }
     public string? Ext { get; set; }
+
+    // Capture-health (issue #863), optional - present only for the mobile dictation dialog, which
+    // measures audio loss as recording wall-clock versus decoded audio duration (a compressed
+    // MediaRecorder clip has no fixed bytes/sec). When present the complete handler persists a
+    // dictation session record so mobile loss lands in the same log as the desktop and overlay.
+    public double? ClientRecordedMs { get; set; }
+    public double? ClientDecodedSeconds { get; set; }
+    public long? ClientSourceBytes { get; set; }
 }

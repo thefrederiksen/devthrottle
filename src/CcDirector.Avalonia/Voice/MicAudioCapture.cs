@@ -23,6 +23,54 @@ public interface IAudioMeterSource : IAudioSource
 }
 
 /// <summary>
+/// Optional capture-diagnostics extension: a source that can report per-recording
+/// capture health (bytes captured vs the elapsed wall-clock implies, callback
+/// cadence, and per-callback handler self-time) so audio loss can be LOCALIZED.
+/// Deliberately off the core <see cref="IAudioSource"/> contract because it is
+/// desktop-NAudio-specific instrumentation, not part of the capture guarantee.
+/// <see cref="BatchDictationRecorder"/> reads it when the source provides it.
+/// </summary>
+public interface IAudioCaptureDiagnostics
+{
+    /// <summary>Snapshot of capture health for the recording just finished. Read AFTER StopAsync's drain.</summary>
+    CaptureHealth GetCaptureHealth();
+}
+
+/// <summary>
+/// Per-recording capture-health snapshot (instrumentation only - it changes no
+/// capture behaviour). It exists to tell two distinct audio-loss mechanisms apart:
+///
+///   - A DEFICIT with large <see cref="MaxCallbackGapMs"/> / <see cref="LongGapCount"/>
+///     but small <see cref="MaxHandlerMs"/> means the buffers arrived late or not at
+///     all while OUR processing was cheap - the audio was under-delivered upstream
+///     (the Remote Desktop audio-redirection channel dropping samples before they
+///     reach us). Local buffering cannot recover bytes that never arrived.
+///   - A DEFICIT with large <see cref="MaxHandlerMs"/> means the capture thread
+///     stalled INSIDE our callback (per-chunk DSP overrunning the buffer headroom
+///     under machine load), so the driver ran out of free buffers and dropped audio.
+///     THIS one a local fix (decouple DSP / more buffers) actually addresses.
+/// </summary>
+public readonly record struct CaptureHealth(
+    long CapturedBytes,
+    long ExpectedBytes,
+    int CallbackCount,
+    double MaxCallbackGapMs,
+    int LongGapCount,
+    double MaxHandlerMs,
+    double TotalHandlerMs,
+    double ElapsedMs,
+    int NumberOfBuffers,
+    int BufferMilliseconds)
+{
+    /// <summary>
+    /// Fraction of the expected audio that never made it into the clip (0 = nothing
+    /// lost). Clamped at 0 so the small positive tail NAudio delivers after the
+    /// stopwatch math (the drain tail) never reads as a negative "deficit".
+    /// </summary>
+    public double DeficitFraction => ExpectedBytes <= 0 ? 0 : Math.Max(0.0, 1.0 - (double)CapturedBytes / ExpectedBytes);
+}
+
+/// <summary>
 /// Mic capture wrapper around NAudio's WaveInEvent, configured for the
 /// format the OpenAI Realtime transcription API expects: 24 kHz, 16-bit,
 /// mono PCM. Fires <see cref="OnAudioChunk"/> for every buffer the
@@ -34,7 +82,7 @@ public interface IAudioMeterSource : IAudioSource
 /// move independently the way a real frequency analyzer does, rather than all
 /// rising and falling together off a single energy number.
 /// </summary>
-public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
+public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostics, IDisposable
 {
     public const int SampleRate = 24_000;
     public const int BitsPerSample = 16;
@@ -73,6 +121,25 @@ public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
     private readonly string _description;
     private bool _started;
     private bool _disposed;
+
+    // ---- Capture-health instrumentation (issue #863) ----------------------------
+    // Behaviour-neutral diagnostics recorded on the single capture thread: how much
+    // audio actually arrived versus how much the elapsed wall-clock implies, the
+    // arrival cadence of the driver callbacks, and how long each callback body took.
+    // Together these localize audio loss (see CaptureHealth). Counter updates are
+    // plain arithmetic - no allocation, cannot throw. The cross-thread read in
+    // GetCaptureHealth is safe because StopAsync's drain barrier happens-before it.
+    private readonly int _bufferMilliseconds;
+    private readonly int _numberOfBuffers;
+    private readonly double _dropRiskGapMs;          // a gap this long means the driver could have run dry and dropped audio
+    private readonly System.Diagnostics.Stopwatch _captureClock = new();
+    private long _capturedBytes;
+    private int _callbackCount;
+    private double _lastCallbackStartMs = -1.0;
+    private double _maxCallbackGapMs;
+    private int _longGapCount;
+    private double _maxHandlerMs;
+    private double _totalHandlerMs;
 
     // Completed by OnRecordingStopped so StopAsync can wait for NAudio to deliver
     // its final buffered audio before the caller snapshots the buffer. Null except
@@ -114,6 +181,14 @@ public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
         };
         _waveIn.DataAvailable += OnDataAvailable;
         _waveIn.RecordingStopped += OnRecordingStopped;
+
+        // Snapshot the driver's buffer geometry now so the diagnostics can report the
+        // headroom the capture thread had: NumberOfBuffers x BufferMilliseconds is how
+        // long the thread may stall before the driver runs out of free buffers and the
+        // hardware/redirection layer starts dropping incoming audio.
+        _bufferMilliseconds = bufferMilliseconds;
+        _numberOfBuffers = _waveIn.NumberOfBuffers;
+        _dropRiskGapMs = (double)_numberOfBuffers * _bufferMilliseconds;
     }
 
     public void Start()
@@ -122,9 +197,11 @@ public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
         if (_started) return;
         try
         {
+            _captureClock.Restart();
             _waveIn.StartRecording();
             _started = true;
-            FileLog.Write($"[MicAudioCapture] Start: device={_deviceNumber} ({Description}), {SampleRate}Hz {BitsPerSample}-bit mono");
+            FileLog.Write($"[MicAudioCapture] Start: device={_deviceNumber} ({Description}), {SampleRate}Hz {BitsPerSample}-bit mono, "
+                + $"buffers={_numberOfBuffers}x{_bufferMilliseconds}ms");
         }
         catch (Exception ex)
         {
@@ -186,6 +263,21 @@ public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
         if (e.BytesRecorded <= 0) return;
+
+        // Capture-health instrumentation: record arrival timing (start-to-start gap
+        // between callbacks) and byte counts BEFORE doing any work, so a late callback
+        // is attributed to the gap, not to our handler. Pure arithmetic; cannot throw.
+        double startMs = _captureClock.Elapsed.TotalMilliseconds;
+        if (_lastCallbackStartMs >= 0.0)
+        {
+            double gap = startMs - _lastCallbackStartMs;
+            if (gap > _maxCallbackGapMs) _maxCallbackGapMs = gap;
+            if (gap > _dropRiskGapMs) _longGapCount++;
+        }
+        _lastCallbackStartMs = startMs;
+        _callbackCount++;
+        _capturedBytes += e.BytesRecorded;
+
         var chunk = new byte[e.BytesRecorded];
         Buffer.BlockCopy(e.Buffer, 0, chunk, 0, e.BytesRecorded);
 
@@ -199,14 +291,62 @@ public sealed class MicAudioCapture : IAudioMeterSource, IDisposable
         double rawRms = ComputeInt16Rms(chunk);
         try { OnInputRms?.Invoke(rawRms); }
         catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnInputRms handler threw: {ex.Message}"); }
+
+        // Handler self-time = the wall-clock the whole callback body took. Large values
+        // for cheap CPU work mean the thread was descheduled mid-callback (machine under
+        // load) - the local capture-thread-stall signature that risks dropping audio.
+        double handlerMs = _captureClock.Elapsed.TotalMilliseconds - startMs;
+        _totalHandlerMs += handlerMs;
+        if (handlerMs > _maxHandlerMs) _maxHandlerMs = handlerMs;
     }
+
+    /// <summary>
+    /// Snapshot the capture-health counters for the recording that just finished.
+    /// Safe to call after <see cref="StopAsync"/> returns (its drain barrier
+    /// happens-before this read), and harmless to call at any time otherwise.
+    /// </summary>
+    public CaptureHealth GetCaptureHealth()
+    {
+        double elapsedMs = _captureClock.Elapsed.TotalMilliseconds;
+        return new CaptureHealth(
+            CapturedBytes: _capturedBytes,
+            ExpectedBytes: ExpectedBytes(elapsedMs),
+            CallbackCount: _callbackCount,
+            MaxCallbackGapMs: _maxCallbackGapMs,
+            LongGapCount: _longGapCount,
+            MaxHandlerMs: _maxHandlerMs,
+            TotalHandlerMs: _totalHandlerMs,
+            ElapsedMs: elapsedMs,
+            NumberOfBuffers: _numberOfBuffers,
+            BufferMilliseconds: _bufferMilliseconds);
+    }
+
+    /// <summary>
+    /// Bytes of PCM the capture format produces over <paramref name="elapsedMs"/> of
+    /// wall-clock at the fixed 24 kHz / 16-bit / mono rate (48000 bytes/sec). The
+    /// yardstick the captured byte count is measured against to compute the deficit.
+    /// </summary>
+    internal static long ExpectedBytes(double elapsedMs)
+        => (long)(SampleRate * Channels * (BitsPerSample / 8) * (elapsedMs / 1000.0));
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
+        // Freeze the capture clock at the true end of capture so the elapsed-vs-captured
+        // math reflects only the recording window, not any post-stop teardown time.
+        _captureClock.Stop();
         if (e.Exception is not null)
             FileLog.Write($"[MicAudioCapture] Recording stopped with error: {e.Exception.Message}");
+
         // RecordThread raises this in its finally AFTER the last DataAvailable has
-        // been delivered, so by here every captured chunk is already appended.
+        // been delivered, so by here every captured chunk is already appended and the
+        // counters are final. Emit the capture-health summary for offline analysis.
+        var h = GetCaptureHealth();
+        FileLog.Write($"[MicAudioCapture] capture-health: capturedBytes={h.CapturedBytes}, expectedBytes={h.ExpectedBytes}, "
+            + $"deficit={h.DeficitFraction:P1}, callbacks={h.CallbackCount}, maxGapMs={h.MaxCallbackGapMs:F0}, "
+            + $"longGaps(>{_dropRiskGapMs:F0}ms)={h.LongGapCount}, maxHandlerMs={h.MaxHandlerMs:F1}, "
+            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, "
+            + $"buffers={h.NumberOfBuffers}x{h.BufferMilliseconds}ms, device=\"{Description}\"");
+
         _stoppedSignal?.TrySetResult(true);
     }
 

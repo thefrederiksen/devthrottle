@@ -10,9 +10,19 @@
 
 const TARGET_SAMPLE_RATE = 16000;
 
-export async function blobToWav16kMono(blob: Blob): Promise<Blob> {
+/** The WAV plus the capture-health facts the decode already revealed (issue #863): the decoded
+ *  audio duration (the actual amount of sound captured) and the source blob size. The caller
+ *  compares decodedSeconds to the recording wall-clock to detect dropped audio. */
+export interface TranscodeResult {
+  wav: Blob;
+  decodedSeconds: number;
+  sourceBytes: number;
+}
+
+export async function blobToWav16kMono(blob: Blob): Promise<TranscodeResult> {
   const arrayBuffer = await blob.arrayBuffer();
   if (arrayBuffer.byteLength === 0) throw new Error("No audio was captured.");
+  const sourceBytes = arrayBuffer.byteLength;
 
   const AudioCtor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const decodeCtx = new AudioCtor();
@@ -33,7 +43,11 @@ export async function blobToWav16kMono(blob: Blob): Promise<Blob> {
   source.start(0);
   const rendered = await offline.startRendering();
 
-  return encodeWav(rendered.getChannelData(0), TARGET_SAMPLE_RATE);
+  return {
+    wav: encodeWav(rendered.getChannelData(0), TARGET_SAMPLE_RATE),
+    decodedSeconds: decoded.duration,
+    sourceBytes,
+  };
 }
 
 // Build a canonical 16-bit PCM WAV (RIFF) blob from mono float samples in -1..1.

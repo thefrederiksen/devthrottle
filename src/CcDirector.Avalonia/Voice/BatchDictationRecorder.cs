@@ -209,9 +209,13 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         // and clipped the end of the user's speech. Only after the drain do we detach,
         // so no genuinely-late chunk can race the snapshot; the lock guards it anyway.
         var device = _mic?.Description ?? MicDevices.DescribeDevice(_micDeviceNumber);
+        CaptureHealth? captureHealth = null;
         if (_mic is not null)
         {
             await _mic.StopAsync(TimeSpan.FromMilliseconds(750));
+            // Read capture-health AFTER the drain (counters are final) and BEFORE detaching,
+            // so the audit record can carry the per-recording diagnostics (issue #863).
+            captureHealth = (_mic as IAudioCaptureDiagnostics)?.GetCaptureHealth();
             _mic.OnAudioChunk -= AppendChunk;
         }
         _recordingStopwatch?.Stop();
@@ -262,6 +266,17 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
             + $"correctedLen={batch.CorrectedTranscript.Length}, dictionaryApplied={batch.DictionaryApplied}, "
             + $"changed={batch.ChangedWords.Count}, method={routing.Mode.ToConfigString()}, model={routing.Model}");
 
+        // Capture-health line (issue #863): a byte deficit paired with large callback GAPS
+        // (and small handler self-time) points upstream - the audio was under-delivered
+        // before we saw it (e.g. Remote Desktop audio redirection); a deficit paired with
+        // large handler self-time points at a local capture-thread stall. This is what tells
+        // the two apart so any future fix is aimed at the real cause.
+        if (captureHealth is { } ch)
+            FileLog.Write($"[BatchDictationRecorder] capture-health: capturedBytes={ch.CapturedBytes}, "
+                + $"expectedBytes={ch.ExpectedBytes}, deficit={ch.DeficitFraction:P1}, callbacks={ch.CallbackCount}, "
+                + $"maxGapMs={ch.MaxCallbackGapMs:F0}, longGaps={ch.LongGapCount}, maxHandlerMs={ch.MaxHandlerMs:F1}, "
+                + $"buffers={ch.NumberOfBuffers}x{ch.BufferMilliseconds}ms");
+
         // Same JSONL audit record the other dictation surfaces write so a desktop
         // dictation incident keeps its raw text for forensics. Fire-and-forget off
         // the UI-facing path; failures are logged inside TryAppend.
@@ -282,7 +297,14 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
             CleanupModel: _options.DictationCleanupModel,
             RemoteIp: null,
             ClientError: null,
-            Source: "desktop-speak");
+            Source: "desktop-speak",
+            ExpectedAudioBytes: captureHealth?.ExpectedBytes ?? 0,
+            CaptureCallbackCount: captureHealth?.CallbackCount ?? 0,
+            MaxCaptureCallbackGapMs: captureHealth?.MaxCallbackGapMs ?? 0,
+            LongCaptureGapCount: captureHealth?.LongGapCount ?? 0,
+            MaxCaptureHandlerMs: captureHealth?.MaxHandlerMs ?? 0,
+            CaptureBufferCount: captureHealth?.NumberOfBuffers ?? 0,
+            CaptureBufferMs: captureHealth?.BufferMilliseconds ?? 0);
         _ = Task.Run(() => DictationSessionLog.TryAppend(record));
 
         return new DictationResult(
