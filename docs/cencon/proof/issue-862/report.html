@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #862 - Flaky telemetry tests - Developer Proof</title>
+<style>
+  :root { --bg:#0b1020; --panel:#131a2e; --panel2:#1a2236; --border:#2a3550; --text:#e7ecf5; --dim:#93a0bd; --accent:#4f8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:36px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  p,li { color:#d7deef; }
+  .sub { color:var(--dim); margin:0 0 8px; }
+  code { background:#0f1626; padding:1px 6px; border-radius:5px; font-family:Consolas,Menlo,monospace; font-size:13px; color:#cfe0ff; }
+  pre { background:#0f1626; border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; font-family:Consolas,Menlo,monospace; font-size:12.5px; color:#cfe0ff; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel2); color:#cdd8f0; }
+  .pill { display:inline-block; font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; background:#11331f; color:#5fd08a; border:1px solid #1f5c38; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #862 - Flaky telemetry tests</h1>
+  <p class="sub">Developer Agent proof. Branch <code>issue-862-flaky-telemetry</code> (off <code>main</code>).</p>
+  <p><span class="pill">I believe this is finished.</span></p>
+
+  <h2>1. Corrected root cause</h2>
+  <p>The issue first guessed test parallelism. On reading the code that proved wrong: <code>CcDirector.Gateway.Tests</code>
+  already disables parallelization (<code>TestParallelization.cs</code> -> <code>[assembly: CollectionBehavior(DisableTestParallelization = true)]</code>),
+  so the tests run <strong>serially</strong>. The real cause is the single, process-wide <code>FileLog</code> background writer:</p>
+  <ul>
+    <li><strong>Carryover</strong> - the shared writer is never stopped between serial tests, so a previous test's still-queued
+      lines flush into the current test's file after it snapshots/clears the shared log directory; a "never writes the token"
+      scan can then see another test's line.</li>
+    <li><strong>Flush timing</strong> - <code>FileLog</code> flushes on a background thread (1-second interval / on queue-drain).
+      The tests waited with a fixed <code>Task.Delay</code> / a poll loop; under CI load the expected line had not landed in
+      time, so the "records locally" / "logging is wired" assertions failed.</li>
+  </ul>
+
+  <h2>2. The fix</h2>
+  <ul>
+    <li><strong>A test-only seam on <code>FileLog</code></strong> (<code>src/CcDirector.Core/Utilities/FileLog.cs</code>):
+      <code>RedirectForTests()</code> returns a scope that swaps the single static writer for a fresh one pointed at a private,
+      throwaway directory, and <code>DrainAndReadLines()</code> <em>synchronously</em> drains it (<code>Stop()</code> completes
+      the queue and joins the writer thread) and returns exactly the lines that scope produced. Restored + the temp dir deleted
+      on dispose. Internal (Core already grants <code>InternalsVisibleTo CcDirector.Gateway.Tests</code>); safe because the test
+      assembly is serial, so one test owns <code>FileLog</code> at a time. No production behavior change - the live logger is untouched.</li>
+    <li><strong>The three tests now use the seam</strong> instead of snapshotting/clearing the shared
+      <code>CcStorage.ToolLogs("director")</code> directory: no baseline bookkeeping, no <code>Task.Delay</code>, no poll loops.
+      Each reads a private, fully-flushed log - deterministic by construction. (Dead <code>ReadAllLinesShared</code> helpers removed.)</li>
+  </ul>
+
+  <h2>3. Acceptance criteria - met</h2>
+  <table>
+    <tr><th>Criterion</th><th>Evidence</th></tr>
+    <tr><td>The three tests pass consistently across repeated runs (10x)</td><td>Telemetry cluster (34 tests incl. all three) looped 10x - all green (below).</td></tr>
+    <tr><td>Full <code>CcDirector.Gateway.Tests</code> green across repeated runs</td><td>Two full-suite runs, 1009/1009 passed each (below). (Each serial run is ~3.5 min; two shown.)</td></tr>
+    <tr><td>The three tests no longer depend on the shared log directory</td><td>Each now reads a private per-test temp dir via the seam - no shared <code>CcStorage.ToolLogs("director")</code> access. See the diff.</td></tr>
+    <tr><td>No production behavior change</td><td><code>FileLog</code>'s production sink resolution is unchanged; only a test-only seam is added. The <code>FileLog</code> Core tests pass (4/4).</td></tr>
+  </table>
+
+  <h2>4. Test runs</h2>
+  <pre>dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)
+
+# Telemetry cluster (incl. the 3 previously-flaky tests), 10 consecutive runs:
+run 1:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 2:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 3:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 4:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 5:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 6:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 7:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 8:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 9:  Passed!  - Failed: 0, Passed: 34, Total: 34
+run 10: Passed!  - Failed: 0, Passed: 34, Total: 34
+
+# Full CcDirector.Gateway.Tests project (serial, ~3.5 min/run):
+run 1:  Passed!  - Failed: 0, Passed: 1009, Total: 1009
+run 2:  Passed!  - Failed: 0, Passed: 1009, Total: 1009
+
+# FileLog Core tests (the type I changed):
+Passed!  - Failed: 0, Passed: 4, Total: 4</pre>
+
+  <h2>5. CenCon impact</h2>
+  <p>No drift. The change adds a test-only seam to <code>FileLog</code> (no change to its production sink) and rewrites three
+  tests; no new container, external system, security boundary, or behavior. The Wingman/telemetry features are untouched.</p>
+</div>
+</body>
+</html>

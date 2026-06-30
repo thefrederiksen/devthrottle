@@ -152,16 +152,11 @@ public sealed class DirectorStartupTelemetryEndpointTests
     [Fact]
     public async Task PostDirectorStartup_NoCloudUrl_RecordsLocallyAndDoesNotForward()
     {
-        // FileLog's sink directory is captured when the FileLog type first initializes. The live
-        // background writer holds the file open, so reads use a SHARED stream (FileShare.ReadWrite).
-        var logDir = CcStorage.ToolLogs("director");
+        // Issue #862: capture FileLog in a private, synchronously-drained sink so this assertion
+        // reads exactly this test's lines - no carryover from the shared process-wide writer and no
+        // background-flush timing race (which previously made this test flaky in CI).
+        using var log = FileLog.RedirectForTests();
 
-        var baseline = new Dictionary<string, int>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-                baseline[f] = ReadAllLinesShared(f).Count;
-
-        FileLog.Start();
         var (client, captured, dispose) = await StartAsync(startStub: false);
         try
         {
@@ -173,31 +168,16 @@ public sealed class DirectorStartupTelemetryEndpointTests
             }));
             // AC4: still 202 with no cloud URL configured.
             Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
-
-            // Give the flusher time to (NOT) deliver: nothing should ever reach a stub because none
-            // exists and nothing was enqueued.
-            await Task.Delay(500);
         }
         finally
         {
             await dispose();
-            // Let the background writer flush our lines (it does NOT stop here - FileLog is a
-            // process-wide static other concurrent tests may still be using).
-            await Task.Delay(500);
         }
 
         // Nothing was forwarded (no stub was started; captured stays empty by construction).
         Assert.Empty(captured);
 
-        var newLines = new List<string>();
-        if (Directory.Exists(logDir))
-            foreach (var f in Directory.EnumerateFiles(logDir, "*.log"))
-            {
-                var lines = ReadAllLinesShared(f);
-                var start = baseline.TryGetValue(f, out var n) ? n : 0;
-                for (var i = start; i < lines.Count; i++)
-                    newLines.Add(lines[i]);
-            }
+        var newLines = log.DrainAndReadLines();
 
         // AC2: the event is recorded Gateway-side with director_id + app_version.
         Assert.Contains(newLines, l =>
@@ -244,21 +224,6 @@ public sealed class DirectorStartupTelemetryEndpointTests
             Assert.Equal("WORKSTATION-3", doc.RootElement.GetProperty("machine_name").GetString());
         }
         finally { await dispose(); }
-    }
-
-    /// <summary>
-    /// Reads all lines from a file another thread may hold open for writing (the live FileLog
-    /// background writer). Uses <see cref="FileShare.ReadWrite"/> so the open handle does not block.
-    /// </summary>
-    private static List<string> ReadAllLinesShared(string path)
-    {
-        var lines = new List<string>();
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(fs);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
-            lines.Add(line);
-        return lines;
     }
 
     // ----- ResolveTargetUrl -----
