@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Issue #856 - Add a device becomes account sign-in (QR/deep-link); pairing code demoted to fallback</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#ccc; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007acc; padding-bottom:8px; }
+  h2 { color:#fff; font-size:17px; margin-top:32px; }
+  code { font-family:Consolas,monospace; background:#252526; color:#4fc1ff; padding:1px 5px; border-radius:3px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22c55e; font-weight:bold; }
+  .note { color:#aaa; font-size:13px; }
+  ul { margin-top:6px; }
+  .imgwrap { background:#fff; display:inline-block; padding:10px; border-radius:4px; }
+  .final { background:#14241a; border:1px solid #2e7d32; border-radius:4px; padding:14px; color:#cfe9cf; margin-top:28px; font-size:15px; }
+</style>
+</head>
+<body>
+<h1>Issue #856 - Add a device becomes account sign-in (QR/deep-link); pairing code demoted to fallback</h1>
+
+<p class="note">Surface: Gateway tray (<code>CcDirector.GatewayApp</code>) + <code>CcDirector.Gateway</code> + <code>CcDirector.Core</code>.
+Branch: <code>issue-856-add-device-signin</code>. Build: <span class="pass">succeeded, 0 warnings, 0 errors</span> (<code>dotnet build cc-director.sln</code>).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Re-framed the "Add a device" window</b> (<code>PairingWindow.axaml</code>/<code>.axaml.cs</code>). The idle state now LEADS with
+      "Sign in with your DevThrottle account": a QR code plus a plain sign-in link, with copy stating that
+      <i>signing into the same account is what joins the device here</i>. The 4-digit pairing code from #469 is moved
+      below a clearly secondary heading, "NO ACCOUNT HANDY? USE A PAIRING CODE INSTEAD", behind a "Show a pairing code" button.</li>
+  <li><b>QR carries a plain URL only - never a secret.</b> New helper <code>CcDirector.Gateway.Pairing.DeviceSignInQrCode.RenderPng</code>
+      renders the QR with QRCoder (already referenced) and <b>rejects</b> anything that is not an absolute http/https URL, so a
+      pairing code or token can never be encoded. (Consistent with #469 having removed the old secret-embedding QR endpoints.)</li>
+  <li><b>Single source of truth for the sign-in URL.</b> New <code>FirstRunLoginCoordinator.ResolveSignInBaseUrl()</code> returns the
+      <code>DEVTHROTTLE_SIGNIN_URL</code> value or the documented default <code>https://devthrottle.com/signin</code> - with NO loopback
+      callback and NO secret. <code>BuildSignInUrl</code> was refactored to use it.</li>
+  <li><b>Tray action renamed</b> from "Register a new device" to "Add a device" (<code>GatewayTrayController</code>).</li>
+  <li><b>No new endpoint added</b> - the web/QR sign-in start endpoint already exists as <code>POST /account/sign-in</code> (#853),
+      shared with the Cockpit sign-in buttons, so this issue reuses it per its own scope note ("if not already added there").</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Proof</th><th>Status</th></tr>
+<tr>
+  <td>1</td>
+  <td>Window leads with account sign-in; pairing code under a clearly secondary "fallback" heading.</td>
+  <td>Primary = sign-in; pairing code visually secondary.</td>
+  <td>Idle layout: primary "Sign in with your DevThrottle account" section (QR + link) first; a separator;
+      then the secondary "NO ACCOUNT HANDY? USE A PAIRING CODE INSTEAD" section with the "Show a pairing code" button.
+      See <code>PairingWindow.axaml</code>. (Native Avalonia window - see note below on screenshotting.)</td>
+  <td class="pass">MET</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>A QR / deep-link is shown that resolves to the DevThrottle sign-in page; capture the resolved URL.</td>
+  <td>QR/link -> sign-in page; URL captured.</td>
+  <td>Resolved URL (from production <code>ResolveSignInBaseUrl()</code>): <code>https://devthrottle.com/signin</code>
+      (see <code>resolved-signin-url.txt</code>). The QR below was rendered by the production
+      <code>DeviceSignInQrCode.RenderPng</code> over that exact URL (<code>signin-qr.png</code>).
+      <br/><span class="imgwrap"><img src="signin-qr.png" width="180" height="180" alt="sign-in QR"/></span></td>
+  <td class="pass">MET</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Completing sign-in on the second device joins it (end-to-end with #857; until then, the sign-in entry point is reached).</td>
+  <td>Sign-in entry point reachable.</td>
+  <td>The QR/link opens the same sign-in URL the Gateway loopback flow uses; on the Gateway, sign-in registers this device
+      with the cloud and stores the per-device key (#857, merged). The web/QR entry point is <code>POST /account/sign-in</code> (#853).
+      A live second-device sign-in cannot be staged from this automation session; verified by code review of the reachable
+      entry point + the resolved URL above.</td>
+  <td class="pass">MET (entry point verified)</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>The #469 4-digit pairing fallback still works unchanged (mint code, register, per-device key issued).</td>
+  <td>201 + a per-device key; single-use.</td>
+  <td>HTTP regression test <code>GatewayHostTests.PairingFallback_mintCodeThenRegister_issuesPerDeviceKey</code>:
+      mints a code on the host, POSTs <code>/devices/register</code>, asserts <code>201 Created</code> + non-empty
+      <code>DeviceKey</code> + device count incremented, and that replaying the consumed code is rejected
+      <code>401</code>. <span class="pass">Passed.</span> (<code>test-transcript.txt</code>)</td>
+  <td class="pass">MET</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Window copy states that signing into the same account joins the device.</td>
+  <td>Explicit copy.</td>
+  <td>Body text in <code>PairingWindow.axaml</code>: "On the new device, scan this code (or open the link below) and sign in to the
+      same DevThrottle account. <b>Signing into the same account is what joins the device here.</b>"</td>
+  <td class="pass">MET</td>
+</tr>
+</table>
+
+<h2>Tests</h2>
+<ul>
+  <li><code>FirstRunLoginCoordinatorTests.ResolveSignInBaseUrl_WhenEnvUnset_ReturnsTheDefaultSignInPage</code> (and the env-override case) - Core.</li>
+  <li><code>DeviceSignInQrCodeTests</code> - renders a PNG for a plain URL; rejects blank, relative, and non-http/https URLs (the "no secret" guard).</li>
+  <li><code>GatewayHostTests.PairingFallback_mintCodeThenRegister_issuesPerDeviceKey</code> - the #469 fallback regression (HTTP transcript).</li>
+</ul>
+<p class="note">All pass. Full solution builds clean (0 warnings / 0 errors).</p>
+
+<h2>Note on the screenshot</h2>
+<p class="note">The "Add a device" window is a native Avalonia window in the Gateway tray app. A live, pixel-accurate window
+screenshot is not reliably capturable from this headless automation session, so per the issue's own instruction I did NOT fake one.
+Instead the redesign is verified by: (a) code review of <code>PairingWindow.axaml</code> (the primary/secondary structure and copy),
+(b) the real QR PNG and resolved sign-in URL above - both produced by the actual production code path, and
+(c) the #469 pairing-fallback regression test.</p>
+
+<h2>CenCon impact</h2>
+<p class="note">No architecture or security drift: no new container, endpoint, external system, or security boundary - a UI re-frame plus
+two helpers, reusing the existing <code>POST /account/sign-in</code> (#853). The QR carries only a plain sign-in URL (no secret),
+consistent with the existing security posture. <code>architecture_manifest.yaml</code> is current (2026-06-30); the security profile is
+within its drift threshold. PII scan: CLEAN.</p>
+
+<div class="final">I believe this is finished.</div>
+</body>
+</html>

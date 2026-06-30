@@ -1,0 +1,11 @@
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithNonHttpUrl_Throws(url: "not a url") [8 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithNonHttpUrl_Throws(url: "javascript:alert(1)") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithNonHttpUrl_Throws(url: "ftp://devthrottle.com") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithNonHttpUrl_Throws(url: "/signin") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithBlankUrl_Throws(url: "") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithBlankUrl_Throws(url: "   ") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_WithBlankUrl_Throws(url: null) [< 1 ms]
+  Passed CcDirector.Gateway.Tests.DeviceSignInQrCodeTests.RenderPng_ForAPlainSignInUrl_ReturnsPngBytes [22 ms]
+  Passed CcDirector.Gateway.Tests.GatewayHostTests.PairingFallback_mintCodeThenRegister_issuesPerDeviceKey [191 ms]
+Total tests: 9
+     Passed: 9

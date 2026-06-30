@@ -207,6 +207,44 @@ public sealed class GatewayHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
+    // Issue #856 regression: re-framing Add-a-device to lead with account sign-in must leave the
+    // issue #469 4-digit pairing-code fallback working UNCHANGED. Mint a code on the host (as the
+    // Add-a-device window's "Show a pairing code" fallback does), POST it to /devices/register, and
+    // assert the device is enrolled with a per-device key issued (HTTP transcript proof).
+    [Fact]
+    public async Task PairingFallback_mintCodeThenRegister_issuesPerDeviceKey()
+    {
+        var before = _gateway.Devices.Count;
+
+        // The host mints the 4-digit code (shown only on the host screen) - the fallback grant.
+        var code = _gateway.Pairing.Mint();
+
+        var deviceId = Guid.NewGuid().ToString("N");
+        var resp = await _http.PostAsJsonAsync("devices/register", new DeviceRegistrationRequest
+        {
+            DeviceId = deviceId,
+            MachineName = "regression-test-device",
+            PairingCode = code.Code,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<DeviceRegistrationResponse>();
+        Assert.NotNull(body);
+        Assert.False(string.IsNullOrWhiteSpace(body!.DeviceKey)); // a per-device key was issued
+        Assert.Equal(deviceId, body.DeviceId);
+        Assert.Equal("regression-test-device", body.MachineName);
+        Assert.Equal(before + 1, body.DeviceCount);
+
+        // The code is single-use: replaying it is rejected with no second key issued.
+        var replay = await _http.PostAsJsonAsync("devices/register", new DeviceRegistrationRequest
+        {
+            DeviceId = Guid.NewGuid().ToString("N"),
+            MachineName = "replay-device",
+            PairingCode = code.Code,
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
+    }
+
     private async Task WaitForDirectorCount(int target, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

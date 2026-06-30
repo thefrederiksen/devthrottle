@@ -178,9 +178,9 @@ public sealed class GatewayTrayController : IDisposable
         var actions = new List<FlyoutAction>
         {
             new() { Text = "Open Cockpit", Primary = true, OnClick = OpenCockpit },
-            // Issue #469: the local-presence root of trust. The pairing code is shown only here, on
-            // the gateway host's own screen, so only someone at this machine can enroll a device.
-            new() { Text = "Register a new device", OnClick = OpenPairing },
+            // Issue #856: adding a device leads with signing into the same DevThrottle account (a QR /
+            // deep-link), with issue #469's local pairing code kept as the secondary fallback.
+            new() { Text = "Add a device", OnClick = OpenPairing },
             new() { Text = "Open Settings", OnClick = OpenSettings },
             new() { Text = "Restart Gateway", OnClick = () => _ = RestartAsync() },
             new() { Text = "Open Logs Folder", OnClick = OpenLogsFolder },
@@ -623,8 +623,10 @@ public sealed class GatewayTrayController : IDisposable
     }
 
     /// <summary>
-    /// Open the "Register a new device" window (issue #469). The pairing code it shows lives ONLY
-    /// on this host's screen - the local-presence root of trust.
+    /// Open the "Add a device" window (issue #856). It leads with signing into the same DevThrottle
+    /// account (QR / deep-link to the plain sign-in URL) and keeps issue #469's local pairing code as
+    /// the secondary fallback - that code lives ONLY on this host's screen (the local-presence root of
+    /// trust).
     /// </summary>
     private void OpenPairing()
     {

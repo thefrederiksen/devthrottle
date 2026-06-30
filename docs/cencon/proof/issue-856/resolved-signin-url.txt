@@ -1,0 +1,2 @@
+Resolved Add-a-device sign-in URL (DEVTHROTTLE_SIGNIN_URL or default): https://devthrottle.com/signin
+QR PNG bytes: 409
