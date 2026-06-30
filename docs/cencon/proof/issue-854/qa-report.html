@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #854 - Account device-list proxy (GET/DELETE /account/devices)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecff; }
+  .pass { color: #0a7a0a; font-weight: bold; }
+  .verdict { background: #e9f9e9; border: 2px solid #0a7a0a; padding: 1rem; font-size: 1.1rem; margin: 1.5rem 0; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  .note { background: #fff8e1; border-left: 4px solid #d4a017; padding: .7rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #854</h1>
+<p><strong>Title:</strong> [Gateway] Proxy the account device list + revoke (GET/DELETE /account/devices)<br>
+<strong>Pull request:</strong> #868 (branch <code>issue-854-account-devices-proxy</code>)<br>
+<strong>QA Agent:</strong> independent verifier (CenCon Implementation loop) - did not see the Developer's session<br>
+<strong>Date:</strong> 2026-06-30</p>
+
+<h2>How this was verified (independently)</h2>
+<ul>
+  <li>Checked out <code>origin/issue-854-account-devices-proxy</code> into a fresh isolated worktree (not the shared tree, not the Developer's binary).</li>
+  <li>Built the whole solution: <code>dotnet build cc-director.sln -c Debug</code> -&gt; <strong>Build succeeded. 0 Warning(s), 0 Error(s).</strong></li>
+  <li>Ran the feature test classes independently: <code>AccountDevicesEndpointTests</code> + <code>GatewayHostTests</code> -&gt; <strong>24 passed, 0 failed.</strong></li>
+  <li>Full code review of the endpoint, the cloud HTTP client, the DTO contract, the host wiring, and the auth middleware.</li>
+</ul>
+
+<div class="note">
+<strong>On a live real-cloud signed-in transcript:</strong> the acceptance criteria are HTTP/contract level on the Gateway and depend on the cloud contract devthrottle_internal#81/#82. A live signed-in end-to-end requires a real DevThrottle account access token and a reachable cloud device registry, neither of which can be staged from this automation session. Per the QA brief, the criteria are judged on the stub-cloud unit tests (which exercise the full proxy seam: Bearer forwarding, DTO mapping, revoke, signed-out, unreachable) plus code review. This is stated explicitly rather than rubber-stamped. There is no Cockpit UI in this issue (the page is a sibling issue), so there is no screen to capture - the proof surface is the HTTP/contract behaviour.
+</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>GET /account/devices (signed-in) returns the account device list: name, last-seen, device id, this-device marker, mapped from cloud GET /api/v1/devices.</td>
+<td>200 with signedIn:true and a devices array carrying id, name, lastSeenAt, thisDevice.</td>
+<td><code>DeviceRegistryClient.ListDevicesAsync</code> GETs <code>/api/v1/devices</code> with the Bearer token; <code>AccountDevicesEndpoint</code> maps each masked record to <code>AccountDeviceDto</code> (id, name, lastSeenAt, createdAt, platform, deviceType, appVersion, key prefix/last4) and computes <code>thisDevice</code> by case-insensitive machine-name match. Test <code>Get_SignedIn_ForwardsBearer_MapsDtos_AndNoToken</code> asserts the Bearer was forwarded and the DTO fields (id, name, lastSeenAt, thisDevice) are correct. PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Cockpit-facing response contains NO account access/refresh token (DT-05).</td>
+<td>No token field anywhere in the response body.</td>
+<td>The DTOs (<code>AccountDeviceDto</code>, <code>AccountDevicesResponseDto</code>, <code>RevokeDeviceResponseDto</code>) have no token field by design. The access token is sent only as the <code>Authorization: Bearer</code> header to the cloud and is never logged. Test asserts the body does not contain the JWT, the refresh token, the substring "token", or "key_hash". PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>DELETE /account/devices/{id} forwards the revoke; device no longer lists.</td>
+<td>Revoke succeeds; a subsequent GET omits the removed device.</td>
+<td><code>RevokeDeviceAsync</code> DELETEs <code>/api/v1/devices/{id}</code> with the Bearer token (200 -&gt; revoked:true, 404 -&gt; revoked:false). Test <code>Delete_Revokes_AndSubsequentGet_NoLongerListsDevice</code> revokes dev-2 then asserts the next GET lists only dev-1. The unknown-id 404 path is also covered. PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Signed-out Gateway returns an explicit signed-out status (never a silent empty 200 list).</td>
+<td>signedIn:false envelope with devices omitted (not an empty array), for both GET and DELETE.</td>
+<td>When <code>GetAccessTokenForForwarding()</code> is null/empty the endpoint returns <code>{signedIn:false}</code> with <code>Devices</code> omitted via <code>[JsonIgnore(WhenWritingNull)]</code>; the cloud is never called. Tests for GET and DELETE assert signedIn:false, the devices key is absent, and the stub recorded no Authorization. The real GatewayHost wiring is also proven by <code>GatewayHostTests.AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse</code>. PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Cloud-unreachable returns a clear error (not a fabricated list) and logs it.</td>
+<td>A clear error status; no fabricated devices list; failure logged.</td>
+<td>On any cloud failure the endpoint catches at the boundary and returns <code>502 Bad Gateway</code> with an error message and writes a <code>FAILED</code> line via <code>FileLog</code>; the client throws on non-success (<code>EnsureSuccessStatusCode</code>) so it never fabricates a list. Tests <code>Get_CloudUnreachable_Returns502_NotFabricatedList</code> and <code>Delete_CloudUnreachable_Returns502</code> assert 502 and no devices key. PASS.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li><strong>Local pairing #469 untouched:</strong> the PR diff touches no <code>DeviceEnrollmentEndpoint</code>, <code>DeviceRegistry.cs</code>, or pairing code. The account-scoped <code>/account/devices</code> is a distinct surface from the local <code>/devices</code>. PASS.</li>
+  <li><strong>Routes auth-gated:</strong> <code>/account/devices</code> is NOT in <code>AuthMiddleware.PublicPaths</code>, so it inherits the host-wide Gateway token gate exactly like the other <code>/account</code> routes. Tests <code>AuthEnabled_NoGatewayToken_Returns401</code>, <code>AuthEnabled_WithGatewayToken_Returns200</code>, and <code>GatewayHostTests.AccountDevices_get_requires_auth</code> confirm 401 without and 200 with the token. PASS.</li>
+  <li><strong>Coding standards:</strong> try-catch only at the endpoint delegates (entry points), enterprise logging on entry/exit/failure, injectable HttpClient seam, no fallback that hides failure (unreachable surfaces as 502, not a fake list). PASS.</li>
+  <li><strong>Build:</strong> clean, 0 warnings, 0 errors. PASS.</li>
+</ul>
+
+<div class="verdict">
+VERIFIED - all 5 acceptance criteria met. Build clean, 24/24 feature tests pass, code review confirms DT-05 (no token in the Cockpit-facing response), explicit signed-out and cloud-unreachable handling (no fabricated list), auth-gated routes, and the #469 local registry untouched. Live real-cloud signed-in transcript could not be staged from automation and was judged on stub tests + code review, as stated above.
+</div>
+
+</body>
+</html>
