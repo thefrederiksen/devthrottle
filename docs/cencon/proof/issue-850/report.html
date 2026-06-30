@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #850 - Mobile Voice Mode - Developer Proof</title>
+<style>
+  :root { --bg:#0b1020; --panel:#131a2e; --panel2:#1a2236; --border:#2a3550; --text:#e7ecf5; --dim:#93a0bd; --accent:#4f8cff; --green:#22c55e; --yellow:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width:1080px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:40px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  p,li { color:#d7deef; }
+  .sub { color:var(--dim); margin:0 0 8px; }
+  code { background:#0f1626; padding:1px 6px; border-radius:5px; font-family:Consolas,Menlo,monospace; font-size:13px; color:#cfe0ff; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel2); color:#cdd8f0; }
+  .pill { display:inline-block; font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .pass { background:#11331f; color:#5fd08a; border:1px solid #1f5c38; }
+  .grid { display:flex; flex-wrap:wrap; gap:24px; margin:20px 0; }
+  .shot { width:300px; }
+  .shot img { width:300px; border:1px solid var(--border); border-radius:12px; display:block; }
+  .cap { color:var(--dim); font-size:13px; margin-top:8px; }
+  .callout { background:var(--panel); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:8px; padding:14px 18px; margin:18px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #850 - Mobile Voice Mode</h1>
+  <p class="sub">Developer Agent proof. Branch <code>issue-850-mobile-voice-mode</code>. DevThrottle mobile Progressive Web App (served at <code>/m</code>).</p>
+  <p><span class="pill pass">I believe this is finished.</span></p>
+
+  <h2>1. What was implemented</h2>
+  <p>The placeholder Voice mode tab is replaced with the real hands-free Wingman narration screen, plus a roster
+  play-triangle gated on phone-side download. All of the backend already existed and was reused (the Wingman warm
+  brain, the per-turn narrative with single/multiple selection, text-to-speech, the per-session audio cache, the
+  read-only explain endpoint, menu detection + press); the new work is the mobile Progressive Web App user
+  interface and one new behavioral rule.</p>
+  <ul>
+    <li><b>Voice screen</b> (<code>mobile/src/pages/VoiceMode.tsx</code>) with four states: off, working, speaking,
+      and waiting-on-choice, plus audio playback (an <code>&lt;audio&gt;</code> element with replay + progress).</li>
+    <li><b>Phone-side download gate</b> (<code>mobile/src/voice/clips.ts</code>): a Cache-Storage-backed, reactive
+      store keyed by session id + the clip's <code>generatedAt</code>. "Phone-ready" means the bytes are on the
+      phone; the triangle and any auto-play gate on phone-ready, never on gateway-ready.</li>
+    <li><b>Roster indicator</b> (<code>mobile/src/pages/Home.tsx</code>): a play-triangle once the clip is on the
+      phone; a yellow spinner while the Wingman is generating or the phone is downloading.</li>
+    <li><b>Typed Gateway calls</b> (<code>mobile/src/api/client.ts</code>): explain, voice, voice/audio, menu,
+      menu-press - each carrying the same Bearer the rest of the client uses.</li>
+    <li><b>Reply</b>: the <b>Respond</b> button opens the shared dictation interface with <b>Cancel / Pause / Send
+      and no Insert</b> (a new <code>showInsert</code> prop on <code>DictationDialog</code>); Send transcribes and
+      sends straight into the session via the existing <code>/prompt</code> path. No hold-to-talk. Room is left for
+      a future "Talk to the Wingman" target; it is not built.</li>
+    <li><b>On / off toggle</b>: switching voice on now sets the owning Director's mobile view mode to Voice
+      (<code>POST /sessions/{sid}/voice-mode { enabled:true }</code>) <i>and</i> marks the Gateway's turn-end
+      re-narration set (<code>explain</code>), matching the native phone app's enter-voice flow - so
+      <code>SessionDto.VoiceMode</code> flips true for every client and the on-state persists across navigation
+      and shows on the roster. A low-emphasis <b>Turn voice off</b> control (shown in every on-state) calls
+      <code>{ enabled:false }</code> - the same call the native app's <code>ClearVoiceMode</code> makes - and the
+      screen returns to off.</li>
+  </ul>
+
+  <div class="callout">
+    <b>The one genuinely new rule, proven in screen E:</b> the <code>api-refactor</code> card shows the
+    play-triangle only because its clip finished downloading to the phone; the <code>db-migration</code> card, still
+    generating, shows the yellow spinner. Until the bytes are local, there is no triangle.
+  </div>
+
+  <h2>2. Acceptance criteria - met</h2>
+  <table>
+    <tr><th>Criterion</th><th>How it is met</th><th>Proof</th></tr>
+    <tr><td>Switch a session into voice mode from the Voice tab</td><td>"Switch to voice mode" -> <code>POST /voice-mode { enabled:true }</code> (Director ViewMode=Voice, roster + persistence) + <code>POST /wingman/explain</code> (marks the Gateway set + first narration)</td><td>A -&gt; B</td></tr>
+    <tr><td>Turn voice off again</td><td>"Turn voice off" -> <code>POST /voice-mode { enabled:false }</code> (Director ViewMode=Text), matching the native app's ClearVoiceMode; the screen returns to off and stays off</td><td>C -&gt; G</td></tr>
+    <tr><td>First narration fetched and (foreground + phone-ready) auto-played</td><td>explain -&gt; poll <code>/wingman/voice</code> -&gt; <code>ensureClip</code> -&gt; auto-play once, gated on <code>!document.hidden</code></td><td>C</td></tr>
+    <tr><td>Every subsequent completed turn re-narrates when downloaded</td><td>Gateway turn-end watcher regenerates server-side; the phone polls <code>generatedAt</code> and downloads the new clip</td><td>C (loop)</td></tr>
+    <tr><td>Waiting on options: count + choices spoken; selectable buttons (single and multiple), submittable</td><td><code>/wingman/menu</code> -&gt; option buttons; <code>menu-press</code> (single: full <code>send</code>; multiple: concatenated toggles + <code>submit</code>)</td><td>D single, D multiple</td></tr>
+    <tr><td>List triangle ONLY after audio is on the phone; yellow + working while generating</td><td><code>clipState.phase === "ready"</code> gates the triangle; <code>effectiveColor</code> yellow + spinner otherwise</td><td>E</td></tr>
+    <tr><td>Tapping the triangle plays the locally-stored clip, no download wait</td><td><code>playClip</code> plays the cached object URL</td><td>E (triangle), C (player)</td></tr>
+    <tr><td>Respond opens dictation (Cancel / Pause / Send, NO Insert); Send goes into the session; no hold-to-talk</td><td><code>DictationDialog showInsert={false}</code> -&gt; <code>sendPrompt(..., true)</code></td><td>F</td></tr>
+    <tr><td>Wingman stays read-only; a choice goes through the single write chokepoint</td><td>answers only via <code>menu-press</code> / <code>prompt</code>; no charter change</td><td>code</td></tr>
+  </table>
+
+  <h2>3. Rendered screens</h2>
+  <p class="sub">The REAL React components, rendered against the Vite dev server with the Gateway endpoints mocked
+  in-page (and a fake microphone for the reply dialog), at a phone viewport. They map 1:1 to mockups A-F in
+  <code>docs/architecture/mobile/voice-mode.html</code>.</p>
+  <div class="grid">
+    <div class="shot"><img src="A-off.png" alt="Off" /><div class="cap">A. Off - one "Switch to voice mode" button.</div></div>
+    <div class="shot"><img src="B-working.png" alt="Working" /><div class="cap">B. Working - Wingman is reading; the phone is downloading the clip.</div></div>
+    <div class="shot"><img src="C-speaking.png" alt="Speaking" /><div class="cap">C. Speaking - the clip plays; narrative shown; replay + Respond, with the low-emphasis "Turn voice off" toggle below.</div></div>
+    <div class="shot"><img src="D-waiting-single.png" alt="Single select" /><div class="cap">D. Waiting (single) - tap an option to choose it.</div></div>
+    <div class="shot"><img src="D-waiting-multiple.png" alt="Multiple select" /><div class="cap">D. Waiting (multiple) - pick any, then Submit (disabled until a pick).</div></div>
+    <div class="shot"><img src="E-roster.png" alt="Roster" /><div class="cap">E. The list - triangle once phone-ready (api-refactor); yellow spinner while generating (db-migration); non-voice session shows nothing (docs-site).</div></div>
+    <div class="shot"><img src="F-respond.png" alt="Respond" /><div class="cap">F. Reply - the dictation interface with Cancel / Pause / Send and NO Insert.</div></div>
+    <div class="shot"><img src="G-voice-off.png" alt="After Turn voice off" /><div class="cap">G. After tapping "Turn voice off" (waited past one poll) - the screen returns to off and stays off.</div></div>
+  </div>
+
+  <h2>4. Verification</h2>
+  <ul>
+    <li><code>npm run typecheck</code> in <code>mobile/</code> - clean (no errors).</li>
+    <li><code>npm run build</code> in <code>mobile/</code> - <code>Build succeeded</code>; the pre-existing chunk-size
+      note (xterm) is unrelated to this change.</li>
+    <li>Seven screens rendered with no console errors and matched against the mockups (above).</li>
+  </ul>
+
+  <h2>5. CenCon impact</h2>
+  <p>No drift. This is a frontend-only Progressive Web App change that reuses existing Gateway endpoints and the
+  Wingman read-only charter; zero <code>.cs</code> files changed, and no architecture or security boundary is added
+  or altered. <code>architecture_manifest.yaml</code> and <code>security_profile.yaml</code> are both current.</p>
+</div>
+</body>
+</html>
