@@ -758,6 +758,16 @@ public sealed class GatewayHost : IAsyncDisposable
         var accountDevicesClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         AccountDevicesEndpoint.Map(_app, Account, new Core.Account.DeviceRegistryClient(accountDevicesClient), Environment.MachineName);
 
+        // Start the browser loopback sign-in from a web request (issue #853): POST /account/sign-in. The
+        // Cockpit Account page's signed-out state needs a real "Sign in" action, but the loopback flow that
+        // captures the credential lives here on the Gateway (issue #637, GatewaySignInService = SignIn). So
+        // the Gateway exposes this trigger: the Cockpit POSTs here, the Gateway opens the system browser and
+        // runs the hand-off in the background, and the Cockpit polls GET /account/status to see the result.
+        // The captured token never leaves the Gateway (security rule DT-05). On a host with no sign-in flow
+        // (SignIn null) it reports an explicit "not available" result. Inherits the host-wide token
+        // middleware above, exactly like the other /account routes.
+        AccountSignInEndpoint.Map(_app, SignIn);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure

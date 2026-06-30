@@ -263,6 +263,74 @@ public sealed class GatewayClient
             ?? throw new HttpRequestException("account/logout returned an empty body");
     }
 
+    // ===== Account devices + sign-in trigger (issue #853): the Cockpit Account page redesign. The device
+    // list/revoke are pure proxies the Gateway exposes (issue #854); the sign-in trigger starts the
+    // Gateway's own browser loopback flow (issue #637) via POST /account/sign-in (issue #853). The Cockpit
+    // never holds the account token or calls the cloud - every contract here is token-free (security rule
+    // DT-05).
+
+    /// <summary>
+    /// The account-wide device list (<c>GET /account/devices</c>, issue #854). The Gateway proxies the
+    /// cloud device registry behind its own stored credential and returns a token-free envelope: when
+    /// signed in, <see cref="AccountDevicesResponseDto.SignedIn"/> is true and
+    /// <see cref="AccountDevicesResponseDto.Devices"/> carries the account's devices (possibly empty);
+    /// when signed out it is an explicit <c>signedIn:false</c> envelope with the device list omitted.
+    /// Throws on a Gateway/cloud error (502 etc.) so the Account page surfaces an explicit error state
+    /// rather than presenting an empty list as "no devices".
+    /// </summary>
+    public async Task<AccountDevicesResponseDto> GetAccountDevicesAsync(CancellationToken ct = default)
+    {
+        _log.LogDebug("GetAccountDevicesAsync: GET {Base}account/devices", _http.BaseAddress);
+        var resp = await _http.GetAsync("account/devices", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"list devices failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<AccountDevicesResponseDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("account/devices returned an empty body");
+    }
+
+    /// <summary>
+    /// Revoke one device from the account (<c>DELETE /account/devices/{id}</c>, issue #854). User action:
+    /// throws with the server error on failure (incl. 404 when the id is not the account's, 502 when the
+    /// cloud is unreachable) so the Account page can show it; on success the page refreshes the list and
+    /// the row disappears. Returns the Gateway's token-free result.
+    /// </summary>
+    public async Task<RevokeDeviceResponseDto> RemoveAccountDeviceAsync(string deviceId, CancellationToken ct = default)
+    {
+        _log.LogInformation("RemoveAccountDeviceAsync: DELETE {Base}account/devices/{Id}", _http.BaseAddress, deviceId);
+        var resp = await _http.DeleteAsync($"account/devices/{Uri.EscapeDataString(deviceId)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"remove device failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<RevokeDeviceResponseDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("account/devices revoke returned an empty body");
+    }
+
+    /// <summary>
+    /// Start the Gateway's browser loopback sign-in (<c>POST /account/sign-in</c>, issue #853). The Gateway
+    /// opens the system browser and runs the hand-off in the background; this returns as soon as the flow
+    /// is kicked off (or reports it was already signed in / not available on this host). User action:
+    /// throws with the server error on transport failure so the Account page can show it. After a
+    /// <see cref="SignInStartResponseDto.Started"/> result the page polls <see cref="GetAccountStatusAsync"/>
+    /// to observe completion.
+    /// </summary>
+    public async Task<SignInStartResponseDto> StartSignInAsync(CancellationToken ct = default)
+    {
+        _log.LogInformation("StartSignInAsync: POST {Base}account/sign-in", _http.BaseAddress);
+        var resp = await _http.PostAsync("account/sign-in", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"start sign-in failed ({(int)resp.StatusCode}): {ExtractError(body)}");
+        }
+        return await resp.Content.ReadFromJsonAsync<SignInStartResponseDto>(cancellationToken: ct)
+            ?? throw new HttpRequestException("account/sign-in returned an empty body");
+    }
+
     // ===== Telemetry consent (issue #649): the Cockpit telemetry surface is a pure client of the
     // Gateway telemetry-consent endpoints. The consent setting lives on the Gateway (fleet-wide), so
     // the Cockpit READS it from GET /gateway/telemetry-consent and toggles it via
