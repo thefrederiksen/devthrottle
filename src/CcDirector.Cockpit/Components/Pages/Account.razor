@@ -1,32 +1,35 @@
 @page "/account"
 @using CcDirector.Gateway.Contracts
+@implements IDisposable
 @inject CcDirector.Cockpit.Services.GatewayClient Gateway
 
-@* Gateway Centralization Phase 3 (issue #648): the DevThrottle account surface on the Cockpit (the
-   Gateway's web dashboard). The credential now lives on the Gateway, so identity + logout belong here.
-   This page is a pure CLIENT of the Gateway account endpoints: it READS the signed-in identity from
-   GET /account/status (#638, computed locally on the Gateway with no cloud call) and CLEARS it via
-   POST /account/logout (#648). The raw access/refresh token is NEVER fetched, stored, or displayed -
-   the contract carries only the boolean + identity (security rule DT-05). Styled to match the Cockpit
-   page conventions (the dark VS Code palette used by About.razor). *@
+@* DevThrottle Account home on the Cockpit (issue #853, redesign of the read-only page shipped by #648).
+   This page is a pure CLIENT of the Gateway account endpoints - the credential lives on the Gateway and
+   the raw token is NEVER fetched, stored, or displayed (security rule DT-05):
+     - signed-out: a real "Sign in" action that starts the Gateway browser loopback sign-in via
+       POST /account/sign-in (#853 -> #637), then polls GET /account/status (#638) for completion;
+     - signed-in: identity + Log out (POST /account/logout, #648) AND a "Your devices" list pulled from
+       GET /account/devices (#854) with a per-device Remove (DELETE /account/devices/{id}, #854).
+   Responsive (CodingStyle.md): the page renders immediately with a loading state and loads the status +
+   device list asynchronously. Styled to match the dark VS Code palette already used here (VisualStyle.md). *@
 
 <PageTitle>Account - DevThrottle</PageTitle>
 
 <div style="padding:24px; color:#ccc; font-family:'Segoe UI',sans-serif; max-width:780px;">
     <h1 style="color:#fff; font-size:22px; font-weight:600; margin:0 0 4px;">DevThrottle Account</h1>
     <div style="color:#888; font-size:12px; margin-bottom:16px;">
-        The DevThrottle identity this Gateway is signed in as. The credential lives on the Gateway; this is read locally, with no cloud call.
+        The DevThrottle identity this Gateway is signed in as, and the devices registered to the account. The credential lives on the Gateway; this page never sees the raw token.
     </div>
 
     @if (_error is not null)
     {
-        <div style="background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:12px; border-radius:6px;">
+        <div class="acct-status-error" style="background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:12px; border-radius:6px;">
             Could not load account status from the Gateway: @_error
         </div>
     }
     else if (_status is null)
     {
-        <p style="color:#888;">Loading...</p>
+        <p class="acct-loading" style="color:#888;">Loading...</p>
     }
     else if (_status.SignedIn)
     {
@@ -40,30 +43,155 @@
         </div>
 
         <div style="margin-top:18px;">
-            <button @onclick="LogOutAsync" disabled="@_busy"
+            <button class="acct-logout-btn" @onclick="LogOutAsync" disabled="@_busy"
                     style="height:30px; padding:0 16px; background:@(_busy ? "#004E82" : "#007ACC"); color:@(_busy ? "#6699BB" : "#fff"); border:none; border-radius:4px; cursor:@(_busy ? "default" : "pointer"); font-size:13px;">
                 @(_busy ? "Logging out..." : "Log out")
             </button>
             <span style="color:#888; font-size:12px; margin-left:12px;">Clears the Gateway credential and returns the Gateway to its sign-in prompt.</span>
         </div>
+
+        @* --- Your devices (issue #853 / #854) --- *@
+        <div class="acct-devices" style="margin-top:28px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <h2 style="color:#fff; font-size:16px; font-weight:600; margin:0;">Your devices</h2>
+                <button class="acct-devices-refresh" @onclick="LoadDevicesAsync" disabled="@_devicesLoading"
+                        style="height:26px; padding:0 12px; background:#3C3C3C; color:@(_devicesLoading ? "#666" : "#ccc"); border:none; border-radius:4px; cursor:@(_devicesLoading ? "default" : "pointer"); font-size:12px;">
+                    Refresh
+                </button>
+            </div>
+            <div style="color:#888; font-size:12px; margin-bottom:12px;">
+                Every device registered to this DevThrottle account. Remove a device to revoke its access.
+            </div>
+
+            @if (_devicesLoading)
+            {
+                <p class="acct-devices-loading" style="color:#888; font-size:13px;">Loading devices...</p>
+            }
+            else if (_devicesError is not null)
+            {
+                <div class="acct-devices-error" style="background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:12px; border-radius:6px; font-size:13px;">
+                    Could not load your devices from the Gateway: @_devicesError
+                    <div style="margin-top:8px;">
+                        <button class="acct-devices-retry" @onclick="LoadDevicesAsync"
+                                style="height:26px; padding:0 12px; background:#3C3C3C; color:#ccc; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+                            Try again
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (_devices is not null && !_devices.SignedIn)
+            {
+                @* An explicit signed-out device envelope (a race against a logout elsewhere): never shown as
+                   "no devices". *@
+                <div class="acct-devices-signedout" style="background:#2a2a1b; border:1px solid #8a7a33; color:#d8cf9b; padding:12px; border-radius:6px; font-size:13px;">
+                    The Gateway reports it is no longer signed in, so the device list is unavailable. Sign in again to see your devices.
+                </div>
+            }
+            else if (_devices is { Devices: { Count: 0 } })
+            {
+                <div class="acct-devices-empty" style="color:#888; font-size:13px;">
+                    No devices are registered to this account yet.
+                </div>
+            }
+            else if (_devices is { Devices: not null })
+            {
+                <div class="acct-devices-list" style="border:1px solid #3C3C3C; border-radius:8px; overflow:hidden;">
+                    @foreach (var device in _devices.Devices!)
+                    {
+                        <div class="acct-device-row" style="display:flex; align-items:center; padding:12px 14px; border-top:1px solid #2a2a2a;">
+                            <div style="flex:1; min-width:0;">
+                                <div style="display:flex; align-items:center;">
+                                    <span style="color:#ccc; font-size:13px; font-weight:500; word-break:break-all;">@(string.IsNullOrEmpty(device.Name) ? "(unnamed device)" : device.Name)</span>
+                                    @if (device.ThisDevice)
+                                    {
+                                        <span class="acct-this-device" style="margin-left:8px; background:#1B3A2A; color:#22C55E; font-size:10px; font-weight:600; padding:2px 7px; border-radius:8px;">This device</span>
+                                    }
+                                </div>
+                                <div style="color:#888; font-size:11px; margin-top:3px;">
+                                    <span class="acct-device-platform">@DeviceMeta(device)</span>
+                                    <span style="margin:0 6px; color:#555;">|</span>
+                                    <span class="acct-device-lastseen">Last seen: @FormatTimestamp(device.LastSeenAt)</span>
+                                </div>
+                            </div>
+
+                            @if (_confirmRemoveId == device.Id)
+                            {
+                                <div class="acct-remove-confirm" style="display:flex; align-items:center;">
+                                    <span style="color:#ffaaaa; font-size:12px; margin-right:10px;">Remove this device?</span>
+                                    <button class="acct-remove-confirm-yes" @onclick="() => ConfirmRemoveAsync(device.Id)" disabled="@_removeBusy"
+                                            style="height:26px; padding:0 12px; background:@(_removeBusy ? "#5a2a2a" : "#cc4444"); color:#fff; border:none; border-radius:4px; cursor:@(_removeBusy ? "default" : "pointer"); font-size:12px;">
+                                        @(_removeBusy ? "Removing..." : "Remove")
+                                    </button>
+                                    <button class="acct-remove-confirm-no" @onclick="CancelRemove" disabled="@_removeBusy"
+                                            style="height:26px; padding:0 12px; background:#3C3C3C; color:#ccc; border:none; border-radius:4px; cursor:@(_removeBusy ? "default" : "pointer"); font-size:12px; margin-left:8px;">
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="acct-remove-btn" @onclick="() => RequestRemove(device.Id)" disabled="@(_confirmRemoveId is not null)"
+                                        style="height:26px; padding:0 12px; background:#3C3C3C; color:#ccc; border:none; border-radius:4px; cursor:@(_confirmRemoveId is null ? "pointer" : "default"); font-size:12px;">
+                                    Remove
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (_removeError is not null)
+            {
+                <div class="acct-remove-error" style="margin-top:10px; background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:10px 12px; border-radius:6px; font-size:13px;">
+                    Could not remove the device: @_removeError
+                </div>
+            }
+            @if (_removedNote is not null)
+            {
+                <div class="acct-remove-ok" style="margin-top:10px; background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:10px 12px; border-radius:6px; font-size:13px;">
+                    @_removedNote
+                </div>
+            }
+        </div>
     }
     else
     {
+        @* --- Signed out: a real sign-in action (issue #853) --- *@
         <div style="background:#252526; border-radius:8px; padding:18px;">
             <div style="display:flex; align-items:center; margin-bottom:10px;">
                 <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#888; margin-right:8px;"></span>
                 <span style="color:#ccc; font-size:13px; font-weight:600;">Not signed in</span>
             </div>
-            <div style="color:#aaa; font-size:13px; line-height:1.5;">
-                This Gateway is not signed in to DevThrottle. Use the <strong style="color:#ccc;">"Sign in to DevThrottle"</strong>
-                action on the Gateway tray to sign in; the Gateway also prompts sign-in automatically the next time it launches.
+            <div style="color:#aaa; font-size:13px; line-height:1.5; margin-bottom:16px;">
+                This Gateway is not signed in to DevThrottle. Sign in to register this device and manage your account.
             </div>
+
+            <button class="acct-signin-btn" @onclick="StartSignInAsync" disabled="@_signInInProgress"
+                    style="height:34px; padding:0 20px; background:@(_signInInProgress ? "#004E82" : "#007ACC"); color:@(_signInInProgress ? "#6699BB" : "#fff"); border:none; border-radius:4px; cursor:@(_signInInProgress ? "default" : "pointer"); font-size:14px; font-weight:600;">
+                @(_signInInProgress ? "Waiting for your browser..." : "Sign in to DevThrottle")
+            </button>
+            <div style="color:#888; font-size:12px; margin-top:10px;">
+                Opens your web browser to finish signing in with Google, GitHub, or email.
+            </div>
+
+            @if (_signInInProgress)
+            {
+                <div class="acct-signin-progress" style="margin-top:14px; background:#1B2A3A; border:1px solid #3B82F6; color:#9bbce3; padding:10px 12px; border-radius:6px; font-size:13px;">
+                    Finish signing in in the browser window that opened. This page updates automatically once you are signed in.
+                </div>
+            }
+            @if (_signInError is not null)
+            {
+                <div class="acct-signin-error" style="margin-top:14px; background:#3a1d1d; border:1px solid #cc4444; color:#ffaaaa; padding:10px 12px; border-radius:6px; font-size:13px;">
+                    @_signInError
+                </div>
+            }
         </div>
     }
 
     @if (_loggedOut)
     {
-        <div style="margin-top:16px; background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:10px 12px; border-radius:6px; font-size:13px;">
+        <div class="acct-loggedout" style="margin-top:16px; background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:10px 12px; border-radius:6px; font-size:13px;">
             Logged out. The Gateway credential was cleared.
         </div>
     }
@@ -75,9 +203,31 @@
     private bool _busy;
     private bool _loggedOut;
 
+    // Sign-in (signed-out state).
+    private bool _signInInProgress;
+    private string? _signInError;
+    private CancellationTokenSource? _signInPollCts;
+
+    // Devices (signed-in state).
+    private AccountDevicesResponseDto? _devices;
+    private bool _devicesLoading;
+    private string? _devicesError;
+    private string? _confirmRemoveId;
+    private bool _removeBusy;
+    private string? _removeError;
+    private string? _removedNote;
+
+    /// <summary>How long the page waits for the browser sign-in to complete before it stops polling.</summary>
+    private static readonly TimeSpan SignInPollTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>How often the page re-reads the Gateway status while a sign-in is in flight.</summary>
+    private static readonly TimeSpan SignInPollInterval = TimeSpan.FromSeconds(2);
+
     protected override async Task OnInitializedAsync()
     {
         await LoadStatusAsync();
+        if (_status is { SignedIn: true })
+            await LoadDevicesAsync();
     }
 
     private async Task LoadStatusAsync()
@@ -104,6 +254,10 @@
         {
             _status = await Gateway.LogoutAccountAsync();
             _loggedOut = true;
+            // The device section belongs to the signed-in view; drop it so a later sign-in reloads fresh.
+            _devices = null;
+            _devicesError = null;
+            _confirmRemoveId = null;
         }
         catch (Exception ex)
         {
@@ -115,6 +269,184 @@
         }
     }
 
+    private async Task LoadDevicesAsync()
+    {
+        _devicesLoading = true;
+        _devicesError = null;
+        _confirmRemoveId = null;
+        try
+        {
+            _devices = await Gateway.GetAccountDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            // No-fallback: a Gateway/cloud error surfaces as an explicit error state, never an empty
+            // "no devices" list.
+            _devices = null;
+            _devicesError = ex.Message;
+        }
+        finally
+        {
+            _devicesLoading = false;
+        }
+    }
+
+    private void RequestRemove(string deviceId)
+    {
+        _confirmRemoveId = deviceId;
+        _removeError = null;
+        _removedNote = null;
+    }
+
+    private void CancelRemove()
+    {
+        _confirmRemoveId = null;
+    }
+
+    private async Task ConfirmRemoveAsync(string deviceId)
+    {
+        if (_removeBusy)
+            return;
+
+        _removeBusy = true;
+        _removeError = null;
+        _removedNote = null;
+        try
+        {
+            await Gateway.RemoveAccountDeviceAsync(deviceId);
+            _confirmRemoveId = null;
+            _removedNote = "Device removed.";
+            // Refresh from the source so the row disappears and the list reflects the account exactly.
+            await LoadDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            _removeError = ex.Message;
+        }
+        finally
+        {
+            _removeBusy = false;
+        }
+    }
+
+    private async Task StartSignInAsync()
+    {
+        if (_signInInProgress)
+            return;
+
+        _signInError = null;
+        _loggedOut = false;
+        try
+        {
+            var result = await Gateway.StartSignInAsync();
+            if (result.AlreadySignedIn)
+            {
+                await LoadStatusAsync();
+                if (_status is { SignedIn: true })
+                    await LoadDevicesAsync();
+                return;
+            }
+            if (!result.Started)
+            {
+                _signInError = result.Error ?? "Sign-in could not be started.";
+                return;
+            }
+
+            // Show "waiting for your browser" immediately and poll the Gateway status in the background -
+            // the click handler returns at once (responsive UI) while PollUntilSignedInAsync drives the
+            // page to the signed-in view via StateHasChanged when the hand-off completes. The poll method
+            // observes its own outcome and never throws to here, so the discard is safe.
+            _signInInProgress = true;
+            _ = PollUntilSignedInAsync();
+        }
+        catch (Exception ex)
+        {
+            _signInInProgress = false;
+            _signInError = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Polls the Gateway status while the browser sign-in runs, until the Gateway reports signed-in or the
+    /// poll window elapses. The token hand-back happens on the Gateway (#637); this page only observes the
+    /// resulting status (#638) - it never sees the credential.
+    /// </summary>
+    private async Task PollUntilSignedInAsync()
+    {
+        _signInPollCts?.Cancel();
+        _signInPollCts = new CancellationTokenSource();
+        var ct = _signInPollCts.Token;
+        var deadline = DateTime.UtcNow + SignInPollTimeout;
+
+        try
+        {
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(SignInPollInterval, ct);
+                AccountStatusDto status;
+                try
+                {
+                    status = await Gateway.GetAccountStatusAsync(ct);
+                }
+                catch
+                {
+                    // A transient status read failure during sign-in is expected (the Gateway is busy with
+                    // the hand-off); keep polling until the deadline rather than aborting the sign-in.
+                    continue;
+                }
+
+                if (status.SignedIn)
+                {
+                    _status = status;
+                    _signInInProgress = false;
+                    await LoadDevicesAsync();
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+            }
+
+            // The poll window elapsed without a signed-in status: report it explicitly so the person can
+            // retry rather than leaving the button stuck on "waiting".
+            _signInInProgress = false;
+            _signInError = "Sign-in did not complete. Finish it in your browser, then try again.";
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was disposed or a new sign-in started; nothing to surface.
+        }
+    }
+
+    private static string DeviceMeta(AccountDeviceDto device)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(device.Platform))
+            parts.Add(device.Platform!);
+        if (!string.IsNullOrEmpty(device.DeviceType))
+            parts.Add(device.DeviceType!);
+        if (!string.IsNullOrEmpty(device.AppVersion))
+            parts.Add($"v{device.AppVersion}");
+        return parts.Count == 0 ? "Unknown device" : string.Join(" - ", parts);
+    }
+
+    /// <summary>
+    /// Formats a cloud timestamp for display. Parses an ISO/round-trip timestamp to a compact local-time
+    /// string; when the value is absent shows "unknown", and when it is a non-parseable string shows it
+    /// verbatim (the cloud value is the source of truth - we never fabricate a time).
+    /// </summary>
+    private static string FormatTimestamp(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "unknown";
+        if (DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return parsed.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        }
+        return value;
+    }
+
     private RenderFragment Row(string label, string value) => __builder =>
     {
         <div style="display:flex; margin-bottom:6px;">
@@ -122,4 +454,10 @@
             <div style="flex:1; color:#ccc; font-size:13px; font-family:'Cascadia Mono',Consolas,monospace; word-break:break-all;">@value</div>
         </div>
     };
+
+    public void Dispose()
+    {
+        _signInPollCts?.Cancel();
+        _signInPollCts?.Dispose();
+    }
 }

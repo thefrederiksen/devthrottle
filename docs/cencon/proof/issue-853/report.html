@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #853 - Cockpit Account redesign: sign-in + Your devices - Proof</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:'Segoe UI',sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:24px; margin:0 0 4px; }
+  h2 { color:#fff; font-size:18px; margin:28px 0 8px; border-bottom:1px solid #3C3C3C; padding-bottom:6px; }
+  h3 { color:#fff; font-size:15px; margin:18px 0 6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:18px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0 16px; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  code { background:#252526; color:#9bbce3; padding:1px 5px; border-radius:3px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; }
+  .pass { color:#22C55E; font-weight:600; }
+  .gate { color:#F59E0B; font-weight:600; }
+  img { max-width:880px; width:100%; border:1px solid #3C3C3C; border-radius:6px; margin:8px 0; display:block; }
+  .note { background:#1B2A3A; border:1px solid #3B82F6; color:#9bbce3; padding:12px 14px; border-radius:6px; font-size:13px; margin:12px 0; }
+  .final { background:#1B3A2A; border:1px solid #22C55E; color:#9be3b4; padding:14px 16px; border-radius:6px; font-size:15px; font-weight:600; margin-top:24px; }
+  ul { margin:6px 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #853 - [Cockpit] Redesign Account page: real sign-in buttons + Your devices list with Remove</h1>
+<div class="sub">Developer Agent proof report. Branch <code>issue-853-cockpit-account</code>. Built clean on the full solution; verified by bUnit component tests, Gateway endpoint tests, and real-browser screenshots of the genuine compiled Account markup.</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Signed-out state</b> now offers a real <b>Sign in to DevThrottle</b> action that POSTs to the new Gateway endpoint <code>POST /account/sign-in</code>, which starts the existing #637 browser loopback sign-in in the background; the page then shows an in-progress state and polls <code>GET /account/status</code> (#638) until the Gateway reports signed-in. The old "use the tray" static text is gone.</li>
+  <li><b>Signed-in state</b> gains a <b>Your devices</b> section that lists every device from <code>GET /account/devices</code> (#854): name, platform / device-type / app-version, last-seen, a green <b>This device</b> marker, and a per-row <b>Remove</b>.</li>
+  <li><b>Remove</b> takes an inline confirmation step, then calls <code>DELETE /account/devices/{id}</code> (#854) and refreshes the list so the row disappears.</li>
+  <li><b>Explicit error state</b>: when the device list cannot be fetched (Gateway/cloud 502), the page shows a distinct error banner with a Try again button - never an empty list presented as "no devices". The signed-out device envelope and the empty-account state are each their own distinct state.</li>
+</ul>
+
+<h3>Files changed</h3>
+<ul>
+  <li><code>src/CcDirector.Gateway.Contracts/AccountSignInDto.cs</code> (new) - <code>SignInStartResponseDto</code> (token-free).</li>
+  <li><code>src/CcDirector.Gateway/Api/AccountSignInEndpoint.cs</code> (new) - <code>POST /account/sign-in</code>, kicks off <code>GatewaySignInService.RunSignInAsync</code> in the background.</li>
+  <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - maps the new endpoint with the existing <code>SignIn</code> service.</li>
+  <li><code>src/CcDirector.Cockpit/Services/GatewayClient.cs</code> - <code>GetAccountDevicesAsync</code>, <code>RemoveAccountDeviceAsync</code>, <code>StartSignInAsync</code>.</li>
+  <li><code>src/CcDirector.Cockpit/Components/Pages/Account.razor</code> - the redesign.</li>
+  <li><code>src/CcDirector.Cockpit.Tests/AccountPageTests.cs</code> (new) - 7 bUnit assertions + proof-artifact emission.</li>
+  <li><code>src/CcDirector.Gateway.Tests/Account/AccountSignInEndpointTests.cs</code> (new) - 2 endpoint decision-path tests.</li>
+</ul>
+
+<div class="note">
+  <b>Design note (assumption flagged in the issue).</b> The #637 loopback flow opens ONE DevThrottle sign-in address and takes no provider argument - the person chooses Google / GitHub / email on that page in the browser. So rather than fake three provider-specific buttons that the backend cannot honor (no-fallback rule), the signed-out page presents one honest "Sign in to DevThrottle" action with the explanatory line "Opens your web browser to finish signing in with Google, GitHub, or email." This satisfies acceptance criterion 1 ("working sign-in action(s) ... clicking starts the Gateway browser loopback sign-in"). The issue itself noted the start-sign-in endpoint may be folded into #856; it is added here minimally so the signed-out page has a working affordance.
+</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Signed-out page shows a working sign-in action; clicking starts the Gateway browser loopback sign-in and, on completion, the page reflects signed-in.</td>
+  <td>A Sign in button that calls the Gateway sign-in trigger and then shows the page becoming signed-in.</td>
+  <td>Sign in button -&gt; <code>POST /account/sign-in</code> -&gt; Gateway runs the #637 loopback in the background; page shows the in-progress banner and polls <code>GET /account/status</code> until signed-in. bUnit <code>SignIn_click_calls_start_endpoint_and_shows_progress</code> proves the click hits the endpoint and the progress state renders. Screenshots: signed-out + sign-in progress.</td>
+  <td><span class="pass">PASS</span> (rendering + trigger); live browser-loopback completion = <span class="gate">QA gate</span></td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Signed-in page shows a "Your devices" list, one row per device, each with name, last-seen, and a Remove button.</td>
+  <td>One row per device returned by <code>GET /account/devices</code>.</td>
+  <td>bUnit <code>SignedIn_lists_devices_with_thisdevice_marker_platform_and_lastseen</code> renders the real component against a stubbed two-device endpoint response and asserts both rows with name + platform + "Last seen:". Screenshot: signed-in devices.</td>
+  <td><span class="pass">PASS</span></td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>The current device is visually marked "This device".</td>
+  <td>The Gateway's own device row carries a marker.</td>
+  <td>The device whose <code>thisDevice=true</code> shows a green "This device" badge; the other does not (asserted in the same bUnit test). Screenshot: signed-in devices (WORKSTATION-01 badged).</td>
+  <td><span class="pass">PASS</span></td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Clicking Remove, after confirmation, calls the removal endpoint and the row disappears on refresh.</td>
+  <td>Confirm -&gt; DELETE -&gt; row gone.</td>
+  <td>bUnit <code>Remove_requires_confirmation_then_drops_the_row_on_refresh</code>: first click reveals the confirm row and revokes nothing; confirm calls <code>DELETE /account/devices/{id}</code> (asserted via the stub's revoked-id list) and the refreshed list drops the row. <code>Remove_cancel_keeps_the_device</code> proves Cancel is safe. Screenshot: remove confirmation.</td>
+  <td><span class="pass">PASS</span> (confirm + DELETE + refresh logic); live cloud revoke round-trip = <span class="gate">QA gate</span></td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>When the device list cannot be fetched, the page shows an explicit error state, not an empty list presented as "no devices".</td>
+  <td>A distinct error state.</td>
+  <td>On a Gateway/cloud 502 the page shows a red error banner ("Could not load your devices ... Try again shortly.") with a Try again button; bUnit <code>Devices_error_shows_explicit_error_not_empty_list</code> asserts the error state is present and the empty state and device rows are NOT. The empty account is its own distinct state (<code>Devices_empty_account_shows_distinct_empty_state</code>). Screenshot: device-list error.</td>
+  <td><span class="pass">PASS</span></td>
+</tr>
+</table>
+
+<h2>Screenshots (genuine compiled Account markup, real app.css, captured in Chrome)</h2>
+<p class="sub">Rendered by the real <code>Account</code> Razor component against contract-faithful stubbed Gateway responses (the #854 / #853 DTO shapes), emitted by the bUnit proof test and screenshotted over loopback HTTP.</p>
+
+<h3>Signed-out - real Sign in action (criterion 1)</h3>
+<img src="screenshots/account-signed-out.png" alt="signed out">
+
+<h3>Sign-in in progress after clicking Sign in (criterion 1)</h3>
+<img src="screenshots/account-signin-progress.png" alt="sign-in progress">
+
+<h3>Signed-in - Your devices list with "This device" marker + last-seen (criteria 2, 3)</h3>
+<img src="screenshots/account-signed-in-devices.png" alt="signed in devices">
+
+<h3>Remove confirmation on a device row (criterion 4)</h3>
+<img src="screenshots/account-remove-confirm.png" alt="remove confirm">
+
+<h3>Device-list error - explicit, distinct from empty (criterion 5)</h3>
+<img src="screenshots/account-devices-error.png" alt="devices error">
+
+<h3>Empty account - distinct empty state (criterion 5)</h3>
+<img src="screenshots/account-devices-empty.png" alt="devices empty">
+
+<h2>Tests</h2>
+<ul>
+  <li><code>CcDirector.Cockpit.Tests/AccountPageTests.cs</code> - 7 assertions + 1 proof-artifact emitter: all PASS.</li>
+  <li><code>CcDirector.Gateway.Tests/Account/AccountSignInEndpointTests.cs</code> - 2 decision-path tests (no-flow host returns explicit not-available; already-signed-in returns AlreadySignedIn with no token in the body): PASS. (Existing #854 <code>AccountDevicesEndpointTests</code>, 9 tests, still PASS.)</li>
+  <li>Full solution: <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The page remains a pure client of the Gateway account endpoints; the new <code>POST /account/sign-in</code> wraps the existing #637 sign-in service and the captured token never leaves the Gateway. Security rule DT-05 is preserved - none of the three new contracts (<code>SignInStartResponseDto</code>, and the consumed <code>AccountDevicesResponseDto</code> / <code>RevokeDeviceResponseDto</code> from #854) carry an access or refresh token, and the new endpoint logs only outcomes, never credential material (asserted by <code>AlreadySignedIn_ReturnsAlreadySignedIn_NoToken</code>).</p>
+
+<h2>QA gate (honest scope)</h2>
+<p>The following require a staged signed-in DevThrottle account against a reachable cloud device registry, which cannot be staged from this automation seat, so they are the QA verification gate (not faked here): (a) the live browser-loopback sign-in completing and flipping the page to signed-in; (b) the live cloud device list rendered from a real account; (c) the live Remove cloud revoke round-trip. The rendering, interaction, error-handling, and Gateway endpoint decision logic behind all three are proven above by component + endpoint tests and real-browser screenshots against the exact #854/#853 contract shapes.</p>
+
+<div class="final">I believe this is finished. The signed-out page has a working sign-in affordance, the signed-in page lists the account's devices with the This-device marker and a confirm-guarded Remove, and a fetch failure shows an explicit error rather than a misleading empty list - all built clean and proven by tests and screenshots, with the live-cloud paths flagged as the QA gate.</div>
+
+</body>
+</html>
