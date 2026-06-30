@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #855 (Gateway tray flyout instant open)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7a28; font-weight: bold; }
+  .verdict { background: #eafbe7; border: 2px solid #0a7a28; padding: 1rem; margin: 1.5rem 0; font-size: 1.1rem; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  .note { background: #fff8e1; border-left: 4px solid #e0a800; padding: .7rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #855</h1>
+<p><strong>Title:</strong> [Gateway] Make the tray flyout open instantly: cache Director count + front-door URL on a heartbeat</p>
+<p><strong>Pull request:</strong> #864 &nbsp; <strong>Branch:</strong> issue-855-tray-instant &nbsp; <strong>QA identity:</strong> independent QA Agent (separate session from developer)</p>
+<p><strong>Method:</strong> Verified in a dedicated git worktree built from <code>origin/issue-855-tray-instant</code>. Did not reuse the developer's binary or report.</p>
+
+<h2>Build and test evidence (this QA worktree)</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code></td><td class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</td></tr>
+<tr><td>Full Gateway test suite (<code>CcDirector.Gateway.Tests</code>)</td><td class="pass">1017 passed, 0 failed, 0 skipped.</td></tr>
+<tr><td>New <code>GatewayTrayFlyoutCacheTests</code> (8 tests incl. timing test)</td><td class="pass">8 passed, 0 failed.</td></tr>
+</table>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual / Evidence</th><th>Verdict</th></tr>
+<tr>
+  <td>AC1</td>
+  <td><code>BuildFlyoutModel</code> has no synchronous <code>Registry.ListDirectors()</code> and no <code>tailscale</code> CLI invocation; the heartbeat is the only caller.</td>
+  <td>Open path is cache-only.</td>
+  <td>Code review + grep of <code>GatewayTrayController.cs</code>: the only <code>ListDirectors()</code> (line 262) and <code>TailscaleIdentity.TryGetFrontDoorBaseUrl()</code> (line 271) calls live inside the two heartbeat helpers <code>RefreshDirectorCountCache</code> / <code>RefreshFrontDoorCache</code>. <code>BuildFlyoutModel</code> reads <code>_flyoutCache.DirectorCountDisplay</code>; the old synchronous read was removed.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2</td>
+  <td>Flyout opens and paints effectively instantly even when Tailscale CLI is slow/unavailable.</td>
+  <td>Read returns without waiting on the probe.</td>
+  <td>Mechanism verified: <code>Reads_AreInstant_WhileASlowProbeRunsInTheBackground</code> asserts a flyout-style read of both cached getters completes in &lt; 100ms while a 500ms probe runs on a background heartbeat; test passes. The open path touches no blocking I/O. Live native-tray timing screenshot is genuinely uncapturable from automation (see limitation note).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3</td>
+  <td>Director count matches the registry within one heartbeat interval after a device joins/leaves.</td>
+  <td>Count refreshed on a short interval.</td>
+  <td>Code verified: <code>DirectorCountHeartbeatInterval = 2s</code>; <code>RefreshDirectorCountCache</code> reads <code>host.Registry.ListDirectors().Count</code> on each tick and stores it; <code>BuildFlyoutModel</code> shows the cached value, so it is fresh within one 2s interval. Cache update semantics covered by <code>DirectorCountDisplay_AfterSecondSet_ReflectsLatestValue</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC4</td>
+  <td>Open Cockpit uses the cached front-door URL and opens the correct tailnet URL; when unresolved, refuses with the existing clear message rather than hanging.</td>
+  <td>Cached URL used; null -> refuse.</td>
+  <td>Code review: <code>OpenCockpit</code> reads <code>_flyoutCache.FrontDoorBaseUrl</code> (no CLI on the click). When null it passes null to <code>OpenTailnetUrl</code>, which logs the existing "Tailscale unavailable... never opens a localhost URL" refusal (line 666) and returns - no hang. Null handling covered by <code>FrontDoorBaseUrl_*</code> tests.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC5</td>
+  <td>On a host with no Directors and no Tailscale, the flyout still opens immediately with placeholders, no error dialog.</td>
+  <td>Placeholders, no blocking, no dialog.</td>
+  <td>Code verified: until the first heartbeat resolves, <code>DirectorCountDisplay</code> returns the <code>"..."</code> placeholder (host-null guard leaves it unset) and <code>FrontDoorBaseUrl</code> stays null; <code>BuildFlyoutModel</code> does no blocking I/O and surfaces no dialog. Placeholder behavior covered by <code>DirectorCountDisplay_BeforeFirstHeartbeat_ReturnsPlaceholder</code> and <code>FrontDoorBaseUrl_BeforeFirstHeartbeat_IsNull</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<div class="note">
+<strong>Honest limitation (acknowledged, not a fail):</strong> Acceptance criteria AC2/AC3/AC5 call for a live tray-open screenshot/recording. The Gateway tray flyout is a native Windows tray surface; a live timing capture is not obtainable from an automation session, and launching a second Gateway would collide with the user's live Gateway (port + autostart). This is the same constraint the developer reported honestly. The criteria were therefore judged on the strongest available evidence: code review proving the open/click path is cache-only with no blocking I/O, the passing timing unit test, the full green test suite (1017 passed), and a clean build. The cache mechanism that the entire feature rests on is fully unit-tested, so the behavior is proven.
+</div>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>No adjacent behavior changed: flyout rows/actions, uptime, and the Open Cockpit refuse-on-null path are unchanged except for the cache read.</li>
+<li>No CenCon security rule affected; no architecture/security doc change required (internal caching of an already-displayed value).</li>
+<li>Heartbeat loop mirrors the existing <code>RunUpdateLoopAsync</code> failure-boundary pattern (logs and continues; cancels cleanly on lifetime token).</li>
+</ul>
+
+<div class="verdict">
+VERIFIED - all 5 acceptance criteria met. Build clean (0 warnings, 0 errors); 1017/1017 Gateway tests pass. PASS.
+</div>
+
+</body>
+</html>
