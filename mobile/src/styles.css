@@ -728,36 +728,303 @@ body {
   cursor: pointer;
 }
 
-/* ===== Voice mode (placeholder) =====
-   Fills the remaining vertical space like the chat stage and centers a simple "coming soon" note
-   until the hands-free voice view is designed. */
-.voice-stage {
+/* ===== Voice mode (issue #850) =====
+   The hands-free Wingman narration screen. The same screen shell as Terminal/Chat (.terminal-screen
+   + app-bar + ViewTabs + manage bar); the .voice-body fills the remaining vertical space and scrolls.
+   Status palette matches the roster dots (green #22C55E, yellow #F59E0B) and the purple "voice"
+   action from the implementation mockups (#5B2BD6). All colors are local to this file by design. */
+.voice-body {
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  overflow-y: auto;
+  padding: 14px 2px 24px;
 }
 
-.voice-placeholder {
+/* A. Off state. */
+.voice-off {
   text-align: center;
-  padding: 24px;
+  padding: 24px 12px;
 }
 
-.voice-placeholder-title {
-  margin: 0 0 6px;
-  font-size: 18px;
+.voice-off-title {
+  margin: 8px 0 6px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
 }
 
-.voice-placeholder-text {
-  margin: 0;
-  font-size: 14px;
+.voice-hint {
+  margin: 0 0 18px;
+  font-size: 13px;
   color: var(--text-dim);
+}
+
+.voice-switch {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  background: #5b2bd6;
+  cursor: pointer;
+}
+
+.voice-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Status bar: a state pill on the left, an optional reference note on the right. */
+.voice-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.voice-state {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.voice-state-yellow {
+  background: rgba(245, 158, 11, 0.14);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.voice-state-green {
+  background: rgba(34, 197, 94, 0.14);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.voice-ref {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* The narrative card: the spoken summary shown as text. */
+.voice-narr {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 0 0 12px;
+}
+
+.voice-narr-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.voice-narr-body {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* B. Working: the Wingman is reading + the phone is downloading. */
+.voice-working {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.voice-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(245, 158, 11, 0.25);
+  border-top-color: #f59e0b;
+  animation: voice-spin 0.9s linear infinite;
+}
+
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* C. Speaking: the player row (replay triangle + progress + clock). */
+.voice-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+
+.voice-tri-btn {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: #22c55e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* CSS-only play triangle (no unicode glyphs). */
+.voice-tri {
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 13px solid #ffffff;
+  margin-left: 3px;
+}
+
+.voice-progress {
+  position: relative;
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.voice-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #22c55e;
+  border-radius: 999px;
+}
+
+.voice-respond {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: #0e7c6b;
+  cursor: pointer;
+}
+
+/* D. Waiting on a choice: option buttons (single, or multi-select with Submit). */
+.voice-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 11px 10px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.voice-opt-rec {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.voice-opt-selected {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.voice-opt-key {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-opt-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.voice-opt-tag {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #22c55e;
+}
+
+.voice-submit {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--accent);
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.voice-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ===== Roster voice indicator (issue #850, mockup E) =====
+   The trailing control on a voice-mode card: a play-triangle once the clip is phone-ready, or a
+   yellow spinner while the Wingman generates / the phone downloads. Sits at the end of the row
+   link, vertically centered against the wrapping name. */
+.row-tri-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: #22c55e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.row-tri {
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 11px solid #ffffff;
+  margin-left: 2px;
+}
+
+.row-spin {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(245, 158, 11, 0.25);
+  border-top-color: #f59e0b;
+  animation: voice-spin 0.9s linear infinite;
 }
 
 /* The bubble list fills the remaining vertical space; .chat-scroll is the single scroll container. */

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { listSessions, type SessionDto } from "../api/client";
 import { classify, contextLine, dotColor, effectiveColor, inBucket, inDesktopOrder, repoLeaf } from "../sessions/ordering";
 import { useNow, waitingLabel } from "../sessions/waiting";
+import { getClipState, playClip, syncVoiceSessions, useVoiceClips } from "../voice/clips";
 
 // Home / roster. A "needs you" group first (when any session wants attention), then the full
 // session list, both using the live Gateway /sessions data and the shared triage ordering.
@@ -14,12 +15,19 @@ export function Home() {
   const [error, setError] = useState<string | null>(null);
   const loadedOnce = useRef(false);
 
+  // Re-render the roster when a voice clip finishes downloading (a card flips from the yellow
+  // working state to the play-triangle the moment its audio is phone-ready).
+  useVoiceClips();
+
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const data = await listSessions(signal);
       setSessions(data);
       setError(null);
       loadedOnce.current = true;
+      // Pull each gateway-ready voice session's clip down to the phone so the triangle can appear
+      // (phone-ready, the issue #850 rule). Fire-and-forget; it updates the clip store as bytes land.
+      void syncVoiceSessions(data);
     } catch (err) {
       if (signal?.aborted) return;
       // Keep the last-known roster on screen (offline shell); only show the error banner.
@@ -124,9 +132,45 @@ function SessionRow({ session }: { session: SessionDto }) {
             {attention && session.needsYouSince && <WaitingTime since={String(session.needsYouSince)} />}
           </span>
         </span>
+        <VoiceIndicator session={session} />
       </Link>
     </li>
   );
+}
+
+// Issue #850: the trailing voice control on a voice-mode card. A play-triangle appears ONLY once
+// the clip's audio is on the phone (clip phase "ready"); while the Wingman is generating on the
+// Gateway or the phone is still downloading, a yellow spinner shows instead. Non-voice sessions
+// render nothing here. Tapping the triangle plays the locally-stored clip with no download wait;
+// preventDefault/stopPropagation keep the tap from also following the row's link.
+function VoiceIndicator({ session }: { session: SessionDto }) {
+  if (!session.voiceMode) return null;
+  const sid = session.sessionId ?? "";
+  const clip = getClipState(sid);
+
+  if (clip.phase === "ready") {
+    return (
+      <button
+        type="button"
+        className="row-tri-btn"
+        aria-label="Play voice message"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          playClip(sid);
+        }}
+      >
+        <span className="row-tri" aria-hidden="true" />
+      </button>
+    );
+  }
+
+  // Voice on but no phone-ready clip yet: generating on the Gateway, or downloading to the phone.
+  if (session.voiceGenerating || session.voiceAudioReady || clip.phase === "downloading") {
+    return <span className="row-spin" aria-label="Preparing voice" />;
+  }
+
+  return null;
 }
 
 // Issue #844: the live elapsed-waiting label for a needs-you card, right-aligned on the status

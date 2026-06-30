@@ -354,3 +354,172 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+// ===== Wingman Voice mode (issue #850): the mobile hands-free narration loop =====
+// The whole backend is already built and proven on the desktop Cockpit voice tab and the native
+// phone app (the explain/voice/ready/menu endpoints below). These typed helpers are the mobile
+// PWA's same-origin door to them, each carrying the same Bearer the rest of the client uses so the
+// Voice screen works with global Gateway auth on or off. The Wingman is READ-ONLY: explain and the
+// voice reads never type into the session; only menu-press / sendPrompt reach the agent, through
+// the existing single write chokepoint.
+//
+// These response shapes are returned by the Gateway via Results.Json WITHOUT a [Produces]
+// annotation, so they are not in the generated OpenAPI schema; they are read with narrow local
+// types for exactly the fields the Voice screen consumes (the same pattern getDirectors uses).
+
+/** Read-only narration of the latest turn (POST /sessions/{sid}/wingman/explain). Also MARKS the
+ *  session as a voice session, so the Gateway's turn-end watcher re-narrates every following turn. */
+export interface WingmanExplain {
+  reply: string;
+  spoken: string;
+  replySeconds: number;
+  /** True for a fresh/text-only session with nothing to summarize yet (no audio was produced). */
+  nothingYet: boolean;
+}
+
+/** The precomputed spoken summary + readiness metadata for a session (GET .../wingman/voice). */
+export interface WingmanVoice {
+  ready: boolean;
+  spoken: string;
+  reply: string;
+  /** ISO-8601 stamp of when this clip was generated; it is the clip's identity (a new turn -> a
+   *  new stamp), so the phone uses it to tell a fresh narration from the one it already holds. */
+  generatedAt: string;
+}
+
+/** One option of a waiting on-screen choice (GET .../wingman/menu). */
+export interface WingmanMenuOption {
+  /** Short human label, e.g. "1. Yes". */
+  key: string;
+  /** The exact keystrokes that pick this option. For a single-select menu this includes the
+   *  confirm (e.g. "1\r"); for a multiple-select checklist it is just the toggle (e.g. "1"). */
+  send: string;
+  /** The consequence/risk of choosing this option (<= 18 words). */
+  note: string;
+  /** True on at most one option - the Wingman's recommended/default pick. */
+  recommended: boolean;
+}
+
+/** A detected waiting choice and its options (GET .../wingman/menu). */
+export interface WingmanMenu {
+  isMenu: boolean;
+  question: string;
+  spoken: string;
+  /** "single" to pick exactly one; "multiple" for a pick-any checklist completed by submit. */
+  selectionMode: "single" | "multiple";
+  /** The keystroke that completes a multiple-select menu (e.g. "\r"); empty for single-select. */
+  submit: string;
+  options: WingmanMenuOption[];
+}
+
+// POST /sessions/{sid}/wingman/explain - mark the session as a voice session AND read its latest
+// turn back as a spoken summary, without sending anything into the session. This is what entering
+// voice mode fires; the Gateway caches the spoken text + audio so the phone can then download it.
+export async function markVoiceAndExplain(sessionId: string, signal?: AbortSignal): Promise<WingmanExplain> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/explain`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST wingman/explain failed: ${res.status}`);
+  }
+  const body = (await res.json()) as Partial<WingmanExplain>;
+  return {
+    reply: body.reply ?? "",
+    spoken: body.spoken ?? "",
+    replySeconds: Number(body.replySeconds ?? 0),
+    nothingYet: Boolean(body.nothingYet),
+  };
+}
+
+// GET /sessions/{sid}/wingman/voice - the precomputed spoken summary + readiness for the session's
+// current (latest) narration. ready=false means the Gateway has nothing cached yet.
+export async function getWingmanVoice(sessionId: string, signal?: AbortSignal): Promise<WingmanVoice> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/voice`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET wingman/voice failed: ${res.status}`);
+  }
+  const body = (await res.json()) as Partial<WingmanVoice>;
+  return {
+    ready: Boolean(body.ready),
+    spoken: body.spoken ?? "",
+    reply: body.reply ?? "",
+    generatedAt: body.generatedAt ?? "",
+  };
+}
+
+// GET /sessions/{sid}/wingman/voice/audio - the cached MP3 bytes for the session's current clip.
+// Returned as an ArrayBuffer so the phone-side download gate (voice/clips.ts) can store it locally
+// and expose a "phone-ready" state distinct from "gateway-ready". Binary, never base64 over the wire.
+export async function fetchWingmanVoiceAudio(sessionId: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/voice/audio`, {
+    method: "GET",
+    headers: { Accept: "audio/mpeg", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET wingman/voice/audio failed: ${res.status}`);
+  }
+  return res.arrayBuffer();
+}
+
+// GET /sessions/{sid}/wingman/menu - is the agent showing an on-screen menu right now, and what are
+// its options? The Voice screen reads this to render pressable option buttons. The Gateway returns
+// isMenu=false cheaply (no model call) when the terminal does not look like a menu.
+export async function getWingmanMenu(sessionId: string, signal?: AbortSignal): Promise<WingmanMenu> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/menu`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `GET wingman/menu failed: ${res.status}`);
+  }
+  const body = (await res.json()) as Partial<WingmanMenu> & { options?: Partial<WingmanMenuOption>[] };
+  return {
+    isMenu: Boolean(body.isMenu),
+    question: body.question ?? "",
+    spoken: body.spoken ?? "",
+    selectionMode: body.selectionMode === "multiple" ? "multiple" : "single",
+    submit: body.submit ?? "",
+    options: (body.options ?? []).map((o) => ({
+      key: o.key ?? "",
+      send: o.send ?? "",
+      note: o.note ?? "",
+      recommended: Boolean(o.recommended),
+    })),
+  };
+}
+
+// POST /sessions/{sid}/wingman/menu-press - answer a waiting choice from the phone by sending the
+// exact keystrokes. This is the single write chokepoint for a choice (the Wingman charter stays
+// read-only). For a single-select menu, `send` is one option's full keystroke and `submit` is
+// omitted; for a multiple-select checklist, `send` is the concatenated toggle keystrokes of every
+// chosen option and `submit` completes the selection.
+export async function pressWingmanMenu(
+  sessionId: string,
+  send: string,
+  submit?: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const body: { send: string; submit?: string } = submit ? { send, submit } : { send };
+  const res = await fetch(`/sessions/${sid}/wingman/menu-press`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST wingman/menu-press failed: ${res.status}`);
+  }
+}

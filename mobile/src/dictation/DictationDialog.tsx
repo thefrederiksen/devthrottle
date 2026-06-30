@@ -22,12 +22,17 @@ import { blobToWav16kMono } from "./wav";
 type Stage = "recording" | "transcribing" | "paused" | "error";
 
 export interface DictationDialogProps {
-  /** Commit the transcript WITHOUT submitting (drop into the view's text box for editing). */
-  onInsert: (text: string) => void;
+  /** Commit the transcript WITHOUT submitting (drop into the view's text box for editing). Required
+   *  only when Insert is shown; ignored when showInsert is false. */
+  onInsert?: (text: string) => void;
   /** Commit the transcript AND submit it (the view's Send path). */
   onSend: (text: string) => void;
   /** Close the dialog (Cancel, or after a commit). Nothing is sent on Cancel. */
   onClose: () => void;
+  /** Whether to offer the Insert button. The Voice mode "Respond" flow (issue #850, mockup F) sets
+   *  this false so the reply panel is Cancel / Pause / Send only - Send goes straight into the
+   *  session, there is no "drop into a box" target. Defaults true for the Terminal/Chat Speak flow. */
+  showInsert?: boolean;
 }
 
 const BAR_COUNT = 9;
@@ -49,7 +54,7 @@ function formatElapsed(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function DictationDialog({ onInsert, onSend, onClose }: DictationDialogProps) {
+export function DictationDialog({ onInsert, onSend, onClose, showInsert = true }: DictationDialogProps) {
   const recorderRef = useRef<MicRecorder>(new MicRecorder());
   const accumulatedRef = useRef<string>(""); // committed segments; the box may be edited past this
   const busyRef = useRef<boolean>(false); // guards the transcribe window against double taps
@@ -264,14 +269,16 @@ export function DictationDialog({ onInsert, onSend, onClose }: DictationDialogPr
           <span className="dictate-spacer" />
           {!isError && (
             <>
-              <button
-                type="button"
-                className="dictate-btn dictate-insert"
-                onClick={() => commit(onInsert)}
-                disabled={isTranscribing}
-              >
-                Insert
-              </button>
+              {showInsert && onInsert && (
+                <button
+                  type="button"
+                  className="dictate-btn dictate-insert"
+                  onClick={() => commit(onInsert)}
+                  disabled={isTranscribing}
+                >
+                  Insert
+                </button>
+              )}
               <button
                 type="button"
                 className="dictate-btn dictate-send"
