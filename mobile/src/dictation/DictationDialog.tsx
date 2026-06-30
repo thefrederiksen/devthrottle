@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { transcribeUtterance } from "../api/client";
+import { logCaptureHealth } from "./captureHealth";
 import { MicRecorder } from "./recorder";
 import { blobToWav16kMono } from "./wav";
 
@@ -115,15 +116,26 @@ export function DictationDialog({ onInsert, onSend, onClose }: DictationDialogPr
   // consumed here, so a segment is never transcribed twice.
   const transcribeCurrentSegment = useCallback(async (): Promise<string | null> => {
     let wav: Blob;
+    let health;
     try {
       const captured = await recorderRef.current.stop();
-      wav = await blobToWav16kMono(captured);
+      const transcoded = await blobToWav16kMono(captured);
+      wav = transcoded.wav;
+      // Capture-health (issue #863): compare the recording wall-clock to the decoded audio
+      // duration to detect audio dropped before transcription. Logged locally AND sent to the
+      // Gateway so it persists into the same dictation session log every other surface writes.
+      health = {
+        recordedMs: recorderRef.current.lastRecordedMs,
+        decodedSeconds: transcoded.decodedSeconds,
+        sourceBytes: transcoded.sourceBytes,
+      };
+      logCaptureHealth("mobile", health);
     } catch (err) {
       setHint(err instanceof Error ? err.message : "Could not capture the recording.");
       return null;
     }
     try {
-      const text = await transcribeUtterance(wav);
+      const text = await transcribeUtterance(wav, health);
       return text;
     } catch (err) {
       setHint("Transcription failed: " + (err instanceof Error ? err.message : "unknown error"));

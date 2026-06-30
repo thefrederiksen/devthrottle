@@ -27,9 +27,21 @@ export class MicRecorder {
   private analyser: AnalyserNode | null = null;
   private levelData: Uint8Array | null = null;
 
+  // Capture-health (issue #863): wall-clock of the segment the mic was actually open.
+  // Compared against the DECODED audio duration of the captured blob (in wav.ts) to detect
+  // dropped audio - the browser analog of the desktop expected-vs-captured byte check. A
+  // compressed MediaRecorder blob has no fixed bytes/sec, so duration, not bytes, is the yardstick.
+  private startedAt = 0;
+  private recordedMs = 0;
+
   /** True while a segment is actively capturing. */
   get isRecording(): boolean {
     return this.recorder !== null && this.recorder.state === "recording";
+  }
+
+  /** Wall-clock milliseconds the most recently stopped segment was capturing. 0 before the first stop. */
+  get lastRecordedMs(): number {
+    return this.recordedMs;
   }
 
   /**
@@ -63,6 +75,7 @@ export class MicRecorder {
       if (e.data && e.data.size > 0) this.chunks.push(e.data);
     };
     this.recorder.start();
+    this.startedAt = performance.now();
   }
 
   /** Current input level in 0..1, sampled live. Returns 0 when not recording. */
@@ -87,6 +100,9 @@ export class MicRecorder {
       rec.onstop = () => resolve(new Blob(this.chunks, { type: mime }));
       rec.stop();
     });
+    // Freeze the segment wall-clock at stop, before releasing the stream, so capture-health can
+    // compare it to the decoded audio duration of the captured blob.
+    this.recordedMs = this.startedAt > 0 ? performance.now() - this.startedAt : 0;
     this.releaseStream();
     return captured;
   }

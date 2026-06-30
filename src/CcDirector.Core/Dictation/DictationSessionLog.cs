@@ -72,4 +72,23 @@ public sealed record DictationSessionRecord(
     string CleanupModel,
     string? RemoteIp,
     string? ClientError,
-    string? Source = null);
+    string? Source = null,
+    // Capture-health diagnostics (issue #863). Optional, default 0 so every existing
+    // reader and the non-NAudio record writers (Gateway, web dictate) keep working.
+    // ExpectedAudioBytes is rate x recording-duration; comparing it to AudioBytesReceived
+    // gives the audio-loss deficit. The gap/handler fields localize the loss: large gaps
+    // with small handler time = upstream under-delivery (e.g. Remote Desktop redirection);
+    // large handler time = local capture-thread stall.
+    long ExpectedAudioBytes = 0,
+    int CaptureCallbackCount = 0,
+    double MaxCaptureCallbackGapMs = 0,
+    int LongCaptureGapCount = 0,
+    double MaxCaptureHandlerMs = 0,
+    int CaptureBufferCount = 0,
+    int CaptureBufferMs = 0,
+    // Duration-based capture-health for the compressed browser path (mobile MediaRecorder), where a
+    // fixed bytes/sec yardstick does not apply: the recording wall-clock the mic was open versus the
+    // decoded audio duration of the captured clip. A gap between them is dropped audio. (The raw-PCM
+    // surfaces - desktop, overlay - measure loss in bytes above and leave these 0.)
+    double RecordedWallMs = 0,
+    double DecodedAudioSeconds = 0);

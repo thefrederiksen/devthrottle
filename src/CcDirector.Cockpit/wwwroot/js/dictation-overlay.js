@@ -206,6 +206,13 @@ window.dictationOverlay = (function () {
     let mediaStream = null, ws = null, audioCtx = null, sourceNode = null, workletNode = null;
     let levelCtx = null, analyser = null, levelData = null, rafId = null, capture = null;
 
+    // Capture-health (issue #863): the worklet emits raw 24 kHz mono PCM16 = 48000 bytes/sec, so
+    // captured bytes versus elapsed capture time is the SAME audio-loss check the desktop NAudio
+    // path uses. lastFrameAtMs/maxFrameGapMs add the arrival-cadence signal that tells a local
+    // stall (large gaps) apart from clean capture. Diagnostic only - it changes nothing.
+    const EXPECTED_BYTES_PER_SEC = 48000;
+    let lastFrameAtMs = 0, maxFrameGapMs = 0;
+
     // ---- persistent across segments ----
     let stage = 'starting';            // starting | recording | transcribing | paused | error
     let finalIntent = 'pause';         // what to do when 'final' arrives: pause | insert | send
@@ -340,6 +347,7 @@ window.dictationOverlay = (function () {
       capture = createCaptureBuffer();
       for (const f of frames) capture.push(f, sendFrame);
       finalizing = false;
+      lastFrameAtMs = 0; maxFrameGapMs = 0;
       setStage('starting');
       const ok = await bootCapture();
       if (!ok) return;
@@ -433,7 +441,10 @@ window.dictationOverlay = (function () {
         workletNode = new AudioWorkletNode(audioCtx, 'pcm16-writer');
         let first = false;
         workletNode.port.onmessage = (e) => {
-          if (!first) { first = true; t0 = performance.now(); setStage('recording'); startTimer(); }
+          const nowMs = performance.now();
+          if (!first) { first = true; t0 = nowMs; setStage('recording'); startTimer(); }
+          else { const gap = nowMs - lastFrameAtMs; if (gap > maxFrameGapMs) maxFrameGapMs = gap; }
+          lastFrameAtMs = nowMs;
           if (capture) capture.push(e.data, sendFrame);
         };
         sourceNode.connect(workletNode);
@@ -501,14 +512,52 @@ window.dictationOverlay = (function () {
     async function startSegment() {
       capture = createCaptureBuffer();
       finalizing = false;
+      lastFrameAtMs = 0; maxFrameGapMs = 0;
       setStage('starting');
       const ok = await bootCapture();   // mic up immediately (capture-first)...
       if (!ok) return;
       openSocket();                     // ...socket opens in parallel; early frames buffer
     }
 
+    // ---------- capture-health (issue #863) ----------
+    // Raw PCM16 at 24 kHz mono is 48000 bytes/sec, so captured bytes versus the elapsed capture
+    // window is the same expected-vs-actual audio-loss check the desktop path logs. A deficit with
+    // large maxFrameGapMs points at a local capture/scheduling stall; a deficit with steady frames
+    // points upstream (e.g. the getUserMedia source under-delivering). Computed once at stop, when
+    // the drained tail has arrived and before any teardown nulls 'capture'.
+    function captureHealth() {
+      if (!capture) return null;
+      const recordingMs = lastFrameAtMs > t0 ? (lastFrameAtMs - t0) : 0;
+      const capturedBytes = capture.capturedBytes;
+      const expectedBytes = Math.round(EXPECTED_BYTES_PER_SEC * recordingMs / 1000);
+      const deficit = expectedBytes > 0 ? Math.max(0, 1 - capturedBytes / expectedBytes) : 0;
+      return {
+        recordingMs: Math.round(recordingMs), capturedBytes: capturedBytes, expectedBytes: expectedBytes,
+        deficit: deficit, frames: capture.frames.length, maxFrameGapMs: Math.round(maxFrameGapMs),
+      };
+    }
+
+    function logCaptureHealth(h) {
+      if (!h) return;
+      const line = '[capture-health] surface=overlay capturedBytes=' + h.capturedBytes +
+        ' expectedBytes=' + h.expectedBytes + ' deficit=' + (h.deficit * 100).toFixed(1) + '%' +
+        ' recordingMs=' + h.recordingMs + ' frames=' + h.frames + ' maxFrameGapMs=' + h.maxFrameGapMs;
+      if (h.deficit > 0.1) console.warn(line + ' (audio appears to have been dropped before transcription)');
+      else console.log(line);
+    }
+
     // ---------- finalize / send-stop ----------
-    function sendStop() { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' })); setStage('transcribing'); }
+    // Send the client-measured capture-health WITH the stop frame so the server persists it next to
+    // the bytes it actually received (issue #863): server-received bytes versus client recording
+    // wall-clock is the end-to-end audio deficit (capture loss PLUS any network loss).
+    function sendStop() {
+      const h = captureHealth();
+      logCaptureHealth(h);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(h ? { type: 'stop', health: h } : { type: 'stop' }));
+      }
+      setStage('transcribing');
+    }
 
     // Recording -> drain the trailing audio -> stop -> wait for 'final', then dispatch by
     // finalIntent. We keep the mic graph live for DRAIN_MS so the last words actually reach the
