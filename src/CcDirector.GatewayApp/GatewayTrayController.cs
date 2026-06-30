@@ -13,6 +13,7 @@ using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Cockpit;
+using CcDirector.Gateway.Tray;
 using CcDirector.HostedAgent;
 using CcDirector.Setup.Engine;
 using CcDirector.TrayUi;
@@ -30,9 +31,22 @@ public sealed class GatewayTrayController : IDisposable
     private enum HostState { Starting, Running, Stopped, Failed }
     private enum PortProbe { Nothing, OurGateway, OtherListener }
 
+    // Issue #855: how often the background heartbeats refresh the cached flyout values. The Director
+    // count read is cheap (an in-memory registry snapshot) so it refreshes often, keeping the flyout
+    // count within one interval of the registry. The front-door URL resolution shells the tailscale
+    // CLI (up to a ~5s blocking timeout) and the MagicDNS name almost never changes, so it refreshes
+    // far less often - and only ever on this background thread, never on the flyout-open path.
+    private static readonly TimeSpan DirectorCountHeartbeatInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan FrontDoorHeartbeatInterval = TimeSpan.FromSeconds(15);
+
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly int _port;
     private readonly CancellationTokenSource _lifetime = new();
+
+    // Issue #855: the cached values the flyout shows, refreshed by the background heartbeats below so
+    // BuildFlyoutModel and OpenCockpit never do a synchronous registry read or tailscale CLI probe on
+    // the open/click path (which previously delayed the flyout from painting).
+    private readonly GatewayTrayFlyoutCache _flyoutCache = new();
 
     private TrayIcon? _trayIcon;
     private TrayFlyoutController? _flyout;
@@ -89,6 +103,12 @@ public sealed class GatewayTrayController : IDisposable
         SetState(HostState.Starting);
         _ = StartHostAsync();
 
+        // Issue #855: keep the flyout's cached Director count and front-door URL warm on background
+        // heartbeats so the left-click flyout paints instantly from cache, never blocking the open on
+        // a synchronous registry read or a tailscale CLI probe.
+        _ = RunHeartbeatAsync("director-count", DirectorCountHeartbeatInterval, RefreshDirectorCountCache, _lifetime.Token);
+        _ = RunHeartbeatAsync("front-door", FrontDoorHeartbeatInterval, RefreshFrontDoorCache, _lifetime.Token);
+
         StartCockpitSupervisor();
 
         if (GatewayAppOptions.Managed)
@@ -126,10 +146,14 @@ public sealed class GatewayTrayController : IDisposable
         FileLog.Write("[GatewayTrayController] Tray icon created");
     }
 
-    /// <summary>Build the flyout's content from current state (called fresh on each open).</summary>
+    /// <summary>
+    /// Build the flyout's content from current state (called fresh on each open). Issue #855: the
+    /// Director count comes from the heartbeat-refreshed cache (<see cref="_flyoutCache"/>) - never a
+    /// synchronous registry read - so this method does no blocking I/O and the flyout paints instantly.
+    /// Uptime stays computed inline (it is a cheap subtraction, no I/O).
+    /// </summary>
     private TrayFlyoutModel BuildFlyoutModel()
     {
-        var directors = _host?.Registry.ListDirectors().Count ?? 0;
         var up = DateTime.UtcNow - StartedAtUtc;
         var uptime = up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes:D2}m" : $"{up.Minutes}m {up.Seconds:D2}s";
 
@@ -143,7 +167,7 @@ public sealed class GatewayTrayController : IDisposable
         var rows = new List<StatusRow>
         {
             new("Version", AppVersion.Full.Split('+')[0]), // trim the +githash, matching the launcher
-            new("Directors", directors.ToString()),
+            new("Directors", _flyoutCache.DirectorCountDisplay),
             new("Mode", GatewayAppOptions.Managed ? "managed" : "dev"),
             new("Uptime", uptime),
         };
@@ -190,6 +214,61 @@ public sealed class GatewayTrayController : IDisposable
             OnQuit = () => _ = QuitAsync(),
         };
     }
+
+    /// <summary>
+    /// Issue #855: a background heartbeat that periodically runs <paramref name="refresh"/> to keep a
+    /// cached flyout value warm. The refresh runs first (so the cache resolves as soon as possible),
+    /// then the loop waits <paramref name="interval"/> before the next refresh. A refresh failure only
+    /// logs and the heartbeat keeps running - a transient registry or tailscale hiccup must not stop
+    /// the cache from refreshing (the same long-running-loop boundary handling as RunUpdateLoopAsync).
+    /// </summary>
+    private static async Task RunHeartbeatAsync(string name, TimeSpan interval, Action refresh, CancellationToken ct)
+    {
+        FileLog.Write($"[GatewayTrayController] {name} heartbeat started (interval={interval.TotalSeconds}s)");
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                refresh();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayTrayController] {name} heartbeat refresh FAILED: {ex.Message}");
+            }
+
+            try
+            {
+                await Task.Delay(interval, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+        FileLog.Write($"[GatewayTrayController] {name} heartbeat stopped");
+    }
+
+    /// <summary>
+    /// Issue #855: refresh the cached Director count from the registry (off the UI thread). The read is
+    /// a cheap in-memory snapshot; it is cached so the flyout open path never calls it synchronously.
+    /// While the host is still starting there is no registry yet, so the cache keeps its placeholder.
+    /// </summary>
+    private void RefreshDirectorCountCache()
+    {
+        var host = _host;
+        if (host is null)
+            return; // host not up yet - leave the cached "..." placeholder until it is
+
+        _flyoutCache.SetDirectorCount(host.Registry.ListDirectors().Count);
+    }
+
+    /// <summary>
+    /// Issue #855: refresh the cached Tailscale front-door base URL (off the UI thread). This is the
+    /// only caller that shells the tailscale CLI; the Open Cockpit click reads the cached value so it
+    /// never blocks. A null result (Tailscale unavailable) is cached as null so Open Cockpit refuses.
+    /// </summary>
+    private void RefreshFrontDoorCache()
+        => _flyoutCache.SetFrontDoorBaseUrl(TailscaleIdentity.TryGetFrontDoorBaseUrl());
 
     /// <summary>Enable/disable the Start-on-login autostart from the flyout toggle.</summary>
     private void SetAutostart(bool enable)
@@ -565,7 +644,11 @@ public sealed class GatewayTrayController : IDisposable
     private void OpenCockpit()
         // ONE URL: the Cockpit is served through the gateway front door
         // (https://<magicdns>/ -> :7878 -> fallback proxy -> loopback Cockpit).
-        => OpenTailnetUrl(TailscaleIdentity.TryGetFrontDoorBaseUrl() is { } d ? d + "/" : null, "Cockpit");
+        // Issue #855: read the front-door URL from the heartbeat-refreshed cache instead of shelling
+        // the tailscale CLI on the click. When it has not resolved yet (or Tailscale is unavailable)
+        // the cached value is null, so OpenTailnetUrl takes the existing refuse-with-clear-message
+        // path rather than hanging the click on a CLI probe.
+        => OpenTailnetUrl(_flyoutCache.FrontDoorBaseUrl is { } d ? d + "/" : null, "Cockpit");
 
     // Open a Tailscale URL in the browser. There is NO localhost fallback by design: every
     // cc-director URL must be the tailnet URL so it works from any node, and a loopback URL
@@ -573,7 +656,9 @@ public sealed class GatewayTrayController : IDisposable
     // refuse and say why rather than open a URL that is wrong everywhere but here.
     private void OpenTailnetUrl(string? url, string label)
     {
-        // Resolving the front door shells the tailscale CLI, so do it off the UI thread.
+        // The URL is already resolved by the caller (issue #855: from the heartbeat cache, not a
+        // synchronous probe). Process.Start is still launched off the UI thread so the click returns
+        // immediately and any shell-launch latency never touches the UI.
         _ = Task.Run(() =>
         {
             if (url is null)

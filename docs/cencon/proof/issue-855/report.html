@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #855 - Developer Agent proof: instant tray flyout (cached count + front-door URL)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 980px; color: #1e1e1e; line-height: 1.5; padding: 0 1rem; }
+  h1 { color: #007ACC; border-bottom: 3px solid #007ACC; padding-bottom: .4rem; }
+  h2 { color: #005a99; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f7fc; }
+  code, pre { background: #f5f5f5; font-family: Consolas, monospace; }
+  pre { padding: .8rem; border-left: 4px solid #007ACC; overflow-x: auto; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .gate { color: #b35900; font-weight: bold; }
+  .meta { background: #f0f7fc; padding: .8rem 1rem; border-radius: 6px; }
+  .crit { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Issue #855 - Make the tray flyout open instantly</h1>
+<p class="meta">
+  <strong>Title:</strong> [Gateway] Make the tray flyout open instantly: cache Director count + front-door URL on a heartbeat<br>
+  <strong>Role:</strong> Developer Agent (CenCon Development Method)<br>
+  <strong>Branch:</strong> issue-855-tray-instant<br>
+  <strong>Surface:</strong> Gateway tray (src/CcDirector.GatewayApp) + supporting library (src/CcDirector.Gateway)<br>
+  <strong>Build:</strong> <span class="pass">dotnet build cc-director.sln - Build succeeded, 0 Warning(s), 0 Error(s)</span><br>
+  <strong>Tests:</strong> <span class="pass">CcDirector.Gateway.Tests - 1017 passed, 0 failed (8 new GatewayTrayFlyoutCacheTests)</span>
+</p>
+
+<h2>What was implemented</h2>
+<p>
+  The Gateway tray left-click flyout was rebuilt on every open by
+  <code>GatewayTrayController.BuildFlyoutModel</code>, which read
+  <code>_host.Registry.ListDirectors().Count</code> synchronously on the UI thread, and the Open Cockpit
+  action resolved the Tailscale front-door URL by shelling the <code>tailscale</code> CLI
+  (<code>TailscaleIdentity.TryGetFrontDoorBaseUrl</code>, up to a ~5 second blocking timeout). Both
+  blocked the flyout from painting when the registry read was slow or the Tailscale probe stalled.
+</p>
+<p>The change moves both reads onto background heartbeats that refresh cached fields:</p>
+<ul>
+  <li><b>New <code>src/CcDirector.Gateway/Tray/GatewayTrayFlyoutCache.cs</code></b> - a pure, thread-safe
+      cache (mirroring the testable-helper pattern of <code>GatewaySignInTraySurface</code>). Holds the
+      Director count and the front-door base URL. <code>DirectorCountDisplay</code> returns the count or
+      the <code>"..."</code> placeholder until the first heartbeat resolves it; <code>FrontDoorBaseUrl</code>
+      is null until resolved or when Tailscale is unavailable.</li>
+  <li><b><code>GatewayTrayController</code></b> - two background heartbeats started in <code>Start()</code>:
+      a fast one (every 2s) refreshing the cheap registry count, and a slower one (every 15s) running the
+      slow Tailscale CLI probe. <code>BuildFlyoutModel</code> now reads only
+      <code>_flyoutCache.DirectorCountDisplay</code>; <code>OpenCockpit</code> now reads only
+      <code>_flyoutCache.FrontDoorBaseUrl</code>. Neither does a synchronous registry read or CLI probe.</li>
+  <li><b>New <code>src/CcDirector.Gateway.Tests/Tray/GatewayTrayFlyoutCacheTests.cs</code></b> - 8 unit
+      tests covering the placeholder, resolved values, the zero-vs-unresolved distinction, the null
+      front-door (Tailscale unavailable) case, and a timing test proving a flyout-style read returns
+      in under 100 ms while a 500 ms "slow probe" runs in the background.</li>
+</ul>
+
+<h2>Structural proof (acceptance criterion 1)</h2>
+<p>The only <code>ListDirectors</code> and <code>TailscaleIdentity</code> references in
+   <code>GatewayTrayController.cs</code> now live exclusively in the two heartbeat refresh helpers -
+   never in <code>BuildFlyoutModel</code> or <code>OpenCockpit</code>:</p>
+<pre>$ grep -n "ListDirectors|TailscaleIdentity" src/CcDirector.GatewayApp/GatewayTrayController.cs
+262: in [RefreshDirectorCountCache()] -> _flyoutCache.SetDirectorCount(host.Registry.ListDirectors().Count);
+271: in [RefreshFrontDoorCache()]     -> _flyoutCache.SetFrontDoorBaseUrl(TailscaleIdentity.TryGetFrontDoorBaseUrl());</pre>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>BuildFlyoutModel has no synchronous Registry.ListDirectors() and no tailscale CLI invocation (heartbeat is the only caller). Proof: code review.</td>
+    <td>Neither call appears on the open path.</td>
+    <td>grep confirms both calls live only in RefreshDirectorCountCache / RefreshFrontDoorCache (the heartbeats). BuildFlyoutModel reads _flyoutCache.DirectorCountDisplay only.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>The flyout opens and paints effectively instantly even when the Tailscale CLI is made slow/unavailable. Proof: recording or timestamped log with a forced slow probe.</td>
+    <td>Open path never waits on the slow probe.</td>
+    <td>Mechanism proven by the unit test <code>Reads_AreInstant_WhileASlowProbeRunsInTheBackground</code> (read &lt; 100 ms while a 500 ms probe is in flight). The slow CLI probe runs only on the 15s background heartbeat, fully before <code>SetFrontDoorBaseUrl</code>. Live tray-open recording is the QA gate (see note below).</td>
+    <td class="pass">PASS (mechanism) / <span class="gate">QA gate</span> (live UI)</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>The Director count matches the registry within one heartbeat interval after a device joins/leaves. Proof: screenshot + log.</td>
+    <td>Count refreshes within the heartbeat interval.</td>
+    <td>The director-count heartbeat refreshes every 2 seconds (<code>DirectorCountHeartbeatInterval</code>), independent of the slow Tailscale heartbeat, so the cached count reflects the registry within 2s. Live screenshot is the QA gate.</td>
+    <td class="pass">PASS (code) / <span class="gate">QA gate</span> (live screenshot)</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Open Cockpit uses the cached front-door URL and still opens the correct tailnet URL; when unresolved it refuses with the existing clear message rather than hanging. Proof: log line.</td>
+    <td>Click reads cache; null -&gt; existing refuse path.</td>
+    <td><code>OpenCockpit</code> reads <code>_flyoutCache.FrontDoorBaseUrl</code>; null (unresolved or Tailscale unavailable) flows into the existing <code>OpenTailnetUrl</code> refuse-with-clear-message branch (logs "Open Cockpit REFUSED: Tailscale unavailable ..."). No CLI probe on the click.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>On a host with no Directors and no Tailscale, the flyout still opens immediately with placeholders, no error dialog. Proof: screenshot.</td>
+    <td>Placeholders, no blocking, no error.</td>
+    <td>Cache returns <code>"..."</code> for the Directors row (count unresolved / host starting) and null for the front door; the open path does no I/O and raises no dialog. Unit tests cover the placeholder/null behavior. Live screenshot is the QA gate.</td>
+    <td class="pass">PASS (code) / <span class="gate">QA gate</span> (live screenshot)</td>
+  </tr>
+</table>
+
+<h2>Live tray-open timing - honest limitation (QA gate)</h2>
+<p>
+  A live tray-open timing screenshot/recording was <b>not capturable from this automation session</b>, and
+  it has not been faked. Two honest reasons:
+</p>
+<ul>
+  <li>The flyout is a native notification-area (tray) UI element of the Avalonia
+      <code>devthrottle-gateway.exe</code> process; it cannot be pixel-captured from a headless automation
+      session.</li>
+  <li>Launching a second Gateway to capture it would bind the Gateway port and touch the per-user autostart
+      registry entry, colliding with the user's live Gateway - which the CenCon isolation rules forbid.
+      (The per-session slot isolation script targets <code>cc-director.exe</code> Directors, not the
+      Gateway tray app.)</li>
+</ul>
+<p>
+  The instant-open behavior is therefore proven structurally (criterion 1 grep), by the clean build, and by
+  the unit tests (including the slow-probe timing decoupling test). The live tray-open timing
+  screenshot/recording for criteria 2, 3, and 5 is left as the QA gate for the QA Agent to verify in the
+  running app.
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+  <b>No drift.</b> This is an additive, behavior-preserving relocation of two existing reads (registry count,
+  Tailscale front-door URL) onto background timers, plus a small pure cache class. No new container, no new
+  external system, no security boundary change (the same Tailscale read and registry read, now off the UI
+  thread), and no new pattern. <code>architecture_manifest.yaml</code> needs no content change;
+  <code>security_profile.yaml</code> is within its drift threshold (last verified 2026-06-09, 21 days ago).
+</p>
+
+<h2>Conclusion</h2>
+<p class="crit">
+  I believe this is finished, to the limit of what this automation session can prove. The full solution
+  builds clean (0 warnings, 0 errors), all 1017 Gateway tests pass (8 new), and the open path is structurally
+  free of synchronous registry/CLI calls. The remaining live tray-open timing screenshots/recording for
+  criteria 2, 3, and 5 are the QA gate.
+</p>
+
+</body>
+</html>
