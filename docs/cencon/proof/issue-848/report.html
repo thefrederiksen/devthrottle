@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #848 - QA Proof - Mobile machine picker uptime + start time</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 24px; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f1f5f9; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; }
+  .pass { color: #15803d; font-weight: bold; }
+  .imgrow { display: flex; flex-wrap: wrap; gap: 16px; }
+  .imgrow figure { margin: 0; flex: 1 1 320px; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 6px; }
+  figcaption { font-size: 13px; color: #555; margin-top: 6px; }
+  .note { background: #fffbeb; border: 1px solid #fcd34d; padding: 10px 14px; border-radius: 6px; }
+  .ok { background: #f0fdf4; border: 1px solid #86efac; padding: 12px 16px; border-radius: 6px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Issue #848 - Developer Agent QA Proof</h1>
+<p><strong>Title:</strong> [Mobile] New-session machine picker: show Director uptime + start time
+(<code>up 3h 22m . started 6:20 AM</code>) alongside last seen.</p>
+<p><strong>Branch:</strong> <code>issue-848-mobile-director-uptime</code><br/>
+<strong>Surface:</strong> mobile React PWA (<code>mobile/</code>), served by the Gateway at <code>/m</code>.<br/>
+<strong>Scope:</strong> mobile-only display change to Step 1 (machine picker) of the "+ New session" flow.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>mobile/src/api/client.ts</code> - added <code>startedAt: string</code> to the
+      <code>DirectorInfo</code> interface and mapped <code>d.startedAt</code> in the
+      <code>getDirectors</code> projection (the OpenAPI <code>schema.ts</code> already carried
+      <code>startedAt</code>; no regen needed).</li>
+  <li><code>mobile/src/sessions/waiting.ts</code> - factored a shared, prefix-free
+      <code>durationLabel(sinceIso, now)</code> that climbs the existing ladder
+      (<code>just now</code> / <code>Xm</code> / <code>Xh Ym</code> / <code>Xd Yh</code>) and
+      rewrote <code>waitingLabel</code> to delegate to it (its output is byte-for-byte unchanged).</li>
+  <li><code>mobile/src/pages/NewSession.tsx</code> - <code>directorSubtitle(d, now)</code> now renders
+      <code>up &lt;uptime&gt; . started &lt;startTime&gt; . seen &lt;lastSeen&gt;</code>. Uptime is
+      <code>durationLabel(d.startedAt, now)</code> prefixed <code>up&nbsp;</code> and ticks live off a
+      <code>useNow(1000)</code> hook (no <code>/directors</code> refetch). Started is absolute
+      (time-of-day if today, short date if older). Seen is the kept last-seen. A missing/unparseable
+      <code>startedAt</code> degrades to the prior last-seen-only subtitle - never an
+      <code>up NaN</code> / <code>Invalid Date</code>. The separator is ASCII <code>" . "</code>
+      (the global no-Unicode rule forbids the middle dot sketched in the layout block).</li>
+</ul>
+
+<h2>How it was proven</h2>
+<p>The built PWA (<code>mobile/dist</code>) was served by an isolated static+mock server
+(<code>mock-server.py</code>, loopback port 8850) that stubs <code>/directors</code>,
+<code>/directors/{id}/repos</code> and <code>POST .../sessions</code> - no real Gateway or Director
+was touched. A headless Chromium at an iPhone-sized viewport (390 x 844, deviceScaleFactor 2,
+mobile) drove the page (<code>capture.py</code>). The stubbed <code>/directors</code> covers every
+acceptance case: a started-today + hours-rung Director (SOREN_NORTH), an older + days-rung Director
+(SOREN), a minutes-rung live-ticking Director (SOREN_TICK), a Director with no
+<code>startedAt</code> (SOREN_LEGACY) and one with an invalid <code>startedAt</code> (SOREN_BADTM).</p>
+<p class="note"><strong>Note on time/date format:</strong> the captures show 24-hour times
+(<code>00:03</code>) and <code>28 Jun</code> day-month order because the headless test browser's
+default locale resolved that way. The code uses the default-locale form (<code>toLocaleTimeString([])</code>
+/ <code>toLocaleDateString([])</code>), exactly as the pre-existing last-seen rendering does, so on
+a US-locale device the same code renders <code>12:03 AM</code> and <code>Jun 28</code>. The
+acceptance criteria (time-of-day when today, short date when older) are met regardless of locale.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+<tr>
+  <td>AC1</td><td>Row subtitle reads <code>up . started . seen</code></td>
+  <td>Each machine row shows the three segments.</td>
+  <td>SOREN_NORTH: <code>up 1h 6m . started 00:03 . seen 01:08</code> (see t0 screenshot - all rows
+      with a valid startedAt show all three segments).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2</td><td>Uptime ticks live without reload</td>
+  <td>Uptime increases over a short interval with no refetch.</td>
+  <td>Over a 65s wait (no reload): SOREN_TICK <code>up 3m</code> -&gt; <code>up 5m</code>;
+      SOREN_NORTH <code>up 1h 6m</code> -&gt; <code>up 1h 7m</code> (t0 vs t1 screenshots).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3</td><td><code>started</code> is absolute: time today, short date if older</td>
+  <td>Started-today shows a time-of-day; older shows a short date.</td>
+  <td>SOREN_NORTH (today) <code>started 00:03</code> and SOREN_TICK (today) <code>started 01:05</code>;
+      SOREN (2 days old) <code>started 28 Jun</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC4</td><td>Existing last-seen still shown</td>
+  <td>Every row still shows its last-seen.</td>
+  <td><code>seen 01:08</code> / <code>seen 01:03</code> / <code>seen 00:48</code> on the valid rows;
+      degraded rows show <code>last seen 00:08</code> / <code>last seen 23:08</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC5</td><td>Uptime follows the duration ladder</td>
+  <td>just now / Xm / Xh Ym / Xd Yh.</td>
+  <td>Minutes: SOREN_TICK <code>up 3m</code>; hours: SOREN_NORTH <code>up 1h 6m</code>; days:
+      SOREN <code>up 2d 1h</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC6</td><td><code>startedAt</code> from the client; graceful when missing/invalid</td>
+  <td>Mapped by <code>getDirectors</code>; missing/invalid degrades to last-seen only, no "Invalid Date".</td>
+  <td>SOREN_LEGACY (no <code>startedAt</code>) -&gt; <code>last seen 00:08</code>; SOREN_BADTM
+      (<code>startedAt="not-a-date"</code>) -&gt; <code>last seen 23:08</code>. No <code>up</code>,
+      no <code>started</code>, no <code>NaN</code>/<code>Invalid Date</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC7</td><td>No regression; clean build; routine dotnet build does not invoke npm</td>
+  <td>Repos still load on selection, create still works; <code>dotnet build cc-director.sln</code>
+      clean and npm-free.</td>
+  <td>Repo step loaded <code>2 recent repo(s)</code>; tapping a repo created and opened the session
+      (URL -&gt; <code>/m/session/stub-session-1</code>, Terminal view shown). Full Debug solution
+      build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code> with zero npm/BuildMobileApp lines
+      (the mobile MSBuild target is Release/BuildMobile-gated). See <code>dotnet-build.log</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshots</h2>
+<div class="imgrow">
+  <figure>
+    <img src="ac1-ac3-ac5-ac6-machine-list-t0.png" alt="machine list t0" />
+    <figcaption>t0 - machine picker. AC1 (three segments), AC3/AC5 (today/older, minutes/hours/days),
+    AC4 (seen), AC6 (two degraded rows). Phone viewport 390x844.</figcaption>
+  </figure>
+  <figure>
+    <img src="ac2-machine-list-t1-after-65s.png" alt="machine list t1 after 65s" />
+    <figcaption>t1 - same page 65s later, no reload. Uptime advanced (AC2): SOREN_TICK 3m-&gt;5m,
+    SOREN_NORTH 1h 6m-&gt;1h 7m.</figcaption>
+  </figure>
+</div>
+<div class="imgrow">
+  <figure>
+    <img src="ac7-repos-loaded.png" alt="repos loaded" />
+    <figcaption>AC7 - selecting the default machine loaded its repos ("2 recent repo(s)").</figcaption>
+  </figure>
+  <figure>
+    <img src="ac7-after-create.png" alt="after create" />
+    <figcaption>AC7 - tapping a repo created and opened the session (Terminal view).</figcaption>
+  </figure>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a mobile-only presentational change in one React screen plus a shared formatter
+refactor. No backend, no architecture change, no security posture change - no
+<code>docs/cencon/</code> updates required.</p>
+
+<h2>Reproduce</h2>
+<ol>
+  <li><code>cd mobile &amp;&amp; npm ci &amp;&amp; npm run build</code></li>
+  <li><code>python docs/cencon/proof/issue-848/mock-server.py 8850 &lt;abs&gt;/mobile/dist</code></li>
+  <li><code>python docs/cencon/proof/issue-848/capture.py http://127.0.0.1:8850 docs/cencon/proof/issue-848</code></li>
+</ol>
+
+<p class="ok">I believe this is finished. All seven acceptance criteria were verified on a phone-sized
+viewport with proof above, and the full Debug solution build is clean and npm-free.</p>
+
+</body>
+</html>

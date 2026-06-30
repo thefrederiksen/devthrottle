@@ -7,11 +7,13 @@
 // needsYouSince (no roster refetch just to tick - issue #844 scope).
 import { useEffect, useState } from "react";
 
-// Compact elapsed-waiting label from a needs-you session's needsYouSince UTC stamp.
-//   sinceIso - the ISO 8601 needsYouSince value (UTC) from the /sessions payload.
-//   now      - the current epoch milliseconds (passed in so the caller's ticking clock drives it).
-// Returns "" when sinceIso is empty or unparseable so the caller renders nothing.
-export function waitingLabel(sinceIso: string, now: number): string {
+// Bare elapsed-duration label from an ISO 8601 UTC stamp, climbing the same ladder the desktop
+// SessionRail uses: "just now" for a sub-minute span, otherwise "12m" -> "1h 4m" -> "2d 3h". No
+// prefix, so callers can render it as "waiting <dur>" (the roster) or "up <dur>" (the New-session
+// machine picker, issue #848) from one source of truth.
+//   sinceIso - the ISO 8601 stamp (UTC); now - current epoch milliseconds (caller's ticking clock).
+// Returns "" when sinceIso is empty or unparseable so the caller can omit the segment entirely.
+export function durationLabel(sinceIso: string, now: number): string {
   const trimmed = (sinceIso ?? "").trim();
   if (trimmed.length === 0) return "";
   const since = Date.parse(trimmed);
@@ -27,9 +29,20 @@ export function waitingLabel(sinceIso: string, now: number): string {
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
 
-  if (days >= 1) return `waiting ${days}d ${hours}h`;
-  if (hours >= 1) return `waiting ${hours}h ${minutes}m`;
-  return `waiting ${minutes}m`;
+  if (days >= 1) return `${days}d ${hours}h`;
+  if (hours >= 1) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+// Compact elapsed-waiting label from a needs-you session's needsYouSince UTC stamp.
+//   sinceIso - the ISO 8601 needsYouSince value (UTC) from the /sessions payload.
+//   now      - the current epoch milliseconds (passed in so the caller's ticking clock drives it).
+// Returns "" when sinceIso is empty or unparseable so the caller renders nothing. A sub-minute wait
+// reads "just now"; anything longer is prefixed "waiting " onto the shared duration ladder.
+export function waitingLabel(sinceIso: string, now: number): string {
+  const bare = durationLabel(sinceIso, now);
+  if (bare === "" || bare === "just now") return bare;
+  return `waiting ${bare}`;
 }
 
 // A re-render trigger that updates on a fixed interval, returning the current epoch milliseconds.
