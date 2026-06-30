@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #857 - FAILED</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #c0392b; padding-bottom: .3rem; }
+  .verdict-fail { background: #c0392b; color: #fff; padding: .6rem 1rem; font-size: 1.2rem; font-weight: bold; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0f0f0; }
+  .pass { color: #1e7e34; font-weight: bold; }
+  .fail { color: #c0392b; font-weight: bold; }
+  code, pre { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; padding: .1rem .3rem; font-family: Consolas, monospace; font-size: .88rem; }
+  pre { padding: .7rem; overflow-x: auto; }
+  .box { border-left: 4px solid #c0392b; background: #fdf2f1; padding: .7rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #857</h1>
+<p class="verdict-fail">VERDICT: FAILED (flow:qa-failed)</p>
+
+<p><strong>Issue:</strong> [Gateway] On sign-in, register this Gateway as a device with the cloud and store the per-device key<br>
+<strong>Pull request:</strong> #871 (branch <code>issue-857-register-on-signin</code>)<br>
+<strong>QA method:</strong> Independent code review of the PR branch against the authoritative merged cloud contract, plus the developer's stub-backed unit tests. Verified in a private worktree off <code>origin/issue-857-register-on-signin</code>.<br>
+<strong>Date:</strong> 2026-06-30</p>
+
+<h2>Primary defect: register response is parsed from the wrong JSON shape</h2>
+
+<div class="box">
+<p><strong>Severity: blocking.</strong> Device registration fails on every attempt against the real (merged) DevThrottle cloud endpoint, because the desktop client parses a flat response body while the merged cloud endpoint returns an enveloped body.</p>
+</div>
+
+<p><strong>What the merged cloud endpoint actually returns.</strong> The register endpoint is implemented and merged at
+<code>thefrederiksen/devthrottle_internal: website/api/v1/devices.js</code>. Both the rotate (200) and insert (201) paths return an enveloped body with the key and the masked record nested under <code>data</code>:</p>
+<pre>// website/api/v1/devices.js
+return res.status(200).json({ data: { device_key: key.raw, record: toRecord(updated) } });   // line 132
+return res.status(201).json({ data: { device_key: key.raw, record: toRecord(inserted) } });  // line 142</pre>
+<p>So the real register response is:</p>
+<pre>{ "data": { "device_key": "dtd_live_...", "record": { "id": "...", "name": "...", "platform": "...", ... } } }</pre>
+
+<p><strong>What the desktop client parses.</strong>
+<code>CcDirector.Core/Account/DeviceRegistryClient.RegisterAsync</code> reads <code>device_key</code> and the masked record fields from the <em>root</em> object, not from <code>data</code>:</p>
+<pre>// DeviceRegistryClient.cs (lines 254-263)
+var root = JsonNode.Parse(json) as JsonObject
+    ?? throw new InvalidOperationException("device register response was not a JSON object");
+
+var deviceKey = StringField(root, "device_key")
+    ?? throw new InvalidOperationException("device register response had no string 'device_key'");
+var device = ParseRecord(root);</pre>
+
+<p><strong>Consequence.</strong> Against the real cloud, <code>root</code> is <code>{ "data": { ... } }</code>. <code>StringField(root, "device_key")</code> is <code>null</code> (the key lives under <code>data.device_key</code>), so <code>RegisterAsync</code> throws
+<code>InvalidOperationException("device register response had no string 'device_key'")</code> on every call. The Gateway never obtains a key, never stores one, and the heartbeat then skips (it requires a stored device key), so last-seen never advances. The failure is permanent and deterministic - it is a parse mismatch, not a transient cloud outage.</p>
+
+<p><strong>Why the unit tests do not catch it.</strong> The developer's stub
+(<code>DeviceRegistryClientRegisterHeartbeatTests</code>) returns a <em>flat</em> body
+(<code>{"id":...,"name":...,"device_key":"..."}</code>) that matches the buggy parser, so all 11 Core tests pass while masking the production defect. The test even asserts this flat shape is "the one cloud-contract assumption proven here against the stub" - but it proved the wrong shape. This is the exact stub-matches-the-bug trap.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Fresh sign-in registers exactly one device in the cloud</td><td>POST /api/v1/devices/register succeeds once; one device row</td><td>RegisterAsync throws on the enveloped real response; zero devices registered</td><td class="fail">FAIL</td></tr>
+<tr><td>2</td><td>Cloud-issued per-device key stored locally, never logged</td><td>Key present on disk after sign-in; raw key never in log</td><td>Key never obtained (register throws), so nothing stored. (Storage location + DT-05 no-log discipline are otherwise correct in code, but unreachable.)</td><td class="fail">FAIL</td></tr>
+<tr><td>3</td><td>Second sign-in / relaunch does not duplicate</td><td>Idempotent via in-run guard + stable install id</td><td>In-run guard, relaunch guard, and stable reused install id are correctly implemented - but moot because registration never succeeds</td><td class="fail">FAIL (blocked by #1)</td></tr>
+<tr><td>4</td><td>Heartbeat advances last-seen</td><td>POST /api/v1/devices/heartbeat advances last_seen_at</td><td>Heartbeat path checks status codes correctly, but it short-circuits ("no per-device key yet -> skipping heartbeat") because registration never produced a key; last-seen never advances</td><td class="fail">FAIL (blocked by #1)</td></tr>
+<tr><td>5</td><td>Cloud failure: stays signed in, logs, retries</td><td>No block/gate/crash; logs; retries next heartbeat</td><td>Graceful-degradation wiring is correct (detached best-effort hook, boundary try/catch, timer keeps running). Gateway does stay up. But the retry loops forever on a deterministic parse error, never recovering.</td><td class="fail">FAIL in effect - it never succeeds, so it permanently degrades rather than recovering</td></tr>
+</table>
+
+<h2>What is correct (so the fix is small)</h2>
+<ul>
+<li>Sign-in completion hook wiring (<code>GatewaySignInService.onSignedIn</code> -&gt; <code>EnsureRegisteredAsync</code>), detached and best-effort - correct.</li>
+<li>First-launch / retry safety net on the heartbeat first tick - correct.</li>
+<li>Exactly-once-per-run via the in-run guard plus the relaunch guard - correct.</li>
+<li>Stable install id reused, not re-minted (<code>GatewayInstallId.LoadOrCreate</code> reads the persisted GUID) - correct, and it is the single canonical Gateway identity.</li>
+<li>Key stored in the per-user config root; raw key never logged on any path (DT-05) - correct.</li>
+<li>Heartbeat request body and 200/404 handling - correct.</li>
+<li>GatewayHost build/start/dispose wiring - correct.</li>
+</ul>
+<p>The single blocking issue is the register response parse shape.</p>
+
+<h2>Required fix</h2>
+<p>In <code>DeviceRegistryClient.RegisterAsync</code>, unwrap the <code>data</code> envelope before reading the key and record: read <code>device_key</code> from <code>data.device_key</code> and the masked record from <code>data.record</code> (per <code>website/api/v1/devices.js</code> lines 132/142). Update the stub in <code>DeviceRegistryClientRegisterHeartbeatTests</code> to return the real enveloped shape <code>{ "data": { "device_key": "...", "record": { ... } } }</code> so the test guards the actual contract.</p>
+<p><em>Note (out of scope for #857 but same client):</em> <code>ListDevicesAsync</code> parses a top-level JSON array, but the merged list endpoint also returns <code>{ "data": [ ... ] }</code> (devices.js line 178). That sibling path (Gateway proxy issue) has the same envelope mismatch and will need the same unwrap.</p>
+
+<h2>Evidence</h2>
+<ul>
+<li>Cloud contract (authoritative, merged): <code>thefrederiksen/devthrottle_internal: website/api/v1/devices.js</code> lines 132, 142 (register) and 166, 178 (heartbeat, list).</li>
+<li>Desktop parser under test: <code>src/CcDirector.Core/Account/DeviceRegistryClient.cs</code> lines 254-263 (register), 311-328 (ParseRecord).</li>
+<li>Stub that masks the bug: <code>src/CcDirector.Core.Tests/Account/DeviceRegistryClientRegisterHeartbeatTests.cs</code> lines 31-58.</li>
+<li>Test run: <code>dotnet test ... --filter DeviceRegistryClientRegisterHeartbeat</code> -&gt; Passed 11, Failed 0 (green against the wrong stub).</li>
+</ul>
+
+<p class="verdict-fail">All five acceptance criteria fail in production behavior, blocked by the register response parse mismatch. Bounced to the Developer Agent (flow:qa-failed). PR #871 not merged.</p>
+</body>
+</html>
