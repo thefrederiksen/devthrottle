@@ -52,6 +52,13 @@
       and no Insert</b> (a new <code>showInsert</code> prop on <code>DictationDialog</code>); Send transcribes and
       sends straight into the session via the existing <code>/prompt</code> path. No hold-to-talk. Room is left for
       a future "Talk to the Wingman" target; it is not built.</li>
+    <li><b>On / off toggle</b>: switching voice on now sets the owning Director's mobile view mode to Voice
+      (<code>POST /sessions/{sid}/voice-mode { enabled:true }</code>) <i>and</i> marks the Gateway's turn-end
+      re-narration set (<code>explain</code>), matching the native phone app's enter-voice flow - so
+      <code>SessionDto.VoiceMode</code> flips true for every client and the on-state persists across navigation
+      and shows on the roster. A low-emphasis <b>Turn voice off</b> control (shown in every on-state) calls
+      <code>{ enabled:false }</code> - the same call the native app's <code>ClearVoiceMode</code> makes - and the
+      screen returns to off.</li>
   </ul>
 
   <div class="callout">
@@ -63,7 +70,8 @@
   <h2>2. Acceptance criteria - met</h2>
   <table>
     <tr><th>Criterion</th><th>How it is met</th><th>Proof</th></tr>
-    <tr><td>Switch a session into voice mode from the Voice tab</td><td>"Switch to voice mode" -> <code>POST /wingman/explain</code> (marks the session + first narration)</td><td>A -&gt; B</td></tr>
+    <tr><td>Switch a session into voice mode from the Voice tab</td><td>"Switch to voice mode" -> <code>POST /voice-mode { enabled:true }</code> (Director ViewMode=Voice, roster + persistence) + <code>POST /wingman/explain</code> (marks the Gateway set + first narration)</td><td>A -&gt; B</td></tr>
+    <tr><td>Turn voice off again</td><td>"Turn voice off" -> <code>POST /voice-mode { enabled:false }</code> (Director ViewMode=Text), matching the native app's ClearVoiceMode; the screen returns to off and stays off</td><td>C -&gt; G</td></tr>
     <tr><td>First narration fetched and (foreground + phone-ready) auto-played</td><td>explain -&gt; poll <code>/wingman/voice</code> -&gt; <code>ensureClip</code> -&gt; auto-play once, gated on <code>!document.hidden</code></td><td>C</td></tr>
     <tr><td>Every subsequent completed turn re-narrates when downloaded</td><td>Gateway turn-end watcher regenerates server-side; the phone polls <code>generatedAt</code> and downloads the new clip</td><td>C (loop)</td></tr>
     <tr><td>Waiting on options: count + choices spoken; selectable buttons (single and multiple), submittable</td><td><code>/wingman/menu</code> -&gt; option buttons; <code>menu-press</code> (single: full <code>send</code>; multiple: concatenated toggles + <code>submit</code>)</td><td>D single, D multiple</td></tr>
@@ -80,11 +88,12 @@
   <div class="grid">
     <div class="shot"><img src="A-off.png" alt="Off" /><div class="cap">A. Off - one "Switch to voice mode" button.</div></div>
     <div class="shot"><img src="B-working.png" alt="Working" /><div class="cap">B. Working - Wingman is reading; the phone is downloading the clip.</div></div>
-    <div class="shot"><img src="C-speaking.png" alt="Speaking" /><div class="cap">C. Speaking - the clip plays; narrative shown; replay + Respond.</div></div>
+    <div class="shot"><img src="C-speaking.png" alt="Speaking" /><div class="cap">C. Speaking - the clip plays; narrative shown; replay + Respond, with the low-emphasis "Turn voice off" toggle below.</div></div>
     <div class="shot"><img src="D-waiting-single.png" alt="Single select" /><div class="cap">D. Waiting (single) - tap an option to choose it.</div></div>
     <div class="shot"><img src="D-waiting-multiple.png" alt="Multiple select" /><div class="cap">D. Waiting (multiple) - pick any, then Submit (disabled until a pick).</div></div>
     <div class="shot"><img src="E-roster.png" alt="Roster" /><div class="cap">E. The list - triangle once phone-ready (api-refactor); yellow spinner while generating (db-migration); non-voice session shows nothing (docs-site).</div></div>
     <div class="shot"><img src="F-respond.png" alt="Respond" /><div class="cap">F. Reply - the dictation interface with Cancel / Pause / Send and NO Insert.</div></div>
+    <div class="shot"><img src="G-voice-off.png" alt="After Turn voice off" /><div class="cap">G. After tapping "Turn voice off" (waited past one poll) - the screen returns to off and stays off.</div></div>
   </div>
 
   <h2>4. Verification</h2>

@@ -777,6 +777,22 @@ body {
   cursor: default;
 }
 
+/* Turn voice off: a low-emphasis, full-width text button below the active voice content. Ghost
+   styling (transparent, muted) so it never competes with the in-state actions (Respond, Submit). */
+.voice-off-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
 /* Status bar: a state pill on the left, an optional reference note on the right. */
 .voice-statusbar {
   display: flex;

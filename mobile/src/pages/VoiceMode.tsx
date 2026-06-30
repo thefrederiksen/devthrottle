@@ -7,6 +7,7 @@ import {
   markVoiceAndExplain,
   pressWingmanMenu,
   sendPrompt,
+  setVoiceMode,
   type SessionDto,
   type WingmanMenu,
   type WingmanMenuOption,
@@ -160,18 +161,42 @@ export function VoiceMode() {
     if (sid.length === 0 || enabling) return;
     setEnabling(true);
     setError(null);
+    setLocalEnabled(true); // show the working screen immediately (responsive UI)
     try {
+      // Two steps, matching the native phone app's enter-voice flow: first mark the session a Voice
+      // session on the owning Director (ViewMode=Voice) so SessionDto.VoiceMode flips true and the
+      // state persists across navigation and shows on the roster; then explain on the Gateway, which
+      // marks its turn-end re-narration set and reads the first turn (caching the spoken text + audio).
+      await setVoiceMode(sid, true);
       const explained = await markVoiceAndExplain(sid);
-      setLocalEnabled(true);
       // A fresh/text-only session has nothing to read yet - show its truthful note in the working
       // card instead of spinning forever waiting for audio that will not come until the next turn.
       setEnableNote(explained.nothingYet ? explained.spoken : "");
     } catch (err) {
+      setLocalEnabled(false); // the enable did not take - fall back to the off screen, no half state
       setError(err instanceof Error ? err.message : "Could not switch to voice mode");
     } finally {
       setEnabling(false);
     }
   }, [sid, enabling]);
+
+  const onSwitchOff = useCallback(async () => {
+    if (sid.length === 0) return;
+    // Revert the screen to off immediately (responsive UI), then tell the owning Director to leave
+    // voice (ViewMode=Text) - the same call the native app's ClearVoiceMode makes. The optimistic
+    // session edit flips voiceOn false now; the next poll confirms it.
+    setLocalEnabled(false);
+    setVoice(null);
+    setMenu(null);
+    setEnableNote("");
+    setSession((prev) => (prev ? { ...prev, voiceMode: false } : prev));
+    autoPlayedRef.current = "";
+    try {
+      await setVoiceMode(sid, false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not turn voice off");
+    }
+  }, [sid]);
 
   const onReplay = useCallback(() => {
     const el = audioRef.current;
@@ -391,6 +416,15 @@ export function VoiceMode() {
               </button>
             )}
           </>
+        )}
+
+        {/* Turn voice off: a low-emphasis control present in every on-state (working, speaking,
+            waiting-on-choice). It tells the owning Director to leave voice mode (ViewMode -> Text),
+            the same call the native app makes, and the screen returns to the off state. */}
+        {voiceOn && (
+          <button type="button" className="voice-off-toggle" onClick={() => void onSwitchOff()}>
+            Turn voice off
+          </button>
         )}
       </div>
 

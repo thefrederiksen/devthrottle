@@ -523,3 +523,23 @@ export async function pressWingmanMenu(
     throw new GatewayError(res.status, `POST wingman/menu-press failed: ${res.status}`);
   }
 }
+
+// POST /sessions/{sid}/voice-mode { enabled } - the owning Director's authoritative voice flag. This
+// is the SAME endpoint the native phone app drives (DirectorVoiceClient.SetVoiceModeAsync): enabled
+// sets the session's mobile view mode to Voice, so SessionDto.VoiceMode flips true for every client
+// (the roster shows it as a voice session and it persists across navigation); disabled leaves voice
+// (view mode -> Text). It reaches the Director through the Gateway catch-all session proxy with the
+// injected Bearer, exactly like sendPrompt/holdSession. Switching voice on calls this AND
+// markVoiceAndExplain (which marks the Gateway's turn-end re-narration set and reads the first turn).
+export async function setVoiceMode(sessionId: string, enabled: boolean, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/voice-mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ enabled }),
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST voice-mode failed: ${res.status}`);
+  }
+}
