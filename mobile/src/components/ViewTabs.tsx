@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 
-// The Terminal/Chat view toggle for one session id (issue #811). Both views drive the SAME session;
-// only the display differs - Terminal shows the raw PTY mirror (#817), Chat shows the cleaned
-// conversation history (the desktop History tab translated). A segmented two-tab control that links
-// between the session's /session/:id (Terminal) and /session/:id/chat (Chat) routes.
+// The Terminal/Chat/Voice mode view toggle for one session id (issue #811). All views drive the SAME
+// session; only the display differs - Terminal shows the raw PTY mirror (#817), Chat shows the
+// cleaned conversation history (the desktop History tab translated), Voice mode is a placeholder for
+// the upcoming hands-free view. A segmented three-tab control that links between the session's
+// /session/:id (Terminal), /session/:id/chat (Chat), and /session/:id/voice (Voice mode) routes. It
+// renders as its own full-width row below the title so the three tabs share the width equally.
 
-export type SessionView = "terminal" | "chat";
+export type SessionView = "terminal" | "chat" | "voice";
 
 export interface ViewTabsProps {
   sessionId: string | undefined;
@@ -31,6 +33,14 @@ export function ViewTabs({ sessionId, active }: ViewTabsProps) {
         to={`/session/${sid}/chat`}
       >
         Chat
+      </Link>
+      <Link
+        className={`view-tab${active === "voice" ? " active" : ""}`}
+        role="tab"
+        aria-selected={active === "voice"}
+        to={`/session/${sid}/voice`}
+      >
+        Voice mode
       </Link>
     </div>
   );

@@ -227,8 +227,9 @@ export function Chat() {
       <header className="app-bar">
         <Link className="back-link" to="/">&larr; Roster</Link>
         <h1 className="term-title">{name ?? "Session"}</h1>
-        <ViewTabs sessionId={sessionId} active="chat" />
       </header>
+
+      <ViewTabs sessionId={sessionId} active="chat" />
 
       {/* Hold/Resume + Remove management buttons on the session screen (issue #812). */}
       <SessionManageBar sessionId={sessionId} />

@@ -5,6 +5,7 @@ import { Home } from "./pages/Home";
 import { NewSession } from "./pages/NewSession";
 import { Terminal } from "./pages/Terminal";
 import { Chat } from "./pages/Chat";
+import { VoiceMode } from "./pages/VoiceMode";
 import { ensureGatewayCookie } from "./api/client";
 import "./styles.css";
 
@@ -22,6 +23,7 @@ const router = createBrowserRouter(
     { path: "/new", element: <NewSession /> },
     { path: "/session/:sessionId", element: <Terminal /> },
     { path: "/session/:sessionId/chat", element: <Chat /> },
+    { path: "/session/:sessionId/voice", element: <VoiceMode /> },
   ],
   { basename: "/m" }
 );

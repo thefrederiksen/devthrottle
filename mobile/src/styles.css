@@ -394,25 +394,37 @@ body {
   gap: 8px;
 }
 
+/* The input gets a full-width, taller row of its own so it is comfortable to type in instead of
+   being crushed into the corner by the action buttons. */
 .term-row-input > .term-input {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* The Enter/Esc/Stop and the four arrow keys share their row width equally, like the Android grid. */
+/* Send and Speak share the row beneath the input equally (Send first). The Enter/Esc/Stop and the
+   four arrow keys do the same, like the Android grid. */
+.term-row-send > .term-btn,
 .term-row-3 > .term-btn,
 .term-row-4 > .term-btn {
   flex: 1 1 0;
 }
 
+/* An auto-growing textarea: starts at one comfortable line and grows with the content (JS sets the
+   height up to a cap, after which it scrolls). resize:none hides the manual drag handle; the shared
+   font/line-height keeps the typed text aligned with the placeholder. */
 .term-input {
   min-height: 46px;
-  padding: 10px 12px;
+  max-height: 160px;
+  padding: 11px 14px;
   background: #0f1626;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  font-size: 15px;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
 }
 
 .term-input::placeholder {
@@ -640,25 +652,27 @@ body {
   border-radius: 1px;
 }
 
-/* ===== Terminal/Chat view toggle (issue #811) =====
-   A small segmented control in the session app-bar that switches one session id between the
-   Terminal raw mirror (#817) and the Chat cleaned-history view. */
+/* ===== Terminal/Chat/Voice mode view toggle (issue #811) =====
+   A segmented control that switches one session id between the Terminal raw mirror (#817), the Chat
+   cleaned-history view, and Voice mode. It is its own full-width row below the title, so the three
+   tabs share the width equally instead of crowding the (often truncated) session title. */
 .view-tabs {
-  flex: 0 0 auto;
   display: flex;
   gap: 2px;
+  margin: 8px 0 2px;
   padding: 2px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 9px;
-  align-self: center;
 }
 
 .view-tab {
-  padding: 5px 12px;
+  flex: 1 1 0;
+  padding: 8px 12px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
+  text-align: center;
   color: var(--text-dim);
   text-decoration: none;
   touch-action: manipulation;
@@ -712,6 +726,38 @@ body {
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+/* ===== Voice mode (placeholder) =====
+   Fills the remaining vertical space like the chat stage and centers a simple "coming soon" note
+   until the hands-free voice view is designed. */
+.voice-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.voice-placeholder {
+  text-align: center;
+  padding: 24px;
+}
+
+.voice-placeholder-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.voice-placeholder-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-dim);
 }
 
 /* The bubble list fills the remaining vertical space; .chat-scroll is the single scroll container. */

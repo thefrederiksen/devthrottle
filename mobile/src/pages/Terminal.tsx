@@ -94,8 +94,9 @@ export function Terminal() {
       <header className="app-bar">
         <Link className="back-link" to="/">&larr; Roster</Link>
         <h1 className="term-title">{name ?? "Session"}</h1>
-        <ViewTabs sessionId={sessionId} active="terminal" />
       </header>
+
+      <ViewTabs sessionId={sessionId} active="terminal" />
 
       {/* Hold/Resume + Remove management buttons on the session screen (issue #812). */}
       <SessionManageBar sessionId={sessionId} />

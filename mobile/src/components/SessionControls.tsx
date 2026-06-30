@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { sendEscape, sendInterrupt, sendPrompt } from "../api/client";
 import { DictationDialog } from "../dictation/DictationDialog";
 import {
@@ -9,10 +9,11 @@ import {
   KEY_ENTER,
 } from "../terminal/keys";
 
-// The ONE shared session control surface (issue #811): the input row (input + Speak + Send), the
-// Enter/Esc/Stop row, and the arrow row, plus the shared Speak dictation dialog. Factored out of the
-// Terminal view (#817) so the Terminal AND the Chat view drive a session with byte-identical
-// payloads from a single source - Chat does NOT re-implement input/keys/Speak.
+// The ONE shared session control surface (issue #811): the full-width input row, the Send/Speak row
+// (Send first, Speak second, equal halves), the Enter/Esc/Stop row, and the arrow row, plus the
+// shared Speak dictation dialog. Factored out of the Terminal view (#817) so the Terminal AND the
+// Chat view drive a session with byte-identical payloads from a single source - Chat does NOT
+// re-implement input/keys/Speak.
 //
 // Payloads (identical to the Android tab and the desktop): Send -> POST /prompt AppendEnter=true
 // (clears input, flashes "Sent"); Enter -> "\r" AppendEnter=false; Esc -> POST /escape; Stop ->
@@ -29,13 +30,25 @@ export interface SessionControlsProps {
   onFlash: (message: string) => void;
   /** Raise an error banner. */
   onError: (message: string) => void;
-  /** Render the Enter/Esc/Stop and arrow rows. The input + Speak + Send row always renders. */
+  /** Render the Enter/Esc/Stop and arrow rows. The input row and Send/Speak row always render. */
   showKeyRows: boolean;
 }
 
 export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: SessionControlsProps) {
   const [input, setInput] = useState("");
   const [dictating, setDictating] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-grow the textarea to fit its content (up to a cap, after which it scrolls). Re-run on every
+  // input change so it grows as you type AND shrinks back when the box is cleared (Send) or replaced
+  // by a dictation insert. useLayoutEffect measures before paint so there is no visible jump.
+  const MAX_INPUT_HEIGHT_PX = 160;
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT_PX)}px`;
+  }, [input]);
 
   const sendKey = useCallback(
     async (seq: string, label: string) => {
@@ -112,24 +125,25 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
   return (
     <div className="term-controls">
       <div className="term-row term-row-input">
-        <input
+        <textarea
+          ref={inputRef}
           className="term-input"
-          type="text"
+          rows={1}
           inputMode="text"
           autoComplete="off"
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="type / send..."
+          placeholder="type a message..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void onSend();
-            }
-          }}
         />
+      </div>
+
+      <div className="term-row term-row-send">
+        <button type="button" className="term-btn term-send" onClick={onSend}>
+          Send
+        </button>
         <button
           type="button"
           className="term-btn term-speak"
@@ -137,9 +151,6 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
           disabled={dictating}
         >
           Speak
-        </button>
-        <button type="button" className="term-btn term-send" onClick={onSend}>
-          Send
         </button>
       </div>
 
