@@ -744,6 +744,20 @@ public sealed class GatewayHost : IAsyncDisposable
         // nothing to clear and it reports not-signed-in.
         AccountLogoutEndpoint.Map(_app, Account);
 
+        // Account device list + revoke proxy (issue #854): GET /account/devices and
+        // DELETE /account/devices/{id}. The Cockpit Account page needs the account-wide device list with
+        // last-seen and a per-device revoke, but the Cockpit must never hold the account token or call the
+        // cloud directly - the token lives here on the Gateway. So the Gateway proxies: it reads its own
+        // stored account token (the SAME GetAccessTokenForForwarding credential it uses to forward
+        // telemetry/login to the cloud) and calls the cloud device registry through DeviceRegistryClient,
+        // returning a local token-free DTO (security rule DT-05). Signed-out yields an explicit
+        // signedIn:false envelope (never a fabricated empty list) and an unreachable cloud yields a clear
+        // 502 (logged). The injectable HttpClient is the test seam. This is distinct from the LOCAL pairing
+        // registry GET /devices (issue #469), which is left unchanged. Inherits the host-wide token
+        // middleware above, exactly like the other /account routes.
+        var accountDevicesClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        AccountDevicesEndpoint.Map(_app, Account, new Core.Account.DeviceRegistryClient(accountDevicesClient), Environment.MachineName);
+
         // Transcription routing (issue #506): the Gateway serves the WHOLE routing target
         // (mode + base URL + model + key) for its configured transcription mode, so a connected
         // Director stops hardcoding the URL/mode. Composes URL+key server-side from the one pure
