@@ -8,6 +8,7 @@ import {
   pressWingmanMenu,
   sendPrompt,
   setVoiceMode,
+  stopWingmanVoice,
   type SessionDto,
   type WingmanMenu,
   type WingmanMenuOption,
@@ -192,7 +193,10 @@ export function VoiceMode() {
     setSession((prev) => (prev ? { ...prev, voiceMode: false } : prev));
     autoPlayedRef.current = "";
     try {
+      // Two calls, matching the on path's two: tell the Director to leave voice (roster flag) AND
+      // tell the Gateway to stop keeping voice (stops the per-turn Opus + text-to-speech, issue #859).
       await setVoiceMode(sid, false);
+      await stopWingmanVoice(sid);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not turn voice off");
     }

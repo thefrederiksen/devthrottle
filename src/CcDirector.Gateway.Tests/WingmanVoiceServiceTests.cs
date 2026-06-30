@@ -153,4 +153,75 @@ public sealed class WingmanVoiceServiceTests
         }
         finally { Cleanup(persistPath); }
     }
+
+    // ---------- Turn voice off / Unmark (issue #859) ----------
+
+    [Fact]
+    public void Unmark_AfterMark_RemovesFromVoiceSessionSet()
+    {
+        // Turning voice off stops the session being a voice session, so the turn-end watcher and the
+        // background sweep (both gate on IsVoiceSession / VoiceSessionIds) skip it - no more per-turn
+        // Opus + text-to-speech spend.
+        var svc = NewService();
+        svc.Mark("sid-1");
+        svc.Mark("sid-2");
+        Assert.True(svc.IsVoiceSession("sid-1"));
+
+        svc.Unmark("sid-1");
+
+        Assert.False(svc.IsVoiceSession("sid-1"));
+        Assert.DoesNotContain("sid-1", svc.VoiceSessionIds());
+        // Independent per session: a second voice session is unaffected.
+        Assert.True(svc.IsVoiceSession("sid-2"));
+        Assert.Contains("sid-2", svc.VoiceSessionIds());
+    }
+
+    [Fact]
+    public void Unmark_DropsTheReadyClip()
+    {
+        // After unmark, GET /wingman/voice/ready (ReadySessionIds) must no longer list the session,
+        // so the roster/phone stop offering a stale clip.
+        var svc = NewService();
+        svc.Mark("sid-1");
+        svc.StoreReadyAudioForTest("sid-1", "spoken", "reply", new byte[] { 1, 2, 3 });
+        Assert.True(svc.HasVoice("sid-1"));
+
+        svc.Unmark("sid-1");
+
+        Assert.False(svc.HasVoice("sid-1"));
+        Assert.DoesNotContain("sid-1", svc.ReadySessionIds());
+    }
+
+    [Fact]
+    public void Unmark_PersistsAcrossRestart()
+    {
+        // The removal is durable: a gateway restart must NOT bring the session back as a voice
+        // session (otherwise turn-end re-narration would resume on its own after a restart).
+        var persistPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var svc = ServiceAt(persistPath);
+            svc.Mark("sid-1");
+            svc.StoreReadyAudioForTest("sid-1", "spoken", "reply", new byte[] { 7, 7, 7 });
+            Assert.True(svc.IsVoiceSession("sid-1"));
+
+            svc.Unmark("sid-1");
+
+            // Simulate a gateway restart over the same persist path.
+            var reloaded = ServiceAt(persistPath);
+            Assert.False(reloaded.IsVoiceSession("sid-1"));
+            Assert.DoesNotContain("sid-1", reloaded.VoiceSessionIds());
+            Assert.False(reloaded.HasVoice("sid-1")); // and the durable clip is gone too
+        }
+        finally { Cleanup(persistPath); }
+    }
+
+    [Fact]
+    public void Unmark_UnknownSession_IsNoOp()
+    {
+        // Idempotent: unmarking a session that was never a voice session does nothing and does not throw.
+        var svc = NewService();
+        svc.Unmark("never-marked");
+        Assert.False(svc.IsVoiceSession("never-marked"));
+    }
 }

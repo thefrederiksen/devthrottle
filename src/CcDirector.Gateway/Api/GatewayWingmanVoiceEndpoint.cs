@@ -91,6 +91,21 @@ internal static class GatewayWingmanVoiceEndpoint
                 ? Results.Bytes(audio, "audio/mpeg", enableRangeProcessing: true)
                 : Results.Json(new { error = "no voice ready for this session" }, statusCode: StatusCodes.Status404NotFound);
         });
+
+        // Turn voice off for a session (issue #859): unmark it as a voice session so the gateway
+        // STOPS spending the per-turn Opus translation + OpenAI text-to-speech on it. This is the
+        // counterpart to the marking that POST /sessions/{sid}/wingman/explain performs on entry; the
+        // phone's "Turn voice off" calls it alongside the Director's /voice-mode { enabled:false }.
+        // Gateway-side only and read-only - it clears the voice marker + cached clip and sends nothing
+        // into the session. Idempotent: stopping a session that was not a voice session is a no-op 200.
+        app.MapPost("/sessions/{sid}/wingman/voice/stop", (string sid) =>
+        {
+            FileLog.Write($"[GatewayWingmanVoice] voice/stop sid={sid}");
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+            voice.Unmark(sid);
+            return Results.Json(new { stopped = true });
+        });
         // Resumable, idempotent piece-by-piece upload store (the same one the native app path uses):
         // chunks land on disk under a stable upload id and survive between retry attempts, so the
         // phone can keep re-sending pieces until the whole recording is through.

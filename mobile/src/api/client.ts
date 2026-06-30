@@ -543,3 +543,22 @@ export async function setVoiceMode(sessionId: string, enabled: boolean, signal?:
     throw new GatewayError(res.status, `POST voice-mode failed: ${res.status}`);
   }
 }
+
+// POST /sessions/{sid}/wingman/voice/stop - tell the Gateway to stop keeping voice for this session
+// (issue #859). It unmarks the session as a voice session, so the Gateway stops spending the
+// per-turn Opus translation + text-to-speech on it (the turn-end watcher and the background sweep
+// both skip it once unmarked) and drops its cached clip. The counterpart to markVoiceAndExplain
+// (which marks it on entry). "Turn voice off" calls this together with setVoiceMode(sid, false): the
+// Director call flips the roster flag, this call stops the Gateway work. Gateway-side and read-only -
+// it sends nothing into the session.
+export async function stopWingmanVoice(sessionId: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await fetch(`/sessions/${sid}/wingman/voice/stop`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw new GatewayError(res.status, `POST wingman/voice/stop failed: ${res.status}`);
+  }
+}
