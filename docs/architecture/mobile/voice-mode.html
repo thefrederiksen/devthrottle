@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mobile Voice Mode - Implementation Document</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --panel2: #1a2236;
+    --border: #2a3550;
+    --text: #e7ecf5;
+    --dim: #93a0bd;
+    --accent: #4f8cff;
+    --green: #0e7c6b;
+    --yellow: #e8b339;
+    --red: #e5484d;
+    --code: #0f1626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 96px; }
+  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: 0.2px; }
+  h2 { font-size: 22px; margin: 44px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 17px; margin: 24px 0 8px; color: #cdd8f0; }
+  p, li { color: #d7deef; }
+  .sub { color: var(--dim); margin: 0 0 8px; }
+  .lead { font-size: 17px; color: #cdd8f0; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 5px; font-family: Consolas, Menlo, monospace; font-size: 13px; color: #cfe0ff; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: Consolas, Menlo, monospace; font-size: 13px; color: #cfe0ff; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: #cdd8f0; }
+  td code { font-size: 12px; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+  .pill.exists { background: #11331f; color: #5fd08a; border: 1px solid #1f5c38; }
+  .pill.build { background: #3a2410; color: #f0b357; border: 1px solid #6b4514; }
+  .callout { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .callout.warn { border-left-color: var(--yellow); }
+  .grid { display: flex; flex-wrap: wrap; gap: 28px; margin: 20px 0; }
+
+  /* phone mockups */
+  .phone { width: 300px; background: #05080f; border: 10px solid #05080f; border-radius: 28px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden; }
+  .phone .screen { background: var(--bg); border-radius: 18px; overflow: hidden; }
+  .mock-cap { text-align: center; color: var(--dim); font-size: 13px; margin-top: 10px; max-width: 300px; }
+  .scr-pad { padding: 12px 12px 16px; }
+  .appbar { display: flex; align-items: baseline; gap: 8px; padding: 12px 12px 8px; border-bottom: 1px solid var(--border); }
+  .appbar .back { color: var(--accent); font-size: 12px; }
+  .appbar .title { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tabs { display: flex; gap: 2px; margin: 10px 12px 4px; padding: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; }
+  .tab { flex: 1; text-align: center; font-size: 11px; font-weight: 700; color: var(--dim); padding: 7px 4px; border-radius: 7px; }
+  .tab.active { background: var(--accent); color: #fff; }
+  .manage { display: flex; gap: 8px; margin: 10px 12px; }
+  .manage .b { flex: 1; text-align: center; font-weight: 700; font-size: 13px; padding: 12px 0; border-radius: 10px; }
+  .hold { background: #6b5a1f; color: #f4e6b0; }
+  .remove { background: var(--red); color: #fff; }
+
+  .btn { display: block; width: 100%; text-align: center; font-weight: 700; border-radius: 10px; padding: 13px 0; font-size: 14px; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.voice { background: #5b2bd6; color: #fff; }
+  .btn.green { background: var(--green); color: #fff; }
+
+  .narr { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .narr .h { font-size: 13px; font-weight: 700; color: #cdd8f0; margin-bottom: 6px; }
+  .narr .body { font-size: 13px; color: #d7deef; }
+  .state { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .st-yellow { background: #3a2d08; color: var(--yellow); border: 1px solid #6b540f; }
+  .st-green { background: #11331f; color: #5fd08a; border: 1px solid #1f5c38; }
+
+  /* roster card */
+  .card { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .card.yellow { border-left: 4px solid var(--yellow); }
+  .card.ready { border-left: 4px solid var(--green); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  .dot.red { background: var(--red); } .dot.yellow { background: var(--yellow); } .dot.green { background: #5fd08a; }
+  .card .info { flex: 1; min-width: 0; }
+  .card .nm { font-size: 13px; font-weight: 700; }
+  .card .meta { font-size: 11px; color: var(--dim); }
+  /* CSS play triangle (no unicode) */
+  .tri-btn { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: var(--green); display: flex; align-items: center; justify-content: center; }
+  .tri { width: 0; height: 0; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid #fff; margin-left: 2px; }
+  .spin { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: 3px solid #3a2d08; border-top-color: var(--yellow); }
+
+  .opt { display: flex; align-items: center; gap: 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 10px; margin: 6px 0; font-size: 13px; }
+  .opt .k { width: 20px; height: 20px; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .opt.rec { border-color: #1f5c38; }
+  .opt .tag { margin-left: auto; font-size: 10px; color: #5fd08a; font-weight: 700; }
+
+  .flow { background: var(--code); border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-family: Consolas, Menlo, monospace; font-size: 13px; color: #cfe0ff; white-space: pre; overflow-x: auto; }
+  .legend { font-size: 13px; color: var(--dim); }
+  .ref { font-size: 12px; color: var(--dim); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Mobile Voice Mode</h1>
+  <p class="sub">Implementation document - DevThrottle mobile PWA (the app served at <code>/m</code>). Draft for review before any code is written.</p>
+
+  <p class="lead">
+    Voice Mode turns a running Claude Code session into something you can listen to and answer hands-free
+    from your phone. A read-only Wingman watches the session, and at the end of every turn it speaks a clear,
+    plain-English narrative of what happened and what (if anything) it needs from you - including when it is
+    waiting on a list of choices. The spoken clip is rendered to audio on the Gateway, downloaded to the phone,
+    and only then offered for playback so you never tap a play button and then sit waiting for a download.
+  </p>
+
+  <div class="callout">
+    <strong>Headline finding from the research:</strong> most of the backend for this already exists and is
+    proven on the desktop Cockpit voice tab and the native phone app. The Wingman, the per-turn narrative
+    (with single/multiple selection support), the text-to-speech, the per-session audio cache, and the
+    "which sessions are ready" endpoint are all built. The new work is almost entirely in the mobile PWA UI,
+    plus one new behavioral rule: <em>the phone must hold the audio before the play-triangle appears.</em>
+  </div>
+
+  <h2>1. The idea, in plain English</h2>
+  <ul>
+    <li>You open a session and tap a <strong>Voice mode</strong> tab. On that screen there is a
+      <strong>Switch to voice mode</strong> button.</li>
+    <li>Pressing it tells the Wingman to start watching this session. The Wingman is a helper that sits on
+      top of your real session - it never types for you and never changes your work; it only reads.</li>
+    <li>The moment you enter voice mode, it begins explaining: it waits for the Wingman, the Wingman comes
+      back with "here is what just happened and here is what it wants," and - if you are still on the voice
+      screen - it speaks it to you.</li>
+    <li>From then on this happens <strong>automatically on every following turn</strong>. You do not press
+      anything to get the next narration.</li>
+    <li>The narration focuses on the conversation and what is being asked of you. Tool calls are background
+      noise and are not the point.</li>
+    <li>If the session is waiting on <strong>several choices</strong> (a numbered menu, "pick any that apply"),
+      the narration says how many options there are and what they are, and the screen shows them as buttons
+      you can press.</li>
+    <li>If you have left the voice screen and gone back to the session <strong>list</strong>, the session's
+      card turns <strong>yellow</strong> while the Wingman is reading and turning the turn into speech.</li>
+    <li>When the Wingman is finished, the card shows a <strong>play-triangle</strong> so you know a voice
+      message is waiting. You tap it to listen.</li>
+    <li><strong>The triangle does not appear until the audio has been downloaded to the phone.</strong>
+      "Finished," from the phone's point of view, means the audio is sitting on the phone ready to play - not
+      merely rendered on the Gateway. We never want you to tap and then wait for a download.</li>
+  </ul>
+
+  <h2>2. How it works end to end</h2>
+  <p>One loop, repeated for every turn of the primary session while voice mode is on for that session:</p>
+  <div class="flow">PRIMARY SESSION                 GATEWAY (Wingman warm brain)            PHONE (PWA, voice mode on)
+---------------                 ----------------------------            --------------------------
+turn runs ........ bytes .....> turn-end detected
+                                (ActivityState -> WaitingForInput
+                                 / WaitingForPerm)
+                                       |
+                                       v
+                                reads the new turn's history
+                                (conversation first; tool calls
+                                 are de-emphasized)
+                                       |
+                                       v
+                                builds the spoken narrative
+                                 - headline / what happened
+                                 - needsYou.statement
+                                 - selectionMode: single|multiple
+                                 - options[] (key, send, note)     ---- card goes YELLOW here -----> [ session card: yellow + spinner ]
+                                       |                                 (VoiceGenerating = true)
+                                       v
+                                TTS (OpenAI "nova") -> MP3
+                                cached at /voice-audio/<sid>
+                                (VoiceAudioReady = true)
+                                       |
+                                       v
+                                /wingman/voice/ready lists <sid>  ----- phone fetches the MP3 bytes ---> [ download to phone cache ]
+                                                                        and stores them locally               |
+                                                                                                              v
+                                                                  on voice screen: auto-play + show options
+                                                                  on the list: NOW show the play-triangle ---> [ card: green + play-triangle ]
+                                                                  (phone-ready, not just gateway-ready)</div>
+
+  <div class="callout warn">
+    <strong>The one genuinely new rule (Section 2 highlight):</strong> there are two notions of "ready."
+    The Gateway is ready when the MP3 is rendered and cached. The <em>phone</em> is ready only after it has
+    pulled those bytes down and stored them locally. The play-triangle and any auto-play are gated on
+    <strong>phone-ready</strong>. Until the bytes are local, the card shows the yellow "working" state, not a
+    triangle.
+  </div>
+
+  <h2>3. Mockup screens</h2>
+  <p class="sub">Indicative layouts (drawn with the app's real styling). Not final pixels.</p>
+
+  <div class="grid">
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="back">&lt;- Roster</span><span class="title">api-refactor 014</span></div>
+        <div class="tabs"><div class="tab">Terminal</div><div class="tab">Chat</div><div class="tab active">Voice mode</div></div>
+        <div class="manage"><div class="b hold">Hold</div><div class="b remove">Remove</div></div>
+        <div class="scr-pad">
+          <div style="text-align:center; color:var(--dim); font-size:12px; margin:18px 0 8px;">Voice mode is off for this session.</div>
+          <div style="text-align:center; color:var(--dim); font-size:11px; margin:0 0 18px;">Turn it on and the Wingman will start narrating every turn.</div>
+          <a class="btn voice">Switch to voice mode</a>
+        </div>
+      </div></div>
+      <div class="mock-cap">A. Entry. The Voice mode tab before it is enabled - one clear "Switch to voice mode" button.</div>
+    </div>
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="back">&lt;- Roster</span><span class="title">api-refactor 014</span></div>
+        <div class="tabs"><div class="tab">Terminal</div><div class="tab">Chat</div><div class="tab active">Voice mode</div></div>
+        <div class="scr-pad">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span class="state st-yellow">Wingman is reading...</span>
+            <span class="ref">turn 7</span>
+          </div>
+          <div class="narr">
+            <div class="h">Listening</div>
+            <div class="body">Preparing the spoken summary of the latest turn. This will play automatically.</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; justify-content:center; margin:16px 0;">
+            <div class="spin"></div><span class="ref">rendering audio + downloading</span>
+          </div>
+        </div>
+      </div></div>
+      <div class="mock-cap">B. Working. You are on the voice screen; the Wingman is building and the phone is downloading the clip.</div>
+    </div>
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="back">&lt;- Roster</span><span class="title">api-refactor 014</span></div>
+        <div class="tabs"><div class="tab">Terminal</div><div class="tab">Chat</div><div class="tab active">Voice mode</div></div>
+        <div class="scr-pad">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span class="state st-green">Playing</span><span class="ref">turn 7</span>
+          </div>
+          <div class="narr">
+            <div class="h">"It finished the auth refactor and is asking whether to also update the tests."</div>
+            <div class="body">Tap to replay, or just answer below.</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; margin:10px 0;">
+            <div class="tri-btn"><div class="tri"></div></div>
+            <div style="flex:1; height:6px; background:var(--panel2); border-radius:999px; position:relative;">
+              <div style="position:absolute; left:0; top:0; bottom:0; width:55%; background:var(--green); border-radius:999px;"></div>
+            </div>
+            <span class="ref">0:06</span>
+          </div>
+          <a class="btn green" style="margin-top:8px;">Respond</a>
+        </div>
+      </div></div>
+      <div class="mock-cap">C. Speaking. The clip plays; the narrative is also shown as text. You can replay or dictate a reply.</div>
+    </div>
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="back">&lt;- Roster</span><span class="title">db-migration 022</span></div>
+        <div class="tabs"><div class="tab">Terminal</div><div class="tab">Chat</div><div class="tab active">Voice mode</div></div>
+        <div class="scr-pad">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span class="state st-green">Waiting on you</span><span class="ref">pick any that apply</span>
+          </div>
+          <div class="narr">
+            <div class="h">"Three options are waiting. You can pick more than one."</div>
+            <div class="body">Select the items to include, then submit.</div>
+          </div>
+          <div class="opt rec"><span class="k">1</span><span>Run the migration now</span><span class="tag">SUGGESTED</span></div>
+          <div class="opt"><span class="k">2</span><span>Back up the database first</span></div>
+          <div class="opt"><span class="k">3</span><span>Skip and review the SQL</span></div>
+          <a class="btn primary" style="margin-top:10px;">Submit selection</a>
+        </div>
+      </div></div>
+      <div class="mock-cap">D. Multiple selections. When the session waits on a choice, options become buttons; "pick any" shows a multi-select with Submit.</div>
+    </div>
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="title" style="font-size:16px;">DevThrottle</span></div>
+        <div class="scr-pad">
+          <div style="font-size:11px; color:var(--dim); font-weight:700; margin:4px 0;">NEEDS YOU</div>
+          <div class="card ready">
+            <span class="dot green"></span>
+            <div class="info"><div class="nm">api-refactor 014</div><div class="meta">voice ready - tap to listen</div></div>
+            <div class="tri-btn"><div class="tri"></div></div>
+          </div>
+          <div class="card yellow">
+            <span class="dot yellow"></span>
+            <div class="info"><div class="nm">db-migration 022</div><div class="meta">Wingman is reading...</div></div>
+            <div class="spin"></div>
+          </div>
+          <div style="font-size:11px; color:var(--dim); font-weight:700; margin:14px 0 4px;">ALL SESSIONS</div>
+          <div class="card">
+            <span class="dot" style="background:#4f8cff;"></span>
+            <div class="info"><div class="nm">docs-site 009</div><div class="meta">working</div></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="mock-cap">E. The list. A voice session shows the play-triangle only once its audio is on the phone; while the Wingman works the card is yellow with a spinner.</div>
+    </div>
+
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="appbar"><span class="back">&lt;- Roster</span><span class="title">api-refactor 014</span></div>
+        <div class="tabs"><div class="tab">Terminal</div><div class="tab">Chat</div><div class="tab active">Voice mode</div></div>
+        <div class="scr-pad">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span class="state st-yellow">Recording</span><span class="ref">0:04</span>
+          </div>
+          <div class="narr" style="text-align:center;">
+            <div class="body">Listening... speak your reply, then Send.</div>
+            <div style="display:flex; gap:3px; justify-content:center; align-items:flex-end; height:26px; margin-top:8px;">
+              <span style="width:4px;height:10px;background:var(--yellow);border-radius:2px;"></span>
+              <span style="width:4px;height:20px;background:var(--yellow);border-radius:2px;"></span>
+              <span style="width:4px;height:14px;background:var(--yellow);border-radius:2px;"></span>
+              <span style="width:4px;height:24px;background:var(--yellow);border-radius:2px;"></span>
+              <span style="width:4px;height:8px;background:var(--yellow);border-radius:2px;"></span>
+              <span style="width:4px;height:18px;background:var(--yellow);border-radius:2px;"></span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <div style="flex:1; text-align:center; font-weight:700; font-size:13px; padding:11px 0; border-radius:10px; background:var(--panel2); color:var(--dim);">Cancel</div>
+            <div style="flex:1; text-align:center; font-weight:700; font-size:13px; padding:11px 0; border-radius:10px; background:#6b5a1f; color:#f4e6b0;">Pause</div>
+            <div style="flex:1; text-align:center; font-weight:700; font-size:13px; padding:11px 0; border-radius:10px; background:var(--accent); color:#fff;">Send</div>
+          </div>
+          <div class="ref" style="text-align:center; margin-top:8px;">No Insert - Send goes straight into the session.</div>
+        </div>
+      </div></div>
+      <div class="mock-cap">F. Reply. Tapping "Respond" opens the dictation interface (same as Speak), with Cancel / Pause / Send and no Insert. Send transcribes and sends into the session.</div>
+    </div>
+
+  </div>
+
+  <h3>Reply interaction (how you answer by voice)</h3>
+  <ul>
+    <li>There is <strong>no hold-to-talk</strong>. You tap <strong>Respond</strong>; the control switches into the
+      recording interface - exactly like the existing <strong>Speak</strong> dictation - you speak, then you tap
+      <strong>Send</strong>.</li>
+    <li>The dictation panel for a reply has <strong>Cancel</strong>, <strong>Pause / Resume</strong>, and
+      <strong>Send</strong>. It does <strong>not</strong> have <strong>Insert</strong> (mockup F). Send transcribes
+      and sends the text straight into the session (the same <code>POST /prompt</code> path the Send button uses,
+      with the transcript run through the existing dictionary-correction engine).</li>
+    <li>For this version there is a <strong>single</strong> reply target: <strong>Respond</strong> (transcribe -&gt;
+      into the session). A second target, <strong>Talk to the Wingman</strong> (ask the Wingman directly rather than
+      driving the session), is planned but explicitly <strong>out of scope for now</strong> - leave room for it,
+      do not build it yet.</li>
+  </ul>
+
+  <h2>4. What already exists (reuse, do not rebuild)</h2>
+  <table>
+    <tr><th>Capability</th><th>Where</th><th>Status</th></tr>
+    <tr><td>Wingman charter: strong model (Opus), read-only, one write chokepoint, fail-closed</td><td><code>src/CcDirector.Core/Wingman/</code>, <code>docs/wingman/WINGMAN.md</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Per-turn narrative with <code>needsYou.selectionMode (single|multiple)</code> + <code>options[]</code> + <code>railLine</code> + evidence</td><td><code>TurnBriefContract.cs</code>, <code>docs/architecture/wingman/TURN_BRIEFING.md</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>The "warm brain": one persistent Wingman session (a real session, NOT print mode, billed to subscription)</td><td><code>src/CcDirector.Gateway/Wingman/WingmanTranslator.cs</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Text-to-speech (OpenAI "nova"), returned as <code>audio/mpeg</code> bytes (not base64)</td><td><code>POST /wingman/tts</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Per-session audio + metadata cache, survives Gateway restart (issue #553)</td><td><code>WingmanVoiceService.cs</code>, <code>/voice-audio/</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Read-only "explain the latest turn" without sending anything</td><td><code>POST /sessions/{sid}/wingman/explain</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Which sessions have a ready spoken summary</td><td><code>GET /wingman/voice/ready</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Stream the cached MP3 for a session</td><td><code>GET /sessions/{sid}/wingman/voice/audio</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Menu detection + press an option remotely</td><td><code>GET /sessions/{sid}/wingman/menu</code>, <code>POST .../menu-press</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Turn-end detection (<code>ActivityState -> WaitingForInput/WaitingForPerm</code>)</td><td><code>TerminalStateDetector.cs</code>, <code>ActivityState.cs</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Roster DTO carries <code>VoiceMode</code>, <code>VoiceGenerating</code>, <code>VoiceAudioReady</code>, <code>BriefingState</code>, <code>RailLine</code></td><td><code>SessionDto.cs</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Mobile roster already computes a <strong>yellow</strong> "voice preparing" color</td><td><code>mobile/src/sessions/ordering.ts</code> (<code>isVoicePreparing</code>, <code>effectiveColor</code>)</td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Proven reference UIs: desktop Cockpit voice tab and the native phone app</td><td><code>src/CcDirector.Cockpit/wwwroot/pages/voice/</code>, <code>phone/CcDirectorClient/TalkPage.xaml</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Mobile history fetch + bubble mapping (reuse for context)</td><td><code>mobile/src/api/client.ts</code> (<code>getSessionHistory</code>), <code>history/bubbleMapper.ts</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Mobile dictation (speech to text) for replying</td><td><code>mobile/src/dictation/</code>, <code>SessionControls.tsx</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+  </table>
+
+  <h2>5. What we need to build</h2>
+  <table>
+    <tr><th>Gap</th><th>Notes</th><th></th></tr>
+    <tr><td>Replace <code>VoiceMode.tsx</code> placeholder with the real voice screen (states: off / working / speaking / waiting-on-choice)</td><td>Mockups A-D. Reuse the Cockpit voice tab and native phone app as the proven behavior reference.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>"Switch to voice mode" action that marks the session as a voice session and kicks off the first narration</td><td>Reuse the existing per-session voice-mark + <code>explain</code>; do not invent a new path.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>Automatic re-narration on every subsequent turn</td><td>Phone watches roster/turn signal; on a new completed turn for a voice session it fetches the new clip. Server already generates at turn-end.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td><strong>Phone-side download gate</strong>: pull the MP3 to the phone and store it locally; expose a "phone-ready" state distinct from "gateway-ready"</td><td>The core new rule. Use the Cache API / a blob store. Triangle and auto-play gate on phone-ready.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>Roster card: <strong>play-triangle</strong> when phone-ready; <strong>yellow + spinner</strong> while the Wingman is generating</td><td>Mockup E. Yellow color already computed; needs the triangle element and the phone-ready check in <code>Home.tsx</code> / <code>SessionRow</code>.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>Audio playback in the PWA (an <code>&lt;audio&gt;</code> element + controls: play, replay, progress)</td><td>No playback exists in mobile today. Plays the locally-stored blob, not a live stream.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>Multiple-selection UI: render <code>options[]</code> as buttons; single vs multiple (with Submit); press via <code>menu-press</code></td><td>Contract exists; mobile just needs to render and post.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td><strong>Respond</strong> button: tap to open the dictation interface (reuse <code>DictationDialog</code>) with Cancel / Pause / Send and <strong>no Insert</strong>; Send transcribes and sends into the session</td><td>Reuse the existing dictation + <code>sendPrompt</code>. Leave room for a future "Talk to the Wingman" target; do not build that now.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>PWA service-worker caching rule for audio responses (if we cache via Workbox rather than a manual blob store)</td><td><code>vite.config.ts</code> currently caches only the app shell + <code>/sessions</code>.</td><td><span class="pill build">BUILD</span></td></tr>
+    <tr><td>"Still on the voice screen vs back in the list" behavior split</td><td>On screen: auto-play. In list: do not auto-play; show the triangle.</td><td><span class="pill build">BUILD</span></td></tr>
+  </table>
+
+  <h2>6. Data contracts (all already on the Gateway)</h2>
+  <table>
+    <tr><th>Endpoint</th><th>Shape</th><th>Used for</th></tr>
+    <tr><td><code>GET /wingman/voice/ready</code></td><td>-&gt; <code>{ sids: string[] }</code></td><td>Which sessions have a clip ready on the Gateway</td></tr>
+    <tr><td><code>GET /sessions/{sid}/wingman/voice</code></td><td>-&gt; <code>{ ready, spoken, reply, generatedAt }</code></td><td>The narrative text + readiness metadata</td></tr>
+    <tr><td><code>GET /sessions/{sid}/wingman/voice/audio</code></td><td>-&gt; <code>audio/mpeg</code> (range-enabled)</td><td>The MP3 the phone downloads and stores</td></tr>
+    <tr><td><code>POST /sessions/{sid}/wingman/explain</code></td><td>-&gt; <code>{ reply, spoken, replySeconds, nothingYet? }</code></td><td>Read-only narration of the latest turn (no send)</td></tr>
+    <tr><td><code>GET /sessions/{sid}/wingman/menu</code></td><td>-&gt; <code>{ isMenu, question, spoken, selectionMode, submit, options }</code></td><td>Detect a waiting choice + its options</td></tr>
+    <tr><td><code>POST /sessions/{sid}/wingman/menu-press</code></td><td><code>{ send, submit? }</code> -&gt; <code>{ reply, spoken, pressed }</code></td><td>Answer a choice from the phone</td></tr>
+    <tr><td><code>POST /wingman/tts</code></td><td><code>{ text, voice? }</code> -&gt; <code>audio/mpeg</code></td><td>Synthesize arbitrary text (fallback / ad-hoc)</td></tr>
+    <tr><td><code>POST /wingman/utterance/upload</code> + <code>chunk</code> + <code>complete</code></td><td>-&gt; <code>{ transcript }</code></td><td>Reply by voice (resumable dictation, already used by Speak)</td></tr>
+  </table>
+  <p class="ref">All calls authenticate with the Bearer token the PWA already injects (<code>authHeaders()</code> in <code>mobile/src/api/client.ts</code>). Audio is binary, never base64 over the wire.</p>
+
+  <h2>7. Open decisions for review</h2>
+  <ol>
+    <li><strong>One warm brain or one Wingman per session?</strong> Today the Gateway runs a single shared
+      warm-brain session for translation (cheaper, proven). Your description ("a session that should always be
+      started with the original session") could mean a dedicated companion per primary session. Recommendation:
+      keep the shared warm brain for v1; revisit only if narratives bleed across sessions.</li>
+    <li><strong>Where does the phone store the audio?</strong> Cache Storage API (Workbox runtime cache keyed on
+      the audio URL) vs an explicit IndexedDB blob store we manage. Recommendation: Cache Storage keyed by
+      session + turn, so "phone-ready" is simply "the response is in the cache."</li>
+    <li><strong>How does the phone learn a new turn finished?</strong> Piggy-back on the existing 5s roster poll
+      (it already carries <code>VoiceGenerating</code>/<code>VoiceAudioReady</code>) vs a dedicated voice poll/stream.
+      Recommendation: roster poll for the list; a slightly faster poll only while the voice screen is open.</li>
+    <li><strong>Auto-play policy.</strong> Auto-play only when the voice screen is foreground and the clip is
+      phone-ready; never auto-play from the list. Confirm this matches your intent.</li>
+    <li><strong>Replying by voice (DECIDED).</strong> Tap <strong>Respond</strong> -&gt; the existing dictation
+      interface (no hold-to-talk) -&gt; Cancel / Pause / Send, <strong>no Insert</strong> -&gt; Send sends into the
+      session. A future "Talk to the Wingman" target is out of scope for now.</li>
+    <li><strong>Per-turn cost.</strong> Every turn triggers an Opus narration + a TTS call for every voice
+      session. Do we cap which sessions get voice (only "needs you"?) or narrate every turn of every voice
+      session? Recommendation: only sessions explicitly switched into voice mode, which is already the model.</li>
+  </ol>
+
+  <h2>8. Out of scope (for this first version)</h2>
+  <ul>
+    <li>Fully conversational back-and-forth voice (continuous listen). v1 is: narrate on each turn, answer by
+      tapping options or dictating.</li>
+    <li>Background narration when the PWA is fully closed (depends on platform push; not assumed here).</li>
+    <li>Any change to the Wingman charter. It stays read-only; answering a choice goes through the existing
+      single write chokepoint (<code>menu-press</code> / the action executor).</li>
+  </ul>
+
+  <p class="ref" style="margin-top:40px;">Source: research over <code>src/CcDirector.Core/Wingman/</code>, <code>src/CcDirector.Gateway/Wingman/</code>,
+  the Gateway and Director Control APIs, and <code>mobile/src/</code>. This document is a proposal for review;
+  no code has been written against it yet.</p>
+
+</div>
+</body>
+</html>
