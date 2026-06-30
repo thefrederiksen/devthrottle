@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Report - Issue #852 - Read-only ACCOUNT status box in the Director sidebar</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 18px; color: #1c1c1c; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2b6cb0; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #2b3a55; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #cbd5e0; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #edf2f7; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .verdict { background: #e6ffed; border: 1px solid #1a7f37; padding: 12px 16px; border-radius: 6px; font-size: 16px; }
+  code { background: #f1f1f1; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  img { max-width: 100%; border: 1px solid #cbd5e0; border-radius: 4px; margin: 8px 0; }
+  .note { font-size: 13px; color: #555; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #852</h1>
+<p><strong>Title:</strong> [Director] Add a read-only ACCOUNT status box to the sidebar status stack<br/>
+<strong>Pull request:</strong> #867 &nbsp; <strong>Branch:</strong> issue-852-account-box &nbsp; <strong>Tested commit:</strong> f46c9015 (UI shows <code>v0.9.29 (f46c901)</code>)<br/>
+<strong>Verifier:</strong> QA Agent (independent identity, did not see the Developer's work)<br/>
+<strong>Method:</strong> Built the PR branch in an isolated worktree, ran the unit tests, launched a per-session-isolated Director (slot 15, exact-path teardown), read the running app and its log, and code-reviewed the state-to-visual mapping.</p>
+
+<div class="verdict">VERIFIED - all five acceptance criteria met. PASS.</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Evidence</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Signed-in Gateway shows green and the signed-in email.</td>
+  <td>State <code>SignedIn</code>, green accent, email shown.</td>
+  <td>Presenter maps a reachable+signed-in status to <code>SignedIn</code> with the email as the sub-text; the code-behind paints green <code>#22C55E</code> and sets the sub-text to <code>status.Email</code>. Unit test <code>Describe_SignedIn_ReturnsSignedInStateWithEmail</code> asserts exactly this and passes. A live signed-in capture needs a real DevThrottle account on the Gateway, which cannot be staged from the QA automation - judged on the passing unit test plus code review (stated honestly).</td>
+  <td>AccountIndicatorPresenter.cs; AccountIndicatorPresenterTests (PASS); MainWindow.axaml.cs UpdateAccountIndicator</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Signed-out Gateway shows the amber "NOT SIGNED IN" nudge.</td>
+  <td>Amber box reading "NOT SIGNED IN".</td>
+  <td>Live: the Director sidebar shows the amber "NOT SIGNED IN / click to sign in on the Gateway" box directly above the GATEWAY box. Log confirms <code>state=NotSignedIn, configured=True, reachable=True, signedIn=False</code> from a real <code>GET /account/status</code> 200 response.</td>
+  <td>qa-notsignedin-live.png; director log lines 155-163</td>
+  <td class="pass">PASS (live)</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Clicking the not-signed-in box opens the Cockpit Account page.</td>
+  <td>Browser opens <code>{frontDoor}/account</code>.</td>
+  <td><code>AccountIndicator_PointerPressed</code> acts only in the <code>NotSignedIn</code> state, resolves the Cockpit base, asks the Gateway <code>GET {base}/cockpit</code> for the Tailscale front door, builds <code>{frontDoor}/account</code> via <code>BuildAccountUrl</code>, and opens the browser (never a localhost URL). The two <code>AccountIndicatorUrlTests</code> assert <code>{frontDoor}/account</code> with no double slash and pass. Verified by test + code review; a live browser launch was not triggered to avoid side effects.</td>
+  <td>MainWindow.axaml.cs AccountIndicator_PointerPressed / BuildAccountUrl; AccountIndicatorUrlTests (PASS)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>No Gateway or unreachable <code>/account/status</code> shows a muted unavailable state, NOT a false "signed out".</td>
+  <td>State <code>Unavailable</code> (muted), never <code>NotSignedIn</code>.</td>
+  <td>The presenter maps both <code>!GatewayConfigured</code> and <code>!Reachable</code> to <code>Unavailable</code>; the code-behind paints the muted palette <code>#777777</code>/<code>#2A2A2A</code>. Two unit tests (<code>Describe_NoGatewayConfigured_...</code> and <code>Describe_ConfiguredButUnreachable_...</code>) assert <code>Unavailable</code> and explicitly <code>NotEqual NotSignedIn</code>; both pass. The box also opens in this muted "reading account status..." state at startup. This machine's Gateway was up, so the unreachable path could not be staged live - judged on the two passing tests plus code review (stated honestly).</td>
+  <td>AccountIndicatorPresenter.cs; AccountIndicatorPresenterTests (PASS)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Sidebar paints at startup with the account read happening asynchronously (no synchronous blocking call on the UI thread).</td>
+  <td>Window paints immediately; status read off the UI thread.</td>
+  <td>Live log timeline: <code>10:26:36.251 Account indicator wired</code> (wiring returned instantly), <code>10:26:36.270 GET /account/status</code> (read started ~19 ms later on a <code>Task.Run</code> thread, off the UI thread), <code>10:26:36.380 UpdateAccountIndicator</code> (repaint via <code>Dispatcher.UIThread.Post</code>). The Director painted its "All systems go" home screen with no wait. A 30-second heartbeat re-poll repeats. Overlapping reads are guarded by <code>_accountReadInFlight</code>.</td>
+  <td>director log lines 139-163; qa-notsignedin-live.png</td>
+  <td class="pass">PASS (live)</td>
+</tr>
+</table>
+
+<h2>Hard constraint - read-only nudge, NOT a re-added sign-in gate (#651/#664)</h2>
+<p>Confirmed. The Director booted straight to the main window ("All systems go" home, New Session button) with no sign-in form, modal, or block. <code>WireAccountIndicator</code> is only a <code>DispatcherTimer</code> heartbeat; the box's sole action is opening a browser link out to the Gateway-managed Cockpit Account page. This is the opposite of a gate.</p>
+
+<h2>Method / regression checks</h2>
+<ul>
+  <li>Security DT-05 honored: the status carries identity only (email + provider), never a token; the log records only booleans and the state, never the email. Verified in the live log.</li>
+  <li>CodingStyle: the decision point (<code>AccountIndicatorPresenter</code>) is a pure, UI-free Core type; try/catch sits at the entry points (timer tick, pointer-pressed); enterprise logging present.</li>
+  <li>8 new unit tests added (6 presenter + 2 URL); all pass.</li>
+  <li>Negative sweep: the Gateway box, the cc-tools health (hidden when all pass), and the home screen all render normally; no adjacent breakage observed.</li>
+</ul>
+
+<h2>Live evidence</h2>
+<p>Slot-15 Director built from the PR branch (version <code>v0.9.29 (f46c901)</code>), home screen with no gate, amber "NOT SIGNED IN" account box above the green GATEWAY box:</p>
+<img src="qa-notsignedin-live.png" alt="Live: amber NOT SIGNED IN account box above the GATEWAY box, home screen with no gate" />
+
+<h2>Test run</h2>
+<p><code>AccountIndicatorPresenterTests</code>: Passed 6, Failed 0. &nbsp; <code>AccountIndicatorUrlTests</code>: Passed 2, Failed 0. The CcDirector.Avalonia assembly compiled clean.</p>
+
+<p class="note">Verified independently against the issue's acceptance criteria, not the Developer's report. AC#2 and AC#5 proven live; AC#1, AC#3, and AC#4 proven by passing unit tests plus code review where a live capture was infeasible (a real signed-in account, a browser launch, and an unreachable Gateway respectively cannot be staged from the QA automation) - stated honestly, not rubber-stamped.</p>
+</body>
+</html>
