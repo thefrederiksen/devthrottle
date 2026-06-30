@@ -103,6 +103,22 @@ public sealed class FirstRunLoginCoordinator
     }
 
     /// <summary>
+    /// Resolves the plain DevThrottle sign-in base address - the configured
+    /// <see cref="SignInBaseUrlEnvVar"/> value, or <see cref="DefaultSignInBaseUrl"/> when that env seam
+    /// is unset. This is the sign-in page on its own, carrying NO loopback callback and NO secret, so it
+    /// is safe to show (or encode in a QR code) for a second device to open and sign in to the same
+    /// account (issue #856). Use <see cref="BuildSignInUrl"/> instead when the local loopback callback
+    /// must be carried for the on-machine credential hand-back.
+    /// </summary>
+    public static string ResolveSignInBaseUrl()
+    {
+        var baseUrl = Environment.GetEnvironmentVariable(SignInBaseUrlEnvVar);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            baseUrl = DefaultSignInBaseUrl;
+        return baseUrl;
+    }
+
+    /// <summary>
     /// Computes the sign-in URL for a given loopback callback - the configured sign-in base address
     /// with the loopback callback appended as the <c>redirect_uri</c> query parameter, so the sign-in
     /// completion knows where to hand the credential back.
@@ -112,10 +128,7 @@ public sealed class FirstRunLoginCoordinator
         if (callbackUrl is null)
             throw new ArgumentNullException(nameof(callbackUrl));
 
-        var baseUrl = Environment.GetEnvironmentVariable(SignInBaseUrlEnvVar);
-        if (string.IsNullOrWhiteSpace(baseUrl))
-            baseUrl = DefaultSignInBaseUrl;
-
+        var baseUrl = ResolveSignInBaseUrl();
         var separator = baseUrl.Contains('?') ? '&' : '?';
         return $"{baseUrl}{separator}redirect_uri={Uri.EscapeDataString(callbackUrl.ToString())}";
     }

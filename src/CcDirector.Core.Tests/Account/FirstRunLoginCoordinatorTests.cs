@@ -29,6 +29,47 @@ public sealed class FirstRunLoginCoordinatorTests
         Assert.Contains("redirect_uri=" + Uri.EscapeDataString(callback.ToString()), url);
     }
 
+    // Issue #856: the plain sign-in URL (no loopback callback, no secret) defaults to the documented
+    // DevThrottle sign-in page when the env seam is unset. This is what the Add-a-device QR encodes.
+    [Fact]
+    public void ResolveSignInBaseUrl_WhenEnvUnset_ReturnsTheDefaultSignInPage()
+    {
+        var prior = Environment.GetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar, null);
+
+            var url = FirstRunLoginCoordinator.ResolveSignInBaseUrl();
+
+            Assert.Equal(FirstRunLoginCoordinator.DefaultSignInBaseUrl, url);
+            // The plain URL must NOT carry a loopback callback - that is only for the on-machine flow.
+            Assert.DoesNotContain("redirect_uri", url);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar, prior);
+        }
+    }
+
+    // Issue #856: the env seam overrides the default so a non-production sign-in page can be pointed at.
+    [Fact]
+    public void ResolveSignInBaseUrl_WhenEnvSet_ReturnsTheConfiguredUrl()
+    {
+        var prior = Environment.GetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar, "https://staging.devthrottle.com/signin");
+
+            var url = FirstRunLoginCoordinator.ResolveSignInBaseUrl();
+
+            Assert.Equal("https://staging.devthrottle.com/signin", url);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(FirstRunLoginCoordinator.SignInBaseUrlEnvVar, prior);
+        }
+    }
+
     // Acceptance criterion: the browser is opened at the sign-in URL (here captured by the injected opener).
     [Fact]
     public async Task RunAsync_OpensBrowserAtSignInUrlThenCapturesAndStoresCredential()
