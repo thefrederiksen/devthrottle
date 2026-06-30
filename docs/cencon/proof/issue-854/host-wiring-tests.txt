@@ -1,0 +1,14 @@
+Test run for D:\ReposFred\devthrottle-wt-854\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.08]   Discovering: CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.15]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.15]   Starting:    CcDirector.Gateway.Tests
+[xUnit.net 00:00:01.01]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.GatewayHostTests.AccountDevices_get_requires_auth [20 ms]
+  Passed CcDirector.Gateway.Tests.GatewayHostTests.AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse [168 ms]
+
+Test Run Successful.
+Total tests: 2
+     Passed: 2
+ Total time: 1.4695 Seconds

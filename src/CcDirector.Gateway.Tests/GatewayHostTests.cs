@@ -182,6 +182,31 @@ public sealed class GatewayHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
+    // Issue #854: the account device-list proxy is wired into the real GatewayHost (near the other
+    // /account routes) and gated by the host-wide auth middleware. This bare test host holds no account
+    // credential, so the route is reachable with the gateway token and answers the explicit signed-out
+    // envelope - proving the wiring line in GatewayHost.cs, not just the endpoint in isolation.
+    [Fact]
+    public async Task AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse()
+    {
+        var resp = await _http.GetAsync("account/devices");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var obj = await resp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.NotNull(obj);
+        Assert.False((bool?)obj["signedIn"]);
+        // Signed out -> no fabricated device list.
+        Assert.False(obj.ContainsKey("devices"));
+    }
+
+    [Fact]
+    public async Task AccountDevices_get_requires_auth()
+    {
+        using var anonClient = new HttpClient { BaseAddress = _http.BaseAddress };
+        var resp = await anonClient.GetAsync("account/devices");
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
     private async Task WaitForDirectorCount(int target, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

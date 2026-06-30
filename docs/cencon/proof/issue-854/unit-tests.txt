@@ -1,0 +1,60 @@
+Test run for D:\ReposFred\devthrottle-wt-854\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.08]   Discovering: CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.18]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:00.19]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Account.GatewayTokenRefreshTests.RefreshIfNeeded_ExpiredTokenNoEndpoint_KeepsCachedCredential [160 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayTokenRefreshTests.GatewayHttpTokenRefresher_NoEndpoint_ReturnsNull [1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayTokenRefreshTests.RefreshIfNeeded_ExpiredTokenWithStubEndpoint_StoresFreshValidPair [222 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayTokenRefreshTests.RefreshIfNeeded_ExpiredTokenUnreachableEndpoint_KeepsCachedCredential [46 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayTokenRefreshTests.RefreshIfNeeded_ValidToken_TriggersNoExchange [39 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.AuthEnabled_WithGatewayToken_Returns200 [70 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.Delete_UnknownId_Returns404_NotRevoked [30 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.AuthEnabled_NoGatewayToken_Returns401 [11 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.Delete_Revokes_AndSubsequentGet_NoLongerListsDevice [14 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.Get_SignedIn_ForwardsBearer_MapsDtos_AndNoToken [14 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.Delete_CloudUnreachable_Returns502 [14 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.SignedOut_Delete_ReturnsExplicitSignedInFalse_NoRevoke [10 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.SignedOut_Get_ReturnsExplicitSignedInFalse_NotEmptyList [13 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountDevicesEndpointTests.Get_CloudUnreachable_Returns502_NotFabricatedList [11 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountLogoutEndpointTests.Logout_WhenNotSignedIn_IsNoOp_ReportsSignedInFalse [18 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountLogoutEndpointTests.Logout_ClearsCredential_SignedInFlipsToFalse_AndNoToken [27 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountLogoutEndpointTests.Logout_AuthEnabled_WithToken_Returns200_AndClears [10 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountLogoutEndpointTests.Logout_NoCredentialService_Returns200_SignedInFalse [7 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountLogoutEndpointTests.Logout_AuthEnabled_NoToken_Returns401 [8 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.FreshGateway_ShouldShowConsentOnLaunch_AndPreSelectsOn [12 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.AfterAcknowledge_SubsequentLaunch_DoesNotReShow [20 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.CurrentUsageSharingChoice_ReflectsPersistedCentralizedValue [10 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.Acknowledge_ShareUsageTrue_RecordsAckAndSetsCentralizedConsentOn [4 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.Acknowledge_ShareUsageFalse_SetsCentralizedConsentOff [12 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayConsentSurfaceTests.TogglingCentralizedConsentLater_DoesNotReShowTheScreen [7 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountStatusEndpointTests.SignedIn_Returns200_WithIdentity_AndNoToken [14 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountStatusEndpointTests.NotSignedIn_Returns200_SignedInFalse_NoIdentityFields [7 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountStatusEndpointTests.AuthEnabled_WithToken_Returns200 [17 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountStatusEndpointTests.AuthEnabled_NoToken_Returns401 [9 ms]
+  Passed CcDirector.Gateway.Tests.Account.AccountStatusEndpointTests.NoCredentialService_Returns200_SignedInFalse [9 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.SeedTestCredentialIfRequested_SeedsThePairAndReportsSignedInWithIdentity [16 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.StoreTokens_PersistsAnEncryptedBlobNotPlaintext [13 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.GetIdentity_NoStoredCredential_ReturnsNull [1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.StoreThenLoad_RoundTripsTheTokenPair [13 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.IsLoggedIn_NoStoredCredential_ReturnsFalse [1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.GetIdentity_StoredTokenWithIdentityClaims_ReturnsEmailAndProvider [13 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.SeedTestCredentialIfRequested_NoSeedEnvVar_StoresNothing [1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewayAccountServiceTests.IsLoggedIn_ValidStoredToken_ReturnsTrue [13 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.TraySurface_SignedIn_DoesNotPromptOrShowActionAndShowsIdentity [17 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.TraySurface_NotSignedIn_PromptsAndShowsSignInActionAndNotSignedInRow [< 1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.RunSignInAsync_AfterSignIn_GatewayReadsIdentity [53 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.RunSignInAsync_WhileOneIsRunning_SecondCallIsANoOp [9 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.IsSignedIn_WithStoredCredential_ReturnsTrue_SoNoPromptOnSubsequentLaunch [12 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.TraySurface_NoSignInFlow_PromptsNothingAndOmitsRow [1 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.RunSignInAsync_BrowserCannotOpen_ReturnsFailureAndStaysUnsignedIn [4 ms]
+[xUnit.net 00:00:01.31]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.RunSignInAsync_OpensBrowserCapturesHandBackAndStores_GatewayThenReportsSignedIn [17 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.RunSignInAsync_Cancelled_LeavesGatewayUnsignedInAndRetryable [5 ms]
+  Passed CcDirector.Gateway.Tests.Account.GatewaySignInServiceTests.IsSignedIn_NoStoredCredential_ReturnsFalse_SoTheGatewayPrompts [1 ms]
+
+Test Run Successful.
+Total tests: 48
+     Passed: 48
+ Total time: 1.8416 Seconds

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #854 - Proof: Gateway account device-list proxy (GET/DELETE /account/devices)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #007acc; padding-bottom: .3rem; }
+  h2 { color: #007acc; margin-top: 1.8rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f6fc; }
+  code { background: #f3f3f3; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-size: .85rem; }
+  .pass { color: #137333; font-weight: bold; }
+  .gate { color: #b06000; font-weight: bold; }
+  .files li { margin: .2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Issue #854 - Gateway account device-list proxy</h1>
+<p><strong>[Gateway] Proxy the account device list + revoke (GET/DELETE /account/devices)</strong></p>
+<p>A LOCAL Gateway proxy so the Cockpit never holds the account token or calls the cloud directly.
+The Gateway reads its own stored account token
+(<code>DevThrottleAccountService.GetAccessTokenForForwarding</code> - the same egress credential it
+already uses to forward telemetry/login), calls the cloud device registry
+(<code>GET /api/v1/devices</code> / <code>DELETE /api/v1/devices/:id</code>, contract
+devthrottle_internal#81/#82), and returns a token-free local DTO. Distinct from, and leaves untouched,
+the local pairing registry <code>GET /devices</code> (issue #469).</p>
+
+<h2>What was implemented</h2>
+<ul class="files">
+  <li><code>src/CcDirector.Core/Account/DeviceRegistryClient.cs</code> (new) - injectable-HttpClient cloud
+  egress client; base URL reuses <code>AccountTelemetryClient.ApiBaseUrlEnvVar</code> /
+  <code>DefaultApiBaseUrl</code> (<code>DEVTHROTTLE_API_URL</code>, default
+  <code>https://devthrottle.com</code>) - the same cloud base the Gateway already targets, no new
+  hard-coded URL. <code>ListDevicesAsync</code> + <code>RevokeDeviceAsync</code> attach the Bearer
+  token; the token is never logged.</li>
+  <li><code>src/CcDirector.Gateway.Contracts/AccountDevicesDto.cs</code> (new) -
+  <code>AccountDeviceDto</code>, <code>AccountDevicesResponseDto{signedIn,devices}</code>,
+  <code>RevokeDeviceResponseDto{signedIn,id,revoked}</code>. No token field exists on any of them
+  (security rule DT-05).</li>
+  <li><code>src/CcDirector.Gateway/Api/AccountDevicesEndpoint.cs</code> (new) - maps
+  <code>GET /account/devices</code> and <code>DELETE /account/devices/{id}</code>; signed-out yields an
+  explicit <code>signedIn:false</code> envelope; cloud-unreachable yields a clear 502 (logged);
+  this-device marker computed by matching the record name to the host machine name.</li>
+  <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - wired near the existing
+  <code>AccountStatusEndpoint</code> / <code>AccountLogoutEndpoint</code> mapping, under the same
+  host-wide Gateway auth middleware.</li>
+  <li><code>src/CcDirector.Gateway.Tests/Account/AccountDevicesEndpointTests.cs</code> (new) - 9
+  stub-cloud unit tests over a real Kestrel host + real credential service.</li>
+  <li><code>src/CcDirector.Gateway.Tests/GatewayHostTests.cs</code> - 2 wiring tests over the real
+  in-process <code>GatewayHost</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>GET /account/devices returns the account's device list with name, last-seen, device id, and a
+    this-device marker.</td>
+    <td>200 with mapped DTOs; Bearer token forwarded to the cloud.</td>
+    <td><code>Get_SignedIn_ForwardsBearer_MapsDtos_AndNoToken</code>: stub captured
+    <code>Authorization: Bearer &lt;jwt&gt;</code>; body has 2 devices with id/name/lastSeenAt;
+    <code>thisDevice=true</code> for the matching machine name, false otherwise.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>The Cockpit-facing response never contains the account access or refresh token (DT-05).</td>
+    <td>Body carries no token of any kind.</td>
+    <td>Same test asserts the body does NOT contain the JWT, the refresh token, the substring "token",
+    or "key_hash". No <code>FileLog</code> line emits a token value (verified by code scan).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>DELETE /account/devices/{id} forwards the revoke; a subsequent GET no longer lists it.</td>
+    <td>DELETE 200 {revoked:true}; next GET omits the device.</td>
+    <td><code>Delete_Revokes_AndSubsequentGet_NoLongerListsDevice</code>: DELETE returns
+    <code>{signedIn:true,id:dev-2,revoked:true}</code>; the follow-up GET lists only dev-1.
+    <code>Delete_UnknownId_Returns404_NotRevoked</code> covers the 404 path.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Signed-out Gateway returns an explicit signed-out status, never a silent empty 200 list.</td>
+    <td>Explicit <code>signedIn:false</code> envelope with no devices array.</td>
+    <td><code>SignedOut_Get_...</code> and <code>SignedOut_Delete_...</code>: body is
+    <code>{signedIn:false}</code> with <code>devices</code> omitted; the cloud is never called (no
+    Authorization captured). Also proven through the REAL host:
+    <code>GatewayHostTests.AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>When the cloud is unreachable, the endpoint returns a clear error (not a fabricated list) and
+    logs it.</td>
+    <td>502 with an error body; failure logged.</td>
+    <td><code>Get_CloudUnreachable_Returns502_NotFabricatedList</code> and
+    <code>Delete_CloudUnreachable_Returns502</code>: 502 Bad Gateway, body has an <code>error</code>
+    and no <code>devices</code>; the endpoint logs <code>... FAILED: {ex.Message}</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>+</td>
+    <td>Gated under the Gateway auth middleware like other /account routes.</td>
+    <td>401 without the Gateway token; 200 with it.</td>
+    <td><code>AuthEnabled_NoGatewayToken_Returns401</code> /
+    <code>AuthEnabled_WithGatewayToken_Returns200</code>, and
+    <code>GatewayHostTests.AccountDevices_get_requires_auth</code> (real host, 401).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Build and test results</h2>
+<pre>
+dotnet build cc-director.sln  ->  Build succeeded. 0 Warning(s) 0 Error(s)
+
+Account namespace (includes the 9 new endpoint tests):
+  Total tests: 48   Passed: 48   Failed: 0
+
+Real-host wiring tests (GatewayHostTests.AccountDevices*):
+  Passed AccountDevices_get_requires_auth
+  Passed AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse
+</pre>
+<p>Captured transcripts committed alongside this report:
+<code>unit-tests.txt</code> (Account namespace) and <code>host-wiring-tests.txt</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. The new endpoint is consistent with the existing Gateway-as-single-egress architecture
+(it sits next to <code>/account/status</code> and <code>/account/logout</code>); there is no per-endpoint
+component registry in <code>architecture_manifest.yaml</code> to update. Security rule DT-05 is honored:
+no token field on any Cockpit-facing DTO and no token value in any log line. Security-profile drift and
+manifest staleness checks both PASS.</p>
+
+<h2>QA gate (live real-cloud end-to-end)</h2>
+<p class="gate">The signed-in, real-cloud path could not be staged from this automation session (no real
+signed-in DevThrottle account + live cloud device registry available here). It is proven against an
+in-process stub of the documented cloud contract (devthrottle_internal#81/#82), exercised through the
+real endpoint on a real Kestrel host and the real credential service. The live real-cloud
+end-to-end - a signed-in Gateway returning its actual account devices, a real revoke disappearing from a
+real subsequent list - is the QA verification gate. The list-envelope shape assumed here is a top-level
+JSON array of masked records; QA should confirm the cloud's actual envelope.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. All five acceptance criteria plus the auth-gate requirement
+are met with proof; the build is clean with zero warnings; the change honors DT-05 and the no-fallback /
+try-catch-at-boundaries coding standards.</p>
+
+</body>
+</html>
