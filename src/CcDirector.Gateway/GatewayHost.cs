@@ -126,6 +126,24 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     private Account.GatewayTokenRefreshService? _tokenRefresh;
 
+    /// <summary>
+    /// Issue #857 (Gateway device registration): registers THIS Gateway as a device with the DevThrottle
+    /// cloud account on sign-in and stores the cloud-issued per-device key locally. Built over
+    /// <see cref="Account"/>, so it exists only when that service does (a non-Windows host has no
+    /// credential service). Triggered immediately by the sign-in-completion hook on <see cref="SignIn"/>
+    /// and, as the retry/first-launch safety net, by the heartbeat's first tick. Null on a host with no
+    /// credential service. The per-device key is never logged (security rule DT-05).
+    /// </summary>
+    private Account.GatewayDeviceRegistrationService? _deviceRegistration;
+
+    /// <summary>
+    /// Issue #857: the Gateway's periodic last-seen heartbeat to the cloud (so the account device list's
+    /// last-seen stays fresh), which also retries a registration that failed on sign-in. Built over
+    /// <see cref="Account"/>; null on a host with no credential service. Started in <see cref="StartAsync"/>,
+    /// disposed in <see cref="StopAsync"/>. Never blocks startup; a cloud failure only logs and retries.
+    /// </summary>
+    private Account.GatewayDeviceHeartbeatService? _deviceHeartbeat;
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
@@ -323,12 +341,44 @@ public sealed class GatewayHost : IAsyncDisposable
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_client, cronTargetResolver),
             cronWorkListRunner, cronNotifier, new Running.SystemClock());
 
+        // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
+        // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
+        // per-device key locally. Built over the credential service, so it exists only when that service
+        // does. Egress reuses the SAME cloud base (DEVTHROTTLE_API_URL) and the SAME forwarding token the
+        // rest of the account egress uses; the device-registry client gets its own short-timeout HttpClient
+        // (the AccountDevicesEndpoint precedent). The install id is resolved lazily (no disk I/O at
+        // construction). The per-device key is never logged (security rule DT-05).
+        if (Account is not null)
+        {
+            var deviceRegistryClient = new Core.Account.DeviceRegistryClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
+            _deviceRegistration = new Account.GatewayDeviceRegistrationService(
+                Account,
+                deviceRegistryClient,
+                new Account.GatewayDeviceKeyStore(),
+                machineName: Environment.MachineName,
+                platform: ResolvePlatform(),
+                appVersion: AppVersion.Semver);
+            _deviceHeartbeat = new Account.GatewayDeviceHeartbeatService(
+                _deviceRegistration,
+                Account,
+                deviceRegistryClient,
+                appVersion: AppVersion.Semver);
+        }
+        else
+        {
+            FileLog.Write("[GatewayHost] DevThrottle device registration not built: no credential service on this host");
+        }
+
         // The browser loopback sign-in flow relocated onto the Gateway (issue #637). It is built over
         // the credential service, so it exists only when that service does - on a host with no
         // credential service (a non-Windows host) there is nothing to sign in to and the tray stays
         // inert. The reused Core coordinator opens the browser and captures the loopback hand-back.
+        // Issue #857: on a successful sign-in it fires the device-registration hook (best-effort,
+        // detached) so signing in registers this Gateway as a device.
         if (Account is not null)
-            SignIn = new Account.GatewaySignInService(Account);
+            SignIn = new Account.GatewaySignInService(
+                Account,
+                onSignedIn: _deviceRegistration is null ? null : _deviceRegistration.EnsureRegisteredAsync);
         else
             FileLog.Write("[GatewayHost] DevThrottle sign-in flow not built: no credential service on this host");
 
@@ -340,6 +390,20 @@ public sealed class GatewayHost : IAsyncDisposable
             _tokenRefresh = new Account.GatewayTokenRefreshService(Account);
         else
             FileLog.Write("[GatewayHost] DevThrottle token refresh not built: no credential service on this host");
+    }
+
+    /// <summary>
+    /// Resolves this device's platform string for cloud device registration (issue #857): a short, stable
+    /// operating-system label sent as the device's <c>platform</c>. The Gateway credential service is
+    /// Windows-only today, so this is "windows" in practice, but the label is computed (not hard-coded) so
+    /// it is correct should the credential store land on another platform.
+    /// </summary>
+    private static string ResolvePlatform()
+    {
+        if (OperatingSystem.IsWindows()) return "windows";
+        if (OperatingSystem.IsMacOS()) return "macos";
+        if (OperatingSystem.IsLinux()) return "linux";
+        return "unknown";
     }
 
     /// <summary>
@@ -860,6 +924,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // for a fresh pair; otherwise it is a no-op or keeps the cached credential. Null on a host with no
         // credential service.
         _tokenRefresh?.Start();
+
+        // Issue #857: start the Gateway's background device heartbeat. The first tick (after a short delay)
+        // also acts as the first-launch/retry safety net for device registration - if the Gateway is signed
+        // in but not yet registered (or a sign-in-time registration failed against an unreachable cloud), it
+        // registers here and then advances last-seen on every tick. Never blocks startup; a cloud failure
+        // only logs and retries next tick. Null on a host with no credential service.
+        _deviceHeartbeat?.Start();
     }
 
     /// <summary>
@@ -893,6 +964,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #640: stop the background token refresh timer.
         try { _tokenRefresh?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] token refresh dispose error: {ex.Message}"); }
         _tokenRefresh = null;
+
+        // Issue #857: stop the background device heartbeat timer.
+        try { _deviceHeartbeat?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] device heartbeat dispose error: {ex.Message}"); }
+        _deviceHeartbeat = null;
 
         // Issue #629: stop the telemetry retry-queue flusher. The queue file is written through on
         // every mutation, so any undelivered events are already on disk and reload on the next start -

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #857 (re-verification after fix)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .3rem; }
+  h2 { margin-top: 1.8rem; color: #5319e7; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #f4f4f4; padding: .7rem; border-radius: 5px; overflow-x: auto; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .verdict { background: #e7f7ec; border: 2px solid #0a7d28; padding: 1rem; border-radius: 6px; font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #857</h1>
+<p><strong>Title:</strong> [Gateway] On sign-in, register this Gateway as a device with the cloud and store the per-device key</p>
+<p><strong>Pull request:</strong> #871 &nbsp; <strong>Branch:</strong> <code>issue-857-register-on-signin</code> &nbsp; <strong>Tip commit:</strong> <code>0e24770d</code></p>
+<p><strong>QA identity:</strong> independent re-verifier (second QA pass, after the prior FAIL bounce).</p>
+<p><strong>Date:</strong> 2026-06-30</p>
+
+<div class="verdict">
+VERDICT: <span class="pass">PASS</span> - the blocking defect from the prior QA FAIL is fixed and the corrected test fixtures now guard the real cloud contract. All five acceptance criteria are met. Build clean; all device tests green; full Gateway suite green (no regression).
+</div>
+
+<h2>Context: the prior bounce</h2>
+<p>The previous QA pass FAILed this issue because <code>DeviceRegistryClient.RegisterAsync</code> parsed
+<code>device_key</code> and the record from the JSON <em>root</em>, but the merged cloud returns them
+enveloped under <code>data</code>. The stub fixtures used the flat (buggy) shape, so the tests were green
+while masking a deterministic production parse failure. The required fix was: unwrap <code>data.device_key</code>
+and <code>data.record</code> in <code>RegisterAsync</code>, unwrap <code>data</code> in <code>ListDevicesAsync</code>,
+and correct the stub fixtures to the enveloped shape so they would actually catch the mismatch.</p>
+
+<h2>Authoritative cloud shape (devthrottle_internal: website/api/v1/devices.js)</h2>
+<table>
+<tr><th>Endpoint</th><th>Success response shape</th><th>devices.js line(s)</th></tr>
+<tr><td>POST /api/v1/devices/register</td><td><code>{ data: { device_key, record } }</code></td><td>132 (200) / 142 (201)</td></tr>
+<tr><td>POST /api/v1/devices/heartbeat</td><td><code>{ data: { recorded: true } }</code></td><td>166</td></tr>
+<tr><td>GET /api/v1/devices</td><td><code>{ data: [ ...record ] }</code></td><td>178</td></tr>
+<tr><td>DELETE /api/v1/devices/:id</td><td><code>{ data: { id, revoked: true } }</code></td><td>194</td></tr>
+</table>
+
+<h2>Regression focus: parser matches the authoritative shape</h2>
+<table>
+<tr><th>Check</th><th>Expected</th><th>Actual (DeviceRegistryClient.cs)</th><th>Result</th></tr>
+<tr>
+  <td>RegisterAsync reads the key/record from the <code>data</code> envelope</td>
+  <td>Read <code>data.device_key</code> and <code>data.record</code></td>
+  <td>Lines 260-266: <code>var data = DataObject(json, ...)</code>; <code>StringField(data, "device_key")</code>; <code>data["record"] as JsonObject</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>ListDevicesAsync reads the <code>data</code> array (also fixes latent #854 bug)</td>
+  <td>Read array from <code>data</code></td>
+  <td>Line 161: <code>var data = DataArray(json, "devices")</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Heartbeat / revoke are status-code-only (bodies are <code>{data:{recorded}}</code> / <code>{data:{id,revoked}}</code>)</td>
+  <td>200 -&gt; true, 404 -&gt; false, no body parse</td>
+  <td>HeartbeatAsync 306-310, RevokeDeviceAsync 199-203 - no body parse</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Envelope helpers fail clearly when absent (no fallback)</td>
+  <td>Throw <code>InvalidOperationException</code> if <code>data</code> missing</td>
+  <td>DataObject 320-326 / DataArray 333-339 throw; no silent fallback</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression focus: stub fixtures now use the REAL enveloped shape</h2>
+<p>This is the exact thing the last bounce was about. If a fixture were still flat, reverting the parser to
+root-parsing would still pass - so a flat fixture is a FAIL. All three fixtures are now enveloped:</p>
+<table>
+<tr><th>Fixture</th><th>Register / list body</th><th>Result</th></tr>
+<tr><td>DeviceRegistryClientRegisterHeartbeatTests.cs (Core)</td><td>line 39: <code>{"data":{"device_key":...,"record":...}}</code>; heartbeat line 127: <code>{"data":{"recorded":true}}</code></td><td class="pass">PASS</td></tr>
+<tr><td>GatewayDeviceRegistrationTests.cs (Gateway)</td><td>line 105: <code>{"data":{"device_key":...,"record":...}}</code>; heartbeat line 118: <code>{"data":{"recorded":true}}</code></td><td class="pass">PASS</td></tr>
+<tr><td>AccountDevicesEndpointTests.cs (Gateway)</td><td>list line 77: <code>{"data":[...]}</code>; revoke line 97: <code>{"data":{"id":...,"revoked":true}}</code></td><td class="pass">PASS</td></tr>
+</table>
+<p>A negative-guard test is also present: <code>RegisterAsync_MissingDeviceKeyInResponse_Throws</code>
+(Core line 82) supplies an enveloped record with no <code>device_key</code> under <code>data</code> and asserts a throw -
+the key is never fabricated. Because the fixtures are enveloped and the parser reads <code>data.*</code>, reverting
+the parser to root would make <code>RegisterAsync_PostsDocumentedBody_WithBearer_AndParsesKeyAndRecord</code> throw and FAIL.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Evidence</th><th>Result</th></tr>
+<tr><td>1</td><td>Fresh sign-in registers exactly one device and stores the key</td><td>Post-sign-in hook + GatewayDeviceRegistrationService (in-run + relaunch guards) registers once via the now-correct enveloped parse; GatewayDeviceRegistrationTests green</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Key on disk; raw value never logged (DT-05)</td><td>GatewayDeviceKeyStore stores the key; RegisterAsync line 269 logs only the device id, never the key; GatewayDeviceKeyStoreTests green</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Second sign-in / relaunch does not duplicate</td><td>Stable GatewayInstallId is the idempotency anchor; in-run + relaunch guards; cloud is idempotent per (member, install_id); GatewayInstallIdTests + GatewayDeviceRegistrationTests green</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Heartbeat advances last-seen</td><td>HeartbeatAsync posts install_id; 200 path now reachable because registration succeeds and stores a key; heartbeat tests green</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Cloud failure does not block/gate/crash; logs + retries</td><td>Graceful-degradation wiring; Unreachable-stub tests (AccountDevicesEndpointTests lines 314/338) confirm the Gateway stays up and surfaces the failure; retried on the next heartbeat</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Build and test evidence (QA's own worktree, PR branch tip 0e24770d)</h2>
+<pre>dotnet build cc-director.sln
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+dotnet test CcDirector.Core.Tests --filter DeviceRegistryClientRegisterHeartbeat
+  Passed!  Failed: 0, Passed: 11, Total: 11
+
+dotnet test CcDirector.Gateway.Tests --filter (device registration/install-id/key-store/account-devices)
+  Passed!  Failed: 0, Passed: 24, Total: 24
+
+dotnet test CcDirector.Gateway.Tests (full suite, regression sweep)
+  Passed!  Failed: 0, Passed: 1045, Total: 1045</pre>
+
+<h2>Verification method note</h2>
+<p>The cloud endpoints live in the separate <code>devthrottle_internal</code> repo and a live signed-in
+real-cloud round-trip needs a real DevThrottle account that cannot be staged in this QA session. This verdict
+is therefore based on (a) a direct code review of the parser against the authoritative
+<code>website/api/v1/devices.js</code> contract, and (b) the corrected enveloped stub fixtures, which now
+reproduce the real cloud response shape and would fail if the parser regressed to root-parsing. Both agree:
+the parse shape is correct and the fixtures guard it. No flat-shape fixture remains.</p>
+
+</body>
+</html>
