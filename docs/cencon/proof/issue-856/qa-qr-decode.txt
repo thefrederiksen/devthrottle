@@ -1,0 +1,3 @@
+QA independent QR decode (opencv QRCodeDetector) of signin-qr.png:
+'https://devthrottle.com/signin'
+Verdict: plain sign-in URL only, no secret/pairing-code/redirect_uri embedded.
