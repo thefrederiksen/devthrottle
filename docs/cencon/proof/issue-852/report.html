@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #852: Read-only ACCOUNT status box in the Director sidebar</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#ccc; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; }
+  h2 { color:#fff; font-size:17px; margin-top:32px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; background:#2a2a2a; color:#ddd; border-radius:4px; }
+  code { padding:1px 5px; }
+  pre { padding:12px; overflow-x:auto; font-size:12px; border:1px solid #3c3c3c; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22c55e; font-weight:600; }
+  .gate { color:#f0b848; font-weight:600; }
+  img { max-width:980px; border:1px solid #3c3c3c; border-radius:4px; display:block; margin:12px 0; }
+  .muted { color:#888; }
+  .finished { background:#1b3a2a; border:1px solid #22c55e; color:#bdf0d0; padding:14px 18px; border-radius:6px; font-size:16px; margin-top:28px; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #852</h1>
+<p><strong>[Director] Add a read-only ACCOUNT status box to the sidebar status stack</strong></p>
+<p class="muted">Branch <code>issue-852-account-box</code> &middot; built as <code>cc-director15.exe</code> (v0.9.29, commit b32c3a2) &middot; isolated slot 15, Control API 127.0.0.1:7879 &middot; captured 2026-06-30.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>New <code>ACCOUNT</code> status Border</strong> in the bottom-left sidebar status stack
+      (<code>src/CcDirector.Avalonia/MainWindow.axaml</code>), declared directly after the
+      <code>GatewayIndicator</code> so the <code>DockPanel.Dock="Bottom"</code> ordering places it
+      <em>above</em> the GATEWAY box. Styled to match the existing Gateway / Tools / Update /
+      Control API boxes (same margin, padding, corner radius, palette).</li>
+  <li><strong>Asynchronous status read on a 30-second heartbeat poll</strong>
+      (<code>MainWindow.axaml.cs</code>): the read runs off the UI thread via <code>Task.Run</code>
+      over the existing <code>GatewayAccountStatusClient</code> (<code>GET {gateway.url}/account/status</code>,
+      shipped in #638/#651), then marshals back with <code>Dispatcher.UIThread.Post</code>. The box
+      paints its muted "reading account status..." state immediately and never blocks startup.</li>
+  <li><strong>Three visual states</strong> decided by a new pure, unit-tested mapper
+      <code>CcDirector.Core.Account.AccountIndicatorPresenter</code>: <em>SignedIn</em> (green, email),
+      <em>NotSignedIn</em> (amber nudge), <em>Unavailable</em> (muted). The mapper guarantees a
+      not-configured or unreachable Gateway maps to <em>Unavailable</em> and <strong>never</strong> a
+      false "signed out".</li>
+  <li><strong>Click handler</strong> opens the Cockpit Account page only in the not-signed-in state -
+      it asks the configured Gateway for the Tailscale front-door URL (<code>GET {base}/cockpit</code>)
+      and opens <code>{frontDoor}/account</code>, mirroring the existing Cockpit/Learn buttons. The
+      Director never opens a localhost URL.</li>
+</ul>
+
+<h2>Not a re-added sign-in gate (#651 / #664)</h2>
+<p>This box is a <strong>read-only, non-blocking nudge</strong>. Issues #651/#664 removed the
+Director's own account gate and require the Director to always boot straight to the main window
+regardless of sign-in. This change adds <em>no</em> startup gate, block, or sign-in form: it only
+mirrors <code>/account/status</code> for display and links out to the Gateway-managed Cockpit Account
+page. The status read is fire-and-forget after the window is shown (proven by the startup timestamps
+below), so a signed-out, unreachable, or unconfigured Gateway never affects boot.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual / Proof</th><th>Result</th></tr>
+
+<tr>
+  <td>AC#1 - Signed in: green box with the email</td>
+  <td>Box shows green and the signed-in email from <code>/account/status</code>.</td>
+  <td>The signed-in render path is identical to the proven amber path (same Border, same switch),
+      and the SignedIn mapping is covered by
+      <code>AccountIndicatorPresenterTests.Describe_SignedIn_ReturnsSignedInStateWithEmail</code>
+      (asserts state=SignedIn, label "SIGNED IN", sub = the email). The live signed-in state could
+      not be produced from this automation session because it requires the Gateway to hold a real
+      DevThrottle OAuth credential (a browser sign-in on the Gateway), which this session has no
+      credentials for. Left as a QA gate.</td>
+  <td class="gate">QA gate (unit-tested)</td>
+</tr>
+
+<tr>
+  <td>AC#2 - Signed out: amber "NOT SIGNED IN" nudge</td>
+  <td>Box shows the yellow/amber "NOT SIGNED IN" nudge.</td>
+  <td>Captured live - this machine's configured Gateway was reachable and signed out, so the box
+      resolved to the amber nudge. See screenshot below: amber "NOT SIGNED IN" with the person icon
+      and "click to sign in on the Gateway", sitting directly above the green "GATEWAY CONNECTED"
+      box. Log: <code>UpdateAccountIndicator: state=NotSignedIn, configured=True, reachable=True,
+      signedIn=False</code>.</td>
+  <td class="pass">PASS (live)</td>
+</tr>
+
+<tr>
+  <td>AC#3 - Click opens the Cockpit Account page</td>
+  <td>Clicking the not-signed-in box opens the Cockpit Account page in the browser.</td>
+  <td>Clicked the box; the handler resolved the Gateway front door and opened the account page.
+      Log:<br>
+      <code>AccountIndicator_PointerPressed: asking gateway for Cockpit URL,
+      baseUrl=http://soren-north...:7878</code><br>
+      <code>AccountIndicator_PointerPressed: opening https://soren-north.../account (up=True...)</code><br>
+      The URL is built as <code>{frontDoor}/account</code> by <code>MainWindow.BuildAccountUrl</code>
+      (unit-tested for both trailing-slash and no-slash front doors).</td>
+  <td class="pass">PASS (live)</td>
+</tr>
+
+<tr>
+  <td>AC#4 - No / unreachable Gateway: muted unavailable, not a false "signed out"</td>
+  <td>Muted unavailable state, NOT a false "signed out".</td>
+  <td>Covered by two unit tests -
+      <code>Describe_NoGatewayConfigured_ReturnsUnavailable_NotAFalseSignedOut</code> and
+      <code>Describe_ConfiguredButUnreachable_ReturnsUnavailable_NotAFalseSignedOut</code> - both
+      assert state=Unavailable and explicitly assert it is <em>not</em> NotSignedIn. The muted state
+      is also the box's initial render (the same muted palette, <code>#2A2A2A</code>/<code>#3C3C3C</code>,
+      shown as "reading account status..." before the first read returns). A live no-Gateway capture
+      could not be produced without editing the machine-global <code>config.json</code> (shared by the
+      user's other running Directors) or stopping the user's local Gateway - both forbidden by the
+      isolation / "never disturb running Directors" rules. Left as a QA gate.</td>
+  <td class="gate">QA gate (unit-tested)</td>
+</tr>
+
+<tr>
+  <td>AC#5 - Sidebar paints within normal startup time; status read is asynchronous (no synchronous UI-thread blocking)</td>
+  <td>Box present but still resolving; no synchronous blocking call on the UI thread.</td>
+  <td>Startup log timeline (single PID):<br>
+      <code>10:11:09.816 [MainWindow] Avalonia MainWindow initialized</code><br>
+      <code>10:11:10.151 [MainWindow] Account indicator wired (heartbeat poll started)</code><br>
+      <code>10:11:10.212 [MainWindow] UpdateAccountIndicator: state=NotSignedIn ...</code><br>
+      The network read completed and repainted 61&nbsp;ms after wiring, on a background thread
+      (<code>Task.Run</code> + <code>Dispatcher.UIThread.Post</code>); the window was already shown.
+      Code review confirms no synchronous <code>/account/status</code> call on the UI thread.</td>
+  <td class="pass">PASS (log + code review)</td>
+</tr>
+</table>
+
+<h2>Screenshot - AC#2 (amber NOT SIGNED IN, above the green GATEWAY box)</h2>
+<img src="account-box-notsignedin.png" alt="Director sidebar showing the amber NOT SIGNED IN account box above the green GATEWAY CONNECTED box" />
+
+<h2>Tests</h2>
+<p>All new tests pass:</p>
+<pre>CcDirector.Core.Tests   - AccountIndicatorPresenterTests: 6 passed
+CcDirector.Avalonia.Tests - AccountIndicatorUrlTests:      2 passed</pre>
+<ul>
+  <li>The three visual states (SignedIn / NotSignedIn / Unavailable) and the "unreachable and
+      not-configured both map to Unavailable, never a false signed-out" rule.</li>
+  <li><code>BuildAccountUrl</code> yields a single clean <code>{frontDoor}/account</code> for both a
+      front door with and without a trailing slash.</li>
+</ul>
+<p>Full solution build: <code>dotnet build cc-director.sln</code> - Build succeeded, 0 warnings, 0 errors.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is an additive, read-only UI box on the already-documented Avalonia desktop surface,
+reusing the already-documented <code>GatewayAccountStatusClient</code> and the existing Gateway
+<code>GET /account/status</code> endpoint. No new container, external system, security boundary
+(same Gateway auth), or pattern. Security rule DT-05 is honored - the box only ever shows the identity
+(email/provider); it can never surface a token, and the email (PII) is never written to the log.</p>
+
+<div class="finished">I believe this is finished. AC#2, AC#3, and AC#5 are proven live in the running
+Director; AC#1 and AC#4 are proven by deterministic unit tests over the same render path and are left
+as QA gates only because reproducing them live needs Gateway credentials / disturbing shared machine
+state that this session must not touch.</div>
+
+</body>
+</html>

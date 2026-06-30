@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.ControlApi;
+using CcDirector.Core.Account;
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
@@ -329,6 +330,7 @@ public partial class MainWindow : Window
         RefreshSchedulerLeaderIndicator();
 
         WireGatewayIndicator();
+        WireAccountIndicator();
         InitDirectorInfo();
 
         MaybeShowFirstRunWizards();
@@ -711,6 +713,183 @@ public partial class MainWindow : Window
         {
             FileLog.Write($"[MainWindow] OpenGatewayTroubleshooter FAILED: {ex.Message}");
             _troubleshooterOpen = false;
+        }
+    }
+
+    // ==================== ACCOUNT STATUS INDICATOR (issue #852) ====================
+
+    private global::Avalonia.Threading.DispatcherTimer? _accountPollTimer;
+    private bool _accountReadInFlight;
+    private AccountIndicatorState _accountState = AccountIndicatorState.Unavailable;
+
+    /// <summary>How often the ACCOUNT box re-reads the Gateway's signed-in status.</summary>
+    private static readonly TimeSpan AccountPollInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>The Cockpit Account page route (issue #852). Appended to the Gateway-resolved
+    /// Cockpit front-door URL so the not-signed-in nudge lands on {frontDoor}/account.</summary>
+    private const string CockpitAccountRoute = "/account";
+
+    /// <summary>
+    /// Build the Cockpit Account page URL from the gateway's Tailscale front-door URL (issue #852):
+    /// {frontDoor}/account, with a single clean separator so a front door ending in a slash never
+    /// yields "//account". Pure string building, so it is unit-testable without a UI thread.
+    /// </summary>
+    internal static string BuildAccountUrl(string frontDoorUrl) =>
+        frontDoorUrl.TrimEnd('/') + CockpitAccountRoute;
+
+    /// <summary>
+    /// Wire the read-only ACCOUNT box (issue #852): a heartbeat poll that reads the connected
+    /// Gateway's <c>GET /account/status</c> off the UI thread and repaints the box. Purely
+    /// informational and never a gate - the box paints its muted "resolving" state immediately and
+    /// updates when the first read returns, so the sidebar never waits on the network (#651/#664).
+    /// </summary>
+    private void WireAccountIndicator()
+    {
+        _accountPollTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = AccountPollInterval,
+        };
+        _accountPollTimer.Tick += AccountPollTimer_Tick;
+        _accountPollTimer.Start();
+        // Kick the first read immediately so the box resolves shortly after startup without waiting
+        // a full poll interval. The timer Tick handler is the catching boundary.
+        AccountPollTimer_Tick(null, EventArgs.Empty);
+        FileLog.Write("[MainWindow] Account indicator wired (heartbeat poll started)");
+    }
+
+    private async void AccountPollTimer_Tick(object? sender, EventArgs e)
+    {
+        try
+        {
+            await RefreshAccountIndicatorAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] AccountPollTimer_Tick FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Read the Gateway's signed-in status off the UI thread and repaint the ACCOUNT box. The read is
+    /// best-effort (an unreachable Gateway is a result value, never an exception out of the client), and
+    /// overlapping reads are skipped so a slow Gateway cannot pile up timer ticks.
+    /// </summary>
+    private async Task RefreshAccountIndicatorAsync()
+    {
+        if (_accountReadInFlight) return;
+        _accountReadInFlight = true;
+        try
+        {
+            // Snapshot the config on the UI thread, then do the network read off it.
+            var config = GatewayConfig.Load();
+            var status = await Task.Run(() => new GatewayAccountStatusClient().GetStatusAsync(config));
+            Dispatcher.UIThread.Post(() => UpdateAccountIndicator(status));
+        }
+        finally
+        {
+            _accountReadInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Paint the ACCOUNT box from the Gateway's account status (issue #852). The visual state comes from
+    /// <see cref="AccountIndicatorPresenter"/>: GREEN signed-in with the email, AMBER not-signed-in nudge,
+    /// or a MUTED unavailable state when no Gateway is configured or the read failed - never a false
+    /// "signed out". The box shows the identity (email/provider) only, never any token (security DT-05).
+    /// </summary>
+    private void UpdateAccountIndicator(GatewayAccountStatus status)
+    {
+        var content = AccountIndicatorPresenter.Describe(status);
+        _accountState = content.State;
+
+        string accent, bg, border;
+        switch (content.State)
+        {
+            case AccountIndicatorState.SignedIn:
+                (accent, bg, border) = ("#22C55E", "#1B3A2A", "#22C55E");
+                break;
+            case AccountIndicatorState.NotSignedIn:
+                (accent, bg, border) = ("#F0B848", "#3A331B", "#F0B848");
+                break;
+            default: // Unavailable
+                (accent, bg, border) = ("#777777", "#2A2A2A", "#3C3C3C");
+                break;
+        }
+
+        AccountIndicatorIcon.Fill = Brush.Parse(accent);
+        AccountIndicator.Background = Brush.Parse(bg);
+        AccountIndicator.BorderBrush = Brush.Parse(border);
+        AccountIndicatorLabel.Text = content.Label;
+        AccountIndicatorLabel.Foreground = Brush.Parse(accent);
+        AccountIndicatorSub.Text = content.Sub;
+
+        // Only the not-signed-in nudge is actionable (it opens the Cockpit Account page); the other
+        // states are read-only, so drop the hand cursor when there is nothing to click.
+        AccountIndicator.Cursor = content.State == AccountIndicatorState.NotSignedIn
+            ? new Cursor(StandardCursorType.Hand)
+            : Cursor.Default;
+
+        var tip = content.State switch
+        {
+            AccountIndicatorState.SignedIn => status.Provider is { Length: > 0 } p
+                ? $"Signed in to DevThrottle as {status.Email} (via {p}) on the Gateway."
+                : $"Signed in to DevThrottle as {status.Email} on the Gateway.",
+            AccountIndicatorState.NotSignedIn =>
+                "The Gateway is not signed in to DevThrottle. Click to open the Cockpit Account page and sign in.",
+            _ => status.Error ?? "Account status is managed by the Gateway and is currently unavailable.",
+        };
+        ToolTip.SetTip(AccountIndicator, tip);
+
+        // Log the state and booleans, never the email (PII; CodingStyle Section 4 / 12).
+        FileLog.Write($"[MainWindow] UpdateAccountIndicator: state={content.State}, configured={status.GatewayConfigured}, reachable={status.Reachable}, signedIn={status.SignedIn}");
+    }
+
+    /// <summary>
+    /// Open the Cockpit Account page when the user clicks the not-signed-in nudge (issue #852). This is
+    /// the box's only action - it links OUT to the Gateway-managed account surface and never signs in on
+    /// the Director (#651/#664); the other states are read-only and do nothing on click. Mirrors
+    /// BtnCockpit_Click: ask the configured Gateway (GET {base}/cockpit) for the Tailscale front-door URL,
+    /// then open {frontDoor}/account. Director never opens a localhost URL.
+    /// </summary>
+    private async void AccountIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_accountState != AccountIndicatorState.NotSignedIn)
+        {
+            FileLog.Write($"[MainWindow] AccountIndicator_PointerPressed: ignored (state={_accountState}, only the not-signed-in nudge is clickable)");
+            return;
+        }
+
+        var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
+        FileLog.Write($"[MainWindow] AccountIndicator_PointerPressed: asking gateway for Cockpit URL, baseUrl={baseUrl}");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var info = await http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(
+                baseUrl + "/cockpit");
+            if (info?.Url is { } frontDoor)
+            {
+                var accountUrl = BuildAccountUrl(frontDoor);
+                FileLog.Write($"[MainWindow] AccountIndicator_PointerPressed: opening {accountUrl} (up={info.Up}, baseUrl={baseUrl})");
+                OpenUrlInBrowser(accountUrl);
+            }
+            else
+            {
+                FileLog.Write($"[MainWindow] AccountIndicator_PointerPressed: gateway at {baseUrl} returned no Tailscale URL (Tailscale unavailable); opening nothing. cc-director never opens a localhost URL.");
+                await new MessageDialog(
+                    "Cannot Open Account Page",
+                    "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
+                    "Cockpit Account page. Bring Tailscale up and try again. Director never opens a " +
+                    "localhost URL because it would only work on this one machine.")
+                    .ShowDialog<bool?>(this);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] AccountIndicator_PointerPressed FAILED (baseUrl={baseUrl}): {ex.Message}");
+            await new MessageDialog(
+                "Cannot Open Account Page",
+                BuildGatewayUnreachableMessage(baseUrl, ex.Message))
+                .ShowDialog<bool?>(this);
         }
     }
 
