@@ -27,6 +27,7 @@ public sealed class GatewaySignInService
 {
     private readonly DevThrottleAccountService _account;
     private readonly FirstRunLoginCoordinator _coordinator;
+    private readonly Func<CancellationToken, Task>? _onSignedIn;
     private readonly SemaphoreSlim _singleFlight = new(1, 1);
 
     /// <summary>
@@ -46,12 +47,20 @@ public sealed class GatewaySignInService
     /// coordinator's real <see cref="LoopbackLoginListener"/>; tests inject a shared real listener so
     /// a stand-in completion can post the token to it.
     /// </param>
+    /// <param name="onSignedIn">
+    /// An optional best-effort hook fired AFTER a successful sign-in once the credential is stored
+    /// (issue #857: register this Gateway as a device with the cloud). It runs detached on the thread
+    /// pool with its own boundary try/catch, so a slow or failed hook never blocks or fails the sign-in -
+    /// the Gateway stays signed in regardless. Null when no post-sign-in action is wired.
+    /// </param>
     public GatewaySignInService(
         DevThrottleAccountService account,
         Func<string, Task>? openBrowser = null,
-        Func<LoopbackLoginListener>? listenerFactory = null)
+        Func<LoopbackLoginListener>? listenerFactory = null,
+        Func<CancellationToken, Task>? onSignedIn = null)
     {
         _account = account ?? throw new ArgumentNullException(nameof(account));
+        _onSignedIn = onSignedIn;
         // The login telemetry report is the Gateway's OWN relay (issues #628/#630), not this flow's
         // job, so inject a no-op reporter rather than have the Gateway POST a login to itself.
         _coordinator = new FirstRunLoginCoordinator(
@@ -104,12 +113,41 @@ public sealed class GatewaySignInService
             FileLog.Write(result.Succeeded
                 ? "[GatewaySignInService] RunSignInAsync: signed in - credential stored through the Gateway credential service"
                 : $"[GatewaySignInService] RunSignInAsync: not signed in - {result.FailureReason}");
+
+            if (result.Succeeded)
+                FireOnSignedInBestEffort(ct);
+
             return result;
         }
         finally
         {
             _singleFlight.Release();
         }
+    }
+
+    /// <summary>
+    /// Fires the post-sign-in hook (issue #857: register this Gateway as a device) fully detached on the
+    /// thread pool with its own boundary try/catch, so a slow or failed registration can never block or
+    /// fail the user's sign-in - the Gateway stays signed in either way. A no-op when no hook is wired.
+    /// </summary>
+    private void FireOnSignedInBestEffort(CancellationToken ct)
+    {
+        var hook = _onSignedIn;
+        if (hook is null)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await hook(ct).ConfigureAwait(false);
+                FileLog.Write("[GatewaySignInService] FireOnSignedInBestEffort: post-sign-in hook completed");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewaySignInService] FireOnSignedInBestEffort: post-sign-in hook failed (ignored, best-effort; Gateway stays signed in): {ex.Message}");
+            }
+        }, ct);
     }
 
     /// <summary>
