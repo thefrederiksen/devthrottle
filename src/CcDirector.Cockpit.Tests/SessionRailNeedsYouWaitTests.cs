@@ -33,9 +33,7 @@ public sealed class SessionRailNeedsYouWaitTests : TestContext
         Name = name,
         RepoPath = @"D:\repos\demo",
         StatusColor = "red",
-        ActivityState = "WaitingForInput",
-        Type = "Implement",
-        NeedsYouSince = needsYouSince,
+        ActivityState = "WaitingForInput",        NeedsYouSince = needsYouSince,
     };
 
     private static SessionDto BlueSession(string id, string name) => new()
@@ -46,9 +44,7 @@ public sealed class SessionRailNeedsYouWaitTests : TestContext
         Name = name,
         RepoPath = @"D:\repos\demo",
         StatusColor = "blue",
-        ActivityState = "Working",
-        Type = "Implement",
-        NeedsYouSince = null,
+        ActivityState = "Working",        NeedsYouSince = null,
     };
 
     [Fact]

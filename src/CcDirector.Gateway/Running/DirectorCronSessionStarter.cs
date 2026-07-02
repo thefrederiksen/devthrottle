@@ -40,7 +40,6 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         {
             RepoPath = job.Action.RepoPath,
             Agent = "ClaudeCode",
-            Type = "Implement",
             PrePrompt = job.Action.Seed,
         };
 

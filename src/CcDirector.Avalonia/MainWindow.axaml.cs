@@ -1489,49 +1489,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Create a session group (issue #225): all members of <paramref name="groupDef"/> in one
-    /// repo, tied by a single GroupId, in the group's fixed member order. Mirrors
-    /// <see cref="LoadWorkspaceAsync"/> - sequential with the 2500ms anti-corruption delay
-    /// between spawns - so the members land adjacent in the list (and therefore adjacent in
-    /// SortOrder), which is what keeps them tied and draggable as one unit.
-    /// </summary>
-    private async Task CreateGroupSessionAsync(SessionGroupDefinition groupDef, string repoPath, string? agentArgs, AgentKind agentKind)
-    {
-        var groupId = Guid.NewGuid();
-        var repoName = Path.GetFileName(repoPath.TrimEnd('\\', '/'));
-        FileLog.Write($"[MainWindow] CreateGroupSessionAsync: '{groupDef.Name}' groupId={groupId}, {groupDef.Members.Count} members in {repoName}");
-
-        var progress = new WorkspaceProgressDialog($"{groupDef.Name} group");
-        progress.Show(this);
-        try
-        {
-            for (int i = 0; i < groupDef.Members.Count; i++)
-            {
-                var member = groupDef.Members[i];
-                var memberName = repoName + member.NameSuffix;
-                progress.UpdateProgress(i + 1, groupDef.Members.Count, memberName);
-
-                var vm = CreateSession(repoPath, claudeArgs: agentArgs, agentKind: agentKind,
-                    sessionType: member.Type, groupId: groupId, groupRole: member.Role, groupName: groupDef.Name);
-                if (vm is not null)
-                {
-                    vm.Rename(memberName, vm.Session.CustomColor);
-                    SaveSessionToHistory(vm);
-                }
-
-                if (i < groupDef.Members.Count - 1)
-                    await Task.Delay(2500);
-            }
-            progress.SetComplete();
-            PersistSessionState(); // stamp the adjacent SortOrders that keep the group tied
-            FileLog.Write($"[MainWindow] CreateGroupSessionAsync: '{groupDef.Name}' group created");
-        }
-        finally
-        {
-            progress.Close();
-        }
-    }
 
     // ==================== SESSION MANAGEMENT ====================
 
@@ -1674,13 +1631,13 @@ public partial class MainWindow : Window
 
     /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
     /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, SessionType sessionType, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agent.Kind}, exe={agent.ExecutablePath}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agent.Kind}, exe={agent.ExecutablePath}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}");
         _lastSessionCreateError = null;
         try
         {
-            var session = _sessionManager.CreateSession(repoPath, agent, userArgs, SessionBackendType.ConPty, resumeSessionId, sessionType, groupId, groupRole, groupName);
+            var session = _sessionManager.CreateSession(repoPath, agent, userArgs, SessionBackendType.ConPty, resumeSessionId, groupId, groupRole, groupName);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
@@ -1698,24 +1655,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
         _lastSessionCreateError = null;
         try
         {
             IAgent agent = CreateAgent(agentKind);
-            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId, sessionType, groupId, groupRole, groupName);
+            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId, groupId, groupRole, groupName);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
             _sessions.Add(vm);
             SessionList.SelectedItem = vm;
             FileLog.Write($"[MainWindow] CreateSession: added to UI");
-
-            // Session-type playbooks are intentionally NOT injected into the terminal:
-            // the type still drives the badge, tooltip, and wingman mission clause, but
-            // the session starts with a clean composer.
 
             return vm;
         }
@@ -3415,16 +3368,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Group session (issue #225): create all members together, tied by one GroupId,
-        // in the group's fixed member order. The per-session Type picker is ignored - each
-        // member's type comes from the group definition.
-        if (dialog.SelectedGroupDefinition is { } groupDef)
-        {
-            await CreateGroupSessionAsync(groupDef, dialog.SelectedPath, agentArgs, agentKind);
-            return;
-        }
-
-        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent, dialog.SelectedSessionType);
+        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent);
         if (vm == null)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");

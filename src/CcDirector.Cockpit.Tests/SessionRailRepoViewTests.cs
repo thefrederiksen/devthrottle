@@ -37,9 +37,7 @@ public sealed class SessionRailRepoViewTests : TestContext
         RemoteRepo = remoteRepo,
         SortOrder = sortOrder,
         StatusColor = color,
-        ActivityState = "Idle",
-        Type = "Implement",
-    };
+        ActivityState = "Idle",    };
 
     private static List<DirectorDto> TwoDirectors() => new()
     {

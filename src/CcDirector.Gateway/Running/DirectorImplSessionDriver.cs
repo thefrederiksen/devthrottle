@@ -43,7 +43,6 @@ public sealed class DirectorImplSessionDriver : IImplSessionDriver
         {
             RepoPath = _repoPath,
             Agent = "ClaudeCode",
-            Type = "Implement",
             // The seed: built per source by the item's ISourceAdapter (issue #300). The
             // implementation-loop skill drives the whole DEV->QA loop for this item in its source
             // mode and prints the IMPL-LOOP-TERMINAL sentinel when it terminates.

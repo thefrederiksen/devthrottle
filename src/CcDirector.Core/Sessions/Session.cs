@@ -119,20 +119,13 @@ public sealed class Session : IDisposable
     /// Defaults to ClaudeCode for sessions created via legacy code paths.</summary>
     public AgentKind AgentKind { get; internal set; } = AgentKind.ClaudeCode;
 
-    /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
-    /// BugReport. Chosen once at creation and IMMUTABLE afterwards - this is identity,
-    /// not status. Internal-set like <see cref="AgentKind"/>: creation and restore
-    /// paths stamp it, nothing else writes it.</summary>
-    public SessionType SessionType { get; internal set; } = SessionType.Developer;
-
     /// <summary>If this session was created as part of a group (issue #225), the shared
     /// group identity its members travel by; null for a solo session. Members of the same
     /// group sort adjacently and drag as one unit. Stamped at creation, immutable.</summary>
     public Guid? GroupId { get; internal set; }
 
     /// <summary>The session's role within its group (issue #225), e.g. "Submitter",
-    /// "Implementer", "QA" - a descriptive label; the authoritative behavior is the
-    /// <see cref="SessionType"/>. Null for a solo session.</summary>
+    /// "Implementer", "QA" - a descriptive label. Null for a solo session.</summary>
     public string? GroupRole { get; internal set; }
 
     /// <summary>The group's display name (issue #225), e.g. "Product" - shown in the desktop

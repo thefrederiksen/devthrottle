@@ -241,7 +241,7 @@ public sealed class SessionManager : IDisposable
     /// Create a session by resolving the requested built-in CLI plugin and asking it for the
     /// launch strategy. This is the plugin-backed path new callers should use.
     /// </summary>
-    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
+    public Session CreateSession(string repoPath, AgentKind agentKind, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
     {
         return CreateSession(
             repoPath,
@@ -249,7 +249,6 @@ public sealed class SessionManager : IDisposable
             userArgs,
             backendType,
             resumeSessionId,
-            sessionType,
             groupId,
             groupRole,
             groupName,
@@ -262,9 +261,6 @@ public sealed class SessionManager : IDisposable
     /// Agents that don't support preassigned session IDs (Pi) skip Claude's session-linking
     /// step; Director still tracks the session via its own GUID and backend lifecycle.
     /// </summary>
-    /// <param name="sessionType">The session's declared purpose (issue #211), stamped once
-    /// here and immutable afterwards. Drives the UI badge and the wingman mission clause;
-    /// playbook text (<see cref="SessionTypePlaybooks.For"/>) is no longer auto-seeded.</param>
     /// <param name="groupId">Group identity (issue #225) when this session is a group member;
     /// null for a solo session.</param>
     /// <param name="groupRole">The member's descriptive role within its group (issue #225).</param>
@@ -277,7 +273,7 @@ public sealed class SessionManager : IDisposable
     /// <param name="controllerSessionId">The controlling session's id (issue #815) when this
     /// session is spawned as a controlled sub-agent; null for a normal session. Set ONLY here at
     /// birth and immutable afterwards. Drives the recessive "Supporting" status color.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -322,7 +318,6 @@ public sealed class SessionManager : IDisposable
         var session = new Session(id, repoPath, repoPath, userArgs, backend, backendType)
         {
             AgentKind = agent.Kind,
-            SessionType = sessionType,
             GroupId = groupId,
             GroupRole = groupRole,
             GroupName = groupName,
@@ -426,7 +421,6 @@ public sealed class SessionManager : IDisposable
                 var piName = SessionName.DisplayName(
                     session.CustomName,
                     SessionName.FolderName(repoPath),
-                    session.SessionType,
                     SessionName.Disambiguator(id));
                 var preambleFile = CcDirector.Core.Pi.PiPreambleWriter.WriteForSession(
                     id.ToString(), piName, Environment.MachineName, repoPath);
@@ -898,7 +892,6 @@ public sealed class SessionManager : IDisposable
                 HistoryEntryId = s.HistoryEntryId,
                 BackendType = s.BackendType,
                 AgentKind = s.AgentKind,
-                SessionType = s.SessionType,
                 GroupId = s.GroupId,
                 GroupRole = s.GroupRole,
                 GroupName = s.GroupName,
@@ -941,7 +934,6 @@ public sealed class SessionManager : IDisposable
             ps.CustomName, ps.CustomColor, ps.PendingPromptText);
 
         session.AgentKind = ps.AgentKind;
-        session.SessionType = ps.SessionType;
         session.GroupId = ps.GroupId;
         session.GroupRole = ps.GroupRole;
         session.GroupName = ps.GroupName;

@@ -54,24 +54,6 @@
                     @* assessed-when-present (issue #186): the Gateway's brain may have
                        refuted the mechanical quiet signal; raw state is the fallback. *@
                     @(s.AssessedState ?? s.ActivityState)
-                    @* Session type (issue #211): outlined chip so identity never reads as
-                       state. Only non-default types show - Implement stays clutter-free. *@
-                    @if (s.Type == "Discuss")
-                    {
-                        <span class="tag tag-type tag-discuss" title="Discussion session - talk only, no edits or commits">[D] discuss</span>
-                    }
-                    else if (s.Type == "BugReport")
-                    {
-                        <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
-                    }
-                    else if (s.Type == "IssueSubmitter")
-                    {
-                        <span class="tag tag-type tag-submit" title="Issue-submitter session - files GitHub issues only, never writes code">[S] issue submitter</span>
-                    }
-                    else if (s.Type == "QA")
-                    {
-                        <span class="tag tag-type tag-qa" title="QA session - verifies what was built, never fixes; reports findings">[Q] QA</span>
-                    }
                     @if (s.OnHold)
                     {
                         <span class="tag tag-hold">hold</span>
@@ -138,13 +120,9 @@
                     <button class="sess-menu-item" @onclick='() => FireAsync("copy-handover", s)'>Copy Handover Info</button>
                     <div class="sess-menu-sep"></div>
                     <button class="sess-menu-item" @onclick='() => FireAsync("github-issue", s)'>New GitHub Issue</button>
-                    @* One-click bug session (issue #236): spawn a Bug Report session in the
-                       same repo. Hidden ON a bug session - a bug session spawning a bug
-                       session is noise. *@
-                    @if (s.Type != "BugReport")
-                    {
-                        <button class="sess-menu-item bug" @onclick='() => FireAsync("start-bug-session", s)'>Start bug session</button>
-                    }
+                    @* One-click bug session (issue #236): spawn a session in the same repo,
+                       seeded to investigate and file an issue. *@
+                    <button class="sess-menu-item bug" @onclick='() => FireAsync("start-bug-session", s)'>Start bug session</button>
                     <div class="sess-menu-sep"></div>
                     <button class="sess-menu-item" @onclick='() => FireAsync("hold", s)'>@(s.OnHold ? "Take Off Hold" : "Hold")</button>
                     <button class="sess-menu-item" @onclick='() => FireAsync("wingman", s)'>@(s.WingmanEnabled ? "Remove Wingman" : "Add Wingman")</button>

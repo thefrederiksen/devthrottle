@@ -1,8 +1,8 @@
 namespace CcDirector.Core.Sessions;
 
 /// <summary>
-/// The single home for the rule that turns a repository path, a session type, an optional
-/// explicit name, and an optional free-text purpose into a session display name (issue #800).
+/// The single home for the rule that turns a repository path, an optional explicit name,
+/// and an optional free-text purpose into a session display name (issue #800).
 ///
 /// The problem this solves: on a fleet where many sessions run in the SAME checkout, a session
 /// born with no name falls back to the bare repository folder name (e.g. "devthrottle"), so
@@ -68,10 +68,10 @@ public static class SessionName
     /// auto-composed so it ALWAYS contains more than the bare folder name:
     /// <list type="bullet">
     ///   <item>folder + purpose, when a purpose is given (e.g. "devthrottle: implement #799"); or</item>
-    ///   <item>folder + session type + disambiguator (e.g. "devthrottle / Implementation / 1fb5").</item>
+    ///   <item>folder + disambiguator (e.g. "devthrottle / 1fb5").</item>
     /// </list>
     /// </summary>
-    public static string Compose(string repoFolderName, SessionType sessionType,
+    public static string Compose(string repoFolderName,
         string? explicitName, string? purpose, string disambiguator)
     {
         if (!string.IsNullOrWhiteSpace(explicitName))
@@ -80,20 +80,20 @@ public static class SessionName
         if (!string.IsNullOrWhiteSpace(purpose))
             return $"{repoFolderName}: {CapPurpose(purpose)}";
 
-        return $"{repoFolderName} / {sessionType} / {disambiguator}";
+        return $"{repoFolderName} / {disambiguator}";
     }
 
     /// <summary>
     /// The display name for an ALREADY-CREATED session: its custom name when it has one, else
-    /// the same auto-composed folder + type + disambiguator (never the bare folder name). This
-    /// is the single replacement for the former bare-folder display fallbacks.
+    /// the same auto-composed folder + disambiguator (never the bare folder name). This is the
+    /// single replacement for the former bare-folder display fallbacks.
     /// </summary>
     public static string DisplayName(string? customName, string repoFolderName,
-        SessionType sessionType, string disambiguator)
+        string disambiguator)
     {
         if (!string.IsNullOrWhiteSpace(customName))
             return customName.Trim();
-        return Compose(repoFolderName, sessionType, null, null, disambiguator);
+        return Compose(repoFolderName, null, null, disambiguator);
     }
 
     /// <summary>Trim a free-text purpose and cap it to <see cref="MaxPurposeLength"/> characters.</summary>

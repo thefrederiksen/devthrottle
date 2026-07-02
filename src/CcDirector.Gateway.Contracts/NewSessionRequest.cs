@@ -12,8 +12,8 @@ public sealed class NewSessionRequest
     /// Optional explicit display name for the new session (issue #800). When provided it is used
     /// verbatim, EXCEPT that a blank name or one equal (case-insensitive) to the bare repository
     /// folder name is rejected with HTTP 400 - pass a meaningful name or a <see cref="Purpose"/>.
-    /// When omitted, the Director auto-composes a meaningful name from the folder, the session
-    /// type, and a disambiguator so a session never displays as the bare folder name alone.
+    /// When omitted, the Director auto-composes a meaningful name from the folder and a
+    /// disambiguator so a session never displays as the bare folder name alone.
     /// </summary>
     public string? Name { get; set; }
 
@@ -48,15 +48,6 @@ public sealed class NewSessionRequest
     /// agent kinds.
     /// </summary>
     public string? CommandArgs { get; set; }
-
-    /// <summary>
-    /// The session's declared purpose (issue #211). Valid values: "Developer" (default),
-    /// "Implementation", "Discuss", "Product", "QA", "Support". Type is identity, not
-    /// status - chosen once here, immutable afterwards. The type drives the UI badge and
-    /// the wingman mission clause; no playbook prompt is injected into the agent (only
-    /// <see cref="PrePrompt"/> is dispatched). Null/empty means Developer.
-    /// </summary>
-    public string? Type { get; set; }
 
     /// <summary>
     /// Optional Claude session ID to resume. When set, the new session re-attaches to the

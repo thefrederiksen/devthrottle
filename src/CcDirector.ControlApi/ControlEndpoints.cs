@@ -231,7 +231,7 @@ internal static class ControlEndpoints
             // Issue #800: the display name goes through the single composer so it is never the
             // bare folder name (legacy sessions with no CustomName get folder + type + disambiguator).
             var name = SessionName.DisplayName(session.CustomName,
-                SessionName.FolderName(session.RepoPath), session.SessionType,
+                SessionName.FolderName(session.RepoPath),
                 SessionName.Disambiguator(session.Id));
 
             // A session only ever calls its OWN Director, so this Director's machine name is the
@@ -257,7 +257,7 @@ internal static class ControlEndpoints
                 if (sender is not null)
                     // Issue #800: route the sender's display name through the single composer.
                     fromName = SessionName.DisplayName(sender.CustomName,
-                        SessionName.FolderName(sender.RepoPath), sender.SessionType,
+                        SessionName.FolderName(sender.RepoPath),
                         SessionName.Disambiguator(sender.Id));
             }
             return FleetMessaging.BuildFramedMessage(fromSessionId, fromName, Environment.MachineName, text, includeReplyHint);
@@ -1539,7 +1539,7 @@ internal static class ControlEndpoints
                 // Issue #800: route the display name through the single composer (never bare folder).
                 sessionName = s is null ? ""
                     : SessionName.DisplayName(s.CustomName, SessionName.FolderName(s.RepoPath),
-                        s.SessionType, SessionName.Disambiguator(s.Id));
+                        SessionName.Disambiguator(s.Id));
             }
 
             var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
@@ -2763,17 +2763,9 @@ internal static class ControlEndpoints
                 ? new RawCliAgent(req.Command!, req.CommandArgs)
                 : AgentPluginRegistry.CreateAgent(kind, sessionManager.Options);
 
-            // Session type (issue #211, renamed in #254): identity chosen once at creation.
-            // Null/empty means Developer so pre-#211 clients keep today's behavior exactly.
-            // SessionTypeNames.TryParse accepts the legacy names (Implement/BugReport) too.
-            var sessionType = SessionType.Developer;
-            if (!string.IsNullOrWhiteSpace(req.Type)
-                && !SessionTypeNames.TryParse(req.Type, out sessionType))
-                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Implementation, Developer, Discuss, Product, QA, Support" });
-
             // Issue #800: enforce a meaningful name at birth. An EXPLICIT name (req.Name supplied,
             // even if blank) that is blank or equal to the bare repository folder name is rejected;
-            // an ABSENT name (req.Name == null) is auto-composed from folder + purpose / type +
+            // an ABSENT name (req.Name == null) is auto-composed from folder + purpose +
             // disambiguator by the name factory below, so a session never displays as the bare folder.
             var repoFolderName = SessionName.FolderName(req.RepoPath);
             if (req.Name is not null && SessionName.IsWeakExplicitName(req.Name, repoFolderName))
@@ -2801,9 +2793,8 @@ internal static class ControlEndpoints
                     req.Args,
                     SessionBackendType.ConPty,
                     resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId,
-                    sessionType: sessionType,
                     nameFactory: id => SessionName.Compose(
-                        repoFolderName, sessionType, explicitName, purpose, SessionName.Disambiguator(id)),
+                        repoFolderName, explicitName, purpose, SessionName.Disambiguator(id)),
                     controllerSessionId: controllerSessionId);
             }
             catch (Exception ex)
@@ -3233,7 +3224,6 @@ internal static class ControlEndpoints
             SessionId = s.Id.ToString(),
             DirectorId = directorId,
             Agent = s.AgentKind.ToString(),
-            Type = s.SessionType.ToString(),
             GroupId = s.GroupId?.ToString(),
             GroupRole = s.GroupRole,
             RepoPath = s.RepoPath,

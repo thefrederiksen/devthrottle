@@ -15,12 +15,6 @@ public sealed class SessionDto
     /// <summary>Agent CLI kind: ClaudeCode, Pi, Codex, Gemini, OpenCode, RawCli.</summary>
     public string Agent { get; set; } = "";
 
-    /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
-    /// BugReport / IssueSubmitter / QA. Identity, not status - set at creation, immutable.
-    /// Same axis as <see cref="Agent"/> (orthogonal: which agent vs why the session exists).
-    /// Empty/missing means Implement (pre-#211 Directors).</summary>
-    public string Type { get; set; } = "";
-
     /// <summary>Group identity (issue #225) when this session belongs to a group; null for
     /// solo sessions. Lets a by-repo / fleet view keep group members adjacent.</summary>
     public string? GroupId { get; set; }

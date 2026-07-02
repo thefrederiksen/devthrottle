@@ -479,7 +479,6 @@
 
     private static string SessName(SessionDto s) =>
         !string.IsNullOrWhiteSpace(s.Name) ? s.Name
-        : !string.IsNullOrWhiteSpace(s.Type) ? s.Type
         : (s.SessionId.Length > 8 ? s.SessionId[..8] : s.SessionId);
 
     private static string SessState(SessionDto s) =>

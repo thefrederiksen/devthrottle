@@ -318,56 +318,6 @@ public class HandoverViewModel
 }
 
 /// <summary>
-/// Display-ready preview of one group member for the Group dropdown's preview card (issue
-/// #254): the role label, the type badge text/color, and the resulting session name suffix.
-/// Built from a <see cref="SessionGroupMember"/> so the XAML binds to plain display strings.
-/// </summary>
-public sealed class GroupMemberPreview
-{
-    // Badge colors mirror the rail badges in SessionViewModel so the preview reads the same
-    // as the sessions it will create. Kept here (not shared) to avoid a UI-layer cross-coupling.
-    private static readonly ISolidColorBrush DeveloperBrush = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)); // neutral - no rail badge
-    private static readonly ISolidColorBrush ProductBrush = new SolidColorBrush(Color.FromRgb(0xEC, 0x48, 0x99));   // magenta
-    private static readonly ISolidColorBrush QaBrush = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));        // violet
-    private static readonly ISolidColorBrush SupportBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));   // emerald
-    private static readonly ISolidColorBrush DiscussBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));   // cyan
-    private static readonly ISolidColorBrush LegacyBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));    // amber
-    private static readonly ISolidColorBrush ImplementationBrush = new SolidColorBrush(Color.FromRgb(0x14, 0xB8, 0xA6)); // teal (#259)
-
-    public GroupMemberPreview(SessionGroupMember member)
-    {
-        RoleLabel = member.Role;
-        NameSuffix = member.NameSuffix;
-        TypeBadge = member.Type switch
-        {
-            SessionType.Developer => "[ ] Developer",
-            SessionType.Product => "[P] Product",
-            SessionType.QA => "[Q] QA",
-            SessionType.Support => "[S] Support",
-            SessionType.Discuss => "[D] Discuss",
-            SessionType.Implementation => "[I] Implementation",
-            SessionType.IssueSubmitter => "[S] Issue Submitter",
-            _ => member.Type.ToString(),
-        };
-        BadgeBrush = member.Type switch
-        {
-            SessionType.Product => ProductBrush,
-            SessionType.QA => QaBrush,
-            SessionType.Support => SupportBrush,
-            SessionType.Discuss => DiscussBrush,
-            SessionType.Implementation => ImplementationBrush,
-            SessionType.IssueSubmitter => LegacyBrush,
-            _ => DeveloperBrush,
-        };
-    }
-
-    public string RoleLabel { get; }
-    public string NameSuffix { get; }
-    public string TypeBadge { get; }
-    public ISolidColorBrush BadgeBrush { get; }
-}
-
-/// <summary>
 /// One selectable agent option in the New Session "Agent:" row (issue #490). Wraps a single
 /// ENABLED <see cref="AgentEntry"/> from the ordered <c>agent.entries</c> list (#489) so the
 /// XAML radio template binds to a plain display name and a two-way selection flag. The whole
@@ -562,61 +512,6 @@ public partial class NewSessionDialog : Window
     /// no entry is selected, preserving the legacy default for callers.</summary>
     public AgentKind SelectedAgentKind => SelectedAgentEntry?.Type ?? AgentKind.ClaudeCode;
 
-    /// <summary>The session type chosen in the Type dropdown (issue #211, redesigned to a
-    /// ComboBox in #254). Each ComboBoxItem carries its enum name in Tag. Defaults to
-    /// Developer when nothing is selected.</summary>
-    public SessionType SelectedSessionType
-    {
-        get
-        {
-            if (TypeCombo?.SelectedItem is ComboBoxItem item
-                && item.Tag is string tag
-                && SessionTypeNames.TryParse(tag, out var type))
-                return type;
-            // The picker defaults to Implementation (#259); a missing/divider selection falls back to it.
-            return SessionType.Implementation;
-        }
-    }
-
-    /// <summary>The group definition chosen when "Group" mode is selected (issue #225,
-    /// dropdown in #254), or null when "Single session" is selected. When non-null, MainWindow
-    /// creates the whole group and the per-session <see cref="SelectedSessionType"/> is ignored
-    /// (the group defines each type).</summary>
-    public SessionGroupDefinition? SelectedGroupDefinition
-        => ModeRadioGroup?.IsChecked == true
-            ? GroupCombo?.SelectedItem as SessionGroupDefinition
-            : null;
-
-    /// <summary>Single vs group toggle (issue #254): show the Type dropdown for a single
-    /// session, or the Group dropdown + preview card for a group. Only one is visible at a
-    /// time so the dialog reads as one control, not two competing pickers.</summary>
-    private void CreateModeRadio_CheckedChanged(object? sender, RoutedEventArgs e)
-    {
-        var groupMode = ModeRadioGroup?.IsChecked == true;
-        if (TypePickerPanel is not null)
-            TypePickerPanel.IsVisible = !groupMode;
-        if (GroupPickerPanel is not null)
-            GroupPickerPanel.IsVisible = groupMode;
-        // Refresh the Start button so it shows "Start N Sessions" / "Start Session" (issue #259).
-        UpdateActionButton();
-    }
-
-    /// <summary>Render the preview card for the selected group: exactly which member sessions
-    /// will be created, in order, each with its role and type badge (issue #254).</summary>
-    private void GroupCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (GroupPreviewList is null)
-            return;
-
-        var group = GroupCombo?.SelectedItem as SessionGroupDefinition;
-        GroupPreviewList.ItemsSource = group?.Members
-            .Select(m => new GroupMemberPreview(m))
-            .ToList();
-        // The chosen group's size drives the "Start N Sessions" button text (issue #259).
-        UpdateActionButton();
-        FileLog.Write($"[NewSessionDialog] GroupCombo_SelectionChanged: group={group?.Name}, members={group?.Members.Count ?? 0}");
-    }
-
     private static AgentOptions CurrentOptions()
     {
         FileLog.Write("[NewSessionDialog] CurrentOptions");
@@ -666,14 +561,6 @@ public partial class NewSessionDialog : Window
         {
             _allRepos = new List<RepositoryConfig>();
         }
-
-        // Group picker (issue #254): the built-in group definitions are DATA, so the dropdown
-        // lists whatever ships (only "Product" today). Selecting the first one renders its
-        // preview card; the panel stays hidden until the user switches to Group mode.
-        GroupCombo.ItemsSource = SessionGroupDefinition.BuiltIn;
-        if (SessionGroupDefinition.BuiltIn.Count > 0)
-            GroupCombo.SelectedIndex = 0;
-        FileLog.Write($"[NewSessionDialog] Loaded {SessionGroupDefinition.BuiltIn.Count} group definitions");
 
         // Named sessions (issue #508): show the saved items and reflect them against the
         // currently registered agents so a removed agent reads as unavailable.
@@ -987,9 +874,7 @@ public partial class NewSessionDialog : Window
 
         if (MainTabs.SelectedItem == NewSessionTab)
         {
-            // In Group mode the button reflects how many sessions get created (issue #259).
-            var group = SelectedGroupDefinition;
-            BtnAction.Content = group is not null ? $"Start {group.Members.Count} Sessions" : "Start Session";
+            BtnAction.Content = "Start Session";
             // For Custom CLI, also require a non-empty Command before enabling Start.
             var hasPath = !string.IsNullOrWhiteSpace(PathInput.Text);
             var isRawCli = SelectedAgentKind == AgentKind.RawCli;

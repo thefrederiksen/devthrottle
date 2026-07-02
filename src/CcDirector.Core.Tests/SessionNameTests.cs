@@ -8,7 +8,7 @@ namespace CcDirector.Core.Tests;
 /// than the bare repository folder name, so sessions in the SAME checkout can be told apart.
 /// The rule: an EXPLICIT name that is blank or equals the folder name is weak (rejected by the
 /// caller); when no explicit name is given the name is auto-composed from folder + purpose, or
-/// folder + type + a disambiguator.
+/// folder + a disambiguator.
 /// </summary>
 public class SessionNameTests
 {
@@ -17,7 +17,7 @@ public class SessionNameTests
     [Fact]
     public void Compose_ExplicitName_PassesThroughVerbatim()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Implementation,
+        var name = SessionName.Compose("devthrottle",
             explicitName: "Frontend review", purpose: null, disambiguator: "1fb5");
         Assert.Equal("Frontend review", name);
     }
@@ -25,7 +25,7 @@ public class SessionNameTests
     [Fact]
     public void Compose_ExplicitName_IsTrimmed()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Developer,
+        var name = SessionName.Compose("devthrottle",
             explicitName: "  Frontend review  ", purpose: null, disambiguator: "1fb5");
         Assert.Equal("Frontend review", name);
     }
@@ -33,7 +33,7 @@ public class SessionNameTests
     [Fact]
     public void Compose_ExplicitName_WinsOverPurpose()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Developer,
+        var name = SessionName.Compose("devthrottle",
             explicitName: "Frontend review", purpose: "implement #799", disambiguator: "1fb5");
         Assert.Equal("Frontend review", name);
     }
@@ -43,7 +43,7 @@ public class SessionNameTests
     [Fact]
     public void Compose_PurposeOnly_CombinesFolderAndPurpose_NotBareFolder()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Developer,
+        var name = SessionName.Compose("devthrottle",
             explicitName: null, purpose: "implement #799", disambiguator: "1fb5");
         Assert.Equal("devthrottle: implement #799", name);
         Assert.Contains("devthrottle", name);
@@ -55,23 +55,22 @@ public class SessionNameTests
     public void Compose_Purpose_IsTrimmedAndCappedAtMaxLength()
     {
         var longPurpose = new string('x', SessionName.MaxPurposeLength + 25);
-        var name = SessionName.Compose("devthrottle", SessionType.Developer,
+        var name = SessionName.Compose("devthrottle",
             explicitName: null, purpose: longPurpose, disambiguator: "1fb5");
         // Folder + ": " prefix, then the purpose capped to MaxPurposeLength characters.
         var expectedPurpose = new string('x', SessionName.MaxPurposeLength);
         Assert.Equal($"devthrottle: {expectedPurpose}", name);
     }
 
-    // ===== Type + disambiguator default when both absent =====
+    // ===== Folder + disambiguator default when both name and purpose are absent =====
 
     [Fact]
-    public void Compose_NeitherNameNorPurpose_UsesFolderTypeDisambiguator_NotBareFolder()
+    public void Compose_NeitherNameNorPurpose_UsesFolderDisambiguator_NotBareFolder()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Implementation,
+        var name = SessionName.Compose("devthrottle",
             explicitName: null, purpose: null, disambiguator: "1fb5");
-        Assert.Equal("devthrottle / Implementation / 1fb5", name);
+        Assert.Equal("devthrottle / 1fb5", name);
         Assert.Contains("devthrottle", name);
-        Assert.Contains("Implementation", name);
         Assert.Contains("1fb5", name);
         Assert.NotEqual("devthrottle", name);
     }
@@ -79,9 +78,9 @@ public class SessionNameTests
     [Fact]
     public void Compose_BlankExplicitName_TreatedAsAbsent_AutoComposes()
     {
-        var name = SessionName.Compose("devthrottle", SessionType.Developer,
+        var name = SessionName.Compose("devthrottle",
             explicitName: "   ", purpose: null, disambiguator: "abcd");
-        Assert.Equal("devthrottle / Developer / abcd", name);
+        Assert.Equal("devthrottle / abcd", name);
         Assert.NotEqual("devthrottle", name);
     }
 
@@ -90,9 +89,9 @@ public class SessionNameTests
     [Fact]
     public void Compose_TwoDefaultsDifferingOnlyByDisambiguator_ProduceDistinctNames()
     {
-        var first = SessionName.Compose("devthrottle", SessionType.Developer,
+        var first = SessionName.Compose("devthrottle",
             explicitName: null, purpose: null, disambiguator: "1fb5");
-        var second = SessionName.Compose("devthrottle", SessionType.Developer,
+        var second = SessionName.Compose("devthrottle",
             explicitName: null, purpose: null, disambiguator: "9c0a");
         Assert.NotEqual(first, second);
     }
@@ -143,16 +142,15 @@ public class SessionNameTests
     [Fact]
     public void DisplayName_WithCustomName_ReturnsIt()
     {
-        var name = SessionName.DisplayName("Frontend review", "devthrottle",
-            SessionType.Developer, "1fb5");
+        var name = SessionName.DisplayName("Frontend review", "devthrottle", "1fb5");
         Assert.Equal("Frontend review", name);
     }
 
     [Fact]
     public void DisplayName_WithoutCustomName_AutoComposes_NotBareFolder()
     {
-        var name = SessionName.DisplayName(null, "devthrottle", SessionType.Implementation, "1fb5");
-        Assert.Equal("devthrottle / Implementation / 1fb5", name);
+        var name = SessionName.DisplayName(null, "devthrottle", "1fb5");
+        Assert.Equal("devthrottle / 1fb5", name);
         Assert.NotEqual("devthrottle", name);
     }
 }

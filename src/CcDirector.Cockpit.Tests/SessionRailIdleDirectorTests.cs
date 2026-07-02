@@ -35,9 +35,7 @@ public sealed class SessionRailIdleDirectorTests : TestContext
         RepoPath = @"D:\repos\thing",
         SortOrder = 0,
         StatusColor = "blue",
-        ActivityState = "Idle",
-        Type = "Implement",
-    };
+        ActivityState = "Idle",    };
 
     [Fact]
     public void Tree_IdleDirector_WithNoSessions_StillRenders_WithAddButton()

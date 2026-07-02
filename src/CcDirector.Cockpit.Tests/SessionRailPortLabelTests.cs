@@ -44,9 +44,7 @@ public sealed class SessionRailPortLabelTests : TestContext
         Name = name,
         RepoPath = @"D:\repos\demo",
         StatusColor = "green",
-        ActivityState = "Idle",
-        Type = "Implement",
-    };
+        ActivityState = "Idle",    };
 
     private static List<DirectorDto> TwoDirectors() => new()
     {

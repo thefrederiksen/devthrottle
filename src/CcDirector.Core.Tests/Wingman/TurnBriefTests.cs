@@ -313,27 +313,6 @@ public sealed class TurnBriefContractValidationTests
     }
 
     [Fact]
-    public void BuildPrompt_ProductType_InjectsFileIssueMissionClause()
-    {
-        // Issue #236 (#254 rename): a Product session's brief carries the type-specific mission
-        // clause that makes the close suggestion fire reliably once an issue is filed.
-        var bugPkg = Package() with { SessionType = SessionType.Product };
-        var prompt = TurnBriefContract.BuildPrompt(bugPkg);
-        Assert.Contains("SESSION TYPE: PRODUCT", prompt);
-        Assert.Contains("ONLY mission is to file one GitHub issue", prompt);
-        Assert.Contains("must NOT fix the bug", prompt);
-    }
-
-    [Fact]
-    public void BuildPrompt_DeveloperType_NoTypeClause_BackCompat()
-    {
-        // The default type adds no clause - the brief is byte-for-byte the pre-#236 prompt.
-        var prompt = TurnBriefContract.BuildPrompt(Package());
-        Assert.DoesNotContain("SESSION TYPE: PRODUCT", prompt);
-        Assert.DoesNotContain("SESSION TYPE: DISCUSS", prompt);
-    }
-
-    [Fact]
     public void Validate_SuggestedActionClose_Parsed()
     {
         var json = """

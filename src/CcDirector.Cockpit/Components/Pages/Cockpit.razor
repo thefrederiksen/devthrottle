@@ -190,24 +190,6 @@
                         }
                         <span class="detail-name">@SessionTitle(Selected)</span>
                     }
-                    @* Session type (issue #211): the badge rides next to the name in the
-                       header too, so the open session declares its purpose. *@
-                    @if (Selected.Type == "Discuss")
-                    {
-                        <span class="tag tag-type tag-discuss" title="Discussion session - talk only, no edits or commits">[D] discuss</span>
-                    }
-                    else if (Selected.Type == "BugReport")
-                    {
-                        <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
-                    }
-                    else if (Selected.Type == "IssueSubmitter")
-                    {
-                        <span class="tag tag-type tag-submit" title="Issue-submitter session - files GitHub issues only, never writes code">[S] issue submitter</span>
-                    }
-                    else if (Selected.Type == "QA")
-                    {
-                        <span class="tag tag-type tag-qa" title="QA session - verifies what was built, never fixes; reports findings">[Q] QA</span>
-                    }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
                     @* assessed-when-present (issue #186): the Gateway's brain may have refuted
                        the mechanical quiet; the raw detector state is the fallback. *@
@@ -572,16 +554,6 @@
                         @foreach (var a in NsAgents)
                         {
                             <button class="chip @(_nsAgent == a ? "on" : "")" @onclick="() => SetAgent(a)">@AgentLabel(a)</button>
-                        }
-                    </div>
-
-                    @* Session type (issue #211): one-click identity, Implement preselected. *@
-                    <div class="ns-types">
-                        <span class="fld-label">Type:</span>
-                        @foreach (var t in NsTypes)
-                        {
-                            <button class="chip @(_nsType == t.Key ? "on" : "")" title="@t.Hint"
-                                    @onclick="() => SetType(t.Key)">@t.Label</button>
                         }
                     </div>
 
@@ -2043,16 +2015,14 @@
                     break;
 
                 case "start-bug-session":
-                    // One-click bug session (issue #236): spawn a Bug Report session in the
-                    // SAME repo on the SAME Director, wingman ON (the retire step needs it).
-                    // No dialog - the whole point is zero-friction capture. The #211 BugReport
-                    // playbook drives investigate-and-file; the type-aware brief offers the
-                    // one-click close once the issue URL appears.
+                    // One-click bug session (issue #236): spawn a session in the SAME repo on
+                    // the SAME Director, wingman ON (the retire step needs it). No dialog - the
+                    // whole point is zero-friction capture. The seed prompt drives
+                    // investigate-and-file.
                     var bugReq = new NewSessionRequest
                     {
                         RepoPath = s.RepoPath,
                         Agent = s.Agent,          // mirror the source row's CLI (same repo, same tooling)
-                        Type = "BugReport",
                         WingmanEnabled = true,
                     };
                     var createdBug = await Gateway.CreateSessionAsync(s.DirectorId, bugReq, _cts.Token);
@@ -2121,7 +2091,7 @@
             Selected?.SessionId ?? "(none)", Selected?.TailnetEndpoint ?? "(none)");
         _showNewSession = true;
         _nsError = null;
-        _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode"; _nsType = "Implement";
+        _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode";
         _nsRepoFilter = "";
         _nsBypass = true; _nsWingman = false;
         _browseOpen = false;
@@ -2148,17 +2118,6 @@
     }
 
     private void SetAgent(string a) => _nsAgent = a;
-
-    // Session type picker (issue #211): identity chosen at creation, Implement default.
-    private string _nsType = "Implement";
-    private void SetType(string t) => _nsType = t;
-    private sealed record NsType(string Key, string Label, string Hint);
-    private static readonly NsType[] NsTypes =
-    {
-        new("Implement", "[I] Implement", "Write code, fix bugs, ship (default)"),
-        new("Discuss", "[D] Discuss", "Talk only - never edits or commits"),
-        new("BugReport", "[B] Bug Report", "Investigate and file an issue - never fixes here"),
-    };
 
     // ----- repo table: filter + sort + select + remove -----
     private List<RepositoryDto> FilteredRepos
@@ -2232,15 +2191,14 @@
         // New-session submit (issue #199): no sid exists yet, so log the director it targets plus
         // the repo + options chosen; the created sid is logged once the Gateway returns it.
         Log.LogInformation(
-            "Cockpit action=new-session-submit director={Director} repo={Repo} agent={Agent} type={Type} wingman={Wingman}",
-            _nsDirectorId, repo, _nsAgent, _nsType, _nsWingman);
+            "Cockpit action=new-session-submit director={Director} repo={Repo} agent={Agent} wingman={Wingman}",
+            _nsDirectorId, repo, _nsAgent, _nsWingman);
         try
         {
             var req = new NewSessionRequest
             {
                 RepoPath = repo,
                 Agent = _nsAgent,
-                Type = _nsType,
                 Args = args,
                 WingmanEnabled = _nsWingman,
             };
