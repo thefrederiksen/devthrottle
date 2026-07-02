@@ -31,6 +31,11 @@
          (openapi-typescript) consumes. Pinned to the installed ASP.NET Core runtime (10.0.9) so
          there is no framework/package version skew under TreatWarningsAsErrors. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <!-- Direct reference ONLY to lift the transitive Microsoft.OpenApi 2.0.0 that
+         Microsoft.AspNetCore.OpenApi 10.0.9 pulls in: 2.0.0 carries the high-severity advisory
+         GHSA-v5pm-xwqc-g5wc (circular schema references can terminate OpenAPI parsing), which
+         fails restore under TreatWarningsAsErrors (NU1903). 2.7.5 is the first patched version. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
   </ItemGroup>
 
   <ItemGroup>
