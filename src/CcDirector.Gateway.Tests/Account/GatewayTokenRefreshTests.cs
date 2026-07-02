@@ -180,15 +180,109 @@ public sealed class GatewayTokenRefreshTests : IDisposable
         Assert.Equal(0, stub.RequestCount);                 // the backend was never called
     }
 
-    // The refresher itself, no endpoint configured: returns null directly (the unit beneath the service).
+    // The refresher itself, endpoint resolver returning null: reports unavailable (the unit beneath
+    // the service). Since #876 production always resolves the embedded endpoint, but a null resolver
+    // remains the explicit "exchange disabled" state for tests.
     [Fact]
-    public async Task GatewayHttpTokenRefresher_NoEndpoint_ReturnsNull()
+    public async Task GatewayHttpTokenRefresher_NoEndpoint_ReportsUnavailable()
     {
         var refresher = new GatewayHttpTokenRefresher(new HttpClient(), () => null);
 
         var result = await refresher.RefreshAsync("any-refresh-token");
 
-        Assert.Null(result);
+        Assert.Null(result.Renewed);
+        Assert.False(result.RefreshTokenRejected);
+    }
+
+    // Issue #876: with the override environment variables unset, the refresher resolves the EMBEDDED
+    // production backend - no machine configuration required. This is the defect the issue fixes (the
+    // pre-#876 refresher was gated on an environment variable no install ever set).
+    [Fact]
+    public void DefaultResolution_NoEnvironmentOverrides_UsesEmbeddedProductionBackend()
+    {
+        var previousUrl = Environment.GetEnvironmentVariable(DevThrottleAuthBackend.RefreshUrlEnvVar);
+        var previousKey = Environment.GetEnvironmentVariable(DevThrottleAuthBackend.AnonymousKeyEnvVar);
+        Environment.SetEnvironmentVariable(DevThrottleAuthBackend.RefreshUrlEnvVar, null);
+        Environment.SetEnvironmentVariable(DevThrottleAuthBackend.AnonymousKeyEnvVar, null);
+        try
+        {
+            Assert.Equal(DevThrottleAuthBackend.ProductionRefreshUrl, DevThrottleAuthBackend.ResolveRefreshUrl());
+            Assert.Equal(DevThrottleAuthBackend.ProductionAnonymousKey, DevThrottleAuthBackend.ResolveAnonymousKey());
+            Assert.Contains("grant_type=refresh_token", DevThrottleAuthBackend.ProductionRefreshUrl);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(DevThrottleAuthBackend.RefreshUrlEnvVar, previousUrl);
+            Environment.SetEnvironmentVariable(DevThrottleAuthBackend.AnonymousKeyEnvVar, previousKey);
+        }
+    }
+
+    // Issue #876: the exchange carries the public anonymous key in the apikey header (the backend
+    // answers 401 "No API key found" without it - verified against the live endpoint).
+    [Fact]
+    public async Task Exchange_SendsTheAnonymousKeyAsTheApiKeyHeader()
+    {
+        await using var stub = await RefreshStub.StartAsync(_ =>
+            (GatewayTestJwt.Create(DateTime.UtcNow.AddHours(1)), "rotated-refresh-token"));
+
+        var refresher = new GatewayHttpTokenRefresher(
+            new HttpClient(), () => stub.Url, () => "test-anonymous-key");
+
+        var result = await refresher.RefreshAsync("seed-refresh-token");
+
+        Assert.NotNull(result.Renewed);
+        Assert.Equal("test-anonymous-key", stub.LastApiKeyHeader);
+    }
+
+    // Issue #876: HTTP 400 is the backend DEFINITIVELY refusing the refresh token (revoked session or
+    // rotated-away token). Driven end-to-end through the service: the dead credential is CLEARED, so
+    // the install flips to signed-out instead of faking "Signed in" forever.
+    [Fact]
+    public async Task RefreshIfNeeded_BackendRejectsWith400_ClearsTheDeadCredential()
+    {
+        if (!OnWindows) return;
+
+        await using var stub = await RefreshStub.StartRejectingAsync(
+            """{"code":400,"error_code":"validation_failed","msg":"Refresh token is not valid"}""");
+
+        var refresher = new GatewayHttpTokenRefresher(new HttpClient(), () => stub.Url);
+        var service = MakeService(refresher);
+
+        var expiredAccess = GatewayTestJwt.Create(DateTime.UtcNow.AddHours(-1));
+        service.StoreTokens(new DevThrottleTokens(expiredAccess, "revoked-refresh-token"));
+        Assert.True(service.IsLoggedIn());
+
+        var refreshed = await service.RefreshIfNeededAsync();
+
+        Assert.False(refreshed);
+        Assert.Equal(1, stub.RequestCount);
+        Assert.False(service.IsLoggedIn());                 // the dead credential is gone
+        var store = new WindowsProtectedTokenStore(_blobPath);
+        Assert.Null(store.Load());
+    }
+
+    // Issue #876 contrast case: a server-side error (500) is NOT a rejection - the cached credential
+    // is kept and the next sweep retries. Only a definitive 400 may clear a credential.
+    [Fact]
+    public async Task RefreshIfNeeded_BackendServerError_KeepsCachedCredential()
+    {
+        if (!OnWindows) return;
+
+        await using var stub = await RefreshStub.StartRejectingAsync(
+            """{"message":"internal error"}""", statusCode: 500);
+
+        var refresher = new GatewayHttpTokenRefresher(new HttpClient(), () => stub.Url);
+        var service = MakeService(refresher);
+
+        var expiredAccess = GatewayTestJwt.Create(DateTime.UtcNow.AddHours(-1));
+        service.StoreTokens(new DevThrottleTokens(expiredAccess, "seed-refresh-token"));
+
+        var refreshed = await service.RefreshIfNeededAsync();
+
+        Assert.False(refreshed);
+        Assert.True(service.IsLoggedIn());                  // still signed in on the cached credential
+        var store = new WindowsProtectedTokenStore(_blobPath);
+        Assert.NotNull(store.Load());
     }
 
     /// <summary>True when the access token's exp claim is in the past (used to assert expiry flips).</summary>
@@ -225,6 +319,7 @@ public sealed class GatewayTokenRefreshTests : IDisposable
         public string Url { get; }
         public int RequestCount { get; private set; }
         public string? LastRefreshToken { get; private set; }
+        public string? LastApiKeyHeader { get; private set; }
 
         private RefreshStub(WebApplication app, string url)
         {
@@ -232,7 +327,15 @@ public sealed class GatewayTokenRefreshTests : IDisposable
             Url = url;
         }
 
-        public static async Task<RefreshStub> StartAsync(Func<string, (string AccessToken, string RefreshToken)> issue)
+        public static Task<RefreshStub> StartAsync(Func<string, (string AccessToken, string RefreshToken)> issue) =>
+            StartCoreAsync(issue, errorBody: null, statusCode: 200);
+
+        /// <summary>A stub that answers every exchange with the given error body and status (default 400, the definitive-rejection shape).</summary>
+        public static Task<RefreshStub> StartRejectingAsync(string errorBody, int statusCode = 400) =>
+            StartCoreAsync(issue: null, errorBody, statusCode);
+
+        private static async Task<RefreshStub> StartCoreAsync(
+            Func<string, (string AccessToken, string RefreshToken)>? issue, string? errorBody, int statusCode)
         {
             var builder = WebApplication.CreateBuilder();
             builder.Logging.ClearProviders();
@@ -248,7 +351,12 @@ public sealed class GatewayTokenRefreshTests : IDisposable
                 {
                     self.RequestCount++;
                     self.LastRefreshToken = receivedRefresh;
+                    self.LastApiKeyHeader = ctx.Request.Headers.TryGetValue("apikey", out var key) ? key.ToString() : null;
                 }
+
+                if (issue is null)
+                    return Results.Content(errorBody ?? "{}", "application/json", statusCode: statusCode);
+
                 var (access, refresh) = issue(receivedRefresh);
                 return Results.Json(new Dictionary<string, string>
                 {

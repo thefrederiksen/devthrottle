@@ -17,11 +17,22 @@ namespace CcDirector.Core.Account;
 /// </summary>
 public sealed class DevThrottleAccountService
 {
+    /// <summary>
+    /// How much life must remain on the access token before the background refresh renews it (issue
+    /// #876). Renewing PROACTIVELY - inside this margin, not only after expiry - means outbound calls
+    /// (device heartbeat, telemetry forwarding) never present an already-expired token.
+    /// </summary>
+    public static readonly TimeSpan RenewalMargin = TimeSpan.FromMinutes(10);
+
     private readonly IProtectedTokenStore _store;
     private readonly JwtAccessTokenValidator _validator;
     private readonly AuthEventLog _eventLog;
     private readonly ITokenRefresher _refresher;
+    private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
+    // Token rotation makes overlapping exchanges actively harmful (the second one presents an
+    // already-rotated refresh token and looks revoked), so refresh passes are single-flight.
+    private readonly SemaphoreSlim _refreshFlight = new(1, 1);
 
     /// <summary>
     /// Creates the service from its collaborators. None is optional - each one is a real dependency
@@ -31,16 +42,19 @@ public sealed class DevThrottleAccountService
     /// <param name="validator">The local signature-and-expiry validator (no network).</param>
     /// <param name="eventLog">The authentication-floor event recorder.</param>
     /// <param name="refresher">The backend refresh-token exchange (the one network-touching seam).</param>
+    /// <param name="timeProvider">Time source for the proactive-renewal margin; defaults to the system clock. Injected so tests control "now".</param>
     public DevThrottleAccountService(
         IProtectedTokenStore store,
         JwtAccessTokenValidator validator,
         AuthEventLog eventLog,
-        ITokenRefresher refresher)
+        ITokenRefresher refresher,
+        TimeProvider? timeProvider = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
         _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
         _refresher = refresher ?? throw new ArgumentNullException(nameof(refresher));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -95,54 +109,96 @@ public sealed class DevThrottleAccountService
 
     /// <summary>
     /// Renews the access token in the background using the refresh token when the cached access
-    /// token has expired and connectivity is available. When the access token is still valid this
-    /// is a no-op. When the refresh exchange returns no token pair (offline or the backend declines)
-    /// the service keeps running on the cached credential and returns false. Returns true only when
-    /// a renewed token pair was stored.
+    /// token has expired OR is inside the proactive <see cref="RenewalMargin"/> (issue #876), so
+    /// outbound calls never present an already-expired token. A token with comfortable life left is
+    /// a no-op. When the exchange is unavailable (offline, backend error) the service keeps running
+    /// on the cached credential and returns false; when the backend DEFINITIVELY rejects the refresh
+    /// token (rotated away or the session was revoked) the dead credential is cleared so the install
+    /// reads as signed out and prompts a new sign-in. Returns true only when a renewed token pair
+    /// was stored. Single-flight: a pass that starts while another is running is a no-op, because
+    /// token rotation makes overlapping exchanges harmful.
     /// </summary>
     public async Task<bool> RefreshIfNeededAsync(CancellationToken ct = default)
     {
         FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: evaluating cached credential");
 
-        DevThrottleTokens? tokens;
-        lock (_gate)
+        if (!await _refreshFlight.WaitAsync(0, ct))
         {
-            tokens = _store.Load();
-        }
-
-        if (tokens is null)
-        {
-            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: no stored credential -> nothing to refresh");
+            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: a refresh pass is already in flight -> skipping this one");
             return false;
         }
 
-        var validation = _validator.Validate(tokens.AccessToken);
-        if (validation.IsValid)
+        try
         {
-            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token still valid -> no refresh needed");
+            DevThrottleTokens? tokens;
+            lock (_gate)
+            {
+                tokens = _store.Load();
+            }
+
+            if (tokens is null)
+            {
+                FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: no stored credential -> nothing to refresh");
+                return false;
+            }
+
+            var validation = _validator.Validate(tokens.AccessToken);
+            if (!validation.IsValid && !validation.IsExpiredButWellFormed)
+            {
+                FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token not renewable (tampered/wrong-signature) -> not refreshing");
+                return false;
+            }
+
+            if (validation.IsValid)
+            {
+                var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                var remaining = validation.ExpiresAtUtc is null ? (TimeSpan?)null : validation.ExpiresAtUtc.Value - nowUtc;
+                if (remaining is null || remaining.Value > RenewalMargin)
+                {
+                    FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token has comfortable life left -> no refresh needed");
+                    return false;
+                }
+                FileLog.Write($"[DevThrottleAccountService] RefreshIfNeededAsync: access token expires in {remaining.Value.TotalMinutes:0.0} minute(s) (inside the {RenewalMargin.TotalMinutes:0}-minute renewal margin) -> renewing proactively");
+            }
+            else
+            {
+                FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token expired -> attempting background refresh");
+            }
+
+            var result = await _refresher.RefreshAsync(tokens.RefreshToken, ct);
+            if (result.Renewed is not null)
+            {
+                lock (_gate)
+                {
+                    _store.Save(result.Renewed);
+                }
+                FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored");
+                return true;
+            }
+
+            if (result.RefreshTokenRejected)
+            {
+                // The backend definitively refused the refresh token: the session was revoked or the
+                // token rotated away. The cached credential can never work again, so keeping it would
+                // only fake a "Signed in" state - clear it so the tray/Cockpit prompt a new sign-in.
+                FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: backend definitively rejected the refresh token (session revoked or rotated away) -> clearing the dead credential; a new sign-in is required");
+                lock (_gate)
+                {
+                    var wasLoggedIn = _store.HasTokens;
+                    _store.Clear();
+                    if (wasLoggedIn)
+                        _eventLog.RecordLoggedOut();
+                }
+                return false;
+            }
+
+            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or backend error) -> keeping cached credential");
             return false;
         }
-
-        if (!validation.IsExpiredButWellFormed)
+        finally
         {
-            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token not renewable (tampered/wrong-signature) -> not refreshing");
-            return false;
+            _refreshFlight.Release();
         }
-
-        FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: access token expired, attempting background refresh");
-        var renewed = await _refresher.RefreshAsync(tokens.RefreshToken, ct);
-        if (renewed is null)
-        {
-            FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: refresh unavailable (offline or declined) -> keeping cached credential");
-            return false;
-        }
-
-        lock (_gate)
-        {
-            _store.Save(renewed);
-        }
-        FileLog.Write("[DevThrottleAccountService] RefreshIfNeededAsync: refreshed access token stored");
-        return true;
     }
 
     /// <summary>

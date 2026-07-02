@@ -30,7 +30,7 @@ public sealed class DevThrottleAccountServiceTests : IDisposable
     private DevThrottleAccountService MakeService(
         IProtectedTokenStore store,
         ITokenRefresher? refresher = null)
-        => new(store, Validator(), _eventLog, refresher ?? new StubTokenRefresher(null));
+        => new(store, Validator(), _eventLog, refresher ?? new StubTokenRefresher(null), new FixedTime(_now));
 
     // Acceptance criterion: with no stored credential, the check returns false.
     [Fact]
@@ -127,7 +127,8 @@ public sealed class DevThrottleAccountServiceTests : IDisposable
         Assert.Equal(expired, stored.AccessToken);
     }
 
-    // A still-valid access token needs no refresh and never calls the network seam.
+    // A still-valid access token with comfortable life left needs no refresh and never calls the
+    // network seam.
     [Fact]
     public async Task RefreshIfNeededAsync_ValidAccessToken_NoRefresh()
     {
@@ -140,6 +141,83 @@ public sealed class DevThrottleAccountServiceTests : IDisposable
 
         Assert.False(refreshed);
         Assert.False(refresher.WasCalled);
+    }
+
+    // Issue #876: a still-valid access token INSIDE the renewal margin is renewed proactively, so
+    // outbound calls never present an already-expired token.
+    [Fact]
+    public async Task RefreshIfNeededAsync_ValidTokenInsideRenewalMargin_RenewsProactively()
+    {
+        var store = new InMemoryTokenStore();
+        var freshTokens = new DevThrottleTokens(TestJwt.Create(_now.AddHours(2)), "refresh-2");
+        var refresher = new StubTokenRefresher(freshTokens);
+        var service = MakeService(store, refresher);
+        // Five minutes of life left: valid, but inside the ten-minute renewal margin.
+        service.StoreTokens(new DevThrottleTokens(TestJwt.Create(_now.AddMinutes(5)), "refresh-1"));
+
+        var refreshed = await service.RefreshIfNeededAsync();
+
+        Assert.True(refreshed);
+        Assert.True(refresher.WasCalled);
+        var stored = store.Load();
+        Assert.NotNull(stored);
+        Assert.Equal("refresh-2", stored.RefreshToken);
+    }
+
+    // Issue #876: a valid token JUST OUTSIDE the margin is left alone - proactive renewal must not
+    // degenerate into renewing on every sweep.
+    [Fact]
+    public async Task RefreshIfNeededAsync_ValidTokenJustOutsideRenewalMargin_NoRefresh()
+    {
+        var store = new InMemoryTokenStore();
+        var refresher = new StubTokenRefresher(new DevThrottleTokens("new", "new"));
+        var service = MakeService(store, refresher);
+        service.StoreTokens(new DevThrottleTokens(
+            TestJwt.Create(_now + DevThrottleAccountService.RenewalMargin + TimeSpan.FromMinutes(1)), "refresh-1"));
+
+        var refreshed = await service.RefreshIfNeededAsync();
+
+        Assert.False(refreshed);
+        Assert.False(refresher.WasCalled);
+    }
+
+    // Issue #876: when the backend DEFINITIVELY rejects the refresh token (revoked session or
+    // rotated-away token), the dead credential is cleared - the install reads signed-out and a
+    // logged-out event is recorded - instead of faking "Signed in" forever.
+    [Fact]
+    public async Task RefreshIfNeededAsync_RefreshTokenRejected_ClearsCredentialAndRecordsLogout()
+    {
+        var store = new InMemoryTokenStore();
+        var refresher = StubTokenRefresher.Rejecting();
+        var service = MakeService(store, refresher);
+        service.StoreTokens(new DevThrottleTokens(TestJwt.Create(_now.AddHours(-1)), "refresh-1"));
+        Assert.True(service.IsLoggedIn());
+
+        var refreshed = await service.RefreshIfNeededAsync();
+
+        Assert.False(refreshed);
+        Assert.True(refresher.WasCalled);
+        Assert.False(store.HasTokens);
+        Assert.False(service.IsLoggedIn());
+        Assert.Contains(_eventLog.ReadAll(), e => e.Kind == AuthEventLog.LoggedOut);
+    }
+
+    // Issue #876: an UNAVAILABLE exchange (offline, backend error) must never clear the credential -
+    // only a definitive rejection may. (The offline case is already covered above; this pins the
+    // contrast against the rejection test.)
+    [Fact]
+    public async Task RefreshIfNeededAsync_RefreshUnavailable_NeverClearsCredential()
+    {
+        var store = new InMemoryTokenStore();
+        var refresher = new StubTokenRefresher(null);
+        var service = MakeService(store, refresher);
+        service.StoreTokens(new DevThrottleTokens(TestJwt.Create(_now.AddHours(-1)), "refresh-1"));
+
+        await service.RefreshIfNeededAsync();
+
+        Assert.True(store.HasTokens);
+        Assert.True(service.IsLoggedIn());
+        Assert.DoesNotContain(_eventLog.ReadAll(), e => e.Kind == AuthEventLog.LoggedOut);
     }
 
     // Acceptance criterion: logout clears the store, the next check returns false, and a logout event

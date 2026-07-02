@@ -32,9 +32,10 @@ public static class GatewayAccountFactory
     public const string TestSeedTokenEnvVar = "DEVTHROTTLE_TEST_SEED_TOKEN";
 
     /// <summary>
-    /// The environment variable that configures the backend refresh-exchange endpoint the Gateway-owned
-    /// token refresher (issue #640) uses. Mirrors <see cref="GatewayHttpTokenRefresher.RefreshUrlEnvVar"/>;
-    /// when unset the refresher reports refresh unavailable and the cached credential is kept.
+    /// The environment variable that OVERRIDES the backend refresh-exchange endpoint the Gateway-owned
+    /// token refresher (issue #640) uses. Since issue #876 the endpoint defaults to the embedded
+    /// production backend (<see cref="CcDirector.Core.Account.DevThrottleAuthBackend"/>); the override
+    /// exists for tests and for pointing an install at a different backend without a rebuild.
     /// </summary>
     public const string RefreshUrlEnvVar = GatewayHttpTokenRefresher.RefreshUrlEnvVar;
 
@@ -73,11 +74,10 @@ public static class GatewayAccountFactory
             ResolveSigningSecret(),
             publicKeySetJson: DevThrottleSigningKeys.ResolvePublicKeySet());
         var eventLog = new AuthEventLog(authEventsLogPath);
-        // Issue #640: the real Gateway-owned token refresher replaces the no-op
-        // BackendUnavailableTokenRefresher. It exchanges an expired token's refresh token for a fresh
-        // pair against the backend ONLY when DEVTHROTTLE_REFRESH_URL is configured; with no endpoint
-        // configured (or it unreachable) it reports refresh unavailable and the caller keeps the cached
-        // credential (no fallback that hides the failure). A short timeout keeps a slow/unreachable
+        // Issue #640 / #876: the real Gateway-owned token refresher. It exchanges the cached refresh
+        // token for a fresh pair against the embedded production backend (environment override for
+        // tests, see DevThrottleAuthBackend). An unreachable backend keeps the cached credential; a
+        // definitive rejection (revoked session) clears it. A short timeout keeps a slow/unreachable
         // backend from holding a background refresh pass open. Tokens are never logged.
         var refresher = new GatewayHttpTokenRefresher(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
 
