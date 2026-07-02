@@ -39,6 +39,11 @@ public sealed class GatewayTrayController : IDisposable
     private static readonly TimeSpan DirectorCountHeartbeatInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan FrontDoorHeartbeatInterval = TimeSpan.FromSeconds(15);
 
+    // Issue #880: how long a /shutdown-initiated graceful quit gets before the watchdog hard-exits
+    // the process. Must stay well under the self-update helper's 20-second wait for the exe to
+    // unlock, so a wedged quit can never strand an update on the old build.
+    private static readonly TimeSpan ShutdownWatchdogGrace = TimeSpan.FromSeconds(10);
+
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly int _port;
     private readonly CancellationTokenSource _lifetime = new();
@@ -306,6 +311,19 @@ public sealed class GatewayTrayController : IDisposable
             host.OnShutdownRequested = () =>
             {
                 FileLog.Write("[GatewayTrayController] shutdown requested via /shutdown (self-update)");
+                // Issue #880: /shutdown must ALWAYS end this process - the self-update swap waits
+                // (bounded) for the exe to unlock, and a graceful quit wedged behind a stuck host
+                // stop or a frozen UI thread would strand it on the old build. The watchdog
+                // hard-exits after the grace period; every store the Gateway owns is written
+                // through on mutation, so a hard exit at shutdown time loses nothing.
+                var watchdog = new Thread(() =>
+                {
+                    Thread.Sleep(ShutdownWatchdogGrace);
+                    FileLog.Write($"[GatewayTrayController] graceful quit did not finish within {ShutdownWatchdogGrace.TotalSeconds:0}s of /shutdown -> hard process exit (issue #880 watchdog)");
+                    Environment.Exit(0);
+                })
+                { IsBackground = true, Name = "shutdown-watchdog" };
+                watchdog.Start();
                 _ = QuitAsync();
             };
             // Back the Cockpit Settings page with the tray-owned bits (run mode + autostart Run-key):
@@ -580,8 +598,18 @@ public sealed class GatewayTrayController : IDisposable
         {
             FileLog.Write("[GatewayTrayController] RestartAsync");
             SetState(HostState.Starting);
-            await StopHostAsync();
-            await StartHostAsync();
+            // Issue #880: the whole stop/start chain runs on the THREAD POOL, never inline.
+            // Run inline from the tray click, the awaits inside the host stop resumed on the
+            // UI thread, where the brain's synchronous dispose then blocked - freezing the
+            // entire tray and deadlocking the stop (its own continuations needed the blocked
+            // thread), which left a half-stopped host serving forever. Task.Run gives the
+            // chain a context-free thread; SetState/ApplyStatus marshal to the UI thread
+            // themselves, so the tray stays responsive throughout.
+            await Task.Run(async () =>
+            {
+                await StopHostAsync();
+                await StartHostAsync();
+            });
         }
         finally
         {
@@ -595,7 +623,10 @@ public sealed class GatewayTrayController : IDisposable
         _lifetime.Cancel();
         _cockpit?.Dispose();
         _cockpit = null;
-        await StopHostAsync(); // also gracefully stops the host-owned brain
+        // Issue #880: same as RestartAsync - the host stop (which also gracefully stops the
+        // host-owned brain) must never run with the UI thread's context captured, or a slow
+        // brain stop freezes the tray and wedges the quit.
+        await Task.Run(StopHostAsync);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             _flyout?.Close();

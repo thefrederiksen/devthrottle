@@ -24,7 +24,7 @@ public sealed class FakeBackend : ISessionBackend
 
     public string? StartedWorkingDir { get; private set; }
 
-    public int ProcessId { get; private set; }
+    public int ProcessId { get; set; }
 
     public string Status { get; private set; } = "NotStarted";
 
@@ -82,11 +82,16 @@ public sealed class FakeBackend : ISessionBackend
     {
     }
 
-    public Task GracefulShutdownAsync(int timeoutMs = 5000)
+    /// <summary>When set, awaited by <see cref="GracefulShutdownAsync"/> BEFORE the exit is
+    /// recorded - lets tests simulate a slow or hung shutdown (issue #880).</summary>
+    public Func<Task>? OnGracefulShutdown { get; set; }
+
+    public async Task GracefulShutdownAsync(int timeoutMs = 5000)
     {
+        if (OnGracefulShutdown is not null)
+            await OnGracefulShutdown();
         HasExited = true;
         Status = "Exited (0)";
-        return Task.CompletedTask;
     }
 
     public void Dispose()

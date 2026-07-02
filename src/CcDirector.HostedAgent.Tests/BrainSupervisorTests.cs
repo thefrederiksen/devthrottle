@@ -269,4 +269,76 @@ public class BrainSupervisorTests : IDisposable
         supervisor.Dispose();
         supervisor.Dispose(); // idempotent
     }
+
+    // ------------------------------------------- dispose is bounded (issue #880)
+
+    // Issue #880: a brain whose graceful stop never finishes must not hold the host's shutdown -
+    // Dispose returns within the grace period and takes the force-kill path.
+    [Fact]
+    public async Task Dispose_HungGracefulStop_ReturnsWithinTheGracePeriod()
+    {
+        var log = new List<string>();
+        var options = FastOptions();
+        options.Log = line => { lock (log) log.Add(line); };
+        var neverFinishes = new TaskCompletionSource();
+        FakeBackend? backend = null;
+        var supervisor = new BrainSupervisor(
+            options,
+            o => new HostedAgent(o, new FakeDriver(), () =>
+            {
+                backend = new FakeBackend { OnGracefulShutdown = () => neverFinishes.Task };
+                return backend;
+            }),
+            disposeGracePeriod: TimeSpan.FromMilliseconds(200));
+        await supervisor.GetAsync();
+        // A unit test must never force-kill a real machine process; pid 0 skips the kill call
+        // itself while still exercising the timeout path that decides to kill.
+        backend!.ProcessId = 0;
+
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        supervisor.Dispose();
+        elapsed.Stop();
+
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5),
+            $"Dispose took {elapsed.Elapsed.TotalSeconds:0.0}s - the hung stop held it past the grace period");
+        lock (log)
+            Assert.Contains(log, line => line.Contains("did not finish within"));
+        neverFinishes.SetResult(); // release the abandoned kill task
+    }
+
+    // Issue #880 regression, the production freeze: the tray disposed the brain ON the Avalonia
+    // UI thread, so the kill's await continuations were posted to that thread's synchronization
+    // context - which could never run them, because the thread was blocked inside Dispose itself.
+    // A context that swallows posts reproduces exactly that; pre-#880 this deadlocked forever.
+    [Fact]
+    public async Task Dispose_OnAThreadWhoseSynchronizationContextNeverPumps_DoesNotDeadlock()
+    {
+        var (supervisor, _, backends, _) = Build(FastOptions());
+        await supervisor.GetAsync();
+        // The await forces the graceful stop to resume on SOME context - pre-#880 that was the
+        // caller's captured (dead) context; post-#880 it is the thread pool.
+        backends[0].OnGracefulShutdown = async () => await Task.Delay(50);
+
+        var dispose = Task.Run(() =>
+        {
+            var original = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new SwallowsPostsContext());
+            try { supervisor.Dispose(); }
+            finally { SynchronizationContext.SetSynchronizationContext(original); }
+        });
+
+        // Throws TimeoutException if Dispose deadlocked against the never-pumping context.
+        await dispose.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(backends[0].HasExited); // the graceful stop genuinely completed
+    }
+
+    /// <summary>A synchronization context that queues nothing and runs nothing - the shape of a
+    /// blocked UI thread, whose dispatcher never gets to pump posted continuations.</summary>
+    private sealed class SwallowsPostsContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // A blocked UI thread never pumps: the continuation is lost, exactly like production.
+        }
+    }
 }

@@ -21,18 +21,23 @@ public sealed class BrainSupervisor : IDisposable
     private readonly HostedAgentOptions _options;
     private readonly Func<HostedAgentOptions, HostedAgent> _agentFactory;
     private readonly Action<string> _log;
+    private readonly TimeSpan _disposeGracePeriod;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private HostedAgent? _agent;
     private bool _disposed;
 
-    public BrainSupervisor(HostedAgentOptions options, Func<HostedAgentOptions, HostedAgent>? agentFactory = null)
+    public BrainSupervisor(
+        HostedAgentOptions options,
+        Func<HostedAgentOptions, HostedAgent>? agentFactory = null,
+        TimeSpan? disposeGracePeriod = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         if (string.IsNullOrWhiteSpace(options.WorkingDirectory))
             throw new ArgumentException("WorkingDirectory is required", nameof(options));
         _agentFactory = agentFactory ?? (o => new HostedAgent(o));
         _log = options.Log ?? BrainLog.Write;
+        _disposeGracePeriod = disposeGracePeriod ?? DisposeGracePeriod;
     }
 
     /// <summary>True once the brain has been created and started (it may still have died
@@ -129,6 +134,23 @@ public sealed class BrainSupervisor : IDisposable
         return agent.GetHealthAsync(ct);
     }
 
+    /// <summary>
+    /// How long <see cref="Dispose"/> waits for each stop step (the graceful kill, then the agent
+    /// dispose) before moving on (issue #880). Generous next to the hosted CLI's own 5-second
+    /// graceful-exit window, but a HARD bound: a wedged brain can never hold the host's shutdown.
+    /// </summary>
+    public static readonly TimeSpan DisposeGracePeriod = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Stops the hosted CLI and releases the supervisor, with a hard time bound on every step
+    /// (issue #880). The graceful kill runs on the THREAD POOL, never inline: Dispose ran the
+    /// kill's awaits inline pre-#880, so when the Gateway tray disposed the brain on its UI
+    /// thread, the kill's continuations were posted back to that same blocked thread - the
+    /// classic synchronous-wait-over-async deadlock. The tray froze for over an hour and the
+    /// force-kill after the CLI's 5-second grace never ran. Task.Run gives the kill a
+    /// context-free thread, and the bounded wait force-kills the hosted process tree if the
+    /// graceful stop does not finish in time - the host's shutdown always proceeds.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
@@ -136,16 +158,59 @@ public sealed class BrainSupervisor : IDisposable
         var agent = _agent;
         _agent = null;
         if (agent is not null)
-        {
-            // Synchronous best-effort graceful stop (Ctrl+C, wait, then force) so the
-            // host process exit never leaks a claude.exe; Dispose alone would only
-            // tear the pseudoconsole down.
-            try { agent.KillAsync().GetAwaiter().GetResult(); }
-            catch (Exception ex) { _log($"[BrainSupervisor] Dispose: graceful kill FAILED: {ex.Message}"); }
-            try { agent.Dispose(); }
-            catch (Exception ex) { _log($"[BrainSupervisor] Dispose: agent dispose FAILED: {ex.Message}"); }
-        }
+            StopAgentBounded(agent);
         _gate.Dispose();
+    }
+
+    private void StopAgentBounded(HostedAgent agent)
+    {
+        var pid = agent.ProcessId;
+
+        var gracefulCompleted = false;
+        try
+        {
+            var kill = Task.Run(() => agent.KillAsync());
+            gracefulCompleted = kill.Wait(_disposeGracePeriod);
+            if (!gracefulCompleted)
+            {
+                // The abandoned kill may still fault later (e.g. against the disposed agent
+                // below); observe it so the failure is logged instead of lost.
+                _ = kill.ContinueWith(
+                    t => _log($"[BrainSupervisor] Dispose: abandoned graceful kill faulted: {t.Exception?.GetBaseException().Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
+        }
+        catch (AggregateException ex)
+        {
+            // The kill ran to completion by FAILING - nothing is left to wait for.
+            _log($"[BrainSupervisor] Dispose: graceful kill FAILED: {ex.GetBaseException().Message}");
+            gracefulCompleted = true;
+        }
+
+        if (!gracefulCompleted)
+        {
+            _log($"[BrainSupervisor] Dispose: graceful stop did not finish within {_disposeGracePeriod.TotalSeconds:0.##}s -> force-killing the hosted process tree (pid={pid})");
+            try
+            {
+                if (pid > 0)
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById(pid);
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (ArgumentException) { /* process already gone - the goal state */ }
+            catch (Exception ex) { _log($"[BrainSupervisor] Dispose: force kill FAILED: {ex.Message}"); }
+        }
+
+        try
+        {
+            if (!Task.Run(agent.Dispose).Wait(_disposeGracePeriod))
+                _log($"[BrainSupervisor] Dispose: agent dispose did not finish within {_disposeGracePeriod.TotalSeconds:0.##}s -> abandoning it (the hosted process is already down; remaining handles are reclaimed at process exit)");
+        }
+        catch (AggregateException ex)
+        {
+            _log($"[BrainSupervisor] Dispose: agent dispose FAILED: {ex.GetBaseException().Message}");
+        }
     }
 
     private void ThrowIfDisposed()
