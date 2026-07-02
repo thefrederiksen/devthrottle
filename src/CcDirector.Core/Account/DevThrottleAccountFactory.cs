@@ -9,8 +9,10 @@ namespace CcDirector.Core.Account;
 /// authentication-event log, and the token refresher. It keeps the "where does the signing secret
 /// come from" concern out of the application startup code.
 ///
-/// The signing secret used to verify a cached access token's signature is read from the
-/// <c>DEVTHROTTLE_JWT_SIGNING_SECRET</c> environment variable. Until the live backend sign-in exists
+/// A cached access token's signature is verified locally: an ES256 token against the backend's
+/// published public key set (<see cref="DevThrottleSigningKeys"/>), an HS256 token against the
+/// signing secret read from the <c>DEVTHROTTLE_JWT_SIGNING_SECRET</c> environment variable. Until
+/// the live backend sign-in exists
 /// (a dependency flagged on issue #580), the gate is exercised with a test-issued token: when
 /// <c>DEVTHROTTLE_TEST_SEED_TOKEN</c> is set, this factory seeds that test token pair into the
 /// credential store on construction so the "credential present" startup outcomes can be proven. Both
@@ -49,7 +51,9 @@ public static class DevThrottleAccountFactory
         if (store is null)
             throw new ArgumentNullException(nameof(store));
 
-        var validator = new JwtAccessTokenValidator(ResolveSigningSecret());
+        var validator = new JwtAccessTokenValidator(
+            ResolveSigningSecret(),
+            publicKeySetJson: DevThrottleSigningKeys.ResolvePublicKeySet());
         var eventLog = new AuthEventLog();
         var refresher = new BackendUnavailableTokenRefresher();
 

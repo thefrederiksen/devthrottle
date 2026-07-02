@@ -3,9 +3,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using CcDirector.ControlApi;
+using CcDirector.Core.Account;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway;
+using CcDirector.Gateway.Account;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -29,6 +31,19 @@ public sealed class GatewayHostTests : IAsyncLifetime
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
 
+    /// <summary>
+    /// An in-memory <see cref="IProtectedTokenStore"/> so the test host's credential service never
+    /// touches the real Windows Data Protection store (the AccountStatusEndpointTests pattern).
+    /// </summary>
+    private sealed class InMemoryTokenStore : IProtectedTokenStore
+    {
+        private DevThrottleTokens? _tokens;
+        public bool HasTokens => _tokens is not null;
+        public void Save(DevThrottleTokens tokens) => _tokens = tokens;
+        public DevThrottleTokens? Load() => _tokens;
+        public void Clear() => _tokens = null;
+    }
+
     public async Task InitializeAsync()
     {
         // Boot a director
@@ -37,10 +52,16 @@ public sealed class GatewayHostTests : IAsyncLifetime
             instancesDirectory: _instancesDir);
         await _director.StartAsync();
 
-        // Boot a gateway on an ephemeral port (port 0)
+        // Boot a gateway on an ephemeral port (port 0). The credential service is injected over an
+        // in-memory store so the test host never reads the developer machine's REAL Windows Data
+        // Protection credential blob - without this, the signed-out assertions depend on whether the
+        // machine happens to be signed in to DevThrottle.
         _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token-12345", authEnabled: true,
             instancesDirectory: _instancesDir,
-            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
+            account: GatewayAccountFactory.Build(
+                new InMemoryTokenStore(),
+                Path.Combine(_instancesDir, "auth-events.jsonl")));
         await _gateway.StartAsync();
         _gatewayPort = _gateway.Port;
 
@@ -183,9 +204,10 @@ public sealed class GatewayHostTests : IAsyncLifetime
     }
 
     // Issue #854: the account device-list proxy is wired into the real GatewayHost (near the other
-    // /account routes) and gated by the host-wide auth middleware. This bare test host holds no account
-    // credential, so the route is reachable with the gateway token and answers the explicit signed-out
-    // envelope - proving the wiring line in GatewayHost.cs, not just the endpoint in isolation.
+    // /account routes) and gated by the host-wide auth middleware. This test host's credential service
+    // is an injected empty in-memory store, so the route is reachable with the gateway token and answers
+    // the explicit signed-out envelope - proving the wiring line in GatewayHost.cs, not just the
+    // endpoint in isolation.
     [Fact]
     public async Task AccountDevices_isWired_andSignedOutHostReturnsExplicitSignedInFalse()
     {

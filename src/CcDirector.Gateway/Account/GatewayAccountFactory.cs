@@ -14,8 +14,9 @@ namespace CcDirector.Gateway.Account;
 /// Gateway holds the one machine-wide credential rather than each Director holding its own copy.
 ///
 /// The service stores the access-plus-refresh token pair encrypted at rest (Windows Data Protection),
-/// validates it entirely locally (HMAC-SHA256 signature plus expiry, no network call), and reads the
-/// signed-in identity (email and provider) from the cached token's claims. The signing secret is read
+/// validates it entirely locally (signature plus expiry, no network call - ES256 against the backend's
+/// published public key set, or HS256 against the configured shared secret), and reads the signed-in
+/// identity (email and provider) from the cached token's claims. The HS256 signing secret is read
 /// from the <c>DEVTHROTTLE_JWT_SIGNING_SECRET</c> environment variable and the
 /// <c>DEVTHROTTLE_TEST_SEED_TOKEN</c> environment variable seeds a test token pair on construction so
 /// the Gateway-hosted credential can be proven before the live browser sign-in (issue #637) exists.
@@ -68,7 +69,9 @@ public static class GatewayAccountFactory
         if (string.IsNullOrWhiteSpace(authEventsLogPath))
             throw new ArgumentException("Authentication-event log path is required", nameof(authEventsLogPath));
 
-        var validator = new JwtAccessTokenValidator(ResolveSigningSecret());
+        var validator = new JwtAccessTokenValidator(
+            ResolveSigningSecret(),
+            publicKeySetJson: DevThrottleSigningKeys.ResolvePublicKeySet());
         var eventLog = new AuthEventLog(authEventsLogPath);
         // Issue #640: the real Gateway-owned token refresher replaces the no-op
         // BackendUnavailableTokenRefresher. It exchanges an expired token's refresh token for a fresh
