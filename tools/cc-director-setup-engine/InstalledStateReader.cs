@@ -104,7 +104,15 @@ public sealed class InstalledStateReader
     /// carries neither, so it reads as null ("present but version unknown", which the
     /// planner answers by re-applying the release so the version gets recorded).
     /// </summary>
-    private static string? DefaultReadVersion(string path)
+    private static string? DefaultReadVersion(string path) => ReadVersionFromDisk(path);
+
+    /// <summary>
+    /// The version a build on disk declares about ITSELF, for any path - not only a component's
+    /// installed location. Public because a build that has been downloaded but not yet installed has
+    /// no manifest entry to be looked up in, and the file's own stamp is then the only thing that can
+    /// say what it is (the staged launcher <see cref="LauncherUpdateOwner"/> is about to install).
+    /// </summary>
+    public static string? ReadVersionFromDisk(string path)
     {
         if (OperatingSystem.IsWindows())
         {

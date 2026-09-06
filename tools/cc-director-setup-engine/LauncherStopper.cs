@@ -140,23 +140,17 @@ public sealed class LauncherStopper
     }
 
     /// <summary>
-    /// The launcher processes that belong to THIS install. Matched on the command line beginning with
-    /// the install-owned launcher directory plus a separator - a bare prefix would also match a sibling
-    /// like "&lt;LauncherDir&gt;-dev", which is somebody else's launcher.
+    /// The launcher processes that belong to THIS install. The scoping rule itself lives in
+    /// <see cref="InstalledLauncherProcesses.Ours"/>, because the Director's ownership of the
+    /// launcher's update has to answer the same question the same way.
     /// </summary>
     private List<LauncherProcess> Ours(out bool listed)
     {
-        var dir = _layout.LauncherDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var prefixes = new[] { dir + Path.DirectorySeparatorChar, dir + Path.AltDirectorySeparatorChar };
-
         try
         {
             var all = ListLauncherProcesses();
             listed = true;
-            return all
-                .Where(p => !string.IsNullOrEmpty(p.CommandLine)
-                            && prefixes.Any(prefix => p.CommandLine.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
+            return InstalledLauncherProcesses.Ours(_layout.LauncherDir, all);
         }
         catch (Exception ex)
         {
@@ -193,47 +187,8 @@ public sealed class LauncherStopper
         }
     }
 
-    /// <summary>
-    /// Every cc-launcher process, with its full command line. Windows reads the main module; macOS and
-    /// Linux ask ps, whose output is NOT quoted - so the whole argument string is kept and the caller
-    /// compares prefixes rather than trying to parse an executable out of it.
-    /// </summary>
-    private static IReadOnlyList<LauncherProcess> DefaultListLauncherProcesses()
-    {
-        var found = new List<LauncherProcess>();
-
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (var p in Process.GetProcessesByName("cc-launcher"))
-            {
-                try { found.Add(new LauncherProcess(p.Id, p.MainModule?.FileName ?? "")); }
-                catch (Exception ex) { EngineLog.Write($"[LauncherStopper] pid={p.Id}: {ex.Message}"); }
-                finally { p.Dispose(); }
-            }
-            return found;
-        }
-
-        var psi = new ProcessStartInfo("/bin/ps") { RedirectStandardOutput = true, UseShellExecute = false };
-        psi.ArgumentList.Add("-axo");
-        psi.ArgumentList.Add("pid=,args=");
-        using var ps = Process.Start(psi)
-                       ?? throw new InvalidOperationException("could not run /bin/ps");
-        var output = ps.StandardOutput.ReadToEnd();
-        ps.WaitForExit(5000);
-
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = line.TrimStart();
-            var space = trimmed.IndexOf(' ');
-            if (space <= 0) continue;
-            if (!int.TryParse(trimmed[..space], out var pid)) continue;
-
-            var commandLine = trimmed[(space + 1)..].Trim();
-            if (!commandLine.Contains("cc-launcher", StringComparison.Ordinal)) continue;
-            found.Add(new LauncherProcess(pid, commandLine));
-        }
-        return found;
-    }
+    /// <summary>Every cc-launcher process on the machine - see <see cref="InstalledLauncherProcesses.List"/>.</summary>
+    private static IReadOnlyList<LauncherProcess> DefaultListLauncherProcesses() => InstalledLauncherProcesses.List();
 
     /// <summary>
     /// Ask, then insist. The real orphan ignored a polite termination request, so a stop that stops at
