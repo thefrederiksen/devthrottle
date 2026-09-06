@@ -26,6 +26,11 @@ public enum DirectorUpdateDecision
     HeldBecauseBusy,
     /// <summary>An update is staged but the Director could not be asked whether it is busy, so it waits.</summary>
     HeldBecauseUnknown,
+    /// <summary>
+    /// An update is staged, but another binary swap is already running on this machine - a Director
+    /// installing the launcher's own update, or a second launcher. Nothing was touched.
+    /// </summary>
+    HeldBecauseAnotherSwapIsRunning,
     /// <summary>An update is staged but the Director is not running, and it is not this loop's business to start one.</summary>
     HeldBecauseDirectorNotRunning,
     /// <summary>The staged update is one that already failed to start and was pinned away from.</summary>
@@ -87,6 +92,13 @@ public sealed class DirectorUpdateOwner
         // answers anything, and this has to be long enough that a slow machine is not called a failure.
         _healthTimeout = healthTimeout ?? TimeSpan.FromMinutes(3);
     }
+
+    /// <summary>
+    /// The machine-wide lock this swap takes. <see cref="BinarySwapLock.Name"/> in production, always;
+    /// a test overrides it so it can hold a lock of its own without contending with everything else on
+    /// the machine. See the parameter note on <see cref="BinarySwapLock.RunExclusivelyAsync"/>.
+    /// </summary>
+    public string SwapLockName { get; init; } = BinarySwapLock.Name;
 
     /// <summary>
     /// Decide whether a staged update may be installed right now: only when one is staged AND the
@@ -206,6 +218,28 @@ public sealed class DirectorUpdateOwner
                       + $"target={staged.InstallTarget}, sessions=0, currentVersion="
                       + $"{(status.Version.Length > 0 ? status.Version : "unknown")}");
 
+        // THE SWAP IS EXCLUSIVE, MACHINE-WIDE (issue #2719). The Director now owns the LAUNCHER's
+        // update, which stops and replaces this process while it runs - so the two owners stop each
+        // other's process and each one destroys the other's evidence. Taken here, BEFORE the staged
+        // record is cleared: clearing it and then finding the lock held would throw away the record of
+        // a download for a pass that did nothing. See BinarySwapLock for both directions of the race.
+        return await BinarySwapLock.RunExclusivelyAsync(
+            () => SwapAsync(staged, conflictNote, ct),
+            whenBusy: why =>
+            {
+                FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged, but {why}");
+                return Record(staged, DirectorUpdateDecision.HeldBecauseAnotherSwapIsRunning, conflictNote + why);
+            },
+            who: "director-update",
+            name: SwapLockName);
+    }
+
+    /// <summary>
+    /// The swap itself, run while <see cref="BinarySwapLock"/> is held: claim the staged record, stop,
+    /// replace, start, and wait for the new version to answer.
+    /// </summary>
+    private async Task<DirectorUpdateDecision> SwapAsync(StagedDirectorUpdate staged, string conflictNote, CancellationToken ct)
+    {
         // Claim it BEFORE anything is started, so no Director that comes up during this can hand itself
         // to its own swap. See the class comment - the alternative is a rollback loop into a dead build.
         ClearStagedRecord(staged);

@@ -19,6 +19,16 @@ public class LauncherUpdateOwnerTests : IDisposable
     private readonly string _staged;
     private readonly string _registration;
 
+    /// <summary>
+    /// This test class's own machine-wide lock. The real one is shared with the launcher's Director
+    /// update owner and with every other Director on the machine, so taking it here would make one
+    /// test project fail another - including the one running from a different worktree in the same
+    /// gate. That both PRODUCTION owners take the real one is asserted separately, by
+    /// BothUpdateOwnersTakeTheSameLockTests in CcDirector.Launcher.Tests - the one project that can
+    /// see both owners at once.
+    /// </summary>
+    private readonly string _swapLockName = @"Local\cc-director-binary-swap-test-" + Guid.NewGuid().ToString("N");
+
     private const string InstalledVersion = "1.9.8";
     private const string StagedVersion = "2.0.4";
 
@@ -86,6 +96,7 @@ public class LauncherUpdateOwnerTests : IDisposable
             apply: new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromSeconds(1)),
             witnessTimeout: TimeSpan.FromMilliseconds(400))
         {
+            SwapLockName = _swapLockName,
             ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = root => { quitRequests?.Add(root); return false; },
@@ -198,11 +209,12 @@ public class LauncherUpdateOwnerTests : IDisposable
     }
 
     [Fact]
-    public async Task ARunningLauncherThatIsAlreadyTheStagedVersion_InstallsNothing()
+    public async Task ARunningLauncherThatIsAlreadyTheStagedVersion_AND_COMMANDABLE_InstallsNothing()
     {
         WriteRegistration(1001, StagedVersion);
         var stopped = new List<int>();
-        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped);
+        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped,
+            oldBuildListens: true);
 
         var result = await owner.RunOnceAsync();
 
@@ -211,6 +223,44 @@ public class LauncherUpdateOwnerTests : IDisposable
         Assert.Equal("launcher-OLD", File.ReadAllText(_target));
         // ...and the manifest is corrected, so the record and the running build stop disagreeing.
         Assert.Equal(StagedVersion, InstalledManifest.Load(_layout).Get(ComponentRegistry.Launcher.Id));
+    }
+
+    [Fact]
+    public async Task ARunningLauncherThatIsAlreadyTheStagedVersionButCANNOTBeCommanded_IsReplacedAnyway()
+    {
+        // THE TEST THAT USED TO SAY THE OPPOSITE. This shortcut asked only whether the process was
+        // ALIVE and reported the staged version, and then wrote that version into the installed
+        // manifest - so a launcher that is the right version and can be told nothing was blessed, the
+        // record was made to agree with it, and the pass reported nothing to do for ever. That is the
+        // machine this whole change exists for, certified as healthy by the thing meant to catch it.
+        WriteRegistration(1001, StagedVersion);
+        var stopped = new List<int>();
+        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped,
+            oldBuildListens: false);
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.Applied, result.Decision);
+        Assert.Equal(new[] { 1001 }, stopped);
+        Assert.Equal("launcher-NEW", File.ReadAllText(_target));
+    }
+
+    [Fact]
+    public async Task AVersionThatWasNeverWitnessed_IsNeverRecordedAsInstalled()
+    {
+        // The half of the same defect that outlives the pass: the shortcut did not merely decline to
+        // act, it WROTE the unwitnessed version into the manifest. The manifest is what FindStagedUpdate
+        // compares against, so once written, the staged build stops being "newer" and the retry that
+        // would have fixed the machine can never happen again.
+        WriteRegistration(1001, StagedVersion);
+        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: false, oldBuildListens: false);
+
+        _ = await owner.RunOnceAsync();
+
+        // The swap ran and rolled back, so what is installed is still the old build - and the manifest
+        // must say so rather than claiming the version nothing ever proved.
+        Assert.Equal("launcher-OLD", File.ReadAllText(_target));
+        Assert.NotEqual(StagedVersion, InstalledManifest.Load(_layout).Get(ComponentRegistry.Launcher.Id));
     }
 
     [Fact]
@@ -248,15 +298,119 @@ public class LauncherUpdateOwnerTests : IDisposable
     }
 
     [Fact]
-    public async Task WhenTheDirectorNoLongerHoldsItsInstance_TheResultSaysSo()
+    public async Task AfterARollback_TheMachineIsReportedAsWHATITIS_NotMerelyAsRestored()
     {
+        // A rollback that puts the file back and leaves the machine uncommandable is only half an
+        // answer, and the half it reports is the reassuring one. What the rollback restores here is a
+        // launcher that listens for nothing - which is the state the whole change exists to end - so
+        // the reading taken after the swap must say so rather than the result implying a machine
+        // returned to health. The rollback IS the right action; this asserts it is not oversold.
+        var running = new List<LauncherProcess> { InstalledLauncher() };
+        var owner = Owner(running, newBuildIsCommandable: false, oldBuildListens: false);
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.RolledBack, result.Decision);
+        var afterTheSwap = Assert.Single(result.Steps, s => s.StartsWith("after the swap:", StringComparison.Ordinal));
+        Assert.Contains("nothing is listening", afterTheSwap);
+    }
+
+    [Fact]
+    public async Task WhereTheCommandSurfaceCannotBeObserved_NothingIsSwappedAtAll()
+    {
+        // On a platform that cannot be asked who is listening, EVERY swap would install, fail to
+        // certify for the whole witness timeout, roll back, and PIN a build that was probably fine.
+        // Refusing up front, naming the platform fact, is the honest form of the same answer - and it
+        // is the deliberate resolution of letting the witness pass on a live registration alone, which
+        // would have reintroduced liveness-only proof on the one platform nobody watches.
+        var stopped = new List<int>();
+        var running = new List<LauncherProcess> { InstalledLauncher() };
+        var owner = new LauncherUpdateOwner(
+            _root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => true,
+                HasListener = _ => null,      // the Unix answer: not observable
+            },
+            apply: new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromSeconds(1)),
+            witnessTimeout: TimeSpan.FromMilliseconds(400))
+        {
+            SwapLockName = _swapLockName,
+            ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
+            ListLauncherProcesses = () => running.ToList(),
+            StopProcess = pid => { stopped.Add(pid); return true; },
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.HeldBecauseTheCommandSurfaceCannotBeObserved, result.Decision);
+        Assert.Contains("cannot be observed on this platform", result.Message);
+        Assert.Empty(stopped);
+        Assert.Equal("launcher-OLD", File.ReadAllText(_target));
+    }
+
+    [Fact]
+    public async Task WhileAnotherBinarySwapHoldsTheMachineWideLock_NothingIsTouched()
+    {
+        // The launcher may at that moment be installing the DIRECTOR's staged update, which stops this
+        // process mid-swap. Held from outside, this pass must do nothing at all - not stop the
+        // launcher, not replace the binary - and must say which state it was in.
+        var stopped = new List<int>();
+        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped);
+
+        using var heldByAnotherSwap = new Mutex(initiallyOwned: false, _swapLockName, out _);
+        Assert.True(heldByAnotherSwap.WaitOne(TimeSpan.FromSeconds(5)), "could not take the lock to set the test up");
+        try
+        {
+            var result = await owner.RunOnceAsync();
+
+            Assert.Equal(LauncherUpdateDecision.HeldBecauseAnotherSwapIsRunning, result.Decision);
+            Assert.Contains("another binary swap is already running", result.Message);
+            Assert.Empty(stopped);
+            Assert.Equal("launcher-OLD", File.ReadAllText(_target));
+        }
+        finally { heldByAnotherSwap.ReleaseMutex(); }
+    }
+
+    [Fact]
+    public async Task WhenTheDirectorNoLongerHoldsItsInstance_ThatIsItsOwnDecision_NotAnAppliedWithANote()
+    {
+        // The no-orphan check used to return Applied with a longer message, so a caller switching on
+        // the decision - which is what a caller does - read the worst outcome this class can produce as
+        // a success, with the warning riding in a string nothing inspects.
         var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, directorSurvives: false);
 
         var result = await owner.RunOnceAsync();
 
-        Assert.Equal(LauncherUpdateDecision.Applied, result.Decision);
+        Assert.Equal(LauncherUpdateDecision.AppliedButThisDirectorLostItsInstance, result.Decision);
+        Assert.NotEqual(LauncherUpdateDecision.Applied, result.Decision);
         Assert.Contains("NO LONGER HOLDS ITS INSTANCE", result.Message);
         Assert.Contains(result.Steps, s => s.Contains("NO LONGER HOLDS ITS INSTANCE"));
+    }
+
+    [Fact]
+    public void TheStartedLauncher_IsTOLDWhichRootToServe_NotMerelyDeniedTheWrongOne()
+    {
+        // FOUND BY THE END-TO-END RIG, NOT BY READING. This removed CC_DIRECTOR_ROOT from the child's
+        // environment, reasoning that a launcher must not inherit a Director's instance home. True, and
+        // not enough: removing the variable does not name the right root, it only stops naming a wrong
+        // one, and the child then falls back on the process default - which equals this install's root
+        // only when the install sits at the default path.
+        //
+        // On 2026-09-06 scripts/launcher-swap-proof.ps1 swapped a launcher on an isolated root and the
+        // new build resolved to the MACHINE'S root instead, found the real launcher there, and exited
+        // as a second instance. It never registered where the witness looked, so the witness refused,
+        // the swap rolled back, and a good build was PINNED - four starts across two runs, all four the
+        // same. An install away from the default path would have been left permanently refusing its own
+        // launcher update, with the log blaming the build.
+        var psi = LauncherUpdateOwner.BuildLauncherStartInfo(_layout);
+
+        Assert.Equal(_root, psi.Environment["CC_DIRECTOR_ROOT"]);
+        Assert.Equal(_target, psi.FileName);
+        Assert.Contains(LauncherTrayInstaller.InstalledArguments, psi.ArgumentList);
+        Assert.False(psi.UseShellExecute);
     }
 
     [Fact]

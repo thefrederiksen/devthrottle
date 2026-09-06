@@ -29,11 +29,26 @@ public sealed record LauncherWitnessReading(
 {
     /// <summary>
     /// The whole point of this class: a launcher counts as WITNESSED only when a live process is
-    /// registered AND its command surface is not absent. A process that started is not evidence of
-    /// anything - the failure this exists to catch looks exactly like a healthy launcher from the
-    /// outside.
+    /// registered AND a listener actually answers for its command surface. A process that started is
+    /// not evidence of anything - the failure this exists to catch looks exactly like a healthy
+    /// launcher from the outside.
+    ///
+    /// NOT OBSERVABLE IS NOT WITNESSED, AND THAT IS THE DELIBERATE ANSWER. This first accepted
+    /// <see cref="LauncherCommandSurface.NotObservable"/> on the reasoning that a Unix listener cannot
+    /// be observed at all, so refusing there would refuse for ever. But accepting it means that on
+    /// Unix a live registration ALONE passes - which is precisely the liveness-only proof this class
+    /// exists to forbid, reintroduced on the one platform where nobody would notice. A witness that
+    /// cannot fail on a platform is not a witness on that platform.
+    ///
+    /// So the boolean stays honest and the CALLER carries the consequence:
+    /// <see cref="LauncherUpdateOwner"/> refuses to swap a launcher at all where the surface cannot be
+    /// observed, and says so, rather than installing a build it could never certify and rolling it
+    /// back three minutes later. Concretely: the Director's ownership of the launcher's update is
+    /// WINDOWS-ONLY until the launcher publishes its own capability - a fact the launcher could state
+    /// about itself in its registration, which would make this observable everywhere and is the right
+    /// fix when Phase 0 is extended beyond Windows.
     /// </summary>
-    public bool Witnessed => Registered && ProcessAlive && CommandSurface != LauncherCommandSurface.Absent;
+    public bool Witnessed => Registered && ProcessAlive && CommandSurface == LauncherCommandSurface.Present;
 }
 
 /// <summary>
@@ -57,6 +72,15 @@ public sealed record LauncherWitnessReading(
 /// CONNECTED is a different question with a different answer and a different fix, and it belongs to
 /// the capability query that reports NotConnected apart from NotStreamCapable.
 ///
+/// WHAT THE LISTENER PROVES, AND WHAT IT DOES NOT. A listener answering means the named signal's
+/// handle EXISTS in this logon session - the launcher got far enough to arm it. It does not prove the
+/// thread behind it is still pumping, so a launcher that armed its signals and then wedged reads as
+/// commandable here. That gap is not closed, and it cannot be closed by a stronger read: the only
+/// proof that a signal is being SERVICED is raising it, and raising this one restarts a Director as a
+/// side effect of the question. A capability check may not have consequences, so the limit is stated
+/// rather than traded for a destructive probe. It is also a much smaller gap than the one this
+/// replaces - the failure being fixed is a launcher that arms nothing at all.
+///
 /// THE ROOT IS THE SHARED ONE, NEVER THE CALLING PROCESS'S OWN. A Director redirects its whole data
 /// tree to its instance home, so <see cref="LauncherDiscovery.DefaultPath"/> read from inside a
 /// Director points at <c>instances/&lt;slug&gt;/config/launcher/launcher.json</c> - a file no launcher
@@ -74,9 +98,13 @@ public sealed class LauncherWitness
         _sharedRoot = sharedRoot;
     }
 
-    /// <summary>The registration file the launcher serving this root writes about itself.</summary>
+    /// <summary>
+    /// The registration file the launcher serving this root writes about itself. Composed by
+    /// <see cref="InstallLayout"/>, which owns every path inside an install - a second spelling of
+    /// this one here would be a copy free to drift from the one the launcher actually writes to.
+    /// </summary>
     public static string RegistrationPathFor(string sharedRoot)
-        => Path.Combine(sharedRoot, "config", "launcher", "launcher.json");
+        => new InstallLayout(sharedRoot).LauncherRegistrationPath;
 
     /// <summary>Where this witness reads the registration from. Overridable for tests.</summary>
     public string RegistrationPath { get; init; } = "";
@@ -147,7 +175,7 @@ public sealed class LauncherWitness
         try
         {
             var running = InstalledLauncherProcesses.Ours(
-                Path.Combine(_sharedRoot, "launcher"), ListLauncherProcesses());
+                new InstallLayout(_sharedRoot).LauncherDir, ListLauncherProcesses());
             if (running.Count == 0) return "";
 
             var pids = string.Join(", ", running.Select(p => p.Pid));

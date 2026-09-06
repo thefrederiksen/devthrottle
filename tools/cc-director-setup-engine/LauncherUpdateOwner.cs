@@ -22,11 +22,38 @@ public enum LauncherUpdateDecision
     /// <summary>A newer build is staged but which process the launcher IS could not be established, so nothing was touched.</summary>
     HeldBecauseUndecidable,
 
+    /// <summary>
+    /// A newer build is staged, but on this platform a launcher cannot be observed to hold a command
+    /// surface at all, so no swap could ever be certified. Nothing was touched. See
+    /// <see cref="LauncherWitnessReading.Witnessed"/>: this is Windows-only until the launcher
+    /// publishes its own capability.
+    /// </summary>
+    HeldBecauseTheCommandSurfaceCannotBeObserved,
+
+    /// <summary>
+    /// A newer build is staged, but another binary swap is already running on this machine - the
+    /// launcher installing the Director's update, or a second Director installing the launcher's.
+    /// Nothing was touched; the next pass looks again.
+    /// </summary>
+    HeldBecauseAnotherSwapIsRunning,
+
     /// <summary>The staged build is one that already failed to come up and was pinned away from.</summary>
     SkippedPinnedBadVersion,
 
     /// <summary>The update was applied and the new launcher was witnessed alive and commandable.</summary>
     Applied,
+
+    /// <summary>
+    /// The launcher was replaced and witnessed, AND THIS DIRECTOR NO LONGER HOLDS ITS INSTANCE. The
+    /// swap stopped a process that on Windows is this Director's parent, so the one thing that had to
+    /// stay true did not: either this process was taken with it, or the new launcher started a second
+    /// Director over the same home.
+    ///
+    /// It is its own answer and not an <see cref="Applied"/> with a longer sentence, because a caller
+    /// that switches on the decision would otherwise read the worst outcome this class can produce as
+    /// a success - and the message that carried the warning is the part nothing switches on.
+    /// </summary>
+    AppliedButThisDirectorLostItsInstance,
 
     /// <summary>The update was applied, the new launcher was never witnessed, and the previous build was put back.</summary>
     RolledBack,
@@ -127,8 +154,12 @@ public sealed class LauncherUpdateOwner
     public Func<string, bool> RequestQuit { get; init; } =
         root => LifecycleSignal.Raise(LifecycleSignalNames.LauncherShutdown(root));
 
-    /// <summary>Stop ONE process id, escalating from polite to insistent. NEVER a process tree.</summary>
-    public Func<int, bool> StopProcess { get; init; } = DefaultStopProcess;
+    /// <summary>
+    /// Stop ONE process id, escalating from polite to insistent. NEVER a process tree - the rule lives
+    /// in <see cref="SingleProcessStop"/>, which is the only place in the swap path that kills
+    /// anything, so this file contains no kill to get wrong.
+    /// </summary>
+    public Func<int, bool> StopProcess { get; init; } = SingleProcessStop.Stop;
 
     /// <summary>Start the installed launcher in managed mode. Returns the process id, or 0 when it could not be started.</summary>
     public Func<InstallLayout, int> StartLauncher { get; init; } = DefaultStartLauncher;
@@ -138,6 +169,13 @@ public sealed class LauncherUpdateOwner
     /// a test supplies one, because a fake build has no version resource to read.
     /// </summary>
     public Func<string, string?> ReadVersionOnDisk { get; init; } = InstalledStateReader.ReadVersionFromDisk;
+
+    /// <summary>
+    /// The machine-wide lock this swap takes. <see cref="BinarySwapLock.Name"/> in production, always;
+    /// a test overrides it so it can hold a lock of its own without contending with everything else on
+    /// the machine. See the parameter note on <see cref="BinarySwapLock.RunExclusivelyAsync"/>.
+    /// </summary>
+    public string SwapLockName { get; init; } = BinarySwapLock.Name;
 
     /// <summary>How long to wait for the stopped launcher's processes to go before insisting.</summary>
     public TimeSpan GracefulStopTimeout { get; init; } = TimeSpan.FromSeconds(15);
@@ -195,13 +233,46 @@ public sealed class LauncherUpdateOwner
         // loop reopens - the same rule the launcher applies to a closed Director, for the same reason:
         // starting an application somebody deliberately closed is not an update.
         var reading = _witness.Read();
-        if (reading.ProcessAlive && VersionsMatch(staged.Version, reading.Version))
+
+        // WHERE A LAUNCHER CANNOT BE WITNESSED, NOTHING IS SWAPPED. On a platform whose command surface
+        // cannot be observed at all, every swap this class performed would install the new build, fail
+        // to certify it for the whole witness timeout, roll it back and PIN it - churning the machine
+        // and permanently blacklisting a build that was probably fine. Refusing up front, and saying
+        // which platform fact caused it, is the honest form of the same answer. See
+        // LauncherWitnessReading.Witnessed for why the alternative - letting the witness pass on a live
+        // registration alone - is the liveness-only proof this whole class exists to forbid.
+        if (reading.CommandSurface == LauncherCommandSurface.NotObservable)
         {
-            FileLog.Write($"[LauncherUpdateOwner] the running launcher already reports {reading.Version}; nothing to install.");
+            var notObservable =
+                $"{staged.Version} is staged, but whether a launcher holds a command surface cannot be "
+                + "observed on this platform, so a swap could never be certified. The Director's "
+                + "ownership of the launcher's update is Windows-only until the launcher publishes its "
+                + "own capability.";
+            FileLog.Write($"[LauncherUpdateOwner] {notObservable}");
+            return LauncherUpdateResult.Of(
+                LauncherUpdateDecision.HeldBecauseTheCommandSurfaceCannotBeObserved, notObservable);
+        }
+
+        // ALREADY THE RIGHT BUILD - BUT ONLY IF IT CAN BE COMMANDED. This asked whether the running
+        // process was ALIVE and reported the staged version, and then wrote that version into the
+        // installed manifest. A launcher that is the right version and holds no command surface is
+        // exactly the machine this whole change exists for, and that shortcut blessed it: the manifest
+        // then agreed with the binary, so the pass reported nothing to do for ever and the machine
+        // stayed uncommandable in silence. The version is recorded only when it was WITNESSED, and an
+        // unwitnessed match falls through to the swap, which is the retry that fixes it.
+        if (reading.Witnessed && VersionsMatch(staged.Version, reading.Version))
+        {
+            FileLog.Write($"[LauncherUpdateOwner] the running launcher already reports {reading.Version} and is "
+                          + "commandable; nothing to install.");
             RecordInstalledVersion(staged.Version);
             return LauncherUpdateResult.Of(LauncherUpdateDecision.NothingStaged,
-                $"The running launcher already reports {reading.Version}.");
+                $"The running launcher already reports {reading.Version} and can be commanded.");
         }
+
+        if (reading.ProcessAlive && VersionsMatch(staged.Version, reading.Version))
+            FileLog.Write($"[LauncherUpdateOwner] the running launcher already reports {reading.Version}, but it is "
+                          + $"NOT witnessed ({reading.Detail}). Reinstalling it rather than recording a version that "
+                          + "was never proved commandable.");
 
         List<LauncherProcess> ours;
         try
@@ -236,6 +307,24 @@ public sealed class LauncherUpdateOwner
         FileLog.Write($"[LauncherUpdateOwner] installing launcher {staged.Version}: staged={staged.StagedBuild}, "
                       + $"target={staged.InstallTarget}, running={reading.Detail}");
 
+        // THE SWAP IS EXCLUSIVE, MACHINE-WIDE. The launcher may at this very moment be installing the
+        // DIRECTOR's staged update - which stops this process, mid-swap, with the launcher binary
+        // already renamed aside. See BinarySwapLock for both directions of that race and for what the
+        // lock does not cover.
+        return await BinarySwapLock.RunExclusivelyAsync(
+            () => SwapAsync(staged, ct),
+            whenBusy: why => LauncherUpdateResult.Of(LauncherUpdateDecision.HeldBecauseAnotherSwapIsRunning,
+                $"{staged.Version} is staged, but {why}"),
+            who: "launcher-update",
+            name: SwapLockName);
+    }
+
+    /// <summary>
+    /// The swap itself, run while <see cref="BinarySwapLock"/> is held: stop, replace, start, witness,
+    /// and then check that this Director survived it.
+    /// </summary>
+    private async Task<LauncherUpdateResult> SwapAsync(StagedLauncherUpdate staged, CancellationToken ct)
+    {
         var result = await _apply.ApplyAsync(
             staged.InstallTarget,
             staged.StagedBuild,
@@ -269,8 +358,13 @@ public sealed class LauncherUpdateOwner
         foreach (var step in steps)
             FileLog.Write($"[LauncherUpdateOwner]   step: {step}");
 
+        // THE NO-ORPHAN CHECK IS AN INVARIANT, NOT A NOTE. A failed check used to return Applied with a
+        // longer message, so every caller that switched on the decision - which is what a caller does -
+        // read "the launcher swap orphaned this Director" as a successful update, and the warning rode
+        // along in a string nothing inspects. It gets its own answer, which cannot be mistaken for one.
         var decision = result.Outcome switch
         {
+            SelfUpdateOutcome.Updated when !stillOurs => LauncherUpdateDecision.AppliedButThisDirectorLostItsInstance,
             SelfUpdateOutcome.Updated => LauncherUpdateDecision.Applied,
             SelfUpdateOutcome.RolledBack => LauncherUpdateDecision.RolledBack,
             _ => LauncherUpdateDecision.Failed,
@@ -435,67 +529,58 @@ public sealed class LauncherUpdateOwner
     // ---- production implementations ----
 
     /// <summary>
-    /// Ask, then insist - on ONE process, never its tree. See <see cref="StopInstalledLauncher"/> for
-    /// why the tree is forbidden here.
+    /// How the installed launcher is started: in managed mode, and NAMING the storage root it is to
+    /// serve. Separated from the start itself so the environment it is given can be asserted - the
+    /// value here is the whole difference between a swap that comes up and one that silently does not.
+    ///
+    /// <c>CC_DIRECTOR_ROOT</c> IS SET, NOT REMOVED, AND THAT IS THE POINT. A Director sets that
+    /// variable to its own INSTANCE HOME, and a child inherits it - so a launcher started from inside a
+    /// Director without any handling takes the instance home for the machine root and goes on to
+    /// supervise, register and signal in a tree no installer has ever written. This first fixed that by
+    /// REMOVING the variable, which is the right intent and the wrong mechanism: removing it does not
+    /// name the correct root, it merely stops naming the wrong one and leaves the child to fall back on
+    /// the process default. That default is the same thing as this install's root only when the install
+    /// happens to sit at the default location.
+    ///
+    /// Where it does not, the failure is silent and expensive, and it was OBSERVED rather than
+    /// reasoned about: on 2026-09-06 the end-to-end rig (scripts/launcher-swap-proof.ps1) swapped a
+    /// launcher on an isolated root, started the new build with the variable removed, and the new
+    /// process resolved to the MACHINE'S root instead - where it found the real launcher already
+    /// running and logged "CC Launcher already running in this session; exiting second instance". It
+    /// therefore never registered where the witness was looking, the witness correctly refused, the
+    /// swap rolled back, and a perfectly good build was PINNED. Four starts across two runs, all four
+    /// identical. An install that is not at the default path would have been left permanently refusing
+    /// its own launcher update, and the log would have said the build was bad.
+    ///
+    /// So the root is stated positively. It also still does the original job: an explicit value cannot
+    /// be an inherited instance home.
     /// </summary>
-    private static bool DefaultStopProcess(int pid)
+    public static ProcessStartInfo BuildLauncherStartInfo(InstallLayout layout)
     {
-        try
-        {
-            using var p = Process.GetProcessById(pid);
-            try
-            {
-                p.CloseMainWindow();
-                if (p.WaitForExit(3000)) return true;
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[LauncherUpdateOwner] polite stop of pid={pid} failed: {ex.Message}");
-            }
+        ArgumentNullException.ThrowIfNull(layout);
 
-            p.Kill(entireProcessTree: false);
-            return p.WaitForExit(5000);
-        }
-        catch (ArgumentException)
+        var psi = new ProcessStartInfo
         {
-            return true;   // already gone
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[LauncherUpdateOwner] stopping pid={pid} failed: {ex.Message}");
-            return false;
-        }
+            FileName = layout.PathFor(ComponentRegistry.Launcher),
+            WorkingDirectory = layout.LauncherDir,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add(LauncherTrayInstaller.InstalledArguments);
+        psi.Environment["CC_DIRECTOR_ROOT"] = layout.LocalRoot;
+        return psi;
     }
 
-    /// <summary>
-    /// Start the installed launcher in managed mode, with a CLEAN storage root.
-    ///
-    /// <c>CC_DIRECTOR_ROOT</c> is removed from the child's environment, and that line is load-bearing.
-    /// A Director sets that variable to its own instance home and a child inherits it, so a launcher
-    /// started from inside a Director without this would take the instance home for the machine root
-    /// and go on to supervise, register and signal in a tree no installer has ever written. The
-    /// installer starts the launcher with ShellExecute and needs none of this, because the installer's
-    /// own environment is clean - which is why this cannot simply reuse its launch.
-    /// </summary>
+    /// <summary>Start the installed launcher. See <see cref="BuildLauncherStartInfo"/> for the environment.</summary>
     private static int DefaultStartLauncher(InstallLayout layout)
     {
         try
         {
-            var exe = layout.PathFor(ComponentRegistry.Launcher);
-            var psi = new ProcessStartInfo
-            {
-                FileName = exe,
-                WorkingDirectory = layout.LauncherDir,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add(LauncherTrayInstaller.InstalledArguments);
-            psi.Environment.Remove("CC_DIRECTOR_ROOT");
-
+            var psi = BuildLauncherStartInfo(layout);
             using var started = Process.Start(psi)
-                ?? throw new InvalidOperationException($"Process.Start returned null for {exe}");
-            FileLog.Write($"[LauncherUpdateOwner] started the launcher: pid={started.Id}, exe={exe} "
-                          + LauncherTrayInstaller.InstalledArguments);
+                ?? throw new InvalidOperationException($"Process.Start returned null for {psi.FileName}");
+            FileLog.Write($"[LauncherUpdateOwner] started the launcher: pid={started.Id}, exe={psi.FileName} "
+                          + $"{LauncherTrayInstaller.InstalledArguments}, CC_DIRECTOR_ROOT={layout.LocalRoot}");
             return started.Id;
         }
         catch (Exception ex)

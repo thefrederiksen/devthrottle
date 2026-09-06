@@ -503,22 +503,29 @@ public partial class App : Application
                             outcome = await Updater.CheckAndStageAsync();
                             var toolResult = await new CcDirector.Setup.Engine.ToolUpdater(layout).RefreshAsync();
                             FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}");
-
-                            // The launcher's own update, which the Director owns (issue #2719). The
-                            // mirror of the launcher owning the Director's: whatever replaces a binary
-                            // has to outlive the process being replaced, and the launcher cannot
-                            // honestly swap itself. Nothing owned this before, so a machine whose
-                            // launcher fell behind became permanently uncommandable - and could not be
-                            // fixed remotely, because the thing that would receive the fix was the
-                            // broken thing. A Director update still reaches it, which is why this runs
-                            // here.
-                            await RunLauncherUpdatePassAsync();
                         }
                         catch (Exception ex)
                         {
                             outcome = UpdatePhase.Failed;
                             FileLog.Write($"[App] auto-update cycle FAILED: {ex.Message}");
                         }
+
+                        // The launcher's own update, which the Director owns (issue #2719). The mirror
+                        // of the launcher owning the Director's: whatever replaces a binary has to
+                        // outlive the process being replaced, and the launcher cannot honestly swap
+                        // itself. Nothing owned this before, so a machine whose launcher fell behind
+                        // became permanently uncommandable - and could not be fixed remotely, because
+                        // the thing that would receive the fix was the broken thing. A Director update
+                        // still reaches it, which is why this runs here.
+                        //
+                        // IT HAS ITS OWN try, DELIBERATELY. Inside the one above, a failure in the
+                        // Director's own check or the tool refresh - a network timeout, most likely -
+                        // skipped this entirely. That is precisely backwards: a launcher build is
+                        // ALREADY DOWNLOADED and needs no network at all to install, and the machines
+                        // whose launcher is stale are exactly the machines with something else wrong.
+                        // A stranded launcher update is the failure this whole change exists to end,
+                        // so it does not share a failure path with the network.
+                        await RunLauncherUpdatePassAsync();
                     }
 
                     // Tool reconcile is governed by its OWN switch (tools.autoUpdate.enabled), independent

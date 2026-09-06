@@ -116,6 +116,13 @@ public static class LifecycleSignal
     /// watching for one. Returning false there would be an invented no, so the answer is null - NOT
     /// OBSERVABLE - and a caller has to decide what to do about a question this platform cannot
     /// answer, rather than being handed a confident wrong one.
+    ///
+    /// WHAT A TRUE PROVES. That the named handle EXISTS - the listener got far enough to arm it. It
+    /// does NOT prove the thread waiting on that handle is still pumping, so a process that armed its
+    /// signals and then wedged answers true here. Closing that gap would mean raising the signal and
+    /// watching for the effect, which is exactly the destructive question this method exists to avoid.
+    /// Callers get the honest weaker fact; anything that needs "is it being serviced" has to accept
+    /// the consequences of asking.
     /// </summary>
     /// <returns>True/false on Windows; null on Unix, where a listener cannot be observed at all.</returns>
     public static bool? HasListener(string name)

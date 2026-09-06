@@ -109,16 +109,26 @@ public class LauncherWitnessTests : IDisposable
     }
 
     [Fact]
-    public void WhereAListenerCannotBeObserved_TheRegistrationIsTheWholeWitness()
+    public void WhereAListenerCannotBeObserved_ThatIsNOTAWITNESS()
     {
         // Unix: the signal is a request file that a listener polls, so there is nothing to consult and
-        // a "no" would be invented. The reading says so in its own words rather than pretending.
+        // a "no" would be invented. The reading says so in its own words rather than pretending - and
+        // it does NOT count as witnessed.
+        //
+        // THIS TEST ASSERTED THE OPPOSITE. Accepting NotObservable was reasoned as "a listener genuinely
+        // cannot be observed here, so refusing would refuse for ever" - but what it actually did was let
+        // a live registration ALONE pass, which is precisely the liveness-only proof this class exists
+        // to forbid, reintroduced on the one platform where nobody would see it. A witness that cannot
+        // fail on a platform is not a witness on that platform. The refusal for ever is the honest
+        // answer, and it is the caller's job to say so plainly rather than the boolean's job to hide it:
+        // LauncherUpdateOwner declines to swap at all where this is the reading.
         WriteRegistration(4242, "2.0.4");
 
         var reading = Witness(listener: null).Read();
 
         Assert.Equal(LauncherCommandSurface.NotObservable, reading.CommandSurface);
-        Assert.True(reading.Witnessed);
+        Assert.False(reading.Witnessed);
+        Assert.Null(Witness(listener: null).WitnessedVersion());
         Assert.Contains("cannot be observed on this platform", reading.Detail);
     }
 
