@@ -272,6 +272,23 @@ public sealed class DirectorInstanceLocator
     /// </summary>
     internal Func<Process, string> ReadExecutablePath { get; set; } = ExecutablePathOf;
 
+    /// <summary>
+    /// How a registered process id is looked up. Production always uses <see cref="TryGetLiveProcess"/>.
+    ///
+    /// A SEAM FOR THE SAME REASON AS THE ONE ABOVE, and added after a test that tried to do it honestly
+    /// nearly took a build host down with it. The uninspectable-live-process branch needs a process this
+    /// one is not allowed to interrogate, and the only such process reliably present on Windows is the
+    /// System process at pid 4. A test naming it passed here and behaved differently on an ELEVATED
+    /// runner, where that process IS inspectable - so the test asserted the wrong outcome there, and
+    /// interrogating pid 4 from an elevated context is not something a test suite should be doing at all.
+    ///
+    /// A test whose result depends on the privilege of whoever launched it is testing the launcher. So
+    /// the branch is driven through this seam, and what the test proves is the BRANCH - that an
+    /// uninspectable claim is recorded rather than erased - NOT that Windows really refuses for any
+    /// particular process. Stated rather than implied, exactly as above.
+    /// </summary>
+    internal Func<int, (Process? Process, string? Uninspectable)> InspectProcess { get; set; } = TryGetLiveProcess;
+
     /// <summary>Every directory the supervised Director could have registered in, current layout first.</summary>
     public IEnumerable<string> RegistrationDirectories
     {
@@ -309,7 +326,7 @@ public sealed class DirectorInstanceLocator
                 continue;
             }
 
-            var (process, uninspectable) = TryGetLiveProcess(dto.Pid);
+            var (process, uninspectable) = InspectProcess(dto.Pid);
             if (uninspectable is not null)
             {
                 // NOT THE SAME AS A DEAD PROCESS. The operating system refused to tell us about this
