@@ -103,7 +103,13 @@ public partial class ClaudeConfigDialog : Window
         FileLog.Write("[ClaudeConfigDialog] LoadConfig: reading configuration files");
 
         var claudeJson = ReadJsonFile(_claudeJsonPath);
-        var settingsJson = ReadJsonFile(_settingsJsonPath);
+
+        // The settings file is read through the three-answer reader, because a file that is THERE and
+        // unreadable must not be presented as an empty one. Loading it blank showed a plausible screen -
+        // permission mode "plan", no rules, no plugins, "No hooks configured" - that described nothing
+        // on disk, and pressing Save on that screen is what destroyed the file.
+        var settingsRead = ClaudeSettingsFile.Read(_settingsJsonPath);
+        var settingsJson = settingsRead.Root;
 
         LoadGeneralTab(claudeJson, settingsJson);
         LoadPermissionsTab(settingsJson);
@@ -111,7 +117,19 @@ public partial class ClaudeConfigDialog : Window
         LoadHooksTab(settingsJson);
         LoadFilesTab();
 
-        SaveStatusText.Text = "";
+        if (settingsRead.Kind == ConfigReadKind.Unreadable)
+        {
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"{Path.GetFileName(_settingsJsonPath)} {settingsRead.Problem}. "
+                                  + "The fields below are EMPTY because it could not be read, not because "
+                                  + "it is empty. Saving is refused until that file is fixed or moved.";
+            FileLog.Write($"[ClaudeConfigDialog] LoadConfig: settings file unreadable - {settingsRead.Problem}");
+        }
+        else
+        {
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#22C55E"));
+            SaveStatusText.Text = "";
+        }
     }
 
     private void LoadGeneralTab(JsonNode? claudeJson, JsonNode? settingsJson)
@@ -247,57 +265,44 @@ public partial class ClaudeConfigDialog : Window
     {
         FileLog.Write("[ClaudeConfigDialog] SaveConfig: writing configuration files");
 
-        SaveSettingsJson();
+        var settings = SaveSettingsJson();
+        if (settings.Refused)
+        {
+            // Say so, and say it in the place the word "Saved" would otherwise have appeared. Reporting
+            // success over a write that did not happen is how the old behaviour hid: the file was left
+            // alone only by accident of the caller, and the person was told it had been saved either way.
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. "
+                                  + "Fix or move that file, then reopen this window.";
+            FileLog.Write("[ClaudeConfigDialog] SaveConfig: ABORTED, settings file unreadable");
+            return;
+        }
+
         SaveClaudeJson();
 
+        SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#22C55E"));
         SaveStatusText.Text = "Saved";
         FileLog.Write("[ClaudeConfigDialog] SaveConfig: complete");
     }
 
-    private void SaveSettingsJson()
+    /// <summary>
+    /// Merge this dialog's fields into the user's settings file. The merge, and the refusal to merge
+    /// into a file that cannot be read, live in <see cref="ClaudeSettingsFile"/>; this only gathers
+    /// what the controls hold.
+    /// </summary>
+    private SettingsSaveResult SaveSettingsJson()
     {
-        // Read existing file to preserve fields we don't edit (hooks, schema, etc.)
-        JsonNode? root = ReadJsonFile(_settingsJsonPath);
-        var obj = root as JsonObject ?? new JsonObject();
+        var edits = new ClaudeSettingsEdits(
+            PermissionMode: PermissionModeCombo.SelectedItem as string,
+            Allow: _allowedRules.ToList(),
+            Deny: _deniedRules.ToList(),
+            Model: ModelOverrideInput.Text,
+            EffortLevel: EffortLevelCombo.SelectedItem as string,
+            MaxOutputTokens: MaxTokensInput.Text,
+            BashTimeoutMs: BashTimeoutInput.Text,
+            EnabledPlugins: _plugins.ToDictionary(p => p.FullKey, p => p.IsEnabled));
 
-        // Ensure $schema is present
-        if (obj["$schema"] == null)
-            obj["$schema"] = "https://json.schemastore.org/claude-code-settings.json";
-
-        // Permissions
-        var perms = obj["permissions"] as JsonObject ?? new JsonObject();
-        obj["permissions"] = perms;
-
-        var selectedMode = PermissionModeCombo.SelectedItem as string;
-        if (!string.IsNullOrEmpty(selectedMode))
-            perms["defaultMode"] = selectedMode;
-        else
-            perms.Remove("defaultMode");
-
-        perms["allow"] = new JsonArray(_allowedRules.Select(r => JsonValue.Create(r)).ToArray());
-        perms["deny"] = new JsonArray(_deniedRules.Select(r => JsonValue.Create(r)).ToArray());
-
-        // Environment variables
-        var env = obj["env"] as JsonObject ?? new JsonObject();
-        obj["env"] = env;
-
-        SetOrRemoveEnv(env, "ANTHROPIC_MODEL", ModelOverrideInput.Text);
-        SetOrRemoveEnv(env, "CLAUDE_CODE_EFFORT_LEVEL", EffortLevelCombo.SelectedItem as string);
-        SetOrRemoveEnv(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS", MaxTokensInput.Text);
-        SetOrRemoveEnv(env, "BASH_DEFAULT_TIMEOUT_MS", BashTimeoutInput.Text);
-
-        // Remove env object entirely if empty
-        if (env.Count == 0)
-            obj.Remove("env");
-
-        // Plugins
-        var pluginsObj = new JsonObject();
-        foreach (var p in _plugins)
-            pluginsObj[p.FullKey] = p.IsEnabled;
-        obj["enabledPlugins"] = pluginsObj;
-
-        // Write
-        WriteJsonFile(_settingsJsonPath, obj);
+        return ClaudeSettingsFile.Save(_settingsJsonPath, edits);
     }
 
     private void SaveClaudeJson()
@@ -308,14 +313,6 @@ public partial class ClaudeConfigDialog : Window
         obj["autoUpdates"] = AutoUpdatesCheck.IsChecked == true;
 
         WriteJsonFile(_claudeJsonPath, obj);
-    }
-
-    private static void SetOrRemoveEnv(JsonObject env, string key, string? value)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-            env[key] = value.Trim();
-        else
-            env.Remove(key);
     }
 
     // -- Permission Rules -----------------------------------------------------
