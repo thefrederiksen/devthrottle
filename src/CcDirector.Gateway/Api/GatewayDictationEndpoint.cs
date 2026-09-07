@@ -205,7 +205,19 @@ internal static class GatewayDictationEndpoint
             // (delivered or abandoned), do NOT re-open it as a fresh PENDING upload - return the cached
             // outcome so a re-registering client (whose earlier response was lost) drops its on-device copy
             // and acknowledges instead of re-uploading and re-injecting. Survives a restart (on disk).
-            var existing = string.IsNullOrWhiteSpace(key) ? null : store.ReadRecord(key);
+            //
+            // And if the record is there but cannot be READ - corrupt, locked, a shape this build does not
+            // know, stamped for another tenant - do not re-open it either (issue #2745). A marker we cannot
+            // read is still a marker: it says this upload id already became something, and re-opening it is
+            // how the operator's own speech was injected a second time. The client is told why and holds the
+            // recording; nothing is written over the marker, so the evidence is still there for an operator.
+            var read = string.IsNullOrWhiteSpace(key) ? DictationRecordRead.Absent : store.Read(key);
+            if (read.Refuses)
+            {
+                FileLog.Write($"[GatewayDictation] upload re-register REFUSED: {read.Describe(key)}; not re-opened");
+                return RecordRefusal(read, key);
+            }
+            var existing = read.Record;
             if (existing is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
             {
                 FileLog.Write($"[GatewayDictation] upload re-register of terminal uploadId={key} state={existing.State}");
@@ -287,7 +299,18 @@ internal static class GatewayDictationEndpoint
             // window and even after a Gateway restart (the record and this check both live on disk). This
             // handles the SEQUENTIAL/after-restart retry; the in-memory single-flight below handles two
             // CONCURRENT completes racing before the first tombstone is written (they share one run).
-            var settled = store.ReadRecord(uploadId);
+            //
+            // A tombstone that is there but cannot be read is refused outright (issue #2745): this is the
+            // injection point, and "I could not read the marker" is not "there is no marker". The orange mark
+            // is cleared because nothing is going to happen for this upload until an operator looks at the file.
+            var read = store.Read(uploadId);
+            if (read.Refuses)
+            {
+                EndTranscribing(transcribingSessions, tenant, req.SessionId!);
+                FileLog.Write($"[GatewayDictation] complete REFUSED: {read.Describe(uploadId)}; nothing injected");
+                return RecordRefusal(read, uploadId);
+            }
+            var settled = read.Record;
             if (settled is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
             {
                 EndTranscribing(transcribingSessions, tenant, req.SessionId!);
@@ -384,7 +407,18 @@ internal static class GatewayDictationEndpoint
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             if (!gate.TryOpen(ctx, out var store, out var tenant, out var deny)) return deny;
 
-            var existing = store.ReadRecord(uploadId);
+            // An abandon WRITES an ABANDONED tombstone over whatever marker is there. Over a marker that cannot
+            // be read that would destroy the only evidence of what this upload id became - and if it was in
+            // fact DELIVERED, a later re-complete would then tell the user "dropped" about speech that was
+            // acted on. So an unreadable marker refuses the abandon too (issue #2745); the ack leg remains the
+            // client's way to retire it once its own copy is gone.
+            var read = store.Read(uploadId);
+            if (read.Refuses)
+            {
+                FileLog.Write($"[GatewayDictation] abandon REFUSED: {read.Describe(uploadId)}; marker left as it is");
+                return RecordRefusal(read, uploadId);
+            }
+            var existing = read.Record;
             if (existing is { State: DictationDeliveryState.Delivered })
             {
                 FileLog.Write($"[GatewayDictation] abandon uploadId={uploadId}: already DELIVERED, not abandoning");
@@ -483,6 +517,27 @@ internal static class GatewayDictationEndpoint
         => record.State == DictationDeliveryState.Abandoned
             ? DictationOutcome.Dropped(record.Reason ?? "")
             : DictationOutcome.Submitted(record.Submitted, record.MovedOn, record.Transcript);
+
+    // The response for an upload id whose delivery record is there but cannot be read (issue #2745): the
+    // register, complete and abandon legs all refuse rather than re-open, inject, or write over it. The
+    // status says whether a retry can help: a marker that could not be READ (locked, permission, a disk
+    // fault) may read fine in a moment, so 503 - the client keeps the recording and tries again later. A
+    // marker that was read and is not a delivery record, or is another tenant's, will not change by itself,
+    // so 409 - it needs an operator at the file the body names. Neither is a terminal outcome, so the client
+    // does not drop its copy; and neither is a 2xx, so nothing downstream treats it as opened.
+    private static IResult RecordRefusal(DictationRecordRead read, string uploadId)
+    {
+        var status = read.Kind == DictationRecordReadKind.Unreadable
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status409Conflict;
+        return Results.Json(new
+        {
+            error = read.Describe(uploadId) + "; refusing to re-open, deliver, or overwrite it",
+            upload_id = uploadId,
+            record = read.Kind.ToString(),
+            file = read.Path,
+        }, statusCode: status);
+    }
 
     // The register-time response for an upload id that is already terminal: echoes the id plus the cached
     // outcome so a re-registering client drops its copy and acknowledges instead of re-uploading.
@@ -594,6 +649,11 @@ internal static class GatewayDictationEndpoint
             // that no longer exists, and the retry gets dropped as "moved on" by OUR OWN noise. Taking the
             // larger of the two costs nothing when no attempt failed (the stored value is absent) and is what
             // stops the observed drop when one did.
+            //
+            // The STRICT read, deliberately (issue #2745): the complete leg has already refused a marker it
+            // cannot read before this core ever runs, so a throw here can only mean the marker went bad between
+            // that check and this one. It lands in the complete handler's catch as a 502 with the file named,
+            // and nothing is injected - which is the right answer for a marker nobody can read.
             var effectiveBaseline = Math.Max(
                 req.BaselineBufferBytes, store.ReadRecord(uploadId)?.RebaselineBufferBytes ?? 0);
             if (req.Resumed && session is not null && req.BaselineBufferBytes > 0 &&

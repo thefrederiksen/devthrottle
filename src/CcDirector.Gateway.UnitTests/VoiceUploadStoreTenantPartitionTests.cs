@@ -193,7 +193,14 @@ public sealed class VoiceUploadStoreTenantPartitionTests : IDisposable
         // not a missing file.
         Assert.Contains("alpha-secret-transcript", File.ReadAllText(bFile));
 
-        Assert.Null(b.ReadRecord(id));
+        // Refused under its OWN name (issue #2745), not reported as absent: "absent" is the one answer that
+        // lets a caller open the upload, and opening here would write B's PENDING marker over A's record.
+        var refused = b.Read(id);
+        Assert.Equal(DictationRecordReadKind.ForeignTenant, refused.Kind);
+        Assert.Null(refused.Record);
+        Assert.True(refused.Refuses);
+        // And the strict read will not quietly hand back null for it either.
+        Assert.Throws<UnreadableDictationRecordException>(() => b.ReadRecord(id));
 
         // The same check on the PENDING projection, which reads records by enumeration rather than by id: a
         // foreign pending record planted in this partition must not lock a session here either.
