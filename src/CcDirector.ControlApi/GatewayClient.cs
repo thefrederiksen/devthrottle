@@ -165,6 +165,73 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         return new InvalidOperationException(string.IsNullOrWhiteSpace(message) ? statusLine : message);
     }
 
+    // ===== The restart cycle (issue #2725) =====
+    // Three calls a Director makes ON ITS OWN CREDENTIAL while running the restart cycle the owner
+    // accepted: the capability re-check, the guarded restart of itself, and the report against the
+    // request. None of them is a session key, so the admission-scoped routes they reach stay refused to
+    // session keys exactly as before.
+
+    /// <summary>The Phase 1 capability answer for a machine (GET /machines/{machine}/restart-capability).
+    /// Throws when the Gateway is disabled or cannot answer - a check that cannot be made is not a yes.</summary>
+    /// <param name="machine">The machine, as the request named it.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<MachineRestartCapabilityDto> GetRestartCapabilityAsync(string machine, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; the machine's restart capability cannot be asked for.");
+        FileLog.Write($"[GatewayClient] GetRestartCapabilityAsync: GET /machines/{machine}/restart-capability");
+        using var resp = await _http.GetAsync($"machines/{Uri.EscapeDataString(machine)}/restart-capability", ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"GET /machines/{machine}/restart-capability", ct);
+        var dto = await resp.Content.ReadFromJsonAsync<MachineRestartCapabilityDto>(ct);
+        if (dto is null)
+            throw new InvalidOperationException($"Gateway GET /machines/{machine}/restart-capability returned an unparsable body.");
+        FileLog.Write($"[GatewayClient] GetRestartCapabilityAsync: verdict={dto.Verdict} guardedRestart={dto.GuardedRestart}");
+        return dto;
+    }
+
+    /// <summary>
+    /// Ask this Director's OWN launcher to restart it ONLY IF it is empty, through the Gateway's restart
+    /// route (POST /machines/{machine}/director/restart with onlyIfEmpty). The route is admission-scoped;
+    /// this Director's credential is not a session key, so nothing is widened.
+    ///
+    /// confirmProtected is sent TRUE because the owner's accept IS the confirmation the slot guard asks
+    /// for, and the executable path is sent as evidence for that guard. Does not throw on a refusal - the
+    /// status and body come back verbatim for the cycle to report.
+    /// </summary>
+    /// <param name="machine">This Director's machine, as the request named it.</param>
+    /// <param name="exePath">This process's executable, for the slot guard.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<(int Status, string Body)> RequestOwnRestartOnlyIfEmptyAsync(string machine, string? exePath, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; this Director cannot reach its launcher through it.");
+        FileLog.Write($"[GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: POST /machines/{machine}/director/restart onlyIfEmpty=true exePath={exePath ?? "(none)"}");
+        using var resp = await _http.PostAsJsonAsync($"machines/{Uri.EscapeDataString(machine)}/director/restart",
+            new { onlyIfEmpty = true, confirmProtected = true, exePath }, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        FileLog.Write($"[GatewayClient] RequestOwnRestartOnlyIfEmptyAsync: HTTP {(int)resp.StatusCode}");
+        return ((int)resp.StatusCode, body);
+    }
+
+    /// <summary>Report progress or the outcome of the cycle against its request. Throws on failure: a
+    /// report that did not land must never look reported.</summary>
+    /// <param name="machine">The machine on the request.</param>
+    /// <param name="requestId">The request.</param>
+    /// <param name="report">The state and the sentence.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task ReportRestartProgressAsync(string machine, string requestId, DirectorRestartProgressReport report, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; the restart request cannot be reported to.");
+        FileLog.Write($"[GatewayClient] ReportRestartProgressAsync: request={requestId} state={report.State}: {report.Progress}");
+        using var resp = await _http.PostAsJsonAsync(
+            $"machines/{Uri.EscapeDataString(machine)}/director/restart-requests/{Uri.EscapeDataString(requestId)}/report", report, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"POST /machines/{machine}/director/restart-requests/{requestId}/report", ct);
+    }
+
     // ===== Fleet relay (issue #705) =====
     // A session can only reach its OWN Director (it is given CC_DIRECTOR_API, never the
     // Gateway URL or the fleet token). These three methods let the Director relay a session's

@@ -53,13 +53,21 @@ internal static class LauncherDeclaredCapabilities
     /// Gateway and are deliberately NOT accepted by <see cref="Honours"/>, which gates dispatch. A
     /// condition token arriving as a verb is a caller error and is refused like any other unknown verb.
     ///
-    /// EMPTY TODAY, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP. The first condition is
+    /// THE ONE CONDITION DECLARED IS THE ONE THE DISPATCH HONOURS.
     /// <see cref="LauncherCapabilities.DirectorRestartOnlyIfEmpty"/> - "I will refuse a restart while my
-    /// Director still holds live sessions" - and this build's dispatch does not honour it yet, so
-    /// declaring it would be exactly the over-declaration described above: a promise a drain would act
-    /// on. The token belongs here on the same commit that makes the dispatch honour it, and not before.
+    /// Director still holds live sessions" - is honoured by the "director/restart" arm of
+    /// <see cref="LauncherStreamClient"/>, which hands <see cref="LauncherCommand.OnlyIfEmpty"/> to
+    /// <see cref="DirectorSupervisor.RestartAsync(bool, CancellationToken)"/> and answers with the count
+    /// it read. This list was empty while that arm did not exist, and the comment then said the token
+    /// belonged here on the same change that made the dispatch honour it. This is that change: the two
+    /// halves were built on separate branches (issues #2720 and #2721) and joined here, on the first tree
+    /// carrying both, because a launcher that honours the condition and does not declare it makes every
+    /// capability check answer "unknown" and every guarded restart refuse to be sent.
     /// </summary>
-    public static readonly IReadOnlyList<string> Conditions = Array.Empty<string>();
+    public static readonly IReadOnlyList<string> Conditions = new[]
+    {
+        LauncherCapabilities.DirectorRestartOnlyIfEmpty,
+    };
 
     /// <summary>Is <paramref name="verb"/> one this build dispatches? The gate, not a description of one.</summary>
     public static bool Honours(string? verb)

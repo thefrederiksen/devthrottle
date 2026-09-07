@@ -77,19 +77,18 @@ public sealed class LauncherDeclaredCapabilitiesTests
     }
 
     /// <summary>
-    /// THIS BUILD DOES NOT PROMISE A GUARDED RESTART, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP.
-    /// The onlyIfEmpty condition belongs to Phase 2 (#2721) and this build's dispatch does not honour it,
-    /// so declaring it would be exactly the over-declaration this file exists to prevent - a promise a
-    /// drain would act on, sending a guarded restart to a launcher that cannot see the guard.
-    ///
-    /// THIS TEST IS EXPECTED TO BE CHANGED, on the same commit that makes the dispatch honour the
-    /// condition, and not before. It is written as an assertion rather than a comment so that adding the
-    /// token is a deliberate act with a test to update, instead of a line somebody slips into a list.
+    /// THIS BUILD PROMISES A GUARDED RESTART, BECAUSE ITS DISPATCH HONOURS ONE. The test that stood here
+    /// asserted the conditions list was EMPTY, and said in its own comment that it was expected to be
+    /// changed on the same commit that made the dispatch honour the condition, and not before. That
+    /// commit is the join of the declaration branch (#2720) with the guard branch (#2721): the
+    /// "director/restart" arm of the dispatch hands onlyIfEmpty to the supervisor and answers with the
+    /// count it read, so the token is declared. Under-declaring here would not be caution - it would make
+    /// every capability answer say the guard is unknown and every guarded restart refuse to be sent.
     /// </summary>
     [Fact]
-    public void This_build_declares_no_conditions_because_its_dispatch_honours_none()
+    public void This_build_declares_the_one_condition_its_dispatch_honours()
     {
-        Assert.Empty(LauncherDeclaredCapabilities.Conditions);
+        Assert.Equal(new[] { LauncherCapabilities.DirectorRestartOnlyIfEmpty }, LauncherDeclaredCapabilities.Conditions);
     }
 
     /// <summary>Matching is case-insensitive: a token is an identifier one process writes and another

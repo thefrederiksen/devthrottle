@@ -319,6 +319,18 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/machines/SOREN_NORTH/restart-capability")]
     // And nothing hung off it later is reachable by accident - the allow matches a length exactly.
     [InlineData("GET", "/machines/SOREN_NORTH/restart-capability/history")]
+    // Issue #2725: a session may ASK for a restart and READ the request. It may not ACCEPT one, DECLINE
+    // one, or REPORT on one - those are the owner's and the Director's, on the admission-scoped surface
+    // where the direct restart already sits. The accept is the decision; the ask is a record.
+    [InlineData("POST", "/machines/SOREN_NORTH/director/restart-requests/abc123/accept")]
+    [InlineData("POST", "/machines/SOREN_NORTH/director/restart-requests/abc123/decline")]
+    [InlineData("POST", "/machines/SOREN_NORTH/director/restart-requests/abc123/report")]
+    // The verb still decides: the record is created with POST and read with GET, and nothing else.
+    [InlineData("PUT", "/machines/SOREN_NORTH/director/restart-requests")]
+    [InlineData("DELETE", "/machines/SOREN_NORTH/director/restart-requests")]
+    [InlineData("DELETE", "/machines/SOREN_NORTH/director/restart-requests/abc123")]
+    [InlineData("POST", "/machines/SOREN_NORTH/director/restart-requests/abc123")]
+    [InlineData("POST", "/gateway/director-restart-requests")]
     // Turning a fleet-wide capability off for everyone.
     [InlineData("POST", "/gateway/skills/move-session/disable")]
     [InlineData("POST", "/gateway/workflows/mission/enable")]
@@ -336,6 +348,29 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/some/route/invented/next/year")]
     public void The_account_surface_is_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must NOT be allowed");
+
+    // ---------- Issue #2725: asking for a Director restart is allowed, deciding it is not ----------
+
+    [Theory]
+    [InlineData("POST", "/machines/SOREN_NORTH/director/restart-requests")]
+    [InlineData("GET", "/machines/SOREN_NORTH/director/restart-requests")]
+    [InlineData("GET", "/machines/SOREN_NORTH/director/restart-requests/abc123")]
+    [InlineData("GET", "/gateway/director-restart-requests")]
+    public void A_session_may_ask_for_a_restart_and_read_the_request(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be allowed");
+
+    /// <summary>
+    /// THE PAIR THE WHOLE DESIGN TURNS ON, asserted together so neither half can drift alone: the same
+    /// session key that may ASK for a restart still may NOT perform one. If the second line ever goes
+    /// green the admission surface was widened, which is exactly what the request route exists to avoid.
+    /// </summary>
+    [Fact]
+    public void The_key_that_may_ask_for_a_restart_still_may_not_perform_one()
+    {
+        Assert.True(SessionKeyGuard.Check("POST", "/machines/SOREN_NORTH/director/restart-requests").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/machines/SOREN_NORTH/director/restart").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/machines/SOREN_NORTH/director/restart-requests/abc123/accept").Allowed);
+    }
 
     // ---------- The refusal itself ----------
 
