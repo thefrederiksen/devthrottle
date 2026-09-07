@@ -33,6 +33,7 @@ namespace CcDirector.Gateway.Tests;
 /// Malformed assertion here goes red on the claim, not on a crash; the writer tests go red on the file
 /// having been overwritten.
 /// </summary>
+[Collection(VoiceUploadStoreRecordHookCollection.Name)]
 public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
 {
     private readonly string _root =
@@ -111,6 +112,12 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
     [InlineData("{\"State\":1,\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"x\",\"Reason\":null}")]         // 1 is DELIVERED, and would fabricate an outcome the phone acks and drops its copy for
     [InlineData("{\"State\":2,\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]        // 2 is ABANDONED
     [InlineData("{\"State\":3,\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]        // 3 is FAILED
+    [InlineData("{\"State\":\"0\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]     // the number as a STRING: the converter reads it as PENDING
+    [InlineData("{\"State\":\"1\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"x\",\"Reason\":null}")]     // "1" as DELIVERED - an outcome the phone would ack and drop its copy for
+    [InlineData("{\"State\":\"2\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]    // "2" as ABANDONED
+    [InlineData("{\"State\":\"3\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]    // "3" as FAILED
+    [InlineData("{\"State\":\"pending\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a casing the store never writes: the converter would accept it
+    [InlineData("{\"State\":\"\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]      // an empty name
     [InlineData("{\"State\":\"Delivered\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":null,\"Reason\":null}")] // a transcript that is not a string: the store never writes one
     [InlineData("{\"State\":\"Pending\",\"Submitted\":\"yes\",\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a flag that is not a boolean
     public void Every_shape_that_is_not_a_delivery_record_is_Malformed(string bytes)
@@ -291,33 +298,13 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
         _store.Register(id);
         _store.MarkPending(id, session);
 
-        using var deliverStarted = new System.Threading.ManualResetEventSlim(false);
-        Exception? deliverFailure = null;
-        System.Threading.Thread? deliver = null;
-        var deliverFinishedWhileInsideTheGate = false;
-        VoiceUploadStore.BetweenRecordReadAndWriteForTests = uid =>
-        {
-            // Inside OpenPending's hold of the gate, after its read and before its write: a complete tries to
-            // land the DELIVERED tombstone from another thread.
-            deliver = new System.Threading.Thread(() =>
-            {
-                deliverStarted.Set();
-                try { _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "landed"); }
-                catch (Exception ex) { deliverFailure = ex; }
-            });
-            deliver.Start();
-            deliverStarted.Wait(TimeSpan.FromSeconds(5));
-            // The claim: it has NOT finished while we hold the gate. (Joined with a timeout: a join that
-            // succeeds here is the old race, made deterministic.)
-            deliverFinishedWhileInsideTheGate = deliver.Join(TimeSpan.FromMilliseconds(500));
-        };
+        var competing = new CompetingWriter(() => _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "landed"));
+        VoiceUploadStore.BetweenRecordReadAndWriteForTests = _ => competing.StartAndObserveBlocked();
         try
         {
             var opened = _store.OpenPending(id, session);
             Assert.True(opened.Opened);
-            Assert.False(deliverFinishedWhileInsideTheGate, "a DELIVERED write landed inside the register transition - the race is open");
-            Assert.True(deliver!.Join(TimeSpan.FromSeconds(10)), "the deferred delivery never completed");
-            Assert.Null(deliverFailure);
+            competing.AssertWasBlockedInsideTheGate("the register transition");
         }
         finally
         {
@@ -328,6 +315,110 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(id)!.State);
         Assert.Equal("landed", _store.ReadRecord(id)!.Transcript);
         Assert.False(_store.IsPending(id));
+    }
+
+    [Fact]
+    public void Abandon_names_every_answer_and_never_writes_over_a_delivery()
+    {
+        var reason = "user_abandoned";
+
+        // PENDING: abandoned, chunks discarded.
+        var pending = Guid.NewGuid().ToString();
+        _store.Register(pending);
+        _store.MarkPending(pending, Guid.NewGuid().ToString());
+        var a = _store.Abandon(pending, reason);
+        Assert.True(a.Abandoned);
+        Assert.Equal(DictationDeliveryState.Pending, a.Before.Record!.State);
+        Assert.Equal(DictationDeliveryState.Abandoned, _store.ReadRecord(pending)!.State);
+
+        // Absent: abandoned (a tombstone for an id that never staged, as the raw writer always allowed).
+        var absent = Guid.NewGuid().ToString();
+        Assert.True(_store.Abandon(absent, reason).Abandoned);
+
+        // DELIVERED: NOT abandoned; the delivery is the stronger fact and stands.
+        var delivered = Guid.NewGuid().ToString();
+        _store.MarkDelivered(delivered, submitted: true, movedOn: false, transcript: "said once");
+        var d = _store.Abandon(delivered, reason);
+        Assert.False(d.Abandoned);
+        Assert.Equal(DictationDeliveryState.Delivered, d.Before.Record!.State);
+        Assert.Equal("said once", _store.ReadRecord(delivered)!.Transcript);
+
+        // MALFORMED: refused by name, file untouched.
+        var corrupt = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(corrupt, "{}");
+        var before = File.ReadAllBytes(path);
+        var refused = _store.Abandon(corrupt, reason);
+        Assert.False(refused.Abandoned);
+        Assert.Equal(DictationRecordReadKind.Malformed, refused.Before.Kind);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void A_delivery_cannot_land_between_Abandon_reading_and_writing()
+    {
+        // The round-three interleaving: abandon reads PENDING, a complete injects the speech and lands
+        // DELIVERED, abandon writes ABANDONED over it, and the next re-complete tells the user "dropped" about
+        // words that were acted on. Under one hold of the gate the delivery blocks until the abandon has
+        // finished and then lands after it - and delivery over abandoned is the truthful final state.
+        var id = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, Guid.NewGuid().ToString());
+
+        var competing = new CompetingWriter(() => _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "landed"));
+        VoiceUploadStore.BetweenRecordReadAndWriteForTests = _ => competing.StartAndObserveBlocked();
+        try
+        {
+            var abandoned = _store.Abandon(id, "user_abandoned");
+            Assert.True(abandoned.Abandoned);
+            competing.AssertWasBlockedInsideTheGate("the abandon transition");
+        }
+        finally
+        {
+            VoiceUploadStore.BetweenRecordReadAndWriteForTests = null;
+        }
+
+        Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(id)!.State);
+    }
+
+    // A writer on another thread that is started while the test holds the record gate. The proof it gives is
+    // POSITIVE: the thread is observed in a wait (blocked on the gate) while still alive, or the test fails -
+    // both when the thread finished inside the gate (the gate did not hold it: the race is open) and when it
+    // never reached the gate at all (nothing was proven). A timeout that merely says "it did not finish yet"
+    // would pass with the gate removed whenever the competing write was slow.
+    private sealed class CompetingWriter
+    {
+        private readonly System.Threading.Thread _thread;
+        private Exception? _failure;
+        private bool _observedBlocked;
+        private bool _finishedInsideTheGate;
+
+        public CompetingWriter(Action write)
+        {
+            _thread = new System.Threading.Thread(() =>
+            {
+                try { write(); }
+                catch (Exception ex) { _failure = ex; }
+            });
+        }
+
+        public void StartAndObserveBlocked()
+        {
+            _thread.Start();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (DateTime.UtcNow < deadline && _thread.IsAlive
+                   && (_thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0)
+                System.Threading.Thread.Sleep(5);
+            _finishedInsideTheGate = !_thread.IsAlive;
+            _observedBlocked = _thread.IsAlive && (_thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0;
+        }
+
+        public void AssertWasBlockedInsideTheGate(string transition)
+        {
+            Assert.False(_finishedInsideTheGate, $"a DELIVERED write landed inside {transition} - the race is open");
+            Assert.True(_observedBlocked, $"the competing writer was never observed blocked on the gate during {transition}");
+            Assert.True(_thread.Join(TimeSpan.FromSeconds(10)), "the deferred delivery never completed");
+            Assert.Null(_failure);
+        }
     }
 
     // ===== the sweeps and the lock ==================================================================

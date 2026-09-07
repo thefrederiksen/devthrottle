@@ -10,6 +10,7 @@ namespace CcDirector.Gateway.Tests;
 /// Unit tests for <see cref="VoiceUploadStore"/> - the Gateway-side resumable upload staging
 /// behind the guaranteed audio-turn front door. Each test stages under an isolated temp root.
 /// </summary>
+[Collection(VoiceUploadStoreRecordHookCollection.Name)]
 public sealed class VoiceUploadStoreTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-upload-" + Guid.NewGuid().ToString("N"));

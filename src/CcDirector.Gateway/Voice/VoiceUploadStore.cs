@@ -947,19 +947,25 @@ public sealed class VoiceUploadStore
                 if (Array.IndexOf(allowed, value.ValueKind) < 0)
                     return Malformed(path, $"the record's {name} is a JSON {value.ValueKind}, not {string.Join(" or ", allowed)}");
             }
+            // The state must be EXACTLY one of the names this store writes - ordinal, case-sensitive. The enum
+            // converter is more generous than that: it accepts a number spelled as a string ("1" is DELIVERED)
+            // and any casing ("pending" is PENDING), so checking the JSON kind alone still let "State":"0"
+            // re-open an upload and "State":"1" fabricate a delivered outcome. Only the canonical name is a
+            // record; nothing else was ever written by this store.
+            var stateName = doc.RootElement.GetProperty("State").GetString() ?? "";
+            if (Array.IndexOf(KnownStateNames, stateName) < 0)
+                return Malformed(path, $"state \"{stateName}\" is not a delivery state this build writes");
             record = JsonSerializer.Deserialize<DictationDeliveryRecord>(text, RecordJson)!;
         }
         catch (JsonException ex)
         {
             return Malformed(path, ex.Message);
         }
-        // A state NAME the enum does not carry throws above; this is the remaining way a value could arrive
-        // that matches no state anywhere, and it is kept so the claim "Present means a known state" is checked
-        // where it is made rather than assumed from the converter.
-        if (!Enum.IsDefined(record.State))
-            return Malformed(path, $"state {(int)record.State} is not a delivery state this build knows");
         return DictationRecordRead.Found(record);
     }
+
+    // The exact spellings the store writes for State, and the only ones it reads back.
+    private static readonly string[] KnownStateNames = Enum.GetNames<DictationDeliveryState>();
 
     // The properties every delivery record has carried since issue #1183, each with the JSON kinds the store
     // itself writes. Case-sensitive, exactly as the serializer matches them: a file spelling one differently is
@@ -1078,6 +1084,39 @@ public sealed class VoiceUploadStore
             FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened " +
                 $"(was {(before.Record is { } r ? r.State.ToString() : before.Kind.ToString())})");
             return new DictationOpenOutcome(uid, before, true);
+        });
+    }
+
+    /// <summary>
+    /// The ABANDON transition as ONE operation under the per-upload gate (issue #2745, review round three):
+    /// read, decide, write the ABANDONED tombstone - or not - without releasing the gate in between. The
+    /// endpoint used to read, decide "not delivered", and then call the raw <see cref="MarkAbandoned"/>; a
+    /// complete could inject the speech and land DELIVERED between those two calls, and the abandon then wrote
+    /// ABANDONED over it - so the next re-complete told the user "dropped" about words that were acted on.
+    ///
+    /// Not abandoned when the read refuses (Malformed, Unreadable, ForeignTenant - nothing is written) or when
+    /// the record is already DELIVERED (delivery is the stronger fact and is final). PENDING, FAILED, ABANDONED
+    /// and absent are abandoned as before, discarding the staged chunks.
+    /// </summary>
+    public DictationAbandonOutcome Abandon(string uploadId, string reason)
+    {
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var before = Read(uid);
+            if (before.Refuses)
+            {
+                FileLog.Write($"[VoiceUploadStore] Abandon: uploadId={uid} refused ({before.Kind}); nothing written");
+                return new DictationAbandonOutcome(before, false);
+            }
+            if (before.Record is { State: DictationDeliveryState.Delivered })
+            {
+                FileLog.Write($"[VoiceUploadStore] Abandon: uploadId={uid} is DELIVERED; not abandoned");
+                return new DictationAbandonOutcome(before, false);
+            }
+            BetweenRecordReadAndWriteForTests?.Invoke(uid);
+            MarkAbandoned(uid, reason); // the gate is reentrant on this thread, so this stays inside it
+            return new DictationAbandonOutcome(before, true);
         });
     }
 
@@ -1662,3 +1701,10 @@ public sealed class UnreadableDictationRecordException : InvalidOperationExcepti
 /// and whether the PENDING marker was written.
 /// </summary>
 public sealed record DictationOpenOutcome(string UploadId, DictationRecordRead Before, bool Opened);
+
+/// <summary>
+/// What <see cref="VoiceUploadStore.Abandon"/> did: the record as it was BEFORE (so the caller can answer a
+/// refusal or an already-delivered outcome from the same read the decision was made on) and whether the
+/// ABANDONED tombstone was written.
+/// </summary>
+public sealed record DictationAbandonOutcome(DictationRecordRead Before, bool Abandoned);

@@ -416,22 +416,25 @@ internal static class GatewayDictationEndpoint
             // fact DELIVERED, a later re-complete would then tell the user "dropped" about speech that was
             // acted on. So an unreadable marker refuses the abandon too (issue #2745); the ack leg remains the
             // client's way to retire it once its own copy is gone.
-            var read = store.Read(uploadId);
-            if (read.Refuses)
+            //
+            // And the read, the already-delivered decision and the ABANDONED write are ONE operation under the
+            // upload's record gate (review round three): as two calls, a complete could inject the speech and
+            // land DELIVERED in between, and the abandon then wrote over it.
+            var abandon = store.Abandon(uploadId, "user_abandoned");
+            if (abandon.Before.Refuses)
             {
-                FileLog.Write($"[GatewayDictation] abandon REFUSED: {read.Describe(uploadId)}; marker left as it is");
-                return RecordRefusal(read, uploadId);
+                FileLog.Write($"[GatewayDictation] abandon REFUSED: {abandon.Before.Describe(uploadId)}; marker left as it is");
+                return RecordRefusal(abandon.Before, uploadId);
             }
-            var existing = read.Record;
-            if (existing is { State: DictationDeliveryState.Delivered })
+            var existing = abandon.Before.Record;
+            if (!abandon.Abandoned)
             {
                 FileLog.Write($"[GatewayDictation] abandon uploadId={uploadId}: already DELIVERED, not abandoning");
                 return Results.Json(new { ok = true, upload_id = uploadId, abandoned = false, already_delivered = true });
             }
 
-            store.MarkAbandoned(uploadId, "user_abandoned");
             // Clear the in-memory transcribing marks so the roster un-oranges at once (the durable PENDING
-            // marker - the "Uploading from phone" source - is already gone via MarkAbandoned). Keyed to the
+            // marker - the "Uploading from phone" source - is already gone via the abandon). Keyed to the
             // caller's own tenant (issue #1884, Gap B), so an abandon can never clear another account's mark.
             var sid = existing?.SessionId;
             if (!string.IsNullOrEmpty(sid))
