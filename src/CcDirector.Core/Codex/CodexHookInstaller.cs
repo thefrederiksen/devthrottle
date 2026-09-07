@@ -102,8 +102,12 @@ public static class CodexHookInstaller
     /// <summary>
     /// Ensure the hook script exists and our SessionStart entry is present in the user's Codex
     /// hooks.json. Returns true on success (the Director should then append
-    /// <see cref="BypassTrustFlag"/> to the Codex command); false if anything failed, in which case
-    /// the session still launches, just without the preamble hook.
+    /// <see cref="BypassTrustFlag"/> to the Codex command); false if anything failed. A false NO
+    /// LONGER launches the session without the preamble hook: without it the fleet preamble never
+    /// reaches the session, so <c>SessionManager.CreateSession</c> refuses to start it and says why.
+    ///
+    /// This comment used to end "the session still launches, just without the preamble hook", which
+    /// named the consequence exactly and then shipped it.
     /// </summary>
     public static bool EnsureInstalled() =>
         EnsureInstalled(DefaultScriptDirectory(), DefaultCodexHooksPath(), OperatingSystem.IsWindows());
