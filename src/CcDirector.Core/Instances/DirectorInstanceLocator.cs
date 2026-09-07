@@ -684,6 +684,19 @@ public sealed class DirectorInstanceLocator
     /// be treated as one: it may be a live Director this launcher is not permitted to inspect. Collapsing
     /// the second into the first is what let an inaccessible live Director read as an empty instance
     /// home, one method below the defect this change was written for.
+    ///
+    /// THIS DISCIPLINE IS NOT NEW HERE - IT IS COPIED FROM ITS SIBLING, WHICH HAD IT ALL ALONG.
+    /// <c>DirectorRegistry.IsProcessDead</c> in the Gateway asks the identical question about the
+    /// identical thing, catches <see cref="ArgumentException"/> ALONE as proof of death, and returns
+    /// do-not-assume-dead for everything else - with the reason written on it: "A permission or other
+    /// unexpected error returns false (do not assume dead) so we never delete on uncertainty." One
+    /// assembly away, the same question was already being answered correctly; this one folded every
+    /// exception into the not-running answer, and that is what made the defect dangerous.
+    ///
+    /// The two now agree, and the citation is here so the next reader can check that rather than take it.
+    /// Worth remembering as a habit: in this repository the correct answer to a question is usually
+    /// already written somewhere and simply not reached, so the question to ask is not "what is missing"
+    /// but "where else does this repository already answer exactly this".
     /// </summary>
     private static (Process? Process, string? Uninspectable) TryGetLiveProcess(int pid)
     {

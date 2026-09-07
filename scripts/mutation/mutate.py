@@ -73,12 +73,18 @@ test_filter = spec["filter"]
 
 # One backup per file touched, taken before anything is mutated and restored after every mutant.
 files = sorted({m["file"] for m in spec["mutants"]})
-backups = {f: (repo / f).read_text(encoding="utf-8") for f in files}
+backups = {f: (repo / f).read_bytes() for f in files}
 
 
 def restore():
-    for f, text in backups.items():
-        (repo / f).write_text(text, encoding="utf-8", newline="")
+    # BYTE-FOR-BYTE, NOT LINE-FOR-LINE. read_text/write_text round-trip through universal newlines, so
+    # on a CRLF checkout a "restored" file came back with LF endings: the sweep printed PASS and left
+    # every mutated production file showing as modified in git. A proof tool that dirties the worktree it
+    # is proving is one bad `git commit -a` away from committing a whole-file line-ending change nobody
+    # intended - and it also makes its own PASS harder to believe, because the tree afterwards is not the
+    # tree it tested.
+    for f, data in backups.items():
+        (repo / f).write_bytes(data)
 
 
 def run(args, timeout):
@@ -95,6 +101,8 @@ def run(args, timeout):
 
 
 COUNT = re.compile(r"Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)")
+
+CRLF = b"\r\n"
 
 
 def read_run(result):
@@ -130,11 +138,20 @@ def sweep():
         expected = mutant.get("expect", "KILLED")
         restore()
         path = repo / mutant["file"]
-        text = path.read_text(encoding="utf-8")
+        # MATCH ON NORMALISED TEXT, WRITE BACK IN THE FILE'S OWN ENDINGS. Anchors in a spec are written
+        # with plain newlines, and these files are checked out CRLF - so matching has to normalise, and
+        # writing has to un-normalise, or the runner either finds nothing or rewrites every line.
+        # Reading bytes and matching them raw made every anchor miss and reported seven BROKEN.
+        raw = path.read_bytes()
+        crlf = CRLF in raw
+        text = raw.decode("utf-8").replace("\r\n", "\n")
         if mutant["find"] not in text:
             results.append((mutant["name"], "BROKEN", expected, "the text to mutate was not found in the file"))
             continue
-        path.write_text(text.replace(mutant["find"], mutant["replace"], 1), encoding="utf-8", newline="")
+        mutated = text.replace(mutant["find"], mutant["replace"], 1)
+        if crlf:
+            mutated = mutated.replace("\n", "\r\n")
+        path.write_bytes(mutated.encode("utf-8"))
 
         # GATE ONE: it must build. A non-building mutant is an instrument fault, not a survivor.
         build = run(["dotnet", "build", project, "-v", "q", "--nologo"], timeout=900)
