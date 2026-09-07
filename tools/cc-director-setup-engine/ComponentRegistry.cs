@@ -21,16 +21,22 @@ public static class ComponentRegistry
         new HashSet<InstallRole> { InstallRole.Gateway };
 
     /// <summary>The Director ships to every machine, in both roles. On macOS it ships as the
-    /// application-bundle zip that <see cref="MacAppPlacer"/> places (not a single file).</summary>
+    /// application-bundle zip that <see cref="MacAppPlacer"/> places (not a single file); on Linux
+    /// and Windows it is a single self-contained executable, placed by the generic runner.</summary>
     public static readonly Component Director = new(
         Id: "director",
         Kind: ComponentKind.Director,
         DisplayName: "DevThrottle",
         WindowsAsset: "cc-director-win-x64.exe",
         Roles: BothRoles,
-        MacAsset: MacAppPlacer.DirectorAsset);
+        MacAsset: MacAppPlacer.DirectorAsset,
+        LinuxAsset: "cc-director-linux-x64");
 
-    /// <summary>The Gateway service ships only to the one Gateway-role machine.</summary>
+    /// <summary>
+    /// The Gateway service ships only to the one Gateway-role machine, and only on Windows. There is
+    /// no macOS or Linux Gateway build in the release pipeline, so both assets are null - which
+    /// <see cref="Component.AssetFor"/> reports as "no build here", not as an error.
+    /// </summary>
     public static readonly Component Gateway = new(
         Id: "gateway",
         Kind: ComponentKind.Gateway,
@@ -50,7 +56,8 @@ public static class ComponentRegistry
         DisplayName: "DevThrottle Launcher",
         WindowsAsset: "cc-launcher-win-x64.exe",
         Roles: BothRoles,
-        MacAsset: "cc-launcher-mac-arm64");
+        MacAsset: "cc-launcher-mac-arm64",
+        LinuxAsset: "cc-launcher-linux-x64");
 
     /// <summary>The fixed app components (Director, Gateway, Launcher).</summary>
     public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Launcher];
@@ -62,7 +69,13 @@ public static class ComponentRegistry
     /// </summary>
     public static readonly IReadOnlyList<string> DefaultToolIds = ["cc-pdf", "cc-html", "cc-word"];
 
-    /// <summary>Build a tool component from its id.</summary>
+    /// <summary>
+    /// Build a tool component from its id. Tools have NO macOS and NO Linux asset, and that is not
+    /// an omission: the standalone per-executable delivery is Windows-only, and every cc-* tool
+    /// reaches macOS and Linux inside the shared Python tools bundle instead. So
+    /// <see cref="Component.AssetFor"/> answers null off Windows, which callers render as "ships in
+    /// the Python tools bundle" rather than as a missing download.
+    /// </summary>
     public static Component ToolComponent(string id)
     {
         if (string.IsNullOrWhiteSpace(id))

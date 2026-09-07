@@ -40,11 +40,16 @@ public class AgentOptions
     public MessageStewardOptions MessageSteward { get; set; } = new();
 
     /// <summary>
-    /// Path to the Pi agent CLI (<c>pi.cmd</c> from <c>@earendil-works/pi-coding-agent</c>).
-    /// Defaults to the standard npm global install location on Windows; users can override
-    /// in config.json if pi is installed elsewhere.
+    /// Path to the Pi agent CLI. pi ships two ways: an official per-platform archive that puts a
+    /// native <c>pi</c> on PATH, and the npm package <c>@earendil-works/pi-coding-agent</c> that
+    /// drops <c>pi.cmd</c> in the npm global directory (also on PATH). Both put <c>pi</c> on PATH,
+    /// so the default is the bare command name and ExecutableResolver finds whichever is installed
+    /// - exactly like codex, opencode, grok and cursor. The previous default hard-coded the npm
+    /// <c>pi.cmd</c> path, which does not exist for archive-install users and cannot exist at all
+    /// off Windows, so pi sessions failed to launch there. Users can override in config.json if pi
+    /// is installed off PATH.
     /// </summary>
-    public string PiPath { get; set; } = DefaultNpmCliPath("pi");
+    public string PiPath { get; set; } = DefaultPiPath;
 
     /// <summary>
     /// Path to the OpenAI Codex CLI. Codex ships two ways: the standalone installer drops a
@@ -59,10 +64,12 @@ public class AgentOptions
     public string CodexPath { get; set; } = "codex";
 
     /// <summary>
-    /// Path to the Google Gemini CLI (<c>gemini.cmd</c> from <c>@google/gemini-cli</c>).
-    /// Defaults to the standard npm global install location on Windows.
+    /// Path to the Google Gemini CLI (<c>@google/gemini-cli</c>). The npm global install puts
+    /// <c>gemini</c> on PATH, so the default is the bare command name and ExecutableResolver
+    /// resolves it - on Windows through PATHEXT to <c>gemini.cmd</c>. The previous default
+    /// hard-coded the npm path, which cannot exist off Windows.
     /// </summary>
-    public string GeminiPath { get; set; } = DefaultNpmCliPath("gemini");
+    public string GeminiPath { get; set; } = DefaultGeminiPath;
 
     /// <summary>
     /// Path to the opencode CLI (the <c>opencode</c> binary from opencode.ai).
@@ -93,11 +100,14 @@ public class AgentOptions
     /// Path to the GitHub Copilot CLI (<c>copilot.cmd</c> from <c>@github/copilot</c>).
     /// The npm global install drops <c>copilot</c>, <c>copilot.cmd</c>, and <c>copilot.ps1</c> in
     /// <c>%APPDATA%\npm</c>; the launchable shim for a process spawner is <c>copilot.cmd</c> (the
-    /// <c>.ps1</c> cannot be spawned directly), so the default resolves the npm-global
-    /// <c>copilot.cmd</c>. Users can override in config.json if copilot is installed elsewhere
+    /// <c>.ps1</c> cannot be spawned directly). The default is nonetheless the BARE name: on Windows
+    /// ExecutableResolver appends PATHEXT and lands on <c>copilot.cmd</c>, and it deliberately
+    /// refuses the extensionless npm bash shim sitting beside it, so the launchable shim is still
+    /// what gets chosen. That keeps Windows behaviour identical while letting a non-Windows install
+    /// resolve at all. Users can override in config.json if copilot is installed elsewhere
     /// (Homebrew, WinGet, the gh.io/copilot-install script) (issue #625).
     /// </summary>
-    public string CopilotPath { get; set; } = DefaultNpmCliPath("copilot");
+    public string CopilotPath { get; set; } = DefaultCopilotPath;
 
     /// <summary>
     /// GitHub Copilot authentication token, injected into a Copilot session's environment when set
@@ -235,17 +245,27 @@ public class AgentOptions
         return null;
     }
 
-    private static string DefaultNpmCliPath(string binName)
-    {
-        // Windows npm global install: %APPDATA%\npm\<bin>.cmd
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrEmpty(appData))
-        {
-            var path = Path.Combine(appData, "npm", binName + ".cmd");
-            FileLog.Write($"[AgentOptions] DefaultNpmCliPath({binName}): resolved from %APPDATA% to {path}");
-            return path;
-        }
-        FileLog.Write($"[AgentOptions] DefaultNpmCliPath({binName}): %APPDATA% unavailable, falling back to bare '{binName}' (relying on PATH)");
-        return binName;
-    }
+    /// <summary>
+    /// The default command names for the three agents that used to hard-code an npm global
+    /// <c>.cmd</c> path. They are bare names so <see cref="Utilities.ExecutableResolver"/> can find
+    /// whichever install shape is present, on any platform.
+    /// </summary>
+    /// <remarks>
+    /// The removed helper built an npm global <c>.cmd</c> path and looked like it degraded
+    /// gracefully to the bare name when <c>%APPDATA%</c> was unavailable. That fallback was
+    /// unreachable off Windows: .NET maps <see cref="Environment.SpecialFolder.ApplicationData"/>
+    /// to <c>~/.config</c>, so the value was never empty and the function confidently returned a
+    /// Windows batch path under a Linux home directory. It failed closed while reading as though
+    /// it failed open. Measured on a real Ubuntu desktop, where the Director logged
+    /// <c>configured=/home/qa/.config/npm/pi.cmd</c> on every scan and pi could not launch.
+    /// These constants are also what <c>ToolDetectionService</c> compares against to decide a path
+    /// is still the untouched default, so the two must not drift apart.
+    /// </remarks>
+    internal const string DefaultPiPath = "pi";
+
+    /// <inheritdoc cref="DefaultPiPath"/>
+    internal const string DefaultGeminiPath = "gemini";
+
+    /// <inheritdoc cref="DefaultPiPath"/>
+    internal const string DefaultCopilotPath = "copilot";
 }

@@ -5,11 +5,18 @@ namespace CcDirectorSetup.Services;
 
 /// <summary>
 /// Cross-platform install runner for the Avalonia wizard - the analog of the WPF wizard's
-/// EngineInstallRunner. It drives the SHARED CcDirector.Setup.Engine so macOS and Windows install
-/// identically: place the Director (MacAppPlacer on macOS, the generic swap on Windows), install all
-/// cc-* tools as one shared venv (PythonToolsInstaller), then finalize (PATH + app/shortcut).
+/// EngineInstallRunner. It drives the SHARED CcDirector.Setup.Engine so macOS, Linux and Windows
+/// install identically: place the Director (MacAppPlacer on macOS, the generic single-file swap on
+/// Windows and Linux), install all cc-* tools as one shared venv (PythonToolsInstaller), then
+/// finalize (PATH + app/shortcut).
 ///
-/// macOS is Workstation-only (no Gateway/Cockpit). Install LOCATIONS are owned by InstallLayout.
+/// Every release-asset name here comes from ComponentRegistry via Component.AssetFor(platform).
+/// Do not reintroduce a two-way "Windows or else macOS" read: this is the wizard
+/// scripts/install-linux.sh hands over to, and each of those reads gave Linux another platform's
+/// download.
+///
+/// macOS and Linux are Workstation-only (no Gateway/Cockpit). Install LOCATIONS are owned by
+/// InstallLayout.
 /// </summary>
 public sealed class EngineInstallRunner
 {
@@ -53,9 +60,14 @@ public sealed class EngineInstallRunner
         var items = new List<ToolDownloadItem>();
         var byId = new Dictionary<string, ToolDownloadItem>(StringComparer.OrdinalIgnoreCase);
 
-        var directorAssetName = OperatingSystem.IsWindows() ? ComponentRegistry.Director.WindowsAsset : MacAppPlacer.DirectorAsset;
-        var dItem = new ToolDownloadItem { Name = "cc-director", AssetName = directorAssetName };
-        var dAsset = release.Manifest.TryGetAsset(directorAssetName);
+        // The asset for THIS platform, from the registry. This line used to read
+        // "Windows ? WindowsAsset : MacAppPlacer.DirectorAsset", so on Linux it asked the release
+        // for the macOS application bundle - in the one wizard scripts/install-linux.sh hands over
+        // to. The registry now carries all three names and answers by platform.
+        var platform = HostPlatform.Current;
+        var directorAssetName = ComponentRegistry.Director.AssetFor(platform);
+        var dItem = new ToolDownloadItem { Name = "cc-director", AssetName = directorAssetName ?? "" };
+        var dAsset = directorAssetName is null ? null : release.Manifest.TryGetAsset(directorAssetName);
         if (dAsset is null) { dItem.Status = "Skipped"; dItem.SizeText = "Not in release"; }
         else dItem.SizeText = FormatSize(dAsset.Size);
         items.Add(dItem); byId["director"] = dItem;
@@ -67,7 +79,7 @@ public sealed class EngineInstallRunner
 
         // The launcher installs on macOS only in THIS wizard: the Windows wizard (the WPF one)
         // already installs it there. Older releases have no macOS launcher asset - skip cleanly.
-        if (OperatingSystem.IsMacOS() && ComponentRegistry.Launcher.MacAsset is { } launcherAssetName)
+        if (OperatingSystem.IsMacOS() && ComponentRegistry.Launcher.AssetFor(platform) is { } launcherAssetName)
         {
             var lItem = new ToolDownloadItem { Name = ComponentRegistry.Launcher.Id, AssetName = launcherAssetName };
             var lAsset = release.Manifest.TryGetAsset(launcherAssetName);
@@ -83,8 +95,11 @@ public sealed class EngineInstallRunner
         // installs - not of the Director alone. It used to be the Director alone, which meant a machine
         // with a current Director and a stale or missing launcher was told it was up to date and the
         // launcher was never touched, while its card showed a status nothing had checked.
-        var upToDate = IsCurrent(reader, release, ComponentRegistry.Director, ComponentRegistry.Director.MacAsset)
-                       && IsCurrent(reader, release, ComponentRegistry.Launcher, ComponentRegistry.Launcher.MacAsset);
+        // Judged against the assets for THIS platform. Reading the macOS names here meant a Linux
+        // machine's "up to date" verdict was decided by the version of a macOS download it was never
+        // going to install.
+        var upToDate = IsCurrent(reader, release, ComponentRegistry.Director, directorAssetName)
+                       && IsCurrent(reader, release, ComponentRegistry.Launcher, ComponentRegistry.Launcher.AssetFor(platform));
 
         SetupLog.Write($"[EngineInstallRunner] PrepareAsync: version={version}, installedDirector={installedDirector}, upToDate={upToDate}");
         return new Prep(version, release, items, byId, installedDirector, upToDate);
@@ -147,8 +162,13 @@ public sealed class EngineInstallRunner
             return res.Success;
         }
 
-        // Windows / other: place the single Director exe via the generic runner.
-        var asset = prep.Release.Manifest.TryGetAsset(ComponentRegistry.Director.WindowsAsset);
+        // Windows and Linux: place the single self-contained Director executable via the generic
+        // runner. This lookup was hard-coded to WindowsAsset, so on Linux it found
+        // cc-director-win-x64.exe in the release, downloaded 118 MB of Windows executable, placed it,
+        // marked the row Done and installed a Director that cannot run. A wrong answer that reports
+        // success is worse than no answer, which is why AssetFor has no fall-through branch.
+        var assetName = ComponentRegistry.Director.AssetFor(HostPlatform.Current);
+        var asset = assetName is null ? null : prep.Release.Manifest.TryGetAsset(assetName);
         if (asset is null)
         {
             if (item is not null) { item.Status = "Skipped"; item.StatusDetail = "Not in release"; }
@@ -217,7 +237,7 @@ public sealed class EngineInstallRunner
         if (!OperatingSystem.IsMacOS()) return false;
         prep.ItemsById.TryGetValue(ComponentRegistry.Launcher.Id, out var item);
 
-        var assetName = ComponentRegistry.Launcher.MacAsset;
+        var assetName = ComponentRegistry.Launcher.AssetFor(HostPlatform.Current);
         if (assetName is null) return false;
         var asset = prep.Release.Manifest.TryGetAsset(assetName);
         if (asset is null)
