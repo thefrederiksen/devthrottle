@@ -17,10 +17,31 @@ namespace CcDirector.Avalonia;
 /// actually seen. "The file is not there" and "the file is there and I could not read it" are
 /// opposite facts about the world that happen to produce the same empty object, and folding them
 /// together is what let a save destroy the file it was merging into.
+///
+/// WHAT THIS GUARANTEES, STATED NARROWLY ON PURPOSE: a settings file that was FOUND and could not
+/// be PARSED is never written over. It deliberately does NOT say "could not be read", because two
+/// states defeat that stronger sentence and both are pre-existing behaviours of the code this
+/// replaced rather than regressions introduced with it:
+///
+///   - A file whose bytes are not valid UTF-8 is decoded with REPLACEMENT rather than rejected, so
+///     it parses, counts as read, and is written back corrupted (issue 2752). The fold there is one
+///     level in from this one: readable versus readable WITHOUT LOSS, and only the first has a name.
+///   - A dangling symbolic link answers "not found" from its missing target, so it is classified
+///     Absent and the LINK ITSELF is replaced by a regular file (issue 2751).
+///
+/// A guarantee that is falsified by two known states is a FALSE GUARANTEE, and shipping one is the
+/// defect this whole change exists to remove. So the sentence says only what the code keeps, and
+/// names what it does not.
 /// </summary>
 public enum ConfigReadKind
 {
-    /// <summary>No file at that path. There is nothing to preserve, so a save may create one.</summary>
+    /// <summary>
+    /// The file system reported nothing at that path, so a save may create one.
+    ///
+    /// This is as strong as an exception can make it and no stronger: a dangling symbolic link
+    /// reports "not found" from its missing TARGET while an entry does exist at the path, and lands
+    /// here (issue 2751). Absence is reported, not proven.
+    /// </summary>
     Absent,
 
     /// <summary>The file was read and parsed. Its untouched fields must survive the save.</summary>
@@ -114,22 +135,32 @@ public static class ClaudeSettingsFile
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
     /// <summary>
-    /// Read a configuration file and say which of the three things happened. Never throws: the
-    /// failure is the RETURN VALUE, because a caller that cannot see the difference between absent
-    /// and unreadable is the whole defect this replaces.
+    /// Read a configuration file and say which of the three things happened. Every failure reached
+    /// by the paths below is the RETURN VALUE rather than an exception, because a caller that cannot
+    /// see the difference between absent and unreadable is the whole defect this replaces.
+    ///
+    /// Deliberately not written as "never throws": only invalid JSON and an unopenable file are
+    /// covered by tests, so a blanket promise would be a claim the evidence does not carry.
     /// </summary>
     public static ConfigRead Read(string path)
     {
-        // ABSENCE IS PROVEN, NEVER ASSUMED. This used to ask File.Exists and Directory.Exists first
+        // ABSENCE IS REPORTED BY THE FILE SYSTEM, NOT INFERRED FROM A PROBE. This used to ask
+        // File.Exists and Directory.Exists first
         // and treat false as "no file". Both are absence-shaped probes: .NET documents them as
         // returning false when the path cannot be PROBED - a permissions failure among them - so an
         // existing file the user was not allowed to open answered "absent", landed in the permissive
         // branch, and was replaced. Permissions are the single most likely reason a settings file
         // cannot be read, so the refusal was bypassed by the exact condition it exists for.
         //
-        // Now the read is attempted first and the ANSWER decides. Only the file system positively
-        // reporting "there is nothing here" yields Absent; every other failure - permissions, a
-        // sharing lock, a directory in the way, a path too long - is Unreadable, which writes nothing.
+        // Now the read is attempted first and the ANSWER decides. Only the file system reporting
+        // "there is nothing here" yields Absent; every other failure - permissions, a sharing lock,
+        // a directory in the way, a path too long - is Unreadable, which writes nothing.
+        //
+        // This is stronger than a probe and it is still not PROOF of absence. A dangling symbolic
+        // link reports not-found from its missing target while an entry does exist at the path, and
+        // a trailing separator or an unavailable share can raise DirectoryNotFoundException over
+        // something that is there. Proving absence needs a link-aware check, not an exception type;
+        // issue 2751 carries that. Said here rather than left as a comfortable word.
         string text;
         try
         {
@@ -185,7 +216,7 @@ public static class ClaudeSettingsFile
     /// Merge <paramref name="edits"/> into the settings file at <paramref name="path"/> and write it
     /// back, preserving every field the dialog does not edit.
     ///
-    /// REFUSES, writing nothing, when the file is there and cannot be read. That refusal is the fix:
+    /// REFUSES, writing nothing, when the file is there and cannot be PARSED. That refusal is the fix:
     /// the previous behaviour treated an unreadable file as an empty one and wrote a fresh object
     /// over it, which silently discarded the user's hooks - the very fields the read exists to carry
     /// through, and, for this fleet, the ones that inject the preamble every session runs under.

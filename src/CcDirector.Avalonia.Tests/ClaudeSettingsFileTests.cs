@@ -19,6 +19,13 @@ namespace CcDirector.Avalonia.Tests;
 ///
 /// Every test below writes a real file to a real temporary path, because the thing being asserted is
 /// what is left ON DISK afterwards.
+///
+/// WHAT IS ASSERTED, narrowly: a settings file that was FOUND and could not be PARSED is never
+/// written over. Two states defeat the broader "could not be READ" and neither is covered here -
+/// invalid UTF-8, which the decoder silently replaces so the file parses and is rewritten mangled
+/// (issue 2752), and a dangling symbolic link, which reports not-found and is replaced (issue 2751).
+/// Both are pre-existing behaviours of the code this replaced. They are named rather than implied,
+/// because a test file that reads as covering them is worse than one that says it does not.
 /// </summary>
 public sealed class ClaudeSettingsFileTests : IDisposable
 {
@@ -362,6 +369,9 @@ public sealed class ClaudeSettingsFileTests : IDisposable
         // Assert the save ACTUALLY HAPPENED first. Without this the whole test passed on a Save that
         // did nothing at all: the fixture already held one valid settings.json, which satisfied both
         // assertions below on its own. A test that a no-op passes is not a test.
+        //
+        // It still only exercises a SUCCESSFUL move, which consumes the temp file by itself, so it
+        // does not prove the failure-path cleanup - deleting that cleanup leaves this green.
         Assert.Equal(SettingsSaveKind.Merged, result.Kind);
         var root = JsonNode.Parse(File.ReadAllText(_path))!.AsObject();
         Assert.Equal("acceptEdits", root["permissions"]!["defaultMode"]!.GetValue<string>());
@@ -425,7 +435,11 @@ public sealed class ClaudeSettingsFileTests : IDisposable
         Assert.NotNull(unreadable.Problem);
     }
 
-    /// <summary>A read never throws - the failure is the return value, so no caller can skip handling it.</summary>
+    /// <summary>
+    /// An unreadable file comes back as a VALUE, so no caller can skip handling it. Covers invalid
+    /// JSON only - it is not evidence for a general "never throws", and the comment on Read no
+    /// longer makes that claim.
+    /// </summary>
     [Fact]
     public void Read_UnreadableFile_DoesNotThrow()
     {
