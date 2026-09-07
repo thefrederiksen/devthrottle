@@ -125,6 +125,41 @@ public sealed class MachineRelaySlotGuardTests : IAsyncLifetime
     }
 
     // -------------------------------------------------------------------------
+    // onlyIfEmpty belongs to restart, and is REFUSED elsewhere rather than ignored
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// A caller sending onlyIfEmpty to stop is asking not to interrupt live work. Dropping the flag and
+    /// stopping the Director anyway would answer that request with the exact outcome it was trying to
+    /// prevent - and report success. So it is a 400 that says the flag was not applied and nothing was
+    /// done.
+    /// </summary>
+    [Theory]
+    [InlineData("director/stop")]
+    [InlineData("director/start")]
+    public async Task OnlyIfEmpty_OnAnythingButRestart_IsRefusedRatherThanIgnored(string verb)
+    {
+        var resp = await _http.PostAsJsonAsync($"machines/{Machine}/{verb}", new { onlyIfEmpty = true });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("only_if_empty_not_supported", body);
+    }
+
+    /// <summary>
+    /// And on restart it passes: the request reaches dispatch, which here ends in the not-connected 502
+    /// because this rig registers a launcher that holds no stream. A 400 would mean the flag never got
+    /// past the route at all.
+    /// </summary>
+    [Fact]
+    public async Task OnlyIfEmpty_OnRestart_ReachesDispatch()
+    {
+        var resp = await _http.PostAsJsonAsync($"machines/{Machine}/director/restart", new { onlyIfEmpty = true });
+
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
