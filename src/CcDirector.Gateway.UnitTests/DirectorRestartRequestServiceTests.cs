@@ -32,6 +32,7 @@ public sealed class DirectorRestartRequestServiceTests
         public LauncherStreamConnection? Connection;
         public bool LauncherRegistryWired = true;
         public bool DirectorConnected = true;
+        public bool RosterPushed = true;
         public List<SessionDto> Sessions = new()
         {
             new SessionDto { SessionId = AskingSession.ToString(), DirectorId = DirectorId, Name = "Restart Director - Architect" },
@@ -64,7 +65,9 @@ public sealed class DirectorRestartRequestServiceTests
                 ? (_, m) => string.Equals(m, Machine, StringComparison.OrdinalIgnoreCase) ? Connection : null
                 : null,
             directorSessions: (_, d) => new PushedSessionStore.DirectorKnowledge(
-                d == DirectorId ? Sessions : Array.Empty<SessionDto>(), Now, d == DirectorId && DirectorConnected),
+                d == DirectorId && RosterPushed ? Sessions : Array.Empty<SessionDto>(),
+                d == DirectorId && RosterPushed ? Now : null,
+                d == DirectorId && DirectorConnected),
             findSession: (_, sid) => Sessions.FirstOrDefault(s => s.SessionId == sid),
             sendCommand: (d, cmd, _) =>
             {
@@ -236,6 +239,19 @@ public sealed class DirectorRestartRequestServiceTests
         var answer = await world.Service().CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None);
         Assert.Equal(409, answer.Status);
         Assert.Equal("director_not_connected", S(Json(answer.Body), "code"));
+        Assert.Empty(world.Store.List(Tenant));
+    }
+
+    [Fact]
+    public async Task A_connected_Director_that_has_not_yet_reported_its_roster_is_refused_rather_than_read_as_empty()
+    {
+        var world = new World { RosterPushed = false };
+        var answer = await world.Service().CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None);
+
+        Assert.Equal(409, answer.Status);
+        var body = Json(answer.Body);
+        Assert.Equal("director_roster_not_reported", S(body, "code"));
+        Assert.Contains("not knowing is not zero", S(body, "error"));
         Assert.Empty(world.Store.List(Tenant));
     }
 

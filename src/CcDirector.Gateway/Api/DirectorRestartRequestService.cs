@@ -184,6 +184,21 @@ public sealed class DirectorRestartRequestService
                 directorId = target.DirectorId,
             });
 
+        // NEVER PUSHED IS NOT ZERO SESSIONS. A Director that has connected and not yet sent its roster has
+        // an empty session list here and no push time - and the live count on this record is a sentence
+        // the owner decides on. "Holds no live sessions" written from an absence would be plausible and
+        // false; the honest answer is that the roster is not known yet.
+        if (knowledge.AsOfUtc is null)
+            return new RestartRequestAnswer(409, new
+            {
+                code = "director_roster_not_reported",
+                error = $"Director {Describe(target)} on '{machine}' is connected but has not yet reported its "
+                       + "sessions to this Gateway, so how many are live is not known - and not knowing is not "
+                       + "zero. Nothing was created. Ask again in a moment.",
+                machine,
+                directorId = target.DirectorId,
+            });
+
         // ---- The Director must confirm it is the one its launcher would restart. ----
         // A launcher restarts the Director it supervises and only that one (issue #2743: the path on the
         // command is ignored). A request that drained a development slot and then restarted the main

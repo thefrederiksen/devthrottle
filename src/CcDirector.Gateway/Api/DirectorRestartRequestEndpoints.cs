@@ -98,7 +98,14 @@ internal static class DirectorRestartRequestEndpoints
         {
             FileLog.Write($"[DirectorRestartRequestEndpoints] POST /machines/{machine}/director/restart-requests/{id}/decline: caller={ctx.Connection.RemoteIpAddress}");
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
-            var reason = await OptionalReasonAsync(ctx, ct);
+            string? reason;
+            try { reason = await OptionalReasonAsync(ctx, ct); }
+            catch (System.Text.Json.JsonException ex)
+            {
+                // A body that was sent and will not parse is refused, not read as "no reason": the decline
+                // would still be right, but the owner's words would be dropped in silence.
+                return Results.Json(new { code = "bad_request_body", error = $"the decline body could not be read as JavaScript Object Notation: {ex.Message}", machine }, statusCode: 400);
+            }
             var answer = service.Decline(tenant, machine, id, reason);
             return Results.Json(answer.Body, statusCode: answer.Status);
         });
