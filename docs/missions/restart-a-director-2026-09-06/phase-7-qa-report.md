@@ -354,6 +354,45 @@ Each must be shown FAILING correctly in this same pass:
 | Recover from that blocked drain with no restart | closed seats come back doing their own work; no live seat duplicated | NOT YET RUN | |
 | Corrupt a registration while sessions are live, ask for a restart | REFUSED (issue 2730) | NOT YET RUN | |
 
+## The paths this run walked - the coverage claim, by name
+
+This report argues elsewhere that per-finding review cannot see a COMPOSED failure - the worst path
+in this system is built from three pieces, none a defect alone, and four independent reviewers could
+not have found it - and that walking a path end to end is what finds those. Left there, a reader
+concludes runs solve it. They do not. A run examines the paths somebody thought to walk; a composed
+failure sitting on a path nobody chose is exactly as invisible to this run as it was to the
+reviewers. Per-finding review is blind to what lies BETWEEN the pieces; path-walking is blind to the
+paths NOT CHOSEN. The remedy does not escape the class, it moves it out one level. So the list below
+is the truth about what happened, not the plan this run started with: a path walked because
+something failed interestingly or the rig surprised us is ADDED to the list, never folded into an
+existing entry.
+
+| # | Path | State |
+|---|---|---|
+| P1 | Stand the rig up: Gateway, then launcher joins its stream, then the launcher starts the Director through `POST /machines/{m}/director/start` relayed down the stream, Director registers and is listed | WALKED 2026-09-07 14:19Z and again 14:33Z |
+| P2 | Stop the rig by the product's own signals: Director shutdown signal, launcher shutdown signal, Gateway `/shutdown`; then start again and observe the Director id survive | WALKED 14:33Z |
+| P3 | Spawn Claude Code, Codex and RawCli seats on the rig Director through the rig Gateway with the shared token; seed prompts through the Director's prompt route, including four re-sends after a parked delivery | WALKED 14:22Z to 14:44Z |
+| P4 | A seat that cannot receive a message: the prompt route against a RawCli seat on a command that never returns | WALKED 14:38Z |
+| P5 | The negative control for P4: the same message to a healthy seat mid-thought, and the seat acting on it when free | WALKED 2026-09-07 (control-proof attachments) |
+| P6 | A session key on the direct restart route, from inside a seat, with its control on an allowed route of the same made-up machine | WALKED 14:47Z, on the tree at 4f742a4d3 |
+| P7 | A session asks for the restart through the request route; the machine scrutinises; the accept | PLANNED - waits on Phase 6 |
+| P8 | Ask twice: a second request while one is pending | PLANNED |
+| P9 | A request against a machine that cannot be restarted, refused before any approval, naming the Phase 1 reason | PLANNED |
+| P10 | An approval left to expire, then refused | PLANNED |
+| P11 | `onlyIfEmpty` with sessions live, refused naming the count | PLANNED - waits on Phase 2 and the Phase 1 capability answer |
+| P12 | A corrupt registration while sessions are live, a restart asked for, refused (issue 2730) | PLANNED |
+| P13 | The blocked drain: the accept starts the drain with the wedge in place; every other seat drains leaf-first; the wedge is recorded; the restart does not happen | PLANNED |
+| P14 | The recovery from P13 with no restart: every closed seat restored from the workspace, the wedge untouched, no seat duplicated | PLANNED |
+| P15 | The full cycle to green: ask, scrutiny, accept, drain, secret sweep with its control, restart through the launcher, restore of the heads, each head re-seating its own tree | PLANNED |
+
+**This run does not certify behaviour on any path not listed here, and nobody may rely on it for
+one.** In particular nothing above walks: a drain interrupted by a second drain; a Gateway outage
+during a drain; a launcher that dies between the drain and the restart; a Director that comes back
+on a build the workspace does not recognise; a handover amended after it was read; a seat spawned
+after the capture; two Directors on one machine; a machine other than SOREN_NORTH. Each of those is
+a path somebody would have to choose to walk, and until one is walked and listed here, its behaviour
+is not certified by this report.
+
 ## What this run does not certify
 
 **The form of this section is deliberate, and it is the Architect's.** A confession - "we did not
