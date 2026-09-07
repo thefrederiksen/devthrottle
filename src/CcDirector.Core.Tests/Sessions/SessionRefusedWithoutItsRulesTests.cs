@@ -50,7 +50,11 @@ public sealed class SessionRefusedWithoutItsRulesTests
         // the moment it happens is the only one who can act on it.
         Assert.Contains("without the fleet preamble", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("rules", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("session-start hook could not be installed", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // AND IT MUST NAME THE EXACT PATH. A refusal without a fix is a wall, and this one has to be
+        // actionable by somebody who has never heard of a hook - a path they can look at beats a
+        // description of a mechanism they do not know exists.
+        Assert.Contains(CcDirector.Core.Claude.ClaudeHookInstaller.HookDirectory(), ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("writable", ex.Message, StringComparison.OrdinalIgnoreCase);
 
         // And nothing was left running.
         Assert.Empty(manager.ListSessions());
@@ -66,7 +70,8 @@ public sealed class SessionRefusedWithoutItsRulesTests
             () => manager.CreateSession(Path.GetTempPath(), AgentKind.Codex, null, SessionBackendType.ConPty, null));
 
         Assert.Contains("without the fleet preamble", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("hooks.json", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(CcDirector.Core.Codex.CodexHookInstaller.HooksJsonPath(), ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("valid JSON", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(manager.ListSessions());
     }
 

@@ -154,6 +154,12 @@ public static class ClaudeHookInstaller
         }
     }
 
+    /// <summary>
+    /// Where the Claude hook files are written - inside the Director's OWN per-user data directory,
+    /// not the user's Claude configuration. PUBLIC so a refusal can name the exact directory.
+    /// </summary>
+    public static string HookDirectory() => CcStorage.ClaudeHooks();
+
     private static string DefaultDirectory() => CcStorage.ClaudeHooks();
 
     private static string BuildSettingsJson(string scriptPath, bool forWindows)

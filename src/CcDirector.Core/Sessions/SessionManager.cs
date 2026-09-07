@@ -803,8 +803,8 @@ public sealed class SessionManager : IDisposable
                     // fleet preamble into the session's context. Without it the session is untracked
                     // across /clear AND never told the rules, and the only previous sign of either was
                     // a line in a file log.
-                    preambleFailures.Add("the Claude session-start hook could not be installed under the "
-                                         + "Director's data directory");
+                    preambleFailures.Add("the Claude session-start hook could not be written to "
+                                         + Claude.ClaudeHookInstaller.HookDirectory());
                 }
             }
 
@@ -826,7 +826,8 @@ public sealed class SessionManager : IDisposable
                 {
                     delivery = PreambleDelivery.Failed;
                     preambleFailures.Add("the Codex fleet-preamble hook could not be merged into "
-                                         + "~/.codex/hooks.json");
+                                         + Codex.CodexHookInstaller.HooksJsonPath()
+                                         + " (it must be a writable file containing valid JSON)");
                 }
             }
 
@@ -848,10 +849,13 @@ public sealed class SessionManager : IDisposable
                     + "the rule that keeps an assistant's name out of your repositories and your "
                     + $"clients' deliverables.{Environment.NewLine}{Environment.NewLine}"
                     + $"What failed: {whatFailed}.{Environment.NewLine}{Environment.NewLine}"
+                    + $"What to do: check that the path above exists, is writable by you, and - if it is "
+                    + "a .json file - contains valid JSON. The commonest cause is a hand-edited "
+                    + "hooks.json with a syntax error, which this Director will not overwrite because it "
+                    + "is yours. Correct or move that file and start the session again."
+                    + $"{Environment.NewLine}{Environment.NewLine}"
                     + "This used to start the session anyway and write one line to the Director log, so "
-                    + "a session that did not know the rules looked exactly like one that did. Fix the "
-                    + "above - most often a permissions or disk problem on your home directory - and "
-                    + "start the session again.");
+                    + "a session that did not know the rules looked exactly like one that did.");
             }
 
             // For Pi, write the fleet preamble to a per-session file and pass it via

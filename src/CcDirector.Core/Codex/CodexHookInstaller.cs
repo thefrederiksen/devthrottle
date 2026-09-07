@@ -224,6 +224,13 @@ public static class CodexHookInstaller
 
     private static string DefaultScriptDirectory() => CcStorage.CodexHooks();
 
+    /// <summary>
+    /// Where the Codex hook is merged: <c>~/.codex/hooks.json</c>, or CODEX_HOME when that is set.
+    /// PUBLIC so a refusal can name the exact file rather than describing it - a person who has never
+    /// heard of a hook cannot act on "the Codex hook could not be merged", and can act on a path.
+    /// </summary>
+    public static string HooksJsonPath() => DefaultCodexHooksPath();
+
     private static string DefaultCodexHooksPath()
     {
         var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
