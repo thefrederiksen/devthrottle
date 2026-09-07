@@ -66,12 +66,15 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
 
     // ===== register: the leg from the issue ========================================================
 
-    [Fact]
-    public async Task ReRegister_OfACorruptTombstone_IsRefused_AndTheUploadIsNotReopened()
+    [Theory]
+    [InlineData(NotARecord)]         // not JSON at all
+    [InlineData("{}")]               // valid JSON, no properties: State would default to PENDING and re-open
+    [InlineData("{\"garbage\":1}")]  // valid JSON, an unrelated object: the same default
+    public async Task ReRegister_OfACorruptTombstone_IsRefused_AndTheUploadIsNotReopened(string bytes)
     {
-        // A delivered upload whose tombstone can no longer be parsed.
+        // A delivered upload whose tombstone can no longer be read as a delivery record.
         var uploadId = Guid.NewGuid().ToString();
-        var path = CorruptDeliveredTombstone(uploadId);
+        var path = CorruptDeliveredTombstone(uploadId, bytes);
         var before = File.ReadAllBytes(path);
 
         var resp = await RegisterAsync(uploadId);
@@ -115,8 +118,9 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
         {
             var locked = await RegisterAsync(uploadId);
 
-            // Could not look is a 503 - "try again" - and never "open it".
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, locked.status);
+            // Could not look is a 423 Locked - "try again" - and never "open it". Not a 503: the phone reads
+            // 502/503/504 as "the Gateway is unreachable", and this Gateway answered.
+            Assert.Equal(HttpStatusCode.Locked, locked.status);
             Assert.Equal("Unreadable", locked.body.GetProperty("record").GetString());
         }
 
@@ -191,12 +195,12 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
 
     // A real DELIVERED tombstone written by the store the Gateway reads, then its bytes replaced with
     // something that is not a delivery record. The id genuinely WAS delivered; only the marker is unreadable.
-    private static string CorruptDeliveredTombstone(string uploadId)
+    private static string CorruptDeliveredTombstone(string uploadId, string bytes = NotARecord)
     {
         Store().MarkDelivered(uploadId, submitted: true, movedOn: false, transcript: "said once");
         var path = RecordPath(uploadId);
         Assert.True(File.Exists(path));
-        File.WriteAllText(path, NotARecord, Encoding.UTF8);
+        File.WriteAllText(path, bytes, Encoding.UTF8);
         return path;
     }
 

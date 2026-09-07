@@ -521,14 +521,16 @@ internal static class GatewayDictationEndpoint
     // The response for an upload id whose delivery record is there but cannot be read (issue #2745): the
     // register, complete and abandon legs all refuse rather than re-open, inject, or write over it. The
     // status says whether a retry can help: a marker that could not be READ (locked, permission, a disk
-    // fault) may read fine in a moment, so 503 - the client keeps the recording and tries again later. A
-    // marker that was read and is not a delivery record, or is another tenant's, will not change by itself,
-    // so 409 - it needs an operator at the file the body names. Neither is a terminal outcome, so the client
-    // does not drop its copy; and neither is a 2xx, so nothing downstream treats it as opened.
+    // fault) may read fine in a moment, so 423 Locked - the client keeps the recording and tries again
+    // later. NOT 503: the phone client reads every 502/503/504 as "the Gateway is unreachable" and flips its
+    // connection banner, and this Gateway answered. A marker that was read and is not a delivery record, or
+    // is another tenant's, will not change by itself, so 409 - it needs an operator at the file the body
+    // names. Neither is a terminal outcome, so the client does not drop its copy; and neither is a 2xx, so
+    // nothing downstream treats it as opened.
     private static IResult RecordRefusal(DictationRecordRead read, string uploadId)
     {
         var status = read.Kind == DictationRecordReadKind.Unreadable
-            ? StatusCodes.Status503ServiceUnavailable
+            ? StatusCodes.Status423Locked
             : StatusCodes.Status409Conflict;
         return Results.Json(new
         {

@@ -2237,8 +2237,13 @@ export async function uploadDictationToSession(
     }
 
     if (comp.status === 409) {
+      const body = (await comp.json().catch(() => ({}))) as { missing?: number[]; record?: string; error?: string };
+      // The Gateway refused to touch this upload's DELIVERY RECORD (issue #2745): the record on the server is
+      // there but is not readable as a delivery record, or belongs to another account. That is not a
+      // missing-chunk answer, and re-sending chunks cannot change it - an operator has to look at the file
+      // the server named. Held with that message; no ack, because an ack retires the server's evidence.
+      if (typeof body.record === "string") return held(transcriptionFailureMessage(body.error, comp.status, true));
       // Missing chunks: send exactly those, pausing (held) if the connection drops mid-chunk.
-      const body = (await comp.json().catch(() => ({}))) as { missing?: number[] };
       const missing = (body.missing ?? []).filter((i) => ranges[i]);
       if (missing.length === 0) return held(transcriptionFailureMessage(undefined, 502, true));
       let uploaded = total - missing.length;
@@ -2389,6 +2394,18 @@ export function transcriptionFailureMessage(serverError: string | undefined, sta
 
   if (status === 403)
     return "This device is not allowed to use transcription on this Gateway.";
+
+  // The Gateway refused to re-open, deliver, or write over this upload because its on-disk DELIVERY RECORD
+  // is there but cannot be read (issue #2745). "Unreadable" (a 423) means it could not be read just now
+  // (locked, a disk fault) and a retry may read it; anything else (a 409) means it was read and is not a
+  // delivery record, or is another account's, and no retry will change that - an operator has to look at
+  // the file the server named in its log. Neither is a transcription outage, and the saved copy must never
+  // be sent again on the strength of either, so this is ahead of every "transcription service" line below.
+  // Keyed on the sentence, not the status, so the wording follows what the server SAID was wrong.
+  if (raw.includes("delivery record for upload"))
+    return raw.includes(" is unreadable")
+      ? "The server could not read this recording's delivery record just now. Your recording is saved and will try again."
+      : "The server's delivery record for this recording is damaged and needs an operator to look at it. Your recording is saved and cannot go through until that is fixed.";
 
   // The session the dictation was headed for is gone (exited / not found).
   if (status === 404 || status === 410 || raw.includes("session not found") || raw.includes("session has exited"))

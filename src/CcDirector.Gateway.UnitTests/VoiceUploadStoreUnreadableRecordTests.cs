@@ -100,8 +100,13 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
     [Theory]
     [InlineData("")]                                              // an empty file - a write that never finished
     [InlineData("null")]                                          // JSON null: parses, and is nothing
-    [InlineData("{\"State\":\"Zombie\",\"Submitted\":true}")]     // a state name this build does not know
-    [InlineData("{\"State\":99,\"Submitted\":true}")]             // a state NUMBER the enum does not name: deserializes, matches nothing
+    [InlineData("[]")]                                            // valid JSON, not an object
+    [InlineData("{}")]                                            // valid, empty: every property defaults, and State's default is PENDING
+    [InlineData("{\"garbage\":1}")]                               // valid, unrelated: the same default PENDING
+    [InlineData("{\"State\":\"Pending\"}")]                       // names a state but nothing else a record carries
+    [InlineData("{\"state\":\"Delivered\",\"submitted\":true,\"movedOn\":false,\"transcript\":\"x\",\"reason\":null}")] // wrong case: the serializer would default all of it
+    [InlineData("{\"State\":\"Zombie\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a state name this build does not know
+    [InlineData("{\"State\":99,\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]         // a state NUMBER the enum does not name: deserializes, matches nothing
     public void Every_shape_that_is_not_a_delivery_record_is_Malformed(string bytes)
     {
         var id = Guid.NewGuid().ToString();
@@ -157,12 +162,14 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
 
     // ===== no writer puts a new marker on top of one it cannot read ===================================
 
-    [Fact]
-    public void MarkPending_over_a_corrupt_tombstone_refuses_and_leaves_the_file_byte_for_byte()
+    [Theory]
+    [InlineData("{ this is not json")]   // the syntax case
+    [InlineData("{}")]                   // the SHAPE case: valid JSON whose every property defaults, State to PENDING
+    public void MarkPending_over_a_corrupt_tombstone_refuses_and_leaves_the_file_byte_for_byte(string bytes)
     {
         // The write that re-opens an upload. This is what register used to reach after the fold.
         var id = Guid.NewGuid().ToString();
-        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+        var path = CorruptDeliveredTombstone(id, bytes);
         var before = File.ReadAllBytes(path);
 
         Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkPending(id, Guid.NewGuid().ToString()));
@@ -240,9 +247,11 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
     [Fact]
     public void A_corrupt_marker_does_not_lock_a_session()
     {
-        // The documented decision on IsPending: the lock fails open, because nothing a client can do would
-        // ever release a lock held by a marker every delivery path refuses. Pinned so a future reader sees it
-        // asserted, not assumed. The compensating fail-closed default is on the user-input send source.
+        // The documented decision on IsPending: the lock projection fails open, because nothing a client can
+        // do would ever clear a "receiving a dictation" state held by a marker every delivery path refuses.
+        // What that projection drives is display (the session's dictation badge); sends are never refused by
+        // source, so a missed lock costs a badge and cannot cost a delivery. Pinned so a future reader sees it
+        // asserted, not assumed.
         var id = Guid.NewGuid().ToString();
         var session = Guid.NewGuid().ToString();
         _store.Register(id);
