@@ -40,6 +40,12 @@ public sealed class LauncherStreamClient : IAsyncDisposable
     /// naming so the documents agents read keep the shape they have always had.</summary>
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>What to say when the supervisor reports an outcome and no reason for it. It cannot happen
+    /// by construction; it is here so that if it ever does, the answer says whose fault it is.</summary>
+    private const string UnexplainedOutcome =
+        "the launcher did not restart the Director and did not say why, which is a fault in the launcher "
+        + "rather than an answer about the Director";
+
     private HubConnection? _connection;
     private int _started;
     private volatile bool _disposed;
@@ -118,16 +124,38 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         }
     }
 
-    // Execute one command through the shared supervisor/launch actions. A boundary: any fault becomes an
-    // Error result.
-    private async Task<LauncherCommandResult> DispatchAsync(LauncherCommand cmd)
+    /// <summary>
+    /// Execute one command through the shared supervisor/launch actions. A boundary: any fault becomes an
+    /// Error result.
+    ///
+    /// INTERNAL RATHER THAN PRIVATE so the tests can drive a real command through the real supervisor.
+    /// Every decision this method makes - which verb honours onlyIfEmpty, what a refusal becomes on the
+    /// wire - is invisible to a test that stops at the relay or starts at the supervisor, and a seam that
+    /// nothing crosses is exactly where a flag goes missing without a single test turning red.
+    /// </summary>
+    internal async Task<LauncherCommandResult> DispatchAsync(LauncherCommand cmd)
     {
         try
         {
             if (cmd is null)
                 return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, "command is required");
 
-            FileLog.Write($"[LauncherStreamClient] Command received: verb={cmd.Verb}, path={cmd.Path ?? "(none)"}, confirmProtected={cmd.ConfirmProtected}");
+            FileLog.Write($"[LauncherStreamClient] Command received: verb={cmd.Verb}, path={cmd.Path ?? "(none)"}, confirmProtected={cmd.ConfirmProtected}, onlyIfEmpty={cmd.OnlyIfEmpty}");
+
+            // A CONDITION THIS VERB CANNOT HONOUR IS REFUSED HERE, AT THE BOUNDARY, rather than ignored.
+            // onlyIfEmpty means "do not interrupt live work"; every verb below except the restart does
+            // something else entirely with it, which is nothing. Dropping it silently would answer a
+            // request to be careful with a success that was never careful, and this is the last place
+            // that can tell - the Gateway route refuses it too, but it is not the only way a command can
+            // arrive here.
+            if (cmd.OnlyIfEmpty && cmd.Verb != "director/restart")
+            {
+                FileLog.Write($"[LauncherStreamClient] Command declined: onlyIfEmpty was sent with '{cmd.Verb}'");
+                return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest,
+                    $"onlyIfEmpty is understood by 'director/restart' alone, and this is '{cmd.Verb}'. "
+                    + "Nothing was done: a condition that cannot be honoured is refused, never dropped.");
+            }
+
             switch (cmd.Verb)
             {
                 case "director/start":
@@ -139,8 +167,43 @@ public sealed class LauncherStreamClient : IAsyncDisposable
                     return LauncherCommandResult.Ok();
 
                 case "director/restart":
-                    await _supervisor.RestartAsync();
-                    return LauncherCommandResult.Ok();
+                {
+                    // ONLY-IF-EMPTY IS DECIDED HERE, IN THE LAUNCHER PROCESS, for the same reason the
+                    // catalogue rule below is: it is the only place that can read how busy the Director
+                    // actually is, and a guard the caller could route around is not a guard.
+                    var outcome = await _supervisor.RestartAsync(cmd.OnlyIfEmpty);
+                    switch (outcome.Verdict)
+                    {
+                        // NOTHING WAS DONE - the only outcome that may be called a refusal. It promises the
+                        // machine is exactly as the caller left it, and the reason names the live count.
+                        case DirectorRestartVerdict.Refused:
+                            return LauncherCommandResult.Refuse(outcome.Reason ?? UnexplainedOutcome);
+
+                        // SOMETHING WAS DONE AND IT DID NOT FINISH: the stop ran and nothing came back up.
+                        // Reported as a fault, never as a refusal - a refusal would tell the caller their
+                        // machine is untouched when it may now have no Director at all.
+                        case DirectorRestartVerdict.NotStarted:
+                            return LauncherCommandResult.Fail(LauncherCommandStatus.Error,
+                                outcome.Reason ?? UnexplainedOutcome);
+
+                        case DirectorRestartVerdict.Restarted:
+                            // A GUARDED RESTART SAYS SO IN ITS ANSWER, in full: the condition it applied,
+                            // the count it read, and that a Director really came back. An older launcher
+                            // does not know this flag, ignores it, restarts a busy Director and answers
+                            // with a bare OK - so a caller that needed the guarantee must be able to tell
+                            // the two OKs apart, and the Gateway refuses to call a bare one guarded.
+                            return cmd.OnlyIfEmpty
+                                ? LauncherCommandResult.OkWithPayload(JsonSerializer.Serialize(
+                                    new { ok = true, restarted = true, onlyIfEmpty = true, sessions = outcome.Sessions },
+                                    JsonOptions))
+                                : LauncherCommandResult.Ok();
+
+                        default:
+                            throw new InvalidOperationException(
+                                $"the supervisor answered with a restart verdict this launcher does not "
+                                + $"know how to report: {outcome.Verdict}.");
+                    }
+                }
 
                 case "launch":
                 {
