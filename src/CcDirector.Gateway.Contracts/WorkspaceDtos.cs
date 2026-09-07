@@ -215,8 +215,16 @@ public sealed class WorkspaceSeat
     /// Restored on the SAME agent - a session continued on a different agent is not the same session.</summary>
     public string Agent { get; set; } = "";
 
-    /// <summary>The full model id the agent's own records last reported (e.g. "claude-opus-5"), or null
-    /// when none has been recorded. Sometimes empty on the Gateway record: a bonus, not a gate.</summary>
+    /// <summary>
+    /// The full model id the agent's own records last reported (e.g. "claude-opus-5"), or null when none
+    /// has been recorded. Sometimes empty on the Gateway record: a bonus, not a gate.
+    ///
+    /// It READS two shapes, because the hand-written restart index writes two - a plain string when a
+    /// model was reported and the whole folded display object when it was not, so the type depends on the
+    /// state. See <see cref="WorkspaceSeatModelConverter"/> for what happens to each. It always WRITES
+    /// the string.
+    /// </summary>
+    [JsonConverter(typeof(WorkspaceSeatModelConverter))]
     public string? Model { get; set; }
 
     /// <summary>The folded model verdict as the Gateway stamped it, kept ALONGSIDE <see cref="Model"/>
