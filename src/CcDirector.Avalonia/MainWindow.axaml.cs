@@ -4107,6 +4107,17 @@ public partial class MainWindow : Window
             if (_sessions.Count == 0) return;
             await CloseAllSessionsAsync();
         }));
+        // THE DRAIN (issue #2723). Deliberately beside the workspace items rather than under a restart
+        // menu: a drain PRODUCES a workspace, and the restart itself is not done from here - the drain
+        // hands over the command for it and stops.
+        file.Menu.Items.Add(Item("Drain this Director for restart...", async () =>
+        {
+            FileLog.Write("[MainWindow] Menu: Drain this Director");
+            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+            var dialog = new DrainDirectorDialog(
+                host, InstanceContext.DisplayName ?? InstanceContext.Slug ?? Environment.MachineName);
+            await dialog.ShowDialog(this);
+        }));
         file.Menu.Items.Add(new NativeMenuItemSeparator());
         file.Menu.Items.Add(Item("Open Logs", () =>
         {

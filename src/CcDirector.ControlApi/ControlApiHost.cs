@@ -155,6 +155,26 @@ public sealed class ControlApiHost : IAsyncDisposable
         Gateway.Contracts.WorkspaceDocument doc, CancellationToken ct = default)
         => _gatewayClient?.SaveWorkspaceAsync(doc, ct);
 
+    /// <summary>
+    /// THE DRAIN (issue #2723): build a drain of THIS Director - message the chain, collect the handovers,
+    /// close leaf-first, sweep for secrets, and write the whole record into a workspace on the Gateway.
+    ///
+    /// Null when no Gateway is configured, and that is a refusal rather than a degraded mode. The one
+    /// moment the record is worth having is the moment this machine has been restarted out from under its
+    /// fleet, so a drain with nowhere off-machine to write is a drain that must not start: it would close
+    /// every session here and leave the only account of them on a disk nobody can reach from anywhere else.
+    /// The caller says so plainly.
+    /// </summary>
+    /// <param name="onProgress">Called on every state change, for a screen.</param>
+    public Drain.DirectorDrain? CreateDrain(Action<Drain.DrainProgress>? onProgress = null)
+        => _gatewayClient is null
+            ? null
+            : new Drain.DirectorDrain(
+                new Drain.SessionManagerDrainControl(_sessionManager),
+                new Drain.GatewayDrainWorkspaceSink(_gatewayClient),
+                DirectorId,
+                onProgress);
+
     /// <summary>Delete a workspace. See <see cref="ListWorkspacesAsync"/> for the null case.</summary>
     /// <param name="id">The workspace slug.</param>
     /// <param name="ct">Cancellation.</param>

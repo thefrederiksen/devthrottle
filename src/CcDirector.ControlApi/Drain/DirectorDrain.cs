@@ -132,6 +132,9 @@ public sealed class DirectorDrain
     private readonly Dictionary<string, DateTime> _flaggedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _closed = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _problems = new();
+    // Documents that are on disk and could not be read, so the same failure is reported once rather than
+    // on every poll of a ninety-minute drain.
+    private readonly HashSet<string> _unreadable = new(StringComparer.OrdinalIgnoreCase);
 
     private sealed record ReadStamp(long Length, DateTime LastWriteUtc, string Sha256);
 
@@ -367,10 +370,22 @@ public sealed class DirectorDrain
             if (seat.DrainState is not null) continue;
 
             var path = DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name);
-            var text = TryRead(path, options.MinimumHandoverBytes, out var stamp);
-            if (text is null) continue;
+            var read = TryReadFile(path, options.MinimumHandoverBytes);
+            if (read.Status == ReadStatus.Failed && _unreadable.Add(path))
+            {
+                // Recorded ONCE, and the seat is left unaccounted rather than blamed. The drain keeps
+                // trying on every pass; if it never succeeds, the record says the document is there and
+                // unreadable, not that the seat never wrote one.
+                _problems.Add(
+                    $"the handover for {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) IS on disk and " +
+                    $"could not be read: {read.Error}. That is this drain's instrument failing, not the " +
+                    "seat failing to write. The file is at " + path);
+                changed = true;
+            }
+            if (read.Status != ReadStatus.Read) continue;
+            var text = read.Text!;
 
-            _stamps[seat.SessionId!] = stamp!;
+            _stamps[seat.SessionId!] = read.Stamp!;
             seat.HandoverPath = path;
             var block = DrainReportBlock.Parse(text);
             ApplyBlock(seat, block, chain, byId, dir, path);
@@ -566,15 +581,22 @@ public sealed class DirectorDrain
         if (!_stamps.TryGetValue(seat.SessionId!, out var before)) return null;
 
         var path = seat.HandoverPath ?? DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name);
-        var text = TryRead(path, options.MinimumHandoverBytes, out var after);
-        if (text is null || after is null)
+        var read = TryReadFile(path, options.MinimumHandoverBytes);
+        if (read.Status != ReadStatus.Read)
         {
-            _problems.Add(
-                $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
-                "and it could not be read again at close time. The record points at a file that is not there.");
+            // Two different problems, said differently: the file has GONE, or it is there and this drain
+            // cannot read it. Both stop the restart; only one of them is about the seat.
+            _problems.Add(read.Status == ReadStatus.Failed
+                ? $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
+                  $"and it could not be read again at close time: {read.Error}. The document is still there; " +
+                  "this drain cannot see whether it changed."
+                : $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
+                  "and the record now points at a file that is not there.");
             return null;
         }
 
+        var after = read.Stamp!;
+        var text = read.Text!;
         if (string.Equals(before.Sha256, after.Sha256, StringComparison.Ordinal)) return null;
 
         _stamps[seat.SessionId!] = after;
@@ -672,8 +694,21 @@ public sealed class DirectorDrain
         {
             if (seat.DrainState == WorkspaceDrainStates.Covered) continue;   // its senior's block carries them
             var path = seat.HandoverPath;
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
-            var block = DrainReportBlock.Parse(TryRead(path, 0, out _));
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            var read = TryReadFile(path, 0);
+            if (read.Status == ReadStatus.Failed)
+            {
+                // A document that could not be read yields no questions, which looks exactly like a
+                // document that asked none. Say so instead: a question nobody ever asks is the whole
+                // reason this roll-up exists.
+                _problems.Add(
+                    $"the handover for {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) could not be read " +
+                    $"when the owner questions were collected: {read.Error}. Any question in it is NOT in " +
+                    "this list.");
+                continue;
+            }
+            if (read.Status != ReadStatus.Read) continue;
+            var block = DrainReportBlock.Parse(read.Text);
             if (block is null) continue;
             foreach (var q in block.Questions)
                 result.Add(new WorkspaceOwnerQuestion
@@ -708,17 +743,29 @@ public sealed class DirectorDrain
             var files = Directory.Exists(dir)
                 ? Directory.GetFiles(dir, "*.md").OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList()
                 : new List<string>();
-            integrity.DocumentsSwept = files.Count;
-
             var ownerOf = seats
                 .Where(s => !string.IsNullOrWhiteSpace(s.HandoverPath)
                             && s.DrainState != WorkspaceDrainStates.Covered)
                 .GroupBy(s => s.HandoverPath!, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().SessionId, StringComparer.OrdinalIgnoreCase);
 
+            // DocumentsSwept counts what was ACTUALLY READ, never what was listed. A file the sweep could
+            // not open produces no findings, which is indistinguishable from a clean one - so it is not
+            // counted as swept, it is said out loud, and it stops the restart.
+            var swept = 0;
             foreach (var file in files)
             {
-                foreach (var f in HandoverSecretSweep.Sweep(file, TryRead(file, 0, out _)))
+                var read = TryReadFile(file, 0);
+                if (read.Status != ReadStatus.Read)
+                {
+                    problems.Add(
+                        $"the secret sweep could not read {Path.GetFileName(file)}: " +
+                        $"{read.Error ?? read.Status.ToString()}. NOTHING here says that document is clean.");
+                    continue;
+                }
+                swept++;
+
+                foreach (var f in HandoverSecretSweep.Sweep(file, read.Text))
                     integrity.SecretFindings.Add(new WorkspaceSecretFinding
                     {
                         SeatSessionId = ownerOf.TryGetValue(file, out var owner) ? owner : null,
@@ -728,6 +775,7 @@ public sealed class DirectorDrain
                         RedactedExcerpt = f.RedactedExcerpt,
                     });
             }
+            integrity.DocumentsSwept = swept;
         }
         else
         {
@@ -829,35 +877,54 @@ public sealed class DirectorDrain
         doc.UpdatedUtc = saved.UpdatedUtc;
     }
 
-    /// <summary>
-    /// Read a document if it is there and long enough to be finished. A file shorter than the minimum is
-    /// treated as STILL BEING WRITTEN rather than as a finished thin handover - a seat that writes in
-    /// pieces would otherwise be read half-done and closed on it.
-    /// </summary>
-    private static string? TryRead(string path, int minimumBytes, out ReadStamp? stamp)
+    /// <summary>Why a read did not produce a document. COULD NOT READ IS NOT THE SAME AS NOT THERE.</summary>
+    private enum ReadStatus
     {
-        stamp = null;
+        /// <summary>The document was read.</summary>
+        Read,
+        /// <summary>There is no file at that path. The seat has not written one.</summary>
+        NotThere,
+        /// <summary>The file is there and shorter than a finished handover, so it is still being written.</summary>
+        TooShort,
+        /// <summary>THE FILE IS THERE AND COULD NOT BE READ - locked, permissions, a filesystem error.
+        /// This is a broken instrument, never evidence about the seat.</summary>
+        Failed,
+    }
+
+    private sealed record ReadResult(ReadStatus Status, string? Text, ReadStamp? Stamp, string? Error);
+
+    /// <summary>
+    /// Read a document if it is there and long enough to be finished.
+    ///
+    /// A file shorter than the minimum is treated as STILL BEING WRITTEN rather than as a finished thin
+    /// handover - a seat that writes in pieces would otherwise be read half-done and closed on it.
+    ///
+    /// AND A FILE THAT IS THERE BUT CANNOT BE READ IS ITS OWN ANSWER, not "no document". This used to
+    /// swallow the exception and return null, which made a locked or unreadable handover indistinguishable
+    /// from a seat that never wrote one - so the drain would have recorded that seat "unreachable",
+    /// blaming a session for the drain's own inability to read its work. Could-not-read reported as
+    /// nothing-is-there is the same fail-open shape as a sweep that never ran reporting clean, and it is
+    /// worse here, because a session is about to be closed on the verdict.
+    /// </summary>
+    private static ReadResult TryReadFile(string path, int minimumBytes)
+    {
         try
         {
             var info = new FileInfo(path);
-            if (!info.Exists || info.Length < minimumBytes) return null;
+            if (!info.Exists) return new ReadResult(ReadStatus.NotThere, null, null, null);
+            if (info.Length < minimumBytes) return new ReadResult(ReadStatus.TooShort, null, null, null);
 
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(fs, Encoding.UTF8);
             var text = reader.ReadToEnd();
 
-            stamp = new ReadStamp(info.Length, info.LastWriteTimeUtc, Sha256(text));
-            return text;
+            return new ReadResult(
+                ReadStatus.Read, text, new ReadStamp(info.Length, info.LastWriteTimeUtc, Sha256(text)), null);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            FileLog.Write($"[DirectorDrain] TryRead: {path}: {ex.Message}");
-            return null;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            FileLog.Write($"[DirectorDrain] TryRead: {path}: {ex.Message}");
-            return null;
+            FileLog.Write($"[DirectorDrain] TryReadFile FAILED: {path}: {ex.Message}");
+            return new ReadResult(ReadStatus.Failed, null, null, ex.Message);
         }
     }
 

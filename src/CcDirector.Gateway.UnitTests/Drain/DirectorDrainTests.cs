@@ -634,6 +634,75 @@ public class DirectorDrainTests
     }
 
     [Fact]
+    public async Task Drain_AHandoverThatEXISTSAndCannotBeRead_IsNotReportedAsOneThatWasNeverWritten()
+    {
+        // COULD-NOT-READ IS NOT NOTHING-IS-THERE. A locked or unreadable handover used to be
+        // indistinguishable from a seat that never wrote one, so the drain would have recorded that seat
+        // "unreachable" - blaming a session for the drain's own inability to read its work, and closing
+        // nothing while saying the wrong thing about why.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("locked", "A seat whose document cannot be opened");
+        sessions.Live.Add("locked");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+
+        var path = DrainTestRig.WriteHandover(dir.Path, "locked", seat.Name, DrainTestRig.Block());
+
+        // FileShare.None: no other handle may open this file at all, which is what a real lock looks like.
+        using (var exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+            var integrity = result.Document.Integrity!;
+
+            Assert.False(result.ReadyToRestart);
+            Assert.Contains(integrity.Problems,
+                p => p.Contains("IS on disk and could not be read")
+                  && p.Contains("not the seat failing to write"));
+
+            // AND THE SWEEP DID NOT CERTIFY IT. A document the sweep could not open produces no findings,
+            // which is indistinguishable from a clean one - so it is not counted as swept and it is named.
+            Assert.Equal(0, integrity.DocumentsSwept);
+            Assert.Contains(integrity.Problems,
+                p => p.Contains("secret sweep could not read")
+                  && p.Contains("NOTHING here says that document is clean"));
+
+            // Never forced: the seat is still running and was never asked to close.
+            Assert.Empty(sessions.Flagged);
+            Assert.Contains("locked", sessions.Live);
+            Assert.Equal(0, exclusive.Position);   // the handle was held for the whole run
+        }
+    }
+
+    [Fact]
+    public async Task Drain_TheSweepCountsWhatItREAD_NotWhatItLISTED()
+    {
+        // One readable document and one locked one, in the same directory. Two swept would be a lie, and
+        // it is the lie the epic's own proof exists to prevent: a locked file certifying a document
+        // nobody read as carrying no secrets.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("ok", "A readable seat"),
+            DrainTestRig.Seat("bad", "A seat whose document is locked", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        DrainTestRig.WriteHandover(dir.Path, "ok", seats[0].Name, DrainTestRig.Block());
+        var locked = DrainTestRig.WriteHandover(dir.Path, "bad", seats[1].Name, DrainTestRig.Block());
+
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+            Assert.Equal(2, Directory.GetFiles(dir.Path, "*.md").Length);
+            Assert.Equal(1, result.Document.Integrity!.DocumentsSwept);
+            Assert.False(result.ReadyToRestart);
+        }
+    }
+
+    [Fact]
     public async Task Drain_ASeatAlreadyGoneBeforeTheMessage_IsRecordedRatherThanWaitedFor()
     {
         using var dir = new TempDir();
