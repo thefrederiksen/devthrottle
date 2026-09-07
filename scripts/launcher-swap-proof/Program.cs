@@ -10,9 +10,9 @@ namespace CcDirector.Proof.LauncherSwap;
 /// WHY A RIG AND NOT A TEST. Every scenario in LauncherUpdateOwnerTests drives the pass through fakes
 /// for the process list, the stop and the start - which is right for the decisions, and says nothing
 /// at all about the three production delegates that actually touch the machine. DefaultStopProcess,
-/// DefaultStartLauncher (including the CC_DIRECTOR_ROOT scrub and the --managed argument) and the
-/// witness reading a genuinely new process had never once executed against a real launcher. This runs
-/// them.
+/// DefaultStartLauncher (including the CC_DIRECTOR_ROOT it hands the child and the --managed argument)
+/// and the witness reading a genuinely new process had never once executed against a real launcher.
+/// This runs them - and the first run found a real defect in exactly that environment handling.
 ///
 /// WHAT IT PROVES AND WHAT IT DOES NOT - read this before quoting it as the end-to-end proof:
 ///
@@ -42,12 +42,18 @@ public static class Program
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: launcher-swap-proof <isolated-root> [expected-new-version]");
+            Console.Error.WriteLine("usage: launcher-swap-proof <isolated-root> [expected-new-version] [verdict-file]");
             return 2;
         }
 
         var root = Path.GetFullPath(args[0]);
         var expectedNewVersion = args.Length > 1 ? args[1] : null;
+        // Named by the CALLER, so each run has its own. A single shared path in the temporary
+        // directory meant two runs side by side could overwrite one another's answer, and a failing
+        // run could read another run's PASS.
+        _verdictPath = args.Length > 2 && !string.IsNullOrWhiteSpace(args[2])
+            ? Path.GetFullPath(args[2])
+            : Path.Combine(Path.GetTempPath(), "launcher-swap-proof.verdict.txt");
 
         var realRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
@@ -167,8 +173,8 @@ public static class Program
     {
         try
         {
-            File.WriteAllText(VerdictPath, verdict);
-            Console.WriteLine($"verdict written to {VerdictPath}");
+            File.WriteAllText(_verdictPath, verdict);
+            Console.WriteLine($"verdict written to {_verdictPath}");
         }
         catch (Exception ex)
         {
@@ -176,10 +182,9 @@ public static class Program
         }
     }
 
-    /// <summary>Where the verdict is written. The script deletes it before a run, so a stale PASS from
-    /// a previous run cannot be read as this one's result.</summary>
-    public static string VerdictPath =>
-        Path.Combine(Path.GetTempPath(), "launcher-swap-proof.verdict.txt");
+    /// <summary>Where the verdict is written - supplied per run by the calling script, so a verdict
+    /// from a concurrent run can never be read as this one's result.</summary>
+    private static string _verdictPath = "";
 
     private static void Report(LauncherWitnessReading r)
     {

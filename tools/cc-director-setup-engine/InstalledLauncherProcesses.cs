@@ -14,6 +14,63 @@ namespace CcDirector.Setup.Engine;
 /// </summary>
 public static class InstalledLauncherProcesses
 {
+    /// <summary>What a cc-launcher process whose path could not be read has to be treated as.</summary>
+    internal enum UnreadableVerdict
+    {
+        /// <summary>It could plausibly be ours, so the machine is undecidable until it can be read.</summary>
+        CouldBeOurs,
+
+        /// <summary>It cannot be ours - it has exited, or it belongs to another logon session.</summary>
+        CannotBeOurs,
+    }
+
+    /// <summary>
+    /// A cc-launcher process whose path could not be read: undecidable if it could plausibly be OURS,
+    /// and ignored if it could not. Pure, so it can be driven with the inputs a real machine will not
+    /// produce on demand.
+    ///
+    /// A NULL MODULE IS UNREADABLE, NOT AN EMPTY COMMAND LINE. The enumeration used to coalesce null
+    /// to "", which <see cref="Ours"/> then drops for having no matching prefix - the exact fail-open
+    /// the throw exists to close, surviving in the one shape that raises no exception.
+    ///
+    /// WHY THE SESSION IS CONSULTED. Making every unreadable process undecidable is right for one that
+    /// might be ours and far too broad for one that cannot be. The enumeration is machine-wide, while
+    /// the install is per-user under that user's own local application data - so on a machine with
+    /// several people signed in, ONE other user's launcher (whose module a non-elevated read is
+    /// refused) would make this user's launcher update undecidable on every pass, for ever, with
+    /// nothing wrong on this user's machine at all.
+    ///
+    /// The residual limit, stated rather than hidden: the SAME user signed in twice has two sessions
+    /// and could genuinely be running our binary in the other one. That case is missed. Narrowing
+    /// further needs the process's owning account, which is not readable cheaply.
+    /// </summary>
+    internal static UnreadableVerdict Classify(string? commandLine, bool? hasExited, int? sessionId, int ourSession)
+    {
+        if (!string.IsNullOrEmpty(commandLine)) return UnreadableVerdict.CannotBeOurs;  // it was readable
+        if (hasExited == true) return UnreadableVerdict.CannotBeOurs;                   // simply gone
+        if (sessionId is null) return UnreadableVerdict.CouldBeOurs;                    // cannot even place it
+        return sessionId == ourSession ? UnreadableVerdict.CouldBeOurs : UnreadableVerdict.CannotBeOurs;
+    }
+
+    /// <summary>Read a process property that may throw, as an absence rather than an exception.</summary>
+    private static T? TryRead<T>(Func<T?> read) where T : struct
+    {
+        try { return read(); }
+        catch { return null; }
+    }
+
+    /// <summary>Log the verdict, and add to the undecidable list only when it could be ours.</summary>
+    private static void Note(int pid, UnreadableVerdict verdict, string why, List<string> unreadable)
+    {
+        if (verdict == UnreadableVerdict.CouldBeOurs)
+        {
+            EngineLog.Write($"[InstalledLauncherProcesses] pid={pid}: {why}; it could be ours, so the machine is undecidable");
+            unreadable.Add($"{pid} ({why})");
+            return;
+        }
+        EngineLog.Write($"[InstalledLauncherProcesses] pid={pid}: {why}, but it cannot be ours (exited, or another logon session)");
+    }
+
     /// <summary>
     /// The answer to "which launcher processes are on this machine", given what could be read and what
     /// could not.
@@ -90,13 +147,26 @@ public static class InstalledLauncherProcesses
         if (OperatingSystem.IsWindows())
         {
             var unreadable = new List<string>();
+            var ourSession = Process.GetCurrentProcess().SessionId;
+
             foreach (var p in Process.GetProcessesByName("cc-launcher"))
             {
-                try { found.Add(new LauncherProcess(p.Id, p.MainModule?.FileName ?? "")); }
+                try
+                {
+                    var path = p.MainModule?.FileName;
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        found.Add(new LauncherProcess(p.Id, path));
+                        continue;
+                    }
+
+                    var verdict = Classify(path, TryRead<bool>(() => p.HasExited), TryRead<int>(() => p.SessionId), ourSession);
+                    Note(p.Id, verdict, "its main module could not be named", unreadable);
+                }
                 catch (Exception ex)
                 {
-                    EngineLog.Write($"[InstalledLauncherProcesses] pid={p.Id}: {ex.Message}");
-                    unreadable.Add($"{p.Id} ({ex.Message})");
+                    var verdict = Classify(null, TryRead<bool>(() => p.HasExited), TryRead<int>(() => p.SessionId), ourSession);
+                    Note(p.Id, verdict, ex.Message, unreadable);
                 }
                 finally { p.Dispose(); }
             }

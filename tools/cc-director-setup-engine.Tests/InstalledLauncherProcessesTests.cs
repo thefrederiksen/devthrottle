@@ -33,6 +33,33 @@ public class InstalledLauncherProcessesTests
         Assert.Contains("4242", refused.Message);
     }
 
+    [Theory]
+    // A live process in OUR session whose path could not be read might be ours: undecidable.
+    [InlineData(null, false, 1, 1, InstalledLauncherProcesses.UnreadableVerdict.CouldBeOurs)]
+    // Its session could not even be read, so it cannot be ruled out either.
+    [InlineData(null, false, null, 1, InstalledLauncherProcesses.UnreadableVerdict.CouldBeOurs)]
+    // Another logon session cannot be running this per-user install's binary.
+    [InlineData(null, false, 2, 1, InstalledLauncherProcesses.UnreadableVerdict.CannotBeOurs)]
+    // It has exited; it is not running from anywhere.
+    [InlineData(null, true, 1, 1, InstalledLauncherProcesses.UnreadableVerdict.CannotBeOurs)]
+    // It was readable after all - the caller keeps it, this path is not about it.
+    [InlineData("/opt/cc-director/launcher/cc-launcher", false, 1, 1, InstalledLauncherProcesses.UnreadableVerdict.CannotBeOurs)]
+    internal void AProcessWhosePathCannotBeRead_IsUndecidableOnlyWhenItCouldBeOurs(
+        string? commandLine, bool hasExited, int? sessionId, int ourSession,
+        InstalledLauncherProcesses.UnreadableVerdict expected)
+    {
+        // THE SHAPE THAT RAISED NO EXCEPTION. A null main module used to be coalesced to an empty
+        // command line, which Ours then drops for having no matching prefix - the exact fail-open the
+        // throw exists to close, surviving in the one case that does not throw.
+        //
+        // And the opposite over-correction is guarded here too: treating EVERY unreadable process as
+        // possibly ours is far too broad, because the enumeration is machine-wide while the install is
+        // per-user. One other signed-in user's launcher would otherwise make this user's update
+        // undecidable on every pass, for ever, with nothing wrong on this user's machine.
+        Assert.Equal(expected,
+            InstalledLauncherProcesses.Classify(commandLine, hasExited, sessionId, ourSession));
+    }
+
     [Fact]
     public void AnUnreadableProcessIsRefusedEvenWhenNothingElseIsRunning()
     {

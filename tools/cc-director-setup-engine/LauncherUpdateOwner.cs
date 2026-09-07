@@ -174,8 +174,13 @@ public sealed class LauncherUpdateOwner
     /// The machine-wide lock this swap takes. <see cref="BinarySwapLock.Name"/> in production, always;
     /// a test overrides it so it can hold a lock of its own without contending with everything else on
     /// the machine. See the parameter note on <see cref="BinarySwapLock.RunExclusivelyAsync"/>.
+    ///
+    /// INTERNAL, so the override is reachable only from the test assemblies. Public, it was a knob a
+    /// production caller could turn - and two owners on two names exclude nothing at all while looking,
+    /// in every log and every test, exactly like a lock that works. The guarantee should not rest on
+    /// nobody happening to set it.
     /// </summary>
-    public string SwapLockName { get; init; } = BinarySwapLock.Name;
+    internal string SwapLockName { get; init; } = BinarySwapLock.Name;
 
     /// <summary>How long to wait for the stopped launcher's processes to go before insisting.</summary>
     public TimeSpan GracefulStopTimeout { get; init; } = TimeSpan.FromSeconds(15);
@@ -253,27 +258,6 @@ public sealed class LauncherUpdateOwner
                 LauncherUpdateDecision.HeldBecauseTheCommandSurfaceCannotBeObserved, notObservable);
         }
 
-        // ALREADY THE RIGHT BUILD - BUT ONLY IF IT CAN BE COMMANDED. This asked whether the running
-        // process was ALIVE and reported the staged version, and then wrote that version into the
-        // installed manifest. A launcher that is the right version and holds no command surface is
-        // exactly the machine this whole change exists for, and that shortcut blessed it: the manifest
-        // then agreed with the binary, so the pass reported nothing to do for ever and the machine
-        // stayed uncommandable in silence. The version is recorded only when it was WITNESSED, and an
-        // unwitnessed match falls through to the swap, which is the retry that fixes it.
-        if (reading.Witnessed && VersionsMatch(staged.Version, reading.Version))
-        {
-            FileLog.Write($"[LauncherUpdateOwner] the running launcher already reports {reading.Version} and is "
-                          + "commandable; nothing to install.");
-            RecordInstalledVersion(staged.Version);
-            return LauncherUpdateResult.Of(LauncherUpdateDecision.NothingStaged,
-                $"The running launcher already reports {reading.Version} and can be commanded.");
-        }
-
-        if (reading.ProcessAlive && VersionsMatch(staged.Version, reading.Version))
-            FileLog.Write($"[LauncherUpdateOwner] the running launcher already reports {reading.Version}, but it is "
-                          + $"NOT witnessed ({reading.Detail}). Reinstalling it rather than recording a version that "
-                          + "was never proved commandable.");
-
         List<LauncherProcess> ours;
         try
         {
@@ -285,6 +269,41 @@ public sealed class LauncherUpdateOwner
             return LauncherUpdateResult.Of(LauncherUpdateDecision.HeldBecauseUndecidable,
                 $"The process list could not be read, so which process the launcher is could not be established: {ex.Message}");
         }
+
+        // ALREADY THE RIGHT BUILD - BUT ONLY IF IT CAN BE COMMANDED, AND ONLY IF IT IS THE INSTALLED
+        // ONE. Two defects have lived in this shortcut and they compound.
+        //
+        // The first: it asked whether the running process was ALIVE and reported the staged version,
+        // and then wrote that version into the installed manifest. A launcher that is the right
+        // version and holds no command surface is exactly the machine this whole change exists for,
+        // and the shortcut blessed it - after which the manifest agreed with the binary and the pass
+        // reported nothing to do, for ever.
+        //
+        // The second: WITNESSED alone does not say the INSTALLED BINARY is that version. The witness
+        // reads the registration at the shared root, and any launcher can write it - one run from a
+        // repository checkout, or from the staging directory, pointed at this root. Such a launcher is
+        // registered, alive and commandable while the installed file is still the old build, so the
+        // shortcut would record a version that is not on disk. InstalledStateReader then prefers that
+        // newer recorded version over the older file stamp, the staged build stops looking newer, and
+        // the installed binary can never be repaired. So the process the witness saw must be the one
+        // running from the INSTALL directory: exactly one of ours, and it must be that same process id.
+        var witnessedTheInstalledLauncher =
+            reading.Witnessed && ours.Count == 1 && ours[0].Pid == reading.Pid;
+
+        if (witnessedTheInstalledLauncher && VersionsMatch(staged.Version, reading.Version))
+        {
+            FileLog.Write($"[LauncherUpdateOwner] the installed launcher (pid {reading.Pid}) already reports "
+                          + $"{reading.Version} and is commandable; nothing to install.");
+            RecordInstalledVersion(staged.Version);
+            return LauncherUpdateResult.Of(LauncherUpdateDecision.NothingStaged,
+                $"The running launcher already reports {reading.Version} and can be commanded.");
+        }
+
+        if (reading.ProcessAlive && VersionsMatch(staged.Version, reading.Version))
+            FileLog.Write($"[LauncherUpdateOwner] the registered launcher already reports {reading.Version}, but it "
+                          + $"is not both witnessed and the installed process (witnessed={reading.Witnessed}, "
+                          + $"registered pid={reading.Pid}, installed launcher processes={ours.Count}). Not recording "
+                          + "a version that was never proved to be the one on disk.");
 
         if (ours.Count == 0)
         {

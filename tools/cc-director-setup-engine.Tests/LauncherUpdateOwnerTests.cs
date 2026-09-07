@@ -211,9 +211,11 @@ public class LauncherUpdateOwnerTests : IDisposable
     [Fact]
     public async Task ARunningLauncherThatIsAlreadyTheStagedVersion_AND_COMMANDABLE_InstallsNothing()
     {
+        // pid 1001 is BOTH what the registration names and the process running from the install
+        // directory - the shortcut requires that they are the same process.
         WriteRegistration(1001, StagedVersion);
         var stopped = new List<int>();
-        var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped,
+        var owner = Owner([InstalledLauncher(1001)], newBuildIsCommandable: true, stopped: stopped,
             oldBuildListens: true);
 
         var result = await owner.RunOnceAsync();
@@ -242,6 +244,32 @@ public class LauncherUpdateOwnerTests : IDisposable
 
         Assert.Equal(LauncherUpdateDecision.Applied, result.Decision);
         Assert.Equal(new[] { 1001 }, stopped);
+        Assert.Equal("launcher-NEW", File.ReadAllText(_target));
+    }
+
+    [Fact]
+    public async Task AWITNESSEDLauncherThatIsNotTheINSTALLEDOne_DoesNotGetItsVersionRecorded()
+    {
+        // THE SECOND HALF OF THE SAME DEFECT. "Witnessed" says a launcher is registered, alive and
+        // commandable - it does NOT say the installed BINARY is that version. The witness reads the
+        // registration at the shared root, and any launcher can write it: one run from a repository
+        // checkout, or from the staging directory, pointed at this root. Such a launcher is witnessed
+        // while the installed file is still the old build.
+        //
+        // Record on that and the damage outlives the pass: InstalledStateReader prefers the recorded
+        // version over the older file stamp, so the staged build stops looking newer and the installed
+        // binary can never be repaired. The registration here names a process that is NOT the one
+        // running from the install directory, which is exactly that machine.
+        WriteRegistration(7777, StagedVersion);
+        var running = new List<LauncherProcess> { InstalledLauncher(1001) };
+        var owner = Owner(running, newBuildIsCommandable: true, oldBuildListens: true);
+
+        var result = await owner.RunOnceAsync();
+
+        // The shortcut must NOT fire. What proves that is the install actually happening: the binary
+        // on disk is the new one. (Recording the version afterwards is then correct and expected -
+        // the defect was recording it INSTEAD of installing.)
+        Assert.NotEqual(LauncherUpdateDecision.NothingStaged, result.Decision);
         Assert.Equal("launcher-NEW", File.ReadAllText(_target));
     }
 

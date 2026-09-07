@@ -56,6 +56,16 @@ public static class BinarySwapLock
     /// <param name="work">The swap. Runs only when the lock was taken.</param>
     /// <param name="whenBusy">The answer to give when another swap is already running.</param>
     /// <param name="who">A short label for the log, so it says which owner was held off.</param>
+    /// <param name="waitFor">
+    /// How long to wait for the lock before giving up. Null means DO NOT WAIT, which is right for the
+    /// two periodic owners: a pass that cannot have the lock has nothing to gain by queueing, because
+    /// it will look again on its next cycle anyway.
+    ///
+    /// The detached launcher self-update helper is the exception and passes a bounded wait. It is not
+    /// a periodic pass - it is a process launched for the single purpose of performing one swap, and
+    /// it has no next cycle to come back on. Skipping there would mean the update it was started to
+    /// apply simply does not happen.
+    /// </param>
     /// <param name="name">
     /// The mutex to take. Defaults to <see cref="Name"/>, which is the whole point - both owners take
     /// the SAME one or the lock excludes nothing.
@@ -69,7 +79,7 @@ public static class BinarySwapLock
     /// quietly cost.
     /// </param>
     public static Task<T> RunExclusivelyAsync<T>(
-        Func<Task<T>> work, Func<string, T> whenBusy, string who, string? name = null)
+        Func<Task<T>> work, Func<string, T> whenBusy, string who, string? name = null, TimeSpan? waitFor = null)
     {
         ArgumentNullException.ThrowIfNull(work);
         ArgumentNullException.ThrowIfNull(whenBusy);
@@ -86,13 +96,17 @@ public static class BinarySwapLock
             try
             {
                 mutex = new Mutex(initiallyOwned: false, mutexName, out _);
-                try { held = mutex.WaitOne(TimeSpan.Zero); }
+                var patience = waitFor ?? TimeSpan.Zero;
+                try { held = mutex.WaitOne(patience); }
                 catch (AbandonedMutexException) { held = true; }   // a prior holder died; we own it now
 
                 if (!held)
                 {
+                    var waited = patience == TimeSpan.Zero
+                        ? ""
+                        : $" after waiting {patience.TotalSeconds:F0}s";
                     var message = "another binary swap is already running on this machine "
-                                  + "(a Director update or a launcher update); nothing was touched.";
+                                  + $"(a Director update or a launcher update){waited}; nothing was touched.";
                     FileLog.Write($"[BinarySwapLock] {who} held off: {message}");
                     completion.SetResult(whenBusy(message));
                     return;

@@ -97,8 +97,13 @@ public sealed class DirectorUpdateOwner
     /// The machine-wide lock this swap takes. <see cref="BinarySwapLock.Name"/> in production, always;
     /// a test overrides it so it can hold a lock of its own without contending with everything else on
     /// the machine. See the parameter note on <see cref="BinarySwapLock.RunExclusivelyAsync"/>.
+    ///
+    /// INTERNAL, so the override is reachable only from the test assemblies. Public, it was a knob a
+    /// production caller could turn - and two owners on two names exclude nothing at all while looking,
+    /// in every log and every test, exactly like a lock that works. The guarantee should not rest on
+    /// nobody happening to set it.
     /// </summary>
-    public string SwapLockName { get; init; } = BinarySwapLock.Name;
+    internal string SwapLockName { get; init; } = BinarySwapLock.Name;
 
     /// <summary>
     /// Decide whether a staged update may be installed right now: only when one is staged AND the
