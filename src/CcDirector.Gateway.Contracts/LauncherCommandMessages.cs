@@ -13,7 +13,9 @@ namespace CcDirector.Gateway.Contracts;
 /// Verbs fall into two families:
 ///
 ///   * ACTION verbs, which change something on the machine and answer only with success or failure:
-///     "director/start", "director/stop", "director/restart", "launch".
+///     "director/start", "director/stop", "director/restart", "launch". One of them can also answer with a
+///     REFUSAL: a "director/restart" carrying <see cref="LauncherCommand.OnlyIfEmpty"/> declines while the
+///     Director still holds live sessions, and says how many.
 ///   * QUERY verbs, which change nothing and answer WITH DATA carried in
 ///     <see cref="LauncherCommandResult.Payload"/>: "apps" (the installed application catalogue) and
 ///     "files" (a filename search across the machine's drives).
@@ -31,6 +33,26 @@ public sealed class LauncherCommand
 
     /// <summary>Optional workspace/context hint for a launch, reserved for future verbs. Unused by the current verbs.</summary>
     public string? Workspace { get; set; }
+
+    /// <summary>
+    /// For "director/restart": restart ONLY when the Director is holding no live sessions, and REFUSE
+    /// otherwise - with a refusal that says how many sessions are live.
+    ///
+    /// THIS IS THE MECHANICAL HALF OF "NEVER FORCE". A drain empties a Director one session at a time,
+    /// and a restart that lands in the middle of one takes the remaining sessions with it. The rule
+    /// against that used to live in a written instruction, and an instruction cannot stop a mistake -
+    /// this flag can, because the launcher itself reads the count and declines.
+    ///
+    /// A LAUNCHER THAT PREDATES THIS FLAG IGNORES IT AND RESTARTS ANYWAY, which is exactly the failure
+    /// this exists to prevent, so an answer must never be read as a guarantee just because it says OK.
+    /// A launcher that HONOURED the flag says so in <see cref="LauncherCommandResult.Payload"/> - it
+    /// carries "onlyIfEmpty":true and the session count it read. An OK with no payload came from a
+    /// launcher that did not understand the request; update that machine's launcher.
+    ///
+    /// Ignored by every other verb, and the Gateway relay refuses to send it with one rather than
+    /// letting it look honoured.
+    /// </summary>
+    public bool OnlyIfEmpty { get; set; }
 
     /// <summary>For "launch": the absolute path to the executable. For lifecycle verbs: the target Director exe (informational).</summary>
     public string? Path { get; set; }
@@ -76,6 +98,20 @@ public enum LauncherCommandStatus
     Ok = 0,
     BadRequest = 1,
     Error = 2,
+
+    /// <summary>
+    /// The launcher understood the command perfectly, was able to run it, and DECIDED NOT TO because a
+    /// condition the caller attached was not met - today, "restart only if the Director is empty" against
+    /// a Director that is holding live sessions.
+    ///
+    /// It is its own outcome because the other two would both lie about it. <see cref="BadRequest"/> says
+    /// the caller asked for something malformed, and would send them to fix a request that was correct;
+    /// <see cref="Error"/> says the launcher broke, and would send them to look for a fault on a machine
+    /// that is working exactly as asked. A refusal is a NORMAL, EXPECTED answer with an action attached -
+    /// drain the Director, then ask again - and <see cref="LauncherCommandResult.Error"/> carries the
+    /// reason, including the live session count.
+    /// </summary>
+    Refused = 3,
 }
 
 /// <summary>
@@ -115,4 +151,13 @@ public sealed class LauncherCommandResult
     /// <summary>Build a failure result with the given status and message.</summary>
     public static LauncherCommandResult Fail(LauncherCommandStatus status, string error) =>
         new() { Status = status, Error = error };
+
+    /// <summary>
+    /// Build a REFUSAL: the launcher could have done it and chose not to, because a condition the caller
+    /// attached was not met. <paramref name="reason"/> must say what the condition was and what was
+    /// actually observed - "3 live sessions", never a bare "refused" - because the reader's next move
+    /// depends entirely on the number.
+    /// </summary>
+    public static LauncherCommandResult Refuse(string reason) =>
+        new() { Status = LauncherCommandStatus.Refused, Error = reason };
 }
