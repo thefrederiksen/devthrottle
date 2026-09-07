@@ -51,7 +51,7 @@ public class DirectorDrainTests
 
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
         foreach (var s in seats)
-            DrainTestRig.WriteHandover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
+            sessions.Handover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -76,7 +76,7 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
         foreach (var s in seats)
-            DrainTestRig.WriteHandover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
+            sessions.Handover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -106,7 +106,7 @@ public class DirectorDrainTests
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
 
         var expected = DrainPaths.HandoverFor(dir.Path, "solo", seat.Name);
-        DrainTestRig.WriteHandover(dir.Path, "solo", seat.Name, DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", seat.Name, DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -133,7 +133,7 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
         foreach (var s in seats)
-            DrainTestRig.WriteHandover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
+            sessions.Handover(dir.Path, s.SessionId!, s.Name, DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -159,7 +159,7 @@ public class DirectorDrainTests
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
         // Only the Architect writes. The Worker never does.
-        DrainTestRig.WriteHandover(dir.Path, "arch", "Architect", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "arch", "Architect", DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(5)), dir.Path);
 
@@ -185,7 +185,7 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        var managerDoc = DrainTestRig.WriteHandover(dir.Path, "mgr", "Manager R-D", DrainTestRig.Block(
+        var managerDoc = sessions.Handover(dir.Path, "mgr", "Manager R-D", DrainTestRig.Block(
             covered: new[]
             {
                 ("wa", "Read its brief, wrote no code; a fresh Manager re-seats it on WORKER-RD-A.md."),
@@ -225,10 +225,10 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "mgrA", "Manager A",
+        sessions.Handover(dir.Path, "mgrA", "Manager A",
             DrainTestRig.Block(covered: new[] { ("wB", "I am writing this one off.") }));
-        DrainTestRig.WriteHandover(dir.Path, "mgrB", "Manager B", DrainTestRig.Block());
-        DrainTestRig.WriteHandover(dir.Path, "wB", "Worker of B", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "mgrB", "Manager B", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "wB", "Worker of B", DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -248,7 +248,7 @@ public class DirectorDrainTests
         sessions.Live.Add("mgr");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
 
-        DrainTestRig.WriteHandover(dir.Path, "mgr", "Manager",
+        sessions.Handover(dir.Path, "mgr", "Manager",
             DrainTestRig.Block(covered: new[] { ("a-session-somewhere-else", "not here") }));
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
@@ -269,7 +269,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -292,7 +292,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("stuck", "A session mid-turn for ever");
         sessions.Live.Add("stuck");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "stuck", seat.Name, DrainTestRig.Block());
+        sessions.Handover(dir.Path, "stuck", seat.Name, DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(
             Options(TimeSpan.FromMinutes(3)), dir.Path);
@@ -318,8 +318,8 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "arch", "Architect", DrainTestRig.Block());
-        DrainTestRig.WriteHandover(dir.Path, "w", "Worker", DrainTestRig.Block(
+        sessions.Handover(dir.Path, "arch", "Architect", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block(
             state: "blocked", restore: null, why: null,
             blockedReason: "A release is being published; stopping now leaves a half-pushed tag."));
 
@@ -381,9 +381,9 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "arch", "Architect",
+        sessions.Handover(dir.Path, "arch", "Architect",
             DrainTestRig.Block(restore: true, why: "There is still work here."));
-        DrainTestRig.WriteHandover(dir.Path, "w", "Worker", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -478,7 +478,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -501,11 +501,11 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "arch", seats[0].Name,
+        sessions.Handover(dir.Path, "arch", seats[0].Name,
             DrainTestRig.Block(restore: true, why: "Head of a mission with real continuing work."));
-        DrainTestRig.WriteHandover(dir.Path, "mgr", seats[1].Name,
+        sessions.Handover(dir.Path, "mgr", seats[1].Name,
             DrainTestRig.Block(restore: false, why: "My Architect re-seats me from the committed brief."));
-        DrainTestRig.WriteHandover(dir.Path, "done", seats[2].Name,
+        sessions.Handover(dir.Path, "done", seats[2].Name,
             DrainTestRig.Block(restore: false, why: "Merged and finished."));
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
@@ -535,9 +535,9 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "a", seats[0].Name, DrainTestRig.Block(
+        sessions.Handover(dir.Path, "a", seats[0].Name, DrainTestRig.Block(
             questions: new[] { "Deploy the merged ring change (pull request 2718)? It needs your go." }));
-        DrainTestRig.WriteHandover(dir.Path, "b", seats[1].Name, DrainTestRig.Block(
+        sessions.Handover(dir.Path, "b", seats[1].Name, DrainTestRig.Block(
             questions: new[] { "Which mailbox should the spine send from?", "Do we keep the digest?" }));
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
@@ -559,7 +559,7 @@ public class DirectorDrainTests
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
 
         const string Secret = "Zx9kkQQmm44rrSS";
-        DrainTestRig.WriteHandover(dir.Path, "solo", seat.Name, DrainTestRig.Block(),
+        sessions.Handover(dir.Path, "solo", seat.Name, DrainTestRig.Block(),
             body: DrainTestRig.Body + $"\n\nThe virtual machine password: {Secret}\n");
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
@@ -582,7 +582,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -603,7 +603,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", block: "");
+        sessions.Handover(dir.Path, "solo", "Standalone", block: "");
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
@@ -623,7 +623,10 @@ public class DirectorDrainTests
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
 
-        File.WriteAllText(DrainPaths.HandoverFor(dir.Path, "solo", "Standalone"), "## Where I am\n");
+        // The seat starts writing when it is messaged and never finishes: a stub above nothing and below
+        // the floor.
+        sessions.WhenMessaged = () =>
+            File.WriteAllText(DrainPaths.HandoverFor(dir.Path, "solo", "Standalone"), "## Where I am\n");
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
 
@@ -646,14 +649,20 @@ public class DirectorDrainTests
         sessions.Live.Add("locked");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
 
-        var path = DrainTestRig.WriteHandover(dir.Path, "locked", seat.Name, DrainTestRig.Block());
+        var path = sessions.Handover(dir.Path, "locked", seat.Name, DrainTestRig.Block());
 
         // FileShare.None: no other handle may open this file at all, which is what a real lock looks like.
-        using (var exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        // Taken the instant the seat writes it, and held for the whole run.
+        FileStream? exclusive = null;
+        sessions.WhenMessaged = () =>
+            exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        try
         {
             var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
             var integrity = result.Document.Integrity!;
 
+            Assert.NotNull(exclusive);
             Assert.False(result.ReadyToRestart);
             Assert.Contains(integrity.Problems,
                 p => p.Contains("IS on disk and could not be read")
@@ -669,7 +678,10 @@ public class DirectorDrainTests
             // Never forced: the seat is still running and was never asked to close.
             Assert.Empty(sessions.Flagged);
             Assert.Contains("locked", sessions.Live);
-            Assert.Equal(0, exclusive.Position);   // the handle was held for the whole run
+        }
+        finally
+        {
+            exclusive?.Dispose();
         }
     }
 
@@ -689,16 +701,24 @@ public class DirectorDrainTests
         foreach (var s in seats) sessions.Live.Add(s.SessionId!);
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        DrainTestRig.WriteHandover(dir.Path, "ok", seats[0].Name, DrainTestRig.Block());
-        var locked = DrainTestRig.WriteHandover(dir.Path, "bad", seats[1].Name, DrainTestRig.Block());
+        sessions.Handover(dir.Path, "ok", seats[0].Name, DrainTestRig.Block());
+        var locked = sessions.Handover(dir.Path, "bad", seats[1].Name, DrainTestRig.Block());
 
-        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        FileStream? exclusive = null;
+        sessions.WhenMessaged = () =>
+            exclusive = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        try
         {
             var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
 
             Assert.Equal(2, Directory.GetFiles(dir.Path, "*.md").Length);
             Assert.Equal(1, result.Document.Integrity!.DocumentsSwept);
             Assert.False(result.ReadyToRestart);
+        }
+        finally
+        {
+            exclusive?.Dispose();
         }
     }
 
@@ -743,7 +763,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         var phases = new List<string>();
         await NewDrain(sessions, sink, p => phases.Add(p.Phase)).RunAsync(Options(), dir.Path);
@@ -763,7 +783,7 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         var options = Options();
         options.DrivenBySessionId = "the-session-that-pressed-it";
@@ -790,12 +810,385 @@ public class DirectorDrainTests
         var seat = DrainTestRig.Seat("solo", "Standalone");
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
-        DrainTestRig.WriteHandover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
 
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
         Assert.NotNull(sink.Last.Seats.Single().ClosedAtUtc);
         Assert.NotNull(sink.Last.Integrity);
         Assert.NotNull(sink.Last.CompletedAtUtc);
+    }
+
+    // ================= a document is not a declaration =================
+    //
+    // Everything below came out of an adversarial review by a different agent family. Each one is a way a
+    // session's work could have been destroyed on an answer the drain had not actually been given.
+
+    [Fact]
+    public async Task Drain_ASeatThatWroteADocumentButDeclaredNothingIsNOTClosed()
+    {
+        // A file above the size floor proves a seat WROTE something, not that it FINISHED. A seat still
+        // writing leaves exactly that, and closing on it destroys the session that was going to finish it.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", block: "");
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        // The handover is KEPT - it is real and must not be lost - and the seat keeps running.
+        Assert.Equal(WorkspaceDrainStates.Drained, result.Document.Seats.Single().DrainState);
+        Assert.NotNull(result.Document.Seats.Single().HandoverPath);
+        Assert.Empty(sessions.Flagged);
+        Assert.Contains("solo", sessions.Live);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("nothing says it FINISHED") && p.Contains("has not been closed"));
+    }
+
+    [Fact]
+    public async Task Drain_ASeatThatDeclaresAStateItMayNotDeclare_IsDeclinedRatherThanDrained()
+    {
+        // "state: drainned" used to leave the seat DRAINED - the permissive branch - and close the session
+        // on an answer nobody understood. "unreachable" is the drain's word, "covered" is its senior's.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block(state: "drainned"));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        Assert.Equal(WorkspaceDrainStates.Declined, result.Document.Seats.Single().DrainState);
+        Assert.Empty(sessions.Flagged);
+        Assert.False(result.ReadyToRestart);
+    }
+
+    [Fact]
+    public async Task Drain_ASeatDeclaringUNREACHABLEAboutItselfIsNotBelieved()
+    {
+        // "unreachable" is a verdict the DRAIN reaches about a seat that never answered. A seat that
+        // declares it about itself has said something it cannot know, and it must not buy itself a state
+        // that looks accounted-for.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone",
+            DrainTestRig.Block(state: WorkspaceDrainStates.Unreachable));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        Assert.Equal(WorkspaceDrainStates.Declined, result.Document.Seats.Single().DrainState);
+        Assert.Empty(sessions.Flagged);
+    }
+
+    [Fact]
+    public async Task Drain_AnAmendmentThatWITHDRAWSTheCleanStopStopsTheClose()
+    {
+        // The amendment case with the outcome that matters. Re-applying only the restore fields would have
+        // left the seat drained and closed it on a document that now says it is blocked.
+        using var dir = new TempDir();
+        var sessions = new WithdrawingSessionControl(dir.Path);
+        var seats = new[]
+        {
+            DrainTestRig.Seat("arch", "Architect"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "arch", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "arch", "Architect", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+        var architect = result.Document.Seats.Single(s => s.SessionId == "arch");
+        Assert.Equal(WorkspaceDrainStates.Blocked, architect.DrainState);
+        Assert.Contains("release", architect.BlockedReason!);
+        Assert.DoesNotContain("arch", sessions.Flagged);
+        Assert.Contains("arch", sessions.Live);
+        Assert.False(result.ReadyToRestart);
+    }
+
+    /// <summary>Withdraws its clean stop while waiting for its Worker to be reaped.</summary>
+    private sealed class WithdrawingSessionControl : FakeSessionControl
+    {
+        private readonly string _dir;
+        private bool _done;
+
+        public WithdrawingSessionControl(string dir) { _dir = dir; PollsBeforeReap = 2; }
+
+        public override bool MarkForDeletion(string sessionId, string reason)
+        {
+            var ok = base.MarkForDeletion(sessionId, reason);
+            if (!_done && sessionId == "w")
+            {
+                _done = true;
+                File.AppendAllText(DrainPaths.HandoverFor(_dir, "arch", "Architect"),
+                    Environment.NewLine + Environment.NewLine
+                    + DrainTestRig.Block(
+                        state: "blocked", restore: null, why: null,
+                        blockedReason: "A release is being published; stopping now leaves a half-pushed tag."));
+            }
+            return ok;
+        }
+    }
+
+    [Fact]
+    public async Task Drain_AHandoverThatCannotBeReREADAtCloseTimeStopsTheClose()
+    {
+        // The session about to be closed is the only thing that could write that document again.
+        using var dir = new TempDir();
+        var sessions = new DeletingSessionControl(dir.Path);
+        var seats = new[]
+        {
+            DrainTestRig.Seat("arch", "Architect"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "arch", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "arch", "Architect", DrainTestRig.Block());
+        sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+        Assert.DoesNotContain("arch", sessions.Flagged);
+        Assert.Contains("arch", sessions.Live);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("has NOT been closed"));
+    }
+
+    /// <summary>Deletes the Architect's document while its Worker is being closed.</summary>
+    private sealed class DeletingSessionControl : FakeSessionControl
+    {
+        private readonly string _dir;
+        private bool _done;
+
+        public DeletingSessionControl(string dir) { _dir = dir; PollsBeforeReap = 2; }
+
+        public override bool MarkForDeletion(string sessionId, string reason)
+        {
+            var ok = base.MarkForDeletion(sessionId, reason);
+            if (!_done && sessionId == "w")
+            {
+                _done = true;
+                File.Delete(DrainPaths.HandoverFor(_dir, "arch", "Architect"));
+            }
+            return ok;
+        }
+    }
+
+    [Fact]
+    public async Task Drain_ACloseRequestTheDirectorREFUSEDIsNotRecordedAsAClose()
+    {
+        // The error landing in the optimistic branch: a refused deletion recorded as flagged anyway, and a
+        // later ambiguous absence written up as a close time for a session nobody ever asked to stop.
+        using var dir = new TempDir();
+        var sessions = new RefusingSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        Assert.Null(result.Document.Seats.Single().ClosedAtUtc);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("could not be flagged for deletion"));
+    }
+
+    private sealed class RefusingSessionControl : FakeSessionControl
+    {
+        public override bool MarkForDeletion(string sessionId, string reason) => false;
+    }
+
+    [Fact]
+    public async Task Drain_ASessionThatAPPEAREDAfterTheCaptureBlocksTheRestart()
+    {
+        // A seat spawned after the roster was taken is in no document, no sweep and no record. The restart
+        // would destroy it without a trace, which is the exact failure this whole exercise exists to stop.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+        sessions.WhenMessaged = () => sessions.Live.Add("a-session-nobody-captured");
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("appeared after the capture") && p.Contains("without a trace"));
+    }
+
+    // ================= refusals before anything is touched =================
+
+    [Fact]
+    public async Task Drain_RefusesToStartOverADirectoryThatAlreadyHoldsDocuments()
+    {
+        // A drain cancelled and restarted inside the same minute lands on the same directory name, and
+        // every stale document in it would be read as this run's - closing seats on handovers they did
+        // not write.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl();
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+
+        File.WriteAllText(Path.Combine(dir.Path, "left over from an earlier run.md"), "stale");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewDrain(sessions, sink).RunAsync(Options(), dir.Path));
+
+        Assert.Contains("already holds", ex.Message);
+        Assert.Empty(sessions.Sent);
+        Assert.Empty(sessions.Flagged);
+    }
+
+    [Fact]
+    public async Task Drain_RefusesToStartOnAReportingChainThatLoopsBackOnItself()
+    {
+        // The chain decides what may be closed and when. On a cycle the leaf-first gate means nothing, and
+        // a whole ring of sessions can be reaped before the record gets round to saying so.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl();
+        var seats = new[]
+        {
+            DrainTestRig.Seat("a", "A", reportsTo: "b"),
+            DrainTestRig.Seat("b", "B", reportsTo: "a", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewDrain(sessions, sink).RunAsync(Options(), dir.Path));
+
+        Assert.Contains("loops back on itself", ex.Message);
+        Assert.Empty(sessions.Sent);
+        Assert.Empty(sessions.Flagged);
+        Assert.Equal(2, sessions.Live.Count);
+    }
+
+    [Fact]
+    public async Task Drain_RefusesWhenTwoSeatsWouldWriteTheSameDocument()
+    {
+        // An eight-character prefix collision, or two names that sanitize the same: the second write
+        // overwrites the first and both seats get closed on one document.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl();
+        var seats = new[]
+        {
+            DrainTestRig.Seat("aaaaaaaa-1111-1111-1111-111111111111", "Same name"),
+            DrainTestRig.Seat("aaaaaaaa-2222-2222-2222-222222222222", "Same name", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewDrain(sessions, sink).RunAsync(Options(), dir.Path));
+
+        Assert.Contains("would both write", ex.Message);
+        Assert.Empty(sessions.Sent);
+    }
+
+    [Fact]
+    public async Task Drain_ASeatWhoseIdThisDirectorCannotAddressIsNeverCalledABSENT()
+    {
+        // IsPresent has two answers and the drain writes a CLOSE TIME on false. An id it cannot look up
+        // would come back false, and "I could not look it up" would land in the record as "verified gone".
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        sessions.Undrivable.Add("not-an-id");
+        var seats = new[]
+        {
+            DrainTestRig.Seat("solo", "Standalone"),
+            DrainTestRig.Seat("not-an-id", "A seat with a malformed id", order: 1),
+        };
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        var bad = result.Document.Seats.Single(s => s.SessionId == "not-an-id");
+        Assert.Null(bad.ClosedAtUtc);
+        Assert.Null(bad.DrainState);
+        Assert.DoesNotContain(sessions.Sent, m => m.SessionId == "not-an-id");
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("not one this Director can look up"));
+    }
+
+    [Fact]
+    public async Task Drain_ARepeatedSessionIdIsNamedRatherThanThrowing()
+    {
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("solo", "First"),
+            DrainTestRig.Seat("solo", "Second", order: 1),
+        };
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+        sessions.Handover(dir.Path, "solo", "First", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems, p => p.Contains("more than once"));
+    }
+
+    [Fact]
+    public async Task Drain_AnInstanceRefusesToRunTwice()
+    {
+        // The closed set, the flagged set and the read stamps belong to ONE run. A seat closed in the
+        // first would satisfy the leaf-first gate in the second while a live seat with that id is open.
+        using var dir1 = new TempDir();
+        using var dir2 = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir1.Path, "solo", "Standalone", DrainTestRig.Block());
+
+        var drain = NewDrain(sessions, sink);
+        await drain.RunAsync(Options(), dir1.Path);
+
+        var ex = await Assert.ThrowsAsync<DrainAlreadyRunningException>(
+            () => drain.RunAsync(Options(), dir2.Path));
+        Assert.Contains("already been run", ex.Message);
+    }
+
+    [Fact]
+    public async Task Drain_ARestoreCommandKeepsTheREALIdOfAControllerThatIsNotBeingRestarted()
+    {
+        // A controller on another Director survives the restart and keeps the id it has. A placeholder
+        // there sends whoever runs the command hunting for a new id nobody will ever mint.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("w", "Worker", reportsTo: "a-controller-on-another-director");
+        sessions.Live.Add("w");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "w", "Worker",
+            DrainTestRig.Block(restore: true, why: "Real continuing work."));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        var command = result.Document.Seats.Single().Restore!.Command!;
+        Assert.Contains("--controlled-by a-controller-on-another-director", command);
+        Assert.DoesNotContain("--controlled-by <the new id of", command);
+
+        // The DIRECTOR placeholder is still there and must be: this Director does get a new identifier.
+        Assert.Contains("--director " + DrainRestoreCommand.NewDirectorToken, command);
     }
 }

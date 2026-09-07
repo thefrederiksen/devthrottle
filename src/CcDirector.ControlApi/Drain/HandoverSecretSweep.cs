@@ -173,34 +173,50 @@ public static class HandoverSecretSweep
         var lines = text.Replace("\r\n", "\n").Split('\n');
         for (var i = 0; i < lines.Length; i++)
         {
+            // Redact the line ONCE, against EVERY pattern, before any finding quotes any of it. Redacting
+            // only the match that fired would leave the context either side of it in the clear - and on a
+            // line carrying two credentials ("password: ... api_key=...") each finding's context would
+            // then publish the OTHER one, verbatim, into a record stored off this machine.
+            var redacted = Redact(lines[i], patterns);
+
             foreach (var p in patterns)
             {
-                var m = p.Pattern.Match(lines[i]);
-                if (!m.Success) continue;
-                findings.Add(new SecretFinding(file, i + 1, p.Name, Redact(lines[i], m)));
+                if (!p.Pattern.IsMatch(lines[i])) continue;
+                findings.Add(new SecretFinding(file, i + 1, p.Name, redacted));
             }
         }
         return findings;
     }
 
     /// <summary>
-    /// Replace the matched region with a marker and keep a little context either side, so a reader can
-    /// find the line without the report becoming a second copy of the secret.
+    /// Replace EVERY matched region on the line with a marker, so what is left is the surrounding words
+    /// and nothing that any pattern recognised as a credential.
     /// </summary>
-    private static string Redact(string line, Match match)
+    /// <param name="line">The line.</param>
+    /// <param name="patterns">Every pattern - not just the one that fired.</param>
+    private static string Redact(string line, IReadOnlyList<SecretPattern> patterns)
     {
-        const int Context = 24;
-        var group = match.Groups["v"].Success ? match.Groups["v"] : (Group)match;
-        var start = group.Index;
-        var end = group.Index + group.Length;
+        const int MaxLine = 300;
 
-        var before = line[Math.Max(0, start - Context)..start];
-        var after = line[end..Math.Min(line.Length, end + Context)];
+        // Collect every span to hide, from every pattern, then blank them right to left so the earlier
+        // indexes stay valid.
+        var spans = new List<(int Start, int Length)>();
+        foreach (var p in patterns)
+            foreach (Match m in p.Pattern.Matches(line))
+            {
+                var g = m.Groups["v"].Success ? m.Groups["v"] : (Group)m;
+                if (g.Length > 0) spans.Add((g.Index, g.Length));
+            }
 
-        var sb = new StringBuilder();
-        if (start - Context > 0) sb.Append("...");
-        sb.Append(before).Append("[REDACTED ").Append(group.Length).Append(" chars]").Append(after);
-        if (end + Context < line.Length) sb.Append("...");
-        return sb.ToString();
+        var sb = new StringBuilder(line);
+        foreach (var (start, length) in spans.OrderByDescending(s => s.Start))
+        {
+            if (start < 0 || start + length > sb.Length) continue;
+            sb.Remove(start, length);
+            sb.Insert(start, $"[REDACTED {length} chars]");
+        }
+
+        var result = sb.ToString();
+        return result.Length <= MaxLine ? result : result[..MaxLine] + "...";
     }
 }

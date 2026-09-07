@@ -56,10 +56,55 @@ internal class FakeSessionControl : IDrainSessionControl
         return true;
     }
 
+    public virtual IReadOnlyList<string> LiveSessionIds() => Live.ToList();
+
+    /// <summary>Ids this fake refuses to address at all - a malformed id in production. Everything else is
+    /// drivable, so a test can use a readable key like "arch" as a session id.</summary>
+    public HashSet<string> Undrivable { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public virtual bool CanDrive(string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && !Undrivable.Contains(sessionId);
+
+    private readonly List<(string Path, string Text)> _queued = new();
+    private bool _responded;
+
+    /// <summary>
+    /// Queue a handover for a seat, to be written WHEN THE DRAIN MESSAGE GOES OUT.
+    ///
+    /// Not before. A drain refuses to start over a directory that already holds documents, because at
+    /// start time a file for one of its own seats is indistinguishable from a stale one left by a run that
+    /// was cancelled a minute earlier - and reading it would close that seat on somebody else's handover.
+    /// So the rig models what actually happens: a seat writes because it was told to.
+    /// </summary>
+    /// <param name="dir">The drain directory.</param>
+    /// <param name="sessionId">The seat.</param>
+    /// <param name="name">Its name, which is half of the file name.</param>
+    /// <param name="block">Its drain-report block, or null for none.</param>
+    /// <param name="body">Its prose, or null for the standard fixture body.</param>
+    /// <returns>The path it will be written to.</returns>
+    public string Handover(string dir, string sessionId, string name, string? block = null, string? body = null)
+    {
+        var path = DrainPaths.HandoverFor(dir, sessionId, name);
+        _queued.Add((path, (body ?? DrainTestRig.Body) + "\n\n" + (block ?? "")));
+        return path;
+    }
+
+    /// <summary>Run once, immediately after the queued handovers are written, when the first drain message
+    /// goes out. Where a test takes an exclusive lock on a document, or has a seat do something odd.</summary>
+    public Action? WhenMessaged { get; set; }
+
     public virtual Task<bool> SendAsync(string sessionId, string text)
     {
         if (RefuseSendTo.Contains(sessionId) || !Live.Contains(sessionId)) return Task.FromResult(false);
         Sent.Add((sessionId, text));
+
+        if (!_responded && text.Contains("START NOTHING NEW"))
+        {
+            _responded = true;
+            foreach (var (path, content) in _queued) File.WriteAllText(path, content);
+            WhenMessaged?.Invoke();
+        }
+
         return Task.FromResult(true);
     }
 

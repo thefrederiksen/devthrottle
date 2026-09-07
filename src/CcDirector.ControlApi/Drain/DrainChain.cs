@@ -134,16 +134,26 @@ public sealed class DrainChain
 
         // Resolve each seat's senior: the controller when it is a seat here, else the spawning parent when
         // IT is a seat here, else none. A seat is never its own senior.
+        // A SEAT THAT HAS A CONTROLLER HAS A CONTROLLER, wherever it lives. The spawning parent is the
+        // fallback only when there is NO controller at all - not when the controller happens to be
+        // elsewhere. Attaching such a seat to its spawner would put it under a seat that does not control
+        // it: it would never be messaged directly, and a session with no authority over it would be
+        // expected to collect its handover. So a seat controlled from another Director is a head here,
+        // which is the whole point of resolving against the seats actually present.
+        //
+        // (This used to fall back to the parent whenever the controller was not in the workspace, while
+        // the comment above said the opposite. The comment was right and the code was wrong.)
         var parent = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in list)
         {
             var id = s.SessionId!;
             string? senior = null;
-            if (!string.IsNullOrWhiteSpace(s.ReportsTo)
-                && byId.ContainsKey(s.ReportsTo!)
-                && !string.Equals(s.ReportsTo, id, StringComparison.OrdinalIgnoreCase))
+            var hasController = !string.IsNullOrWhiteSpace(s.ReportsTo)
+                                && !string.Equals(s.ReportsTo, id, StringComparison.OrdinalIgnoreCase);
+
+            if (hasController)
             {
-                senior = byId[s.ReportsTo!].SessionId;
+                if (byId.ContainsKey(s.ReportsTo!)) senior = byId[s.ReportsTo!].SessionId;
             }
             else if (!string.IsNullOrWhiteSpace(s.ParentSessionId)
                      && byId.ContainsKey(s.ParentSessionId!)

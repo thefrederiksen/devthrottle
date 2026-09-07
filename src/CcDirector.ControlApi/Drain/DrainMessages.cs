@@ -26,12 +26,20 @@ public static class DrainMessages
     /// <param name="directorName">The Director being restarted, named so the seat knows which machine.</param>
     /// <param name="handoverPath">The exact file this seat writes - the same path the drain watches.</param>
     /// <param name="directory">The drain's directory, where a senior's subordinates write theirs.</param>
-    /// <param name="hasSubordinates">True when this seat has seats reporting to it, which changes what it
-    /// is asked to do: collect first, then report for the whole subtree.</param>
+    /// <param name="subordinates">The seats reporting to this one, each with the EXACT path the drain is
+    /// watching for its document. Not a naming rule for the senior to apply: the rule sanitizes characters
+    /// a file cannot carry and truncates a long name, and a senior that applies it differently produces a
+    /// document at a path nothing is watching - the file exists on disk and the seat is declared
+    /// unreachable. Empty for a seat with nobody reporting to it.</param>
     /// <param name="reason">Why the restart is happening, in the owner's words.</param>
     public static string Drain(
-        string? directorName, string handoverPath, string directory, bool hasSubordinates, string? reason)
+        string? directorName,
+        string handoverPath,
+        string directory,
+        IReadOnlyList<(string Name, string Path)> subordinates,
+        string? reason)
     {
+        var hasSubordinates = subordinates is { Count: > 0 };
         var sb = new StringBuilder();
         sb.Append("This is your Director. ");
         sb.Append(string.IsNullOrWhiteSpace(directorName) ? "This Director" : directorName);
@@ -46,11 +54,13 @@ public static class DrainMessages
 
         if (hasSubordinates)
         {
-            sb.Append("You have seats reporting to you. Tell each of them to write its own document into \"");
-            sb.Append(directory).Append("\" named \"<its own short session id> - <its own name>.md\" FIRST, ");
-            sb.Append("and wait for them before you finish yours. A seat with nothing of its own to hand ");
-            sb.Append("over should NOT write a thin document - it reports up to you, and you name it on a ");
-            sb.Append("'covered:' line in your block below. ");
+            sb.Append("You have seats reporting to you. Tell each of them to write its own document to the ");
+            sb.Append("EXACT path named here - do not compose one, these are the paths being watched: ");
+            foreach (var (name, path) in subordinates)
+                sb.Append('"').Append(name).Append("\" -> \"").Append(path).Append("\"; ");
+            sb.Append("collect them FIRST and wait for them before you finish yours. A seat with nothing ");
+            sb.Append("of its own to hand over should NOT write a thin document - it reports up to you, ");
+            sb.Append("and you name it on a 'covered:' line in your block below. ");
         }
 
         sb.Append("End your document with this block, exactly, on its own lines: ");

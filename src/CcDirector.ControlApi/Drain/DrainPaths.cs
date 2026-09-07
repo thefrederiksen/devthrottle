@@ -69,6 +69,11 @@ public static class DrainPaths
     /// Make a name safe for a file, and BOUND it. A session name can be long, and the drain directory
     /// path is already deep; a name that pushed the path past the platform limit would fail at the moment
     /// the seat tried to write, which is the worst possible moment to discover it.
+    ///
+    /// WHAT THIS DOES NOT DO, said plainly so nobody reads a guarantee into it: it bounds the NAME, not
+    /// the path. The directory is supplied by the caller, so a deep enough directory still overruns the
+    /// limit and this cannot prevent it. It removes the half of the problem that comes from a session
+    /// being named at length by a person.
     /// </summary>
     /// <param name="value">The raw name.</param>
     public static string Sanitize(string value)

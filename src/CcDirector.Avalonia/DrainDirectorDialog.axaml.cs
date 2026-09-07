@@ -96,9 +96,18 @@ public partial class DrainDirectorDialog : Window
         }
         catch (OperationCanceledException)
         {
+            // Say what cancelling does NOT undo. Seats already asked to close were asked BEFORE the
+            // cancel, and the Director's own reaper will still remove them - nothing here can call that
+            // back. A message saying only "everything is written" would read as "nothing further will
+            // happen", which is not true and is the sentence somebody would act on.
             TxtReport.Text =
                 "The drain was cancelled. Everything it had already written is on the Gateway and on "
-                + "disk - a partly drained Director is a normal, recoverable state.";
+                + "disk - a partly drained Director is a normal, recoverable state.\n\n"
+                + "What cancelling does NOT undo: any seat already asked to close was asked before you "
+                + "cancelled, and this Director's reaper will still remove it once it stops working. "
+                + "Those seats have their handovers written and read. The record's close times stop "
+                + "where the drain stopped, so it may show a seat as drained with no close time that is "
+                + "in fact gone.";
         }
         catch (Exception ex)
         {

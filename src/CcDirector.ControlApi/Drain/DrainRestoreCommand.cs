@@ -30,7 +30,11 @@ public static class DrainRestoreCommand
     /// </summary>
     /// <param name="seat">The captured seat.</param>
     /// <param name="handoverPath">The document this seat is restored from, which the seed points at.</param>
-    public static string Build(WorkspaceSeat seat, string? handoverPath)
+    /// <param name="controllerIsBeingRestarted">True when this seat's controller is ALSO a seat in this
+    /// drain, and will therefore be destroyed and come back with a new id. False when the controller lives
+    /// on another Director: it survives the restart, so its CURRENT id is the right one and a placeholder
+    /// would send whoever runs this command looking for a new id that will never exist.</param>
+    public static string Build(WorkspaceSeat seat, string? handoverPath, bool controllerIsBeingRestarted = true)
     {
         ArgumentNullException.ThrowIfNull(seat);
 
@@ -43,14 +47,16 @@ public static class DrainRestoreCommand
         if (!string.IsNullOrWhiteSpace(seat.Mission?.Id)) sb.Append(" --mission ").Append(seat.Mission!.Id);
         if (!string.IsNullOrWhiteSpace(seat.WorkflowRunId)) sb.Append(" --workflow-run ").Append(seat.WorkflowRunId);
 
-        // The controller is a session id from BEFORE the restart, so it names a session that no longer
-        // exists. A restore works DOWN the tree and points each seat at its senior's new id; naming the
-        // old one here would be a command that fails, so the seat says who it reported to and leaves the
-        // substitution to whoever restores it.
-        if (!string.IsNullOrWhiteSpace(seat.ReportsTo))
+        // A controller that is being restarted WITH this seat comes back under a new id, so the old one is
+        // guaranteed wrong and the command carries a placeholder for whoever restores down the tree. A
+        // controller on ANOTHER Director is not being restarted at all: it keeps the id it has, and a
+        // placeholder there would send the reader hunting for a new id nobody is ever going to mint.
+        if (string.IsNullOrWhiteSpace(seat.ReportsTo))
+            sb.Append(" --standalone");
+        else if (controllerIsBeingRestarted)
             sb.Append(" --controlled-by <the new id of ").Append(DrainPaths.ShortId(seat.ReportsTo)).Append('>');
         else
-            sb.Append(" --standalone");
+            sb.Append(" --controlled-by ").Append(seat.ReportsTo);
 
         // A long prompt parks in the agent's composer unsubmitted and the seat comes up looking exactly
         // like one that is simply thinking. One line, pointing at a file, is the only shape that works.

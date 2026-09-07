@@ -15,9 +15,35 @@ public interface IDrainSessionControl
 {
     /// <summary>True when a session with this id is still present on this Director. FALSE IS THE
     /// CLOSE CONDITION: marking a session done is a flag and the reap is asynchronous, so a close is only
-    /// finished when the session is genuinely absent.</summary>
+    /// finished when the session is genuinely absent.
+    ///
+    /// The caller must only ask this about an id it has already checked is well formed. A malformed id
+    /// cannot be looked up, so the honest answer would be neither true nor false - and the drain writes a
+    /// CLOSE TIME on false. It rejects such ids before they ever reach here rather than letting "I could
+    /// not look it up" arrive as "it is gone".</summary>
     /// <param name="sessionId">The session id.</param>
     bool IsPresent(string sessionId);
+
+    /// <summary>
+    /// Whether this seam can look this id up AT ALL - not whether a session with it exists.
+    ///
+    /// It is a separate question because <see cref="IsPresent"/> has only two answers and the drain writes
+    /// a CLOSE TIME on false. An id it cannot even parse would come back false, and "I could not look it
+    /// up" would land in the record as "verified gone" for a session nobody ever found. The seam is what
+    /// knows what it can address, so the seam is where the question belongs.
+    /// </summary>
+    /// <param name="sessionId">The candidate session id.</param>
+    bool CanDrive(string? sessionId);
+
+    /// <summary>
+    /// Every session id present on this Director RIGHT NOW.
+    ///
+    /// A drain captures its roster once, and a Director can gain a session afterwards - one spawned by a
+    /// session that had not yet been told to stop, or by anything else that can create one. A seat that is
+    /// not in the capture is in no document, in no sweep and in no record, and the restart would destroy
+    /// it silently. So the drain compares this against its seats before saying a restart may proceed.
+    /// </summary>
+    IReadOnlyList<string> LiveSessionIds();
 
     /// <summary>Deliver a message to a session as an ordinary prompt, submitted. Returns false when the
     /// session is not there or has exited - never throws for an ordinary absence.</summary>
@@ -72,6 +98,14 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
     /// <inheritdoc />
     public bool IsPresent(string sessionId)
         => Guid.TryParse(sessionId, out var id) && _sessions.GetSession(id) is not null;
+
+    /// <inheritdoc />
+    public bool CanDrive(string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && Guid.TryParse(sessionId, out _);
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> LiveSessionIds()
+        => _sessions.ListSessions().Select(s => s.Id.ToString()).ToList();
 
     /// <inheritdoc />
     public async Task<bool> SendAsync(string sessionId, string text)

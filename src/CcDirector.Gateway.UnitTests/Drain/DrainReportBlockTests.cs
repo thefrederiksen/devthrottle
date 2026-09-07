@@ -154,6 +154,49 @@ public class DrainReportBlockTests
     }
 
     [Fact]
+    public void TheDrainMessageNamesEVERYKeyTheParserUnderstands()
+    {
+        // The instruction that produces a block and the parser that reads it are two halves of one
+        // protocol living in different files. A key added to one and not the other is a fact the drain
+        // silently loses - and there used to be a comment claiming they could not disagree, above nothing
+        // that made it so. This is what makes it so.
+        var message = DrainMessages.Drain(
+            "TestDirector", "C:/dir/x.md", "C:/dir",
+            new[] { ("A Worker", "C:/dir/w.md") }, reason: "a reason");
+
+        foreach (var key in DrainReportBlock.Keys)
+            Assert.Contains(key, message);
+    }
+
+    [Fact]
+    public void EveryKeyTheDrainMessageNamesIsONEThisParserAccepts()
+    {
+        // The other direction: a block written exactly as the message describes must parse with nothing
+        // left unrecognised. Both directions, because either one alone passes while the pair is broken.
+        var block = string.Join("\n", new[]
+        {
+            "<!-- drain-report",
+            "state: blocked",
+            "restore: no",
+            "why: a reason",
+            "covered: 08c7bba5 | a note",
+            "question: a question?",
+            "blocked-reason: a blocker",
+            "-->",
+        });
+
+        var parsed = DrainReportBlock.Parse(block)!;
+
+        Assert.Empty(parsed.UnparsedLines);
+        Assert.Equal("blocked", parsed.State);
+        Assert.False(parsed.Restore);
+        Assert.Equal("a reason", parsed.Why);
+        Assert.Single(parsed.Covered);
+        Assert.Single(parsed.Questions);
+        Assert.Equal("a blocker", parsed.BlockedReason);
+    }
+
+    [Fact]
     public void Parse_AQuestionKeepsThePunctuationAndTheColonsInsideIt()
     {
         var block = DrainReportBlock.Parse(

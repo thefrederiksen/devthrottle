@@ -180,11 +180,17 @@ public sealed class DrainReportBlock
     }
 
     /// <summary>
-    /// The block text a seat is asked to write, rendered for the drain message so the instruction and the
-    /// parser can never disagree about the shape.
+    /// Every key this parser understands, WITH its colon, exactly as a seat writes it.
+    ///
+    /// It is here so the parser and the instruction that produces the block are bound to each other by a
+    /// test rather than by good intentions. There was a "Template" property here that claimed the two
+    /// "can never disagree about the shape" - and nothing used it: the drain message hand-wrote the
+    /// shape in its own prose. A sentence promising they were bound, sitting above the reason they were
+    /// not, is exactly the false reassurance this mission has been finding all day, so it is gone and
+    /// this list, which a test reads, is what replaces it.
     /// </summary>
-    public static string Template =>
-        "<!-- drain-report / state: drained | blocked | declined / restore: yes | no / " +
-        "why: <one line> / covered: <session id> | <why that seat reported up> / " +
-        "question: <a question you are leaving on the owner, word for word> / -->";
+    public static IReadOnlyList<string> Keys { get; } = new[]
+    {
+        "state:", "restore:", "why:", "covered:", "question:", "blocked-reason:",
+    };
 }
