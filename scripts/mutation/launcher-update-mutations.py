@@ -1,4 +1,15 @@
 """
+A PHASE 0 PROOF ARTIFACT, NOT THE FLEET'S MUTATION RUNNER. For a runner, use
+scripts/mutation/mutate.py, which takes a spec and works in any worktree.
+
+This file hardcodes REPO to one worktree path that exists on one machine, and carries phase 0's own
+mutation list baked in. It is kept because it is the evidence behind the mutation claims on pull
+request #2728 and re-running it is how those claims are checked - but it cannot be pointed at
+anything else, and reading its name as "the mutation harness" has already sent two people to it.
+Furniture that lies is worse than no furniture.
+"""
+
+"""
 THE MUTATION PROOF FOR ISSUE #2719 PHASE 0, WITH A COMPILE GATE.
 
 Run it from the repository root:  python scripts/mutation/launcher-update-mutations.py
