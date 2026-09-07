@@ -158,3 +158,7 @@ _inspection/
 codex-review-*.md
 codex-rereview-*.md
 *.received.txt
+
+# Review and mutation scratch. Never committed: a reviewer MUTATES the working tree while it reads,
+# so anything swept up from here can be a live mutant rather than a change somebody made.
+.review/
