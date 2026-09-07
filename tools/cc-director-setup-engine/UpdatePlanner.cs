@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
@@ -13,28 +15,30 @@ public static class UpdatePlanner
     /// <summary>
     /// Build a plan. <paramref name="installed"/> is keyed by component id; a
     /// component missing from the map is treated as not present.
-    /// <paramref name="macOs"/> selects which platform's release asset each component is judged
+    /// <paramref name="platform"/> selects which platform's release asset each component is judged
     /// against (null = the platform this process runs on). Passing it explicitly keeps the
     /// planner pure for tests; before this parameter existed the planner always used the
     /// Windows asset, which made a macOS install download Windows executables (issue #1445).
+    /// It was a <c>bool macOs</c> until Linux support, and a bool cannot carry three platforms -
+    /// Linux read as "not macOS" and was planned against the Windows assets.
     /// </summary>
     public static UpdatePlan Plan(
         IEnumerable<Component> components,
         IReadOnlyDictionary<string, InstalledComponent> installed,
         ReleaseManifest manifest,
         UpdatePins? pins = null,
-        bool? macOs = null)
+        OSPlatform? platform = null)
     {
         ArgumentNullException.ThrowIfNull(components);
         ArgumentNullException.ThrowIfNull(installed);
         ArgumentNullException.ThrowIfNull(manifest);
         pins ??= new UpdatePins();
-        var mac = macOs ?? OperatingSystem.IsMacOS();
+        var host = platform ?? HostPlatform.Current;
 
         var items = new List<PlanItem>();
         foreach (var c in components)
         {
-            var assetName = c.AssetFor(mac);
+            var assetName = c.AssetFor(host);
             var asset = assetName is null ? null : manifest.TryGetAsset(assetName);
             if (asset is null)
             {

@@ -1,4 +1,5 @@
 using CcDirector.Setup.Engine;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace CcDirector.Setup.Engine.Tests;
@@ -59,7 +60,7 @@ public class OrchestratorTests : IDisposable
             var copy = Path.Combine(_dir, "dl-" + Guid.NewGuid().ToString("N"));
             File.Copy(staged, copy);
             return Task.FromResult(copy);
-        }, macOs: false);
+        }, platform: OSPlatform.Windows);
 
         Assert.False(result.NoWork);
         Assert.Equal(1, result.Run!.Installed);

@@ -41,8 +41,77 @@ public static class CcStorage
         if (!string.IsNullOrEmpty(overrideRoot))
             return overrideRoot;
 
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, "cc-director");
+        return ResolveDefaultBase(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetEnvironmentVariable("XDG_DATA_HOME"),
+            Environment.GetEnvironmentVariable("HOME"));
+    }
+
+    /// <summary>
+    /// Composes the default storage root from the platform's per-user data directory.
+    ///
+    /// This is a separate, parameterised method for one reason: on Linux
+    /// <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/> returns an EMPTY STRING when the
+    /// per-user data directory does not yet exist - the normal state on a minimal install, and the state
+    /// every first-run Linux user is in. Path.Combine("", "cc-director") does not fail; it returns the
+    /// RELATIVE path "cc-director", which then resolves against the process working directory.
+    ///
+    /// For the shipped Linux build that working directory is the one holding the executable, and the
+    /// executable is itself named "cc-director" - so the storage root resolved onto the binary and the
+    /// Director died at startup with DirectoryNotFoundException creating "cc-director/logs/director". On
+    /// Windows the ".exe" suffix means those two names can never collide, so the defect is invisible there.
+    ///
+    /// The rule this encodes: a storage root is either an ABSOLUTE path or a loud failure. It is never a
+    /// relative path, because a relative root does not throw - it silently writes the user's data
+    /// somewhere nobody will look.
+    /// </summary>
+    /// <param name="localAppData">SpecialFolder.LocalApplicationData; blank on Linux when it does not exist.</param>
+    /// <param name="xdgDataHome">$XDG_DATA_HOME, the spec's first choice when set.</param>
+    /// <param name="home">$HOME, from which the spec's default ~/.local/share is composed.</param>
+    internal static string ResolveDefaultBase(string? localAppData, string? xdgDataHome, string? home)
+    {
+        // The normal path: Windows always, and any Linux box whose data directory already exists.
+        if (!string.IsNullOrWhiteSpace(localAppData))
+            return RequireAbsolute(Path.Combine(localAppData, "cc-director"), "the platform data directory");
+
+        // The XDG Base Directory spec, in its own order: $XDG_DATA_HOME, else $HOME/.local/share. The
+        // directory is created rather than treated as an error - "it does not exist yet" is the normal
+        // state of a fresh account, not a fault.
+        var dataHome = !string.IsNullOrWhiteSpace(xdgDataHome)
+            ? xdgDataHome
+            : !string.IsNullOrWhiteSpace(home)
+                ? Path.Combine(home, ".local", "share")
+                : null;
+
+        if (string.IsNullOrWhiteSpace(dataHome))
+        {
+            throw new InvalidOperationException(
+                "Could not determine where to store cc-director data: the platform reported no local " +
+                "application-data directory, and neither XDG_DATA_HOME nor HOME is set. Set CC_DIRECTOR_ROOT " +
+                "to an absolute path to choose the storage root explicitly.");
+        }
+
+        var root = RequireAbsolute(Path.Combine(dataHome, "cc-director"), "XDG_DATA_HOME or HOME");
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    /// <summary>
+    /// Guards the one invariant that matters: the storage root is absolute. A relative root is the exact
+    /// failure this method exists to prevent, and it must fail loudly here rather than quietly become a
+    /// directory beside whatever the working directory happens to be.
+    /// </summary>
+    private static string RequireAbsolute(string candidate, string source)
+    {
+        if (!Path.IsPathRooted(candidate))
+        {
+            throw new InvalidOperationException(
+                $"Refusing a relative cc-director storage root '{candidate}' derived from {source}. A relative " +
+                "root would resolve against the current working directory and write the user's data somewhere " +
+                "unpredictable. Set CC_DIRECTOR_ROOT to an absolute path.");
+        }
+
+        return candidate;
     }
 
     /// <summary>Personal data: vault.db, vectors, documents, health, media.</summary>

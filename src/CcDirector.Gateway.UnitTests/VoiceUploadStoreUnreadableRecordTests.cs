@@ -1,0 +1,499 @@
+using System;
+using System.IO;
+using System.Text;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Voice;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests;
+
+/// <summary>
+/// Issue #2745: a dictation delivery record that is there but cannot be read is NOT "no record".
+///
+/// The reader used to answer null for both, and the de-dupe guard in front of register read that null as
+/// "never delivered" and re-opened the upload - so the operator's own speech was injected into a live
+/// session a second time. The read now has five answers, each with a name, and this file pins the store
+/// half of the fix:
+///
+///   - <see cref="VoiceUploadStore.Read"/> names every answer: Absent, Present, Malformed, Unreadable,
+///     ForeignTenant (the last is pinned in <c>VoiceUploadStoreTenantPartitionTests</c>).
+///   - the strict <see cref="VoiceUploadStore.ReadRecord"/> returns null ONLY for Absent and throws for
+///     the rest, so no caller can fold them back into "absent".
+///   - every WRITER refuses to put a new marker on top of one it cannot read, and leaves the file exactly as
+///     it found it.
+///   - the sweeps leave such a marker standing.
+///   - the session LOCK does not project from it - a decision, documented on IsPending, that is pinned
+///     here so it stays a decision and cannot drift back into being an accident.
+///
+/// The endpoint half - a re-register, a re-complete and an abandon against such a marker are all refused
+/// with nothing injected and the file untouched - is host-bound and lives in the parked Gateway.Tests suite
+/// (<c>UnreadableDictationTombstoneTests</c>).
+///
+/// REVERT-PROVABLE: restore the old <c>ReadRecordFile</c> (catch everything, return null) and every
+/// Malformed assertion here goes red on the claim, not on a crash; the writer tests go red on the file
+/// having been overwritten.
+/// </summary>
+[Collection(VoiceUploadStoreRecordHookCollection.Name)]
+public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
+{
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "cc-upload-unreadable-" + Guid.NewGuid().ToString("N"));
+
+    private readonly VoiceUploadStore _store;
+
+    public VoiceUploadStoreUnreadableRecordTests() => _store = new VoiceUploadStore(_root, TenantId.Local);
+
+    public void Dispose()
+    {
+        try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best-effort */ }
+    }
+
+    // ===== the answers, each by name ================================================================
+
+    [Fact]
+    public void An_unknown_id_is_Absent_and_the_strict_read_is_null()
+    {
+        // The control for every refusal below: a genuinely absent record is still the one answer that says
+        // "go ahead", and the strict read still hands back null for it.
+        var id = Guid.NewGuid().ToString();
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Absent, read.Kind);
+        Assert.False(read.Refuses);
+        Assert.Null(_store.ReadRecord(id));
+    }
+
+    [Fact]
+    public void A_delivered_tombstone_is_Present_with_its_record()
+    {
+        var id = Guid.NewGuid().ToString();
+        _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "said once");
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Present, read.Kind);
+        Assert.False(read.Refuses);
+        Assert.Equal(DictationDeliveryState.Delivered, read.Record!.State);
+        Assert.Equal("said once", _store.ReadRecord(id)!.Transcript);
+    }
+
+    [Fact]
+    public void A_corrupt_tombstone_is_Malformed_not_Absent_and_the_strict_read_throws()
+    {
+        // The defect itself, at the reader. A delivered tombstone whose bytes are no longer a delivery record.
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Malformed, read.Kind);
+        Assert.True(read.Refuses, "a marker that cannot be understood must refuse, never permit");
+        Assert.Null(read.Record);
+        Assert.Equal(path, read.Path);
+        Assert.False(string.IsNullOrWhiteSpace(read.Problem), "the refusal must say what was wrong");
+
+        var ex = Assert.Throws<UnreadableDictationRecordException>(() => _store.ReadRecord(id));
+        Assert.Equal(DictationRecordReadKind.Malformed, ex.Read.Kind);
+        Assert.Contains(path, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]                                              // an empty file - a write that never finished
+    [InlineData("null")]                                          // JSON null: parses, and is nothing
+    [InlineData("[]")]                                            // valid JSON, not an object
+    [InlineData("{}")]                                            // valid, empty: every property defaults, and State's default is PENDING
+    [InlineData("{\"garbage\":1}")]                               // valid, unrelated: the same default PENDING
+    [InlineData("{\"State\":\"Pending\"}")]                       // names a state but nothing else a record carries
+    [InlineData("{\"state\":\"Delivered\",\"submitted\":true,\"movedOn\":false,\"transcript\":\"x\",\"reason\":null}")] // wrong case: the serializer would default all of it
+    [InlineData("{\"State\":\"Zombie\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a state name this build does not know
+    [InlineData("{\"State\":99,\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]         // a state NUMBER the enum does not name
+    [InlineData("{\"State\":0,\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]         // a state number the enum DOES name: 0 is PENDING, and would re-open
+    [InlineData("{\"State\":1,\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"x\",\"Reason\":null}")]         // 1 is DELIVERED, and would fabricate an outcome the phone acks and drops its copy for
+    [InlineData("{\"State\":2,\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]        // 2 is ABANDONED
+    [InlineData("{\"State\":3,\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]        // 3 is FAILED
+    [InlineData("{\"State\":\"0\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]     // the number as a STRING: the converter reads it as PENDING
+    [InlineData("{\"State\":\"1\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"x\",\"Reason\":null}")]     // "1" as DELIVERED - an outcome the phone would ack and drop its copy for
+    [InlineData("{\"State\":\"2\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]    // "2" as ABANDONED
+    [InlineData("{\"State\":\"3\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":\"r\"}")]    // "3" as FAILED
+    [InlineData("{\"State\":\"pending\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a casing the store never writes: the converter would accept it
+    [InlineData("{\"State\":\"\",\"Submitted\":false,\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")]      // an empty name
+    [InlineData("{\"State\":\"Delivered\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":null,\"Reason\":null}")] // a transcript that is not a string: the store never writes one
+    [InlineData("{\"State\":\"Pending\",\"Submitted\":\"yes\",\"MovedOn\":false,\"Transcript\":\"\",\"Reason\":null}")] // a flag that is not a boolean
+    public void Every_shape_that_is_not_a_delivery_record_is_Malformed(string bytes)
+    {
+        var id = Guid.NewGuid().ToString();
+        CorruptDeliveredTombstone(id, bytes);
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Malformed, read.Kind);
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.ReadRecord(id));
+    }
+
+    [Fact]
+    public void A_record_carrying_a_property_this_build_does_not_know_is_still_Present()
+    {
+        // The compatibility ruling, pinned: the five known properties, present and of the right kind, are the
+        // contract. A record written by a newer Gateway carries fields this build has never heard of, and a
+        // rollback that refused every one of them would hold every upload on the machine.
+        var id = Guid.NewGuid().ToString();
+        CorruptDeliveredTombstone(id,
+            "{\"State\":\"Delivered\",\"Submitted\":true,\"MovedOn\":false,\"Transcript\":\"said once\",\"Reason\":null," +
+            "\"SessionId\":\"\",\"Tenant\":\"\",\"AddedByALaterBuild\":{\"nested\":[1,2,3]}}");
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Present, read.Kind);
+        Assert.Equal("said once", read.Record!.Transcript);
+    }
+
+    [Fact]
+    public void A_directory_where_the_record_should_be_is_Unreadable_not_Absent()
+    {
+        // "Could not look", in a form every platform produces: the path exists and is not a file. The old
+        // reader's File.Exists pre-check answered false here, which folded this straight into "absent".
+        var id = Guid.NewGuid().ToString();
+        _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "said once");
+        var path = RecordPath(id);
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+
+        var read = _store.Read(id);
+
+        Assert.Equal(DictationRecordReadKind.Unreadable, read.Kind);
+        Assert.True(read.Refuses);
+        Assert.Equal(path, read.Path);
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.ReadRecord(id));
+    }
+
+    [Fact]
+    public void A_tombstone_held_open_by_another_writer_is_Unreadable_not_Absent()
+    {
+        // The locked-file case from the issue. Only Windows enforces a share lock against a reader, so the
+        // claim is only askable there; elsewhere the directory test above covers "could not look".
+        if (!OperatingSystem.IsWindows()) return;
+
+        var id = Guid.NewGuid().ToString();
+        _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "said once");
+        var path = RecordPath(id);
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var read = _store.Read(id);
+
+            Assert.Equal(DictationRecordReadKind.Unreadable, read.Kind);
+            Assert.True(read.Refuses);
+            Assert.Throws<UnreadableDictationRecordException>(() => _store.ReadRecord(id));
+        }
+
+        // Released: the same marker reads as what it always was. The refusal was about the moment, not the file.
+        Assert.Equal(DictationRecordReadKind.Present, _store.Read(id).Kind);
+    }
+
+    // ===== no writer puts a new marker on top of one it cannot read ===================================
+
+    [Theory]
+    [InlineData("{ this is not json")]   // the syntax case
+    [InlineData("{}")]                   // the SHAPE case: valid JSON whose every property defaults, State to PENDING
+    public void MarkPending_over_a_corrupt_tombstone_refuses_and_leaves_the_file_byte_for_byte(string bytes)
+    {
+        // The write that re-opens an upload. This is what register used to reach after the fold.
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, bytes);
+        var before = File.ReadAllBytes(path);
+
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkPending(id, Guid.NewGuid().ToString()));
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(_store.IsPending(id), "a refused re-open must not have produced a PENDING marker");
+        Assert.Equal(DictationRecordReadKind.Malformed, _store.Read(id).Kind);
+    }
+
+    [Fact]
+    public void MarkDelivered_and_MarkAbandoned_over_a_corrupt_tombstone_refuse_and_leave_the_file()
+    {
+        // The two terminal writers share one path; both are asked, because the abandon leg reaches one of
+        // them directly from the phone.
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+        var before = File.ReadAllBytes(path);
+
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkDelivered(id, true, false, "again"));
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkAbandoned(id, "user_abandoned"));
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void MarkFailed_ClearFailed_and_the_rebaseline_over_a_corrupt_tombstone_write_nothing()
+    {
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+        var before = File.ReadAllBytes(path);
+
+        Assert.Throws<UnreadableDictationRecordException>(() => _store.MarkFailed(id, "audio_too_large"));
+        Assert.False(_store.ClearFailed(id));
+        Assert.False(_store.RecordFailedDeliveryBaseline(id, 4096));
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    // ===== the register transition is ONE gated operation ============================================
+
+    [Fact]
+    public void OpenPending_names_every_answer_and_writes_only_when_it_may()
+    {
+        // Absent: opened, fresh PENDING for the session.
+        var fresh = Guid.NewGuid().ToString();
+        var session = Guid.NewGuid().ToString();
+        var opened = _store.OpenPending(fresh, session);
+        Assert.True(opened.Opened);
+        Assert.Equal(DictationRecordReadKind.Absent, opened.Before.Kind);
+        Assert.Equal(Guid.Parse(fresh).ToString("N"), opened.UploadId);
+        Assert.True(_store.IsPending(fresh));
+        Assert.Equal(session, _store.ReadRecord(fresh)!.SessionId);
+
+        // A blank id mints one, as Register does.
+        Assert.True(_store.OpenPending(null, session).Opened);
+
+        // FAILED: re-opened, carrying the re-baseline forward (issue #1593).
+        var failed = Guid.NewGuid().ToString();
+        _store.Register(failed);
+        _store.MarkPending(failed, session);
+        Assert.True(_store.RecordFailedDeliveryBaseline(failed, 4096));
+        _store.MarkFailed(failed, "audio_too_large");
+        var reopened = _store.OpenPending(failed, session);
+        Assert.True(reopened.Opened);
+        Assert.Equal(DictationDeliveryState.Failed, reopened.Before.Record!.State);
+        Assert.Equal(4096, _store.ReadRecord(failed)!.RebaselineBufferBytes);
+
+        // DELIVERED: NOT opened; the terminal record is handed back for the cached-outcome answer, and the
+        // tombstone is exactly what it was.
+        var delivered = Guid.NewGuid().ToString();
+        _store.MarkDelivered(delivered, submitted: true, movedOn: false, transcript: "said once");
+        var terminal = _store.OpenPending(delivered, session);
+        Assert.False(terminal.Opened);
+        Assert.Equal(DictationDeliveryState.Delivered, terminal.Before.Record!.State);
+        Assert.Equal("said once", _store.ReadRecord(delivered)!.Transcript);
+
+        // MALFORMED: NOT opened, refused by name, file untouched.
+        var corrupt = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(corrupt, "{}");
+        var before = File.ReadAllBytes(path);
+        var refused = _store.OpenPending(corrupt, session);
+        Assert.False(refused.Opened);
+        Assert.Equal(DictationRecordReadKind.Malformed, refused.Before.Kind);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void A_tombstone_cannot_land_between_OpenPending_reading_and_writing()
+    {
+        // The interleaving from the review: register reads PENDING, a complete lands DELIVERED, register
+        // writes PENDING over it, and the delivered speech is injected again on the next complete. With the
+        // transition under one hold of the gate the complete's write cannot get in: it blocks until the open
+        // has finished, then lands AFTER it, and the tombstone is what remains.
+        var id = Guid.NewGuid().ToString();
+        var session = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, session);
+
+        var competing = new CompetingWriter(() => _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "landed"));
+        VoiceUploadStore.BetweenRecordReadAndWriteForTests = _ => competing.StartAndObserveBlocked();
+        try
+        {
+            var opened = _store.OpenPending(id, session);
+            Assert.True(opened.Opened);
+            competing.AssertWasBlockedInsideTheGate("the register transition");
+        }
+        finally
+        {
+            VoiceUploadStore.BetweenRecordReadAndWriteForTests = null;
+        }
+
+        // The tombstone landed AFTER the open, and it is what stands: no PENDING buried it.
+        Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(id)!.State);
+        Assert.Equal("landed", _store.ReadRecord(id)!.Transcript);
+        Assert.False(_store.IsPending(id));
+    }
+
+    [Fact]
+    public void Abandon_names_every_answer_and_never_writes_over_a_delivery()
+    {
+        var reason = "user_abandoned";
+
+        // PENDING: abandoned, chunks discarded.
+        var pending = Guid.NewGuid().ToString();
+        _store.Register(pending);
+        _store.MarkPending(pending, Guid.NewGuid().ToString());
+        var a = _store.Abandon(pending, reason);
+        Assert.True(a.Abandoned);
+        Assert.Equal(DictationDeliveryState.Pending, a.Before.Record!.State);
+        Assert.Equal(DictationDeliveryState.Abandoned, _store.ReadRecord(pending)!.State);
+
+        // Absent: abandoned (a tombstone for an id that never staged, as the raw writer always allowed).
+        var absent = Guid.NewGuid().ToString();
+        Assert.True(_store.Abandon(absent, reason).Abandoned);
+
+        // DELIVERED: NOT abandoned; the delivery is the stronger fact and stands.
+        var delivered = Guid.NewGuid().ToString();
+        _store.MarkDelivered(delivered, submitted: true, movedOn: false, transcript: "said once");
+        var d = _store.Abandon(delivered, reason);
+        Assert.False(d.Abandoned);
+        Assert.Equal(DictationDeliveryState.Delivered, d.Before.Record!.State);
+        Assert.Equal("said once", _store.ReadRecord(delivered)!.Transcript);
+
+        // MALFORMED: refused by name, file untouched.
+        var corrupt = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(corrupt, "{}");
+        var before = File.ReadAllBytes(path);
+        var refused = _store.Abandon(corrupt, reason);
+        Assert.False(refused.Abandoned);
+        Assert.Equal(DictationRecordReadKind.Malformed, refused.Before.Kind);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void A_delivery_cannot_land_between_Abandon_reading_and_writing()
+    {
+        // The round-three interleaving: abandon reads PENDING, a complete injects the speech and lands
+        // DELIVERED, abandon writes ABANDONED over it, and the next re-complete tells the user "dropped" about
+        // words that were acted on. Under one hold of the gate the delivery blocks until the abandon has
+        // finished and then lands after it - and delivery over abandoned is the truthful final state.
+        var id = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, Guid.NewGuid().ToString());
+
+        var competing = new CompetingWriter(() => _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "landed"));
+        VoiceUploadStore.BetweenRecordReadAndWriteForTests = _ => competing.StartAndObserveBlocked();
+        try
+        {
+            var abandoned = _store.Abandon(id, "user_abandoned");
+            Assert.True(abandoned.Abandoned);
+            competing.AssertWasBlockedInsideTheGate("the abandon transition");
+        }
+        finally
+        {
+            VoiceUploadStore.BetweenRecordReadAndWriteForTests = null;
+        }
+
+        Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(id)!.State);
+    }
+
+    // A writer on another thread that is started while the test holds the record gate. The proof it gives is
+    // POSITIVE: the thread is observed in a wait (blocked on the gate) while still alive, or the test fails -
+    // both when the thread finished inside the gate (the gate did not hold it: the race is open) and when it
+    // never reached the gate at all (nothing was proven). A timeout that merely says "it did not finish yet"
+    // would pass with the gate removed whenever the competing write was slow.
+    private sealed class CompetingWriter
+    {
+        private readonly System.Threading.Thread _thread;
+        private Exception? _failure;
+        private bool _observedBlocked;
+        private bool _finishedInsideTheGate;
+
+        public CompetingWriter(Action write)
+        {
+            _thread = new System.Threading.Thread(() =>
+            {
+                try { write(); }
+                catch (Exception ex) { _failure = ex; }
+            });
+        }
+
+        public void StartAndObserveBlocked()
+        {
+            _thread.Start();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (DateTime.UtcNow < deadline && _thread.IsAlive
+                   && (_thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0)
+                System.Threading.Thread.Sleep(5);
+            _finishedInsideTheGate = !_thread.IsAlive;
+            _observedBlocked = _thread.IsAlive && (_thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0;
+        }
+
+        public void AssertWasBlockedInsideTheGate(string transition)
+        {
+            Assert.False(_finishedInsideTheGate, $"a DELIVERED write landed inside {transition} - the race is open");
+            Assert.True(_observedBlocked, $"the competing writer was never observed blocked on the gate during {transition}");
+            Assert.True(_thread.Join(TimeSpan.FromSeconds(10)), "the deferred delivery never completed");
+            Assert.Null(_failure);
+        }
+    }
+
+    // ===== the sweeps and the lock ==================================================================
+
+    [Fact]
+    public void The_tombstone_sweep_leaves_a_corrupt_tombstone_standing()
+    {
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+
+        // Positive control: the sweep really runs and really retires an aged READABLE tombstone, so the
+        // survival below is a decision and not a sweep that did nothing.
+        var control = Guid.NewGuid().ToString();
+        _store.MarkDelivered(control, submitted: true, movedOn: false, transcript: "old");
+        var removed = _store.SweepResolvedTombstones(TimeSpan.FromDays(-1));
+        Assert.Equal(1, removed);
+        Assert.False(_store.Exists(control));
+
+        Assert.True(File.Exists(path), "the sweep must not destroy a marker it could not read");
+    }
+
+    [Fact]
+    public void The_stale_pending_sweep_leaves_a_corrupt_marker_standing()
+    {
+        var id = Guid.NewGuid().ToString();
+        var path = CorruptDeliveredTombstone(id, "{ this is not json");
+        var before = File.ReadAllBytes(path);
+
+        // Positive control: an aged readable PENDING really is abandoned by this sweep.
+        var control = Guid.NewGuid().ToString();
+        _store.Register(control);
+        _store.MarkPending(control, Guid.NewGuid().ToString());
+        Assert.Equal(1, _store.ExpireStalePending(TimeSpan.FromDays(-1)));
+        Assert.Equal(DictationDeliveryState.Abandoned, _store.ReadRecord(control)!.State);
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void A_corrupt_marker_does_not_lock_a_session()
+    {
+        // The documented decision on IsPending: the lock projection fails open, because nothing on the delivery
+        // or abandon paths can clear a "receiving a dictation" state held by a marker every one of them refuses
+        // (only an explicit acknowledgement retires it, and that is the client saying its copy is gone). What
+        // the projection drives is display (the session's dictation badge); sends are never refused by source,
+        // so a missed lock costs a badge and cannot cost a delivery. Pinned so a future reader sees it
+        // asserted, not assumed.
+        var id = Guid.NewGuid().ToString();
+        var session = Guid.NewGuid().ToString();
+        _store.Register(id);
+        _store.MarkPending(id, session);
+        Assert.True(_store.IsSessionLocked(session)); // positive control: a readable PENDING does lock
+
+        File.WriteAllText(RecordPath(id), "{ this is not json");
+
+        // The lock projection is cached per store instance and hydrated from disk once, so the question is
+        // put to a FRESH store over the same root - which is also exactly what a Gateway restart does.
+        var restarted = new VoiceUploadStore(_root, TenantId.Local);
+        Assert.False(restarted.IsPending(id));
+        Assert.False(restarted.IsSessionLocked(session));
+        Assert.DoesNotContain(session, restarted.LockedSessionIds());
+    }
+
+    // ===== helpers ================================================================================
+
+    // A real DELIVERED tombstone written by the store itself, then its bytes replaced: the directory, the
+    // file, and the fact that this id WAS delivered are all genuine. Returns the record path.
+    private string CorruptDeliveredTombstone(string id, string bytes)
+    {
+        _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "said once");
+        var path = RecordPath(id);
+        Assert.True(File.Exists(path));
+        File.WriteAllText(path, bytes, Encoding.UTF8);
+        return path;
+    }
+
+    private string RecordPath(string id) => Path.Combine(_root, Guid.Parse(id).ToString("N"), "record.json");
+}

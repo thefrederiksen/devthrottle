@@ -1,3 +1,6 @@
+using CcDirector.Core.Storage;
+using System.Runtime.InteropServices;
+
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
@@ -15,25 +18,56 @@ public sealed class InstallLayout
     /// <summary>%LOCALAPPDATA%\cc-director (or the CC_DIRECTOR_ROOT override) - per-user, no admin.</summary>
     public string LocalRoot { get; }
 
+    /// <param name="localRoot">
+    /// An ABSOLUTE path. A relative one is rejected: it would resolve against whatever the process
+    /// working directory happens to be, and the installer would write a user's files there.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="localRoot"/> is blank, or is a relative path.
+    /// </exception>
     public InstallLayout(string localRoot)
     {
         if (string.IsNullOrWhiteSpace(localRoot))
             throw new ArgumentException("localRoot must not be empty.", nameof(localRoot));
+
+        // The guard that was missing. "Not empty" was the whole test, and the defect this class had
+        // produced the string "cc-director" - not empty, not whitespace, and not absolute either. A
+        // check whose failure case the defect walks straight past is why nothing ever announced it.
+        if (!Path.IsPathRooted(localRoot))
+        {
+            throw new ArgumentException(
+                $"Refusing a relative install root '{localRoot}'. A relative root resolves against the "
+                + "current working directory, so the install would land somewhere unpredictable - beside "
+                + "the setup executable, typically. Pass an absolute path, or set CC_DIRECTOR_ROOT to one.",
+                nameof(localRoot));
+        }
+
         LocalRoot = localRoot;
     }
 
-    /// <summary>The production layout, honoring CC_DIRECTOR_ROOT for the per-user root like CcStorage does.</summary>
-    public static InstallLayout Default()
-    {
-        var localRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        if (string.IsNullOrWhiteSpace(localRoot))
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            localRoot = Path.Combine(localAppData, "cc-director");
-        }
-
-        return new InstallLayout(localRoot);
-    }
+    /// <summary>
+    /// The production layout. The root is <see cref="CcStorage.Root"/> - the SAME resolution the
+    /// Director itself uses, not a second copy of it, because there is one per-user root and two
+    /// implementations of it cannot stay equal.
+    ///
+    /// This method used to compute the root itself:
+    ///
+    ///   var localAppData = Environment.GetFolderPath(SpecialFolder.LocalApplicationData);
+    ///   localRoot = Path.Combine(localAppData, "cc-director");
+    ///
+    /// On Linux that folder call returns an EMPTY STRING when ~/.local/share does not exist, which is
+    /// the state of every fresh account. Path.Combine does not fail on an empty first segment - it
+    /// returns the relative path "cc-director", resolved against the process working directory. So a
+    /// first install on a clean desktop wrote the user's install tree beside the setup executable.
+    ///
+    /// That is the identical defect Phase 1 of the Linux mission fixed in CcStorage, and this method
+    /// carried a comment claiming it behaved "like CcStorage does" throughout - which stopped being
+    /// true the moment CcStorage was fixed, and sent the next reader's scepticism elsewhere. Calling
+    /// CcStorage is what makes the claim true rather than aspirational: XDG order, the directory
+    /// created because "not there yet" is normal, and a throw naming CC_DIRECTOR_ROOT when nothing
+    /// resolves all come from the one place that has them.
+    /// </summary>
+    public static InstallLayout Default() => new(CcStorage.Root());
 
     public string AppDir => Path.Combine(LocalRoot, "app");
     public string BinDir => Path.Combine(LocalRoot, "bin");
@@ -136,14 +170,44 @@ public sealed class InstallLayout
     public string LogsDir => Path.Combine(LocalRoot, "logs");
 
     /// <summary>The on-disk file whose presence/version represents the component.</summary>
-    public string PathFor(Component component)
+    public string PathFor(Component component) => PathFor(component, HostPlatform.Current);
+
+    /// <summary>
+    /// Where <paramref name="component"/> is installed on <paramref name="platform"/>.
+    ///
+    /// The platform is a parameter for the same reason it is one on
+    /// <see cref="Component.AssetFor"/>: a method that reads the environment can only ever be tested
+    /// for the platform the test run happens to be on. This one used to read it, and its Linux
+    /// answer - "not Windows", therefore macOS - placed a bare Linux executable at
+    /// ~/Applications/Director.app. A mutation putting that back killed no test, because no test
+    /// could reach the branch.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">
+    /// There is no layout for <paramref name="platform"/>. Deliberately a throw and not the Windows
+    /// paths: falling through to Windows is the shape being removed.
+    /// </exception>
+    public string PathFor(Component component, OSPlatform platform)
     {
         ArgumentNullException.ThrowIfNull(component);
+
+        // Linux: the Director is a single self-contained executable, so it goes beside where the
+        // Windows one goes rather than into a macOS application bundle.
+        if (platform == OSPlatform.Linux)
+        {
+            return component.Kind switch
+            {
+                ComponentKind.Director => Path.Combine(AppDir, "cc-director"),
+                ComponentKind.Tool => Path.Combine(BinDir, component.Id),
+                ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
+                ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
+                _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
+            };
+        }
 
         // macOS is Workstation-only: the Director is a .app in ~/Applications (matching the manual
         // install + UpdateInstaller.SwapMac); tools carry no .exe extension. Gateway/Launcher are
         // Windows-only roles and are never placed on mac.
-        if (!OperatingSystem.IsWindows())
+        if (platform == OSPlatform.OSX)
         {
             return component.Kind switch
             {
@@ -155,14 +219,21 @@ public sealed class InstallLayout
             };
         }
 
-        return component.Kind switch
+        if (platform == OSPlatform.Windows)
         {
-            ComponentKind.Director => Path.Combine(AppDir, "cc-director.exe"),
-            ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway.exe"),
-            ComponentKind.Tool => Path.Combine(BinDir, $"{component.Id}.exe"),
-            ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher.exe"),
-            _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
-        };
+            return component.Kind switch
+            {
+                ComponentKind.Director => Path.Combine(AppDir, "cc-director.exe"),
+                ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway.exe"),
+                ComponentKind.Tool => Path.Combine(BinDir, $"{component.Id}.exe"),
+                ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher.exe"),
+                _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
+            };
+        }
+
+        // No "everything else" branch on purpose. This method used to end with the Windows paths as
+        // the fall-through, which is what silently handed the next platform Windows filenames.
+        throw new PlatformNotSupportedException($"There is no install layout for {platform}.");
     }
 
     /// <summary>
@@ -185,8 +256,10 @@ public sealed class InstallLayout
 
         // The macOS Director bundle was renamed "CC Director.app" -> "Director.app". A host installed
         // before the rename still carries the old bundle in ~/Applications; accept it for detection so
-        // an update refreshes that host instead of orphaning it. Windows/tool names never changed.
-        if (component.Kind == ComponentKind.Director && !OperatingSystem.IsWindows())
+        // an update refreshes that host instead of orphaning it. Windows/tool names never changed,
+        // and Linux has no pre-rename history at all - it had no install before this mission - so the
+        // condition is macOS, not "not Windows".
+        if (component.Kind == ComponentKind.Director && OperatingSystem.IsMacOS())
             return new[] { Path.Combine(MacAppsDir, "CC Director.app") };
 
         return Array.Empty<string>();

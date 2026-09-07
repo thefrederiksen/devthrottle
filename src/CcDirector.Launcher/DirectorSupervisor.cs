@@ -17,8 +17,82 @@ namespace CcDirector.Launcher;
 /// resolved it anyway - the machine is still in a wrong state and every caller must pass this on to
 /// somewhere a person will meet it, not swallow it because the answer came out right.
 /// </param>
+/// <param name="Unreadable">
+/// Everything claiming this instance home that could not be read or certified, carried through from
+/// <see cref="DirectorLookup.Unreadable"/>. Empty in the ordinary case.
+///
+/// IT IS ON THIS RECORD BECAUSE DROPPING IT BROKE THE DIRECTOR IT WAS MEANT TO PROTECT. A corrupt
+/// registration beside one good live Director resolves Running, so an update pass would proceed, STOP
+/// that Director - which deletes its own good registration - and then find only the corrupt file left,
+/// at which point the start REFUSES and the machine is left with no Director at all and every relaunch
+/// refusing. The evidence has to reach the decision, not stop at the locator.
+/// </param>
 public sealed record DirectorStatus(string DirectorId, int Pid, string Version, int? Sessions,
-    string? Conflict = null);
+    string? Conflict = null, IReadOnlyList<string>? Unreadable = null)
+{
+    /// <summary>What could not be read or certified. Never null, so a caller need not guard it. The
+    /// setter coalesces rather than an initializer doing it, so a `with` expression cannot put a null
+    /// through the promise in this sentence.</summary>
+    public IReadOnlyList<string> Unreadable
+    {
+        get => _unreadable;
+        init => _unreadable = value ?? Array.Empty<string>();
+    }
+
+    private readonly IReadOnlyList<string> _unreadable = Unreadable ?? Array.Empty<string>();
+}
+
+/// <summary>
+/// How a restart ended. Three outcomes, and they are kept apart because a caller ACTS differently on
+/// each: wait and try again, drain first, or go and look at the machine.
+/// </summary>
+public enum DirectorRestartVerdict
+{
+    /// <summary>The Director was stopped and a new one was started.</summary>
+    Restarted,
+
+    /// <summary>
+    /// NOTHING WAS DONE. The restart was asked to happen only if the Director was empty, and it was not -
+    /// or how busy it is could not be established, which is the same answer. The machine is exactly as it
+    /// was, and the caller's next move is to finish the drain.
+    /// </summary>
+    Refused,
+
+    /// <summary>
+    /// SOMETHING WAS DONE AND IT DID NOT FINISH. The stop ran and no new Director was started, because
+    /// another live process holds the instance. This is NOT a refusal and must never be reported as one:
+    /// a refusal promises the machine is untouched, and here it may now be without a Director at all.
+    /// </summary>
+    NotStarted,
+}
+
+/// <summary>
+/// What a restart asked to happen ONLY IF THE DIRECTOR IS EMPTY actually did.
+/// </summary>
+/// <param name="Verdict">Which of the three endings this was.</param>
+/// <param name="Reason">
+/// Why, when it was not a plain restart - and it always NAMES WHAT WAS OBSERVED, including the live
+/// session count. Null only when <see cref="DirectorRestartVerdict.Restarted"/>. A caller must carry this
+/// to whoever asked: a refusal nobody reads is indistinguishable from a restart that happened.
+/// </param>
+/// <param name="Sessions">
+/// The live session count behind the verdict: the number that caused a refusal, and 0 for a guarded
+/// restart that went ahead. NULL WHENEVER NO COUNT WAS ESTABLISHED - an unconditional restart, which never
+/// asks, and a refusal whose whole reason is that the count could not be read. It is null rather than 0 on
+/// purpose in both cases: "nobody looked" and "nobody was there" are the two facts this feature exists to
+/// keep apart.
+/// </param>
+/// <param name="StartedPid">
+/// The process id of the Director this restart started, when the operating system named one. Null on
+/// macOS even for a successful start, where launchd owns the launch - so it is <paramref name="Restarted"/>
+/// that says whether one came up, never this.
+/// </param>
+public sealed record DirectorRestartOutcome(DirectorRestartVerdict Verdict, string? Reason, int? Sessions,
+    int? StartedPid = null)
+{
+    /// <summary>True only when a Director was stopped and another was started.</summary>
+    public bool Restarted => Verdict == DirectorRestartVerdict.Restarted;
+}
 
 /// <summary>
 /// Supervises the installed CC Director app - start, stop, restart, and the two facts the update path
@@ -63,6 +137,7 @@ public sealed class DirectorSupervisor
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
         _locator = locator ?? throw new ArgumentNullException(nameof(locator));
+        ReadTheMachine = _locator.Resolve;
     }
 
     /// <summary>
@@ -86,11 +161,42 @@ public sealed class DirectorSupervisor
     public DirectorInstanceLocator Locator => _locator;
 
     /// <summary>
+    /// How this supervisor reads the machine. Production always uses <see cref="DirectorInstanceLocator.Resolve"/>.
+    ///
+    /// IT IS A SEAM ONLY SO THAT DECIDING ON ONE READING AND ACTING ON ANOTHER CAN BE REPRODUCED. That
+    /// defect needs two consecutive reads to DISAGREE, and outside a test they disagree only when the
+    /// machine changes underneath them - a registration finishing its write, a Director starting - which
+    /// cannot be arranged deterministically from the outside. Without the seam the fix is real and
+    /// untested: a mutation that puts the second read back passes every test in the suite, which was
+    /// verified before this was added rather than assumed.
+    ///
+    /// The same argument, in the same words, is why <see cref="DirectorInstanceLocator.ReadExecutablePath"/>
+    /// exists. A guard that fails open is worse for being present and never exercised.
+    /// </summary>
+    internal Func<DirectorLookup> ReadTheMachine { get; set; } = null!;
+
+    /// <summary>
     /// Whether a Director holds the supervised instance.
     ///
     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
     /// done TO it - but starting another one on top of two that already exist would make the mess
     /// worse, and that is the only decision this property is used for.
+    ///
+    /// So does an UNKNOWN one, for the same reason and by the same test (issue #2730): something claims
+    /// that instance home and could not be read, and putting a second Director into a home that may
+    /// already have one is the outcome to avoid. Written as a negative deliberately, so an outcome added
+    /// later lands on the occupied side; that is the safe default here, and the unsafe default is
+    /// reporting a home as free while a process sits in it.
+    ///
+    /// THIS IS NOT THE ONLY DECISION IT DRIVES, and an earlier version of this comment said it was.
+    /// <see cref="DirectorUpdateOwner"/> reads it to decide whether to leave a closed Director alone, and
+    /// <see cref="LauncherTrayController"/> renders it to a person as the word "running". So an Unknown
+    /// reported here is ALSO shown as running in the tray and holds an update - both correct, and both
+    /// wider than "starting another one", which is what the sentence used to claim.
+    ///
+    /// WHAT IT COSTS: a lone stale corrupt file with no live process says "running" in the tray when
+    /// nothing is running. That is the deliberate direction - a wrong "running" is a person looking and
+    /// finding nothing, and a wrong "not running" is a second Director in an occupied instance home.
     /// </summary>
     public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;
 
@@ -99,20 +205,68 @@ public sealed class DirectorSupervisor
     /// Windows: UseShellExecute = true for clean parentage (no pseudo-console inheritance).
     /// macOS: /usr/bin/open so the Director is parented by launchd, not this launcher.
     /// </summary>
-    public void Start()
+    public void Start() => Start(out _);
+
+    /// <summary>
+    /// Start the installed Director if it is not already running, and SAY WHETHER ONE WAS ACTUALLY
+    /// STARTED. The plain <see cref="Start()"/> above is the same call for callers that do not care.
+    ///
+    /// THE TWO ANSWERS ARE KEPT APART BECAUSE MERGING THEM PRODUCES A FALSE REPORT. Skipping the launch
+    /// because another process already holds the instance is a perfectly ordinary outcome, and a restart
+    /// that ends that way stopped a Director and started nothing - which must not be reported as
+    /// "restarted". An earlier version of this returned only a process id and left the caller to guess
+    /// from a null, which cannot be done: macOS legitimately has no process id to give.
+    /// </summary>
+    /// <param name="launchedProcessId">
+    /// The process id the operating system gave the Director this call started, when there is one.
+    /// Null both when nothing was started and on macOS, where /usr/bin/open hands the launch to launchd
+    /// and no id comes back - which is why the RETURN VALUE, not this, says whether a launch happened.
+    /// </param>
+    /// <returns>True when this call launched a Director; false when one already held the instance.</returns>
+    public bool Start(out int? launchedProcessId)
     {
+        launchedProcessId = null;
         FileLog.Write($"[DirectorSupervisor] Start: target={DirectorExePath}");
 
         if (!DirectorExeExists)
             throw new FileNotFoundException($"Installed Director not found: {DirectorExePath}", DirectorExePath);
 
         var lookup = _locator.Resolve();
-        if (lookup.Outcome != DirectorResolution.NotRunning)
+
+        // AN UNREADABLE CLAIM MUST NOT STOP A DIRECTOR STARTING, AND THIS REVERSES WHAT THIS FIX FIRST
+        // DID. The first draft refused here, which converted a recoverable state into a permanent one:
+        // a corrupt file beside a live Director resolved Running, an update pass stopped that Director -
+        // deleting its own good registration - and then only the corrupt file was left, so this refused,
+        // the health wait timed out, the rollback tried the same refused start, and a formerly working
+        // Director stayed down through every relaunch. That is worse than the fail-open it replaced.
+        //
+        // AND IT WAS DEFENDING SOMETHING ALREADY DEFENDED. A second Director from the installed exe
+        // cannot run: SingleInstanceGuard, acquired in the Director's own startup, is keyed on the exe
+        // path slot, so the second process raises the existing window and exits. That guard - not a
+        // refusal here - is what prevents two Directors on one instance home, and it works whether or
+        // not this launcher could read a registration file.
+        //
+        // So an unreadable claim is LOUD and not fatal. The evidence travels on DirectorStatus to the
+        // callers that must act on it (an update pass reads it and can decline to stop a Director whose
+        // home it cannot fully read), and starting stays possible, which is the property that matters:
+        // no reading of a corrupt file may leave a formerly working Director unable to start.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] Start: something claims {_locator.InstanceHome} that could not be "
+                          + "read or certified - "
+                          + (lookup.Conflict ?? "see the claims above")
+                          + " Starting anyway: a Director that cannot start is a worse failure than one that "
+                          + "might briefly duplicate, and the Director's own single-instance guard refuses a "
+                          + "second process from this exe. Repair or remove what could not be read.");
+            // Deliberately falls through to the start below.
+        }
+        else if (lookup.Outcome != DirectorResolution.NotRunning)
         {
             FileLog.Write($"[DirectorSupervisor] Start: a Director already holds {_locator.InstanceHome} "
                           + $"({lookup.Outcome}); skipping. Claimants: {Describe(lookup)}");
-            return;
+            return false;
         }
+
 
         if (OperatingSystem.IsWindows())
         {
@@ -127,7 +281,8 @@ public sealed class DirectorSupervisor
                 ?? throw new InvalidOperationException($"Process.Start returned null for: {DirectorExePath}");
 
             FileLog.Write($"[DirectorSupervisor] Start: launched Director pid={proc.Id}");
-            return;
+            launchedProcessId = proc.Id;
+            return true;
         }
 
         // macOS: hand the bundle to launchd via /usr/bin/open. open exits immediately;
@@ -146,6 +301,9 @@ public sealed class DirectorSupervisor
             throw new InvalidOperationException($"/usr/bin/open exited with code {open.ExitCode} for: {DirectorExePath}");
 
         FileLog.Write($"[DirectorSupervisor] Start: /usr/bin/open accepted launch of {DirectorExePath}");
+        // launchd owns the launch, so there is no process id to report - the Director's own registration
+        // file names it. The launch itself DID happen, which is what the return value says.
+        return true;
     }
 
     /// <summary>
@@ -162,14 +320,45 @@ public sealed class DirectorSupervisor
     /// there is no way to tell which one the launcher is responsible for, and stopping the wrong
     /// Director is a worse outcome than stopping nothing - it takes somebody's live sessions with it.
     /// </summary>
-    public async Task StopAsync(CancellationToken ct = default)
+    public Task StopAsync(CancellationToken ct = default)
     {
         FileLog.Write("[DirectorSupervisor] StopAsync");
+        return StopResolvedAsync(ReadTheMachine(), ct);
+    }
 
-        var lookup = _locator.Resolve();
+    /// <summary>
+    /// Stop the Director named by a reading of the machine that has ALREADY BEEN TAKEN.
+    ///
+    /// IT EXISTS SO THAT ONE READING CAN BOTH DECIDE AND ACT. A guarded restart asks whether the
+    /// Director is empty and then stops it, and while those were two separate resolutions the second
+    /// could see something the first never did - an independent review demonstrated exactly that, with a
+    /// registration that was unreadable when the guard looked (so the machine read as nothing running,
+    /// and the restart was permitted) and readable a moment later, at which point the stop found a live
+    /// Director holding three sessions and would have taken them. Deciding on one reading and acting on
+    /// another is the whole defect; handing the reading forward is the whole fix.
+    ///
+    /// <see cref="StopAsync"/> keeps its own behaviour by taking a fresh reading and calling this - which
+    /// is right for a caller that has not already decided something on an earlier one.
+    /// </summary>
+    private async Task StopResolvedAsync(DirectorLookup lookup, CancellationToken ct)
+    {
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
             FileLog.Write("[DirectorSupervisor] StopAsync: Director not running");
+            return;
+        }
+
+        // THE SAFE DIRECTION FOR THE SAME VALUE. Declining to stop something is careful, so Unknown needs
+        // no new behaviour here - but it does need its own SENTENCE. Falling into the refusal below would
+        // print "more than one live process claims this instance", which is not what happened and sends
+        // the next reader looking for a second process that does not exist.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] StopAsync: REFUSING to stop anything - "
+                          + (lookup.Conflict ?? $"something claims {_locator.InstanceHome} that could not be read "
+                             + "or certified")
+                          + " Nothing can be certified as this launcher's Director, and an uncertified process is "
+                          + "not this launcher's to end.");
             return;
         }
 
@@ -251,12 +440,18 @@ public sealed class DirectorSupervisor
         }
 
         var sessions = _locator.ReadSessionCount(director);
-        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict);
+        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict,
+            lookup.Unreadable);
     }
 
     /// <summary>
     /// Restart the Director: stop gracefully, wait, then start fresh.
     /// A staged update is applied by the launcher's update loop, not by the Director itself.
+    ///
+    /// UNCONDITIONAL, and its two callers are why. A person clicking "Restart Director" in the tray menu
+    /// has decided; and the lifecycle signal a Director raises to have its own staged update installed is
+    /// that Director asking for itself. A caller that must not interrupt live work asks for
+    /// <see cref="RestartAsync(bool, CancellationToken)"/> with onlyIfEmpty instead.
     /// </summary>
     public async Task RestartAsync(CancellationToken ct = default)
     {
@@ -266,6 +461,182 @@ public sealed class DirectorSupervisor
         await Task.Delay(500, ct);
         Start();
         FileLog.Write("[DirectorSupervisor] RestartAsync: Director restarted");
+    }
+
+    /// <summary>
+    /// Restart the Director, optionally ONLY IF IT IS EMPTY - that is, holding no live sessions.
+    ///
+    /// THIS IS THE MECHANICAL GUARANTEE BEHIND "NEVER FORCE". A drain empties a Director one session at a
+    /// time, and a restart that arrives in the middle of one takes every session that is left with it.
+    /// Until now the rule against that was a sentence in a written instruction, and a sentence cannot stop
+    /// a mistake. This can: the launcher reads the count itself, from the files the Director maintains,
+    /// and declines.
+    ///
+    /// THE REFUSAL NAMES THE COUNT, and that is the feature rather than a nicety. "Refused" tells the
+    /// reader nothing they can act on; "3 live sessions" tells them the drain is not finished and roughly
+    /// how much of it is left. Every refusal below says what was observed.
+    ///
+    /// WHAT IT DOES NOT PROMISE. The count is read, and then the Director is stopped - a session created
+    /// between those two moments is not seen, and nothing here takes a lock. This closes the case that
+    /// actually happens, a restart fired at a Director that is visibly still busy; it is not a settlement
+    /// between two operators driving one machine against each other.
+    /// </summary>
+    /// <param name="onlyIfEmpty">When true, refuse unless the Director is provably holding no sessions.</param>
+    public async Task<DirectorRestartOutcome> RestartAsync(bool onlyIfEmpty, CancellationToken ct = default)
+    {
+        int? sessions = null;
+
+        // The reading the guard decided on, kept so the STOP can act on the same one. Null for an
+        // unconditional restart, which decides nothing and so has nothing to carry forward.
+        DirectorLookup? decidedOn = null;
+
+        if (onlyIfEmpty)
+        {
+            if (RefuseRestartUnlessEmpty(out sessions, out var lookup) is { } refusal)
+            {
+                FileLog.Write($"[DirectorSupervisor] RestartAsync REFUSED (onlyIfEmpty): {refusal}");
+                return new DirectorRestartOutcome(DirectorRestartVerdict.Refused, refusal, sessions);
+            }
+
+            decidedOn = lookup;
+
+            // A PERMIT WITHOUT A ZERO COUNT IS A FAULT, NOT A PERMISSION. The guard reports its verdict as
+            // the ABSENCE of a refusal, which is a shape a future edit can fail open through - one added
+            // path that returns no refusal without having established a count, and a busy Director is
+            // restarted and reported as having held none. It cannot pass here quietly.
+            if (sessions is not 0)
+                throw new InvalidOperationException(
+                    "the emptiness guard permitted a restart without establishing that the Director is "
+                    + $"holding no sessions (count={(sessions.HasValue ? sessions.Value.ToString() : "unknown")}). "
+                    + "That is a fault in the guard, and the restart is abandoned rather than performed on "
+                    + "an answer nobody has.");
+        }
+
+        FileLog.Write($"[DirectorSupervisor] RestartAsync: proceeding (onlyIfEmpty={onlyIfEmpty})");
+
+        // A GUARDED RESTART STOPS WHAT THE GUARD SAW, AND NOTHING ELSE. Taking a second reading here
+        // would let the stop act on a Director the decision never covered - including the case an
+        // independent review demonstrated, where the guard read an unreadable registration as nothing
+        // running, and a moment later the same registration resolved to a live Director holding three
+        // sessions. An unconditional restart has decided nothing, so it still reads the machine here.
+        if (decidedOn is { } reading)
+            await StopResolvedAsync(reading, ct);
+        else
+            await StopAsync(ct);
+
+        // Brief pause to let file locks release before relaunching.
+        await Task.Delay(500, ct);
+        var started = Start(out var pid);
+
+        // STOPPED AND NOTHING STARTED IS NOT A RESTART. Start skips when something already holds the
+        // instance, and reporting that as a restart would tell the caller their Director came back when
+        // it did not.
+        if (!started)
+        {
+            var noStart = $"no new Director was started on {Environment.MachineName}: another live process "
+                          + $"already holds {_locator.InstanceHome}, and starting a second Director on top "
+                          + "of it would make that worse. The stop ran first, so this machine may now be "
+                          + "without the Director it had. Resolve the claim on this instance by hand.";
+            FileLog.Write($"[DirectorSupervisor] RestartAsync: {noStart}");
+            return new DirectorRestartOutcome(DirectorRestartVerdict.NotStarted, noStart, sessions);
+        }
+
+        FileLog.Write("[DirectorSupervisor] RestartAsync: Director restarted "
+                      + $"(startedPid={(pid.HasValue ? pid.Value.ToString() : "none - launchd owns the launch")})");
+        return new DirectorRestartOutcome(DirectorRestartVerdict.Restarted, null, sessions, pid);
+    }
+
+    /// <summary>
+    /// Why a restart that was told to happen only if the Director is empty must NOT proceed, or null when
+    /// it may.
+    ///
+    /// AN UNKNOWN COUNT IS A REFUSAL, NEVER AN EMPTY ONE. Two of the ways this answers no are answers it
+    /// could not get: more than one live process claims the instance, so which one is the Director is
+    /// undecidable; or the resolved Director's session roster will not read. A guard that treated either
+    /// as idle would open exactly when the machine is already in a state nobody understands, which is the
+    /// worst possible moment for a guard to open.
+    ///
+    /// A DIRECTOR THAT IS NOT RUNNING IS EMPTY, and that is a real answer rather than a missing one:
+    /// nothing is holding a session because nothing is holding anything. The restart then does what a
+    /// restart of a stopped Director has always done, which is start one.
+    ///
+    /// AND HERE IS THE LIMIT OF THAT, STATED RATHER THAN LEFT TO BE INFERRED. "Not running" is the
+    /// locator's answer, and the locator reaches it by SKIPPING what it cannot read: a registration file
+    /// that will not parse, or a live process that will not say when it started, is passed over, and a
+    /// machine whose only registration is one of those looks empty. The locator does that deliberately and
+    /// it is safe for the question it was written for - whether to STOP something, where skipping means
+    /// declining - but this guard asks the opposite question, and there the same answer means PERMIT. So a
+    /// Director whose registration is corrupt is not protected by this guard. That is inherited behaviour,
+    /// identical for an unconditional restart and for the update path, and it is NOT something the flag
+    /// closes; closing it needs the locator to distinguish "nothing is there" from "I could not read what
+    /// is there", which is a change to <see cref="DirectorInstanceLocator"/> and not to this guard.
+    /// </summary>
+    /// <param name="sessions">
+    /// The count this verdict was reached on: the live sessions found, 0 when nothing is running, and null
+    /// when it could not be established. It is handed out here rather than read again by the caller so the
+    /// number reported and the number decided on cannot be two different readings of a moving machine.
+    /// </param>
+    /// <param name="lookup">
+    /// THE READING THIS VERDICT WAS REACHED ON, handed to the caller so the thing that ACTS can act on
+    /// the same one. A restart that resolves the machine again between deciding and stopping is deciding
+    /// on one reading and acting on another, which is the defect this whole guard exists to prevent,
+    /// one layer down.
+    /// </param>
+    public string? RefuseRestartUnlessEmpty(out int? sessions, out DirectorLookup lookup)
+    {
+        sessions = null;
+        lookup = ReadTheMachine();
+
+        if (lookup.Outcome == DirectorResolution.NotRunning)
+        {
+            FileLog.Write("[DirectorSupervisor] RefuseRestartUnlessEmpty: no Director is running, so it is "
+                          + "holding no sessions and the restart may proceed as a start.");
+            sessions = 0;
+            return null;
+        }
+
+        // EXHAUSTIVE BY NAME, NOT BY NULLNESS. Only a Running lookup carries a Director today, so testing
+        // the Director alone would be right - and it would stop being right the moment a new outcome is
+        // added that carries one, silently, by treating it as running and reading its count. The rule this
+        // guard exists for is that an answer nobody named must never become the permissive branch, and
+        // that has to hold for answers nobody has invented yet.
+        if (lookup.Outcome != DirectorResolution.Running || lookup.Director is not { } director)
+            return $"refusing to restart the Director on {Environment.MachineName}: which process owns "
+                   + $"{_locator.InstanceHome} is undecidable ({lookup.Outcome}), so how many sessions it is "
+                   + "holding cannot be read, and an unknown count is never read as empty. Claimants: "
+                   + $"{Describe(lookup)}.";
+
+        // A RESOLVED CONFLICT IS STILL A MACHINE IN A WRONG STATE. The locator reports one when several
+        // live processes claimed this instance and the tie-break could name the installed one - so there
+        // IS a Director and its count can be read, and reading it would be answering the wrong question.
+        // Something else is also claiming this home; stopping the one we chose leaves the other holding
+        // it, and the start that follows finds the instance taken and declines. The locator's own
+        // contract says every caller must carry a resolved conflict somewhere a person meets it, and for
+        // a guard whose job is to refuse on a machine nobody understands, that means refusing.
+        if (lookup.Conflict is { } conflict)
+            return $"refusing to restart the Director {director.DirectorId} (pid {director.Pid}) on "
+                   + $"{Environment.MachineName}: more than one live process claims "
+                   + $"{_locator.InstanceHome}, and although the tie-break could say which one is the "
+                   + $"installed Director, the machine is still in a state nobody asked for - {conflict} "
+                   + $"Claimants: {Describe(lookup)}. Resolve the claim on this instance by hand, then "
+                   + "ask again.";
+
+        sessions = _locator.ReadSessionCount(director);
+        if (sessions is null)
+            return $"refusing to restart the Director {director.DirectorId} (pid {director.Pid}) on "
+                   + $"{Environment.MachineName}: it is running and its live session roster could not be "
+                   + "read, so how many sessions it is holding is unknown, and an unknown count is never "
+                   + "read as empty.";
+
+        if (sessions > 0)
+            return $"refusing to restart the Director {director.DirectorId} (pid {director.Pid}) on "
+                   + $"{Environment.MachineName}: it is holding {sessions} live "
+                   + $"{(sessions == 1 ? "session" : "sessions")}. Drain it first - every session writes a "
+                   + "handover and is closed - then ask again.";
+
+        FileLog.Write($"[DirectorSupervisor] RefuseRestartUnlessEmpty: {director.DirectorId} (pid "
+                      + $"{director.Pid}) is holding 0 live sessions; the restart may proceed.");
+        return null;
     }
 
     private static string Describe(DirectorLookup lookup)

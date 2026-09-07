@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 #
-# Build the macOS CC Director Python tools bundle - the mac analog of build-python-bundle.ps1.
-# Produces two release assets under OUT_DIR (default dist/python-bundle):
+# Build the CC Director Python tools bundle for the CURRENT Unix platform - the macOS and Linux
+# analog of build-python-bundle.ps1. Produces two release assets under OUT_DIR (default
+# dist/python-bundle), named for the platform this runs on:
 #
-#   cc-python-macos-arm64.tar.gz       relocatable python-build-standalone CPython, laid out flat
+#   cc-python-<platform>.tar.gz        relocatable python-build-standalone CPython, laid out flat
 #                                      so extracting into PythonDir yields PythonDir/bin/python3
-#   cc-tools-pyenv-macos-arm64.tar.gz  wheelhouse/ (de-duped dep wheels + the core tool wheels)
+#   cc-tools-pyenv-<platform>.tar.gz   wheelhouse/ (de-duped dep wheels + the core tool wheels)
 #                                      + requirements.lock + tools-manifest.json
+#
+# <platform> is "macos-arm64" on Apple Silicon and "linux-x64" on 64-bit Intel/AMD Linux. This is
+# ONE script with a platform switch rather than a per-platform copy: the tool selection, the
+# dependency closure and the manifest are identical everywhere, and two copies of that logic would
+# drift the first time the registry changed. Only three things differ - the asset names, the uv
+# resolver target, and the pip wheel platform tags - and they are set once, below.
 #
 # Core is an explicit allowlist: a tool ships ONLY when it has "ship": true in tools/registry.json.
 # Non-core tools stay in the repo (buildable for dev) but never enter the bundle. There is no
@@ -16,7 +23,8 @@
 # `pip install --no-index --find-links wheelhouse <tools>` fully offline, and symlinks each tool's
 # console script into ~/.local/bin.
 #
-# Requires: uv (https://astral.sh) + python3 + tar on PATH. Apple Silicon (arm64).
+# Requires: uv (https://astral.sh) + python3 + tar on PATH.
+# Supported hosts: macOS on Apple Silicon (arm64), Linux on x86_64.
 # Usage: bash scripts/build-python-bundle.sh [OUT_DIR]   (env: PY_VERSION, default 3.12)
 set -euo pipefail
 
@@ -29,8 +37,44 @@ cd "$REPO_ROOT"
 step() { echo "[build-python-bundle] $*"; }
 fail() { echo "[build-python-bundle] ERROR: $*" >&2; exit 1; }
 
+# ---- 0. Resolve the target platform -----------------------------------------------------------
+# PLATFORM_TAG feeds the two asset names, and those names are the keys the installer looks up in
+# the release manifest (PythonToolsInstaller.PythonAsset / .ToolsAsset). Changing a name here
+# without changing it there ships a bundle that nothing ever fetches.
+#
+# UV_PLATFORM is the resolver target for the pinned lock and PIP_PLATFORMS are the wheel tags pip
+# may choose from. Both describe the TARGET, never the build host - otherwise a wheel built for the
+# runner sneaks into a bundle that has to run somewhere else.
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)
+        PLATFORM_TAG="macos-arm64"
+        UV_PLATFORM="aarch64-apple-darwin"
+        PIP_PLATFORMS=(--platform macosx_11_0_arm64 --platform macosx_12_0_arm64 \
+                       --platform macosx_13_0_arm64 --platform macosx_14_0_arm64 \
+                       --platform macosx_11_0_universal2 --platform macosx_10_9_universal2)
+        ;;
+    Linux-x86_64)
+        PLATFORM_TAG="linux-x64"
+        UV_PLATFORM="x86_64-unknown-linux-gnu"
+        # manylinux tags newest first, so pip prefers the most modern wheel each package offers;
+        # the bare linux_x86_64 tag at the end catches the few published without a manylinux tag.
+        PIP_PLATFORMS=(--platform manylinux_2_28_x86_64 --platform manylinux_2_17_x86_64 \
+                       --platform manylinux2014_x86_64 --platform manylinux2010_x86_64 \
+                       --platform manylinux1_x86_64 --platform linux_x86_64)
+        ;;
+    *)
+        fail "unsupported host '$(uname -s)-$(uname -m)'. This script builds the bundle for macOS arm64 or Linux x86_64; Windows uses scripts/build-python-bundle.ps1."
+        ;;
+esac
+
 command -v uv >/dev/null 2>&1 || fail "uv not found on PATH"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
+# Step 4 fills the wheelhouse with "python3 -m pip download", and a python3 WITHOUT pip is a real
+# and common state - Debian and Ubuntu ship pip as a separate python3-pip package, so a stock
+# Ubuntu 24.04 has python3 and no pip at all. Left unchecked it surfaces two hundred lines later as
+# "No module named pip" swallowed inside a pip-download error branch that then reports a wrong
+# cause ("failed for a non-sdist reason"). Check it here, where the message can name the fix.
+python3 -m pip --version >/dev/null 2>&1 || fail "python3 has no pip module. Install it first, e.g. 'sudo apt-get install -y python3-pip' on Ubuntu or Debian; on a GitHub runner use actions/setup-python, which provides one."
 
 WORK="$REPO_ROOT/build/python-bundle"
 WHEELHOUSE="$WORK/wheelhouse"
@@ -92,23 +136,21 @@ open(sys.argv[1], "w").write("\n".join(sorted(reqs)) + "\n")
 print(f"{len(reqs)} third-party requirement lines")
 PY
 
-step "compiling pinned lock (python $PY_VERSION / macos-arm64)"
+step "compiling pinned lock (python $PY_VERSION / $PLATFORM_TAG)"
 uv pip compile "$WORK/thirdparty.in" \
-    --python-version "$PY_VERSION" --python-platform aarch64-apple-darwin \
+    --python-version "$PY_VERSION" --python-platform "$UV_PLATFORM" \
     --no-annotate --no-header -o "$WORK/requirements.lock" \
-    || fail "combined lock did not resolve for macos-arm64 (dependency conflict / missing arm64 wheel - see plan contingency)"
+    || fail "combined lock did not resolve for $PLATFORM_TAG (dependency conflict / missing wheel - see plan contingency)"
 grep '==' "$WORK/requirements.lock" > "$WORK/download.txt"
 step "locked third-party deps: $(grep -c '==' "$WORK/requirements.lock" | tr -d ' ')"
 
-# ---- 4. Fill the wheelhouse with the third-party closure (arm64 wheels) ----------------------
+# ---- 4. Fill the wheelhouse with the third-party closure (target-platform wheels) ------------
 # Some pure-python deps are sdist-only on PyPI (e.g. GPUtil); --only-binary rejects them, so download
-# what we can, then build universal wheels for the stragglers. Pass several macos arm64 / universal2
-# platform tags so pip can pick the best compatible wheel for each package.
-step "downloading macos-arm64 wheels for the locked deps"
+# what we can, then build wheels for the stragglers. PIP_PLATFORMS (set at the top) carries several
+# tags for the target platform so pip can pick the best compatible wheel for each package.
+step "downloading $PLATFORM_TAG wheels for the locked deps"
 PYV="$(echo "$PY_VERSION" | tr -d '.')"   # 3.12 -> 312
-PLATFORMS=(--platform macosx_11_0_arm64 --platform macosx_12_0_arm64 --platform macosx_13_0_arm64 \
-           --platform macosx_14_0_arm64 --platform macosx_11_0_universal2 --platform macosx_10_9_universal2)
-if ! dl_out="$(python3 -m pip download --only-binary=:all: --python-version "$PYV" "${PLATFORMS[@]}" \
+if ! dl_out="$(python3 -m pip download --only-binary=:all: --python-version "$PYV" "${PIP_PLATFORMS[@]}" \
                  -r "$WORK/download.txt" -d "$WHEELHOUSE" 2>&1)"; then
     echo "$dl_out"
     missing="$(echo "$dl_out" | sed -n 's/.*No matching distribution found for \([^ ]*\).*/\1/p')"
@@ -116,7 +158,7 @@ if ! dl_out="$(python3 -m pip download --only-binary=:all: --python-version "$PY
     step "sdist-only packages need a built wheel: $(echo "$missing" | tr '\n' ' ')"
     names="$(echo "$missing" | sed 's/==.*//' | paste -sd'|' -)"
     grep -viE "^(${names})==" "$WORK/download.txt" > "$WORK/download2.txt" || true
-    python3 -m pip download --only-binary=:all: --python-version "$PYV" "${PLATFORMS[@]}" \
+    python3 -m pip download --only-binary=:all: --python-version "$PYV" "${PIP_PLATFORMS[@]}" \
         -r "$WORK/download2.txt" -d "$WHEELHOUSE" || fail "pip download failed after filtering sdist-only packages"
     for m in $missing; do
         python3 -m pip wheel "$m" --no-deps -w "$WHEELHOUSE" || fail "could not build a wheel for sdist-only package $m"
@@ -158,8 +200,8 @@ PY
 
 # ---- 7. Pack the two assets (.tar.gz preserves +x bits and symlinks) -------------------------
 step "packaging assets into $OUT_DIR"
-PYTGZ="$OUT_DIR/cc-python-macos-arm64.tar.gz"
-TOOLSTGZ="$OUT_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
+PYTGZ="$OUT_DIR/cc-python-$PLATFORM_TAG.tar.gz"
+TOOLSTGZ="$OUT_DIR/cc-tools-pyenv-$PLATFORM_TAG.tar.gz"
 rm -f "$PYTGZ" "$TOOLSTGZ"
 tar -czf "$PYTGZ" -C "$PYSTAGE" .
 tar -czf "$TOOLSTGZ" -C "$WORK" wheelhouse requirements.lock tools-manifest.json

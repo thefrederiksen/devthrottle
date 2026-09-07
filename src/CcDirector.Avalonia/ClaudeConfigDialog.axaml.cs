@@ -23,6 +23,18 @@ public partial class ClaudeConfigDialog : Window
     private readonly string? _projectSettingsPath;
     private readonly string? _projectLocalSettingsPath;
 
+    /// <summary>
+    /// Whether the controls on screen were populated from a settings file that was actually READ.
+    /// Saving is refused while this is false, because blank controls that never described the file
+    /// must never be written over it - not even once the file itself has been repaired.
+    ///
+    /// DEFAULTS TO FALSE, and that is the point of it. Defaulted true it was a binary sitting on its
+    /// own permissive branch: the parameterless constructor never loads anything, yet the markup
+    /// still wires the Save button, so an instance built that way authorised blank controls to
+    /// overwrite a real file. Nothing may earn the right to save except a load that succeeded.
+    /// </summary>
+    private bool _controlsReflectTheFile;
+
     private readonly ObservableCollection<string> _allowedRules = new();
     private readonly ObservableCollection<string> _deniedRules = new();
     private readonly ObservableCollection<PluginEntry> _plugins = new();
@@ -102,8 +114,20 @@ public partial class ClaudeConfigDialog : Window
     {
         FileLog.Write("[ClaudeConfigDialog] LoadConfig: reading configuration files");
 
+        // DROPPED FIRST, raised only by a load that runs all the way through. The loaders below clear
+        // their collections before refilling them, so one throwing part-way leaves the controls in a
+        // partial state that describes nothing; if this were only assigned at the end, that partial
+        // state would keep whatever the last successful load had granted, and Save would write it.
+        _controlsReflectTheFile = false;
+
         var claudeJson = ReadJsonFile(_claudeJsonPath);
-        var settingsJson = ReadJsonFile(_settingsJsonPath);
+
+        // The settings file is read through the three-answer reader, because a file that is THERE and
+        // unreadable must not be presented as an empty one. Loading it blank showed a plausible screen -
+        // permission mode "plan", no rules, no plugins, "No hooks configured" - that described nothing
+        // on disk, and pressing Save on that screen is what destroyed the file.
+        var settingsRead = ClaudeSettingsFile.Read(_settingsJsonPath);
+        var settingsJson = settingsRead.Root;
 
         LoadGeneralTab(claudeJson, settingsJson);
         LoadPermissionsTab(settingsJson);
@@ -111,7 +135,28 @@ public partial class ClaudeConfigDialog : Window
         LoadHooksTab(settingsJson);
         LoadFilesTab();
 
-        SaveStatusText.Text = "";
+        // LATCHED on the load, not re-derived at save time. The controls now on screen either came
+        // from a successful read or they did not, and only the load knows which. Re-asking the file at
+        // save time answers a different question: if the person repairs the file externally and
+        // presses Save without Reload, the fresh read succeeds and these BLANK controls - "plan", no
+        // rules, no env, no plugins - are written over the repaired file. That would have moved the
+        // defect rather than fixed it, which is the failure this whole change exists to stop.
+        _controlsReflectTheFile = settingsRead.Kind != ConfigReadKind.Unreadable;
+
+        if (!_controlsReflectTheFile)
+        {
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"{Path.GetFileName(_settingsJsonPath)} {settingsRead.Problem}. "
+                                  + "The fields below are EMPTY because it could not be read, not because "
+                                  + "it is empty. Fix or move that file and press Reload - saving is "
+                                  + "refused until a reload succeeds, so these blanks cannot overwrite it.";
+            FileLog.Write($"[ClaudeConfigDialog] LoadConfig: settings file unreadable - {settingsRead.Problem}");
+        }
+        else
+        {
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#22C55E"));
+            SaveStatusText.Text = "";
+        }
     }
 
     private void LoadGeneralTab(JsonNode? claudeJson, JsonNode? settingsJson)
@@ -247,59 +292,93 @@ public partial class ClaudeConfigDialog : Window
     {
         FileLog.Write("[ClaudeConfigDialog] SaveConfig: writing configuration files");
 
-        SaveSettingsJson();
+        if (!_controlsReflectTheFile)
+        {
+            // The file may well be readable again by now - that is exactly the case this guards. The
+            // question is not "can the file be read?" but "do these controls describe it?", and the
+            // answer was settled at load time and has not changed since.
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} could not be read when "
+                                  + "this window opened, so the fields shown never described it. Press Reload "
+                                  + "first; saving now would overwrite the file with blanks.";
+            FileLog.Write("[ClaudeConfigDialog] SaveConfig: REFUSED, controls never reflected the settings file");
+            return;
+        }
+
+        var settings = SaveSettingsJson();
+        if (!settings.Saved)
+        {
+            // Say so, and say it in the place the word "Saved" would otherwise have appeared. Reporting
+            // success over a write that did not happen is how the old behaviour hid: the file was left
+            // alone only by accident of the caller, and the person was told it had been saved either way.
+            // Tested POSITIVELY on Saved rather than on Refused, so a new outcome added to that enum
+            // cannot quietly join the success path.
+            var advice = settings.Refused
+                ? "Fix or move that file, then reopen this window."
+                : "Your settings were not changed.";
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. {advice}";
+            FileLog.Write($"[ClaudeConfigDialog] SaveConfig: ABORTED, outcome={settings.Kind}");
+            return;
+        }
+
         SaveClaudeJson();
 
+        SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#22C55E"));
         SaveStatusText.Text = "Saved";
         FileLog.Write("[ClaudeConfigDialog] SaveConfig: complete");
     }
 
-    private void SaveSettingsJson()
+    /// <summary>
+    /// Merge this dialog's fields into the user's settings file. The merge, and the refusal to merge
+    /// into a file that cannot be read, live in <see cref="ClaudeSettingsFile"/>; this only gathers
+    /// what the controls hold.
+    /// </summary>
+    private SettingsSaveResult SaveSettingsJson()
     {
-        // Read existing file to preserve fields we don't edit (hooks, schema, etc.)
-        JsonNode? root = ReadJsonFile(_settingsJsonPath);
-        var obj = root as JsonObject ?? new JsonObject();
+        var edits = new ClaudeSettingsEdits(
+            PermissionMode: PermissionModeCombo.SelectedItem as string,
+            Allow: _allowedRules.ToList(),
+            Deny: _deniedRules.ToList(),
+            Model: ModelOverrideInput.Text,
+            EffortLevel: EffortLevelCombo.SelectedItem as string,
+            MaxOutputTokens: MaxTokensInput.Text,
+            BashTimeoutMs: BashTimeoutInput.Text,
+            EnabledPlugins: PluginMap());
 
-        // Ensure $schema is present
-        if (obj["$schema"] == null)
-            obj["$schema"] = "https://json.schemastore.org/claude-code-settings.json";
-
-        // Permissions
-        var perms = obj["permissions"] as JsonObject ?? new JsonObject();
-        obj["permissions"] = perms;
-
-        var selectedMode = PermissionModeCombo.SelectedItem as string;
-        if (!string.IsNullOrEmpty(selectedMode))
-            perms["defaultMode"] = selectedMode;
-        else
-            perms.Remove("defaultMode");
-
-        perms["allow"] = new JsonArray(_allowedRules.Select(r => JsonValue.Create(r)).ToArray());
-        perms["deny"] = new JsonArray(_deniedRules.Select(r => JsonValue.Create(r)).ToArray());
-
-        // Environment variables
-        var env = obj["env"] as JsonObject ?? new JsonObject();
-        obj["env"] = env;
-
-        SetOrRemoveEnv(env, "ANTHROPIC_MODEL", ModelOverrideInput.Text);
-        SetOrRemoveEnv(env, "CLAUDE_CODE_EFFORT_LEVEL", EffortLevelCombo.SelectedItem as string);
-        SetOrRemoveEnv(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS", MaxTokensInput.Text);
-        SetOrRemoveEnv(env, "BASH_DEFAULT_TIMEOUT_MS", BashTimeoutInput.Text);
-
-        // Remove env object entirely if empty
-        if (env.Count == 0)
-            obj.Remove("env");
-
-        // Plugins
-        var pluginsObj = new JsonObject();
-        foreach (var p in _plugins)
-            pluginsObj[p.FullKey] = p.IsEnabled;
-        obj["enabledPlugins"] = pluginsObj;
-
-        // Write
-        WriteJsonFile(_settingsJsonPath, obj);
+        return ClaudeSettingsFile.Save(_settingsJsonPath, edits);
     }
 
+    /// <summary>
+    /// The plugin enablement map, LAST ONE WINS on a repeated key.
+    ///
+    /// Deliberately not <c>ToDictionary</c>: that throws on a duplicate key, and the code this
+    /// replaced assigned through a JsonObject indexer, which silently overwrote. Today the keys come
+    /// from JSON object property names and cannot repeat, so the two agree - but the difference is
+    /// between "overwrites" and "throws out of a button click", and this dialog's click handler is
+    /// exactly where an exception used to disappear.
+    /// </summary>
+    private Dictionary<string, bool> PluginMap()
+    {
+        var map = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var p in _plugins)
+            map[p.FullKey] = p.IsEnabled;
+        return map;
+    }
+
+    /// <summary>
+    /// Save the one field this dialog owns in <c>.claude.json</c>, and say which of the three things
+    /// happened. It reads through the same three-answer reader as the settings file: the old reader
+    /// returned null for absent and unreadable alike, and while this method declined to write on
+    /// either - so it never clobbered anything - the caller then displayed a green "Saved" over an
+    /// edit that was silently dropped.
+    /// </summary>
+    // NOT TOUCHED BY THIS CHANGE, deliberately. This method reads .claude.json through the old
+    // two-answer reader and has the same unreadable-versus-absent fold as its settings.json twin,
+    // plus an in-place write and a silent no-op the caller still reports as saved. All of that is a
+    // DIFFERENT defect in a DIFFERENT file: this change's claim - that a settings file which could
+    // not be read is never written over - stays true without it. It is filed separately with the
+    // review that found it, rather than fixed here, because every extra fix is new writing.
     private void SaveClaudeJson()
     {
         JsonNode? root = ReadJsonFile(_claudeJsonPath);
@@ -308,14 +387,6 @@ public partial class ClaudeConfigDialog : Window
         obj["autoUpdates"] = AutoUpdatesCheck.IsChecked == true;
 
         WriteJsonFile(_claudeJsonPath, obj);
-    }
-
-    private static void SetOrRemoveEnv(JsonObject env, string key, string? value)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-            env[key] = value.Trim();
-        else
-            env.Remove(key);
     }
 
     // -- Permission Rules -----------------------------------------------------
@@ -379,8 +450,41 @@ public partial class ClaudeConfigDialog : Window
 
     // -- Button Handlers ------------------------------------------------------
 
-    private void BtnReload_Click(object? sender, RoutedEventArgs e) => LoadConfig();
-    private void BtnSave_Click(object? sender, RoutedEventArgs e) => SaveConfig();
+    private void BtnReload_Click(object? sender, RoutedEventArgs e)
+    {
+        // An entry point, so it carries the catch. Without one, a load that throws part-way left the
+        // PREVIOUS status standing - including a green "Saved" from an earlier press - over controls
+        // that had already been half cleared. The latch is dropped at the top of LoadConfig, so a
+        // throw here leaves saving refused, which is the safe half; this makes it visible too.
+        try
+        {
+            LoadConfig();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeConfigDialog] BtnReload_Click FAILED: {ex}");
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"Reload FAILED - {ex.Message}. The fields shown may be incomplete, "
+                                  + "so saving is refused until a reload succeeds.";
+        }
+    }
+    private void BtnSave_Click(object? sender, RoutedEventArgs e)
+    {
+        // An event handler is an entry point and carries the catch. Without one, anything thrown here
+        // reaches the application's unhandled-UI-exception handler, which marks it Handled - so the
+        // press produces no file, no message and no trace on screen. That silence is the same defect
+        // this dialog was fixed for, one layer up.
+        try
+        {
+            SaveConfig();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeConfigDialog] BtnSave_Click FAILED: {ex}");
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {ex.Message}";
+        }
+    }
     private void BtnClose_Click(object? sender, RoutedEventArgs e) => Close();
 
     // -- JSON Helpers ---------------------------------------------------------
