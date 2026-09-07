@@ -281,6 +281,35 @@ public sealed class ClaudeSettingsFileTests : IDisposable
     // ---- States found by re-reading this diff for the same defect it fixes ----
 
     /// <summary>
+    /// ABSENT IS REACHED ONLY BY PROVEN ABSENCE. The reader used to ask File.Exists first and treat
+    /// false as "no file", but .NET returns false from that probe when the path cannot be PROBED -
+    /// permissions among them - so an existing file the user could not open answered Absent and was
+    /// replaced. The refusal was bypassed by the most likely reason a file is unreadable.
+    ///
+    /// WHAT THIS TEST DOES NOT PROVE, checked by mutation rather than assumed: reverting the reader
+    /// to the File.Exists-first form leaves this test PASSING, because a locked file still answers
+    /// File.Exists true and both versions then fail on the open. The mutation is caught instead by
+    /// the two directory tests below, which is the discriminating case reachable without touching
+    /// access-control lists. The permission-denied half - where File.Exists itself answers false for
+    /// a file that exists - rests on the .NET documentation and on attempting the read FIRST, and is
+    /// not covered by any test here; arranging it means denying directory traversal, which leaves
+    /// undeletable fixtures behind. This test is kept because it pins the locked-file answer, not
+    /// because it proves the probe change.
+    /// </summary>
+    [Fact]
+    public void Read_FileExistsButCannotBeOpened_IsNeverAbsent()
+    {
+        File.WriteAllText(_path, WithAHook);
+
+        using var _ = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var read = ClaudeSettingsFile.Read(_path);
+
+        Assert.NotEqual(ConfigReadKind.Absent, read.Kind);
+        Assert.Equal(ConfigReadKind.Unreadable, read.Kind);
+    }
+
+    /// <summary>
     /// A DIRECTORY at the settings path. File.Exists answers false for one, which folded it into
     /// Absent - the permissive branch, the one that says "go ahead and create" - and the create then
     /// threw out of a button click that has nowhere to put an exception. Something is at that path,
@@ -328,11 +357,17 @@ public sealed class ClaudeSettingsFileTests : IDisposable
     {
         File.WriteAllText(_path, WithAHook);
 
-        ClaudeSettingsFile.Save(_path, Edits());
+        var result = ClaudeSettingsFile.Save(_path, Edits(mode: "acceptEdits"));
+
+        // Assert the save ACTUALLY HAPPENED first. Without this the whole test passed on a Save that
+        // did nothing at all: the fixture already held one valid settings.json, which satisfied both
+        // assertions below on its own. A test that a no-op passes is not a test.
+        Assert.Equal(SettingsSaveKind.Merged, result.Kind);
+        var root = JsonNode.Parse(File.ReadAllText(_path))!.AsObject();
+        Assert.Equal("acceptEdits", root["permissions"]!["defaultMode"]!.GetValue<string>());
 
         Assert.Equal(new[] { "settings.json" },
             Directory.GetFiles(_dir).Select(Path.GetFileName).OrderBy(n => n).ToArray());
-        Assert.NotNull(JsonNode.Parse(File.ReadAllText(_path)));
     }
 
     /// <summary>

@@ -120,23 +120,37 @@ public static class ClaudeSettingsFile
     /// </summary>
     public static ConfigRead Read(string path)
     {
-        // Something is at that path and it is NOT a file. File.Exists answers false for a directory,
-        // which would fold this into Absent - the permissive branch, the one that says "go ahead and
-        // create". Creating is then an unhandled write failure rather than an answer. A directory in
-        // the way is a state of the world, so it gets its own answer like every other one.
-        if (Directory.Exists(path))
-        {
-            FileLog.Write($"[ClaudeSettingsFile] Read: {path} is a directory, not a settings file");
-            return new ConfigRead(ConfigReadKind.Unreadable, null, "is a directory, not a file");
-        }
-
-        if (!File.Exists(path))
-            return new ConfigRead(ConfigReadKind.Absent, null, null);
-
+        // ABSENCE IS PROVEN, NEVER ASSUMED. This used to ask File.Exists and Directory.Exists first
+        // and treat false as "no file". Both are absence-shaped probes: .NET documents them as
+        // returning false when the path cannot be PROBED - a permissions failure among them - so an
+        // existing file the user was not allowed to open answered "absent", landed in the permissive
+        // branch, and was replaced. Permissions are the single most likely reason a settings file
+        // cannot be read, so the refusal was bypassed by the exact condition it exists for.
+        //
+        // Now the read is attempted first and the ANSWER decides. Only the file system positively
+        // reporting "there is nothing here" yields Absent; every other failure - permissions, a
+        // sharing lock, a directory in the way, a path too long - is Unreadable, which writes nothing.
         string text;
         try
         {
             text = File.ReadAllText(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return new ConfigRead(ConfigReadKind.Absent, null, null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new ConfigRead(ConfigReadKind.Absent, null, null);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Covers both "you may not read this file" and, on Windows, "this path is a directory".
+            // Distinguished only for the message, never for the verdict - the verdict is the same
+            // either way, so a wrong guess about which it is cannot make this permissive.
+            var what = Directory.Exists(path) ? "is a directory, not a file" : $"could not be opened ({ex.Message})";
+            FileLog.Write($"[ClaudeSettingsFile] Read: {path} {what}");
+            return new ConfigRead(ConfigReadKind.Unreadable, null, what);
         }
         catch (Exception ex)
         {
@@ -194,6 +208,7 @@ public static class ClaudeSettingsFile
 
         Apply(obj, edits);
 
+        string? temp = null;
         try
         {
             var dir = Path.GetDirectoryName(path);
@@ -207,7 +222,7 @@ public static class ClaudeSettingsFile
             // a crash or a full disk part-way through leaves the settings file destroyed or
             // unparsable - this fix would then have MANUFACTURED the very state it refuses to write
             // over. The move is the commit point: readers see the old file or the new one.
-            var temp = Path.Combine(dir ?? ".", $".settings.{Guid.NewGuid():N}.tmp");
+            temp = Path.Combine(dir ?? ".", $".settings.{Guid.NewGuid():N}.tmp");
             File.WriteAllText(temp, json);
             File.Move(temp, path, overwrite: true);
 
@@ -217,10 +232,22 @@ public static class ClaudeSettingsFile
         catch (Exception ex)
         {
             // NOT swallowed and NOT a fallback: turned into an answer the caller must render. Letting
-            // it throw sends it to the dialog's click handler, which has no catch, and from there to
-            // the application's unhandled-exception handler, which marks it Handled - so the person
-            // presses Save, nothing happens, and nothing is said.
+            // it throw sends it to the dialog's click handler, and from there to the application's
+            // unhandled-exception handler, which marks it Handled - so the person presses Save,
+            // nothing happens, and nothing is said.
             FileLog.Write($"[ClaudeSettingsFile] Save FAILED writing {path}: {ex.Message}");
+
+            // Do not leave the half-written temp file behind. Its own try: failing to clean up is not
+            // a reason to lose the real error, and the real error is what the person needs.
+            if (temp is not null)
+            {
+                try { File.Delete(temp); }
+                catch (Exception cleanup)
+                {
+                    FileLog.Write($"[ClaudeSettingsFile] Save: could not remove the temp file {temp}: {cleanup.Message}");
+                }
+            }
+
             return new SettingsSaveResult(SettingsSaveKind.WriteFailed, $"could not be written ({ex.Message})");
         }
 
