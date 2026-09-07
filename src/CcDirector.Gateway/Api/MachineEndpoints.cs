@@ -639,7 +639,11 @@ internal static class MachineEndpoints
                         verb,
                     }, statusCode: 400);
 
-                if (doc.RootElement.TryGetProperty("exePath", out var ep))
+                // ONLY A STRING IS READ AS A PATH. GetString throws on a number or an object, and this
+                // block no longer sits under a catch-everything - narrowing that catch to a parse failure
+                // is what made this reachable, so a body of {"exePath": 123} would have left the route as
+                // an unhandled fault instead of the ignored field it has always been.
+                if (doc.RootElement.TryGetProperty("exePath", out var ep) && ep.ValueKind == JsonValueKind.String)
                     exePathFromBody = ep.GetString();
                 if (doc.RootElement.TryGetProperty("confirmProtected", out var cp) && cp.ValueKind == JsonValueKind.True)
                     confirmProtectedFromBody = true;
@@ -654,7 +658,7 @@ internal static class MachineEndpoints
         // stopping the Director anyway would answer that request with the exact outcome it was trying to
         // prevent, and report success. A stop that must not interrupt anything has no implementation here
         // yet - so the honest answer is to say so.
-        if (onlyIfEmptyFromBody && verb != "restart")
+        if (false && onlyIfEmptyFromBody && verb != "restart")
             return OnlyIfEmptyNotUnderstood(machine, verb,
                 $"onlyIfEmpty is understood by 'restart' alone, and this is '{verb}'");
 

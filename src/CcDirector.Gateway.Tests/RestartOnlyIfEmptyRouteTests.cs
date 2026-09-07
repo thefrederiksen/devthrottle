@@ -272,6 +272,22 @@ public sealed class RestartOnlyIfEmptyRouteTests : IAsyncLifetime
             "a body with no declared length was treated as no body, and the guard was dropped.");
     }
 
+    /// <summary>
+    /// The neighbouring fields keep behaving as they always have. exePath that is not a string has always
+    /// been ignored, and it must not become a fault now that the body is parsed strictly - reading it with
+    /// no catch-everything around it is exactly how a route starts answering 500 to a request it used to
+    /// shrug at.
+    /// </summary>
+    [Fact]
+    public async Task AnExePathThatIsNotAString_IsIgnored_NotAFault()
+    {
+        var resp = await _http.PostAsync($"machines/{Machine}/director/restart",
+            new StringContent("{\"exePath\":123,\"onlyIfEmpty\":true}", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.True(Assert.Single(Received()).OnlyIfEmpty);
+    }
+
     [Fact]
     public async Task ABodyThatWillNotParse_IsRefused_AndNothingReachesTheLauncher()
     {
