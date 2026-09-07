@@ -1,8 +1,5 @@
 """THE FLEET'S MUTATION RUNNER. Reusable: point it at a spec.
 
-(scripts/mutation/launcher-update-mutations.py beside this one is NOT a runner - it is a phase 0
-proof artifact hardcoded to one worktree. This is the one to use and to add specs to.)
-
 Mutation harness with a COMPILE GATE.
 
 A spec names the repository (relative to the repository root), the test project, the test filter,
