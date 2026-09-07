@@ -184,6 +184,15 @@ public sealed class WorkspaceDocument
     /// next write - which is exactly the failure the record shape was chosen to avoid, and the reason
     /// this document grew three whole blocks during one real run. A reader that cannot understand a
     /// field must still be able to hand it back.
+    ///
+    /// EVERY extensible object in this document carries one, not just the document and the seat. Two
+    /// levels was a rule that looked complete and was not: the real hand-written index carries
+    /// restore.seedPrompt, restore.workInProgress, restartCommand.body and three fields inside
+    /// restartBlocked, and every one of those sits INSIDE a typed object - so a two-level rule dropped
+    /// the only continuation prompt in the record and the later correction of a wrong incident
+    /// classification, while the proof harness, which also looked only two levels deep, reported zero
+    /// gaps. An instrument that measures the same shallow shape as the thing it measures cannot find
+    /// this.
     /// </summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Unknown { get; set; }
@@ -312,6 +321,12 @@ public sealed class WorkspaceMissionRef
 
     /// <summary>The mission's display name as cached on the session.</summary>
     public string? Name { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>What a session was doing at capture time - the raw facts, exactly as the Gateway gave them.</summary>
@@ -334,6 +349,12 @@ public sealed class WorkspaceSeatState
 
     /// <summary>How many files it had uncommitted - the other half.</summary>
     public int? UncommittedCount { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>The decision about bringing one seat back.</summary>
@@ -347,6 +368,12 @@ public sealed class WorkspaceSeatRestore
 
     /// <summary>The command that brings it back. Required when the decision is "restore".</summary>
     public string? Command { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>One question a session left waiting on the owner, word for word, with who asked it.</summary>
@@ -360,6 +387,12 @@ public sealed class WorkspaceOwnerQuestion
 
     /// <summary>The question, word for word.</summary>
     public string Question { get; set; } = "";
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>The restart request itself, recorded so it can be handed to whoever has the scope to run it.</summary>
@@ -376,6 +409,12 @@ public sealed class WorkspaceRestartCommand
 
     /// <summary>Anything the runner needs to know - notably that an agent's session key is refused here.</summary>
     public string? Note { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>What was done about the LAUNCHER's own version, which nothing owns automatically yet.</summary>
@@ -404,6 +443,12 @@ public sealed class WorkspaceLauncherUpdate
 
     /// <summary>Where the previous binary was kept, so the swap can be undone by hand.</summary>
     public string? PreviousBinaryKeptAt { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>Why a restart could not be performed, and what came of it. Never forcing is the point.</summary>
@@ -428,6 +473,12 @@ public sealed class WorkspaceRestartBlocked
 
     /// <summary>What this blockage teaches the code that will one day do it automatically.</summary>
     public string? LessonForPhase0 { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>How the restart was actually asked for.</summary>
@@ -448,6 +499,12 @@ public sealed class WorkspaceRestartMechanism
 
     /// <summary>Anything else about the mechanism.</summary>
     public string? Note { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>Written back after the restart: what actually came back, who checked, and what they did NOT check.</summary>
@@ -471,6 +528,12 @@ public sealed class WorkspaceRestartPerformed
     /// <summary>What was NOT verified. Not optional: a record that lists only what was proven reads as if
     /// everything else was.</summary>
     public string? NotVerified { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>The launcher as it stood after the restart - which may not be the one that performed it, since
@@ -488,6 +551,12 @@ public sealed class WorkspaceLauncherAfter
 
     /// <summary>Anything else - notably a launcher that updated itself seconds after coming up.</summary>
     public string? Note { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>Written back after the restore: which session did it, when, and how.</summary>
@@ -507,6 +576,12 @@ public sealed class WorkspaceRestoredBy
 
     /// <summary>How it was done, so the next restore can be done the same way.</summary>
     public string? Method { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>How a workspace came to exist.</summary>
@@ -613,6 +688,12 @@ public sealed class WorkspaceSeatOutcome
     /// <see cref="NotRestoredCount"/> is above zero: a missing seat with no reason beside it is
     /// indistinguishable from one nobody noticed.</summary>
     public string? NotRestoredWhy { get; set; }
+    /// <summary>Anything in this object this build does not know a field for, kept verbatim.
+    /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
 }
 
 /// <summary>How far one seat got through the drain. Exactly these five, from the director-restart skill.</summary>

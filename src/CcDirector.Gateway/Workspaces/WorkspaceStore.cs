@@ -100,6 +100,21 @@ public sealed class WorkspaceStore
     public WorkspaceDocument Create(WorkspaceDocument doc, DateTime nowUtc)
         => Write(doc, nowUtc, createOnly: true, trustedCapture: true);
 
+    /// <summary>
+    /// Store an AUTHORED workspace that must not already exist - the create-only write, for a caller who
+    /// intends to add one and not to replace whatever happens to be there.
+    ///
+    /// It exists because "list, check the id is absent, then write" is three operations with two gaps,
+    /// and anything created in either gap is silently overwritten. That is not hypothetical here: it is
+    /// exactly how the one-time legacy import could destroy a workspace somebody had created a moment
+    /// earlier and then archive the file it came from. One atomic create closes it.
+    /// </summary>
+    /// <param name="doc">The workspace to store.</param>
+    /// <param name="nowUtc">The write time.</param>
+    /// <exception cref="WorkspaceConflictException">A workspace with that id already exists.</exception>
+    public WorkspaceDocument CreateAuthored(WorkspaceDocument doc, DateTime nowUtc)
+        => Write(doc, nowUtc, createOnly: true, trustedCapture: false);
+
     private WorkspaceDocument Write(WorkspaceDocument doc, DateTime nowUtc, bool createOnly, bool trustedCapture)
     {
         ArgumentNullException.ThrowIfNull(doc);

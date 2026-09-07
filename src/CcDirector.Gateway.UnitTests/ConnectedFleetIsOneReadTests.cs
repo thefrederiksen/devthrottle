@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Tests;
 /// caller here is the workspace capture, whose whole reason for refusing a disconnected Director is that
 /// it must never write down the first when it means the second.
 ///
-/// The pair cannot be tested by racing a disconnect against a read - a timing test whose failure
+/// The four answers cannot be tested by racing a disconnect against a read - a timing test whose failure
 /// direction is "pass" proves nothing. What IS tested is that the two facts come back together and agree,
 /// on every state the store can be in.
 /// </summary>
@@ -42,9 +42,9 @@ public sealed class ConnectedFleetIsOneReadTests
         Assert.True(store.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1,
             new[] { Session("a"), Session("b") }));
 
-        var (connected, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
+        var (observation, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
 
-        Assert.True(connected);
+        Assert.Equal(FleetObservation.Observed, observation);
         Assert.Equal(2, sessions.Count);
     }
 
@@ -57,9 +57,9 @@ public sealed class ConnectedFleetIsOneReadTests
         store.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
         Assert.True(store.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1, Array.Empty<SessionDto>()));
 
-        var (connected, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
+        var (observation, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
 
-        Assert.True(connected);
+        Assert.Equal(FleetObservation.Observed, observation);
         Assert.Empty(sessions);
     }
 
@@ -71,11 +71,11 @@ public sealed class ConnectedFleetIsOneReadTests
         Assert.True(store.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1, new[] { Session("a") }));
         Assert.True(store.UnregisterConnection(TenantId.Local, DirectorId, "conn-1"));
 
-        var (connected, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
+        var (observation, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
 
         // Not "no sessions" - NOT CONNECTED. The distinction is the whole point: this Director had a
         // session a moment ago and the caller must not record that it had none.
-        Assert.False(connected);
+        Assert.Equal(FleetObservation.NotConnected, observation);
         Assert.Empty(sessions);
     }
 
@@ -87,9 +87,11 @@ public sealed class ConnectedFleetIsOneReadTests
         var store = new PushedSessionStore();
         store.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
 
-        var (connected, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
+        var (observation, sessions) = store.ConnectedFleet(TenantId.Local, DirectorId);
 
-        Assert.False(connected);
+        // ITS OWN ANSWER, not "not connected": it IS connected, it has simply not said anything yet, and
+        // collapsing the two would make a capture taken in that second a genuine zero-seat record.
+        Assert.Equal(FleetObservation.ConnectedButSilent, observation);
         Assert.Empty(sessions);
     }
 
@@ -97,9 +99,9 @@ public sealed class ConnectedFleetIsOneReadTests
     public void A_Director_this_Gateway_has_never_seen_answers_not_connected()
     {
         var store = new PushedSessionStore();
-        var (connected, sessions) = store.ConnectedFleet(TenantId.Local, "00000000-0000-0000-0000-000000000000");
+        var (observation, sessions) = store.ConnectedFleet(TenantId.Local, "00000000-0000-0000-0000-000000000000");
 
-        Assert.False(connected);
+        Assert.Equal(FleetObservation.Unknown, observation);
         Assert.Empty(sessions);
     }
 
@@ -113,9 +115,9 @@ public sealed class ConnectedFleetIsOneReadTests
         store.RegisterConnection(theirs, DirectorId, "conn-1");
         Assert.True(store.ApplySnapshot(theirs, DirectorId, "conn-1", 1, new[] { Session("a") }));
 
-        var (connected, sessions) = store.ConnectedFleet(mine, DirectorId);
+        var (observation, sessions) = store.ConnectedFleet(mine, DirectorId);
 
-        Assert.False(connected);
+        Assert.Equal(FleetObservation.Unknown, observation);
         Assert.Empty(sessions);
     }
 }

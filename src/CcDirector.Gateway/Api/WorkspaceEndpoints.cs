@@ -16,7 +16,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET    /gateway/workspaces/{id}   -> the whole document | 404
 ///   POST   /gateway/workspaces        -> CAPTURE: fold a Director's live sessions into a new one
 ///                                       | 400 | 404 | 409
-///   PUT    /gateway/workspaces/{id}   -> store (create or replace) a document | 400
+///   PUT    /gateway/workspaces/{id}   -> store a document | 400
+///                                     with "If-None-Match: *", create only | 412 if it exists
 ///   DELETE /gateway/workspaces/{id}   -> 200 | 404
 ///
 /// The routes sit under /gateway for the same reason the workflow routes do: the Gateway serves the
@@ -61,7 +62,7 @@ internal static class WorkspaceEndpoints
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
-        Func<string, (bool Connected, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
+        Func<string, (Streaming.FleetObservation Observation, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
         Func<string, DirectorDto?> lookupDirector)
     {
         app.MapGet("/gateway/workspaces", () =>
@@ -110,9 +111,18 @@ internal static class WorkspaceEndpoints
 
             doc.Id = id;
 
+            // CREATE-ONLY, when the caller asks for it. "If-None-Match: *" is the standard way to say
+            // "write this only if it does not exist", and a caller who has to overwrite must first read
+            // what is there. Without it the only way to avoid clobbering is to list, check, and then PUT
+            // - three operations with two gaps, which is how the legacy import could overwrite a
+            // workspace somebody else created a moment earlier.
+            var createOnly = ctx.Request.Headers.IfNoneMatch.Any(v => v == "*");
+
             try
             {
-                var saved = store.Save(doc, DateTime.UtcNow);
+                var saved = createOnly
+                    ? store.CreateAuthored(doc, DateTime.UtcNow)
+                    : store.Save(doc, DateTime.UtcNow);
                 FileLog.Write($"[WorkspaceEndpoints] PUT: id={id}, seats={saved.Seats.Count}");
                 return Results.Json(saved, WorkspaceStore.DocumentJsonOptions);
             }
@@ -120,6 +130,11 @@ internal static class WorkspaceEndpoints
             {
                 FileLog.Write($"[WorkspaceEndpoints] PUT REFUSED: id={id}: {ex.Message}");
                 return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] PUT CONFLICT: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status412PreconditionFailed);
             }
         });
 
@@ -142,22 +157,39 @@ internal static class WorkspaceEndpoints
                     statusCode: StatusCodes.Status404NotFound);
             }
 
-            // ONE read for both facts. Asking "is it connected?" and then "what is it running?" as two
-            // calls leaves a gap a disconnection fits through, and what comes out of that gap is a
-            // capture recording an EMPTY fleet - the exact thing this refusal exists to prevent.
-            var (connected, sessions) = connectedFleet(req.DirectorId);
-            if (!connected)
+            // ONE read for both facts, and FOUR answers out of it. Asking "is it connected?" and then
+            // "what is it running?" as two calls leaves a gap a disconnection fits through; reducing the
+            // answer to a boolean leaves a Director that has connected and not yet spoken looking exactly
+            // like one running nothing. Either way what comes out is a capture recording an EMPTY fleet,
+            // and that record is a restart that restores nothing, silently.
+            //
+            // Only Observed captures - INCLUDING an observed empty snapshot, which is a real answer and
+            // is what a finished Director genuinely looks like.
+            var (observation, sessions) = connectedFleet(req.DirectorId);
+            var refusal = observation switch
+            {
+                Streaming.FleetObservation.Unknown =>
+                    $"This Gateway has no live record of Director '{req.DirectorId}' at all, so there is " +
+                    "nothing to read. It may have been restarted or evicted since it registered.",
+                Streaming.FleetObservation.NotConnected =>
+                    $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) is " +
+                    "registered but not connected to this Gateway, so its live sessions cannot be read.",
+                Streaming.FleetObservation.ConnectedButSilent =>
+                    $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) has " +
+                    "just connected and has not yet said what it is running. That is not the same as " +
+                    "running nothing - wait for its first push and capture again.",
+                _ => null,
+            };
+
+            if (refusal is not null)
             {
                 FileLog.Write(
-                    $"[WorkspaceEndpoints] capture REFUSED: directorId={req.DirectorId} is not stream connected");
+                    $"[WorkspaceEndpoints] capture REFUSED: directorId={req.DirectorId}, observation={observation}");
                 return Results.Json(
                     new
                     {
-                        error =
-                            $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) is " +
-                            "registered but not connected to this Gateway, so its live sessions cannot be read. " +
-                            "Capturing it now would record an EMPTY fleet, which is indistinguishable from a " +
-                            "Director that had genuinely finished. Get it connected, then capture.",
+                        error = refusal + " Capturing it now would record an EMPTY fleet, which is " +
+                                "indistinguishable from a Director that had genuinely finished.",
                     },
                     statusCode: StatusCodes.Status409Conflict);
             }

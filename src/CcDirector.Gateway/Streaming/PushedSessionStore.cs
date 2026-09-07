@@ -39,6 +39,29 @@ namespace CcDirector.Gateway.Streaming;
 /// Thread-safe: a <see cref="ConcurrentDictionary{TKey,TValue}"/> per tenant of per-Director entries,
 /// each entry guarded by its own lock.
 /// </summary>
+/// <summary>
+/// What is known about one Director's fleet, as ONE answer rather than a boolean and a list.
+///
+/// The list is the same shape - empty - for three of these, and only one of them means the Director is
+/// running nothing. A caller that reduces this to true-or-false writes down the wrong one.
+/// </summary>
+public enum FleetObservation
+{
+    /// <summary>This Gateway has never heard of the Director.</summary>
+    Unknown,
+
+    /// <summary>It is known and is not streaming. Whatever it is running, nobody here can see it.</summary>
+    NotConnected,
+
+    /// <summary>Connected, and has not yet said what it is running - the seconds between dialling in and
+    /// its first push. An empty list here means "not asked yet", never "nothing".</summary>
+    ConnectedButSilent,
+
+    /// <summary>Connected and it has said. The sessions are what it is running, and an EMPTY list is a
+    /// real answer that may be recorded.</summary>
+    Observed,
+}
+
 public sealed class PushedSessionStore
 {
     private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, DirectorEntry>> _byTenant = new();
@@ -638,25 +661,34 @@ public sealed class PushedSessionStore
     /// is indistinguishable from "I could not see it" - the failure this store's caller (the workspace
     /// capture) refuses precisely to avoid.
     ///
-    /// Returns Connected=false with no sessions when the Director is unknown or not streaming.
+    /// FOUR ANSWERS, NOT TWO, and that is the point of the enum. "This Director is running nothing" and
+    /// "I could not find out what it is running" are different facts with the same shape - an empty list -
+    /// and a caller that cannot tell them apart writes the first when it means the second. The middle
+    /// answer is the one that is easiest to miss: a Director can be CONNECTED and not yet have said
+    /// anything, in the seconds between dialling in and its first push, and reading that as "connected,
+    /// running nothing" is a genuine zero-seat record of a fleet nobody has looked at.
     /// </summary>
     /// <param name="tenant">The tenant the Director belongs to.</param>
     /// <param name="directorId">The Director to read.</param>
-    public (bool Connected, IReadOnlyList<SessionDto> Sessions) ConnectedFleet(TenantId tenant, string directorId)
+    public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) ConnectedFleet(
+        TenantId tenant, string directorId)
     {
         if (!DirectorsFor(tenant).TryGetValue(directorId, out var entry))
-            return (false, Array.Empty<SessionDto>());
+            return (FleetObservation.Unknown, Array.Empty<SessionDto>());
 
         var now = _utcNow();
         lock (entry.Gate)
         {
-            if (entry.ActiveConnectionId is null || entry.ReceivedAtUtc == DateTime.MinValue)
-                return (false, Array.Empty<SessionDto>());
+            if (entry.ActiveConnectionId is null)
+                return (FleetObservation.NotConnected, Array.Empty<SessionDto>());
+
+            if (entry.ReceivedAtUtc == DateTime.MinValue)
+                return (FleetObservation.ConnectedButSilent, Array.Empty<SessionDto>());
 
             var sessions = entry.Sessions.Values
                 .Select(x => RecomputeClocks(x.Clone(), now))
                 .ToList();
-            return (true, sessions);
+            return (FleetObservation.Observed, sessions);
         }
     }
 

@@ -177,8 +177,12 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
     // ---- 3. THE REFUSALS REACH THE CALLER ------------------------------------------------------------
 
     [Fact]
-    public async Task A_seat_marked_for_restore_with_no_command_is_refused_with_the_reason()
+    public async Task An_authored_workspace_carrying_a_restore_decision_is_refused_with_the_reason()
     {
+        // A restore DECISION only belongs on a captured workspace, so this asserts the refusal an
+        // authored one gets for carrying one at all. The command rule itself is held over a real captured
+        // workspace in WorkspaceStoreTests, which can create one; this suite cannot, because a capture
+        // needs a Director on the push stream.
         var id = FreshId();
         var doc = Authored(id);
         doc.Seats[0].Restore = new WorkspaceSeatRestore
@@ -189,7 +193,7 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
 
         using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        Assert.Contains("command that brings it back", await put.Content.ReadAsStringAsync());
+        Assert.Contains("not the record of a run", await put.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -272,7 +276,11 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Conflict, capture.StatusCode);
         var body = await capture.Content.ReadAsStringAsync();
-        Assert.Contains("not connected to this Gateway", body);
+
+        // A Director that registered over HTTP and never opened a push stream has no live record at all,
+        // which is its OWN answer and not "not connected" - the four states are separated precisely so a
+        // refusal says which one it is rather than picking the nearest word.
+        Assert.Contains("no live record", body);
         Assert.Contains("EMPTY fleet", body);
 
         // And nothing was stored, so a retry after reconnecting is not blocked by a phantom row.
@@ -311,25 +319,42 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_blocked_run_that_was_recovered_without_a_restart_can_be_recorded()
+    public async Task An_authored_workspace_is_refused_when_it_claims_a_run()
     {
-        // The terminal state of the never-force path. A drain closes leaf-first as each handover lands,
-        // so a run that blocks has already emptied part of the Director; without this outcome nothing
-        // could say those seats had been brought back, and "a partly drained Director is a normal,
-        // recoverable state" would be a slogan rather than a state.
+        // This test used to do the opposite: it built an AUTHORED workspace, wrote both outcome fields
+        // onto it and expected 200. It was encoding a document the product should never accept, and it
+        // went on passing until an independent reviewer read it against the rule it contradicts.
         var id = FreshId();
         var doc = Authored(id);
         doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
-        doc.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 4 };
 
         using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
-        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("not the record of a run", await put.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_create_only_PUT_refuses_rather_than_replacing_what_is_there()
+    {
+        var id = FreshId();
+        using var first = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", Authored(id));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        // "If-None-Match: *" is the standard way to say "only if it does not exist". Without it the only
+        // way to avoid clobbering is list-check-write, which is three operations with two gaps.
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/gateway/workspaces/{id}")
+        {
+            Content = JsonContent.Create(Authored(id, "somebody else's fleet")),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        req.Headers.Add("If-None-Match", "*");
+        using var second = await _http.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, second.StatusCode);
 
         using var get = await Authed(HttpMethod.Get, $"/gateway/workspaces/{id}");
         var stored = await get.Content.ReadFromJsonAsync<WorkspaceDocument>();
-        Assert.Equal("not-restarted", stored!.DirectorOutcome);
-        Assert.Equal("all", stored.SeatOutcome!.Scope);
-        Assert.Equal(4, stored.SeatOutcome.RestoredCount);
+        Assert.Equal("Morning fleet", stored!.Name);
     }
 
     [Fact]

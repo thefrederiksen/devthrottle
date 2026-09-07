@@ -107,14 +107,43 @@ public static class WorkspaceValidation
         // seat outcome and the seats themselves. There is nothing a caller can send here to be wrong
         // about, which is the whole reason it was made a view rather than a field.
 
-        // An AUTHORED workspace is not the record of a run, so it cannot say how one ended. Without this
-        // "origin" is a label rather than an invariant, and a hand-written list of seats can claim a
-        // Director was restarted.
-        if (doc.Origin == WorkspaceOrigins.Authored
-            && (doc.DirectorOutcome is not null || doc.SeatOutcome is not null))
-            throw new WorkspaceValidationException(
-                "An authored workspace is not the record of a run, so it cannot carry a directorOutcome " +
-                "or a seatOutcome. Those are written onto a workspace captured from a Director.");
+        // An AUTHORED workspace is not the record of a run, so it says NOTHING about one - and this is
+        // the whole list, not the two outcome fields it started as. Refusing only those two left a caller
+        // able to create a clean authored workspace and then write a populated restartPerformed block
+        // into it with both outcomes absent, which is a record saying a Director restarted. Every field
+        // below asserts a capture, a drain, a restart or a restore, and none of them can be true of a
+        // list somebody typed.
+        if (doc.Origin == WorkspaceOrigins.Authored)
+        {
+            var claimed = new List<string>();
+            if (doc.DirectorOutcome is not null) claimed.Add("directorOutcome");
+            if (doc.SeatOutcome is not null) claimed.Add("seatOutcome");
+            if (doc.DirectorVersionAfter is not null) claimed.Add("directorVersionAfter");
+            if (doc.CompletedAtUtc is not null) claimed.Add("completedAtUtc");
+            if (doc.RestartCommand is not null) claimed.Add("restartCommand");
+            if (doc.LauncherUpdate is not null) claimed.Add("launcherUpdate");
+            if (doc.RestartBlocked is not null) claimed.Add("restartBlocked");
+            if (doc.RestartMechanism is not null) claimed.Add("restartMechanism");
+            if (doc.RestartPerformed is not null) claimed.Add("restartPerformed");
+            if (doc.RestoredBy is not null) claimed.Add("restoredBy");
+            if (doc.RestoreAfterRestart is { Count: > 0 }) claimed.Add("restoreAfterRestart");
+
+            var seats = doc.Seats ?? new List<WorkspaceSeat>();
+            if (seats.Any(x => x?.DrainState is not null)) claimed.Add("a seat drainState");
+            if (seats.Any(x => x?.HandoverPath is not null)) claimed.Add("a seat handoverPath");
+            if (seats.Any(x => x?.ClosedAtUtc is not null)) claimed.Add("a seat closedAtUtc");
+            if (seats.Any(x => x?.RestoredSessionId is not null)) claimed.Add("a seat restoredSessionId");
+            if (seats.Any(x => x?.RestoredSeedFile is not null)) claimed.Add("a seat restoredSeedFile");
+            if (seats.Any(x => x?.CoveredBy is not null)) claimed.Add("a seat coveredBy");
+            if (seats.Any(x => x?.Restore is { Decision: not WorkspaceRestoreDecisions.Undecided }))
+                claimed.Add("a seat restore decision");
+
+            if (claimed.Count > 0)
+                throw new WorkspaceValidationException(
+                    "An authored workspace is not the record of a run, so it cannot carry " +
+                    $"{string.Join(", ", claimed)}. Those are written onto a workspace captured from a " +
+                    "Director (POST /gateway/workspaces).");
+        }
 
         if (doc.DirectorOutcome is not null && !WorkspaceDirectorOutcomes.All.Contains(doc.DirectorOutcome))
             throw new WorkspaceValidationException(
@@ -158,7 +187,19 @@ public static class WorkspaceValidation
             throw new WorkspaceValidationException(
                 "A captured workspace must name the directorId it was captured from.");
 
+        // Every extensible object now carries an unknown bag, so every one of them is measured. A cap
+        // that covered two levels while the schema had twelve was a cap in name only.
         ValidateUnknownFields("unknown", doc.Unknown);
+        ValidateUnknownFields("restartCommand.unknown", doc.RestartCommand?.Unknown);
+        ValidateUnknownFields("launcherUpdate.unknown", doc.LauncherUpdate?.Unknown);
+        ValidateUnknownFields("restartBlocked.unknown", doc.RestartBlocked?.Unknown);
+        ValidateUnknownFields("restartMechanism.unknown", doc.RestartMechanism?.Unknown);
+        ValidateUnknownFields("restartPerformed.unknown", doc.RestartPerformed?.Unknown);
+        ValidateUnknownFields("restartPerformed.launcherAfter.unknown", doc.RestartPerformed?.LauncherAfter?.Unknown);
+        ValidateUnknownFields("restoredBy.unknown", doc.RestoredBy?.Unknown);
+        ValidateUnknownFields("seatOutcome.unknown", doc.SeatOutcome?.Unknown);
+        foreach (var q in doc.OwnerQuestions ?? new List<WorkspaceOwnerQuestion>())
+            ValidateUnknownFields("ownerQuestions[].unknown", q?.Unknown);
 
         ValidateRestartBlocks(doc);
 
@@ -368,6 +409,9 @@ public static class WorkspaceValidation
         CapLength($"{where}.coveredNote", seat.CoveredNote, MaxTextFieldChars);
 
         ValidateUnknownFields($"{where}.unknown", seat.Unknown);
+        ValidateUnknownFields($"{where}.mission.unknown", seat.Mission?.Unknown);
+        ValidateUnknownFields($"{where}.stateAtDrain.unknown", seat.StateAtDrain?.Unknown);
+        ValidateUnknownFields($"{where}.restore.unknown", seat.Restore?.Unknown);
 
         if (seat.Mission is { } mission)
         {

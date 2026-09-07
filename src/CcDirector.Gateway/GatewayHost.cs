@@ -3646,7 +3646,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _workspaces,
             directorId => _tenantPass.Current is { } tenant
                 ? PushedSessions.ConnectedFleet(tenant, directorId)
-                : (false, Array.Empty<Contracts.SessionDto>()),
+                : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
             directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
         Api.SkillEndpoints.Map(_app, _skills);
 

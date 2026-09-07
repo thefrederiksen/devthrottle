@@ -226,10 +226,15 @@ public sealed class WorkspaceProvenanceAndMalformedBodyTests : IDisposable
     {
         // The caps are not decoration: an authenticated key that cannot put a megabyte in "name" must
         // not be able to put one in "restartBlocked.cause" instead.
-        var doc = Authored();
+        // On a CAPTURED workspace, because an authored one is not the record of a run and refuses a
+        // restartBlocked block before any cap is reached.
+        var doc = Authored("director-restart");
+        doc.Origin = WorkspaceOrigins.Captured;
+        doc.DirectorId = "6d4523e2-ed03-4ae6-ac1c-71d00a37bad1";
+        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
         doc.RestartBlocked = new WorkspaceRestartBlocked { Cause = new string('x', 4001) };
         Assert.Contains("restartBlocked.cause", Assert.Throws<WorkspaceValidationException>(
-            () => NewStore().Save(doc, Now)).Message);
+            () => NewStore().Create(doc, Now)).Message);
 
         var seatDoc = Authored();
         seatDoc.Seats[0].ModelDisplay = new ModelDisplay { Tooltip = new string('x', 4001) };

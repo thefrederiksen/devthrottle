@@ -66,6 +66,7 @@ public sealed class ContextLessRouteCensusTests
     ///                                              skill_tenant_overrides
     ///   /gateway/rules/{id:guid} (+ /firings)      session_rules, session_rule_firings
     ///   /gateway/workspaces/{id} (GET + DELETE)   workspaces
+    ///     - probed by CensusRouteTenancyProbeTests.Workspaces_ContextLess_KeepEachTenantsWorkspaceUnderTheSameSlugSeparate
     ///
     /// THE WORKSPACES FAMILY (issue #2722), ruled on here because it is added by the same change that
     /// adds the routes. Two context-less routes, GET and DELETE on /gateway/workspaces/{id}, and what

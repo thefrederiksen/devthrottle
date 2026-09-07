@@ -28,6 +28,38 @@ public sealed class WorkspaceStoreTests : IDisposable
 
     private WorkspaceStore NewStore() => new(_h.Open());
 
+    /// <summary>
+    /// A CAPTURED workspace, stored through the capture path, ready for judgments to be written onto it.
+    ///
+    /// The drain states, handover paths and restore decisions below belong on a captured workspace and
+    /// nowhere else - an authored one is not the record of a run and the store refuses those fields on it
+    /// outright. These tests used an authored fixture for them, which meant they were describing a
+    /// document the product should never accept.
+    /// </summary>
+    private WorkspaceStore CapturedStore(string id = "morning-fleet")
+    {
+        var doc = Authored(id);
+        doc.Origin = WorkspaceOrigins.Captured;
+        doc.Machine = "SOREN_NORTH";
+        doc.DirectorId = "6d4523e2-ed03-4ae6-ac1c-71d00a37bad1";
+        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+
+        var store = NewStore();
+        store.Create(doc, Now);
+        return store;
+    }
+
+    /// <summary>The same document the capture stored, for a caller to edit and write back.</summary>
+    private static WorkspaceDocument CapturedCopy(string id = "morning-fleet")
+    {
+        var doc = Authored(id);
+        doc.Origin = WorkspaceOrigins.Captured;
+        doc.Machine = "SOREN_NORTH";
+        doc.DirectorId = "6d4523e2-ed03-4ae6-ac1c-71d00a37bad1";
+        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        return doc;
+    }
+
     private static WorkspaceDocument Authored(string id = "morning-fleet", string name = "Morning fleet")
         => new()
         {
@@ -146,7 +178,8 @@ public sealed class WorkspaceStoreTests : IDisposable
     [Fact]
     public void A_seat_marked_for_restore_must_carry_the_command_that_brings_it_back()
     {
-        var doc = Authored();
+        var store = CapturedStore();
+        var doc = CapturedCopy();
         doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Restore,
@@ -154,39 +187,41 @@ public sealed class WorkspaceStoreTests : IDisposable
             Command = null,
         };
 
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("command that brings it back", ex.Message);
     }
 
     [Fact]
     public void A_covered_seat_must_name_the_seat_whose_document_accounts_for_it()
     {
-        var doc = Authored();
+        var store = CapturedStore();
+        var doc = CapturedCopy();
         doc.Seats[0].DrainState = WorkspaceDrainStates.Covered;
         doc.Seats[0].CoveredBy = null;
 
         // Covered is the chain working, not a gap - but only if it says WHICH seat covers it. Without
         // that it is indistinguishable from a seat nobody ever reached.
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("coveredBy", ex.Message);
     }
 
     [Fact]
     public void A_blocked_seat_must_say_what_it_is_blocked_on()
     {
-        var doc = Authored();
+        var store = CapturedStore();
+        var doc = CapturedCopy();
         doc.Seats[0].DrainState = WorkspaceDrainStates.Blocked;
 
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("blockedReason", ex.Message);
     }
 
     [Fact]
     public void The_restore_list_may_only_name_seats_that_are_in_this_workspace()
     {
-        var doc = Authored();
-        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
-        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+                doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Restore,
             Command = "cc-devthrottle session spawn ...",
@@ -196,16 +231,16 @@ public sealed class WorkspaceStoreTests : IDisposable
 
         // This is the field a stranger acts on after the restart. An id that is in no seat sends them
         // looking for a session that was never captured.
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("00000000-0000-0000-0000-000000000000", ex.Message);
     }
 
     [Fact]
     public void A_restore_list_naming_a_seat_decided_restore_with_a_command_is_accepted()
     {
-        var doc = Authored();
-        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
-        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+                doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Restore,
             Why = "Head of the mission with real continuing work.",
@@ -213,33 +248,35 @@ public sealed class WorkspaceStoreTests : IDisposable
         };
         doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
-        NewStore().Save(doc, Now);
-        Assert.Single(NewStore().Get("morning-fleet")!.RestoreAfterRestart);
+        store.Save(doc, Now);
+        Assert.Single(store.Get("morning-fleet")!.RestoreAfterRestart);
     }
 
     [Fact]
     public void The_restore_list_may_not_name_a_seat_that_was_decided_closed()
     {
-        var doc = Authored();
-        doc.Seats[0].SessionId = "0da65999-7795-4abf-bd64-94be7a7438b1";
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+        // (the captured seat already names its session)
         doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Close,
             Why = "Re-seated by a fresh Manager on the committed brief.",
         };
-        doc.RestoreAfterRestart.Add("0da65999-7795-4abf-bd64-94be7a7438b1");
+        doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
         // The list is what a stranger acts on. Naming a seat somebody deliberately closed would have them
         // bring back a seat its senior is about to create again.
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("close", ex.Message);
     }
 
     [Fact]
     public void The_restore_list_may_not_name_a_seat_with_no_command_to_run()
     {
-        var doc = Authored();
-        doc.Seats[0].SessionId = "0da65999-7795-4abf-bd64-94be7a7438b1";
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+        // (the captured seat already names its session)
         // The decision IS "restore" - otherwise the earlier decision check fires and this test never
         // reaches the command branch it is named for, which is what it did until somebody read it.
         doc.Seats[0].Restore = new WorkspaceSeatRestore
@@ -248,21 +285,21 @@ public sealed class WorkspaceStoreTests : IDisposable
             Why = "head of the mission",
             Command = "cc-devthrottle session spawn ...",
         };
-        doc.RestoreAfterRestart.Add("0da65999-7795-4abf-bd64-94be7a7438b1");
+        doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
         // ...and then the command is taken away, which is the only thing left to fail on.
         doc.Seats[0].Restore!.Command = null;
 
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("command", ex.Message);
     }
 
     [Fact]
     public void The_restore_list_may_not_name_the_same_seat_twice()
     {
-        var doc = Authored();
-        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
-        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+                doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Restore,
             Command = "cc-devthrottle session spawn ...",
@@ -271,7 +308,7 @@ public sealed class WorkspaceStoreTests : IDisposable
         doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
         // Two of the same seat is a mission that ends up with two of itself.
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(doc, Now));
         Assert.Contains("twice", ex.Message);
     }
 
@@ -280,31 +317,31 @@ public sealed class WorkspaceStoreTests : IDisposable
     {
         // Judgments are written seat by seat as each handover is read, so a document halfway through -
         // one decision made, the list not yet written - is a real state and must not be refused.
-        var doc = Authored();
-        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
-        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        var store = CapturedStore();
+        var doc = CapturedCopy();
+                doc.Seats[0].Restore = new WorkspaceSeatRestore
         {
             Decision = WorkspaceRestoreDecisions.Restore,
             Command = "cc-devthrottle session spawn ...",
         };
 
-        NewStore().Save(doc, Now);
-        Assert.Empty(NewStore().Get("morning-fleet")!.RestoreAfterRestart);
+        store.Save(doc, Now);
+        Assert.Empty(store.Get("morning-fleet")!.RestoreAfterRestart);
     }
 
     [Fact]
     public void An_unknown_drain_state_is_refused_and_all_five_real_ones_are_accepted()
     {
-        var store = NewStore();
+        var store = CapturedStore();
 
-        var bad = Authored();
+        var bad = CapturedCopy();
         bad.Seats[0].DrainState = "finished";
         var ex = Assert.Throws<WorkspaceValidationException>(() => store.Save(bad, Now));
         Assert.Contains("drainState", ex.Message);
 
         foreach (var state in WorkspaceDrainStates.All)
         {
-            var doc = Authored();
+            var doc = CapturedCopy();
             doc.Seats[0].DrainState = state;
             if (state == WorkspaceDrainStates.Covered) doc.Seats[0].CoveredBy = "9cec65de - Manager R-D";
             if (state == WorkspaceDrainStates.Blocked) doc.Seats[0].BlockedReason = "mid-merge";
