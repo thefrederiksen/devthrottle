@@ -1,4 +1,4 @@
-import { abandonDictation, sendPrompt, uploadDictationToSession } from "../api/client";
+import { abandonDictation, sendPrompt, uploadDictationToSession, type RecordRefusalKind } from "../api/client";
 import { captureLossWarning, logCaptureHealth } from "./captureHealth";
 import { deletePending, getPending, listPending, savePending, type PendingDictation } from "./pendingStore";
 import { clearDictationStatus, publishDictationStatus } from "./status";
@@ -711,8 +711,8 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
     }
 
     // Held: keep the audio and keep trying. Publish the honest held reason and schedule the next attempt.
-    publishHeld(rec, heldMessage(rec, outcome.error));
-    scheduleNext(rec, opts.attempt, Boolean(outcome.outOfCredits));
+    publishHeld(rec, heldMessage(rec, outcome.error, outcome.recordRefusal));
+    scheduleNext(rec, opts.attempt, Boolean(outcome.outOfCredits), outcome.recordRefusal);
   } catch {
     // uploadDictationToSession returns a held result rather than throwing, so this is a defensive net for
     // an unexpected fault: keep the audio and keep trying - never drop it.
@@ -775,16 +775,21 @@ async function kickAll(): Promise<void> {
 // Schedule the next automatic attempt for a held clip. The delay is hard (exponential from two seconds,
 // capped at fifteen) for the first hour since the clip was recorded, then throttled to five minutes - and
 // out of credits is always throttled (a fast retry cannot conjure credits). Never stops.
-function scheduleNext(rec: PendingDictation, attempt: number, outOfCredits: boolean): void {
+function scheduleNext(rec: PendingDictation, attempt: number, outOfCredits: boolean, recordRefusal?: RecordRefusalKind): void {
   clearScheduled(rec.id);
-  const delay = nextDelayMs(rec, attempt, outOfCredits);
+  const delay = nextDelayMs(rec, attempt, outOfCredits, recordRefusal);
   const t = setTimeout(() => void driveById(rec.id, { resumed: true, attempt: attempt + 1 }), delay);
   _timers.set(rec.id, t);
 }
 
-function nextDelayMs(rec: PendingDictation, attempt: number, outOfCredits: boolean): number {
+// A "needs-operator" record refusal (issue #2745) is throttled from the first attempt: the Gateway has said
+// its delivery record for this upload is damaged and no retry changes that until someone looks at the file,
+// so a fast loop is pure churn in both logs. It is still retried - the operator fixing the file is exactly
+// what a later attempt would find - just at the slow cadence. A "retry-later" refusal (the record could not
+// be read just now) stays on the ordinary cadence, because that one really may clear on the next try.
+function nextDelayMs(rec: PendingDictation, attempt: number, outOfCredits: boolean, recordRefusal?: RecordRefusalKind): number {
   const age = Date.now() - rec.createdAt;
-  if (outOfCredits || age >= HARD_WINDOW_MS) return THROTTLED_DELAY_MS;
+  if (outOfCredits || recordRefusal === "needs-operator" || age >= HARD_WINDOW_MS) return THROTTLED_DELAY_MS;
   return Math.min(HARD_MIN_DELAY_MS * 2 ** attempt, HARD_MAX_DELAY_MS);
 }
 
@@ -798,8 +803,13 @@ function clearScheduled(id: string): void {
 
 // The held status line to show: waiting-for-connection when offline, the throttled line once past the hard
 // hour, otherwise the specific reason the last attempt returned (or a generic retrying line).
-function heldMessage(rec: PendingDictation, reason: string | undefined): string {
+//
+// A record refusal (issue #2745) keeps its reason on screen whatever the clip's age: "still trying in the
+// background" is the wrong answer to a user whose recording cannot go through until an operator looks at a
+// file on the server, and the age throttle exists for outages, not for that.
+function heldMessage(rec: PendingDictation, reason: string | undefined, recordRefusal?: RecordRefusalKind): string {
   if (isOffline()) return WAITING_FOR_CONNECTION_MESSAGE;
+  if (recordRefusal !== undefined && reason !== undefined) return reason;
   if (Date.now() - rec.createdAt >= HARD_WINDOW_MS) return THROTTLED_MESSAGE;
   return reason ?? RETRYING_MESSAGE;
 }
