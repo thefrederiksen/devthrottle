@@ -129,6 +129,10 @@ public sealed class WorkspaceDocument
     /// <summary>Written back AFTER the restore: which session did it and how.</summary>
     public WorkspaceRestoredBy? RestoredBy { get; set; }
 
+    /// <summary>The checks run over this record and its documents before anybody restarts anything, and
+    /// the proof that the secret sweep was able to fail. Null until a drain has run them (issue #2723).</summary>
+    public WorkspaceIntegrity? Integrity { get; set; }
+
     /// <summary>When this document was first stored. Stamped by the store, not the caller.</summary>
     public DateTime CreatedUtc { get; set; }
 
@@ -451,6 +455,69 @@ public sealed class WorkspaceRestoredBy
     public string? Method { get; set; }
 }
 
+/// <summary>
+/// The checks a drain runs before the restart, and - the point of the whole block - the evidence that the
+/// secret sweep was CAPABLE OF FAILING when it produced its result.
+///
+/// A zero from a broken instrument reads exactly like a zero from clean documents, and only one of those
+/// is good news. So the sweep's own known-bad controls are run first and the count is recorded here: a
+/// reader who finds <see cref="SweepPatternsProved"/> at zero knows the clean result means nothing,
+/// without having to take anybody's word for it afterwards.
+/// </summary>
+public sealed class WorkspaceIntegrity
+{
+    /// <summary>When these checks were run.</summary>
+    public DateTime? CheckedAtUtc { get; set; }
+
+    /// <summary>How many handover documents were swept.</summary>
+    public int DocumentsSwept { get; set; }
+
+    /// <summary>How many secret patterns fired on their OWN known-bad control before the sweep ran. This
+    /// is the instrument's test weight. Zero means the clean result below is worthless.</summary>
+    public int SweepPatternsProved { get; set; }
+
+    /// <summary>How many patterns the sweep carries. Equal to <see cref="SweepPatternsProved"/> on a
+    /// valid instrument; a shortfall names a pattern that has stopped working.</summary>
+    public int SweepPatternsTotal { get; set; }
+
+    /// <summary>Why the sweep could not be trusted, when it could not. Null on a proved instrument.</summary>
+    public List<string> SweepProofFailures { get; set; } = new();
+
+    /// <summary>What the sweep found, WITHOUT the secret itself. A report that quotes a credential has
+    /// copied it somewhere new, and this record is stored off the machine.</summary>
+    public List<WorkspaceSecretFinding> SecretFindings { get; set; } = new();
+
+    /// <summary>Everything the index-integrity check objected to, in plain words - a drained seat whose
+    /// document is missing, a restore decision with no command, a closed seat with no close time.</summary>
+    public List<string> Problems { get; set; } = new();
+
+    /// <summary>Whether the drain reached the state where a restart is allowed: every seat accounted for,
+    /// every document present and swept clean, nothing blocked. FALSE IS A NORMAL, RECOVERABLE STATE.</summary>
+    public bool ReadyToRestart { get; set; }
+
+    /// <summary>Why not, when not. One plain sentence naming the first thing that has to change.</summary>
+    public string? NotReadyReason { get; set; }
+}
+
+/// <summary>One thing the secret sweep found, said without saying the secret.</summary>
+public sealed class WorkspaceSecretFinding
+{
+    /// <summary>The seat whose document it is in, when the document belongs to a seat.</summary>
+    public string? SeatSessionId { get; set; }
+
+    /// <summary>The document.</summary>
+    public string File { get; set; } = "";
+
+    /// <summary>The 1-based line number.</summary>
+    public int Line { get; set; }
+
+    /// <summary>Which pattern fired.</summary>
+    public string Pattern { get; set; } = "";
+
+    /// <summary>The line with the matched region replaced by a marker.</summary>
+    public string RedactedExcerpt { get; set; } = "";
+}
+
 /// <summary>How a workspace came to exist.</summary>
 public static class WorkspaceOrigins
 {
@@ -470,6 +537,18 @@ public static class WorkspaceOutcomes
     /// <summary>The drain is under way.</summary>
     public const string Draining = "draining";
 
+    /// <summary>
+    /// Every seat reached a clean stop and is verified gone, the documents are written and swept, and the
+    /// restart has NOT happened yet.
+    ///
+    /// Added by Phase 4 (issue #2723), which is the first thing that ever produced this state and stopped
+    /// in it. Before it the only names were "draining" and "restarted", so a finished drain waiting for a
+    /// restart had to be recorded as one it was not: "draining" reads as still running, and "restarted"
+    /// claims something that has not happened. A record that cannot say where it actually got to is the
+    /// failure this schema exists to prevent.
+    /// </summary>
+    public const string Drained = "drained";
+
     /// <summary>A session could not reach a clean stop, so the restart did not happen. A partly drained
     /// Director is a normal, recoverable state.</summary>
     public const string Blocked = "blocked";
@@ -481,7 +560,7 @@ public static class WorkspaceOutcomes
     public const string Restored = "restored";
 
     /// <summary>Every valid outcome.</summary>
-    public static readonly string[] All = { Draining, Blocked, Restarted, Restored };
+    public static readonly string[] All = { Draining, Drained, Blocked, Restarted, Restored };
 }
 
 /// <summary>How far one seat got through the drain. Exactly these five, from the director-restart skill.</summary>

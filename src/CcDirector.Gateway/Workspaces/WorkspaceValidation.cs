@@ -102,6 +102,8 @@ public static class WorkspaceValidation
         for (var i = 0; i < seats.Count; i++)
             ValidateSeat(seats[i], i, seenSessionIds);
 
+        ValidateIntegrity(doc.Integrity);
+
         var questions = doc.OwnerQuestions ?? new List<WorkspaceOwnerQuestion>();
         if (questions.Count > MaxOwnerQuestions)
             throw new WorkspaceValidationException(
@@ -132,6 +134,64 @@ public static class WorkspaceValidation
             if (!seatIds.Contains(id))
                 throw new WorkspaceValidationException(
                     $"restoreAfterRestart names \"{id}\", which is not a seat in this workspace.");
+        }
+    }
+
+    /// <summary>
+    /// The integrity block (issue #2723). Two rules, both about a document that would LOOK safe:
+    ///
+    ///  - a sweep that reports clean while its own known-bad controls never fired is not evidence of
+    ///    anything, and must not be stored as though it were;
+    ///  - "ready to restart" while the same block carries an unresolved secret finding or an integrity
+    ///    problem is the exact shape of a record somebody acts on and should not have.
+    /// </summary>
+    private static void ValidateIntegrity(WorkspaceIntegrity? integrity)
+    {
+        if (integrity is null) return;
+
+        CapLength("integrity.notReadyReason", integrity.NotReadyReason, MaxTextFieldChars);
+
+        if (integrity.Problems.Count > MaxSeats * 4)
+            throw new WorkspaceValidationException("integrity.problems carries too many entries.");
+        foreach (var p in integrity.Problems)
+            CapLength("integrity.problems[]", p, MaxTextFieldChars);
+
+        if (integrity.SweepProofFailures.Count > MaxSeats)
+            throw new WorkspaceValidationException("integrity.sweepProofFailures carries too many entries.");
+        foreach (var f in integrity.SweepProofFailures)
+            CapLength("integrity.sweepProofFailures[]", f, MaxTextFieldChars);
+
+        if (integrity.SecretFindings.Count > MaxSeats * 4)
+            throw new WorkspaceValidationException("integrity.secretFindings carries too many entries.");
+        foreach (var f in integrity.SecretFindings)
+        {
+            CapLength("integrity.secretFindings[].file", f.File, MaxPathChars);
+            CapLength("integrity.secretFindings[].pattern", f.Pattern, MaxShortFieldChars);
+            CapLength("integrity.secretFindings[].redactedExcerpt", f.RedactedExcerpt, MaxTextFieldChars);
+            CapLength("integrity.secretFindings[].seatSessionId", f.SeatSessionId, MaxShortFieldChars);
+        }
+
+        if (integrity.CheckedAtUtc is not null
+            && integrity.SweepPatternsTotal > 0
+            && integrity.SweepPatternsProved < integrity.SweepPatternsTotal
+            && integrity.SweepProofFailures.Count == 0)
+            throw new WorkspaceValidationException(
+                "integrity says the secret sweep proved fewer patterns than it carries but names no proof " +
+                "failure. A sweep that could not be shown able to fail must say why, or its result is " +
+                "indistinguishable from a clean one.");
+
+        if (integrity.ReadyToRestart)
+        {
+            if (integrity.SecretFindings.Count > 0)
+                throw new WorkspaceValidationException(
+                    "integrity.readyToRestart is true while secretFindings is not empty. A record that " +
+                    "says a restart may proceed over an unresolved secret is the one a reader trusts.");
+            if (integrity.Problems.Count > 0)
+                throw new WorkspaceValidationException(
+                    "integrity.readyToRestart is true while integrity.problems is not empty.");
+            if (integrity.SweepPatternsTotal == 0 || integrity.SweepPatternsProved < integrity.SweepPatternsTotal)
+                throw new WorkspaceValidationException(
+                    "integrity.readyToRestart is true but the secret sweep was never proved able to fail.");
         }
     }
 
