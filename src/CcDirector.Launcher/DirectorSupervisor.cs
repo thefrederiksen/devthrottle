@@ -17,8 +17,30 @@ namespace CcDirector.Launcher;
 /// resolved it anyway - the machine is still in a wrong state and every caller must pass this on to
 /// somewhere a person will meet it, not swallow it because the answer came out right.
 /// </param>
+/// <param name="Unreadable">
+/// Everything claiming this instance home that could not be read or certified, carried through from
+/// <see cref="DirectorLookup.Unreadable"/>. Empty in the ordinary case.
+///
+/// IT IS ON THIS RECORD BECAUSE DROPPING IT BROKE THE DIRECTOR IT WAS MEANT TO PROTECT. A corrupt
+/// registration beside one good live Director resolves Running, so an update pass would proceed, STOP
+/// that Director - which deletes its own good registration - and then find only the corrupt file left,
+/// at which point the start REFUSES and the machine is left with no Director at all and every relaunch
+/// refusing. The evidence has to reach the decision, not stop at the locator.
+/// </param>
 public sealed record DirectorStatus(string DirectorId, int Pid, string Version, int? Sessions,
-    string? Conflict = null);
+    string? Conflict = null, IReadOnlyList<string>? Unreadable = null)
+{
+    /// <summary>What could not be read or certified. Never null, so a caller need not guard it. The
+    /// setter coalesces rather than an initializer doing it, so a `with` expression cannot put a null
+    /// through the promise in this sentence.</summary>
+    public IReadOnlyList<string> Unreadable
+    {
+        get => _unreadable;
+        init => _unreadable = value ?? Array.Empty<string>();
+    }
+
+    private readonly IReadOnlyList<string> _unreadable = Unreadable ?? Array.Empty<string>();
+}
 
 /// <summary>
 /// Supervises the installed CC Director app - start, stop, restart, and the two facts the update path
@@ -91,6 +113,22 @@ public sealed class DirectorSupervisor
     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
     /// done TO it - but starting another one on top of two that already exist would make the mess
     /// worse, and that is the only decision this property is used for.
+    ///
+    /// So does an UNKNOWN one, for the same reason and by the same test (issue #2730): something claims
+    /// that instance home and could not be read, and putting a second Director into a home that may
+    /// already have one is the outcome to avoid. Written as a negative deliberately, so an outcome added
+    /// later lands on the occupied side; that is the safe default here, and the unsafe default is
+    /// reporting a home as free while a process sits in it.
+    ///
+    /// THIS IS NOT THE ONLY DECISION IT DRIVES, and an earlier version of this comment said it was.
+    /// <see cref="DirectorUpdateOwner"/> reads it to decide whether to leave a closed Director alone, and
+    /// <see cref="LauncherTrayController"/> renders it to a person as the word "running". So an Unknown
+    /// reported here is ALSO shown as running in the tray and holds an update - both correct, and both
+    /// wider than "starting another one", which is what the sentence used to claim.
+    ///
+    /// WHAT IT COSTS: a lone stale corrupt file with no live process says "running" in the tray when
+    /// nothing is running. That is the deliberate direction - a wrong "running" is a person looking and
+    /// finding nothing, and a wrong "not running" is a second Director in an occupied instance home.
     /// </summary>
     public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;
 
@@ -107,12 +145,41 @@ public sealed class DirectorSupervisor
             throw new FileNotFoundException($"Installed Director not found: {DirectorExePath}", DirectorExePath);
 
         var lookup = _locator.Resolve();
-        if (lookup.Outcome != DirectorResolution.NotRunning)
+
+        // AN UNREADABLE CLAIM MUST NOT STOP A DIRECTOR STARTING, AND THIS REVERSES WHAT THIS FIX FIRST
+        // DID. The first draft refused here, which converted a recoverable state into a permanent one:
+        // a corrupt file beside a live Director resolved Running, an update pass stopped that Director -
+        // deleting its own good registration - and then only the corrupt file was left, so this refused,
+        // the health wait timed out, the rollback tried the same refused start, and a formerly working
+        // Director stayed down through every relaunch. That is worse than the fail-open it replaced.
+        //
+        // AND IT WAS DEFENDING SOMETHING ALREADY DEFENDED. A second Director from the installed exe
+        // cannot run: SingleInstanceGuard, acquired in the Director's own startup, is keyed on the exe
+        // path slot, so the second process raises the existing window and exits. That guard - not a
+        // refusal here - is what prevents two Directors on one instance home, and it works whether or
+        // not this launcher could read a registration file.
+        //
+        // So an unreadable claim is LOUD and not fatal. The evidence travels on DirectorStatus to the
+        // callers that must act on it (an update pass reads it and can decline to stop a Director whose
+        // home it cannot fully read), and starting stays possible, which is the property that matters:
+        // no reading of a corrupt file may leave a formerly working Director unable to start.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] Start: something claims {_locator.InstanceHome} that could not be "
+                          + "read or certified - "
+                          + (lookup.Conflict ?? "see the claims above")
+                          + " Starting anyway: a Director that cannot start is a worse failure than one that "
+                          + "might briefly duplicate, and the Director's own single-instance guard refuses a "
+                          + "second process from this exe. Repair or remove what could not be read.");
+            // Deliberately falls through to the start below.
+        }
+        else if (lookup.Outcome != DirectorResolution.NotRunning)
         {
             FileLog.Write($"[DirectorSupervisor] Start: a Director already holds {_locator.InstanceHome} "
                           + $"({lookup.Outcome}); skipping. Claimants: {Describe(lookup)}");
             return;
         }
+
 
         if (OperatingSystem.IsWindows())
         {
@@ -170,6 +237,20 @@ public sealed class DirectorSupervisor
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
             FileLog.Write("[DirectorSupervisor] StopAsync: Director not running");
+            return;
+        }
+
+        // THE SAFE DIRECTION FOR THE SAME VALUE. Declining to stop something is careful, so Unknown needs
+        // no new behaviour here - but it does need its own SENTENCE. Falling into the refusal below would
+        // print "more than one live process claims this instance", which is not what happened and sends
+        // the next reader looking for a second process that does not exist.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] StopAsync: REFUSING to stop anything - "
+                          + (lookup.Conflict ?? $"something claims {_locator.InstanceHome} that could not be read "
+                             + "or certified")
+                          + " Nothing can be certified as this launcher's Director, and an uncertified process is "
+                          + "not this launcher's to end.");
             return;
         }
 
@@ -251,7 +332,8 @@ public sealed class DirectorSupervisor
         }
 
         var sessions = _locator.ReadSessionCount(director);
-        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict);
+        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict,
+            lookup.Unreadable);
     }
 
     /// <summary>

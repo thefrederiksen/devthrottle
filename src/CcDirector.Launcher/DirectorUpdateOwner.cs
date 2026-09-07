@@ -192,6 +192,35 @@ public sealed class DirectorUpdateOwner
         if (conflictNote.Length > 0)
             FileLog.Write($"[DirectorUpdateOwner] proceeding under a resolved instance conflict: {conflictNote}");
 
+        // THE UPDATE MUST NOT BEGIN A CYCLE IT CANNOT FINISH, and this is the regression the fix for
+        // issue #2730 introduced before an independent review caught it.
+        //
+        // A corrupt registration beside one good live Director resolves Running, so this pass used to
+        // proceed: it stops the Director - which deletes that Director's OWN good registration - and then
+        // only the corrupt file is left, at which point DirectorSupervisor.Start REFUSES rather than
+        // launching a second Director into an instance home it cannot read. The health wait then times
+        // out, the rollback tries the same refused start, and the machine is left with NO Director and
+        // every relaunch refusing.
+        //
+        // That is worse than the fail-open it replaced: before, the corrupt file was ignored and the
+        // Director came back. A fix that turns a recoverable state into a permanent one is not a fix.
+        //
+        // So the rule is the same one already applied to an unreadable roster, on the same evidence: a
+        // pass that cannot establish the state of this instance home holds, and says what it could not
+        // read. The corrupt file is repaired or removed, and the update proceeds on the next pass.
+        if (status.Unreadable.Count > 0)
+        {
+            var what = string.Join("; ", status.Unreadable);
+            FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged and the Director is running, but "
+                          + $"{status.Unreadable.Count} other claim(s) on this instance home could not be read: {what}. "
+                          + "HOLDING the update: stopping this Director would remove its own registration and leave "
+                          + "only what cannot be read, and the start afterwards would refuse - which would take a "
+                          + "working Director down permanently rather than updating it.");
+            return Record(staged, DirectorUpdateDecision.HeldBecauseUnknown,
+                conflictNote + "Something else claiming this Director's instance home could not be read, so "
+                + "restarting it could not be completed safely: " + what);
+        }
+
         if (status.Sessions is null)
         {
             FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged but the Director's session roster could "
