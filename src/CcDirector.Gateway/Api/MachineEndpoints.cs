@@ -658,7 +658,7 @@ internal static class MachineEndpoints
         // stopping the Director anyway would answer that request with the exact outcome it was trying to
         // prevent, and report success. A stop that must not interrupt anything has no implementation here
         // yet - so the honest answer is to say so.
-        if (false && onlyIfEmptyFromBody && verb != "restart")
+        if (onlyIfEmptyFromBody && verb != "restart")
             return OnlyIfEmptyNotUnderstood(machine, verb,
                 $"onlyIfEmpty is understood by 'restart' alone, and this is '{verb}'");
 

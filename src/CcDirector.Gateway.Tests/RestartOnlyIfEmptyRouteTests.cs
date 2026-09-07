@@ -285,7 +285,15 @@ public sealed class RestartOnlyIfEmptyRouteTests : IAsyncLifetime
             new StringContent("{\"exePath\":123,\"onlyIfEmpty\":true}", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        Assert.True(Assert.Single(Received()).OnlyIfEmpty);
+
+        var command = Assert.Single(Received());
+        Assert.True(command.OnlyIfEmpty);
+
+        // IGNORED MEANS IGNORED, and this is the half that says so. Asserting only that the request
+        // succeeded would pass just as well against a route that converted 123 to a path and forwarded
+        // it - which is a different defect wearing this test's green tick, and a reviewer caught the
+        // assertion missing.
+        Assert.Null(command.Path);
     }
 
     [Fact]

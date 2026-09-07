@@ -457,7 +457,12 @@ public sealed class DirectorSupervisor
             return null;
         }
 
-        if (lookup.Director is not { } director)
+        // EXHAUSTIVE BY NAME, NOT BY NULLNESS. Only a Running lookup carries a Director today, so testing
+        // the Director alone would be right - and it would stop being right the moment a new outcome is
+        // added that carries one, silently, by treating it as running and reading its count. The rule this
+        // guard exists for is that an answer nobody named must never become the permissive branch, and
+        // that has to hold for answers nobody has invented yet.
+        if (lookup.Outcome != DirectorResolution.Running || lookup.Director is not { } director)
             return $"refusing to restart the Director on {Environment.MachineName}: which process owns "
                    + $"{_locator.InstanceHome} is undecidable ({lookup.Outcome}), so how many sessions it is "
                    + "holding cannot be read, and an unknown count is never read as empty. Claimants: "
