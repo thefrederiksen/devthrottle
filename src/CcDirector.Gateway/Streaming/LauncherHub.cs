@@ -78,7 +78,11 @@ public sealed class LauncherHub : Hub
 
         Context.Items[MachineNameItemKey] = machine;
         Context.Items[TenantIdItemKey] = tenant;
-        _registry.RegisterConnection(tenant, machine, Context.ConnectionId);
+        // The declaration is stored WITH the connection and dies with it (see LauncherStreamConnection),
+        // so a launcher can never be found vouching for itself after it has gone. A null here is a
+        // launcher older than the capability handshake - reachable, and silent about itself - which the
+        // capability query reports as its own state rather than folding into "cannot".
+        _registry.RegisterConnection(tenant, machine, Context.ConnectionId, hello.Capability);
         // ToLogString, never Value: on hosted the raw account tenant id must not reach a log (the data
         // map promises hashed tenant ids in service logs, and this line was one of two that broke it).
         FileLog.Write($"[LauncherHub] Hello: tenant={tenant.ToLogString()}, machine={machine} bound to conn={Short(Context.ConnectionId)} (version={hello.Version})");

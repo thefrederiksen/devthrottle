@@ -160,14 +160,23 @@ internal static class MachineEndpoints
         // spawn with no explicit run auto-seats onto the mission's run. After a successful spawn the new
         // session is recorded as a run PARTICIPANT - the persisted run-to-session membership governance
         // reads. Null (old callers, tests) seats nothing and changes nothing.
-        Workflows.WorkflowRunStore? workflowRuns = null)
+        Workflows.WorkflowRunStore? workflowRuns = null,
+        // Issue #2720 (restart epic, Phase 1): the launcher stream connections, read by the restart
+        // capability query to see whether a machine's launcher holds a command stream and what it
+        // declared about itself on joining.
+        //
+        // NULL MAKES THAT ONE ROUTE ANSWER 503, NOT A VERDICT. Every other route here is unaffected. The
+        // query's whole job is to be believed before a drain closes a session, and the two facts it needs
+        // most both come from this registry - so a Gateway wired without it must say "I cannot answer",
+        // never compute a verdict from the absence and report a reachable machine as unreachable.
+        Streaming.LauncherConnectionRegistry? launcherConnections = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
 
         FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={GatewayHostedMode.IsHosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
-        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary);
+        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -278,12 +287,64 @@ internal static class MachineEndpoints
         LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
         Core.Sessions.MissionStore? missions,
         Workflows.WorkflowRunStore? workflowRuns,
-        HostedTenantBoundary? boundary)
+        HostedTenantBoundary? boundary,
+        Streaming.LauncherConnectionRegistry? launcherConnections)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
         // the launcher/connection is resolved as (callerTenant, machine) - so a caller can only ever reach a
         // launcher its OWN tenant registered, never another tenant's machine of the same bare name.
+
+        // GET /machines/{machine}/restart-capability - CAN this machine be restarted? Issue #2720.
+        //
+        // A READ THAT CHANGES NOTHING AND TOUCHES NOTHING. It sends no command, opens no connection and
+        // raises no signal - deliberately, because the one other way to learn whether a launcher is
+        // listening for the restart signal is to RAISE that signal, which restarts a Director as a side
+        // effect of the question. The answer is folded from what this Gateway already holds and what the
+        // machine's launcher declared about itself when it joined.
+        //
+        // IT IS ASKED BEFORE A DRAIN, WHICH IS THE ENTIRE POINT. On 2026-09-06 seventeen sessions were
+        // closed and only then did it turn out no route could restart that Director. This route is the
+        // question that was not asked.
+        app.MapGet("/{machine}/restart-capability", (string machine, HttpContext ctx) =>
+        {
+            FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/restart-capability: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+
+            // A Gateway wired without the stream registry cannot see either fact this answer turns on.
+            // It says so instead of computing a verdict from what it cannot observe - a "no launcher
+            // stream" derived from a missing registry would be indistinguishable from a real one, and
+            // this is the answer a drain is about to trust with seventeen sessions.
+            if (launcherConnections is null)
+            {
+                FileLog.Write("[MachineEndpoints] restart-capability: NO launcher connection registry is wired - refusing to answer");
+                return Results.Json(new
+                {
+                    error = "this Gateway cannot answer the restart-capability question: its launcher stream "
+                          + "registry is not wired, so whether a launcher holds a command stream and what it "
+                          + "declared are both unobservable here. This is a Gateway wiring fault, not a "
+                          + "fact about the machine.",
+                    machine,
+                }, statusCode: 503);
+            }
+
+            var answer = MachineRestartCapability.Judge(
+                machine,
+                launchers.Get(tenant, machine),
+                launcherConnections.GetActiveConnection(tenant, machine),
+                DateTime.UtcNow);
+
+            FileLog.Write($"[MachineEndpoints] restart-capability tenant={tenant.Value} machine={machine}: "
+                          + $"verdict={answer.Verdict}, reach={answer.Reach}, declaration={answer.Declaration}, "
+                          + $"signal={answer.RestartSignal}, guardedRestart={answer.GuardedRestart}");
+
+            // ALWAYS 200, INCLUDING WHEN THE ANSWER IS NO. A verdict of cannot-restart is a successful
+            // answer to the question that was asked, not a failed request - and a 404 or 502 here would
+            // be read by a caller's error handling as "the query broke", which is precisely the reading
+            // that lets a drain carry on. The refusals on the ACTION routes keep their status codes;
+            // this is a question, and it answered.
+            return Results.Json(answer, statusCode: 200);
+        });
 
         // POST /machines/{machine}/director/restart
         app.MapPost("/{machine}/director/restart", async (string machine, HttpContext ctx, CancellationToken ct) =>

@@ -21,4 +21,20 @@ public sealed class LauncherStreamHello
 
     /// <summary>Launcher build version, for diagnostics.</summary>
     public string Version { get; set; } = "";
+
+    /// <summary>
+    /// What this launcher says it can honour, and the two local facts only it can see - see
+    /// <see cref="LauncherCapabilityDeclaration"/>.
+    ///
+    /// IT RIDES ON HELLO BECAUSE HELLO IS THE ONE MESSAGE A LAUNCHER SENDS. A launcher receives commands
+    /// and pushes no state, so there is no second moment to ask it anything; and a capability question
+    /// asked over the stream later would be unanswerable in exactly the case that matters, when the
+    /// launcher holds no stream. Declared at join time, the answer is already at the Gateway before any
+    /// caller needs it, and it is discarded with the connection when that launcher goes.
+    ///
+    /// NULL IS A REAL AND DIFFERENT STATE. A launcher built before this field sends a Hello without it,
+    /// and that is REACHABLE-BUT-SILENT, not incapable. It must never be folded together with a launcher
+    /// that sent no Hello at all - see <see cref="LauncherDeclarationState"/>.
+    /// </summary>
+    public LauncherCapabilityDeclaration? Capability { get; set; }
 }

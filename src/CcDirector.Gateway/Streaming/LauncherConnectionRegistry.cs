@@ -1,8 +1,26 @@
 using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Streaming;
+
+/// <summary>
+/// One launcher's live command stream: the connection a command is addressed down, and what that
+/// launcher declared about itself when it joined.
+///
+/// THE TWO ARE ONE OBJECT ON PURPOSE. They were going to be two entries - a connection map and a
+/// declaration map - and that shape can express a state that must never exist: a declaration with no
+/// connection, which is a launcher that has gone still vouching for itself out of a record nobody
+/// cleared. A capability query reading that would certify a machine that is not there. Stored together,
+/// the declaration is created with the connection and destroyed with it, and the impossible state cannot
+/// be written.
+/// </summary>
+/// <param name="ConnectionId">The SignalR connection a command is pushed down.</param>
+/// <param name="Declaration">What the launcher declared on <c>Hello</c>, or null when it declared
+/// nothing - which is a REACHABLE launcher older than the capability handshake, and a different state
+/// from a launcher that never joined at all.</param>
+public sealed record LauncherStreamConnection(string ConnectionId, LauncherCapabilityDeclaration? Declaration);
 
 /// <summary>
 /// launcher-persistent-join: the Gateway's map of which machine's cc-launcher is currently connected over a
@@ -29,22 +47,36 @@ public sealed class LauncherConnectionRegistry
     private static MachineKey Key(TenantId tenant, string machineName) =>
         new(tenant, machineName.Trim().ToLowerInvariant());
 
-    private readonly ConcurrentDictionary<MachineKey, string> _byMachine = new();
+    private readonly ConcurrentDictionary<MachineKey, LauncherStreamConnection> _byMachine = new();
 
     /// <summary>
     /// Mark <paramref name="connectionId"/> as the active stream connection for the owning tenant's
     /// <paramref name="machineName"/>, superseding any prior connection for that (tenant, machine).
     /// </summary>
-    public void RegisterConnection(TenantId tenant, string machineName, string connectionId)
+    /// <param name="declaration">What this launcher declared about itself on Hello, or null when it
+    /// declared nothing. Stored WITH the connection so it can never outlive it - see
+    /// <see cref="LauncherStreamConnection"/>. A superseding connection replaces the declaration too,
+    /// which matters when a launcher is updated in place: the new process's Hello must not be answered
+    /// with the old build's promises.</param>
+    public void RegisterConnection(TenantId tenant, string machineName, string connectionId,
+        LauncherCapabilityDeclaration? declaration = null)
     {
         if (string.IsNullOrWhiteSpace(machineName))
             throw new ArgumentException("machineName is required", nameof(machineName));
         if (string.IsNullOrWhiteSpace(connectionId))
             throw new ArgumentException("connectionId is required", nameof(connectionId));
 
-        _byMachine[Key(tenant, machineName)] = connectionId;
-        FileLog.Write($"[LauncherConnectionRegistry] RegisterConnection: tenant={tenant.Value}, machine={machineName}, conn={Short(connectionId)} is now the active connection");
+        _byMachine[Key(tenant, machineName)] = new LauncherStreamConnection(connectionId, declaration);
+        FileLog.Write($"[LauncherConnectionRegistry] RegisterConnection: tenant={tenant.Value}, machine={machineName}, conn={Short(connectionId)} is now the active connection (declares: {Describe(declaration)})");
     }
+
+    /// <summary>One plain phrase for the log, telling a launcher that declared nothing from one that did.</summary>
+    private static string Describe(LauncherCapabilityDeclaration? declaration)
+        => declaration is null
+            ? "nothing - a launcher older than the capability handshake"
+            : declaration.Commands.Count == 0
+                ? "an empty capability list"
+                : string.Join(" ", declaration.Commands);
 
     /// <summary>
     /// Clear the entry whose active connection is <paramref name="connectionId"/>. A late disconnect from a
@@ -59,10 +91,10 @@ public sealed class LauncherConnectionRegistry
 
         foreach (var kv in _byMachine)
         {
-            if (!string.Equals(kv.Value, connectionId, StringComparison.Ordinal))
+            if (!string.Equals(kv.Value.ConnectionId, connectionId, StringComparison.Ordinal))
                 continue;
 
-            if (((ICollection<KeyValuePair<MachineKey, string>>)_byMachine).Remove(kv))
+            if (((ICollection<KeyValuePair<MachineKey, LauncherStreamConnection>>)_byMachine).Remove(kv))
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister: tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)} cleared");
             else
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister IGNORED (superseded): tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)}");
@@ -75,7 +107,19 @@ public sealed class LauncherConnectionRegistry
     /// uses it to address a command DOWN the stream to that launcher - and only ever finds the caller's own.
     /// </summary>
     public string? GetActiveConnectionId(TenantId tenant, string machineName) =>
-        _byMachine.TryGetValue(Key(tenant, machineName), out var connectionId) ? connectionId : null;
+        GetActiveConnection(tenant, machineName)?.ConnectionId;
+
+    /// <summary>
+    /// The tenant's launcher connection for that machine - the connection id AND what that launcher
+    /// declared about itself - or null when it holds no stream.
+    ///
+    /// ONE READ, so the capability query cannot be handed a declaration and a connection that disagree.
+    /// Asking two questions of two maps has a window between them in which a launcher disconnects, and a
+    /// caller that read the declaration on the far side of it would report a machine that has gone as one
+    /// that answered.
+    /// </summary>
+    public LauncherStreamConnection? GetActiveConnection(TenantId tenant, string machineName) =>
+        _byMachine.TryGetValue(Key(tenant, machineName), out var connection) ? connection : null;
 
     /// <summary>True when this tenant's launcher for the machine currently has an active stream connection.</summary>
     public bool IsStreamConnected(TenantId tenant, string machineName) =>

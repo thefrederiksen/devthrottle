@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THE END-TO-END PROOF for issue #2720 - a machine says whether it can be restarted.
+
+    It runs a REAL GatewayHost and a REAL LauncherStreamClient - the production classes, both ends -
+    on this machine, against ISOLATED storage roots, and prints the answers the route gives for a
+    known-GOOD input and for two deliberately re-created known-BAD ones.
+
+    A console project on purpose, and NOT in cc-director.sln or in the project list
+    scripts/test-local.ps1 runs - the same reasoning as scripts/launcher-swap-proof: a rig that
+    stands up a live Gateway and a live launcher client is not a unit test, and putting one in the
+    suite as a test that skips itself would put a check that cannot fail into the gate, which reads
+    exactly like coverage and is not.
+
+    IT TOUCHES NOTHING THIS MACHINE IS USING. It never starts, stops or reconfigures the installed
+    launcher, which is the parent of the Director carrying the fleet; it never raises a lifecycle
+    signal; and every root it uses is a throwaway directory it creates and removes.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>restart-capability-proof</AssemblyName>
+    <RootNamespace>CcDirector.Proof.RestartCapability</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <ProjectReference Include="..\..\src\CcDirector.Launcher\CcDirector.Launcher.csproj" />
+  </ItemGroup>
+
+</Project>

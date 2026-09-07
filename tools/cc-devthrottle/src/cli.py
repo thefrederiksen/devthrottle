@@ -325,6 +325,21 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "machine-restart-capability",
+        "description": (
+            "Ask whether one computer can complete a Director restart, BEFORE draining it. Changes "
+            "nothing: no command is sent, no connection opened and no signal raised. It answers with a "
+            "verdict and the reason - and separately with whether that machine's launcher would refuse a "
+            "restart while sessions are still live, which is not the same question. A drain that cannot "
+            "end in a restart is a fleet-wide close with paperwork, so ask first."
+        ),
+        "command": "cc-devthrottle machine restart-capability <machine>",
+        "mutatesState": False,
+        "args": [
+            {"name": "machine", "required": True},
+        ],
+    },
+    {
         "id": "machine-launch",
         "description": (
             "Start an application on another computer, by catalogue name (--app) or by absolute path "
@@ -979,6 +994,21 @@ def machine_files(
     from .machine_ops import search_files
 
     search_files(machine, query, count, seconds, json_output)
+
+
+@machine_app.command("restart-capability")
+def machine_restart_capability(
+    machine: str = typer.Argument(..., help="The computer to ask about."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Can this computer complete a Director restart? Ask this BEFORE draining it.
+
+    Changes nothing: no command is sent, no connection opened and no signal raised. A drain that
+    cannot end in a restart is a fleet-wide close with paperwork, so the machine says so first.
+    """
+    from .machine_ops import restart_capability
+
+    restart_capability(machine, json_output)
 
 
 @machine_app.command("launch")

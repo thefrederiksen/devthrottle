@@ -129,7 +129,16 @@ public static class SessionKeyGuard
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
-            if (s.Length == 3 && s[0] == "machines" && (s[2] == "apps" || s[2] == "files")) return true;
+            //
+            // restart-capability joins them: CAN this machine complete a Director restart? Issue #2720.
+            // It is the safest read on this surface - it sends no command, opens no connection and raises
+            // no signal - and it is the one an agent must be able to ask, because the alternative is the
+            // 2026-09-06 failure: drain seventeen sessions, then discover the answer was no. It is also
+            // what makes the admission guard on POST .../director/restart affordable. That verb stays
+            // refused to a session key; asking whether it COULD work is not asking to run it, and an
+            // agent that can only act blindly is the argument for widening the guard itself.
+            if (s.Length == 3 && s[0] == "machines"
+                && (s[2] == "apps" || s[2] == "files" || s[2] == "restart-capability")) return true;
 
             // The fleet's shared skills and workflows: the catalogue entry, its body/instructions, and its
             // version history. This is how an agent reads a capability the fleet holds centrally.

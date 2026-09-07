@@ -3883,7 +3883,12 @@ public sealed class GatewayHost : IAsyncDisposable
             // stamp the resolved mission name onto the create request forwarded to the Director.
             missions: Missions,
             // Workflows mission (phase 5b): seat spawns on workflow runs and record participants.
-            workflowRuns: _workflowRuns);
+            workflowRuns: _workflowRuns,
+            // Issue #2720: the same connection registry SendLauncherCommandAsync addresses commands
+            // down, so the capability query and the delivery it predicts read one set of connections.
+            // A second instance here would let the query answer "a stream is up" about a connection no
+            // command could ever travel on.
+            launcherConnections: LauncherConnections);
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
