@@ -82,7 +82,16 @@ def restore():
 
 
 def run(args, timeout):
-    return subprocess.run(args, cwd=repo, capture_output=True, text=True, timeout=timeout, shell=True)
+    # NO SHELL. It used to pass shell=True with an argument LIST, which on Windows joins the list into
+    # one command line and lets the shell reinterpret it - so a test filter containing "|", the ordinary
+    # way to name two test classes, was read as a pipe and the whole invocation collapsed. Every mutant
+    # in that run came back exit 255 with no output.
+    #
+    # WORTH RECORDING: the gate caught it. All seventeen reported BROKEN - "no test-count line" - rather
+    # than SURVIVED, so a harness fault produced a refusal to answer instead of seventeen clean bills of
+    # health. That is the third instrument fault this gate has caught in this file, and the reason the
+    # BROKEN state exists at all.
+    return subprocess.run(args, cwd=repo, capture_output=True, text=True, timeout=timeout)
 
 
 COUNT = re.compile(r"Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)")

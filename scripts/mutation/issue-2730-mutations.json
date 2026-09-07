@@ -1,7 +1,7 @@
 {
   "repo": ".",
   "project": "src/CcDirector.Launcher.Tests/CcDirector.Launcher.Tests.csproj",
-  "filter": "FullyQualifiedName~UnreadableRegistrationIsNotAnEmptyInstance",
+  "filter": "FullyQualifiedName~UnreadableRegistrationIsNotAnEmptyInstance|FullyQualifiedName~ARosterThatDidNotAnswer",
   "mutants": [
     {
       "name": "2730-a: nothing-left never becomes Unknown (the pre-fix answer)",
@@ -98,6 +98,18 @@
       "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
       "find": "        else if (lookup.Outcome != DirectorResolution.NotRunning)",
       "replace": "        else if (lookup.Outcome == DirectorResolution.Running)"
+    },
+    {
+      "name": "2730-o: a roster that carries no session list is accepted again (positive zero)",
+      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
+      "find": "                if (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement))",
+      "replace": "                if (false && (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement)))"
+    },
+    {
+      "name": "2730-p: an EXPLICIT empty session list is refused too (the over-correction)",
+      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
+      "find": "                return property.Value.ValueKind == JsonValueKind.Array;",
+      "replace": "                return property.Value.ValueKind == JsonValueKind.Array\n                       && property.Value.GetArrayLength() > 0;"
     }
   ]
 }
