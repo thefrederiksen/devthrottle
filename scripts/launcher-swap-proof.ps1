@@ -193,8 +193,12 @@ Assert-Disposable $Root
 Stop-RigLaunchers $launcherDir
 if (Test-Path $Root) { Remove-Item -Recurse -Force $Root }
 New-Item -ItemType Directory -Force -Path $launcherDir, $stagedDir, $setupDir | Out-Null
-# The sentinel goes down FIRST, so a run interrupted at any later point leaves a directory the NEXT
-# run can prove is its own rather than one it must refuse.
+# The sentinel goes down as early as it can - immediately after the directories exist, before any
+# binary is copied - so a run interrupted after THIS LINE leaves a directory the next run can prove is
+# its own. It is not "any later point": between the New-Item above and this line there is a window in
+# which the directory exists with no sentinel, and a run killed inside it leaves something the next run
+# REFUSES and a person has to remove by hand. That is the safe direction (refuse, never delete) and it
+# is stated rather than glossed, because the window is real.
 Set-Content -Path $sentinel -Value "created by scripts/launcher-swap-proof.ps1" -Encoding utf8
 
 Copy-Item $oldBuild (Join-Path $launcherDir "cc-launcher.exe") -Force

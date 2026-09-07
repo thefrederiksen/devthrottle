@@ -97,8 +97,17 @@ public sealed record LauncherUpdateResult(LauncherUpdateDecision Decision, strin
 /// Second, THE SWAP MUST NEVER TAKE THE DIRECTOR WITH IT. On Windows the launcher is the Director's
 /// parent process, so stopping it with a process-TREE kill would kill the very process performing the
 /// swap. Nothing here ever kills a tree; it asks politely first, and insists on one process id at a
-/// time. The Director keeps running across the whole swap and the new launcher re-adopts it - the
-/// launcher never starts a Director that already holds its instance.
+/// time.
+///
+/// WHAT IS INTENDED TO FOLLOW FROM THAT, AND HAS NOT BEEN OBSERVED: the Director keeps running across
+/// the whole swap, and the new launcher re-adopts it rather than starting a second one, because a
+/// launcher does not start a Director that already holds its instance. THAT IS THE DESIGN, NOT A
+/// MEASUREMENT. It has never been exercised on any machine - the end-to-end rig
+/// (scripts/launcher-swap-proof.ps1) swaps a launcher that supervises no Director, and the only place
+/// the invariant is asserted at all is LauncherUpdateOwnerTests, through a fake. The pass checks
+/// afterwards whether this Director still holds its instance and reports
+/// <see cref="LauncherUpdateDecision.AppliedButThisDirectorLostItsInstance"/> when it does not, which
+/// is how the untested case announces itself rather than passing silently.
 ///
 /// AND THE ROOT IS THE SHARED ONE. A Director redirects its data tree to its instance home, so a
 /// layout resolved by <see cref="InstallLayout.Default"/> inside a Director points at
@@ -477,6 +486,20 @@ public sealed class LauncherUpdateOwner
                 // Cannot happen with a correctly scoped list, and is asserted anyway: this process is a
                 // Director, and a Director that stopped itself here would leave the swap unfinished.
                 FileLog.Write("[LauncherUpdateOwner] REFUSING to stop this very process.");
+                continue;
+            }
+
+            if (p.Pid <= 0)
+            {
+                // THE UNREADABLE-LIST SENTINEL, and this is what makes the sentence above OursNow true.
+                // That comment says an unreadable list "yields a process id nothing can stop" - but
+                // without this the sentinel's pid 0 went straight to the stop, which on Windows resolves
+                // pid 0 to the System Idle Process and attempts CloseMainWindow and Kill on it. The
+                // attempt fails and is caught, so nothing was harmed; the sentence was still describing
+                // something the code did not do. The sentinel exists to keep the wait from concluding a
+                // clean stop, never to be stopped.
+                FileLog.Write("[LauncherUpdateOwner] the process list is unreadable; there is no process to stop, "
+                              + "and the stop will not be reported clean.");
                 continue;
             }
 

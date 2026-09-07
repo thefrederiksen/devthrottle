@@ -20,11 +20,17 @@ namespace CcDirector.Setup.Engine;
 ///
 /// The same lock also keeps two DIRECTORS sharing one install from swapping the one launcher at once.
 ///
-/// It is a machine-wide named mutex, taken WITHOUT WAITING - the same shape and the same reasoning as
-/// <see cref="ToolReconciler.HeavyRepairMutexName"/>. Never blocking is the point: both owners run on
-/// periodic loops, so a pass that cannot have the lock has nothing to gain by queueing behind one. It
+/// It is a machine-wide named mutex, the same shape and the same reasoning as
+/// <see cref="ToolReconciler.HeavyRepairMutexName"/>. THE TWO PERIODIC OWNERS DO NOT WAIT FOR IT: each
+/// runs on a loop, so a pass that cannot have the lock has nothing to gain by queueing behind one - it
 /// says why it did nothing and looks again on its next cycle, by which time the other swap has either
 /// finished or failed and said so.
+///
+/// ONE CALLER DOES WAIT, AND IT IS NOT AN EXCEPTION TO THE REASONING BUT AN APPLICATION OF IT. The
+/// launcher's detached self-update helper is not a periodic pass; it is a process started to perform
+/// exactly one swap, with no next cycle to return on, so skipping would silently drop the update it
+/// exists to apply. It passes a bounded wait through <c>waitFor</c>. Nothing waits unbounded, and
+/// nothing waits on the thread that asked - see the thread note on the method.
 ///
 /// WHAT THIS DOES NOT COVER, AND CANNOT. A launcher old enough to predate this code takes no lock, so
 /// the exclusion only holds once both sides are running a build that has it. That is inherent to

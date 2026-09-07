@@ -456,6 +456,30 @@ public class LauncherUpdateOwnerTests : IDisposable
     }
 
     [Fact]
+    public void StopInstalledLauncher_AnUnreadableProcessList_IsNeverHandedToTheStop()
+    {
+        // The comment on the unreadable-list sentinel said it "yields a process id nothing can stop".
+        // It did not: the sentinel's pid 0 went straight to the stop, and on Windows pid 0 resolves to
+        // the System Idle Process, so CloseMainWindow and Kill were attempted on it. The attempt fails
+        // and is caught, so nothing was harmed - but a sentence describing something the code does not
+        // do is exactly the defect this test exists to prevent coming back.
+        var stopped = new List<int>();
+        var owner = new LauncherUpdateOwner(_root, () => true)
+        {
+            ListLauncherProcesses = () => throw new InvalidOperationException("cannot list processes"),
+            RequestQuit = _ => false,
+            StopProcess = pid => { stopped.Add(pid); return true; },
+            GracefulStopTimeout = TimeSpan.FromMilliseconds(50),
+            StopSettleTimeout = TimeSpan.FromMilliseconds(50),
+        };
+
+        var clean = owner.StopInstalledLauncher();
+
+        Assert.Empty(stopped);      // nothing was asked to stop - least of all pid 0
+        Assert.False(clean);        // and the stop is still not called clean
+    }
+
+    [Fact]
     public void StopInstalledLauncher_AnUnreadableProcessList_IsNotAnEmptyOne()
     {
         // "Nothing left running" has to be observed. A list that could not be read is not evidence of
