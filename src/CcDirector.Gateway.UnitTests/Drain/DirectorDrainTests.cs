@@ -408,7 +408,13 @@ public class DirectorDrainTests
         Assert.Null(architect.Restore.Command);
         Assert.DoesNotContain("arch", result.Document.RestoreAfterRestart);
         Assert.Contains(result.Document.Integrity!.Problems, p => p.Contains("amended its handover"));
-        Assert.Contains(sessions.Sent, m => m.Text.Contains("changed after it was first read"));
+
+        // NOTHING IS SAID TO IT. The closing message is gone: a message delivers a prompt, a prompt
+        // starts a turn, the reaper waits out a turn - so telling a seat it is being closed gave it one
+        // last chance to say something nobody would ever read. The fact that its document changed belongs
+        // in the record, where it survives the session, and that is where it is asserted above.
+        Assert.DoesNotContain(sessions.Sent, m => m.Text.Contains("you are being closed"));
+        Assert.Single(sessions.Sent, m => m.SessionId == "arch");   // the drain message, and only that
     }
 
     /// <summary>

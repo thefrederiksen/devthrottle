@@ -189,6 +189,26 @@ public static class HandoverSecretSweep
     }
 
     /// <summary>
+    /// Redact one piece of text with the SHIPPED patterns, for anything that is stored somewhere rather
+    /// than reported as a finding.
+    ///
+    /// The drain copies a seat's own prose onto a record that leaves this machine - a blocked reason, a
+    /// restore why, an owner question - and those went through no redaction at all while the sweep
+    /// carefully redacted its own excerpts. This is the same instrument, applied at the other door.
+    /// </summary>
+    /// <param name="text">The text to store.</param>
+    /// <exception cref="InvalidOperationException">The instrument failed its own proof.</exception>
+    public static string RedactLine(string text)
+    {
+        var proof = Prove();
+        if (!proof.Valid)
+            throw new InvalidOperationException(
+                "The secret sweep failed its own proof and will not redact: " +
+                string.Join("; ", proof.Failures));
+        return Redact(text ?? "", Patterns);
+    }
+
+    /// <summary>
     /// Replace EVERY matched region on the line with a marker, so what is left is the surrounding words
     /// and nothing that any pattern recognised as a credential.
     /// </summary>

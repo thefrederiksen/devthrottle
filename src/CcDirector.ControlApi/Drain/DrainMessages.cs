@@ -81,21 +81,14 @@ public static class DrainMessages
         return sb.ToString();
     }
 
-    /// <summary>
-    /// The message sent to a seat immediately before it is flagged for deletion, so a session that is
-    /// still awake does not start something new in the gap between the drain reading its document and the
-    /// reaper removing it.
-    /// </summary>
-    /// <param name="reReadNote">Anything the drain noticed at close time, notably that the document
-    /// changed after it was first read.</param>
-    public static string Closing(string? reReadNote = null)
-    {
-        var sb = new StringBuilder();
-        sb.Append("Handover received and read. Do nothing further; you are being closed for the Director ");
-        sb.Append("restart. Your document is on disk and the record of this drain is on the Gateway.");
-        if (!string.IsNullOrWhiteSpace(reReadNote)) sb.Append(' ').Append(reReadNote.Trim());
-        return sb.ToString();
-    }
+    // THERE IS NO CLOSING MESSAGE, and its absence is deliberate. There used to be one - "handover
+    // received and read; do nothing further; you are being closed". A message DELIVERS A PROMPT and a
+    // prompt starts a turn; the Director's reaper waits out a running turn; so the sequence was: ask for
+    // the close, provoke one last turn in which the seat can amend its document to say it is blocked,
+    // wait for that turn to end, delete the seat - and never read what it said. Nothing is lost by
+    // removing it: the seat was already told in the drain message that the Director is restarting and to
+    // start nothing new, and a seat is only closed once it has DECLARED it finished. Anything the drain
+    // noticed goes into the record, where it survives the session.
 
     /// <summary>The name a drained seat carries while it waits to be reaped, so every screen shows which
     /// seats are already done without anybody having to open the record.</summary>

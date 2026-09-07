@@ -35,7 +35,24 @@ public static class DrainPaths
     /// at this machine.</param>
     /// <param name="directorName">The Director's display name.</param>
     public static string DirectoryFor(DateTime startedLocal, string? directorName)
-        => Path.Combine(RestartsRoot, $"{startedLocal:yyyy-MM-ddTHHmm}-{Sanitize(directorName ?? "Director")}");
+        => DirectoryFor(startedLocal, directorName, Guid.NewGuid().ToString("N")[..6]);
+
+    /// <summary>
+    /// The directory, with the run's own mark.
+    ///
+    /// THE MARK IS NOT DECORATION. The name used to be a timestamp to the MINUTE, so a drain cancelled and
+    /// restarted inside that minute landed on the same directory - and a session from the first run,
+    /// still writing when it was cancelled, would land its document in the second run's directory and be
+    /// read as the second run's answer. Refusing a directory that already holds documents catches that
+    /// only if the old writer has already finished; a mark that is unique per run means the two can never
+    /// share a directory at all, which is the difference between a check and a guarantee.
+    /// </summary>
+    /// <param name="startedLocal">When the drain started, in local time.</param>
+    /// <param name="directorName">The Director's display name.</param>
+    /// <param name="runMark">Short, unique to this run.</param>
+    public static string DirectoryFor(DateTime startedLocal, string? directorName, string runMark)
+        => Path.Combine(RestartsRoot,
+            $"{startedLocal:yyyy-MM-ddTHHmmss}-{runMark}-{Sanitize(directorName ?? "Director")}");
 
     /// <summary>
     /// The handover file one seat is told to write, and the exact path the drain watches for it.
