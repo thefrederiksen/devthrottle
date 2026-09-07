@@ -418,15 +418,26 @@ public sealed class DirectorSupervisor
     /// Why a restart that was told to happen only if the Director is empty must NOT proceed, or null when
     /// it may.
     ///
-    /// AN UNKNOWN COUNT IS A REFUSAL, NEVER AN EMPTY ONE. Three of the ways this answers no are answers it
-    /// could not get: more than one live process claims the instance, the running Director's registration
-    /// will not read, or its session roster will not read. A guard that treated any of those as idle would
-    /// open exactly when the machine is already in a state nobody understands, which is the worst possible
-    /// moment for a guard to open.
+    /// AN UNKNOWN COUNT IS A REFUSAL, NEVER AN EMPTY ONE. Two of the ways this answers no are answers it
+    /// could not get: more than one live process claims the instance, so which one is the Director is
+    /// undecidable; or the resolved Director's session roster will not read. A guard that treated either
+    /// as idle would open exactly when the machine is already in a state nobody understands, which is the
+    /// worst possible moment for a guard to open.
     ///
     /// A DIRECTOR THAT IS NOT RUNNING IS EMPTY, and that is a real answer rather than a missing one:
     /// nothing is holding a session because nothing is holding anything. The restart then does what a
     /// restart of a stopped Director has always done, which is start one.
+    ///
+    /// AND HERE IS THE LIMIT OF THAT, STATED RATHER THAN LEFT TO BE INFERRED. "Not running" is the
+    /// locator's answer, and the locator reaches it by SKIPPING what it cannot read: a registration file
+    /// that will not parse, or a live process that will not say when it started, is passed over, and a
+    /// machine whose only registration is one of those looks empty. The locator does that deliberately and
+    /// it is safe for the question it was written for - whether to STOP something, where skipping means
+    /// declining - but this guard asks the opposite question, and there the same answer means PERMIT. So a
+    /// Director whose registration is corrupt is not protected by this guard. That is inherited behaviour,
+    /// identical for an unconditional restart and for the update path, and it is NOT something the flag
+    /// closes; closing it needs the locator to distinguish "nothing is there" from "I could not read what
+    /// is there", which is a change to <see cref="DirectorInstanceLocator"/> and not to this guard.
     /// </summary>
     /// <param name="sessions">
     /// The count this verdict was reached on: the live sessions found, 0 when nothing is running, and null

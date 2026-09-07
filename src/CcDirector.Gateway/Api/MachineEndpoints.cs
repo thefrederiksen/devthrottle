@@ -692,10 +692,12 @@ internal static class MachineEndpoints
     /// <paramref name="onlyIfEmpty"/> holds the answer), or the refusal to return when it is not.
     ///
     /// IT IS THE ONE FIELD ON THIS ROUTE WHOSE ABSENCE IS THE DANGEROUS READING, and every rule here comes
-    /// from that. exePath and confirmProtected may safely be read as absent when they are malformed,
-    /// because absent is their careful side - a missing confirmProtected REFUSES. Absent here means
-    /// "restart regardless of what the Director is holding", so anything the caller might have MEANT as
-    /// the flag and this route cannot be sure of has to be refused instead of ignored:
+    /// from that. A malformed confirmProtected is safely read as absent, because absent is its careful
+    /// side - a missing confirmProtected REFUSES a protected slot. (A missing exePath is NOT the careful
+    /// side: it skips the slot guard entirely. That is this route's long-standing behaviour, pinned by its
+    /// own test, and it is neither changed nor endorsed here.) Absent HERE means "restart regardless of
+    /// what the Director is holding", so anything the caller might have MEANT as the flag and this route
+    /// cannot be sure of has to be refused instead of ignored:
     ///
     ///   * a value that is not a boolean - "true", 1, null - is refused rather than read as false;
     ///   * the NAME is matched without regard to case, because {"OnlyIfEmpty": true} is unmistakably a

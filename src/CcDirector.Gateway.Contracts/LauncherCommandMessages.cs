@@ -49,8 +49,10 @@ public sealed class LauncherCommand
     /// carries "onlyIfEmpty":true and the session count it read. An OK with no payload came from a
     /// launcher that did not understand the request; update that machine's launcher.
     ///
-    /// Ignored by every other verb, and the Gateway relay refuses to send it with one rather than
-    /// letting it look honoured.
+    /// No other verb can honour it, and both ends refuse it rather than letting it look honoured: the
+    /// Gateway's machine route answers 400 before anything is sent, and the launcher answers 400 if a
+    /// command carrying it arrives on any verb but this one. The relay in between does NOT check - it
+    /// carries what it is given - so the launcher's refusal is the one that covers every caller.
     /// </summary>
     public bool OnlyIfEmpty { get; set; }
 
@@ -127,8 +129,11 @@ public sealed class LauncherCommandResult
     public string? Error { get; set; }
 
     /// <summary>
-    /// The answer to a QUERY verb, already serialised as JavaScript Object Notation by the launcher; null for
-    /// the action verbs, which have nothing to say beyond success or failure.
+    /// The answer to a QUERY verb, already serialised as JavaScript Object Notation by the launcher - and
+    /// null for the action verbs, which have nothing to say beyond success or failure, with ONE exception:
+    /// a restart carrying <see cref="LauncherCommand.OnlyIfEmpty"/> answers with the condition it applied
+    /// and the count it read, because a caller that asked for a guarantee has to be able to tell that
+    /// answer from an older launcher's bare success.
     ///
     /// It is carried as text rather than as a typed object on purpose. The launcher and the Gateway are
     /// upgraded separately, and a launcher that is a version ahead may answer with fields this Gateway has
