@@ -83,7 +83,7 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, resp.status);
         Assert.Equal("Malformed", resp.body.GetProperty("record").GetString());
         Assert.Equal(path, resp.body.GetProperty("file").GetString());
-        Assert.Contains(uploadId, resp.body.GetProperty("error").GetString());
+        Assert.Contains(Guid.Parse(uploadId).ToString("N"), resp.body.GetProperty("error").GetString());
         // Not a terminal outcome either: the client must not drop its copy on the strength of this.
         Assert.False(resp.body.TryGetProperty("terminal", out var terminal) && terminal.GetBoolean());
 
