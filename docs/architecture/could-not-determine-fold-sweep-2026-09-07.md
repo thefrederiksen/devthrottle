@@ -18,6 +18,70 @@ below is therefore ranked by consumer, not by count.
 
 ---
 
+## WHAT THIS DOCUMENT DOES NOT KNOW - read this before using any number in it
+
+This section is first because a reader who stops after the counts will otherwise take them for a
+total. They are not. **An inventory that says what it does not yet know is usable; one that reads
+as complete is dangerous, because a wrong exoneration marks something FOUND AND SAFE and stops
+anyone looking again.**
+
+**1. Every count here is a FLOOR, not a total.** The sweep found what its instrument was shaped to
+find - `catch` blocks in C#. It did not mechanise guard clauses, it did not sweep TypeScript, and
+its PowerShell matcher was not trustworthy (see the coverage section at the end). More exist.
+
+**2. THE EXONERATION METHOD HAD THE DEFECT THIS DOCUMENT IS ABOUT.** This is a defect in the
+method, not a caveat on a row.
+
+Defects were ranked by looking at ALL of a member's consumers. Exonerations were granted after
+looking at ONE. So a single safe consumer was enough to clear a member - the clearing path had a
+permissive branch, and the unknown landed in it. That is precisely the shape being hunted, inside
+the instrument built to hunt it, which makes a wrong exoneration structurally likely rather than
+bad luck.
+
+It produced a real one. `VoiceUploadStore.ReadRecordFile` was cleared here on the strength of
+`ExpireStalePending`, which genuinely does positively admit. Its OTHER consumers do not: an
+unreadable terminal record fails the `Delivered or Abandoned` test, falls through to `Register`
+plus `MarkPending`, and re-opens a delivered upload - duplicate injection of the operator's own
+speech into a live session. Filed as issue 2745. Found by a reviewer, not by this document.
+
+**3. The nine exonerations HAVE since been re-triaged, and the result is recorded below.** Two were
+refuted (`VoiceUploadStore`, `DictationLockReader`), one was right for the wrong reason
+(`TranscriptionMode.IsValid`), two had their stated reason narrowed to display-only, and four
+stand. What is STILL outstanding is one layer up: the shortlist of 24 "has a dangerous consumer"
+was itself built by matching caller NAMES against a pattern of destructive-sounding verbs. A
+consumer that writes, deletes or launches under a name that pattern does not match was never
+shortlisted, so it was never consumer-checked at all. That set has not been re-examined.
+
+**4. TWO SPECIFIC CORRECTIONS TO EARLIER ROWS.**
+
+- **A source comment was cited as a live compensating control, and it had been DELETED.**
+  `DictationLockReader.IsSessionLocked` was classified deliberate-and-compensated on the strength
+  of its own comment, which names the fail-closed `SendSource.UserInput` default as the
+  compensation. That default does not refuse anything: `Session.cs` states "sends are never refused
+  by source" and that "the old dictation-lock rejection here was removed deliberately", and
+  `SessionCommandExecutor` says the same. **A comment standing in for a check is worse than a
+  comment describing one wrongly** - this one was used as EVIDENCE.
+- **A named consumer was a name-collision artifact.** `TranscriptionMode.IsValid` was recorded with
+  the consumer `SetTimeZone`. It has no such consumer; it has no production consumer at all. The
+  row's verdict was right by accident and its stated reason was wrong.
+
+**5. A NAME COLLISION IS AN INSTRUMENT RETURNING A TRUE HIT ABOUT THE WRONG THING, and the fix is
+to OPEN the hit rather than count it.** This is the single most useful thing the sweep produced and
+it applies to every number in this document.
+
+A count of "156 test files naming `StopAsync`" was used here to argue that a safe consumer was
+well covered. Opened, it was an unrelated `StopAsync` on dozens of types; the real figure for the
+type in question is ONE behavioural test file, exercising `AccountUrl`, a pure string builder -
+the opposite conclusion. The same shape bit a second search on this mission within the hour, where
+a field-name match on `origin/main` turned out to be an unrelated voice type; reporting it
+unopened would have told the owner a false thing about his own data leaving his machine.
+
+**Therefore: every count in this document came from a pattern match unless an opened file is cited
+beside it.** The rows in sections A and B name files and line numbers because those were opened.
+The aggregate counts in the table below were not.
+
+---
+
 ## The instrument, and the proof it can fire
 
 Two searches, both written for this sweep.
@@ -209,10 +273,14 @@ not be read. A wrong reason sends the next person to the wrong place.
 ## B. Deliberate, documented, and compensated - leave alone, but know they are there
 
 - **`DictationLockReader.IsSessionLocked`** (`src/CcDirector.Core/Sessions/DictationLockReader.cs:58`)
-  returns `false` on any read error. This is a documented fail-open, and the class comment names
-  the compensating control ("the fail-closed `SendSource.UserInput` default already compensates").
-  Worth re-checking on the day that default changes: an exoneration that rests on a caller's
-  behaviour expires silently.
+  returns `false` on any read error. **THIS ROW WAS WRONG - see limit 4.** It was classified
+  deliberate-and-compensated because the class comment names the fail-closed
+  `SendSource.UserInput` default as the compensation. **That compensation does not exist.** It was
+  removed deliberately: `Session.cs` says "sends are never refused by source" and that "the old
+  dictation-lock rejection here was removed deliberately", and `SessionCommandExecutor` states the
+  same rule. The fold may now belong in the display-only group, since the product deliberately
+  permits the send and the value feeds the roster paint - but it is NOT compensated, and this
+  document repeated a stale safety sentence instead of checking the code beneath it.
 - **`BrowserHarnessInstaller.ReadVersion`** - logged "non-fatal"; an unreadable version causes a
   reinstall, which is wasteful rather than dangerous.
 - **`ClaudeHookEventParser.Parse`** - `null` on `JsonException`; a malformed hook event is genuinely
@@ -222,20 +290,29 @@ not be read. A wrong reason sends the next person to the wrong place.
 
 Listed so nobody re-opens them, and because several are good models for fixing the ones above.
 
-- **`LauncherDiscovery.IsRunning`** - unknown folds to "not healthy". `Launcher/Program.cs`'s
+- **`LauncherDiscovery.IsRunning`** (reason narrowed: two of its three consumers are restrictive,
+  the third, `CatalogReadExecutor`, is display-only and will report a running-but-unreadable
+  launcher as stopped) - unknown folds to "not healthy". `Launcher/Program.cs`'s
   `isHealthy` reads false as ROLLBACK, and `UpdateStatusFold` reads it as "do not offer the
   install". The doc comment states the rule: "identity that cannot be checked must not pass for
   health". `UpdateStatusFold` even carries an explicit `HeldBecauseUnknown` state - this class
   already has a named third value in that one place.
-- **`VoiceUploadStore.ReadRecordFile` / `ExpireStalePending`** - "No marker, unreadable, or any
-  state but PENDING: not ours" then returns without acting. A positively-admit gate; the best
-  model in the codebase.
+- **`VoiceUploadStore.ReadRecordFile` / `ExpireStalePending`** - **THIS ROW WAS WRONG. It is a
+  LIVE DEFECT, filed as issue 2745, and it is the worked example behind limit 2.** `ExpireStalePending`
+  genuinely does positively admit ("No marker, unreadable, or any state but PENDING: not ours") and
+  it remains the best model in the codebase - but it is ONE consumer of `ReadRecord`, and clearing
+  the member on it was the single-consumer error. `GatewayDictationEndpoint` tests
+  `existing is { State: Delivered or Abandoned }`, which is a correct POSITIVE test that an
+  unreadable record fails, so it falls through to `Register` plus `MarkPending` and RE-OPENS a
+  delivered upload, defeating the durable de-duplication the comment four lines above promises.
 - **`GatewayApp/Program.TryReadGatewayToken`** - a null token aborts the swap with
   "cannot ask the Gateway to exit, so the swap will abort" rather than posting a request known to
   401.
 - **`ControlEndpoints.ResolveSessionFile`** - "nothing here is safe to serve".
 - **`TranscriptionMode.IsValid`** - narrow `catch (ArgumentException)`; an unparseable enum value
-  genuinely is invalid.
+  genuinely is invalid. **Right verdict, wrong reason - see limit 4.** The consumer recorded here
+  originally (`SetTimeZone`) was a name-collision artifact. This member has NO production consumer
+  at all, so it is unreachable rather than correct.
 - **`PythonRuntimeProbe.CanImportStdlib`** - unknown folds to "cannot", which blocks rather than
   permits.
 
