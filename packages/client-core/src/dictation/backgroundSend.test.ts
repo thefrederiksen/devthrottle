@@ -902,3 +902,62 @@ describe("abandonPendingDictation", () => {
     expect(deletePending).not.toHaveBeenCalled();
   });
 });
+
+describe("a record refusal from the Gateway (issue #2745): the driver keeps the reason and slows the loop", () => {
+  const OPERATOR_MESSAGE =
+    "The server's delivery record for this recording is damaged and needs an operator to look at it. Your recording is saved and cannot go through until that is fixed.";
+  const RETRY_LATER_MESSAGE =
+    "The server could not read this recording's delivery record just now. Your recording is saved and will try again.";
+  const NEEDS_OPERATOR: DictationSubmitResult = {
+    terminal: false, submitted: false, movedOn: false, transcript: "", error: OPERATOR_MESSAGE, recordRefusal: "needs-operator",
+  };
+  const RETRY_LATER: DictationSubmitResult = {
+    terminal: false, submitted: false, movedOn: false, transcript: "", error: RETRY_LATER_MESSAGE, recordRefusal: "retry-later",
+  };
+
+  it("keeps the operator-needed reason on screen for a clip older than the throttle hour", async () => {
+    // Without the refusal kind, heldMessage replaces every reason with the generic "still trying in the
+    // background" line once the clip is an hour old - the wrong answer to a user whose recording cannot go
+    // through until someone looks at a file on the server.
+    const old = { ...makeRecord("id-old-refused"), createdAt: Date.now() - 2 * 60 * 60 * 1000 };
+    vi.mocked(listPending).mockResolvedValue([old]);
+    vi.mocked(uploadDictationToSession).mockResolvedValue(NEEDS_OPERATOR);
+
+    await resumePendingDictations();
+
+    const status = statusFor("id-old-refused");
+    expect(status?.phase).toBe("held");
+    expect(status?.error).toBe(OPERATOR_MESSAGE);
+    expect(deletePending).not.toHaveBeenCalled();
+  });
+
+  it("retries an operator-needed refusal on the slow cadence from the first attempt, not the fast loop", async () => {
+    const rec = makeRecord("id-refused-slow");
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(uploadDictationToSession).mockResolvedValue(NEEDS_OPERATOR);
+
+    await retryPendingDictation("id-refused-slow");
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+
+    // The fast loop would have fired again within two seconds and several more times inside a minute.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+
+    // It is still retried - the operator fixing the file is exactly what a later attempt would find.
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a could-not-read-just-now refusal on the ordinary fast cadence (control)", async () => {
+    const rec = makeRecord("id-refused-fast");
+    vi.mocked(getPending).mockResolvedValue(rec);
+    vi.mocked(uploadDictationToSession).mockResolvedValue(RETRY_LATER);
+
+    await retryPendingDictation("id-refused-fast");
+    expect(uploadDictationToSession).toHaveBeenCalledTimes(1);
+    expect(statusFor("id-refused-fast")?.error).toBe(RETRY_LATER_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(vi.mocked(uploadDictationToSession).mock.calls.length).toBeGreaterThan(2);
+  });
+});

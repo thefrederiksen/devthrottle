@@ -76,11 +76,60 @@ public sealed class InstanceHomeShapeTests
     /// <see cref="InstanceContext.InstanceHome"/> itself rather than against a hand-written path, so
     /// that changing how an instance home is composed cannot leave this check quietly looking for the
     /// old shape - which is how a detector goes silently blind.
+    ///
+    /// IT DELIBERATELY DOES NOT ASSERT ANYTHING ABOUT THE AMBIENT SharedRoot, and the first draft did.
+    /// It read <c>Assert.False(LooksLikeAnInstanceHome(InstanceContext.SharedRoot))</c> - obviously
+    /// true, and it FAILED on this fleet's machines, because every agent session here has
+    /// CC_DIRECTOR_ROOT pointing at a Director's instance home (issue #2740). So the assertion was
+    /// about the ENVIRONMENT rather than about the code, and the environment happens to be in exactly
+    /// the state this check exists to detect - which means the failure was the check working.
+    ///
+    /// A test whose result depends on ambient state is testing the ambient state. The relationship
+    /// being pinned - a home composed under an "instances" segment is one, and the root above it is
+    /// not - is asserted from an explicit root instead, where it is a property of the composition and
+    /// not of whoever launched the process.
     /// </summary>
     [Fact]
     public void The_check_agrees_with_how_an_instance_home_is_actually_composed()
     {
+        // InstanceHome is composed as SharedRoot/instances/slug, so it is an instance home whatever the
+        // ambient root happens to be. This half is environment-independent and stays.
         Assert.True(InstanceContext.LooksLikeAnInstanceHome(InstanceContext.InstanceHome));
-        Assert.False(InstanceContext.LooksLikeAnInstanceHome(InstanceContext.SharedRoot));
+
+        // And the root ABOVE an instances directory is not one - stated from a root chosen here.
+        var root = P("some", "machine", "cc-director");
+        Assert.True(InstanceContext.LooksLikeAnInstanceHome(
+            Path.Combine(root, "instances", InstanceContext.DefaultSlug)));
+        Assert.False(InstanceContext.LooksLikeAnInstanceHome(root));
+    }
+
+    /// <summary>
+    /// ASKING ABOUT THE AMBIENT ROOT MUST NOT THROW, whatever that root happens to be.
+    ///
+    /// That is a real property and the reason it is worth a test: this runs inside a launcher describing
+    /// itself on the command stream, where an exception would take the whole declaration with it - and a
+    /// launcher that declares nothing is a launcher the Gateway reports as pre-handshake, which is the
+    /// wrong answer arrived at by a crash.
+    ///
+    /// IT DOES NOT ASSERT WHAT THE ANSWER IS, and it must not. Every agent session on this fleet
+    /// inherits CC_DIRECTOR_ROOT pointing at a Director's instance home (issue #2740) - the very
+    /// condition that produced the wrong-root launcher on 2026-09-06 - so on these machines the answer
+    /// is TRUE, and on a clean machine it is false. Failing a build over an environment variable would
+    /// be testing the machine.
+    ///
+    /// The first draft of this wrote <c>Assert.True(answer || !answer)</c>, which is a tautology: a test
+    /// that cannot fail, shipped in a change whose whole subject is checks that cannot fail. Recorded
+    /// here because noticing it was luck, and the next reader should be able to see what it was.
+    /// </summary>
+    [Fact]
+    public void Asking_about_the_ambient_root_never_throws()
+    {
+        var ambient = InstanceContext.SharedRoot;
+
+        // The assertion is that this returns at all. Whether it returns true is a fact about the
+        // machine; that it returns rather than throwing is a fact about the code.
+        var exception = Record.Exception(() => InstanceContext.LooksLikeAnInstanceHome(ambient));
+
+        Assert.Null(exception);
     }
 }

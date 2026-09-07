@@ -193,7 +193,14 @@ public sealed class VoiceUploadStoreTenantPartitionTests : IDisposable
         // not a missing file.
         Assert.Contains("alpha-secret-transcript", File.ReadAllText(bFile));
 
-        Assert.Null(b.ReadRecord(id));
+        // Refused under its OWN name (issue #2745), not reported as absent: "absent" is the one answer that
+        // lets a caller open the upload, and opening here would write B's PENDING marker over A's record.
+        var refused = b.Read(id);
+        Assert.Equal(DictationRecordReadKind.ForeignTenant, refused.Kind);
+        Assert.Null(refused.Record);
+        Assert.True(refused.Refuses);
+        // And the strict read will not quietly hand back null for it either.
+        Assert.Throws<UnreadableDictationRecordException>(() => b.ReadRecord(id));
 
         // The same check on the PENDING projection, which reads records by enumeration rather than by id: a
         // foreign pending record planted in this partition must not lock a session here either.
@@ -210,6 +217,35 @@ public sealed class VoiceUploadStoreTenantPartitionTests : IDisposable
         Assert.NotEqual(aPending, bPending);
         File.Copy(aPending, bPending, overwrite: true);
         Assert.False(b.IsSessionLocked(sessionA));
+    }
+
+    [Fact]
+    public void The_tombstone_sweep_never_retires_another_tenants_record_planted_in_this_partition()
+    {
+        // The same mis-computed-root scenario as the read and lock tests above, put to the RESOLVED-TOMBSTONE
+        // sweep (issue #2745 review): it retires aged DELIVERED / ABANDONED markers, and it must decline one
+        // stamped for another tenant rather than delete that account's de-dupe evidence.
+        var id = Guid.NewGuid().ToString();
+        var a = _base.ForTenant(_tenantA);
+        var b = _base.ForTenant(_tenantB);
+
+        a.MarkDelivered(id, submitted: true, movedOn: false, transcript: "alpha-secret-transcript");
+        b.Register(id);
+        var aFile = Path.Combine(a.Root, Guid.Parse(id).ToString("N"), "record.json");
+        var bFile = Path.Combine(b.Root, Guid.Parse(id).ToString("N"), "record.json");
+        Assert.NotEqual(aFile, bFile); // ahead of the copy, for the reason in the class comment
+        File.Copy(aFile, bFile, overwrite: true);
+        Assert.Equal(DictationRecordReadKind.ForeignTenant, b.Read(id).Kind); // the plant is really foreign here
+
+        // Positive control: B's OWN aged tombstone is retired by the very same sweep call, so the survival
+        // below is a refusal and not a sweep that did nothing. A future cutoff makes "aged" deterministic.
+        var own = Guid.NewGuid().ToString();
+        b.MarkDelivered(own, submitted: true, movedOn: false, transcript: "bravo");
+        Assert.Equal(1, b.SweepResolvedTombstones(TimeSpan.FromDays(-1)));
+        Assert.False(b.Exists(own));
+
+        Assert.True(File.Exists(bFile), "the sweep must not have retired another tenant's tombstone");
+        Assert.Contains("alpha-secret-transcript", File.ReadAllText(bFile));
     }
 
     [Fact]

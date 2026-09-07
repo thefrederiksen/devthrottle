@@ -49,6 +49,31 @@ public static class LauncherCapabilities
 
     /// <summary>Answer with a filename search across the machine's drives.</summary>
     public const string Files = "files";
+
+    /// <summary>
+    /// Every token this build KNOWS. Its purpose is to make "we do not recognise anything it said" a
+    /// POSITIVE determination rather than an inference from a missing verb.
+    ///
+    /// WITHOUT IT THE FOURTH STATE CANNOT BE SEEN. A launcher declaring an unfamiliar vocabulary - a
+    /// newer build, a fork - looks identical to one declaring nothing useful, and the two have opposite
+    /// fixes: the second wants the LAUNCHER updated, the first wants the GATEWAY updated. Reading the
+    /// first as the second condemns the newer party for the older one not understanding it.
+    ///
+    /// A launcher declaring MORE than this knows is not a problem and is not this state: as long as one
+    /// token lands, the answer is understood and the extras are simply ignored. This state is only
+    /// reached when NOT ONE token is familiar.
+    /// </summary>
+    public static readonly IReadOnlyList<string> KnownTokens = new[]
+    {
+        DirectorStart, DirectorStop, DirectorRestart, DirectorRestartOnlyIfEmpty, Launch, Apps, Files,
+    };
+
+    /// <summary>Is this a token this build understands? Case-insensitive, as everywhere else a token is
+    /// compared - a vocabulary mismatch invented by letter case would be the worst possible reason to
+    /// report a launcher as speaking an unknown language.</summary>
+    public static bool Knows(string? token)
+        => !string.IsNullOrWhiteSpace(token)
+           && KnownTokens.Any(t => string.Equals(t, token, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>

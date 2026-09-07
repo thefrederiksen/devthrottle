@@ -1,4 +1,5 @@
 using CcDirector.Setup.Engine;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace CcDirector.Setup.Engine.Tests;
@@ -42,7 +43,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(
             ("cc-director-win-x64.exe", "0.4.0"),
             ("cc-pdf-win-x64.exe", "1.0.0"));
-        var plan = UpdatePlanner.Plan(components, Installed(), manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, Installed(), manifest, platform: OSPlatform.Windows);
 
         Assert.All(plan.Items.Where(i => i.ComponentId is "director" or "cc-pdf"),
             i => Assert.Equal(PlanItemKind.Install, i.Kind));
@@ -62,7 +63,7 @@ public class UpdatePlannerTests
             ("cc-pdf", "1.1.0"),   // behind -> update
             ("cc-html", "1.1.0")); // current -> up to date
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.Windows);
 
         Assert.Equal(PlanItemKind.UpToDate, plan.Items.Single(i => i.ComponentId == "director").Kind);
         Assert.Equal(PlanItemKind.Update, plan.Items.Single(i => i.ComponentId == "cc-pdf").Kind);
@@ -79,7 +80,7 @@ public class UpdatePlannerTests
     {
         var components = ComponentRegistry.Build(["cc-pdf"]);
         var manifest = Manifest(("cc-director-win-x64.exe", "0.4.0")); // no cc-pdf asset
-        var plan = UpdatePlanner.Plan(components, Installed(("director", "0.4.0")), manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, Installed(("director", "0.4.0")), manifest, platform: OSPlatform.Windows);
 
         // cc-pdf has no asset, and (in this minimal manifest) neither do gateway/cockpit.
         Assert.Equal(PlanItemKind.MissingAsset, plan.Items.Single(i => i.ComponentId == "cc-pdf").Kind);
@@ -99,7 +100,7 @@ public class UpdatePlannerTests
         var pins = new UpdatePins();
         pins.Pin("cc-pdf", "1.2.0"); // rolled back from 1.2.0
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, pins, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, pins, platform: OSPlatform.Windows);
 
         Assert.Equal(PlanItemKind.Pinned, plan.Items.Single(i => i.ComponentId == "cc-pdf").Kind);
         Assert.Empty(plan.ToUpdate);
@@ -119,7 +120,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.5");
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.Windows);
 
         var item = plan.Items.Single(i => i.ComponentId == "gateway");
         Assert.NotEqual(PlanItemKind.UpToDate, item.Kind);
@@ -137,7 +138,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.6");
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.Windows);
 
         var item = plan.Items.Single(i => i.ComponentId == "gateway");
         Assert.Equal(PlanItemKind.UpToDate, item.Kind);
@@ -153,7 +154,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: null);
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.Windows);
 
         var item = plan.Items.Single(i => i.ComponentId == "gateway");
         Assert.Equal(PlanItemKind.Update, item.Kind);
@@ -168,7 +169,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "0.6.6"));
         var installed = InstalledWithFileVersion("gateway", recordedVersion: "0.6.6", fileVersion: "0.6.6");
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: false);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.Windows);
 
         var item = plan.Items.Single(i => i.ComponentId == "gateway");
         Assert.Equal(PlanItemKind.UpToDate, item.Kind);
@@ -190,7 +191,7 @@ public class UpdatePlannerTests
             ("cc-launcher-win-x64.exe", "1.1.0"),
             ("cc-launcher-mac-arm64", "1.1.0"));
 
-        var plan = UpdatePlanner.Plan(components, Installed(), manifest, macOs: true);
+        var plan = UpdatePlanner.Plan(components, Installed(), manifest, platform: OSPlatform.OSX);
 
         Assert.Equal("cc-director-mac-arm64.zip", plan.Items.Single(i => i.ComponentId == "director").AssetName);
         Assert.Equal("cc-launcher-mac-arm64", plan.Items.Single(i => i.ComponentId == "cc-launcher").AssetName);
@@ -205,7 +206,7 @@ public class UpdatePlannerTests
         var components = new[] { ComponentRegistry.Gateway };
         var manifest = Manifest(("devthrottle-gateway-win-x64.exe", "1.1.0"));
 
-        var plan = UpdatePlanner.Plan(components, Installed(), manifest, macOs: true);
+        var plan = UpdatePlanner.Plan(components, Installed(), manifest, platform: OSPlatform.OSX);
 
         Assert.Equal(PlanItemKind.MissingAsset, plan.Items.Single(i => i.ComponentId == "gateway").Kind);
     }
@@ -220,7 +221,7 @@ public class UpdatePlannerTests
         var manifest = Manifest(("cc-launcher-mac-arm64", "1.1.0"));
         var installed = Installed(("cc-launcher", null));
 
-        var plan = UpdatePlanner.Plan(components, installed, manifest, macOs: true);
+        var plan = UpdatePlanner.Plan(components, installed, manifest, platform: OSPlatform.OSX);
 
         Assert.Equal(PlanItemKind.Update, plan.Items.Single(i => i.ComponentId == "cc-launcher").Kind);
     }

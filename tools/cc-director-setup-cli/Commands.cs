@@ -47,14 +47,16 @@ internal static class Commands
     public static int Components(CliArgs args, InstallLayout layout, bool json)
     {
         var components = ScopedComponents(args);
-        var macOs = OperatingSystem.IsMacOS();
+        // The platform this machine actually is, not "macOS or else Windows" - that two-way read is
+        // what told a Linux machine to install cc-director-win-x64.exe.
+        var platform = HostPlatform.Current;
         if (json)
         {
             Program.WriteJson(components.Select(c => new
             {
                 id = c.Id,
                 kind = c.Kind.ToString(),
-                asset = c.AssetFor(macOs),
+                asset = c.AssetFor(platform),
                 path = layout.PathFor(c),
                 roles = c.Roles.Select(r => r.ToString()).OrderBy(s => s),
             }));
@@ -66,7 +68,7 @@ internal static class Commands
             // A Tool with no per-file macOS asset is not "missing on macOS" - every cc-* tool ships on
             // both platforms inside the Python tools bundle; only the standalone per-exe delivery is
             // Windows-only. Say so, instead of implying Mac users get no tools (#1711 audit, defect 5).
-            Console.WriteLine($"  {c.Id,-14} {c.Kind,-9} {c.AssetFor(macOs) ?? "(ships in the Python tools bundle)"}");
+            Console.WriteLine($"  {c.Id,-14} {c.Kind,-9} {c.AssetFor(platform) ?? "(ships in the Python tools bundle)"}");
         return Ok;
     }
 

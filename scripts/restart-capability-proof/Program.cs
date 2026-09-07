@@ -200,6 +200,29 @@ public static class Program
             StartedAt = DateTime.UtcNow,
         });
 
+        // THE CLAIM AT THE TOP OF THIS FILE - that a rig and an installed launcher can never hear each
+        // other - RESTS ON THIS AND IS THEREFORE CHECKED HERE RATHER THAN ASSERTED IN A COMMENT.
+        //
+        // A lifecycle signal is a named kernel object addressed by NAME ALONE, and the name is keyed to a
+        // storage root. If this rig ever computed the SAME root key the installed launcher uses, it would
+        // open that launcher's own named event and become a SECOND listener on it - and two listeners take
+        // ALTERNATE signals, so a real "restart the Director" could reach this rig, which does nothing,
+        // instead of the launcher that would have acted on it. The fleet's restart would silently do
+        // nothing every other time somebody asked for it.
+        //
+        // It cannot happen as this program is written, because the root is redirected to a throwaway
+        // directory immediately above. That is exactly the kind of reasoning that is true until somebody
+        // edits the order of two lines, so the safety property is now a refusal instead of a sentence.
+        var machineRootKey = LifecycleSignalNames.RootKey(InstalledSharedRootOfThisMachine());
+        var rigRootKey = LifecycleSignalNames.RootKey();
+        if (string.Equals(machineRootKey, rigRootKey, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"REFUSING to arm a lifecycle signal: this rig resolved root key {rigRootKey}, which is the "
+                + "key the INSTALLED launcher on this machine uses. Arming it would make this rig a second "
+                + "listener on that launcher's restart signal, and two listeners take alternate signals - so "
+                + "a real restart would silently reach this rig instead of the launcher. The rig's storage "
+                + "root was not redirected before this point.");
+
         // ARMED, NEVER RAISED, and its handler does nothing. The launcher needs an honest thing to
         // declare about its restart signal; a handler that restarted anything would make asking the
         // question destructive, which is the one thing this whole phase exists to avoid.
@@ -307,9 +330,18 @@ public static class Program
         if (line.Length > 0) yield return line;
     }
 
-    /// <summary>The machine's real storage root, printed once so the report can show what was NOT
-    /// touched. Read before any root is redirected.</summary>
+    /// <summary>The root this process started with, printed once so the report can show what was NOT
+    /// touched. Read at the top of Main, before any redirect.</summary>
     private static string CcStorageRootOfThisMachine()
         => Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT")
-           ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
+           ?? InstalledSharedRootOfThisMachine();
+
+    /// <summary>
+    /// Where the INSTALLED launcher on this machine serves from, computed WITHOUT reading
+    /// CC_DIRECTOR_ROOT - which is the whole point, because this process redirects that variable and an
+    /// agent session may well have inherited a Director's instance home in it (issue #2740). The
+    /// collision guard above needs the real answer, not this process's answer.
+    /// </summary>
+    private static string InstalledSharedRootOfThisMachine()
+        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
 }

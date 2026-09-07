@@ -152,6 +152,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
                 return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, $"unknown verb: {cmd.Verb}");
             }
 
+
             // A CONDITION THIS VERB CANNOT HONOUR IS REFUSED HERE, AT THE BOUNDARY, rather than ignored.
             // onlyIfEmpty means "do not interrupt live work"; every verb below except the restart does
             // something else entirely with it, which is nothing. Dropping it silently would answer a
