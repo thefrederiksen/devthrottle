@@ -144,6 +144,27 @@ public class HandoverSecretSweepTests
     }
 
     [Fact]
+    public void Sweep_TwoSecretsWhoseMATCHESOVERLAPAreBothHidden()
+    {
+        // The residual the second review round found in the fix for the first. Two patterns can match
+        // OVERLAPPING regions - the password pattern's value swallows the token that follows it - and
+        // editing them independently right to left replaced the inner one first, shortened the string,
+        // and pushed the outer one past the end. Its bounds check then failed, it was skipped, and the
+        // first secret survived into every finding.
+        const string Password = "FIRSTSECRETVALUE";
+        const string Token = "ghp_aaaabbbbccccddddeeeeffffgggg";
+
+        var findings = HandoverSecretSweep.Sweep("seeded.md", $"password: {Password},{Token}");
+
+        Assert.NotEmpty(findings);
+        Assert.All(findings, f =>
+        {
+            Assert.DoesNotContain(Password, f.RedactedExcerpt);
+            Assert.DoesNotContain(Token, f.RedactedExcerpt);
+        });
+    }
+
+    [Fact]
     public void Sweep_ReportsTheLineNumberSoSomebodyCanGoAndFixIt()
     {
         var text = "one\ntwo\nthree\npassword: NotARealOne123!\nfive";

@@ -198,20 +198,42 @@ public static class HandoverSecretSweep
     {
         const int MaxLine = 300;
 
-        // Collect every span to hide, from every pattern, then blank them right to left so the earlier
-        // indexes stay valid.
-        var spans = new List<(int Start, int Length)>();
+        // Collect every span to hide, from every pattern.
+        var spans = new List<(int Start, int End)>();
         foreach (var p in patterns)
             foreach (Match m in p.Pattern.Matches(line))
             {
                 var g = m.Groups["v"].Success ? m.Groups["v"] : (Group)m;
-                if (g.Length > 0) spans.Add((g.Index, g.Length));
+                if (g.Length > 0) spans.Add((g.Index, g.Index + g.Length));
             }
 
-        var sb = new StringBuilder(line);
-        foreach (var (start, length) in spans.OrderByDescending(s => s.Start))
+        // MERGE OVERLAPPING SPANS FIRST. Two patterns can match regions that overlap - "password:
+        // SECRET,ghp_aaaa..." matches both the password and the token, and the password match swallows
+        // the token. Editing them independently, right to left, replaced the inner one first, which
+        // SHORTENED the string and pushed the outer one past the end of it: its bounds check then failed,
+        // it was skipped, and the first secret survived into every finding. Merging first means every
+        // edit is over a region that is still there.
+        spans.Sort((a, b) => a.Start.CompareTo(b.Start));
+        var merged = new List<(int Start, int End)>();
+        foreach (var span in spans)
         {
-            if (start < 0 || start + length > sb.Length) continue;
+            if (merged.Count > 0 && span.Start <= merged[^1].End)
+            {
+                if (span.End > merged[^1].End) merged[^1] = (merged[^1].Start, span.End);
+            }
+            else
+            {
+                merged.Add(span);
+            }
+        }
+
+        // Right to left, so the earlier indexes stay valid.
+        var sb = new StringBuilder(line);
+        for (var i = merged.Count - 1; i >= 0; i--)
+        {
+            var (start, end) = merged[i];
+            var length = end - start;
+            if (start < 0 || end > sb.Length) continue;
             sb.Remove(start, length);
             sb.Insert(start, $"[REDACTED {length} chars]");
         }
