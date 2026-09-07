@@ -129,6 +129,38 @@ public sealed class ControlApiHost : IAsyncDisposable
     public Task<(List<Gateway.Contracts.SessionDto> Sessions, List<Gateway.Contracts.DirectorReachabilityDto> Reachability)>? ListFleetSessionsWithReachabilityAsync(CancellationToken ct = default)
         => _gatewayClient?.ListFleetSessionsWithReachabilityAsync(ct);
 
+    /// <summary>
+    /// Workspaces (issue #2722) - a named set of seats, held on the GATEWAY rather than in this
+    /// Director's own configuration directory, which is what these four calls replaced. The desktop's
+    /// Save Workspace and Load Workspace go through here.
+    ///
+    /// Null when no Gateway is configured. The caller says so plainly - "workspaces live on the Gateway
+    /// and this Director is not connected to one" - rather than showing an empty list, which would read
+    /// as "you have no workspaces" and is a lie.
+    /// </summary>
+    /// <param name="ct">Cancellation.</param>
+    public Task<List<Gateway.Contracts.WorkspaceSummaryDto>>? ListWorkspacesAsync(CancellationToken ct = default)
+        => _gatewayClient?.ListWorkspacesAsync(ct);
+
+    /// <summary>One workspace document. See <see cref="ListWorkspacesAsync"/> for the null case.</summary>
+    /// <param name="id">The workspace slug.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<Gateway.Contracts.WorkspaceDocument?>? GetWorkspaceAsync(string id, CancellationToken ct = default)
+        => _gatewayClient?.GetWorkspaceAsync(id, ct);
+
+    /// <summary>Create or replace a workspace. See <see cref="ListWorkspacesAsync"/> for the null case.</summary>
+    /// <param name="doc">The workspace to store.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<Gateway.Contracts.WorkspaceDocument>? SaveWorkspaceAsync(
+        Gateway.Contracts.WorkspaceDocument doc, CancellationToken ct = default)
+        => _gatewayClient?.SaveWorkspaceAsync(doc, ct);
+
+    /// <summary>Delete a workspace. See <see cref="ListWorkspacesAsync"/> for the null case.</summary>
+    /// <param name="id">The workspace slug.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<bool>? DeleteWorkspaceAsync(string id, CancellationToken ct = default)
+        => _gatewayClient?.DeleteWorkspaceAsync(id, ct);
+
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;

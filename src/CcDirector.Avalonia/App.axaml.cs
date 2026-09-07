@@ -62,7 +62,6 @@ public partial class App : Application
     public BackupCleaner BackupCleaner { get; private set; } = null!;
     public ClaudeAccountStore ClaudeAccountStore { get; private set; } = null!;
     public ClaudeUsageService ClaudeUsageService { get; private set; } = null!;
-    public WorkspaceStore WorkspaceStore { get; private set; } = null!;
     public EngineHost? EngineHost { get; private set; }
     public ControlApiHost? ControlApiHost { get; private set; }
     public UpdateService? Updater { get; private set; }
@@ -382,9 +381,6 @@ public partial class App : Application
         ClaudeUsageService = new ClaudeUsageService(ClaudeAccountStore);
         ClaudeUsageService.Start();
         log("Claude usage service started");
-
-        WorkspaceStore = new WorkspaceStore();
-        log("Workspace store initialized");
 
         // Gateway Centralization Phase 2 migration (issue #642), with the two-step install exception
         // (Slice A): the deletion of the Director's own credential blob is GATED on gateway presence.

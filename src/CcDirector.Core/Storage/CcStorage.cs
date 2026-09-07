@@ -465,7 +465,14 @@ public static class CcStorage
 
     // -- Workspaces --
 
-    /// <summary>Workspace definitions directory: config/director/workspaces/</summary>
+    /// <summary>
+    /// The LEGACY workspace directory: config/director/workspaces/.
+    ///
+    /// Workspaces moved to the Gateway (issue #2722) - they must be readable when this machine is down -
+    /// so nothing writes here any more. The path survives for exactly one reader,
+    /// <c>LegacyWorkspaceImport</c>, which pushes what is already here up to the Gateway once and renames
+    /// each file aside. Delete this when no machine can still be carrying one.
+    /// </summary>
     public static string Workspaces() => Path.Combine(ToolConfig("director"), "workspaces");
 
     /// <summary>Named-session definitions directory: config/director/named-sessions/</summary>

@@ -29,6 +29,7 @@ using CcDirector.Core.Network;
 using CcDirector.Core.Onboarding;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Core.Skills;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
@@ -1805,16 +1806,24 @@ public partial class MainWindow : Window
 
     // ==================== WORKSPACE LOADING ====================
 
-    private async Task LoadWorkspaceAsync(WorkspaceDefinition workspace)
+    /// <summary>
+    /// Start every seat in a workspace (issue #2722). The workspace itself came from the Gateway; this
+    /// only starts what it names.
+    ///
+    /// This is the COLD start - each seat begins with no history. Starting a seat SEEDED by its own
+    /// handover, which is what a restart needs, is Phase 5 of issue #2719 and is not this path.
+    /// </summary>
+    /// <param name="workspace">The workspace to start.</param>
+    private async Task LoadWorkspaceAsync(WorkspaceDocument workspace)
     {
-        FileLog.Write($"[MainWindow] LoadWorkspaceAsync: '{workspace.Name}' with {workspace.Sessions.Count} sessions");
+        FileLog.Write($"[MainWindow] LoadWorkspaceAsync: '{workspace.Name}' with {workspace.Seats.Count} seats");
 
         var progress = new WorkspaceProgressDialog(workspace.Name);
         progress.Show(this);
 
         try
         {
-            var sorted = workspace.Sessions.OrderBy(s => s.SortOrder).ToList();
+            var sorted = workspace.Seats.OrderBy(s => s.SortOrder).ToList();
             int total = sorted.Count;
 
             for (int i = 0; i < total; i++)
@@ -1822,15 +1831,15 @@ public partial class MainWindow : Window
                 var entry = sorted[i];
                 FileLog.Write($"[MainWindow] LoadWorkspaceAsync: creating session {i + 1}/{total}: {entry.RepoPath}");
 
-                progress.UpdateProgress(i + 1, total, entry.CustomName ?? entry.RepoPath);
+                progress.UpdateProgress(i + 1, total, entry.Name);
 
-                // Issue #1635: restore the agent the session was saved with. Before this the call passed no
-                // agentKind, so the overload default silently made every restored session ClaudeCode.
-                var vm = CreateSession(entry.RepoPath, claudeArgs: entry.ClaudeArgs,
-                    agentKind: entry.ResolveAgentKind());
+                // Issue #1635: start the seat on the agent it was saved with. Without the agentKind the
+                // overload default silently made every restored session Claude Code.
+                var vm = CreateSession(entry.RepoPath, claudeArgs: entry.AgentArgs,
+                    agentKind: ResolveSeatAgent(entry));
                 if (vm != null)
                 {
-                    vm.Rename(entry.CustomName, entry.CustomColor);
+                    vm.Rename(entry.Name, entry.Color);
                     SaveSessionToHistory(vm);
                 }
 
@@ -1845,6 +1854,52 @@ public partial class MainWindow : Window
         finally
         {
             progress.Close();
+        }
+    }
+
+    /// <summary>
+    /// Which agent command line a seat starts on.
+    ///
+    /// A value that does not parse is a real problem - a hand-edited workspace, or one written by a
+    /// newer build that knows an agent this one does not - so it is LOGGED with the offending value
+    /// rather than passed over in silence. Starting a seat on the wrong agent is exactly the defect the
+    /// field exists to prevent, and the log line is what makes it findable.
+    /// </summary>
+    private static AgentKind ResolveSeatAgent(WorkspaceSeat seat)
+    {
+        var raw = (seat.Agent ?? "").Trim();
+        if (raw.Length == 0) return AgentKind.ClaudeCode;
+
+        if (Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind))
+            return kind;
+
+        FileLog.Write($"[MainWindow] ResolveSeatAgent: unknown agent '{raw}' for {seat.RepoPath} - " +
+                      $"starting as {AgentKind.ClaudeCode}; the session will run the wrong agent");
+        return AgentKind.ClaudeCode;
+    }
+
+    /// <summary>
+    /// The workspace catalog for this Director: the Gateway it is connected to (issue #2722).
+    /// Workspaces are not stored on this machine, so there is nothing behind this but the Gateway.
+    /// </summary>
+    private static IWorkspaceCatalog WorkspaceCatalog()
+        => new GatewayWorkspaceCatalog(
+            (global::Avalonia.Application.Current as App)?.ControlApiHost);
+
+    /// <summary>
+    /// Push any workspaces this machine saved before they lived on the Gateway up to it, once. A
+    /// failure is logged and the dialog opens anyway: it will report the same Gateway problem itself,
+    /// in the window where the user is looking, and the legacy files are still on disk for next time.
+    /// </summary>
+    private static async Task ImportLegacyWorkspacesAsync(IWorkspaceCatalog catalog)
+    {
+        try
+        {
+            await LegacyWorkspaceImport.RunOnceAsync(catalog);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync FAILED: {ex.Message}");
         }
     }
 
@@ -4024,19 +4079,22 @@ public partial class MainWindow : Window
 
         file.Menu.Items.Add(Item("Save Workspace...", async () =>
         {
-            var app = AppRef();
             var sessionData = _sessions.Select(vm => new SessionData(
                 vm.DisplayName, vm.Session.RepoPath, vm.Session.CustomName,
                 vm.Session.CustomColor, vm.Session.ClaudeArgs,
                 // Issue #1635: record WHICH agent this session runs. Without it the agent is lost here, at
                 // save time, and the session can only come back as the CreateSession default.
                 vm.Session.AgentKind.ToString()));
-            var dialog = new SaveWorkspaceDialog(app.WorkspaceStore, sessionData);
+            var catalog = WorkspaceCatalog();
+            await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new SaveWorkspaceDialog(catalog, sessionData);
             await dialog.ShowDialog<bool?>(this);
         }));
         file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
-            var dialog = new LoadWorkspaceDialog(AppRef().WorkspaceStore);
+            var catalog = WorkspaceCatalog();
+            await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new LoadWorkspaceDialog(catalog);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.SelectedWorkspace != null)
             {
