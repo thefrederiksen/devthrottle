@@ -384,6 +384,53 @@ public sealed class RestartOnlyIfEmptyTests
         }
     }
 
+    /// <summary>
+    /// THE DEFECT REPRODUCED: the machine CHANGES between the guard's reading and the stop's, and the
+    /// stop must still act on what the guard decided.
+    ///
+    /// This is the independent reviewer's counterexample, made deterministic. The first reading finds
+    /// nothing running - which is what an unreadable registration looks like - so the guard permits and
+    /// records a count of zero. The second reading, taken a moment later, finds a live Director holding
+    /// three sessions. The old code took that second reading at stop time and would have stopped it: a
+    /// restart that was allowed only because the machine looked empty, ending in three sessions being
+    /// taken.
+    ///
+    /// The two readings are arranged through the supervisor's own reading seam, because outside a test
+    /// they differ only when a real file finishes being written mid-call, which cannot be timed from the
+    /// outside. Everything else is real: a live process listening for its own shutdown signal, and its
+    /// exit or survival as the observation.
+    /// </summary>
+    [Fact]
+    public async Task RestartAsync_OnlyIfEmpty_StopsWhatTheGuardSaw_EvenIfTheMachineChangesUnderneath()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var rig = Rig.Start(liveSessions: 3);
+
+        // Reading one: nothing running. Reading two onwards: the truth - a live Director with three
+        // sessions. A guard that decides on the first and a stop that acts on the second is the defect.
+        var readings = 0;
+        var theTruth = rig.Supervisor.Locator.Resolve();
+        Assert.Equal(DirectorResolution.Running, theTruth.Outcome);
+
+        rig.Supervisor.ReadTheMachine = () =>
+            Interlocked.Increment(ref readings) == 1
+                ? new DirectorLookup(DirectorResolution.NotRunning, null, Array.Empty<string>())
+                : theTruth;
+
+        // The guard permits on reading one, so the restart proceeds to start the installed Director,
+        // which this rig does not install.
+        await Assert.ThrowsAsync<FileNotFoundException>(() => rig.Supervisor.RestartAsync(onlyIfEmpty: true));
+
+        Assert.True(readings >= 1, "the supervisor never read the machine at all");
+
+        rig.Helper.Refresh();
+        Assert.False(rig.Helper.HasExited,
+            "the guard permitted a restart because the machine looked empty, and then the stop took a "
+            + "SECOND reading and shut down a Director holding three sessions. The reading that decides "
+            + "must be the reading that acts.");
+    }
+
     // -------------------------------------------------------------------------
     // The command boundary: a "director/restart" arriving on the launcher's stream
     // -------------------------------------------------------------------------

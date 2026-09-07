@@ -115,6 +115,7 @@ public sealed class DirectorSupervisor
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
         _locator = locator ?? throw new ArgumentNullException(nameof(locator));
+        ReadTheMachine = _locator.Resolve;
     }
 
     /// <summary>
@@ -136,6 +137,21 @@ public sealed class DirectorSupervisor
 
     /// <summary>Where the supervised Director's identity is resolved from.</summary>
     public DirectorInstanceLocator Locator => _locator;
+
+    /// <summary>
+    /// How this supervisor reads the machine. Production always uses <see cref="DirectorInstanceLocator.Resolve"/>.
+    ///
+    /// IT IS A SEAM ONLY SO THAT DECIDING ON ONE READING AND ACTING ON ANOTHER CAN BE REPRODUCED. That
+    /// defect needs two consecutive reads to DISAGREE, and outside a test they disagree only when the
+    /// machine changes underneath them - a registration finishing its write, a Director starting - which
+    /// cannot be arranged deterministically from the outside. Without the seam the fix is real and
+    /// untested: a mutation that puts the second read back passes every test in the suite, which was
+    /// verified before this was added rather than assumed.
+    ///
+    /// The same argument, in the same words, is why <see cref="DirectorInstanceLocator.ReadExecutablePath"/>
+    /// exists. A guard that fails open is worse for being present and never exercised.
+    /// </summary>
+    internal Func<DirectorLookup> ReadTheMachine { get; set; } = null!;
 
     /// <summary>
     /// Whether a Director holds the supervised instance.
@@ -240,7 +256,7 @@ public sealed class DirectorSupervisor
     public Task StopAsync(CancellationToken ct = default)
     {
         FileLog.Write("[DirectorSupervisor] StopAsync");
-        return StopResolvedAsync(_locator.Resolve(), ct);
+        return StopResolvedAsync(ReadTheMachine(), ct);
     }
 
     /// <summary>
@@ -487,7 +503,7 @@ public sealed class DirectorSupervisor
     public string? RefuseRestartUnlessEmpty(out int? sessions, out DirectorLookup lookup)
     {
         sessions = null;
-        lookup = _locator.Resolve();
+        lookup = ReadTheMachine();
 
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
