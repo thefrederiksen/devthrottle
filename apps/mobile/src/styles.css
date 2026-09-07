@@ -4913,3 +4913,30 @@ a.banner-btn {
     max-height: calc(var(--frame-h) * 0.92);
   }
 }
+
+/* ---- A Director restart a session asked for (issue #2725) - the shared client-core card, tuned for
+   touch under the roster. Every sentence on it is the Gateway's; this only lays them out. ---- */
+.restart-requests { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.restart-request {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.restart-request-pending { border-color: rgba(241, 76, 76, 0.55); }
+.restart-request-running { border-color: rgba(59, 130, 246, 0.55); }
+.restart-request-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.restart-request-title { font-weight: 700; font-size: 15px; color: var(--text); }
+.restart-request-state { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); }
+.restart-request-pending .restart-request-state { color: var(--attention); }
+.restart-request-line { margin: 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.restart-request-capability, .restart-request-dim { color: var(--text-dim); font-size: 13px; }
+.restart-request-progress { color: var(--accent); }
+.restart-request-outcome { font-weight: 600; }
+.restart-request-error { margin: 0; font-size: 13px; color: var(--attention); }
+.restart-request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; }
+.restart-request-btn {
+  min-height: 44px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0 18px; font-size: 15px; font-weight: 600;
+}
+.restart-request-btn:disabled { opacity: 0.5; }
+.restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }

@@ -914,6 +914,14 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// </summary>
     private Task<DirectorCommandResult> DispatchTunnelCommandAsync(DirectorCommand cmd)
     {
+        // Issue #2725 (restart epic, Phase 6): the two host-level verbs of the restart cycle. Host-level
+        // for the same reason shutdown is - they are about THIS PROCESS, not a session - and answered here
+        // rather than in the session executor.
+        if (string.Equals(cmd.Verb, Gateway.Contracts.DirectorRestartVerbs.Eligibility, StringComparison.Ordinal))
+            return Task.FromResult(AnswerRestartEligibility(cmd));
+        if (string.Equals(cmd.Verb, Gateway.Contracts.DirectorRestartVerbs.Cycle, StringComparison.Ordinal))
+            return Task.FromResult(StartRestartCycle(cmd));
+
         if (string.Equals(cmd.Verb, "shutdown", StringComparison.Ordinal))
         {
             FileLog.Write("[ControlApiHost] tunnel 'shutdown' command received; self-shutting-down");
@@ -928,6 +936,93 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         return SessionCommandExecutor.DispatchAsync(_sessionManager, DirectorId, cmd,
             new SessionCommandServices { ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry, ReapplyGatewayAsync = ReapplyGatewayAsync });
+    }
+
+    /// <summary>
+    /// The executable the launcher on this machine supervises - the ONE definition of that path, from the
+    /// install layout, computed from the shared root this instance was started under.
+    /// </summary>
+    private static string SupervisedDirectorPath()
+        => new CcDirector.Setup.Engine.InstallLayout(InstanceContext.SharedRoot)
+            .PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
+
+    /// <summary>This Director's own answer to "am I the Director my launcher would restart?", read fresh.</summary>
+    private static DirectorRestartEligibilityDto JudgeRestartEligibility()
+        => Restart.RestartEligibility.Judge(InstanceContext.Slug, InstanceContext.IsDefault,
+            Environment.ProcessPath, SupervisedDirectorPath());
+
+    /// <summary>The Gateway asks, before the owner is shown a request, whether a launcher restart would
+    /// restart THIS Director. A read: it changes nothing.</summary>
+    private DirectorCommandResult AnswerRestartEligibility(DirectorCommand cmd)
+    {
+        var answer = JudgeRestartEligibility();
+        FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}': eligible={(answer.Eligible.HasValue ? answer.Eligible.Value.ToString() : "unknown")} - {answer.Reason}");
+        var result = DirectorCommandResult.Success(System.Text.Json.JsonSerializer.Serialize(answer,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        result.CommandId = cmd.CommandId;
+        return result;
+    }
+
+    /// <summary>
+    /// The owner accepted: run the cycle, alone, to the end. Answered as soon as the cycle has been TAKEN
+    /// - the drain runs for up to ninety minutes and a command result cannot wait for it - and everything
+    /// after this reaches the owner through the request's own report route.
+    ///
+    /// REFUSED, NEVER DEGRADED: without a Gateway client there is nowhere to drain to and nowhere to
+    /// report; with a cycle already running a second would be two drains racing.
+    /// </summary>
+    private DirectorCommandResult StartRestartCycle(DirectorCommand cmd)
+    {
+        var client = _gatewayClient;
+        if (client is null)
+        {
+            var fail = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                "this Director is not connected to a Gateway, so it has nowhere to drain to and nowhere to report; the cycle is refused before touching anything.");
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        DirectorRestartCycleOrder? order = null;
+        try
+        {
+            order = System.Text.Json.JsonSerializer.Deserialize<DirectorRestartCycleOrder>(cmd.PayloadJson ?? "",
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        }
+        catch (System.Text.Json.JsonException) { /* refused below as an unreadable order */ }
+        if (order is null || string.IsNullOrWhiteSpace(order.RequestId) || string.IsNullOrWhiteSpace(order.Machine))
+        {
+            var fail = DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest,
+                "the restart order could not be read, or names no request or no machine; nothing was started.");
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        if (Restart.DirectorRestartCycle.Running is { } running)
+        {
+            var fail = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                $"a restart cycle is already running on this Director for request {running.Order.RequestId}; a second is refused before it touches anything.");
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        var cycle = new Restart.DirectorRestartCycle(order,
+            // THE DRAIN SEAM. On a tree carrying the drain inside the Director (issue #2723) this is the real
+            // step over CreateDrain; on this tree it is the refusal that says the drain is not here.
+            new Restart.NoDrainOnThisBuild(),
+            new Restart.GatewayClientRestartCycleGateway(client),
+            JudgeRestartEligibility,
+            Environment.ProcessPath);
+
+        FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}': taking the restart cycle for request {order.RequestId} (asked by {order.RequestedBySessionName}: {order.Reason})");
+        _ = Task.Run(async () =>
+        {
+            try { await cycle.RunAsync(); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] restart cycle {order.RequestId} FAILED: {ex}"); }
+        });
+
+        var ok = DirectorCommandResult.Success(System.Text.Json.JsonSerializer.Serialize(new { taken = true, requestId = order.RequestId }));
+        ok.CommandId = cmd.CommandId;
+        return ok;
     }
 
     /// <summary>

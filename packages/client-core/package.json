@@ -15,6 +15,7 @@
     "./dictation/TranscriptionTestPanel": "./src/dictation/TranscriptionTestPanel.tsx",
     "./settings/SettingsTabs": "./src/settings/SettingsTabs.tsx",
     "./settings/NotificationsTab": "./src/settings/NotificationsTab.tsx",
+    "./restart/RestartRequestsPanel": "./src/restart/RestartRequestsPanel.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./*": "./src/*.ts"

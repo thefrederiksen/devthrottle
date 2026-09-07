@@ -211,6 +211,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Streaming.LauncherConnectionRegistry LauncherConnections { get; }
 
+    /// <summary>
+    /// Issue #2725 (restart epic, Phase 6): the pending requests to restart a Director - a session asks,
+    /// the Gateway scrutinises, the owner accepts once. In memory, per tenant, thirty-minute expiry; see
+    /// the store for why it is deliberately not persisted. Public so a test can move its clock.
+    /// </summary>
+    public Api.DirectorRestartRequestStore DirectorRestartRequests { get; } = new();
+
     // Issue #1176 (Phase 1a): Gateway-side stream feature switch + staleness window, resolved from
     // config.json (or an explicit constructor override for tests). When off, the hub is not mapped and
     // /sessions never consults the pushed cache, so behaviour is byte-identical to today.
@@ -3889,6 +3896,24 @@ public sealed class GatewayHost : IAsyncDisposable
             // A second instance here would let the query answer "a stream is up" about a connection no
             // command could ever travel on.
             launcherConnections: LauncherConnections);
+
+        // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
+        // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,
+        // and the owner accepts once on the admission-scoped surface. The request is a record; the
+        // restart route above and its guard are untouched. The accept hands the cycle to the Director
+        // over its stream through SendCommandAsync, the one chokepoint every down-channel command uses.
+        var restartRequests = new Api.DirectorRestartRequestService(
+            DirectorRestartRequests,
+            listDirectors: tenant => Registry.ListDirectors(tenant),
+            launcherRegistration: (tenant, machine) => Launchers.Get(tenant, machine),
+            launcherConnection: (tenant, machine) => LauncherConnections.GetActiveConnection(tenant, machine),
+            directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
+            findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
+            sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
+        Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
+            listForAccount: tenant => DirectorRestartRequests.List(tenant),
+            listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
+            getOne: (tenant, id) => DirectorRestartRequests.Get(tenant, id));
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly

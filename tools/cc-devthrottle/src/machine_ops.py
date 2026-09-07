@@ -312,3 +312,59 @@ def launch(machine: str, app: Optional[str], path: Optional[str], args: Optional
         _fail(str(payload["error"]))
 
     console.print(f"Started {app or path} on {machine}.")
+
+
+def restart_request(machine: str, reason: str, director_id: Optional[str], json_output: bool) -> None:
+    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+
+    This is a REQUEST and nothing more: it restarts nothing and grants nothing. The Gateway first asks
+    the same capability question `machine restart-capability` asks and refuses on the spot, in that
+    answer's own words, when the machine cannot be restarted - so the owner is never shown an approval
+    for a restart that cannot work. It is also refused while another request for that machine is
+    pending, and a request nobody accepts expires after thirty minutes.
+
+    The direct restart route stays refused to a session key. Asking is not doing.
+    """
+    body: Dict[str, Any] = {"reason": reason}
+    if director_id:
+        body["directorId"] = director_id
+    try:
+        payload = gateway.post_json(f"machines/{machine}/director/restart-requests", body)
+    except gateway.GatewayError as err:
+        _fail(str(err))
+    if isinstance(payload, dict) and payload.get("code") and payload.get("error"):
+        _fail(str(payload["error"]))
+
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+
+    request_id = str(gateway.field(payload, "id", "Id") or "-")
+    console.print(f"[green]REQUESTED[/] {machine} - request {request_id}")
+    console.print(f"  {gateway.field(payload, 'title', 'Title')}")
+    console.print(f"  {gateway.field(payload, 'askedBySentence', 'AskedBySentence')}")
+    console.print(f"  {gateway.field(payload, 'liveSessionsSentence', 'LiveSessionsSentence')}")
+    capability = payload.get("capability") if isinstance(payload, dict) else None
+    if isinstance(capability, dict):
+        console.print(f"  {gateway.field(capability, 'reason', 'Reason')}")
+        console.print(f"  {gateway.field(capability, 'guardedRestartReason', 'GuardedRestartReason')}")
+    console.print(f"  Expires at {gateway.field(payload, 'expiresAtUtc', 'ExpiresAtUtc')} UTC unless the owner accepts.")
+    console.print(f"  Read it back with: cc-devthrottle machine restart-request-status {machine} {request_id}")
+
+
+def restart_request_status(machine: str, request_id: str, json_output: bool) -> None:
+    """Where one restart request stands: pending, accepted and running, declined, expired, abandoned
+    with the Director's reason, or completed."""
+    payload: Dict[str, Any] = _call(f"machines/{machine}/director/restart-requests/{request_id}") or {}
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+    state = str(gateway.field(payload, "state", "State") or "-")
+    console.print(f"{state.upper()} {machine} - request {request_id}")
+    for key in ("title", "askedBySentence", "liveSessionsSentence", "stateReason", "progress"):
+        value = gateway.field(payload, key)
+        if value:
+            console.print(f"  {value}")
+    workspace = gateway.field(payload, "workspaceId", "WorkspaceId")
+    if workspace:
+        console.print(f"  Record: workspace {workspace}")
