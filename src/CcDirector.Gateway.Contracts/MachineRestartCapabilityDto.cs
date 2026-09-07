@@ -1,6 +1,17 @@
+using System.Text.Json.Serialization;
+
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>How far a launcher is from being able to receive a command at all.</summary>
+/// <remarks>
+/// SERIALISED AS ITS NAME, NEVER ITS NUMBER. Without this the wire carries <c>"verdict": 1</c>, and a
+/// client cannot render that - it would have to hold its own copy of the ordering and re-derive what the
+/// value means, which is the dumb-client rule broken in the one place it matters most. Worse, the
+/// numbers are POSITIONAL: inserting a state in the middle silently re-labels every stored or logged
+/// answer that came before. Found by the end-to-end proof on its first run, where every reason sentence
+/// was correct and every enum came back as a digit.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum LauncherReach
 {
     /// <summary>This tenant has no launcher registered for that machine name. Install or start one.</summary>
@@ -24,6 +35,7 @@ public enum LauncherReach
 /// Whether the launcher said anything about itself when it joined - and the two ways "it did not" can
 /// happen, which are different faults with different fixes.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum LauncherDeclarationState
 {
     /// <summary>No Hello has been received for this machine, so nothing was ever declared. WE NEVER GOT TO
@@ -41,6 +53,7 @@ public enum LauncherDeclarationState
 }
 
 /// <summary>The state of the local lifecycle signal that asks a launcher to restart its Director.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RestartSignalState
 {
     /// <summary>The launcher did not say. Either no declaration arrived at all, or one arrived from a build
@@ -61,6 +74,7 @@ public enum RestartSignalState
 }
 
 /// <summary>Whether a promise holds, does not hold, or is not knowable.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CapabilityState
 {
     /// <summary>Definitely available - the launcher declared it.</summary>
@@ -76,6 +90,7 @@ public enum CapabilityState
 }
 
 /// <summary>The plain answer to "can this machine be restarted?".</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RestartVerdict
 {
     /// <summary>Yes, and <see cref="MachineRestartCapabilityDto.Reason"/> names the route.</summary>

@@ -488,4 +488,44 @@ public sealed class MachineRestartCapabilityTests
         Assert.Equal("MiXeD-CaSe-Box", answer.Machine);
         Assert.Contains("MiXeD-CaSe-Box", answer.Reason);
     }
+
+    // =====================================================================================
+    // The wire form. Found by the end-to-end proof, not by anything here.
+    // =====================================================================================
+
+    /// <summary>
+    /// EVERY ENUM ON THIS ANSWER TRAVELS AS ITS NAME, NEVER ITS NUMBER.
+    ///
+    /// The proof rig caught this on its first run: every reason sentence was correct and every enum came
+    /// back as a digit - "verdict": 1. A client cannot render that. It would have to hold its own copy of
+    /// the declaration order and re-derive what the value means, which is the dumb-client rule broken in
+    /// the one place it matters most, and it is worse than it looks: the numbers are POSITIONAL, so
+    /// inserting a state in the middle silently re-labels every answer already stored or logged.
+    ///
+    /// Asserted on the SERIALISED text rather than on the attribute being present, because the attribute
+    /// is a means and the wire form is the promise.
+    /// </summary>
+    [Fact]
+    public void Every_enum_on_the_answer_is_serialised_as_its_name()
+    {
+        var answer = MachineRestartCapability.Judge(
+            Machine, Registered("2.0.6", TimeSpan.Zero),
+            Streaming(Declares(signalArmed: null, commands: EveryVerbAModernLauncherHas)), Now);
+
+        // The WEB defaults, because that is what the Gateway route serialises with - so this test asks
+        // about the wire the route actually writes, not about a serialiser nothing uses.
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            answer, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"verdict\":\"CanRestart\"", json);
+        Assert.Contains("\"reach\":\"Connected\"", json);
+        Assert.Contains("\"declaration\":\"Declared\"", json);
+        Assert.Contains("\"restartSignal\":\"NotObservable\"", json);
+        Assert.Contains("\"guardedRestart\":\"Unavailable\"", json);
+
+        // And the negative, which is the actual defect: no bare digit where a state belongs.
+        Assert.DoesNotContain("\"verdict\":0", json);
+        Assert.DoesNotContain("\"verdict\":1", json);
+        Assert.DoesNotContain("\"reach\":3", json);
+    }
 }

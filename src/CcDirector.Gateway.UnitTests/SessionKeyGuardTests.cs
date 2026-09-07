@@ -29,6 +29,13 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/machines")]
     [InlineData("GET", "/machines/SOREN_NORTH/apps")]
     [InlineData("GET", "/machines/SOREN_NORTH/files")]
+    // Issue #2720: CAN this machine complete a Director restart? The safest read on this surface - it
+    // sends no command, opens no connection and raises no signal - and the one an agent must be able to
+    // ask, because the alternative is the 2026-09-06 failure: drain seventeen sessions, then discover
+    // the answer was no. It is also what makes the refusal on POST .../director/restart affordable:
+    // asking whether a verb COULD work is not asking to run it, and an agent that can only act blindly
+    // is the argument for widening the admission guard itself.
+    [InlineData("GET", "/machines/SOREN_NORTH/restart-capability")]
     [InlineData("GET", "/missions")]
     [InlineData("GET", "/missions/m-123")]
     [InlineData("GET", "/cron/jobs")]
@@ -273,6 +280,14 @@ public sealed class SessionKeyGuardTests
     // Somebody else's Director process lifecycle on another machine.
     [InlineData("POST", "/machines/SOREN_NORTH/director/stop")]
     [InlineData("POST", "/machines/SOREN_NORTH/director/restart")]
+    // Issue #2720, and the line it is drawing: ASKING whether a machine can be restarted is allowed
+    // above, and the restart itself stays refused - which is the whole reason the query was worth
+    // adding rather than widening the guard. The query is a READ, so a POST to the same path is refused
+    // too: a rule that let a verb through on the strength of a path is a rule a caller can move.
+    [InlineData("POST", "/machines/SOREN_NORTH/restart-capability")]
+    [InlineData("DELETE", "/machines/SOREN_NORTH/restart-capability")]
+    // And nothing hung off it later is reachable by accident - the allow matches a length exactly.
+    [InlineData("GET", "/machines/SOREN_NORTH/restart-capability/history")]
     // Turning a fleet-wide capability off for everyone.
     [InlineData("POST", "/gateway/skills/move-session/disable")]
     [InlineData("POST", "/gateway/workflows/mission/enable")]
