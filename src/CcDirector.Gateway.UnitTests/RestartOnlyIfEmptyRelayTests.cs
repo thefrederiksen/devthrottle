@@ -128,6 +128,11 @@ public sealed class RestartOnlyIfEmptyRelayTests
     [Theory]
     [InlineData("""{"ok":true,"restarted":true,"onlyIfEmpty":true,"sessions":3}""")]
     [InlineData("""{"ok":true,"restarted":false,"onlyIfEmpty":true,"sessions":0}""")]
+    // The launcher saying plainly that it did NOT apply the condition. Everything else about this answer
+    // is in order, which is what makes it dangerous: a check that counted the field instead of reading it
+    // accepted this as a guarantee. A mutation audit found it surviving.
+    [InlineData("""{"ok":true,"restarted":true,"onlyIfEmpty":false,"sessions":0}""")]
+    [InlineData("""{"ok":true,"restarted":true,"onlyIfEmpty":"yes","sessions":0}""")]
     [InlineData("""{"onlyIfEmpty":true}""")]
     [InlineData("""{"ok":true,"restarted":true,"onlyIfEmpty":true,"sessions":"none"}""")]
     [InlineData("not json at all")]
