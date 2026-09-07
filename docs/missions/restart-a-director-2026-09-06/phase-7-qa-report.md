@@ -310,6 +310,31 @@ row went to `promptDeliveryUnresolved: true`. So the seat is incapable, not unwi
 Director knows it at the moment of the attempt, not only ninety minutes later. Artefacts:
 `attachments/wedge-proof/`.
 
+**The negative control, in the same run, on the Architect's condition.** Those signals are only
+evidence if they look different on a seat that received the ask and is merely thinking. So a healthy
+seat (Worker B) was put mid-thought - told to run its tests again, confirmed `Working` - and given
+the same kind of message through the same route at the same moment the wedge's row was read.
+Artefacts: `attachments/control-proof/`.
+
+| Signal | Wedge (RawCli on `ping -t`) | Healthy seat mid-thought (Claude Code running tests) |
+|---|---|---|
+| prompt route `accepted` | **false** - `EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts` | **true** |
+| `activityState` at the attempt | `WaitingForInput` (label Ready) | `Working` |
+| `promptDeliveryUnresolved` right after | **true** | **false** |
+| `failedPromptDeliveries` | 1 | 1 (left over from seeding - the counter is cumulative and does NOT distinguish; the unresolved flag does, because it clears on the next successful delivery) |
+| what the buffer showed | ping replies only, no trace of the text | the text queued in the composer under the running turn |
+| the document asked for | never appeared; the `ping -t` process still alive | written 90 seconds later, 2656 bytes, when the turn ended (turn count 7 to 8) |
+
+So a seat that cannot receive the ask and a seat that is merely busy are told apart at the moment
+of the attempt by two signals - `accepted` and `promptDeliveryUnresolved` - and confirmed by a
+third that needs waiting, the document. What Phase 4's drain does with the first two is the open
+question that decides the ninety minutes: on its branch as pushed, `SendAsync` returning false adds
+only a problem line ("it has no way of knowing a restart is coming") and the seat is left to the
+handover deadline, after which it is `unreachable`. That is a third state the drain already sees and
+folds into the deadline path. If Phase 4 records it at the attempt, the ninety-minute wait
+disappears from this run and the control above is what licenses that; if it does not, the deadline
+stays and this run waits it out.
+
 **Also observed on the rig, against the skill's own text.** The director-restart skill says a
 restarted Director gets a new identifier. On the rig the Director id `9f46482f` SURVIVED a full
 stop and start through the launcher (new pid, same id), because the id store keys on executable
