@@ -1,0 +1,115 @@
+{
+  "repo": ".",
+  "project": "src/CcDirector.Launcher.Tests/CcDirector.Launcher.Tests.csproj",
+  "filter": "FullyQualifiedName~UnreadableRegistrationIsNotAnEmptyInstance|FullyQualifiedName~ARosterThatDidNotAnswer",
+  "mutants": [
+    {
+      "name": "2730-a: nothing-left never becomes Unknown (the pre-fix answer)",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "            if (unreadable.Count > 0)",
+      "replace": "            if (unreadable.Count > 999999)"
+    },
+    {
+      "name": "2730-b: an unparseable registration is silently skipped again",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    yield return (file, home, null, failure);\n                    continue;",
+      "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    continue;"
+    },
+    {
+      "name": "2730-c: a registration that names no Director is silently skipped again",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    yield return (file, home, null, incomplete);\n                    continue;",
+      "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    continue;"
+    },
+    {
+      "name": "2730-f: IsRunning reports an unreadable claim as free",
+      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+      "find": "    public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;",
+      "replace": "    public bool IsRunning => _locator.Resolve().Outcome == DirectorResolution.Running;"
+    },
+    {
+      "name": "2730-g: the corrupt-beside-live case drops the corruption from the answer",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "            return ResolveSingleClaimant(live[0], described) with { Unreadable = unreadable };",
+      "replace": "            return ResolveSingleClaimant(live[0], described);"
+    },
+    {
+      "name": "CONTROL-1: a mutant that cannot COMPILE must report BROKEN, never SURVIVED",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "            if (unreadable.Count > 0)",
+      "replace": "            if (false)",
+      "expect": "BROKEN",
+      "why": "A control. It proves one of this harness's gates FIRES rather than asserting that it would - a zero is only evidence once the instrument has been seen to produce a non-zero."
+    },
+    {
+      "name": "CONTROL-2: an absent anchor must report BROKEN (proves the anchor check only)",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "this string is deliberately not in the file",
+      "replace": "nor is this",
+      "expect": "BROKEN",
+      "why": "A control for the ANCHOR check, and it is labelled as such because it exits before the build - so it does NOT prove the tests-actually-ran gate. CONTROL-3 does that."
+    },
+    {
+      "name": "2730-i: an unreadable DIRECTORY is silently skipped again",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "                FileLog.Write($\"[DirectorInstanceLocator] {listingFailure}\");\n                yield return (dir, home, null, listingFailure);\n                continue;",
+      "replace": "                FileLog.Write($\"[DirectorInstanceLocator] {listingFailure}\");\n                continue;"
+    },
+    {
+      "name": "2730-j: an uninspectable live pid is erased as if dead",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "                FileLog.Write($\"[DirectorInstanceLocator] {uninspectable}\");\n                unreadable.Add(uninspectable);\n                continue;",
+      "replace": "                FileLog.Write($\"[DirectorInstanceLocator] {uninspectable}\");\n                continue;"
+    },
+    {
+      "name": "2730-k: a registration with no start time is accepted as complete",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)",
+      "replace": "                    )"
+    },
+    {
+      "name": "2730-l: the guard fires only for EXACTLY ONE unreadable claim (the fixture blind spot)",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "            if (unreadable.Count > 0)",
+      "replace": "            if (unreadable.Count == 1)"
+    },
+    {
+      "name": "2730-m: ReadStatus drops the unreadable evidence before the update decision",
+      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+      "find": "        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict,\n            lookup.Unreadable);",
+      "replace": "        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict);"
+    },
+    {
+      "name": "2730-n: Start REFUSES on an unreadable claim again (strands a working Director)",
+      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+      "find": "            // Deliberately falls through to the start below.",
+      "replace": "            return;"
+    },
+    {
+      "name": "CONTROL-3: a no-op mutant must report SURVIVED, proving a real run is read",
+      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+      "find": "public enum DirectorResolution",
+      "replace": "public enum DirectorResolution",
+      "expect": "SURVIVED",
+      "why": "The other end of gate two. CONTROL-1 and CONTROL-2 prove the harness reports BROKEN when it cannot get a result; this proves it reports SURVIVED from a run that really happened, rather than only ever being able to say BROKEN or KILLED."
+    },
+    {
+      "name": "2730-e: Start's general guard narrowed to Running only",
+      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+      "find": "        else if (lookup.Outcome != DirectorResolution.NotRunning)",
+      "replace": "        else if (lookup.Outcome == DirectorResolution.Running)"
+    },
+    {
+      "name": "2730-o: a roster that carries no session list is accepted again (positive zero)",
+      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
+      "find": "                if (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement))",
+      "replace": "                if (false && (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement)))"
+    },
+    {
+      "name": "2730-p: an EXPLICIT empty session list is refused too (the over-correction)",
+      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
+      "find": "                return property.Value.ValueKind == JsonValueKind.Array;",
+      "replace": "                return property.Value.ValueKind == JsonValueKind.Array\n                       && property.Value.GetArrayLength() > 0;"
+    }
+  ]
+}
