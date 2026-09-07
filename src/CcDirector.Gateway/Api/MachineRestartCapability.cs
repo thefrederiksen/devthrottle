@@ -62,15 +62,24 @@ internal static class MachineRestartCapability
         var reach = LauncherReachability.Classify(registered, connection is not null, nowUtc);
         var declaration = connection?.Declaration;
 
+        var commands = declaration?.Commands is { Count: > 0 } declared
+            ? declared.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList()
+            : new List<string>();
+
+        // FOUR ANSWERS, AND THE FOURTH IS THE ONE MOST EASILY FOLDED AWAY. A launcher that declared a
+        // vocabulary in which NOT ONE token is familiar is almost certainly NEWER than this Gateway, and
+        // reading that as "it declares nothing" would condemn the newer party for the older one not
+        // understanding it - and would print "update that launcher", the one fix that cannot help.
+        //
+        // An EMPTY but present list is not this state: that launcher spoke and named nothing, which is
+        // testimony. Only a non-empty list with nothing recognisable in it is.
         var declarationState = connection is null
             ? LauncherDeclarationState.NotDeclared
             : declaration is null
                 ? LauncherDeclarationState.DeclaredNothing
-                : LauncherDeclarationState.Declared;
-
-        var commands = declaration?.Commands is { Count: > 0 } declared
-            ? declared.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList()
-            : new List<string>();
+                : commands.Count > 0 && !commands.Any(LauncherCapabilities.Knows)
+                    ? LauncherDeclarationState.DeclaredSomethingUnrecognised
+                    : LauncherDeclarationState.Declared;
 
         var signal = declaration is null
             ? RestartSignalState.NotDeclared
@@ -189,6 +198,14 @@ internal static class MachineRestartCapability
                 + "inferred from the stream rather than taken from the launcher's own word. Update it to get "
                 + "a declared answer.");
 
+        if (dto.Declaration == LauncherDeclarationState.DeclaredSomethingUnrecognised)
+            return new Route(CapabilityState.Unknown,
+                $"its launcher (version {Version(dto)}) holds a live command stream and declared a "
+                + $"vocabulary this Gateway does not recognise ({Commands(commands)}), so whether it can "
+                + "restart a Director cannot be ruled on here. That launcher is most likely NEWER than "
+                + "this Gateway rather than older - update the GATEWAY, and do not read this as a launcher "
+                + "that needs updating.");
+
         if (!Declares(commands, LauncherCapabilities.DirectorRestart))
             return new Route(CapabilityState.Unavailable,
                 $"its launcher (version {Version(dto)}) holds a live command stream and declares that it does "
@@ -267,6 +284,14 @@ internal static class MachineRestartCapability
                 + "its Director still holds live sessions is unknown: it declares no capabilities at all, so "
                 + "it predates the capability handshake. It is NOT the same as a launcher that answered and "
                 + "said no. Update it, and it will say either way.");
+
+        if (dto.Declaration == LauncherDeclarationState.DeclaredSomethingUnrecognised)
+            return (CapabilityState.Unknown,
+                $"whether the launcher on {dto.Machine} (version {Version(dto)}) would refuse a restart "
+                + "while its Director still holds live sessions cannot be ruled on: it declared a "
+                + "vocabulary this Gateway does not recognise. It is NOT a launcher that said no, and it "
+                + "is NOT one that declared nothing - it may well offer a stronger guarantee under a name "
+                + "this Gateway has not learned. Update the Gateway.");
 
         if (!Declares(commands, LauncherCapabilities.DirectorRestartOnlyIfEmpty))
             return (CapabilityState.Unavailable,

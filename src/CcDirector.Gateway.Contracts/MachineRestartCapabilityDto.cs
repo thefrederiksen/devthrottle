@@ -47,9 +47,30 @@ public enum LauncherDeclarationState
     /// capability handshake. Update it, and it will start answering for itself.</summary>
     DeclaredNothing,
 
-    /// <summary>A Hello arrived carrying a declaration. What this launcher honours is known from its own
-    /// word rather than inferred from a version number.</summary>
+    /// <summary>A Hello arrived carrying a declaration we UNDERSTAND - at least one token in it is one
+    /// this Gateway knows. What this launcher honours is known from its own word rather than inferred
+    /// from a version number.</summary>
     Declared,
+
+    /// <summary>
+    /// A Hello arrived carrying a declaration and NOT ONE TOKEN IN IT IS ONE WE KNOW.
+    ///
+    /// THE FOURTH ANSWER, AND IT IS THE ONE MOST EASILY FOLDED AWAY. The obvious reading of "I do not
+    /// recognise anything it said" is "it declares nothing", and that is exactly backwards: a launcher
+    /// declaring an unfamiliar vocabulary is most likely NEWER than this Gateway, not older. Treating it
+    /// as pre-handshake would condemn the newer party on the strength of the older one not understanding
+    /// it, and the fix printed would be "update that launcher" - which is the one thing that cannot help.
+    ///
+    /// It is a different fix from all three of the others: <see cref="NotDeclared"/> means get the
+    /// launcher reachable, <see cref="DeclaredNothing"/> means update the launcher, and this means update
+    /// the GATEWAY, or accept that this machine speaks a vocabulary this Gateway cannot rule on.
+    ///
+    /// WHY IT IS A FOURTH VALUE AND NOT A COUNT. This began as three states because three was the number
+    /// somebody wrote down, and a rule that names a count teaches you to reach the count and stop. The
+    /// shape underneath is: present and understood, present and NOT understood, absent, and could not
+    /// look. Four things with four fixes, and the second one is the one nobody thinks of.
+    /// </summary>
+    DeclaredSomethingUnrecognised,
 }
 
 /// <summary>The state of the local lifecycle signal that asks a launcher to restart its Director.</summary>

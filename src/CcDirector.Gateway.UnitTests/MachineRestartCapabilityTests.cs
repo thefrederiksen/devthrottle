@@ -528,4 +528,132 @@ public sealed class MachineRestartCapabilityTests
         Assert.DoesNotContain("\"verdict\":1", json);
         Assert.DoesNotContain("\"reach\":3", json);
     }
+
+    // =====================================================================================
+    // THE FOURTH ANSWER - a launcher that declared a vocabulary we do not know
+    // =====================================================================================
+
+    /// <summary>
+    /// A launcher whose declaration contains NOT ONE token this Gateway knows.
+    ///
+    /// THE FOURTH STATE, AND THE ONE MOST EASILY FOLDED AWAY. The obvious reading of "I do not
+    /// recognise anything it said" is "it declares nothing", and that is exactly backwards: a launcher
+    /// speaking an unfamiliar vocabulary is most likely NEWER than this Gateway, not older. Folding it
+    /// into DeclaredNothing would condemn the newer party for the older one not understanding it, and
+    /// print "update that launcher" - the one fix that cannot possibly help.
+    ///
+    /// This began as three states because three was the number somebody wrote down, and a rule naming a
+    /// COUNT teaches you to reach the count and stop. The shape underneath is four: present and
+    /// understood, present and NOT understood, absent, and could not look.
+    /// </summary>
+    [Fact]
+    public void A_launcher_declaring_only_unrecognised_tokens_is_its_own_state_and_says_to_update_the_GATEWAY()
+    {
+        // Its local signal is NOT armed, so the stream route's answer is the one that surfaces. With the
+        // signal armed this machine CAN still be restarted locally - asserted separately below, because
+        // that is the correct behaviour and not an exception to this one.
+        var answer = MachineRestartCapability.Judge(
+            Machine, Registered("3.0.0", TimeSpan.Zero),
+            Streaming(Declares(signalArmed: false, commands: new[] { "director/hibernate", "director/quiesce" })),
+            Now);
+
+        Assert.Equal(LauncherDeclarationState.DeclaredSomethingUnrecognised, answer.Declaration);
+        Assert.Equal(RestartVerdict.Unknown, answer.Verdict);
+        Assert.Contains("does not recognise", answer.Reason);
+        Assert.Contains("update the GATEWAY", answer.Reason);
+        Assert.Contains("NEWER than", answer.Reason);
+        Assert.DoesNotContain("Update the launcher on that machine", answer.Reason);
+    }
+
+    /// <summary>
+    /// The four states never share a sentence, asserted as four distinct reasons on one axis. Four enum
+    /// values that rendered the same message would be four distinctions the reader never sees.
+    /// </summary>
+    [Fact]
+    public void All_FOUR_declaration_answers_give_four_different_sentences()
+    {
+        var understood = MachineRestartCapability.Judge(
+            Machine, Registered("2.0.6", TimeSpan.Zero),
+            Streaming(Declares(commands: EveryVerbAModernLauncherHas)), Now);
+        var unrecognised = MachineRestartCapability.Judge(
+            Machine, Registered("3.0.0", TimeSpan.Zero),
+            Streaming(Declares(commands: new[] { "director/quiesce" })), Now);
+        var nothing = MachineRestartCapability.Judge(
+            Machine, Registered("2.0.6", TimeSpan.Zero), Streaming(declaration: null), Now);
+        var neverAsked = MachineRestartCapability.Judge(
+            Machine, Registered("1.9.8", TimeSpan.FromSeconds(5)), connection: null, Now);
+
+        var declarations = new[]
+        {
+            understood.Declaration, unrecognised.Declaration, nothing.Declaration, neverAsked.Declaration,
+        };
+        Assert.Equal(4, declarations.Distinct().Count());
+
+        var guardReasons = new[]
+        {
+            understood.GuardedRestartReason, unrecognised.GuardedRestartReason,
+            nothing.GuardedRestartReason, neverAsked.GuardedRestartReason,
+        };
+        Assert.Equal(4, guardReasons.Distinct().Count());
+    }
+
+    /// <summary>
+    /// A launcher declaring MORE than this Gateway knows is NOT the unrecognised state. As long as one
+    /// token lands the answer is understood and the extras are ignored - otherwise every launcher that
+    /// grew a new capability would be reported as speaking an unknown language.
+    /// </summary>
+    [Fact]
+    public void A_launcher_declaring_extra_tokens_alongside_known_ones_is_simply_understood()
+    {
+        var answer = MachineRestartCapability.Judge(
+            Machine, Registered("3.0.0", TimeSpan.Zero),
+            Streaming(Declares(commands: EveryVerbAModernLauncherHas
+                .Append("director/hibernate").Append("director/quiesce").ToArray())), Now);
+
+        Assert.Equal(LauncherDeclarationState.Declared, answer.Declaration);
+        Assert.Equal(RestartVerdict.CanRestart, answer.Verdict);
+    }
+
+    /// <summary>An EMPTY but present list is not the unrecognised state either: that launcher spoke and
+    /// named nothing, which is testimony, and it is believed rather than inferred around.</summary>
+    [Fact]
+    public void An_empty_declaration_is_Declared_and_not_the_unrecognised_state()
+    {
+        var answer = MachineRestartCapability.Judge(
+            Machine, Registered("2.0.6", TimeSpan.Zero), Streaming(Declares(signalArmed: false)), Now);
+
+        Assert.Equal(LauncherDeclarationState.Declared, answer.Declaration);
+    }
+
+    /// <summary>The vocabulary itself is matched case-insensitively, so a launcher shouting its
+    /// capabilities is not reported as speaking another language.</summary>
+    [Fact]
+    public void The_known_vocabulary_is_matched_regardless_of_case()
+    {
+        Assert.True(LauncherCapabilities.Knows("DIRECTOR/RESTART"));
+        Assert.False(LauncherCapabilities.Knows("director/quiesce"));
+        Assert.False(LauncherCapabilities.Knows(null));
+        Assert.False(LauncherCapabilities.Knows("  "));
+    }
+
+    /// <summary>
+    /// An unrecognised vocabulary does NOT spoil a local restart signal that is armed. The Gateway not
+    /// understanding what a launcher calls its capabilities says nothing about whether a Director on
+    /// that machine can ask its own launcher to restart it - and reporting unknown there would refuse a
+    /// machine that is demonstrably restartable, which is the same mistake as condemning the newer party.
+    /// </summary>
+    [Fact]
+    public void An_unrecognised_vocabulary_does_not_spoil_an_armed_local_signal()
+    {
+        var answer = MachineRestartCapability.Judge(
+            Machine, Registered("3.0.0", TimeSpan.Zero),
+            Streaming(Declares(signalArmed: true, commands: new[] { "director/quiesce" })), Now);
+
+        Assert.Equal(LauncherDeclarationState.DeclaredSomethingUnrecognised, answer.Declaration);
+        Assert.Equal(RestartVerdict.CanRestart, answer.Verdict);
+        Assert.Contains("listening for the local restart signal", answer.Reason);
+
+        // And the GUARD is still unknown, because that question is about the vocabulary.
+        Assert.Equal(CapabilityState.Unknown, answer.GuardedRestart);
+    }
 }
