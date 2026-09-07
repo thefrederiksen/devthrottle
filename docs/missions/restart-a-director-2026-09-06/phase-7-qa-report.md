@@ -329,10 +329,69 @@ Each must be shown FAILING correctly in this same pass:
 | Recover from that blocked drain with no restart | closed seats come back doing their own work; no live seat duplicated | NOT YET RUN | |
 | Corrupt a registration while sessions are live, ask for a restart | REFUSED (issue 2730) | NOT YET RUN | |
 
-## What this run still did not exercise
+## What this run does not certify
 
-- The owner's own accept on his own surface (see The approval). Run two.
-- NOT YET COMPLETE - filled after the run.
+**The form of this section is deliberate, and it is the Architect's.** A confession - "we did not
+exercise X" - costs the confessor nothing and obliges nobody; a reader nods and proceeds. A withheld
+certification obliges somebody else: *this run does not certify X; nobody may rely on X until Y.*
+These are the sentences a future reader leans on when deciding what is safe, so every line below is
+written to stop somebody doing something, and names what would close it. The lines that do not stop
+anybody are kept at the bottom and labelled as the weaker kind, so a reader can tell which sentences
+are load-bearing.
+
+### Withheld - each of these gates something
+
+1. **The blocked path.** This run does not yet certify that a drain refuses correctly when a seat
+   cannot reach a clean stop. Nobody may rely on never-force having ever been exercised - and no
+   document may say it has - until the blocked-drain run in this report has been performed on the
+   genuinely wedged seat and its stored record shows `directorOutcome: not-restarted`, the wedge
+   still running, and every already-closed seat back with `seatOutcome.scope: all`. Until then every
+   claim about never-force in this repository, the director-restart skill included, rests on a path
+   nobody has watched run. (Status: NOT YET RUN - this line converts when the run is recorded below.)
+2. **A launcher that is a live Director's parent has never been swapped.** This run does not
+   certify that the Phase 0 launcher update is safe on a machine whose Director carries live
+   sessions. Nobody may rely on "a launcher swap never orphans its Director" on any machine until a
+   swap has been performed on a launcher that IS the parent of a Director holding live sessions, and
+   those sessions observed surviving it. The no-orphan invariant is asserted only through a fake in
+   `LauncherUpdateOwnerTests`; the rig's launcher is the parent of a live Director but this run
+   RESTARTS that Director through it and never swaps the launcher underneath it. Closing it is a
+   deliberate swap on a rig launcher with sessions live, with the owner's standing instruction
+   satisfied before it is ever done on SOREN_NORTH's real launcher.
+3. **The owner's accept on production.** This run does not certify that the owner can accept a
+   restart from his own phone against production. Nobody may treat the hosted accept path - the
+   request surfacing as a Needs-you item on his Director and his mobile app, the accept on the
+   hosted Gateway's admission surface, the tenant boundary that resolves who is asking - as proven
+   until run two has been performed on DevThrottle_1 against `gateway.devthrottle.com`, driven from
+   SORENLAPTOP, and its record is in this repository. Run one's accept is performed by the driver
+   with the rig Gateway's self-host shared token, on a Cockpit built from this tree; it proves the
+   screen and the mechanism and nothing about his experience of it.
+4. **The hosted Gateway.** This run does not certify anything about multi-tenant behaviour. Nobody
+   may rely on the request, the scrutiny or the workspace store behaving on the hosted Gateway until
+   run two, because the rig Gateway is the self-host build with one tenant and a shared token, and
+   every route that resolves a tenant from a device key resolved `Local` here.
+5. **The ninety-minute unreachable path.** Unless the run below records the wedge as `unreachable`
+   after Phase 4's handover deadline, this run does not certify that a seat which never answers is
+   recorded that way. Nobody may rely on the deadline path until a run has waited it out. (The
+   Director refused delivery to the wedge at the moment of the attempt; where Phase 4 records a seat
+   its prompt route would not deliver to is itself a finding to be read from the record, not assumed.)
+6. **A different machine.** This run does not certify the cycle on any machine but SOREN_NORTH, on
+   any operating system but Windows, or on any launcher but the one built from this tree. Nobody may
+   rely on it for SORENLAPTOP (launcher 1.8.3), DEV_2 (1.9.8) or the Mac mini (1.9.10) until the
+   Phase 1 capability check has answered for each and a run has been done there.
+
+### The weaker kind - kept, and labelled
+
+These inform a reader and oblige nobody. They are here because leaving them out would be a report
+that did not look, not because anyone should act on them.
+
+- Worker B's foreground test run dies at the restart, by design; its handover is expected to say so
+  and to give the command to re-run it. What was actually lost is listed under "What was lost".
+- The Director id on the rig survived a launcher-driven stop and start; the director-restart skill
+  says a restart mints a new one. Neither is a rule; re-read the registration.
+- Four of eight seed prompts parked in an initialising composer during seeding; the Director flagged
+  each and a re-send cleared them. This is a finding about seeding, not about the restart.
+- The Cockpit and mobile shells on the rig are built from this tree at the commit `status` reports,
+  not the release the owner runs.
 
 ## How we came to believe something untrue
 
