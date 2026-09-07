@@ -56,7 +56,7 @@ public static class LegacyWorkspaceImport
     /// <param name="catalog">Where the workspaces go.</param>
     /// <param name="folderPath">The legacy folder. Null uses this machine's real one; tests pass their own.</param>
     /// <param name="ct">Cancellation.</param>
-    public static async Task<int> RunOnceAsync(
+    public static async Task<LegacyImportResult> RunOnceAsync(
         IWorkspaceCatalog catalog, string? folderPath = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -64,24 +64,25 @@ public static class LegacyWorkspaceImport
         await Gate.WaitAsync(ct);
         try
         {
-            if (_done) return 0;
+            if (_done) return LegacyImportResult.Nothing;
 
             var folder = folderPath ?? CcStorage.Workspaces();
             if (!Directory.Exists(folder))
             {
                 _done = true;
-                return 0;
+                return LegacyImportResult.Nothing;
             }
 
-            // SORTED, so which file wins a slug collision is a defined answer and not whatever the
-            // filesystem happened to enumerate first. Two files can give the same id, one of them is
-            // refused, and "which one" must not vary between machines.
+            // SORTED ORDINALLY, so which file wins a slug collision is a defined answer and not whatever
+            // the filesystem happened to enumerate first. Ordinal and not case-insensitive: two names
+            // differing only by case compare EQUAL under the latter, which puts the winner back in the
+            // hands of the filesystem on any system where both can exist.
             var files = Directory.GetFiles(folder, "*.workspace.json");
-            Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+            Array.Sort(files, StringComparer.Ordinal);
             if (files.Length == 0)
             {
                 _done = true;
-                return 0;
+                return LegacyImportResult.Nothing;
             }
 
             FileLog.Write($"[LegacyWorkspaceImport] RunOnceAsync: {files.Length} legacy file(s) in {folder}");
@@ -95,6 +96,7 @@ public static class LegacyWorkspaceImport
             var claimedInThisRun = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             var imported = 0;
+            var refused = new List<string>();
             foreach (var file in files)
             {
                 var name = Path.GetFileName(file);
@@ -109,6 +111,7 @@ public static class LegacyWorkspaceImport
                     // Left exactly where it is, under its own name, so the bytes are still there for
                     // somebody to look at. Renaming it aside would say it had been dealt with.
                     FileLog.Write($"[LegacyWorkspaceImport] REFUSED {name}: {ex.Message}");
+                    refused.Add($"{name}: {ex.Message}");
                     continue;
                 }
 
@@ -118,6 +121,9 @@ public static class LegacyWorkspaceImport
                         $"[LegacyWorkspaceImport] REFUSED {name}: its name gives the id '{doc.Id}', which " +
                         $"{firstFile} already claimed in this run. Rename one of them and try again; " +
                         "importing it would overwrite the other.");
+                    refused.Add(
+                        $"{name}: its name gives the same id as {firstFile}, so importing it would " +
+                        "overwrite that one. Rename one of them.");
                     continue;
                 }
 
@@ -141,13 +147,31 @@ public static class LegacyWorkspaceImport
             }
 
             _done = true;
-            FileLog.Write($"[LegacyWorkspaceImport] RunOnceAsync: {imported} workspace(s) imported");
-            return imported;
+            FileLog.Write(
+                $"[LegacyWorkspaceImport] RunOnceAsync: {imported} workspace(s) imported, " +
+                $"{refused.Count} refused");
+            return new LegacyImportResult(imported, refused);
         }
         finally
         {
             Gate.Release();
         }
+    }
+
+    /// <summary>
+    /// What the import did: how many went up, and every file it REFUSED with the reason.
+    ///
+    /// The refusals are returned rather than only logged, because otherwise "there were no legacy files"
+    /// and "your saved files were refused and are missing from this list" produce the same screen - a
+    /// list that reads as complete and is not. That is the same shape as everything else this change
+    /// spent the day removing.
+    /// </summary>
+    /// <param name="Imported">How many workspaces were pushed to the Gateway.</param>
+    /// <param name="Refused">One line per file that was left alone, saying which and why.</param>
+    public sealed record LegacyImportResult(int Imported, IReadOnlyList<string> Refused)
+    {
+        /// <summary>Nothing to do: no folder, or no legacy files in it.</summary>
+        public static LegacyImportResult Nothing { get; } = new(0, Array.Empty<string>());
     }
 
     /// <summary>Reset the once-per-process gate. Tests only.</summary>

@@ -92,6 +92,13 @@ public sealed class WorkspaceProvenanceAndMalformedBodyTests : IDisposable
         // A captured seat names its session - that is what a capture reads - and the seat rule matches
         // the incoming seats against the stored ones by that id.
         captured.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        captured.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Why = "head of the mission",
+            Command = "cc-devthrottle session spawn ...",
+        };
+        captured.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
         store.Create(captured, Now);
 
         // The drain writes its judgments back through the ordinary path - and tries to move the record
@@ -106,6 +113,13 @@ public sealed class WorkspaceProvenanceAndMalformedBodyTests : IDisposable
         edited.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
         edited.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 1 };
         edited.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        edited.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Why = "head of the mission",
+            Command = "cc-devthrottle session spawn ...",
+        };
+        edited.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
         edited.Seats[0].DrainState = WorkspaceDrainStates.Drained;
         store.Save(edited, Later);
 
@@ -136,6 +150,8 @@ public sealed class WorkspaceProvenanceAndMalformedBodyTests : IDisposable
         captured.Machine = "SOREN_NORTH";
         captured.DirectorId = "6d4523e2-ed03-4ae6-ac1c-71d00a37bad1";
         captured.DirectorVersionBefore = "2.0.5";
+        // A captured seat names its session - the capture path refuses one that does not.
+        captured.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
 
         NewStore().Create(captured, Now);
 

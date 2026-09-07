@@ -1917,8 +1917,13 @@ public partial class MainWindow : Window
     {
         try
         {
-            await Task.Run(() => LegacyWorkspaceImport.RunOnceAsync(catalog));
-            return null;
+            var result = await Task.Run(() => LegacyWorkspaceImport.RunOnceAsync(catalog));
+            if (result.Refused.Count == 0) return null;
+
+            // A refused file is a workspace the user saved that is NOT in the list they are about to
+            // look at. Saying nothing makes that list read as complete.
+            return "Some workspaces saved on this machine before they moved to the Gateway were not " +
+                   "imported and are still on disk: " + string.Join("; ", result.Refused);
         }
         catch (Exception ex)
         {

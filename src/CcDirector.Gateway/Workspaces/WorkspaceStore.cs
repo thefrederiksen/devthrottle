@@ -276,6 +276,14 @@ public sealed class WorkspaceStore
             var from = storedSeats[seat.SessionId!];
 
             // What the Gateway OBSERVED. Restored from the stored copy on every write.
+            //
+            // The SESSION ID is restored as well as matched on, so a caller who spells the stored GUID
+            // in another case does not change the stored spelling; and the seat's UNKNOWN fields are
+            // restored, because a fact a newer Gateway observed and this build has no name for is still
+            // an observation - leaving that bag to the caller would let exactly the fields nobody here
+            // can read be the ones that are rewritten.
+            seat.SessionId = from.SessionId;
+            seat.Unknown = from.Unknown;
             seat.Name = from.Name;
             seat.Agent = from.Agent;
             seat.Model = from.Model;
@@ -294,6 +302,12 @@ public sealed class WorkspaceStore
 
             // Everything else on the seat - the handover path, the drain state, the restore decision,
             // what came back - is a judgment somebody made, and the caller's copy is kept.
+            //
+            // KNOWN LIMIT, stated rather than left to be found: the DOCUMENT-level unknown bag is NOT
+            // restored. A newer build could put either kind of field there - a provenance fact or a
+            // judgment - and this build cannot tell which, so restoring it would silently discard
+            // legitimate new judgments and leaving it does allow a future provenance field to be
+            // rewritten. It is left with the caller because losing a judgment is the worse of the two.
         }
     }
 

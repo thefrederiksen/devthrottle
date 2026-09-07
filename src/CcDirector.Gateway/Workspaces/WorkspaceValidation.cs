@@ -107,6 +107,15 @@ public static class WorkspaceValidation
         // seat outcome and the seats themselves. There is nothing a caller can send here to be wrong
         // about, which is the whole reason it was made a view rather than a field.
 
+        // An AUTHORED workspace is not the record of a run, so it cannot say how one ended. Without this
+        // "origin" is a label rather than an invariant, and a hand-written list of seats can claim a
+        // Director was restarted.
+        if (doc.Origin == WorkspaceOrigins.Authored
+            && (doc.DirectorOutcome is not null || doc.SeatOutcome is not null))
+            throw new WorkspaceValidationException(
+                "An authored workspace is not the record of a run, so it cannot carry a directorOutcome " +
+                "or a seatOutcome. Those are written onto a workspace captured from a Director.");
+
         if (doc.DirectorOutcome is not null && !WorkspaceDirectorOutcomes.All.Contains(doc.DirectorOutcome))
             throw new WorkspaceValidationException(
                 $"directorOutcome must be one of: {string.Join(", ", WorkspaceDirectorOutcomes.All)} " +
@@ -126,14 +135,18 @@ public static class WorkspaceValidation
                 throw new WorkspaceValidationException(
                     "seatOutcome says seats were not restored, so it must say why (notRestoredWhy).");
 
-            // The counts cannot describe more seats than the workspace has. Without this a one-seat
-            // workspace can record four seats restored, and every count in the record is then a number
-            // somebody typed rather than something that happened.
-            var seatCount = doc.Seats?.Count ?? 0;
+            // THE COUNTS HAVE A DENOMINATOR, and it is not the size of the fleet: it is the set of seats
+            // somebody DECIDED to bring back. Bounding them by the fleet size alone left the unnamed
+            // state "some owed seats are not accounted for" falling into "all" - four seats owed, one
+            // restored, none missing, and the record says everything came back.
+            var owed = doc.Seats?.Count(x =>
+                x?.Restore is { Decision: WorkspaceRestoreDecisions.Restore }) ?? 0;
             var accounted = (long)seatOutcome.RestoredCount + seatOutcome.NotRestoredCount;
-            if (accounted > seatCount)
+            if (accounted != owed)
                 throw new WorkspaceValidationException(
-                    $"seatOutcome accounts for {accounted} seat(s), but this workspace has {seatCount}.");
+                    $"seatOutcome accounts for {accounted} seat(s), but {owed} seat(s) in this workspace " +
+                    "were decided \"restore\". Every seat that was owed has to be either restored or " +
+                    "explained.");
 
             // scope is NOT validated: it is derived from the two counts above, so there is nothing a
             // caller can send that could be wrong, and nothing that could disagree with them.
@@ -156,7 +169,7 @@ public static class WorkspaceValidation
 
         var seenSessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < doc.Seats.Count; i++)
-            ValidateSeat(doc.Seats[i], i, seenSessionIds);
+            ValidateSeat(doc.Seats[i], i, seenSessionIds, doc.Origin == WorkspaceOrigins.Captured);
 
         if (doc.OwnerQuestions is null)
             throw new WorkspaceValidationException("ownerQuestions is required (send an empty list, not null).");
@@ -299,7 +312,8 @@ public static class WorkspaceValidation
         }
     }
 
-    private static void ValidateSeat(WorkspaceSeat? seat, int index, HashSet<string> seenSessionIds)
+    private static void ValidateSeat(
+        WorkspaceSeat? seat, int index, HashSet<string> seenSessionIds, bool isCaptured)
     {
         if (seat is null)
             throw new WorkspaceValidationException($"seats[{index}] is empty.");
@@ -322,6 +336,10 @@ public static class WorkspaceValidation
         // has to follow it; and it also accepts "ClaudeCode, Codex", which parses to a REAL member by
         // combining the two, so a comma is refused before either. Any of the three alone stores an agent
         // nobody chose and hands it to the code that starts a process.
+        // Capped BEFORE it is parsed, so a megabyte of nonsense is refused by its size rather than
+        // echoed back inside the "not an agent this Gateway knows" message.
+        CapLength($"{where}.agent", seat.Agent, MaxShortFieldChars);
+
         var agentName = seat.Agent.Trim();
         if (agentName.Contains(',')
             || !Enum.TryParse<AgentKind>(agentName, ignoreCase: true, out var parsedAgent)
@@ -331,7 +349,6 @@ public static class WorkspaceValidation
                 $"Valid agents: {string.Join(", ", Enum.GetNames<AgentKind>())}.");
 
         CapLength($"{where}.name", seat.Name, MaxShortFieldChars);
-        CapLength($"{where}.agent", seat.Agent, MaxShortFieldChars);
         CapLength($"{where}.model", seat.Model, MaxShortFieldChars);
         CapLength($"{where}.repoPath", seat.RepoPath, MaxPathChars);
         CapLength($"{where}.role", seat.Role, MaxShortFieldChars);
@@ -373,6 +390,14 @@ public static class WorkspaceValidation
             CapLength($"{where}.stateAtDrain.stateLabel", state.StateLabel, MaxShortFieldChars);
             CapLength($"{where}.stateAtDrain.triageBucket", state.TriageBucket, MaxShortFieldChars);
         }
+
+        // A CAPTURED seat is a session that was running, so it names one. Without this the capture path
+        // can store an anonymous seat that no later write can ever touch: the seat rule matches incoming
+        // seats to stored ones by id, so a seat with none is unmatchable for ever.
+        if (isCaptured && string.IsNullOrWhiteSpace(seat.SessionId))
+            throw new WorkspaceValidationException(
+                $"{where} is in a captured workspace and names no session. A capture reads running " +
+                "sessions, so every seat in one has a sessionId.");
 
         if (!string.IsNullOrWhiteSpace(seat.SessionId))
         {
@@ -438,12 +463,16 @@ public static class WorkspaceValidation
         foreach (var (key, value) in unknown)
         {
             CapLength($"{where}[] key", key, MaxShortFieldChars);
-            total += value.GetRawText().Length;
+            // BYTES, not characters: GetRawText().Length counts UTF-16 units, so a cap measured that way
+            // admits far more than it says for anything that is not ASCII. The key is counted too - a
+            // thousand long names is the same problem as one long value.
+            total += System.Text.Encoding.UTF8.GetByteCount(key)
+                     + System.Text.Encoding.UTF8.GetByteCount(value.GetRawText());
         }
 
         if (total > MaxUnknownBytes)
             throw new WorkspaceValidationException(
-                $"{where} carries {total} characters this build does not know; the limit is {MaxUnknownBytes}.");
+                $"{where} carries {total} bytes this build does not know; the limit is {MaxUnknownBytes}.");
     }
 
     private static void CapLength(string field, string? value, int max)

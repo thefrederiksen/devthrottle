@@ -100,7 +100,8 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         var catalog = new FakeCatalog();
         var imported = await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir);
 
-        Assert.Equal(2, imported);
+        Assert.Equal(2, imported.Imported);
+        Assert.Empty(imported.Refused);
         Assert.True(catalog.Stored.ContainsKey("morning-fleet"));
         Assert.True(catalog.Stored.ContainsKey("new-studio-cube"));
 
@@ -173,7 +174,8 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
 
         // The Gateway's copy is the one people have been editing since the move. Overwriting it with a
         // file from before the upgrade would lose exactly the work this import exists to protect.
-        Assert.Equal(0, imported);
+        Assert.Equal(0, imported.Imported);
+        Assert.Empty(imported.Refused);
         Assert.Equal(0, catalog.SaveCalls);
         Assert.Equal("the edited one", catalog.Stored["morning-fleet"].Seats[0].Name);
 
@@ -193,7 +195,7 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         await File.WriteAllTextAsync(archive, "the older saved workspace nobody must lose");
 
         var catalog = new FakeCatalog();
-        Assert.Equal(1, await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir));
+        Assert.Equal(1, (await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir)).Imported);
 
         // The old archive is untouched and the new one went somewhere else.
         Assert.Equal("the older saved workspace nobody must lose", await File.ReadAllTextAsync(archive));
@@ -208,8 +210,8 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
             LegacyBody("Morning fleet", (@"D:\ReposFred\devthrottle", "Gateway work", "ClaudeCode")));
 
         var catalog = new FakeCatalog();
-        Assert.Equal(1, await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir));
-        Assert.Equal(0, await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir));
+        Assert.Equal(1, (await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir)).Imported);
+        Assert.Equal(0, (await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir)).Imported);
         Assert.Equal(1, catalog.SaveCalls);
     }
 
@@ -226,7 +228,9 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
 
         // The good one still goes up; the unreadable one keeps its name so the bytes are findable, and
         // renaming it aside would say it had been dealt with when it has not.
-        Assert.Equal(1, imported);
+        Assert.Equal(1, imported.Imported);
+        Assert.Single(imported.Refused);
+        Assert.Contains("broken.workspace.json", imported.Refused[0]);
         Assert.True(File.Exists(good + LegacyWorkspaceImport.ImportedSuffix));
         Assert.True(File.Exists(bad));
         Assert.False(File.Exists(bad + LegacyWorkspaceImport.ImportedSuffix));
@@ -244,7 +248,9 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         var imported = await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir);
 
         // Importing the entry that parsed and renaming the file as done would silently drop the other.
-        Assert.Equal(0, imported);
+        Assert.Equal(0, imported.Imported);
+        Assert.Single(imported.Refused);
+        Assert.Contains("no repoPath", imported.Refused[0]);
         Assert.Empty(catalog.Stored);
         Assert.True(File.Exists(partial));
         Assert.False(File.Exists(partial + LegacyWorkspaceImport.ImportedSuffix));
@@ -256,7 +262,7 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         var empty = WriteLegacy("empty.workspace.json", LegacyBody("Empty fleet"));
 
         var catalog = new FakeCatalog();
-        Assert.Equal(0, await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir));
+        Assert.Equal(0, (await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir)).Imported);
         Assert.Empty(catalog.Stored);
         Assert.True(File.Exists(empty));
     }
@@ -273,7 +279,9 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         var catalog = new FakeCatalog();
         var imported = await LegacyWorkspaceImport.RunOnceAsync(catalog, _dir);
 
-        Assert.Equal(1, imported);
+        Assert.Equal(1, imported.Imported);
+        Assert.Single(imported.Refused);
+        Assert.Contains("b-morning.workspace.json", imported.Refused[0]);
         Assert.Equal("the first one", catalog.Stored["morning-fleet"].Seats[0].Name);
 
         // The loser is LEFT IN PLACE. Renaming it aside would say it had been dealt with, and its
@@ -287,7 +295,8 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
     public async Task A_folder_that_does_not_exist_imports_nothing_and_does_not_throw()
     {
         var catalog = new FakeCatalog();
-        Assert.Equal(0, await LegacyWorkspaceImport.RunOnceAsync(
-            catalog, Path.Combine(_dir, "no-such-folder")));
+        var result = await LegacyWorkspaceImport.RunOnceAsync(catalog, Path.Combine(_dir, "no-such-folder"));
+        Assert.Equal(0, result.Imported);
+        Assert.Empty(result.Refused);
     }
 }

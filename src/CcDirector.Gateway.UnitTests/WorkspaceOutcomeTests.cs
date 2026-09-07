@@ -56,12 +56,20 @@ public sealed class WorkspaceOutcomeTests : IDisposable
             // describe. A one-seat fixture would have made "four restored" a valid document.
             Seats =
             {
+                // TWO of the four are decided restore, so exactly two seats are OWED - the counts in
+                // these tests are checked against that, not against the size of the fleet.
                 new WorkspaceSeat
                 {
                     SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c",
                     Name = "Linux Support - Architect",
                     Agent = "ClaudeCode",
                     RepoPath = @"D:\ReposFred\devthrottle_internal",
+                    Restore = new WorkspaceSeatRestore
+                    {
+                        Decision = WorkspaceRestoreDecisions.Restore,
+                        Why = "head of the mission",
+                        Command = "cc-devthrottle session spawn ...",
+                    },
                 },
                 new WorkspaceSeat
                 {
@@ -70,6 +78,12 @@ public sealed class WorkspaceOutcomeTests : IDisposable
                     Agent = "ClaudeCode",
                     RepoPath = @"D:\ReposFred\devthrottle_internal",
                     SortOrder = 1,
+                    Restore = new WorkspaceSeatRestore
+                    {
+                        Decision = WorkspaceRestoreDecisions.Restore,
+                        Why = "real continuing work",
+                        Command = "cc-devthrottle session spawn ...",
+                    },
                 },
                 new WorkspaceSeat
                 {
@@ -88,6 +102,11 @@ public sealed class WorkspaceOutcomeTests : IDisposable
                     SortOrder = 3,
                 },
             },
+            RestoreAfterRestart =
+            {
+                "5ff9ab8b-07d3-4b23-953b-6c853760b56c",
+                "e777d59f-33d3-4732-8ec8-764e368db408",
+            },
         };
 
     // ---- The combination that had no word ------------------------------------------------------------
@@ -99,7 +118,7 @@ public sealed class WorkspaceOutcomeTests : IDisposable
         doc.Seats[0].DrainState = WorkspaceDrainStates.Blocked;
         doc.Seats[0].BlockedReason = "mid-merge, cannot reach a clean stop";
         doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
-        doc.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 4 };
+        doc.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 2 };
 
         Store(doc);
         var got = NewStore().Get("director-restart")!;
@@ -107,7 +126,7 @@ public sealed class WorkspaceOutcomeTests : IDisposable
         // The two facts are both there, and they are separate.
         Assert.Equal(WorkspaceDirectorOutcomes.NotRestarted, got.DirectorOutcome);
         Assert.Equal(WorkspaceSeatOutcomes.All_, got.SeatOutcome!.Scope);
-        Assert.Equal(4, got.SeatOutcome.RestoredCount);
+        Assert.Equal(2, got.SeatOutcome.RestoredCount);
 
         // And the seat that would not stop is still recorded as what it was, in its own words, rather
         // than collapsed into a single word for the run.
@@ -122,17 +141,13 @@ public sealed class WorkspaceOutcomeTests : IDisposable
     [InlineData(WorkspaceDirectorOutcomes.Restarted, WorkspaceSeatOutcomes.None)]
     // The Director came back and only SOME seats did - a combination the four words never had.
     [InlineData(WorkspaceDirectorOutcomes.Restarted, WorkspaceSeatOutcomes.Some)]
-    // Nothing was owed and the Director came back.
-    [InlineData(WorkspaceDirectorOutcomes.Restarted, WorkspaceSeatOutcomes.NothingToRestore)]
     // The restart was REFUSED and the seats came back anyway - two facts the old word could not separate
     // from a session that would not stop, because both were "blocked".
     [InlineData(WorkspaceDirectorOutcomes.RestartRefused, WorkspaceSeatOutcomes.All_)]
-    [InlineData(WorkspaceDirectorOutcomes.RestartRefused, WorkspaceSeatOutcomes.NothingToRestore)]
     // No restart at all, and the seats brought back: the combination that started this.
     [InlineData(WorkspaceDirectorOutcomes.NotRestarted, WorkspaceSeatOutcomes.All_)]
     [InlineData(WorkspaceDirectorOutcomes.NotRestarted, WorkspaceSeatOutcomes.Some)]
     [InlineData(WorkspaceDirectorOutcomes.NotRestarted, WorkspaceSeatOutcomes.None)]
-    [InlineData(WorkspaceDirectorOutcomes.NotRestarted, WorkspaceSeatOutcomes.NothingToRestore)]
     public void Every_combination_of_the_two_facts_is_expressible_and_survives_a_round_trip(
         string director, string scope)
     {
@@ -238,31 +253,9 @@ public sealed class WorkspaceOutcomeTests : IDisposable
         Assert.Contains("notRestoredWhy", ex.Message);
     }
 
-    [Fact]
-    public void Nothing_owed_and_nothing_missing_are_different_answers()
-    {
-        var store = NewStore();
-
-        var nothingOwed = Captured();
-        nothingOwed.SeatOutcome = new WorkspaceSeatOutcome();
-        Store(nothingOwed);
-        Assert.Equal(WorkspaceSeatOutcomes.NothingToRestore,
-            store.Get("director-restart")!.SeatOutcome!.Scope);
-
-        var everythingMissing = Captured();
-        everythingMissing.SeatOutcome = new WorkspaceSeatOutcome
-        {
-            NotRestoredCount = 4,
-            NotRestoredWhy = "the restore was never run",
-        };
-        Store(everythingMissing);
-        var got = store.Get("director-restart")!;
-
-        // If these two shared a value, the record could not tell "nobody was owed anything" from "four
-        // seats are gone and nobody came back for them".
-        Assert.Equal(WorkspaceSeatOutcomes.None, got.SeatOutcome!.Scope);
-        Assert.Equal(4, got.SeatOutcome.NotRestoredCount);
-    }
+    // "Nothing owed" versus "everything owed is missing" lives in
+    // WorkspaceOwedSeatsAndOriginRulesTests, where the fixture can vary how many seats were owed -
+    // the counts here are checked against the two this one decides to restore.
 
     [Fact]
     public void An_unknown_director_outcome_is_refused()
