@@ -201,7 +201,20 @@ Copy-Item $oldBuild (Join-Path $launcherDir "cc-launcher.exe") -Force
 Copy-Item $newBuild (Join-Path $stagedDir  "cc-launcher.exe") -Force
 @{ "cc-launcher" = $OldVersion } | ConvertTo-Json | Set-Content -Path (Join-Path $setupDir "installed.json") -Encoding utf8
 
-Say "isolated root laid out at $Root (installed $OldVersion, staged $NewVersion)"
+# THE RIG'S WORLD MUST NOT REACH THE INTERNET. A launcher serving this root runs its OWN periodic
+# auto-update, and it does not care that it is in a test rig: on 2026-09-07 the rig's 2.0.4 launcher
+# reached GitHub, downloaded the real 2.0.6 release, overwrote the 2.0.99 build this script had
+# staged, and installed itself over the rig's own installed binary. The proof then reported "nothing
+# is staged" - a FAIL that said nothing whatever about the code under test, and which could as
+# easily have been a PASS measured against binaries this script never put there.
+#
+# A rig that races the real release feed is not a controlled experiment. Switched off in the config
+# the launcher reads, and again through the environment variable, because the launcher started by
+# the SWAP inherits its environment from the driver rather than from this script.
+@{ autoUpdate = @{ enabled = $false } } | ConvertTo-Json |
+    Set-Content -Path (Join-Path $Root "config\config.json") -Encoding utf8
+
+Say "isolated root laid out at $Root (installed $OldVersion, staged $NewVersion); auto-update OFF"
 
 # ---------------------------------------------------------------------------
 # 3. Start the rig's launcher, pointed at the isolated root.
@@ -221,6 +234,7 @@ $psi.CreateNoWindow = $true
 # single Arguments string is the only form available here.
 $psi.Arguments = "--managed"
 $psi.EnvironmentVariables["CC_DIRECTOR_ROOT"] = $Root
+$psi.EnvironmentVariables["CC_AUTOUPDATE"] = "0"
 $rig = [System.Diagnostics.Process]::Start($psi)
 Say "started the rig launcher: pid $($rig.Id)"
 
@@ -244,6 +258,8 @@ Say "the rig launcher registered: $(Get-Content $registration -Raw)"
 #    the script hangs after printing PASS. Observed 2026-09-06: the first
 #    successful run hung for ten minutes with the proof already passed.
 # ---------------------------------------------------------------------------
+# Inherited by the driver, and so by the launcher the SWAP starts.
+$env:CC_AUTOUPDATE = "0"
 try {
     $driver = Start-Process -FilePath "dotnet" -PassThru -NoNewWindow `
         -RedirectStandardOutput $proofOut -RedirectStandardError $proofErr `
