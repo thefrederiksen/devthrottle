@@ -51,6 +51,19 @@ public sealed class LegacyWorkspaceImportTests : IDisposable
         public Task<WorkspaceDocument?> GetAsync(string id, CancellationToken ct = default)
             => Task.FromResult(Stored.TryGetValue(id, out var d) ? d : null);
 
+        // Create-only, the way the Gateway decides it: under the same lock it writes under, so there
+        // is no snapshot for the caller to act on and no gap for a write to be lost in.
+        public Task<WorkspaceDocument> CreateAsync(WorkspaceDocument doc, CancellationToken ct = default)
+        {
+            if (Stored.ContainsKey(doc.Id))
+                return Task.FromException<WorkspaceDocument>(
+                    new CcDirector.ControlApi.WorkspaceAlreadyExistsException(doc.Id));
+
+            SaveCalls++;
+            Stored[doc.Id] = doc;
+            return Task.FromResult(doc);
+        }
+
         public Task<WorkspaceDocument> SaveAsync(WorkspaceDocument doc, CancellationToken ct = default)
         {
             SaveCalls++;

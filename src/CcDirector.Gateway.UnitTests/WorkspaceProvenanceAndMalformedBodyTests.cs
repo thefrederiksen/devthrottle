@@ -121,6 +121,9 @@ public sealed class WorkspaceProvenanceAndMalformedBodyTests : IDisposable
         };
         edited.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
         edited.Seats[0].DrainState = WorkspaceDrainStates.Drained;
+        // The one seat the outcome says came back names the session it came back as - a count on its
+        // own is not evidence that anything was restored.
+        edited.Seats[0].RestoredSessionId = "9a1b0c2d-0000-4000-8000-000000000000";
         store.Save(edited, Later);
 
         var got = store.Get("director-restart")!;

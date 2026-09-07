@@ -70,6 +70,22 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         return doc;
     }
 
+    /// <summary>
+    /// Name the seats the outcome says came back - a count is not evidence, so validation wants the
+    /// seats that came back to say which sessions they are.
+    /// </summary>
+    private static WorkspaceDocument NameTheRestored(WorkspaceDocument doc)
+    {
+        var owed = doc.Seats
+            .Where(x => x.Restore?.Decision == WorkspaceRestoreDecisions.Restore)
+            .ToList();
+
+        for (var i = 0; i < (doc.SeatOutcome?.RestoredCount ?? 0) && i < owed.Count; i++)
+            owed[i].RestoredSessionId = $"9a1b{i}c2d-0000-4000-8000-00000000000{i}";
+
+        return doc;
+    }
+
     // ---- The counts account for exactly the seats that were owed ------------------------------------
 
     [Fact]
@@ -116,7 +132,7 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         var all = Captured(owed: 3);
         all.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
         all.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 3 };
-        store.Create(all, Now);
+        store.Create(NameTheRestored(all), Now);
         Assert.Equal(WorkspaceSeatOutcomes.All_, store.Get("director-restart")!.SeatOutcome!.Scope);
 
         var some = Captured(owed: 3);
@@ -127,7 +143,7 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
             NotRestoredCount = 1,
             NotRestoredWhy = "its work turned out to be finished",
         };
-        store.Save(some, Now);
+        store.Save(NameTheRestored(some), Now);
         Assert.Equal(WorkspaceSeatOutcomes.Some, store.Get("director-restart")!.SeatOutcome!.Scope);
 
         var none = Captured(owed: 3);

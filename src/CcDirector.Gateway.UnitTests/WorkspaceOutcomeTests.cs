@@ -109,6 +109,27 @@ public sealed class WorkspaceOutcomeTests : IDisposable
             },
         };
 
+
+    /// <summary>
+    /// Name the seats the outcome says came back.
+    ///
+    /// A count is not evidence. "restoredCount 2" with no seat naming a restored session is a record
+    /// saying every owed seat came back while naming none that did, and validation refuses it now - so
+    /// a fixture that wants to express a real restore has to say WHICH seats, exactly as the thing it
+    /// stands in for would have to.
+    /// </summary>
+    private static WorkspaceDocument NameTheRestored(WorkspaceDocument doc)
+    {
+        var owed = doc.Seats
+            .Where(x => x.Restore?.Decision == WorkspaceRestoreDecisions.Restore)
+            .ToList();
+
+        for (var i = 0; i < (doc.SeatOutcome?.RestoredCount ?? 0) && i < owed.Count; i++)
+            owed[i].RestoredSessionId = $"9a1b{i}c2d-0000-4000-8000-00000000000{i}";
+
+        return doc;
+    }
+
     // ---- The combination that had no word ------------------------------------------------------------
 
     [Fact]
@@ -120,7 +141,7 @@ public sealed class WorkspaceOutcomeTests : IDisposable
         doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
         doc.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 2 };
 
-        Store(doc);
+        Store(NameTheRestored(doc));
         var got = NewStore().Get("director-restart")!;
 
         // The two facts are both there, and they are separate.
@@ -164,7 +185,7 @@ public sealed class WorkspaceOutcomeTests : IDisposable
         };
         Assert.Equal(scope, doc.SeatOutcome.Scope);
 
-        Store(doc);
+        Store(NameTheRestored(doc));
 
         var got = NewStore().Get("director-restart")!;
         Assert.Equal(director, got.DirectorOutcome);
@@ -234,7 +255,7 @@ public sealed class WorkspaceOutcomeTests : IDisposable
 
         Assert.Equal(WorkspaceSeatOutcomes.Some, doc.SeatOutcome.Scope);
 
-        Store(doc);
+        Store(NameTheRestored(doc));
         Assert.Equal(WorkspaceSeatOutcomes.Some, NewStore().Get("director-restart")!.SeatOutcome!.Scope);
     }
 
