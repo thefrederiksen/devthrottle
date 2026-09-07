@@ -2107,9 +2107,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Outcome")
-                        .HasColumnType("text");
-
                     b.Property<int>("SeatCount")
                         .HasColumnType("integer");
 

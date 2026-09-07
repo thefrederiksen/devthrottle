@@ -39,10 +39,6 @@ public sealed class WorkspaceEntity : TenantScopedEntity
     /// <summary>The captured Director's display name, projected for the list. Null when authored.</summary>
     public string? DirectorName { get; set; }
 
-    /// <summary>Where the run got to ("draining", "restored", ...), projected for the list. Null when
-    /// authored, which is not the record of a run.</summary>
-    public string? Outcome { get; set; }
-
     /// <summary>What the workspace is for, projected for the list.</summary>
     public string? Description { get; set; }
 

@@ -296,7 +296,12 @@ public static class SessionKeyGuard
     /// caller's own tenant, describing seats. Restarting the Director it describes is a different route
     /// entirely, and that one stays refused.
     ///
-    /// Matched by structure so a new sibling under /gateway/workspaces cannot be reached by accident.
+    /// Matched by STRUCTURE, and here is exactly what that does and does not buy. A DEEPER shape -
+    /// /gateway/workspaces/{id}/anything - is refused until somebody classifies it. A new THREE-segment
+    /// LITERAL, say POST /gateway/workspaces/purge, would be authorized on the day it is mapped, because
+    /// this cannot tell a literal segment from an id. So do not add one: put a new verb one level deeper,
+    /// or extend this method deliberately. (The skills and workflows families beside it have the same
+    /// property; it is written down here rather than left to be discovered.)
     /// </summary>
     private static bool IsWorkspaceRoute(string verb, string[] s)
     {

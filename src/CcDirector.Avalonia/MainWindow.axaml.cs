@@ -1826,6 +1826,12 @@ public partial class MainWindow : Window
             var sorted = workspace.Seats.OrderBy(s => s.SortOrder).ToList();
             int total = sorted.Count;
 
+            // EVERY seat is resolved BEFORE the first session is started. Resolving inside the loop
+            // meant a workspace whose third seat named an agent this build cannot run started two
+            // sessions and then threw - a half-started workspace, which is worse than a refused one
+            // because nobody can tell it from a finished one.
+            var agents = sorted.Select(ResolveSeatAgent).ToList();
+
             for (int i = 0; i < total; i++)
             {
                 var entry = sorted[i];
@@ -1836,7 +1842,7 @@ public partial class MainWindow : Window
                 // Issue #1635: start the seat on the agent it was saved with. Without the agentKind the
                 // overload default silently made every restored session Claude Code.
                 var vm = CreateSession(entry.RepoPath, claudeArgs: entry.AgentArgs,
-                    agentKind: ResolveSeatAgent(entry));
+                    agentKind: agents[i]);
                 if (vm != null)
                 {
                     vm.Rename(entry.Name, entry.Color);
@@ -1860,22 +1866,32 @@ public partial class MainWindow : Window
     /// <summary>
     /// Which agent command line a seat starts on.
     ///
-    /// A value that does not parse is a real problem - a hand-edited workspace, or one written by a
-    /// newer build that knows an agent this one does not - so it is LOGGED with the offending value
-    /// rather than passed over in silence. Starting a seat on the wrong agent is exactly the defect the
-    /// field exists to prevent, and the log line is what makes it findable.
+    /// A value that does not parse REFUSES rather than substituting Claude Code. The old local-file
+    /// feature substituted, and that is the exact defect the agent field was added to fix (issue
+    /// #1635): a seat that comes back on the wrong agent is not the session that was saved, and
+    /// nothing about it looks wrong afterwards.
+    ///
+    /// The Gateway refuses to STORE an unknown agent, so this cannot be reached by anything it holds.
+    /// It stays because the value crosses a version boundary - a workspace written by a newer build may
+    /// name an agent this one cannot run - and the honest answer there is to say so, not to guess.
     /// </summary>
     private static AgentKind ResolveSeatAgent(WorkspaceSeat seat)
     {
         var raw = (seat.Agent ?? "").Trim();
         if (raw.Length == 0) return AgentKind.ClaudeCode;
 
-        if (Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind))
+        // TryParse alone accepts "999" (no such member) AND "ClaudeCode, Codex" (which combines into a
+        // real one), so a comma is refused first and IsDefined follows. A session started on either would
+        // be a process launched from a value nobody chose.
+        if (!raw.Contains(',')
+            && Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind) && Enum.IsDefined(kind))
             return kind;
 
-        FileLog.Write($"[MainWindow] ResolveSeatAgent: unknown agent '{raw}' for {seat.RepoPath} - " +
-                      $"starting as {AgentKind.ClaudeCode}; the session will run the wrong agent");
-        return AgentKind.ClaudeCode;
+        FileLog.Write($"[MainWindow] ResolveSeatAgent: unknown agent '{raw}' for {seat.RepoPath}");
+        throw new InvalidOperationException(
+            $"The seat '{seat.Name}' names the agent '{raw}', which this build cannot run. " +
+            "It was probably written by a newer version - update this Director, or change the seat's " +
+            "agent in the workspace.");
     }
 
     /// <summary>
@@ -1887,19 +1903,28 @@ public partial class MainWindow : Window
             (global::Avalonia.Application.Current as App)?.ControlApiHost);
 
     /// <summary>
-    /// Push any workspaces this machine saved before they lived on the Gateway up to it, once. A
-    /// failure is logged and the dialog opens anyway: it will report the same Gateway problem itself,
-    /// in the window where the user is looking, and the legacy files are still on disk for next time.
+    /// Push any workspaces this machine saved before they lived on the Gateway up to it, once.
+    /// Returns null on success, or the reason it could not be done.
+    ///
+    /// The reason is RETURNED rather than logged and forgotten, because a swallowed import failure
+    /// shows the user a workspace list that is simply missing their saved work, with nothing said
+    /// about why - a list that reads as complete and is not. The dialog puts the reason on screen.
+    ///
+    /// It runs on a background thread: the import reads and renames files, and this is called from a
+    /// menu click, so doing it inline would freeze the window before anything had even been shown.
     /// </summary>
-    private static async Task ImportLegacyWorkspacesAsync(IWorkspaceCatalog catalog)
+    private static async Task<string?> ImportLegacyWorkspacesAsync(IWorkspaceCatalog catalog)
     {
         try
         {
-            await LegacyWorkspaceImport.RunOnceAsync(catalog);
+            await Task.Run(() => LegacyWorkspaceImport.RunOnceAsync(catalog));
+            return null;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync FAILED: {ex.Message}");
+            return "The workspaces saved on this machine before they moved to the Gateway could not " +
+                   $"be imported: {ex.Message} They are still on disk and will be tried again.";
         }
     }
 
@@ -4086,15 +4111,15 @@ public partial class MainWindow : Window
                 // save time, and the session can only come back as the CreateSession default.
                 vm.Session.AgentKind.ToString()));
             var catalog = WorkspaceCatalog();
-            await ImportLegacyWorkspacesAsync(catalog);
-            var dialog = new SaveWorkspaceDialog(catalog, sessionData);
+            var importProblem = await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new SaveWorkspaceDialog(catalog, sessionData, importProblem);
             await dialog.ShowDialog<bool?>(this);
         }));
         file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
             var catalog = WorkspaceCatalog();
-            await ImportLegacyWorkspacesAsync(catalog);
-            var dialog = new LoadWorkspaceDialog(catalog);
+            var importProblem = await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new LoadWorkspaceDialog(catalog, importProblem);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.SelectedWorkspace != null)
             {

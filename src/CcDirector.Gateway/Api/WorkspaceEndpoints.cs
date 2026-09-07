@@ -28,10 +28,16 @@ namespace CcDirector.Gateway.Api;
 /// the Gateway already holds firsthand. A caller that assembles them is a caller that can get them wrong,
 /// and this document is read after the sessions are gone, when nobody can check. So the capture reads
 /// them, and the caller supplies only what the Gateway cannot know: what to call it and why it is being
-/// taken.
+/// taken. The store enforces the other half of that: a PUT can never mint or rewrite a capture header.
 ///
 /// The capture CREATES and never replaces. Overwriting an existing workspace would destroy a drain that
 /// somebody is halfway through, and it would do it silently.
+///
+/// AND IT REFUSES A DIRECTOR IT CANNOT SEE. The registry knows a Director for a while after it stops
+/// talking, and the live roster comes from the push stream - so a Director that is registered but not
+/// stream-connected folds to ZERO seats and would be recorded as an empty fleet. Empty is exactly what a
+/// finished drain looks like, so that record would say "nothing was running" about a machine nobody could
+/// reach. A capture whose emptiness cannot be distinguished from unreachability is refused.
 ///
 /// AUTH: these are device-authed client routes carrying no per-route auth of their own. They sit under
 /// the "/gateway/..." prefix, so the host-wide device-key middleware gates them exactly like every other
@@ -51,11 +57,14 @@ internal static class WorkspaceEndpoints
     /// the one place that owns it.</param>
     /// <param name="lookupDirector">Resolve a Director's display name and version, for the capture header.
     /// Returns null when the Gateway does not know that Director.</param>
+    /// <param name="isStreamConnected">Whether that Director currently holds a push stream, so its live
+    /// roster is real rather than absent. False is a refusal, not an empty capture.</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
         Func<IReadOnlyList<(string DirectorId, SessionDto Session)>> snapshotConnected,
-        Func<string, DirectorDto?> lookupDirector)
+        Func<string, DirectorDto?> lookupDirector,
+        Func<string, bool> isStreamConnected)
     {
         app.MapGet("/gateway/workspaces", () =>
         {
@@ -133,6 +142,22 @@ internal static class WorkspaceEndpoints
                     new { error = $"no Director with id '{req.DirectorId}' - this Gateway has never seen it, " +
                                   "or it belongs to another account" },
                     statusCode: StatusCodes.Status404NotFound);
+            }
+
+            if (!isStreamConnected(req.DirectorId))
+            {
+                FileLog.Write(
+                    $"[WorkspaceEndpoints] capture REFUSED: directorId={req.DirectorId} is not stream connected");
+                return Results.Json(
+                    new
+                    {
+                        error =
+                            $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) is " +
+                            "registered but not connected to this Gateway, so its live sessions cannot be read. " +
+                            "Capturing it now would record an EMPTY fleet, which is indistinguishable from a " +
+                            "Director that had genuinely finished. Get it connected, then capture.",
+                    },
+                    statusCode: StatusCodes.Status409Conflict);
             }
 
             var sessions = snapshotConnected()

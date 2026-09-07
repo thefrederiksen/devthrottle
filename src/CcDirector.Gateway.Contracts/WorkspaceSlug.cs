@@ -12,9 +12,15 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public static class WorkspaceSlug
 {
-    /// <summary>Lowercase slug ids, the same shape the workflow and skill catalogs use: letters, digits and
-    /// dashes, starting with a letter or digit, 2 to 64 characters.</summary>
-    public static readonly Regex IdPattern = new("^[a-z0-9][a-z0-9-]{1,63}$", RegexOptions.Compiled);
+    /// <summary>
+    /// Lowercase slug ids, the same shape the workflow and skill catalogs use: letters, digits and
+    /// dashes, starting with a letter or digit, 2 to 64 characters.
+    ///
+    /// The end anchor is \z and NOT $ deliberately. In .NET, $ also matches before a FINAL NEWLINE, so
+    /// an id ending in a line break passes a $-anchored pattern - and that id would then reach a primary
+    /// key and every log line that prints it. \z means the actual end of the string.
+    /// </summary>
+    public static readonly Regex IdPattern = new(@"^[a-z0-9][a-z0-9-]{1,63}\z", RegexOptions.Compiled);
 
     /// <summary>The longest a workspace id may be.</summary>
     public const int MaxLength = 64;

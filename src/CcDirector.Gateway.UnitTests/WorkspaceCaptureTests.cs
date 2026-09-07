@@ -110,14 +110,15 @@ public sealed class WorkspaceCaptureTests
     }
 
     [Fact]
-    public void A_fresh_capture_is_draining_and_has_not_been_restarted()
+    public void A_fresh_capture_answers_nothing_about_the_restart_or_the_seats()
     {
         var doc = WorkspaceCapture.Capture(
             Request(), new[] { LinuxArchitect() }, "DevThrottle_1", "2.0.5", "SOREN_NORTH", Now);
 
         // The version AFTER, the completion time and the restart record are written back later, by
         // whoever performs the restart. A capture that filled them in would be claiming an outcome.
-        Assert.Equal(WorkspaceOutcomes.Draining, doc.Outcome);
+        Assert.Null(doc.DirectorOutcome);
+        Assert.Null(doc.SeatOutcome);
         Assert.Null(doc.DirectorVersionAfter);
         Assert.Null(doc.CompletedAtUtc);
         Assert.Null(doc.RestartPerformed);

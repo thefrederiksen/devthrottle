@@ -18,15 +18,21 @@ namespace CcDirector.Avalonia;
 /// Until this change a workspace was a file under this Director's own configuration directory
 /// (<c>config/director/workspaces/*.workspace.json</c>). Those files are somebody's saved work, and the
 /// upgrade must not make them disappear - so on the first use of the workspace dialogs after the upgrade,
-/// each one is pushed up and its file renamed aside to <c>.imported</c>. The bytes stay on disk under the
-/// new name; nothing is deleted.
+/// each one is pushed up and its file renamed aside to <c>.imported</c>.
 ///
-/// It only ever CREATES. A legacy file whose id already exists on the Gateway is left alone and renamed
-/// aside anyway: the Gateway's copy is the one people have been editing since, and quietly overwriting it
-/// with a file from before the upgrade would lose exactly the work this exists to protect.
+/// NOTHING IS EVER DELETED AND NOTHING IS EVER PARTIALLY IMPORTED. Those two rules are what the whole
+/// class is for, and each has a specific way it would otherwise be broken:
+///
+///  - A file is renamed aside ONLY once it has been fully dealt with, to a name that does not already
+///    exist. Deleting a previous <c>.imported</c> file to make room would destroy the older saved bytes.
+///  - A file that cannot be read, that holds an entry with no repository, or that holds no entries at all
+///    is REFUSED WHOLE and left exactly where it is, under its own name. Importing the entries that
+///    happened to parse and renaming the file as done would silently drop the rest.
+///  - Two files whose names slug to the same id are a collision: the first is imported and the second is
+///    left in place with both names logged, because overwriting is what this exists to prevent.
 ///
 /// It runs ONCE per process, and it is not a background sweep. If the Gateway is unreachable it throws,
-/// the dialog reports it, and the files are still there to import next time - which is the honest
+/// the caller reports it, and the files are still there to import next time - which is the honest
 /// behaviour: silently skipping would leave the user looking at a list that is missing their workspaces
 /// with nothing said about why.
 /// </summary>
@@ -67,7 +73,11 @@ public static class LegacyWorkspaceImport
                 return 0;
             }
 
+            // SORTED, so which file wins a slug collision is a defined answer and not whatever the
+            // filesystem happened to enumerate first. Two files can give the same id, one of them is
+            // refused, and "which one" must not vary between machines.
             var files = Directory.GetFiles(folder, "*.workspace.json");
+            Array.Sort(files, StringComparer.OrdinalIgnoreCase);
             if (files.Length == 0)
             {
                 _done = true;
@@ -76,40 +86,57 @@ public static class LegacyWorkspaceImport
 
             FileLog.Write($"[LegacyWorkspaceImport] RunOnceAsync: {files.Length} legacy file(s) in {folder}");
 
-            var existing = (await catalog.ListAsync(ct))
+            var onGateway = (await catalog.ListAsync(ct))
                 .Select(w => w.Id)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Which id each file in THIS run claimed, so a second file claiming the same one is a
+            // collision that can be reported with both names rather than silently dropped.
+            var claimedInThisRun = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             var imported = 0;
             foreach (var file in files)
             {
-                var legacy = ReadLegacy(file);
-                if (legacy is null)
+                var name = Path.GetFileName(file);
+
+                WorkspaceDocument doc;
+                try
                 {
-                    // A file that cannot be parsed is left exactly where it is, under its own name, so the
-                    // bytes are still there for somebody to look at. Renaming it aside would say it had
-                    // been dealt with.
-                    FileLog.Write($"[LegacyWorkspaceImport] skipping unreadable file {Path.GetFileName(file)}");
+                    doc = ReadLegacy(file);
+                }
+                catch (LegacyWorkspaceFileException ex)
+                {
+                    // Left exactly where it is, under its own name, so the bytes are still there for
+                    // somebody to look at. Renaming it aside would say it had been dealt with.
+                    FileLog.Write($"[LegacyWorkspaceImport] REFUSED {name}: {ex.Message}");
                     continue;
                 }
 
-                var doc = ToDocument(legacy);
-                if (existing.Contains(doc.Id))
+                if (claimedInThisRun.TryGetValue(doc.Id, out var firstFile))
                 {
                     FileLog.Write(
-                        $"[LegacyWorkspaceImport] {Path.GetFileName(file)} -> id '{doc.Id}' already on the " +
-                        "Gateway; leaving the Gateway's copy alone");
+                        $"[LegacyWorkspaceImport] REFUSED {name}: its name gives the id '{doc.Id}', which " +
+                        $"{firstFile} already claimed in this run. Rename one of them and try again; " +
+                        "importing it would overwrite the other.");
+                    continue;
+                }
+
+                if (onGateway.Contains(doc.Id))
+                {
+                    FileLog.Write(
+                        $"[LegacyWorkspaceImport] {name} -> id '{doc.Id}' already on the Gateway; leaving " +
+                        "the Gateway's copy alone");
                 }
                 else
                 {
                     await catalog.SaveAsync(doc, ct);
-                    existing.Add(doc.Id);
+                    onGateway.Add(doc.Id);
                     imported++;
                     FileLog.Write(
-                        $"[LegacyWorkspaceImport] imported {Path.GetFileName(file)} as '{doc.Id}' " +
-                        $"({doc.Seats.Count} seat(s))");
+                        $"[LegacyWorkspaceImport] imported {name} as '{doc.Id}' ({doc.Seats.Count} seat(s))");
                 }
 
+                claimedInThisRun[doc.Id] = name;
                 RenameAside(file);
             }
 
@@ -126,27 +153,99 @@ public static class LegacyWorkspaceImport
     /// <summary>Reset the once-per-process gate. Tests only.</summary>
     public static void ResetForTests() => _done = false;
 
-    private static LegacyWorkspace? ReadLegacy(string path)
+    /// <summary>A legacy workspace file cannot be imported whole, so it is not imported at all.</summary>
+    private sealed class LegacyWorkspaceFileException : Exception
     {
+        public LegacyWorkspaceFileException(string message) : base(message) { }
+    }
+
+    private static WorkspaceDocument ReadLegacy(string path)
+    {
+        LegacyWorkspace? parsed;
         try
         {
-            var parsed = JsonSerializer.Deserialize<LegacyWorkspace>(File.ReadAllText(path), LegacyJsonOptions);
-            if (parsed is null || string.IsNullOrWhiteSpace(parsed.Name)) return null;
-            return parsed;
+            parsed = JsonSerializer.Deserialize<LegacyWorkspace>(File.ReadAllText(path), LegacyJsonOptions);
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
-            FileLog.Write($"[LegacyWorkspaceImport] ReadLegacy FAILED for {path}: {ex.Message}");
-            return null;
+            throw new LegacyWorkspaceFileException($"it could not be read ({ex.Message})");
         }
+
+        if (parsed is null)
+            throw new LegacyWorkspaceFileException("it deserialized to nothing");
+        if (string.IsNullOrWhiteSpace(parsed.Name))
+            throw new LegacyWorkspaceFileException("it has no name, so there is nothing to store it under");
+
+        var entries = parsed.Sessions;
+        if (entries is null || entries.Count == 0)
+            throw new LegacyWorkspaceFileException("it holds no sessions");
+
+        // Ordered by the file's OWN sortOrder, then re-indexed from zero. Taking the array position
+        // would silently re-order a workspace whose entries were saved out of order.
+        var ordered = entries.Select((e, i) => (Entry: e, Index: i))
+            .OrderBy(x => x.Entry?.SortOrder ?? int.MaxValue)
+            .ThenBy(x => x.Index)
+            .ToList();
+
+        var seats = new List<WorkspaceSeat>();
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var (e, position) = ordered[i];
+            if (e is null)
+                throw new LegacyWorkspaceFileException($"sessions[{position}] is empty");
+
+            var repo = (e.RepoPath ?? "").Trim();
+            if (repo.Length == 0)
+                throw new LegacyWorkspaceFileException(
+                    $"sessions[{position}] has no repoPath, and a seat with nowhere to run cannot be imported " +
+                    "- importing the rest would silently drop it");
+
+            var seatName = !string.IsNullOrWhiteSpace(e.CustomName)
+                ? e.CustomName!.Trim()
+                : Path.GetFileName(repo.TrimEnd('\\', '/'));
+            if (string.IsNullOrWhiteSpace(seatName))
+                throw new LegacyWorkspaceFileException(
+                    $"sessions[{position}] has no name and none can be taken from its repoPath '{repo}'");
+
+            seats.Add(new WorkspaceSeat
+            {
+                // A legacy entry never held a session id: these workspaces always started FRESH sessions.
+                SessionId = null,
+                Name = seatName,
+                // Null means the file predates the agent field, and those genuinely were Claude Code -
+                // every session in such a file was created through the old default.
+                Agent = string.IsNullOrWhiteSpace(e.Agent) ? "ClaudeCode" : e.Agent!.Trim(),
+                RepoPath = repo,
+                Color = e.CustomColor,
+                AgentArgs = e.ClaudeArgs,
+                SortOrder = i,
+            });
+        }
+
+        return new WorkspaceDocument
+        {
+            Id = WorkspaceSlug.From(parsed.Name),
+            Name = parsed.Name!.Trim(),
+            Description = string.IsNullOrWhiteSpace(parsed.Description) ? null : parsed.Description,
+            Origin = WorkspaceOrigins.Authored,
+            Seats = seats,
+        };
     }
 
+    /// <summary>
+    /// Rename the file aside to a name that does not exist yet. NEVER deletes: an existing
+    /// <c>.imported</c> file is somebody's older saved workspace, and removing it to make room would
+    /// destroy exactly what this class is here to preserve.
+    /// </summary>
     private static void RenameAside(string path)
     {
-        var target = path + ImportedSuffix;
         try
         {
-            if (File.Exists(target)) File.Delete(target);
+            var target = path + ImportedSuffix;
+            var n = 2;
+            while (File.Exists(target))
+                target = $"{path}{ImportedSuffix}-{n++}";
+
             File.Move(path, target);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -157,44 +256,12 @@ public static class LegacyWorkspaceImport
         }
     }
 
-    private static WorkspaceDocument ToDocument(LegacyWorkspace legacy)
-    {
-        var seats = (legacy.Sessions ?? new List<LegacySession>())
-            .OrderBy(s => s.SortOrder)
-            .Select((s, i) => new WorkspaceSeat
-            {
-                // A legacy entry never held a session id: these workspaces always started FRESH sessions.
-                SessionId = null,
-                Name = !string.IsNullOrWhiteSpace(s.CustomName)
-                    ? s.CustomName!
-                    : Path.GetFileName((s.RepoPath ?? "").TrimEnd('\\', '/')),
-                // Null means the file predates the agent field, and those genuinely were Claude Code -
-                // every session in such a file was created through the old default.
-                Agent = string.IsNullOrWhiteSpace(s.Agent) ? "ClaudeCode" : s.Agent!,
-                RepoPath = s.RepoPath ?? "",
-                Color = s.CustomColor,
-                AgentArgs = s.ClaudeArgs,
-                SortOrder = i,
-            })
-            .Where(s => !string.IsNullOrWhiteSpace(s.RepoPath) && !string.IsNullOrWhiteSpace(s.Name))
-            .ToList();
-
-        return new WorkspaceDocument
-        {
-            Id = WorkspaceSlug.From(legacy.Name),
-            Name = legacy.Name!,
-            Description = string.IsNullOrWhiteSpace(legacy.Description) ? null : legacy.Description,
-            Origin = WorkspaceOrigins.Authored,
-            Seats = seats,
-        };
-    }
-
     /// <summary>The shape of a pre-Gateway workspace file. Private because nothing new writes it.</summary>
     private sealed class LegacyWorkspace
     {
         public string? Name { get; set; }
         public string? Description { get; set; }
-        public List<LegacySession>? Sessions { get; set; }
+        public List<LegacySession?>? Sessions { get; set; }
     }
 
     /// <summary>One entry inside a pre-Gateway workspace file.</summary>

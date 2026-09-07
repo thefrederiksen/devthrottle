@@ -1,3 +1,7 @@
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
@@ -93,9 +97,35 @@ public sealed class WorkspaceDocument
     /// <summary>Why the operation was run at all, in plain words ("update to 2.0.6").</summary>
     public string? Reason { get; set; }
 
-    /// <summary>Where the operation got to: one of <see cref="WorkspaceOutcomes"/>. Null on an authored
-    /// workspace, which is not the record of any run.</summary>
-    public string? Outcome { get; set; }
+    // THERE IS NO COARSE "outcome" FIELD, and its absence is deliberate.
+    //
+    // The hand-written index had one, with four words, and two of them welded two independent facts into
+    // a single token: "restored" meant the Director was restarted AND the seats came back. That is why
+    // the first combination nobody happened to weld - a drain that blocked, no restart, and the seats
+    // that had already stopped brought back anyway - had no word at all.
+    //
+    // Deriving the word from the pair below was tried, and it fixed only half of it: a derived headline
+    // cannot CONTRADICT the facts, but it still welds them, because both a refused restart and a session
+    // that would not stop derive "blocked" - the two most confusable results a run can have. The fix for
+    // that was a warning telling every future reader never to read the field alone, and a rule that has
+    // to be obeyed forever by people who were not in the conversation is the weakest kind of fix there is.
+    //
+    // Nothing displayed it. So it is gone, while going was free, and the two orthogonal facts below are
+    // the whole answer. A document written elsewhere that carries an "outcome" keeps it verbatim in
+    // Unknown - not modelled, and not lost either.
+
+    /// <summary>
+    /// What happened to the DIRECTOR: one of <see cref="WorkspaceDirectorOutcomes"/>, or null while the
+    /// run has not reached an answer. Independent of <see cref="SeatOutcome"/> - a Director can be
+    /// restarted with nothing brought back, and seats can be brought back with no restart at all.
+    /// </summary>
+    public string? DirectorOutcome { get; set; }
+
+    /// <summary>
+    /// What happened to the SEATS: how many of those owed came back, how many did not, and why. Null
+    /// while the run has not reached an answer. Independent of <see cref="DirectorOutcome"/>.
+    /// </summary>
+    public WorkspaceSeatOutcome? SeatOutcome { get; set; }
 
     /// <summary>The seats. Started in <see cref="WorkspaceSeat.SortOrder"/> order.</summary>
     public List<WorkspaceSeat> Seats { get; set; } = new();
@@ -104,9 +134,19 @@ public sealed class WorkspaceDocument
     /// buried in a paragraph inside a session that no longer exists is a question nobody ever asks.</summary>
     public List<WorkspaceOwnerQuestion> OwnerQuestions { get; set; } = new();
 
-    /// <summary>THE MOST IMPORTANT FIELD IN THE DOCUMENT: the short ordered list of session ids to bring
-    /// back, decided during the drain, that somebody who has never seen this restart can act on.
-    /// Everything else explains; this instructs.</summary>
+    /// <summary>
+    /// THE MOST IMPORTANT FIELD IN THE DOCUMENT: the short ordered list of session ids to bring back,
+    /// decided during the drain, that somebody who has never seen this run can act on. Everything else
+    /// explains; this instructs.
+    ///
+    /// IT IS NOT RESTART-ONLY, whatever its name suggests. The name is kept because it is the name in the
+    /// hand-written index this schema was taken from, and it is the string a stranger has already been
+    /// told to look for - but the list is "what to bring back when this run ends", and a run that BLOCKS
+    /// ends without a restart while still having closed every seat that handed over cleanly. Those seats
+    /// are brought back from this same list, with no restart in between - which the record says as
+    /// <see cref="DirectorOutcome"/> "not-restarted" beside a <see cref="SeatOutcome"/> that counts them.
+    /// There is no single word for that, and there is deliberately no field that pretends there is.
+    /// </summary>
     public List<string> RestoreAfterRestart { get; set; } = new();
 
     /// <summary>The restart request itself, recorded so the person who runs it does not have to
@@ -134,6 +174,19 @@ public sealed class WorkspaceDocument
 
     /// <summary>When this document was last written. Stamped by the store, not the caller.</summary>
     public DateTime UpdatedUtc { get; set; }
+
+    /// <summary>
+    /// Anything in the stored document this build does not know a field for, kept verbatim and written
+    /// back out.
+    ///
+    /// This is what makes the JSON column worth having. Without it, an older Gateway reading a workspace
+    /// written by a newer one would deserialize what it recognised, DROP the rest, and destroy it on the
+    /// next write - which is exactly the failure the record shape was chosen to avoid, and the reason
+    /// this document grew three whole blocks during one real run. A reader that cannot understand a
+    /// field must still be able to hand it back.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 /// <summary>
@@ -244,6 +297,11 @@ public sealed class WorkspaceSeat
 
     /// <summary>For a "covered" seat: why reporting up was the right answer for this one.</summary>
     public string? CoveredNote { get; set; }
+
+    /// <summary>Anything on this seat this build does not know a field for, kept verbatim. See
+    /// <see cref="WorkspaceDocument.Unknown"/> for why.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 /// <summary>The mission a seat is attached to: the stable id and the display name cached on the session.</summary>
@@ -464,24 +522,97 @@ public static class WorkspaceOrigins
     public static readonly string[] All = { Authored, Captured };
 }
 
-/// <summary>Where a whole drain and restart run got to. The four values from the director-restart skill.</summary>
-public static class WorkspaceOutcomes
+/// <summary>
+/// What happened to the DIRECTOR. One of the two orthogonal facts that replaced the coarse four-word
+/// outcome the hand-written index carried.
+/// </summary>
+public static class WorkspaceDirectorOutcomes
 {
-    /// <summary>The drain is under way.</summary>
-    public const string Draining = "draining";
+    /// <summary>No restart happened. Nothing about the machine changed - not the Director identifier,
+    /// not its version - so every command in this document that names the Director is still right.</summary>
+    public const string NotRestarted = "not-restarted";
 
-    /// <summary>A session could not reach a clean stop, so the restart did not happen. A partly drained
-    /// Director is a normal, recoverable state.</summary>
-    public const string Blocked = "blocked";
-
-    /// <summary>The Director was restarted; the restore has not run.</summary>
+    /// <summary>The Director was restarted. It has a NEW identifier, and every command in this document
+    /// that names the old one has to be rewritten before it is run.</summary>
     public const string Restarted = "restarted";
 
-    /// <summary>The Director was restarted AND the seats marked for restore came back.</summary>
-    public const string Restored = "restored";
+    /// <summary>A restart was asked for and refused - the launcher could not take it, or the Director was
+    /// not empty. Distinct from <see cref="NotRestarted"/>, where nobody asked.</summary>
+    public const string RestartRefused = "restart-refused";
 
-    /// <summary>Every valid outcome.</summary>
-    public static readonly string[] All = { Draining, Blocked, Restarted, Restored };
+    /// <summary>Every valid value.</summary>
+    public static readonly string[] All = { NotRestarted, Restarted, RestartRefused };
+}
+
+/// <summary>
+/// How much of what was owed came back. The scope of <see cref="WorkspaceSeatOutcome"/>.
+/// </summary>
+public static class WorkspaceSeatOutcomes
+{
+    /// <summary>No seat was ever marked for restore, so nothing was owed. Deliberately NOT the same value
+    /// as <see cref="None"/>: "nothing was owed" and "everything owed is missing" are two different facts,
+    /// and welding two facts into one token is exactly the defect this pair of fields exists to end.</summary>
+    public const string NothingToRestore = "nothing-to-restore";
+
+    /// <summary>Seats were owed and not one came back.</summary>
+    public const string None = "none";
+
+    /// <summary>Some of the seats owed came back and some did not. The why says which and on what grounds.</summary>
+    public const string Some = "some";
+
+    /// <summary>Every seat that was owed came back.</summary>
+    public const string All_ = "all";
+
+    /// <summary>Every valid value.</summary>
+    public static readonly string[] All = { NothingToRestore, None, Some, All_ };
+}
+
+/// <summary>
+/// What happened to the SEATS: how many came back, how many did not, and why any was deliberately left
+/// closed.
+///
+/// The count and the reason are here rather than left to be inferred from the seats, because a seat
+/// deliberately NOT restored - its work is finished, or its Architect re-seats it - is a decision
+/// somebody made, and a reader counting rows cannot tell that from a restore that simply failed.
+/// </summary>
+public sealed class WorkspaceSeatOutcome
+{
+    /// <summary>
+    /// One of <see cref="WorkspaceSeatOutcomes"/>. DERIVED from the two counts, never stored, and not
+    /// settable - a value written here is accepted and discarded. A word beside the numbers it
+    /// summarises is a second source of truth, and two copies diverge the moment either is written
+    /// alone.
+    ///
+    /// The four values are kept, and the fourth is the point. "Nothing was owed" and "everything owed is
+    /// missing" are a success and a total failure, and a single "none" would weld them - which is the
+    /// absence-shaped hazard in miniature: an empty restore list reading as success is how a run that
+    /// restored nothing certifies itself.
+    /// </summary>
+    public string Scope
+    {
+        get => (RestoredCount, NotRestoredCount) switch
+        {
+            (0, 0) => WorkspaceSeatOutcomes.NothingToRestore,
+            (0, _) => WorkspaceSeatOutcomes.None,
+            (_, 0) => WorkspaceSeatOutcomes.All_,
+            _ => WorkspaceSeatOutcomes.Some,
+        };
+
+        // Accepted and discarded, so a document written by any other build deserializes without the
+        // value landing somewhere it would be written back out beside the derived one.
+        set { }
+    }
+
+    /// <summary>How many seats came back.</summary>
+    public int RestoredCount { get; set; }
+
+    /// <summary>How many that were owed did not.</summary>
+    public int NotRestoredCount { get; set; }
+
+    /// <summary>Why any seat was not restored, in plain words. Required whenever
+    /// <see cref="NotRestoredCount"/> is above zero: a missing seat with no reason beside it is
+    /// indistinguishable from one nobody noticed.</summary>
+    public string? NotRestoredWhy { get; set; }
 }
 
 /// <summary>How far one seat got through the drain. Exactly these five, from the director-restart skill.</summary>
@@ -544,9 +675,6 @@ public sealed class WorkspaceSummaryDto
 
     /// <summary>The Director it was captured from, or null when authored.</summary>
     public string? DirectorName { get; set; }
-
-    /// <summary>Where its run got to, or null when authored.</summary>
-    public string? Outcome { get; set; }
 
     /// <summary>How many seats it holds.</summary>
     public int SeatCount { get; set; }

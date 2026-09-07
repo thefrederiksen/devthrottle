@@ -3645,7 +3645,9 @@ public sealed class GatewayHost : IAsyncDisposable
             _app,
             _workspaces,
             AmbientSnapshotConnected,
-            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
+            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null,
+            directorId => _tenantPass.Current is { } tenant
+                && PushedSessions.IsStreamConnected(tenant, directorId));
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing

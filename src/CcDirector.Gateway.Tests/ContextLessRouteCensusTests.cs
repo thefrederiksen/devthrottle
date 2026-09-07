@@ -65,6 +65,26 @@ public sealed class ContextLessRouteCensusTests
     ///   /gateway/skills/{id} and its family        skills, skill_versions, skill_files,
     ///                                              skill_tenant_overrides
     ///   /gateway/rules/{id:guid} (+ /firings)      session_rules, session_rule_firings
+    ///   /gateway/workspaces/{id} (GET + DELETE)   workspaces
+    ///
+    /// THE WORKSPACES FAMILY (issue #2722), ruled on here because it is added by the same change that
+    /// adds the routes. Two context-less routes, GET and DELETE on /gateway/workspaces/{id}, and what
+    /// confines them:
+    ///
+    ///   - WorkspaceEntity derives from TenantScopedEntity, so TenantScopeGuardTests - which reflects
+    ///     the REAL EF model rather than reading a list somebody keeps - asserts it carries tenant_id
+    ///     AND the deny-by-default global query filter.
+    ///   - The primary key is COMPOSITE, (tenant_id, Id). The id is a slug the CALLER mints, exactly
+    ///     like a skill or workflow id, so the same reasoning applies: two tenants may hold
+    ///     "morning-fleet" without colliding, and a read of another account's id answers 404 - the
+    ///     same answer as an id nobody has ever used, so there is no existence oracle.
+    ///   - GatewayDatabase.CreateContext() sets ActiveTenant from the ambient scope the device-key
+    ///     middleware entered, and THROWS on an invalid tenant rather than defaulting, so a workspace
+    ///     query cannot run unscoped; writes additionally meet GatewayDbContext.SaveChanges, which
+    ///     refuses a row whose TenantId is not the connection's.
+    ///
+    /// PUT and POST on this family are NOT in the census and that is not an omission: the PUT takes the
+    /// HttpContext it reads the body from, and the POST takes no path parameter.
     ///
     /// THE RULES FAMILY, ruled on here because it shipped without one (issue #2679). The three routes take
     /// an id and no HttpContext, and nothing in the route confines them - the confinement is in the MODEL,
@@ -104,6 +124,7 @@ public sealed class ContextLessRouteCensusTests
         "DELETE /gateway/rules/{id:guid}",
         "DELETE /gateway/skills/{id}",
         "DELETE /gateway/workflows/{id}",
+        "DELETE /gateway/workspaces/{id}",
         "DELETE /lists/{name}/consumer",
         "DELETE /lists/{name}/items/{source}/{id}",
         "GET /cron/jobs/{id}",
@@ -122,6 +143,7 @@ public sealed class ContextLessRouteCensusTests
         "GET /gateway/workflows/{id}/instructions",
         "GET /gateway/workflows/{id}/versions",
         "GET /gateway/workflows/{id}/versions/{version:int}",
+        "GET /gateway/workspaces/{id}",
         "GET /lists/{name}",
         "POST /directors/{id}/doorbell",
         "POST /gateway/skills/{id}/clone",

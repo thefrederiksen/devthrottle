@@ -65,7 +65,6 @@ public static class Program
         ("drivenByDirectorId", "drivenByDirectorId", ""),
         ("drivenByNote", "drivenByNote", ""),
         ("reason", "reason", ""),
-        ("outcome", "outcome", ""),
         ("sessions", "seats", "renamed: a workspace holds SEATS, which is what they are before and after"),
         ("ownerQuestions", "ownerQuestions", "collected from handovers, not from a capture"),
         ("restoreAfterRestart", "restoreAfterRestart", "decided by a reader of the handovers"),
@@ -75,6 +74,17 @@ public static class Program
         ("restartMechanism", "restartMechanism", ""),
         ("restartPerformed", "restartPerformed", "written back after the restart"),
         ("restoredBy", "restoredBy", "written back after the restore"),
+    };
+
+    /// <summary>
+    /// Fields the hand-written index carries that the schema DELIBERATELY does not model, and why. They
+    /// are not lost - an unmodelled field is kept verbatim in the document's extension data and written
+    /// back out - so they are listed rather than counted as gaps.
+    /// </summary>
+    private static readonly (string HandWritten, string Why)[] DeliberatelyNotModelled =
+    {
+        ("outcome", "one coarse word welding two independent facts; replaced by directorOutcome and " +
+                    "seatOutcome, which are orthogonal. Kept verbatim, never read."),
     };
 
     private static readonly (string HandWritten, string Captured, string Note)[] SeatMap =
@@ -197,7 +207,10 @@ public static class Program
             Console.WriteLine($"(written to {outPath})");
         }
 
-        return 0;
+        // A NON-ZERO EXIT when anything is wrong. A checker that always exits 0 cannot fail a script that
+        // runs it, and then the only thing standing between a lost field and a green run is somebody
+        // reading the output - which is the whole failure mode this harness exists to close.
+        return (lost > 0 || valueDifferences > 0 || replayDifferences > 0) ? 1 : 0;
     }
 
     /// <summary>
@@ -230,6 +243,12 @@ public static class Program
                 seatFilled.Add(f);
 
         var lost = 0;
+
+        report.AppendLine("0. DELIBERATELY NOT MODELLED (kept verbatim, never read)");
+        report.AppendLine("--------------------------------------------------------");
+        foreach (var (field, why) in DeliberatelyNotModelled)
+            report.AppendLine($"  {field}: {why}");
+        report.AppendLine();
 
         report.AppendLine("1. FIELD PARITY - DOCUMENT LEVEL");
         report.AppendLine("--------------------------------");
@@ -281,7 +300,12 @@ public static class Program
             report.AppendLine($"  {hand + arrow,-38} {homeText,-7} {filledText,-6}{suffix}");
         }
 
-        var mapped = map.Select(m => m.HandWritten).ToHashSet(StringComparer.Ordinal);
+        // The deliberately-unmodelled fields are excluded here as well as listed above. Without this the
+        // harness reports one as LOST and exits non-zero - which it did, for exactly as long as it took
+        // somebody to read it: a checker that cries wolf is on its way to being ignored.
+        var mapped = map.Select(m => m.HandWritten)
+            .Concat(DeliberatelyNotModelled.Select(d => d.HandWritten))
+            .ToHashSet(StringComparer.Ordinal);
         var unmapped = handFields.Where(k => !mapped.Contains(k))
             .OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (unmapped.Count > 0)

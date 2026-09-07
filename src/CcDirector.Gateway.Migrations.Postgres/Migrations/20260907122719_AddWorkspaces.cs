@@ -23,7 +23,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     Machine = table.Column<string>(type: "text", nullable: true),
                     DirectorId = table.Column<string>(type: "text", nullable: true),
                     DirectorName = table.Column<string>(type: "text", nullable: true),
-                    Outcome = table.Column<string>(type: "text", nullable: true),
                     Description = table.Column<string>(type: "text", nullable: true),
                     SeatCount = table.Column<int>(type: "integer", nullable: false),
                     CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),

@@ -94,8 +94,14 @@ public sealed class WorkspaceStoreTests : IDisposable
         doc.UpdatedUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         store.Save(doc, Now);
 
+        // The SECOND write carries backdated timestamps too. Without that this test passes against a
+        // store that only stamps when the caller left the field at its default - caught by mutation:
+        // "doc.UpdatedUtc = doc.UpdatedUtc == default ? at : doc.UpdatedUtc" survived, because the
+        // second document here was a fresh one whose UpdatedUtc happened to BE the default.
         var again = Authored();
         again.Name = "Morning fleet, revised";
+        again.CreatedUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        again.UpdatedUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         store.Save(again, Later);
 
         var got = store.Get("morning-fleet")!;
@@ -180,6 +186,11 @@ public sealed class WorkspaceStoreTests : IDisposable
     {
         var doc = Authored();
         doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Command = "cc-devthrottle session spawn ...",
+        };
         doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
         doc.RestoreAfterRestart.Add("00000000-0000-0000-0000-000000000000");
 
@@ -190,14 +201,95 @@ public sealed class WorkspaceStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_restore_list_naming_a_captured_seat_is_accepted()
+    public void A_restore_list_naming_a_seat_decided_restore_with_a_command_is_accepted()
     {
         var doc = Authored();
         doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Why = "Head of the mission with real continuing work.",
+            Command = "cc-devthrottle session spawn ...",
+        };
         doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
         NewStore().Save(doc, Now);
         Assert.Single(NewStore().Get("morning-fleet")!.RestoreAfterRestart);
+    }
+
+    [Fact]
+    public void The_restore_list_may_not_name_a_seat_that_was_decided_closed()
+    {
+        var doc = Authored();
+        doc.Seats[0].SessionId = "0da65999-7795-4abf-bd64-94be7a7438b1";
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Close,
+            Why = "Re-seated by a fresh Manager on the committed brief.",
+        };
+        doc.RestoreAfterRestart.Add("0da65999-7795-4abf-bd64-94be7a7438b1");
+
+        // The list is what a stranger acts on. Naming a seat somebody deliberately closed would have them
+        // bring back a seat its senior is about to create again.
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        Assert.Contains("close", ex.Message);
+    }
+
+    [Fact]
+    public void The_restore_list_may_not_name_a_seat_with_no_command_to_run()
+    {
+        var doc = Authored();
+        doc.Seats[0].SessionId = "0da65999-7795-4abf-bd64-94be7a7438b1";
+        // The decision IS "restore" - otherwise the earlier decision check fires and this test never
+        // reaches the command branch it is named for, which is what it did until somebody read it.
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Why = "head of the mission",
+            Command = "cc-devthrottle session spawn ...",
+        };
+        doc.RestoreAfterRestart.Add("0da65999-7795-4abf-bd64-94be7a7438b1");
+
+        // ...and then the command is taken away, which is the only thing left to fail on.
+        doc.Seats[0].Restore!.Command = null;
+
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        Assert.Contains("command", ex.Message);
+    }
+
+    [Fact]
+    public void The_restore_list_may_not_name_the_same_seat_twice()
+    {
+        var doc = Authored();
+        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Command = "cc-devthrottle session spawn ...",
+        };
+        doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
+        doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
+
+        // Two of the same seat is a mission that ends up with two of itself.
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        Assert.Contains("twice", ex.Message);
+    }
+
+    [Fact]
+    public void A_seat_marked_restore_that_is_not_in_the_list_yet_is_allowed()
+    {
+        // Judgments are written seat by seat as each handover is read, so a document halfway through -
+        // one decision made, the list not yet written - is a real state and must not be refused.
+        var doc = Authored();
+        doc.Seats[0].SessionId = "5ff9ab8b-07d3-4b23-953b-6c853760b56c";
+        doc.Seats[0].Restore = new WorkspaceSeatRestore
+        {
+            Decision = WorkspaceRestoreDecisions.Restore,
+            Command = "cc-devthrottle session spawn ...",
+        };
+
+        NewStore().Save(doc, Now);
+        Assert.Empty(NewStore().Get("morning-fleet")!.RestoreAfterRestart);
     }
 
     [Fact]
@@ -228,7 +320,10 @@ public sealed class WorkspaceStoreTests : IDisposable
         doc.Origin = WorkspaceOrigins.Captured;
         doc.DirectorId = null;
 
-        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        // Through the CAPTURE path, because an ordinary write refuses a captured origin outright and
+        // would never reach this rule - the rule that matters here is "a capture names its Director",
+        // and it has to be checked on the path that can create one.
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Create(doc, Now));
         Assert.Contains("directorId", ex.Message);
     }
 
@@ -291,7 +386,8 @@ public sealed class WorkspaceStoreTests : IDisposable
         doc.DirectorName = "DevThrottle_1";
         doc.DirectorVersionBefore = "2.0.5";
         doc.DirectorVersionAfter = "2.0.6";
-        doc.Outcome = WorkspaceOutcomes.Restored;
+        doc.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
+        doc.SeatOutcome = new WorkspaceSeatOutcome { RestoredCount = 1 };
         doc.DrivenBySessionId = "3807b006-185a-419a-9897-c885455117ae";
         doc.DrivenByDirectorId = "6d4523e2-ed03-4ae6-ac1c-71d00a37bad1";
         doc.DrivenByNote = "Driver is ON the target Director - allowed only because the owner restarted by hand.";
@@ -355,24 +451,70 @@ public sealed class WorkspaceStoreTests : IDisposable
         doc.Seats[0].RestoredSeedFile = "SEED-5ff9ab8b-linux-architect.md";
         doc.RestoreAfterRestart.Add("5ff9ab8b-07d3-4b23-953b-6c853760b56c");
 
-        NewStore().Save(doc, Now);
+        // Created by the capture path, because an ordinary write cannot mint a captured workspace.
+        NewStore().Create(doc, Now);
         var got = NewStore().Get("director-restart-2026-09-06")!;
 
+        // EVERY field that was set is read back. A subset would let the store drop the ones nobody
+        // checked, and this document is the only record of an operation whose subject no longer exists.
         Assert.Equal("SOREN_NORTH", got.Machine);
-        Assert.Equal(WorkspaceOutcomes.Restored, got.Outcome);
+        Assert.Equal("6d4523e2-ed03-4ae6-ac1c-71d00a37bad1", got.DirectorId);
+        Assert.Equal("DevThrottle_1", got.DirectorName);
+        Assert.Equal(WorkspaceDirectorOutcomes.Restarted, got.DirectorOutcome);
+        Assert.Equal(WorkspaceSeatOutcomes.All_, got.SeatOutcome!.Scope);
         Assert.Equal("2.0.5", got.DirectorVersionBefore);
         Assert.Equal("2.0.6", got.DirectorVersionAfter);
+        Assert.Equal("3807b006-185a-419a-9897-c885455117ae", got.DrivenBySessionId);
+        Assert.Equal("6d4523e2-ed03-4ae6-ac1c-71d00a37bad1", got.DrivenByDirectorId);
+        Assert.Contains("allowed only because the owner restarted by hand", got.DrivenByNote);
+
         Assert.Single(got.OwnerQuestions);
+        Assert.Equal("2315b1b0-9e48-4dae-949e-8f4ffb72ebb5", got.OwnerQuestions[0].FromSessionId);
+        Assert.Equal("One honest spoken figure - Manager", got.OwnerQuestions[0].FromName);
         Assert.Equal("Deploy the merged ring change? It needs your go.", got.OwnerQuestions[0].Question);
-        Assert.True(got.RestartCommand!.ConfirmProtected);
-        Assert.Equal("2.0.4", got.LauncherUpdate!.To);
-        Assert.Contains("must not be changed", got.RestartBlocked!.GuardVerdict);
-        Assert.Equal(52312, got.RestartMechanism!.LauncherPid);
-        Assert.Equal(69640, got.RestartPerformed!.LauncherAfter!.Pid);
+
+        Assert.Equal("POST", got.RestartCommand!.Method);
+        Assert.Equal("{gateway}/machines/SOREN_NORTH/director/restart", got.RestartCommand.Url);
+        Assert.True(got.RestartCommand.ConfirmProtected);
+        Assert.Contains("session_key_out_of_scope", got.RestartCommand.Note);
+
+        Assert.Equal("1.9.8", got.LauncherUpdate!.From);
+        Assert.Equal("2.0.4", got.LauncherUpdate.To);
+        Assert.Equal("applied", got.LauncherUpdate.Result);
+        Assert.Equal(Later, got.LauncherUpdate.AppliedAtUtc);
+
+        Assert.Contains("self-inflicted", got.RestartBlocked!.State);
+        Assert.Contains("backwards", got.RestartBlocked.CorrectedClaim);
+        Assert.Contains("must not be changed", got.RestartBlocked.GuardVerdict);
+
+        Assert.Contains("named lifecycle signal", got.RestartMechanism!.Method);
+        Assert.Equal(@"Local\cc-director-launcher-restart-director-840af6cd0370", got.RestartMechanism.Signal);
+        Assert.Equal(52312, got.RestartMechanism.LauncherPid);
+        Assert.Equal("2.0.4", got.RestartMechanism.LauncherVersion);
+
+        Assert.Equal("2026-09-06T18:03:02", got.RestartPerformed!.AtLocal);
+        Assert.Equal(18692, got.RestartPerformed.DirectorPid);
+        Assert.Equal("2.0.6", got.RestartPerformed.DirectorVersionAfter);
+        Assert.Equal(69640, got.RestartPerformed.LauncherAfter!.Pid);
+        Assert.Equal("2.0.6", got.RestartPerformed.LauncherAfter.Version);
+        Assert.Contains("file versions and process start times", got.RestartPerformed.VerifiedBy);
         Assert.Contains("re-establishes its own tree", got.RestartPerformed.NotVerified);
+
         Assert.Equal("44fea0ca-2a0f-48c1-ac7c-d4fe2669dad3", got.RestoredBy!.SessionId);
-        Assert.Equal("a5b16478-c173-451c-9621-f74a1ad308ce", got.Seats[0].RestoredSessionId);
-        Assert.Equal("SEED-5ff9ab8b-linux-architect.md", got.Seats[0].RestoredSeedFile);
+        Assert.Equal("devthrottle_internal - restart", got.RestoredBy.Name);
+        Assert.Equal(Later, got.RestoredBy.AtUtc);
+        Assert.Contains("seed written to a FILE", got.RestoredBy.Method);
+
+        var seat = Assert.Single(got.Seats);
+        Assert.Equal("5ff9ab8b-07d3-4b23-953b-6c853760b56c", seat.SessionId);
+        Assert.Equal(WorkspaceDrainStates.Drained, seat.DrainState);
+        Assert.Equal(@"C:\...\5ff9ab8b - Linux Support - Architect.md", seat.HandoverPath);
+        Assert.Equal(WorkspaceRestoreDecisions.Restore, seat.Restore!.Decision);
+        Assert.Contains("real continuing work", seat.Restore.Why);
+        Assert.Equal("cc-devthrottle session spawn ...", seat.Restore.Command);
+        Assert.Equal(Later, seat.ClosedAtUtc);
+        Assert.Equal("a5b16478-c173-451c-9621-f74a1ad308ce", seat.RestoredSessionId);
+        Assert.Equal("SEED-5ff9ab8b-linux-architect.md", seat.RestoredSeedFile);
         Assert.Equal(new[] { "5ff9ab8b-07d3-4b23-953b-6c853760b56c" }, got.RestoreAfterRestart);
     }
 }

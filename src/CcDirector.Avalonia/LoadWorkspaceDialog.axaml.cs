@@ -24,6 +24,7 @@ namespace CcDirector.Avalonia;
 public partial class LoadWorkspaceDialog : Window
 {
     private readonly IWorkspaceCatalog _catalog;
+    private readonly string? _importProblem;
     private List<WorkspaceListItem> _workspaces = new();
 
     /// <summary>The workspace the user chose, or null when they cancelled.</summary>
@@ -37,14 +38,33 @@ public partial class LoadWorkspaceDialog : Window
     }
 
     /// <param name="catalog">Where the workspaces live.</param>
-    public LoadWorkspaceDialog(IWorkspaceCatalog catalog)
+    /// <param name="importProblem">Why the one-time import of this machine's older workspace files could
+    /// not be done, or null when there was nothing wrong. Shown on screen: a list quietly missing the
+    /// user's saved work reads as complete and is not.</param>
+    public LoadWorkspaceDialog(IWorkspaceCatalog catalog, string? importProblem = null)
     {
         FileLog.Write("[LoadWorkspaceDialog] Constructor");
         InitializeComponent();
 
         _catalog = catalog;
+        _importProblem = importProblem;
 
-        Loaded += async (_, _) => await LoadWorkspacesAsync();
+        // An entry point, so it carries the try/catch: an exception out of an async void handler has
+        // nowhere to go but the dispatcher, where nobody sees it and the window sits on "Loading...".
+        Loaded += async (_, _) =>
+        {
+            try
+            {
+                await LoadWorkspacesAsync();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[LoadWorkspaceDialog] Loaded FAILED: {ex.Message}");
+                TxtEmpty.Text = ex.Message;
+                TxtEmpty.IsVisible = true;
+                WorkspaceListBox.IsVisible = false;
+            }
+        };
     }
 
     /// <summary>Owner is set through ShowDialog; kept for callers that expect it.</summary>
@@ -91,14 +111,18 @@ public partial class LoadWorkspaceDialog : Window
         if (_workspaces.Count == 0)
         {
             WorkspaceListBox.IsVisible = false;
-            TxtEmpty.Text = "No saved workspaces";
+            TxtEmpty.Text = _importProblem ?? "No saved workspaces";
             TxtEmpty.IsVisible = true;
         }
         else
         {
             WorkspaceListBox.ItemsSource = _workspaces;
             WorkspaceListBox.IsVisible = true;
-            TxtEmpty.IsVisible = false;
+            // The import problem stays on screen even when the list has rows: what is missing from the
+            // list is exactly what could not be imported, so an empty-state-only message would hide it
+            // in the one case where the list looks fine.
+            TxtEmpty.Text = _importProblem ?? "";
+            TxtEmpty.IsVisible = _importProblem is not null;
         }
     }
 
@@ -179,7 +203,12 @@ public partial class LoadWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
+            // Say so where the reader is looking. Logging alone would leave the preview on "Loading..."
+            // for ever, which reads as a slow fetch rather than a failed one.
             FileLog.Write($"[LoadWorkspaceDialog] WorkspaceListBox_SelectionChanged FAILED: {ex.Message}");
+            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.IsVisible = true;
+            PreviewList.IsVisible = false;
         }
     }
 

@@ -30,7 +30,10 @@ public sealed class WorkspaceSlugTests
     [InlineData("")]
     [InlineData(null)]
     [InlineData("Ein sehr langer Name der weit uber vierundsechzig Zeichen hinausgeht und immer weiter geht")]
-    [InlineData("emoji only name")]
+    // Genuinely non-ASCII, not a label claiming to be: every character here is stripped by the slug rule,
+    // so the name has nothing usable in it and must still produce a valid id.
+    [InlineData("日本語の名前")]
+    [InlineData("éèê")]
     public void Every_minted_slug_is_one_the_Gateway_accepts(string? name)
     {
         // The property, not a sample: whatever comes out of From must pass the validator, including for
@@ -38,6 +41,16 @@ public sealed class WorkspaceSlugTests
         var slug = WorkspaceSlug.From(name);
         Assert.True(WorkspaceSlug.IsValid(slug), $"'{name}' minted '{slug}', which the id rule rejects");
         WorkspaceValidation.ValidateId(slug);   // throws if the store would refuse it
+    }
+
+    [Fact]
+    public void An_id_ending_in_a_line_break_is_not_valid()
+    {
+        // .NET's $ also matches BEFORE a final newline, so a $-anchored pattern would accept this - and
+        // the id would then reach a primary key and every log line that prints it.
+        Assert.False(WorkspaceSlug.IsValid("morning-fleet\n"));
+        Assert.False(WorkspaceSlug.IsValid("morning-fleet\r\n"));
+        Assert.True(WorkspaceSlug.IsValid("morning-fleet"));
     }
 
     [Theory]
