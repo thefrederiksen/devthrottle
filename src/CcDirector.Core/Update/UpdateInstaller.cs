@@ -552,7 +552,21 @@ public static class UpdateInstaller
     ///
     /// Pure, so the environment scrub is provable without starting a process.
     /// </summary>
-    public static ProcessStartInfo BuildRelaunchStartInfo(string targetPath, string? instanceSlug)
+    /// <param name="waitForProcessId">
+    /// The process id the relaunched build must wait to exit before it starts, or null for none.
+    ///
+    /// WHY THIS EXISTS. Its sibling <see cref="LaunchRelauncher"/> has always passed the parent process
+    /// id, and <see cref="ApplyUpdate"/> waits on it for thirty seconds before doing anything. This path
+    /// - the rollback relaunch - passed nothing, so the restored build started while the process that
+    /// started it was still exiting. That was survivable only because the incoming build did several
+    /// seconds of update work before it claimed the single-instance mutex, which is precisely the
+    /// ordering that lets updater work run over an unaccounted-for live Director. Taking the mutex first
+    /// closes that, and it is safe to take it first ONLY once this path stops racing its own parent.
+    ///
+    /// The correct pattern was already in this file, a hundred lines away, on the sibling path.
+    /// </param>
+    public static ProcessStartInfo BuildRelaunchStartInfo(string targetPath, string? instanceSlug,
+        int? waitForProcessId = null)
     {
         // UseShellExecute must stay false: the environment block can only be edited on a direct start.
         var psi = new ProcessStartInfo
@@ -561,20 +575,34 @@ public static class UpdateInstaller
             UseShellExecute = false,
         };
 
+        // The arguments the RELAUNCHED APPLICATION receives, collected before they are placed - because
+        // on macOS they have to travel behind a single "--args", and emitting that per-argument would
+        // hand the second group to /usr/bin/open instead of to the Director. The first draft of the
+        // wait handshake did exactly that whenever no instance slug was carried.
+        var appArgs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(instanceSlug))
+        {
+            appArgs.Add("--instance");
+            appArgs.Add(instanceSlug);
+        }
+        if (waitForProcessId is { } parentPid)
+        {
+            appArgs.Add("--wait-for-exit");
+            appArgs.Add(parentPid.ToString());
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             psi.ArgumentList.Add(targetPath);
-            if (!string.IsNullOrWhiteSpace(instanceSlug))
+            if (appArgs.Count > 0)
             {
                 psi.ArgumentList.Add("--args");
-                psi.ArgumentList.Add("--instance");
-                psi.ArgumentList.Add(instanceSlug);
+                foreach (var a in appArgs) psi.ArgumentList.Add(a);
             }
         }
-        else if (!string.IsNullOrWhiteSpace(instanceSlug))
+        else
         {
-            psi.ArgumentList.Add("--instance");
-            psi.ArgumentList.Add(instanceSlug);
+            foreach (var a in appArgs) psi.ArgumentList.Add(a);
         }
 
         psi.Environment.Remove("CC_DIRECTOR_ROOT");
@@ -618,7 +646,11 @@ public static class UpdateInstaller
             comparison);
     }
 
-    private static void WaitForProcessExit(int pid, TimeSpan timeout)
+    /// <summary>
+    /// Wait for another process to exit, bounded. PUBLIC because the startup path needs the same wait
+    /// the update path has always had - see BuildRelaunchStartInfo's waitForProcessId.
+    /// </summary>
+    public static void WaitForProcessExit(int pid, TimeSpan timeout)
     {
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < timeout)
