@@ -331,23 +331,30 @@ public sealed class RestartOnlyIfEmptyTests
     }
 
     /// <summary>
-    /// THE GUARD'S READING IS THE ONE THAT ACTS. When the guard finds nothing running it permits the
-    /// restart as a start - and the stop that follows must not go looking again, because a second
-    /// reading can see a Director the decision never covered. A review demonstrated exactly that: a
-    /// registration unreadable at guard time and readable a moment later, whose Director was holding
-    /// three sessions.
+    /// ISSUE #2730, ASSERTED ON THE FIRST TREE THAT CARRIES BOTH HALVES: a registration the locator
+    /// cannot read must make a guarded restart REFUSE, not proceed.
     ///
-    /// WHAT THIS TEST OBSERVES: that a guarded restart which decided on "nothing is running" asks
-    /// NOBODY to shut down - there is no shutdown signal raised at all. The stand-in Director here is
-    /// registered and alive and would answer one; it is invisible to the guard only because its
-    /// registration will not parse, which is the same condition the review used.
+    /// WHAT THIS TEST USED TO SAY, AND WHY IT IS REWRITTEN RATHER THAN DELETED. On the branch that built
+    /// the guard, the locator SKIPPED a registration it could not parse and answered NotRunning, so the
+    /// guard permitted the restart as a start - and this test asserted only that the stop then asked
+    /// nobody, which was the most the guard could promise on that locator. That was the fail-open the
+    /// issue names: "I could not read what is there" arriving as "nothing is there", on the one question
+    /// where the same answer means PERMIT. The locator fix gives that state its own name, Unknown, and the
+    /// guard's exhaustive-by-name rule then refuses it. The two halves were built on separate branches
+    /// (the guard on #2721, the locator on the fix for #2730) and this is the first tree with both, so this
+    /// is the first place the property can be asserted rather than described.
+    ///
+    /// WHAT THIS TEST OBSERVES: a live process, registered under a file that will not parse, listening for
+    /// its own shutdown signal. The guarded restart is REFUSED - it does not go on to a start - the refusal
+    /// says why in the locator's terms, and the process is still alive afterwards, which is the evidence
+    /// that nothing was asked to stop.
     /// </summary>
     [Fact]
-    public async Task RestartAsync_OnlyIfEmpty_DecidingNothingIsRunning_AsksNobodyToStop()
+    public async Task RestartAsync_OnlyIfEmpty_RefusesAnUnreadableRegistration_AndAsksNobodyToStop()
     {
         if (!OperatingSystem.IsWindows()) return;
 
-        var root = Path.Combine(Path.GetTempPath(), "cc-restart-toctou-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "cc-restart-2730-" + Guid.NewGuid().ToString("N"));
         var instanceHome = Path.Combine(root, "instances", "default");
         var registrations = Path.Combine(instanceHome, "config", "director", "instances");
         Directory.CreateDirectory(registrations);
@@ -356,26 +363,30 @@ public sealed class RestartOnlyIfEmptyTests
         using var director = Rig.StartShutdownListeningHelper(directorId);
         try
         {
-            // A registration that will not parse: the locator skips it, so the machine reads as nothing
-            // running even though this process is alive and listening for its own shutdown signal.
+            // A registration that will not parse. Before the locator fix this read as NotRunning; now it
+            // reads as Unknown, which is the fact the whole issue turned on.
             File.WriteAllText(Path.Combine(registrations, directorId + ".json"), "{ this will not parse");
 
             var locator = new DirectorInstanceLocator(instanceHome);
-            Assert.Equal(DirectorResolution.NotRunning, locator.Resolve().Outcome);
+            Assert.Equal(DirectorResolution.Unknown, locator.Resolve().Outcome);
 
             var supervisor = new DirectorSupervisor(new InstallLayout(root), locator);
 
-            // The guard permits (it saw nothing), and the restart then goes to start the installed
-            // Director, which this rig does not install.
-            await Assert.ThrowsAsync<FileNotFoundException>(() => supervisor.RestartAsync(onlyIfEmpty: true));
+            // THE ASSERTION: refused, not started. A permitted restart on this rig would throw
+            // FileNotFoundException on the way to starting the uninstalled Director; a refusal returns.
+            var outcome = await supervisor.RestartAsync(onlyIfEmpty: true);
 
-            // THE ASSERTION: nothing was asked to stop. The stand-in is still alive, and it exits the
-            // moment its shutdown signal is raised - so its being alive is the evidence that no signal
-            // was sent to it.
+            Assert.Equal(DirectorRestartVerdict.Refused, outcome.Verdict);
+            Assert.Null(outcome.Sessions);
+            Assert.Contains("undecidable", outcome.Reason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Unknown", outcome.Reason);
+            Assert.Contains("unknown count is never read as empty", outcome.Reason);
+
+            // And nothing was asked to stop: the stand-in exits the moment its shutdown signal is raised,
+            // so its being alive is the evidence that no signal was sent.
             director.Refresh();
             Assert.False(director.HasExited,
-                "a guarded restart that decided nothing was running went on to stop a Director anyway - "
-                + "which is the decision and the action using two different readings of the machine.");
+                "a guarded restart read an unreadable registration as an empty Director and stopped a live one anyway.");
         }
         finally
         {
