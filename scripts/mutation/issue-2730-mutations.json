@@ -64,7 +64,7 @@
     {
       "name": "2730-k: a registration with no start time is accepted as complete",
       "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
-      "find": "                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)",
+      "find": "                    || dto.StartedAt < DateTime.MinValue + RegistrationLag\n                    || dto.StartedAt > DateTime.MaxValue - RegistrationSkew)",
       "replace": "                    )"
     },
     {
@@ -110,6 +110,14 @@
       "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
       "find": "                return property.Value.ValueKind == JsonValueKind.Array;",
       "replace": "                return property.Value.ValueKind == JsonValueKind.Array\n                       && property.Value.GetArrayLength() > 0;"
+    },
+    {
+      "name": "2730-q: the update owner's hold is disabled (the mutation that reached a commit)",
+      "file": "src/CcDirector.Launcher/DirectorUpdateOwner.cs",
+      "find": "        if (status.Unreadable.Count > 0)",
+      "replace": "        if (status.Unreadable.Count > 999999)",
+      "why": "Expected BROKEN, and the reason is worth more than a kill would be. With the hold removed the update owner proceeds PAST it and attempts a real install, which CRASHES THE TEST HOST - 'Test host process crashed', 9 tests reported and the run aborted. A crash is not a test failure, so the harness correctly refuses a verdict rather than recording KILLED or SURVIVED. The crash is itself the evidence that the hold guards something drastic: everything beyond it is the install path. It also says the test rig would drive a real update apply if that hold ever regressed, which is recorded as a hazard rather than left as a surprise.",
+      "expect": "BROKEN"
     }
   ]
 }

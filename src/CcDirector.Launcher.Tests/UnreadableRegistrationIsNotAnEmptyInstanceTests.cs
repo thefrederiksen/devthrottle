@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using CcDirector.Core.Instances;
+using CcDirector.Core.Update;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -694,5 +695,181 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
 
         Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
         Assert.Empty(lookup.Unreadable);
+    }
+
+    // =========================================================================================
+    // BOUNDARY TIMESTAMPS - the carried finding, on the input the first fix did not consider
+    // =========================================================================================
+
+    /// <summary>
+    /// A PARSEABLE registration whose timestamp sits at either arithmetic boundary must not make Resolve
+    /// throw. The first draft of the completeness guard tried to prove the subtraction safe BY PERFORMING
+    /// IT, so a stamp just above the minimum threw inside the guard meant to reject it; and a stamp
+    /// within the skew of the maximum survived that guard entirely and threw on the addition in Resolve.
+    ///
+    /// THE HARM IS THE PROPERTY, NOT THE EXCEPTION. Resolve is called by Start, StopAsync, ReadStatus and
+    /// IsRunning with no local recovery, so one such file would keep a stopped Director from starting
+    /// until somebody deleted it by hand - a corrupt reading leaving a formerly working thing unable to
+    /// start, which is the thing that may not happen.
+    ///
+    /// The earlier test covered a TRUNCATED document only, which never reaches this arithmetic at all.
+    /// </summary>
+    [Theory]
+    [InlineData("0001-01-01T00:00:01.0000000Z")]   // just above DateTime.MinValue: threw in the guard
+    [InlineData("0001-01-01T00:05:00.0000000Z")]   // inside the registration lag: threw in the guard
+    [InlineData("9999-12-31T23:59:59.0000000Z")]   // within the skew of DateTime.MaxValue: threw in Resolve
+    [InlineData("9999-12-31T23:59:58.5000000Z")]
+    public void A_registration_at_an_arithmetic_boundary_does_not_throw_and_is_Unknown(string stamp)
+    {
+        Directory.CreateDirectory(InstanceDirectory);
+        File.WriteAllText(Path.Combine(InstanceDirectory, "bbbb9999-0000-0000-0000-000000000001.json"),
+            $$"""
+            {
+              "DirectorId": "bbbb9999-0000-0000-0000-000000000001",
+              "Pid": {{Environment.ProcessId}},
+              "StartedAt": "{{stamp}}",
+              "Version": "2.0.6"
+            }
+            """);
+
+        var lookup = Locator().Resolve();   // must not throw
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.NotEmpty(lookup.Unreadable);
+    }
+
+    /// <summary>
+    /// AND THE PROPERTY AT THAT INPUT: a boundary-timestamped file left behind must not stop the Director
+    /// starting. This is the harm the finding named, asserted rather than reasoned about.
+    /// </summary>
+    [Fact]
+    public void A_boundary_timestamp_file_does_not_stop_the_Director_starting()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(InstanceDirectory);
+        File.WriteAllText(Path.Combine(InstanceDirectory, "bbbb9998-0000-0000-0000-000000000001.json"),
+            $$"""
+            {
+              "DirectorId": "bbbb9998-0000-0000-0000-000000000001",
+              "Pid": {{Environment.ProcessId}},
+              "StartedAt": "0001-01-01T00:00:01.0000000Z",
+              "Version": "2.0.6"
+            }
+            """);
+
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        // Reaching the launch is the pass; the rig turns the attempt into Win32Exception.
+        Assert.Throws<Win32Exception>(() => supervisor.Start());
+    }
+
+    /// <summary>The control: an ordinary timestamp still resolves normally, so the boundary guard has not
+    /// simply started rejecting everything.</summary>
+    [Fact]
+    public void An_ordinary_timestamp_still_resolves_normally()
+    {
+        WriteLiveRegistration("bbbb9997-0000-0000-0000-000000000001");
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Running, lookup.Outcome);
+        Assert.Empty(lookup.Unreadable);
+    }
+
+    // =========================================================================================
+    // THE UPDATE DECISION ITSELF - closing a test that named a decision it never invoked
+    // =========================================================================================
+
+    /// <summary>
+    /// THE UPDATE OWNER HOLDS, driven through the real DirectorUpdateOwner rather than stopping at the
+    /// status it reads.
+    ///
+    /// WHY THIS EXISTS AS ITS OWN TEST. A reviewer found that the test named
+    /// "...all_the_way_to_the_update_decision" called only ReadStatus and never invoked the owner - it
+    /// proved the evidence was CARRIED, and named a decision it did not reach. That is worse than a
+    /// missing test: it is the evidence for a binding property, claiming a scope it does not have. The
+    /// carrying test keeps its narrower name; this one performs the decision.
+    /// </summary>
+    [Fact]
+    public async Task The_update_owner_HOLDS_when_the_instance_home_has_an_unreadable_claim()
+    {
+        WriteLiveRegistration("aaaa7001-0000-0000-0000-000000000001");
+        WriteTruncatedRegistration("aaaa7002-0000-0000-0000-000000000002");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        // THE PRECONDITION, ASSERTED - and this is what the first version of this test was missing.
+        // HeldBecauseUnknown is returned by TWO branches: the unreadable-CLAIM hold under test, and the
+        // unreadable-ROSTER hold below it. Asserting the enum alone cannot tell them apart, so a
+        // mutation DISABLING the claim hold survived the whole suite - the roster branch produced the
+        // same answer. Found by a reviewer substituting that constant in the working tree.
+        //
+        // With a readable roster saying ZERO, the only branch left that can return HeldBecauseUnknown
+        // is the one this test is named for.
+        StageUpdateAndRosters(supervisor);
+        Assert.Equal(0, supervisor.ReadStatus()!.Sessions);
+
+        var decision = await new DirectorUpdateOwner(supervisor).RunOnceAsync();
+
+        Assert.Equal(DirectorUpdateDecision.HeldBecauseUnknown, decision);
+    }
+
+    /// <summary>
+    /// THE CONTROL, and the test above is worth nothing without it: the SAME staged update, the SAME live
+    /// Director, and NO unreadable claim must NOT be held for this reason. Otherwise the hold could be
+    /// firing for any reason at all and the test would still pass.
+    /// </summary>
+    [Fact]
+    public async Task The_update_owner_does_NOT_hold_for_this_reason_when_nothing_is_unreadable()
+    {
+        WriteLiveRegistration("aaaa7003-0000-0000-0000-000000000003");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        var decision = await RunUpdateOwnerAsync(supervisor);
+
+        Assert.NotEqual(DirectorUpdateDecision.HeldBecauseUnknown, decision);
+    }
+
+    /// <summary>
+    /// Stage a real update for the installed Director this rig fakes, give the live Director an EXPLICIT
+    /// empty roster so "how busy is it" has a real answer, and run one pass of the production
+    /// <see cref="DirectorUpdateOwner"/>.
+    ///
+    /// The roster is explicit rather than absent on purpose: an absent roster is itself an unknown, and
+    /// the unreadable-ROSTER hold returns the SAME DirectorUpdateDecision as the unreadable-CLAIM hold
+    /// under test. Without a real session answer the assertion cannot tell the two apart - which is
+    /// exactly how a mutation disabling the claim hold survived this suite.
+    /// </summary>
+    private async Task<DirectorUpdateDecision> RunUpdateOwnerAsync(DirectorSupervisor supervisor)
+    {
+        StageUpdateAndRosters(supervisor);
+        return await new DirectorUpdateOwner(supervisor).RunOnceAsync();
+    }
+
+    /// <summary>Everything the owner reads, put in place. SEPARATE from running it, so a test can assert
+    /// the preconditions its assertion depends on BEFORE the decision is made.</summary>
+    private void StageUpdateAndRosters(DirectorSupervisor supervisor)
+    {
+        var stagedBuild = Path.Combine(_root, "staged", "cc-director.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(stagedBuild)!);
+        File.WriteAllText(stagedBuild, "a staged build");
+
+        var stateFile = Path.Combine(InstanceHome, "config", "director", "updater-state.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
+        new UpdaterState
+        {
+            StagedVersion = "9.9.9",
+            StagedExecutable = stagedBuild,
+            InstallTarget = supervisor.DirectorExePath,
+        }.SaveTo(stateFile);
+
+        var journal = Path.Combine(InstanceHome, "config", "director", "crash-journal");
+        Directory.CreateDirectory(journal);
+        foreach (var file in Directory.GetFiles(InstanceDirectory, "*.json"))
+        {
+            var id = Path.GetFileNameWithoutExtension(file);
+            File.WriteAllText(Path.Combine(journal, id + ".json"),
+                $$"""{"directorId":"{{id}}","sessions":[]}""");
+        }
     }
 }

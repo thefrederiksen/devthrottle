@@ -672,8 +672,26 @@ public sealed class DirectorInstanceLocator
                 // catch in this file. It is also right on the merits - the stamp is the ONLY thing that
                 // tells this Director from a process that inherited its id, so a registration without
                 // one certifies nothing and belongs with the others that could not be read.
+                // THE BOUNDS ARE CHECKED WITHOUT PERFORMING THE ARITHMETIC THEY MAKE SAFE, and the
+                // first draft of this guard did the opposite: it wrote
+                // `dto.StartedAt - RegistrationLag < DateTime.MinValue`, which THROWS for exactly the
+                // timestamps it was meant to reject. A guard that has to do the dangerous thing in
+                // order to decide whether the dangerous thing is safe is not a guard.
+                //
+                // Both ends matter and only one was considered. A stamp just above DateTime.MinValue
+                // throws on the SUBTRACTION here; a stamp within the skew of DateTime.MaxValue survives
+                // that and throws on the ADDITION in Resolve. Comparing against the boundary shifted the
+                // other way - MinValue PLUS the lag, MaxValue MINUS the skew - can never overflow,
+                // because both are computed from constants known to fit.
+                //
+                // The harm is the one the binding property forbids: Resolve is called by Start,
+                // StopAsync, ReadStatus and IsRunning with no local recovery, so one parseable
+                // registration with a boundary timestamp would keep a stopped Director from starting
+                // until somebody deleted the file by hand.
                 if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)
-                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)
+                    || dto.StartedAt == default
+                    || dto.StartedAt < DateTime.MinValue + RegistrationLag
+                    || dto.StartedAt > DateTime.MaxValue - RegistrationSkew)
                 {
                     var incomplete = $"the registration {file} parsed but names no usable Director "
                                      + $"(directorId={(string.IsNullOrWhiteSpace(dto?.DirectorId) ? "missing" : dto!.DirectorId)}, "
