@@ -1,0 +1,36 @@
+{
+    "ranAtUtc":  "2026-09-07T14:47:27.3809225Z",
+    "gateway":  "http://127.0.0.1:7911",
+    "probeSessionId":  "12f5667f-d4ce-4906-bf9b-1ca2518de09f",
+    "keyPresent":  true,
+    "machineUsed":  "no-such-machine-phase7-probe",
+    "results":  [
+                    {
+                        "case":  "direct-restart-refused",
+                        "method":  "POST",
+                        "path":  "/machines/no-such-machine-phase7-probe/director/restart",
+                        "body":  "{\"confirmProtected\":true}",
+                        "expectedStatus":  403,
+                        "expectedText":  "session_key_out_of_scope",
+                        "observedStatus":  403,
+                        "observedBody":  "{\"error\":\"a session key may not call POST /machines/no-such-machine-phase7-probe/director/restart; it may run the fleet\u0027s agent routes and configure the product - settings and handovers - but never the admission surface: device enrollment, account identity, Director registration, or force-killing a Director\",\"code\":\"session_key_out_of_scope\"}",
+                        "verdict":  "PASS"
+                    },
+                    {
+                        "case":  "control-reaches-route",
+                        "method":  "POST",
+                        "path":  "/machines/no-such-machine-phase7-probe/sessions",
+                        "body":  "{}",
+                        "expectedStatus":  400,
+                        "expectedText":  "repoPath",
+                        "observedStatus":  400,
+                        "observedBody":  "{\"error\":\"repoPath is required\"}",
+                        "verdict":  "PASS"
+                    },
+                    {
+                        "case":  "request-route",
+                        "verdict":  "NOT RUN",
+                        "observedBody":  "route not yet defined - Phase 6 has not landed; this is not a pass"
+                    }
+                ]
+}

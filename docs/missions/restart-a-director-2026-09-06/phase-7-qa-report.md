@@ -197,9 +197,23 @@ Attachment: `attachments/before-picture.md` and `.json`.
 
 ## The approval
 
-NOT YET RUN. Must show: the request created by a session key (which session, in its own words); the
-direct restart route refusing that same key (`403 session_key_out_of_scope`, with the control that
-the same key reaches an allowed route); what the owner saw before accepting.
+NOT YET RUN in full. Must show: the request created by a session key (which session, in its own
+words); the direct restart route refusing that same key (`403 session_key_out_of_scope`, with the
+control that the same key reaches an allowed route); what the owner saw before accepting.
+
+**Already shown on the rig, before the run (14:47Z, build 4f742a4d3):** a RawCli seat on the rig
+Director ran `scripts/restart-qa/session-key-probes.ps1` with its OWN session key - the only honest
+way, since a key never leaves its session - against a made-up machine name, so nothing could have
+restarted even with no guard at all.
+
+| Case | Expected | Observed | Artefact |
+|---|---|---|---|
+| direct restart with a session key | 403 `session_key_out_of_scope` | 403, "a session key may not call POST /machines/.../director/restart ... never the admission surface" | `attachments/negative-cases/session-key-probes-rig-prerun-2026-09-07T1447Z.json` |
+| control: the same key on an allowed route of the same machine | 400 "repoPath is required" (the route is reached; the 403 above is the guard, not machine resolution) | 400 "repoPath is required" | same file |
+| the Phase 6 request route with the same key | not yet defined | NOT RUN - recorded as such, not as a pass | same file |
+
+The same probe runs again during the pass, on the tree that carries Phase 6, with the request route
+filled in.
 
 **What this run does not exercise here:** the owner's accept on the rig is performed with the
 rig Gateway's shared token by the driver, standing in for him. That proves the mechanism and not his
@@ -242,6 +256,37 @@ Then the recovery in the same pass, BEFORE the wedge is cleared: the already-clo
 from the workspace with no restart, each shown carrying on the work its handover describes, no live
 seat duplicated, ending recorded `directorOutcome: not-restarted` with `seatOutcome.scope: all`.
 
+### The seeded fleet
+
+Two missions, a real Architect-Manager-Worker chain, two agent families, one snoozed seat, one wedged
+seat, and real uncommitted work in two real worktrees cut from origin/main. Every agent seat was given
+a fact that exists nowhere but in its own context, so a restored seat can be asked for it.
+
+| Seat | Agent | Reports to | Real work, uncommitted by design | Fact only its handover can carry |
+|---|---|---|---|---|
+| Rig Alpha - Architect | Claude Code | nobody (mission head) | docs/rig-alpha/DESIGN.md | rulings D-4117, D-4118, D-4119 |
+| Rig Alpha - Manager | Claude Code | Architect | docs/rig-alpha/MANAGER-LOG.md | checkpoint M-2261 |
+| Rig Alpha - Worker A - status file | Claude Code | Manager | docs/rig-alpha/STATUS.md | note W-7703 |
+| Rig Alpha - Worker B - launcher test run | Claude Code | Manager | a foreground `dotnet test` run; docs/rig-alpha/TEST-RESULT.md | note W-7704 and the counts |
+| Rig Beta - Manager | Claude Code | nobody (mission head) | docs/rig-beta/BETA-LOG.md | checkpoint B-5150 |
+| Rig Beta - Worker C - launcher notes | Codex | Beta Manager | docs/rig-beta/LAUNCHER-NOTES.md | note W-8812 |
+| Rig - standalone - weekly count (snoozed) | Claude Code | nobody | docs/rig-beta/STANDALONE-COUNT.md, then held itself for 720 minutes | count S-3391 |
+| Rig - wedged - RawCli on a command that never returns | RawCli, `cmd /c ping -t 127.0.0.1` | nobody | none - it cannot do anything | none - it cannot write one |
+
+Observed at 14:44Z: all seven agent seats had done their work (seven files on disk, `git status`
+showing them untracked in both worktrees), the standalone was `holdState: Held`, and the wedge was
+still flagged.
+
+**A finding from the seeding itself.** Four of the seven agent seats had their seed prompt typed by
+the Director into a Claude Code composer that was still initialising. The echo check missed twice,
+the Director stamped `promptDeliveryUnresolved: true` on each with the reason in full, and the text
+sat parked in the composer, doubled and unsubmitted - the exact failure Phase 5's restore is told to
+check for before calling a seat restored. The flag fired on 4 of 8 spawns, so it is an instrument
+that has been seen to say no. There is no product retry verb; the prompts were sent again through
+the same route once the composers had settled, all four accepted, and the flag cleared. A restore
+that reads this flag and re-sends is doing the right thing; one that reads `turnCount` alone would
+have called four dead seats alive.
+
 ### The wedge
 
 Phase 4's drain (pull request 2731) has two ways a seat can fail to reach a clean stop, and they
@@ -253,8 +298,22 @@ are different states:
 
 A seat that is genuinely incapable of producing a handover - the mandate's requirement - cannot
 declare anything, so it lands as `unreachable`. The seed is a RawCli session sitting on a command
-that never returns: nothing typed into it is executed, so it cannot write a document, and the proof
-that it is wedged is that the drain message lands in its console buffer and nothing happens.
+that never returns.
+
+**Proven wedged before it was needed, through the drain's own delivery path.** The Director's prompt
+route - the one behind `SessionCommandExecutor.SendPromptAsync`, which the drain's `SendAsync` uses -
+was given the kind of message a drain sends. It answered `accepted: false` with
+`EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - the TUI is not
+accepting input`; the buffer kept scrolling ping replies with no trace of the text; no document
+appeared at the path it was told; the `ping -t` process was still alive afterwards; and the session
+row went to `promptDeliveryUnresolved: true`. So the seat is incapable, not unwilling - and the
+Director knows it at the moment of the attempt, not only ninety minutes later. Artefacts:
+`attachments/wedge-proof/`.
+
+**Also observed on the rig, against the skill's own text.** The director-restart skill says a
+restarted Director gets a new identifier. On the rig the Director id `9f46482f` SURVIVED a full
+stop and start through the launcher (new pid, same id), because the id store keys on executable
+path plus instance. Neither claim should be assumed; the registration is re-read every time.
 
 ## The negative cases
 
