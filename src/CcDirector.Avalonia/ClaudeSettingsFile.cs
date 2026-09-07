@@ -54,6 +54,14 @@ public enum SettingsSaveKind
     /// to have no name.
     /// </summary>
     RefusedUnreadable,
+
+    /// <summary>
+    /// The read said it was safe to write and the WRITE itself failed - the disk, the permissions,
+    /// the path. Distinct from a refusal: a refusal means we chose not to write, this means we tried
+    /// and could not, and the file may be in either state. Named because the alternative is an
+    /// exception out of a button click, and this dialog's click handler is where those disappear.
+    /// </summary>
+    WriteFailed,
 }
 
 /// <summary>The outcome of a save, and why when it refused.</summary>
@@ -61,6 +69,13 @@ public sealed record SettingsSaveResult(SettingsSaveKind Kind, string? Problem)
 {
     /// <summary>True when the file on disk was left exactly as it was found.</summary>
     public bool Refused => Kind == SettingsSaveKind.RefusedUnreadable;
+
+    /// <summary>
+    /// True only when the settings are on disk. Written as a POSITIVE test of the two kinds that
+    /// actually wrote, not as "not refused" - a later kind added to this enum must not silently
+    /// become a success, which is how the defect this class fixes came about in the first place.
+    /// </summary>
+    public bool Saved => Kind is SettingsSaveKind.Created or SettingsSaveKind.Merged;
 }
 
 /// <summary>
@@ -105,6 +120,16 @@ public static class ClaudeSettingsFile
     /// </summary>
     public static ConfigRead Read(string path)
     {
+        // Something is at that path and it is NOT a file. File.Exists answers false for a directory,
+        // which would fold this into Absent - the permissive branch, the one that says "go ahead and
+        // create". Creating is then an unhandled write failure rather than an answer. A directory in
+        // the way is a state of the world, so it gets its own answer like every other one.
+        if (Directory.Exists(path))
+        {
+            FileLog.Write($"[ClaudeSettingsFile] Read: {path} is a directory, not a settings file");
+            return new ConfigRead(ConfigReadKind.Unreadable, null, "is a directory, not a file");
+        }
+
         if (!File.Exists(path))
             return new ConfigRead(ConfigReadKind.Absent, null, null);
 
@@ -169,14 +194,35 @@ public static class ClaudeSettingsFile
 
         Apply(obj, edits);
 
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
 
-        var json = obj.ToJsonString(WriteOptions);
-        File.WriteAllText(path, json);
-        FileLog.Write($"[ClaudeSettingsFile] Save: {path} ({json.Length} bytes, "
-                      + $"{(creating ? "created" : "merged into existing")})");
+            var json = obj.ToJsonString(WriteOptions);
+
+            // Write a sibling temp file and MOVE it over the target, the same way config.json and the
+            // key store in this repository already do it. An in-place WriteAllText truncates first, so
+            // a crash or a full disk part-way through leaves the settings file destroyed or
+            // unparsable - this fix would then have MANUFACTURED the very state it refuses to write
+            // over. The move is the commit point: readers see the old file or the new one.
+            var temp = Path.Combine(dir ?? ".", $".settings.{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(temp, json);
+            File.Move(temp, path, overwrite: true);
+
+            FileLog.Write($"[ClaudeSettingsFile] Save: {path} ({json.Length} bytes, "
+                          + $"{(creating ? "created" : "merged into existing")})");
+        }
+        catch (Exception ex)
+        {
+            // NOT swallowed and NOT a fallback: turned into an answer the caller must render. Letting
+            // it throw sends it to the dialog's click handler, which has no catch, and from there to
+            // the application's unhandled-exception handler, which marks it Handled - so the person
+            // presses Save, nothing happens, and nothing is said.
+            FileLog.Write($"[ClaudeSettingsFile] Save FAILED writing {path}: {ex.Message}");
+            return new SettingsSaveResult(SettingsSaveKind.WriteFailed, $"could not be written ({ex.Message})");
+        }
 
         return new SettingsSaveResult(
             creating ? SettingsSaveKind.Created : SettingsSaveKind.Merged, null);

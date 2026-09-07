@@ -23,6 +23,14 @@ public partial class ClaudeConfigDialog : Window
     private readonly string? _projectSettingsPath;
     private readonly string? _projectLocalSettingsPath;
 
+    /// <summary>
+    /// Whether the controls on screen were populated from a settings file that was actually READ.
+    /// False after a load that could not read it, and only a successful reload clears it. Saving is
+    /// refused while it is false, because blank controls that never described the file must never be
+    /// written over it - not even once the file itself has been repaired.
+    /// </summary>
+    private bool _controlsReflectTheFile = true;
+
     private readonly ObservableCollection<string> _allowedRules = new();
     private readonly ObservableCollection<string> _deniedRules = new();
     private readonly ObservableCollection<PluginEntry> _plugins = new();
@@ -117,12 +125,21 @@ public partial class ClaudeConfigDialog : Window
         LoadHooksTab(settingsJson);
         LoadFilesTab();
 
-        if (settingsRead.Kind == ConfigReadKind.Unreadable)
+        // LATCHED on the load, not re-derived at save time. The controls now on screen either came
+        // from a successful read or they did not, and only the load knows which. Re-asking the file at
+        // save time answers a different question: if the person repairs the file externally and
+        // presses Save without Reload, the fresh read succeeds and these BLANK controls - "plan", no
+        // rules, no env, no plugins - are written over the repaired file. That would have moved the
+        // defect rather than fixed it, which is the failure this whole change exists to stop.
+        _controlsReflectTheFile = settingsRead.Kind != ConfigReadKind.Unreadable;
+
+        if (!_controlsReflectTheFile)
         {
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
             SaveStatusText.Text = $"{Path.GetFileName(_settingsJsonPath)} {settingsRead.Problem}. "
                                   + "The fields below are EMPTY because it could not be read, not because "
-                                  + "it is empty. Saving is refused until that file is fixed or moved.";
+                                  + "it is empty. Fix or move that file and press Reload - saving is "
+                                  + "refused until a reload succeeds, so these blanks cannot overwrite it.";
             FileLog.Write($"[ClaudeConfigDialog] LoadConfig: settings file unreadable - {settingsRead.Problem}");
         }
         else
@@ -265,20 +282,45 @@ public partial class ClaudeConfigDialog : Window
     {
         FileLog.Write("[ClaudeConfigDialog] SaveConfig: writing configuration files");
 
+        if (!_controlsReflectTheFile)
+        {
+            // The file may well be readable again by now - that is exactly the case this guards. The
+            // question is not "can the file be read?" but "do these controls describe it?", and the
+            // answer was settled at load time and has not changed since.
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} could not be read when "
+                                  + "this window opened, so the fields shown never described it. Press Reload "
+                                  + "first; saving now would overwrite the file with blanks.";
+            FileLog.Write("[ClaudeConfigDialog] SaveConfig: REFUSED, controls never reflected the settings file");
+            return;
+        }
+
         var settings = SaveSettingsJson();
-        if (settings.Refused)
+        if (!settings.Saved)
         {
             // Say so, and say it in the place the word "Saved" would otherwise have appeared. Reporting
             // success over a write that did not happen is how the old behaviour hid: the file was left
             // alone only by accident of the caller, and the person was told it had been saved either way.
+            // Tested POSITIVELY on Saved rather than on Refused, so a new outcome added to that enum
+            // cannot quietly join the success path.
+            var advice = settings.Refused
+                ? "Fix or move that file, then reopen this window."
+                : "Your settings were not changed.";
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. "
-                                  + "Fix or move that file, then reopen this window.";
-            FileLog.Write("[ClaudeConfigDialog] SaveConfig: ABORTED, settings file unreadable");
+            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. {advice}";
+            FileLog.Write($"[ClaudeConfigDialog] SaveConfig: ABORTED, outcome={settings.Kind}");
             return;
         }
 
-        SaveClaudeJson();
+        var prefs = SaveClaudeJson();
+        if (!prefs.Saved)
+        {
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"Settings saved, but {Path.GetFileName(_claudeJsonPath)} {prefs.Problem} - "
+                                  + "the automatic-updates setting was NOT changed.";
+            FileLog.Write($"[ClaudeConfigDialog] SaveConfig: partial, .claude.json outcome={prefs.Kind}");
+            return;
+        }
 
         SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#22C55E"));
         SaveStatusText.Text = "Saved";
@@ -300,19 +342,64 @@ public partial class ClaudeConfigDialog : Window
             EffortLevel: EffortLevelCombo.SelectedItem as string,
             MaxOutputTokens: MaxTokensInput.Text,
             BashTimeoutMs: BashTimeoutInput.Text,
-            EnabledPlugins: _plugins.ToDictionary(p => p.FullKey, p => p.IsEnabled));
+            EnabledPlugins: PluginMap());
 
         return ClaudeSettingsFile.Save(_settingsJsonPath, edits);
     }
 
-    private void SaveClaudeJson()
+    /// <summary>
+    /// The plugin enablement map, LAST ONE WINS on a repeated key.
+    ///
+    /// Deliberately not <c>ToDictionary</c>: that throws on a duplicate key, and the code this
+    /// replaced assigned through a JsonObject indexer, which silently overwrote. Today the keys come
+    /// from JSON object property names and cannot repeat, so the two agree - but the difference is
+    /// between "overwrites" and "throws out of a button click", and this dialog's click handler is
+    /// exactly where an exception used to disappear.
+    /// </summary>
+    private Dictionary<string, bool> PluginMap()
     {
-        JsonNode? root = ReadJsonFile(_claudeJsonPath);
-        if (root is not JsonObject obj) return; // Don't create .claude.json if it doesn't exist
+        var map = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var p in _plugins)
+            map[p.FullKey] = p.IsEnabled;
+        return map;
+    }
 
+    /// <summary>
+    /// Save the one field this dialog owns in <c>.claude.json</c>, and say which of the three things
+    /// happened. It reads through the same three-answer reader as the settings file: the old reader
+    /// returned null for absent and unreadable alike, and while this method declined to write on
+    /// either - so it never clobbered anything - the caller then displayed a green "Saved" over an
+    /// edit that was silently dropped.
+    /// </summary>
+    private SettingsSaveResult SaveClaudeJson()
+    {
+        var read = ClaudeSettingsFile.Read(_claudeJsonPath);
+
+        // Absent is deliberately NOT an error and NOT a create: this dialog does not own the file's
+        // existence, and minting one Claude Code never wrote is not this button's business.
+        if (read.Kind == ConfigReadKind.Absent)
+            return new SettingsSaveResult(SettingsSaveKind.Merged, null);
+
+        if (read.Kind == ConfigReadKind.Unreadable)
+        {
+            FileLog.Write($"[ClaudeConfigDialog] SaveClaudeJson REFUSED: {_claudeJsonPath} {read.Problem}");
+            return new SettingsSaveResult(SettingsSaveKind.RefusedUnreadable, read.Problem);
+        }
+
+        var obj = read.Root!;
         obj["autoUpdates"] = AutoUpdatesCheck.IsChecked == true;
 
-        WriteJsonFile(_claudeJsonPath, obj);
+        try
+        {
+            WriteJsonFile(_claudeJsonPath, obj);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeConfigDialog] SaveClaudeJson FAILED writing {_claudeJsonPath}: {ex.Message}");
+            return new SettingsSaveResult(SettingsSaveKind.WriteFailed, $"could not be written ({ex.Message})");
+        }
+
+        return new SettingsSaveResult(SettingsSaveKind.Merged, null);
     }
 
     // -- Permission Rules -----------------------------------------------------
@@ -377,7 +464,23 @@ public partial class ClaudeConfigDialog : Window
     // -- Button Handlers ------------------------------------------------------
 
     private void BtnReload_Click(object? sender, RoutedEventArgs e) => LoadConfig();
-    private void BtnSave_Click(object? sender, RoutedEventArgs e) => SaveConfig();
+    private void BtnSave_Click(object? sender, RoutedEventArgs e)
+    {
+        // An event handler is an entry point and carries the catch. Without one, anything thrown here
+        // reaches the application's unhandled-UI-exception handler, which marks it Handled - so the
+        // press produces no file, no message and no trace on screen. That silence is the same defect
+        // this dialog was fixed for, one layer up.
+        try
+        {
+            SaveConfig();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeConfigDialog] BtnSave_Click FAILED: {ex}");
+            SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            SaveStatusText.Text = $"NOT saved - {ex.Message}";
+        }
+    }
     private void BtnClose_Click(object? sender, RoutedEventArgs e) => Close();
 
     // -- JSON Helpers ---------------------------------------------------------

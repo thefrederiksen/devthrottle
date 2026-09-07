@@ -187,6 +187,167 @@ public sealed class ClaudeSettingsFileTests : IDisposable
         Assert.True(File.Exists(nested));
     }
 
+    // ---- The merge contract, field by field --------------------------------
+
+    /// <summary>
+    /// Every field the dialog owns, all set at once, each asserted by name and value - and every
+    /// field it does NOT own asserted to survive. Without this the suite stayed green if the $schema
+    /// URL, any of the four environment variable names, the deny list, the plugin map or the
+    /// empty-env removal were wrong, because the shared edits helper left them all empty.
+    /// </summary>
+    [Fact]
+    public void Save_EveryEditedFieldIsWritten_AndEveryUnknownFieldSurvives()
+    {
+        File.WriteAllText(_path, """
+        {
+          "hooks": { "SessionStart": [ { "hooks": [ { "command": "cc-director-preamble" } ] } ] },
+          "mcpServers": { "vault": { "command": "cc-vault" } },
+          "statusLine": { "type": "command", "command": "my-status" },
+          "permissions": { "additionalDirectories": ["/srv"] },
+          "env": { "SOMETHING_ELSE": "keep me" }
+        }
+        """);
+
+        var result = ClaudeSettingsFile.Save(_path, new ClaudeSettingsEdits(
+            PermissionMode: "bypassPermissions",
+            Allow: new List<string> { "Bash(git status)", "Read(*)" },
+            Deny: new List<string> { "Bash(rm -rf *)" },
+            Model: "  claude-opus-5  ",
+            EffortLevel: "high",
+            MaxOutputTokens: "8192",
+            BashTimeoutMs: "600000",
+            EnabledPlugins: new Dictionary<string, bool> { ["a@repo"] = true, ["b@repo"] = false }));
+
+        Assert.Equal(SettingsSaveKind.Merged, result.Kind);
+        var root = JsonNode.Parse(File.ReadAllText(_path))!.AsObject();
+
+        Assert.Equal("https://json.schemastore.org/claude-code-settings.json", root["$schema"]!.GetValue<string>());
+
+        var perms = root["permissions"]!.AsObject();
+        Assert.Equal("bypassPermissions", perms["defaultMode"]!.GetValue<string>());
+        Assert.Equal(new[] { "Bash(git status)", "Read(*)" },
+            perms["allow"]!.AsArray().Select(n => n!.GetValue<string>()).ToArray());
+        Assert.Equal(new[] { "Bash(rm -rf *)" },
+            perms["deny"]!.AsArray().Select(n => n!.GetValue<string>()).ToArray());
+        Assert.Equal("/srv", perms["additionalDirectories"]![0]!.GetValue<string>());
+
+        var env = root["env"]!.AsObject();
+        Assert.Equal("claude-opus-5", env["ANTHROPIC_MODEL"]!.GetValue<string>());   // trimmed
+        Assert.Equal("high", env["CLAUDE_CODE_EFFORT_LEVEL"]!.GetValue<string>());
+        Assert.Equal("8192", env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]!.GetValue<string>());
+        Assert.Equal("600000", env["BASH_DEFAULT_TIMEOUT_MS"]!.GetValue<string>());
+        Assert.Equal("keep me", env["SOMETHING_ELSE"]!.GetValue<string>());
+
+        var plugins = root["enabledPlugins"]!.AsObject();
+        Assert.True(plugins["a@repo"]!.GetValue<bool>());
+        Assert.False(plugins["b@repo"]!.GetValue<bool>());
+
+        Assert.Equal("cc-director-preamble",
+            root["hooks"]!["SessionStart"]![0]!["hooks"]![0]!["command"]!.GetValue<string>());
+        Assert.Equal("cc-vault", root["mcpServers"]!["vault"]!["command"]!.GetValue<string>());
+        Assert.Equal("my-status", root["statusLine"]!["command"]!.GetValue<string>());
+    }
+
+    /// <summary>Blank edits REMOVE their environment variables, and an env left empty is removed entirely.</summary>
+    [Fact]
+    public void Save_BlankEnvEdits_RemoveTheVariablesAndThenTheEnvObject()
+    {
+        File.WriteAllText(_path, """
+        { "env": { "ANTHROPIC_MODEL": "old", "CLAUDE_CODE_EFFORT_LEVEL": "low",
+                   "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "1", "BASH_DEFAULT_TIMEOUT_MS": "2" } }
+        """);
+
+        ClaudeSettingsFile.Save(_path, Edits());
+
+        var root = JsonNode.Parse(File.ReadAllText(_path))!.AsObject();
+        Assert.False(root.ContainsKey("env"));
+    }
+
+    /// <summary>A variable this dialog does not own keeps the env object alive when ours are cleared.</summary>
+    [Fact]
+    public void Save_BlankEnvEdits_KeepEnvWhenSomebodyElsesVariableIsThere()
+    {
+        File.WriteAllText(_path, """
+        { "env": { "ANTHROPIC_MODEL": "old", "SOMETHING_ELSE": "keep me" } }
+        """);
+
+        ClaudeSettingsFile.Save(_path, Edits());
+
+        var env = JsonNode.Parse(File.ReadAllText(_path))!.AsObject()["env"]!.AsObject();
+        Assert.False(env.ContainsKey("ANTHROPIC_MODEL"));
+        Assert.Equal("keep me", env["SOMETHING_ELSE"]!.GetValue<string>());
+    }
+
+    // ---- States found by re-reading this diff for the same defect it fixes ----
+
+    /// <summary>
+    /// A DIRECTORY at the settings path. File.Exists answers false for one, which folded it into
+    /// Absent - the permissive branch, the one that says "go ahead and create" - and the create then
+    /// threw out of a button click that has nowhere to put an exception. Something is at that path,
+    /// so the answer is Unreadable, not Absent.
+    /// </summary>
+    [Fact]
+    public void Read_PathIsADirectory_IsUnreadableNotAbsent()
+    {
+        var asDirectory = Path.Combine(_dir, "settings-as-a-directory.json");
+        Directory.CreateDirectory(asDirectory);
+
+        var read = ClaudeSettingsFile.Read(asDirectory);
+
+        Assert.Equal(ConfigReadKind.Unreadable, read.Kind);
+        Assert.Contains("is a directory", read.Problem);
+    }
+
+    /// <summary>And a save against it refuses rather than throwing.</summary>
+    [Fact]
+    public void Save_PathIsADirectory_RefusesInsteadOfThrowing()
+    {
+        var asDirectory = Path.Combine(_dir, "settings-as-a-directory.json");
+        Directory.CreateDirectory(asDirectory);
+
+        var result = ClaudeSettingsFile.Save(asDirectory, Edits());
+
+        Assert.Equal(SettingsSaveKind.RefusedUnreadable, result.Kind);
+        Assert.False(result.Saved);
+    }
+
+    /// <summary>
+    /// The write goes through a sibling temp file and a move, so a crash part-way cannot leave a
+    /// half-written settings file - which would be this fix manufacturing the exact state it refuses
+    /// to write over.
+    ///
+    /// WHAT THIS TEST ACTUALLY PROVES, which is less: that the temp file is cleaned up and the result
+    /// parses. It does NOT prove atomicity. Reverting the move to an in-place WriteAllText was tried
+    /// and all tests still passed, so this test does not distinguish the two implementations. The
+    /// atomicity is correct by construction and matches how config.json and the key store in this
+    /// repository already write; it is not covered by a test, and saying so here is cheaper than a
+    /// name that implies otherwise.
+    /// </summary>
+    [Fact]
+    public void Save_LeavesNoTempFileBehind_AndTheResultParses()
+    {
+        File.WriteAllText(_path, WithAHook);
+
+        ClaudeSettingsFile.Save(_path, Edits());
+
+        Assert.Equal(new[] { "settings.json" },
+            Directory.GetFiles(_dir).Select(Path.GetFileName).OrderBy(n => n).ToArray());
+        Assert.NotNull(JsonNode.Parse(File.ReadAllText(_path)));
+    }
+
+    /// <summary>
+    /// Saved is a POSITIVE test of the kinds that actually wrote. A refusal and a failed write are
+    /// both "not saved", and neither may drift onto the success path if another kind is added.
+    /// </summary>
+    [Fact]
+    public void Saved_IsTrueOnlyForTheTwoKindsThatWrote()
+    {
+        Assert.True(new SettingsSaveResult(SettingsSaveKind.Created, null).Saved);
+        Assert.True(new SettingsSaveResult(SettingsSaveKind.Merged, null).Saved);
+        Assert.False(new SettingsSaveResult(SettingsSaveKind.RefusedUnreadable, "x").Saved);
+        Assert.False(new SettingsSaveResult(SettingsSaveKind.WriteFailed, "x").Saved);
+    }
+
     // ---- The read itself: three answers, never two -------------------------
 
     [Fact]
