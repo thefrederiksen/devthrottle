@@ -196,11 +196,11 @@ internal static class LauncherLifecycleRelay
             using var doc = System.Text.Json.JsonDocument.Parse(payload);
             var root = doc.RootElement;
             return root.ValueKind == System.Text.Json.JsonValueKind.Object
-                   && root.TryGetProperty("onlyIfEmpty", out var applied)
+                   && StatedOnce(root, "onlyIfEmpty", out var applied)
                    && applied.ValueKind == System.Text.Json.JsonValueKind.True
-                   && root.TryGetProperty("restarted", out var restarted)
+                   && StatedOnce(root, "restarted", out var restarted)
                    && restarted.ValueKind == System.Text.Json.JsonValueKind.True
-                   && root.TryGetProperty("sessions", out var sessions)
+                   && StatedOnce(root, "sessions", out var sessions)
                    && sessions.ValueKind == System.Text.Json.JsonValueKind.Number
                    && sessions.TryGetInt32(out var count)
                    && count == 0;
@@ -209,6 +209,40 @@ internal static class LauncherLifecycleRelay
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Read a field that the answer must state EXACTLY ONCE. False when it is absent, and false when it
+    /// is stated more than once.
+    ///
+    /// A DOCUMENT MAY SAY A THING TWICE, AND THEN IT HAS NOT SAID IT. TryGetProperty quietly returns the
+    /// LAST occurrence, so <c>{"onlyIfEmpty":false,"onlyIfEmpty":true,...}</c> - an answer that says both
+    /// that the condition was applied and that it was not - was being read as the permissive one and
+    /// accepted as proof the guard ran. That is the same shape as every other defect this change has
+    /// fixed: a state nobody can make sense of resolving to the agreeable reading.
+    ///
+    /// The REQUEST side of this feature already refuses a doubly-spelled flag, for exactly this reason.
+    /// This is that rule carried to the REPLY, which is where it was missing - fixing one side of a rule
+    /// and leaving the other is how a defect moves rather than closes.
+    /// </summary>
+    private static bool StatedOnce(System.Text.Json.JsonElement root, string name,
+        out System.Text.Json.JsonElement value)
+    {
+        value = default;
+        var found = false;
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!property.NameEquals(name)) continue;
+            if (found)
+            {
+                FileLog.Write($"[LauncherLifecycleRelay] a launcher's acknowledgement states '{name}' more "
+                              + "than once, so what it claims cannot be established. Not accepted.");
+                return false;
+            }
+            value = property.Value;
+            found = true;
+        }
+        return found;
     }
 
     /// <summary>

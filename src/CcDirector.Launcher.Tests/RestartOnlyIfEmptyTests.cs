@@ -78,7 +78,7 @@ public sealed class RestartOnlyIfEmptyTests
 
         // The guard's own verdict first: an empty Director is not refused, and it says the count it
         // reached that on rather than leaving the caller to read the machine a second time.
-        Assert.Null(rig.Supervisor.RefuseRestartUnlessEmpty(out var counted));
+        Assert.Null(rig.Supervisor.RefuseRestartUnlessEmpty(out var counted, out _));
         Assert.Equal(0, counted);
 
         // Then the whole restart. It stops the Director it found and goes on to start the installed one,
@@ -248,7 +248,7 @@ public sealed class RestartOnlyIfEmptyTests
             var supervisor = new DirectorSupervisor(new InstallLayout(root),
                 new DirectorInstanceLocator(instanceHome));
 
-            Assert.Null(supervisor.RefuseRestartUnlessEmpty(out var counted));
+            Assert.Null(supervisor.RefuseRestartUnlessEmpty(out var counted, out _));
             Assert.Equal(0, counted);
 
             var launch = await Assert.ThrowsAsync<FileNotFoundException>(
@@ -257,6 +257,129 @@ public sealed class RestartOnlyIfEmptyTests
         }
         finally
         {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// A RESOLVED CONFLICT IS REFUSED, not counted. The locator has a state the first version of this
+    /// guard did not model: several live processes claim one instance home AND the tie-break can name
+    /// the installed one, so there IS a Director and its roster reads perfectly. An independent review
+    /// found the guard permitting there - it asked whether a Director had been resolved and never
+    /// whether resolving it had been a conflict.
+    ///
+    /// The rig gives the locator an installed image to break the tie with, which is what separates this
+    /// from the undecidable case above: there the answer is "none of them", here it is "this one, and
+    /// something else is also claiming the home".
+    /// </summary>
+    [Fact]
+    public async Task RestartAsync_OnlyIfEmpty_RefusesWhenTheMachineHoldsAResolvedConflict()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var root = Path.Combine(Path.GetTempPath(), "cc-restart-conflict-" + Guid.NewGuid().ToString("N"));
+        var instanceHome = Path.Combine(root, "instances", "default");
+        var registrations = Path.Combine(instanceHome, "config", "director", "instances");
+        var journalDir = Path.Combine(instanceHome, "config", "director", "crash-journal");
+        Directory.CreateDirectory(registrations);
+
+        // The installed Director, as a real file, so one claimant can be certified against it as the
+        // installed image and the tie-break has something to decide with.
+        var layout = new InstallLayout(root);
+        var installed = layout.PathFor(ComponentRegistry.Director);
+        Directory.CreateDirectory(Path.GetDirectoryName(installed)!);
+        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), installed);
+
+        using var theInstalledOne = StartIdleHelper(installed);
+        using var theOtherClaimant = StartIdleHelper();
+        try
+        {
+            var installedId = Guid.NewGuid().ToString();
+            WriteRegistration(registrations, installedId, theInstalledOne.Id);
+            WriteRegistration(registrations, Guid.NewGuid().ToString(), theOtherClaimant.Id);
+
+            var locator = new DirectorInstanceLocator(instanceHome, null, installed);
+            var lookup = locator.Resolve();
+
+            // The rig is only the rig if the locator really produced the resolved-conflict state.
+            Assert.Equal(DirectorResolution.Running, lookup.Outcome);
+            Assert.NotNull(lookup.Director);
+            Assert.NotNull(lookup.Conflict);
+
+            // And an empty roster for the chosen Director, so nothing but the conflict can be the reason.
+            new DirectorCrashJournal(lookup.Director!.DirectorId, theInstalledOne.Id, Environment.MachineName,
+                Environment.UserName, DateTimeOffset.UtcNow, journalDir).Update(Array.Empty<DirectorCrashJournalSession>());
+            Assert.Equal(0, locator.ReadSessionCount(lookup.Director!));
+
+            var supervisor = new DirectorSupervisor(layout, locator);
+            var outcome = await supervisor.RestartAsync(onlyIfEmpty: true);
+
+            Assert.Equal(DirectorRestartVerdict.Refused, outcome.Verdict);
+            Assert.Contains("more than one live process claims", outcome.Reason);
+
+            theInstalledOne.Refresh();
+            theOtherClaimant.Refresh();
+            Assert.False(theInstalledOne.HasExited || theOtherClaimant.HasExited,
+                "a machine with two claimants on one instance home was acted on anyway.");
+        }
+        finally
+        {
+            try { if (!theInstalledOne.HasExited) theInstalledOne.Kill(entireProcessTree: true); } catch { }
+            try { if (!theOtherClaimant.HasExited) theOtherClaimant.Kill(entireProcessTree: true); } catch { }
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// THE GUARD'S READING IS THE ONE THAT ACTS. When the guard finds nothing running it permits the
+    /// restart as a start - and the stop that follows must not go looking again, because a second
+    /// reading can see a Director the decision never covered. A review demonstrated exactly that: a
+    /// registration unreadable at guard time and readable a moment later, whose Director was holding
+    /// three sessions.
+    ///
+    /// WHAT THIS TEST OBSERVES: that a guarded restart which decided on "nothing is running" asks
+    /// NOBODY to shut down - there is no shutdown signal raised at all. The stand-in Director here is
+    /// registered and alive and would answer one; it is invisible to the guard only because its
+    /// registration will not parse, which is the same condition the review used.
+    /// </summary>
+    [Fact]
+    public async Task RestartAsync_OnlyIfEmpty_DecidingNothingIsRunning_AsksNobodyToStop()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var root = Path.Combine(Path.GetTempPath(), "cc-restart-toctou-" + Guid.NewGuid().ToString("N"));
+        var instanceHome = Path.Combine(root, "instances", "default");
+        var registrations = Path.Combine(instanceHome, "config", "director", "instances");
+        Directory.CreateDirectory(registrations);
+
+        var directorId = Guid.NewGuid().ToString();
+        using var director = Rig.StartShutdownListeningHelper(directorId);
+        try
+        {
+            // A registration that will not parse: the locator skips it, so the machine reads as nothing
+            // running even though this process is alive and listening for its own shutdown signal.
+            File.WriteAllText(Path.Combine(registrations, directorId + ".json"), "{ this will not parse");
+
+            var locator = new DirectorInstanceLocator(instanceHome);
+            Assert.Equal(DirectorResolution.NotRunning, locator.Resolve().Outcome);
+
+            var supervisor = new DirectorSupervisor(new InstallLayout(root), locator);
+
+            // The guard permits (it saw nothing), and the restart then goes to start the installed
+            // Director, which this rig does not install.
+            await Assert.ThrowsAsync<FileNotFoundException>(() => supervisor.RestartAsync(onlyIfEmpty: true));
+
+            // THE ASSERTION: nothing was asked to stop. The stand-in is still alive, and it exits the
+            // moment its shutdown signal is raised - so its being alive is the evidence that no signal
+            // was sent to it.
+            director.Refresh();
+            Assert.False(director.HasExited,
+                "a guarded restart that decided nothing was running went on to stop a Director anyway - "
+                + "which is the decision and the action using two different readings of the machine.");
+        }
+        finally
+        {
+            try { if (!director.HasExited) director.Kill(entireProcessTree: true); } catch { }
             try { Directory.Delete(root, recursive: true); } catch { }
         }
     }
@@ -346,10 +469,17 @@ public sealed class RestartOnlyIfEmptyTests
             """);
 
     /// <summary>A harmless long-running process to stand in for a claimant that is never asked anything.</summary>
-    private static Process StartIdleHelper()
+    private static Process StartIdleHelper() =>
+        StartIdleHelper(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
+
+    /// <summary>
+    /// The same stand-in, running a NAMED image - a copy of the command interpreter placed where the
+    /// installed Director would be. It is what lets the locator certify one claimant as the installed
+    /// image and break a tie, which is the only way to reach the resolved-conflict state from outside.
+    /// </summary>
+    private static Process StartIdleHelper(string exePath)
     {
-        var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            "/c ping -n 60 127.0.0.1")
+        var psi = new ProcessStartInfo(exePath, "/c ping -n 60 127.0.0.1")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -455,7 +585,7 @@ public sealed class RestartOnlyIfEmptyTests
         /// a helper that only slept would look identical whether the launcher asked it to stop or not.
         /// </summary>
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-        private static Process StartShutdownListeningHelper(string directorId)
+        internal static Process StartShutdownListeningHelper(string directorId)
         {
             var signal = LifecycleSignalNames.DirectorShutdown(directorId);
             var script = "$e = New-Object System.Threading.EventWaitHandle "

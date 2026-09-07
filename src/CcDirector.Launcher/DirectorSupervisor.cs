@@ -237,11 +237,28 @@ public sealed class DirectorSupervisor
     /// there is no way to tell which one the launcher is responsible for, and stopping the wrong
     /// Director is a worse outcome than stopping nothing - it takes somebody's live sessions with it.
     /// </summary>
-    public async Task StopAsync(CancellationToken ct = default)
+    public Task StopAsync(CancellationToken ct = default)
     {
         FileLog.Write("[DirectorSupervisor] StopAsync");
+        return StopResolvedAsync(_locator.Resolve(), ct);
+    }
 
-        var lookup = _locator.Resolve();
+    /// <summary>
+    /// Stop the Director named by a reading of the machine that has ALREADY BEEN TAKEN.
+    ///
+    /// IT EXISTS SO THAT ONE READING CAN BOTH DECIDE AND ACT. A guarded restart asks whether the
+    /// Director is empty and then stops it, and while those were two separate resolutions the second
+    /// could see something the first never did - an independent review demonstrated exactly that, with a
+    /// registration that was unreadable when the guard looked (so the machine read as nothing running,
+    /// and the restart was permitted) and readable a moment later, at which point the stop found a live
+    /// Director holding three sessions and would have taken them. Deciding on one reading and acting on
+    /// another is the whole defect; handing the reading forward is the whole fix.
+    ///
+    /// <see cref="StopAsync"/> keeps its own behaviour by taking a fresh reading and calling this - which
+    /// is right for a caller that has not already decided something on an earlier one.
+    /// </summary>
+    private async Task StopResolvedAsync(DirectorLookup lookup, CancellationToken ct)
+    {
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
             FileLog.Write("[DirectorSupervisor] StopAsync: Director not running");
@@ -370,13 +387,20 @@ public sealed class DirectorSupervisor
     public async Task<DirectorRestartOutcome> RestartAsync(bool onlyIfEmpty, CancellationToken ct = default)
     {
         int? sessions = null;
+
+        // The reading the guard decided on, kept so the STOP can act on the same one. Null for an
+        // unconditional restart, which decides nothing and so has nothing to carry forward.
+        DirectorLookup? decidedOn = null;
+
         if (onlyIfEmpty)
         {
-            if (RefuseRestartUnlessEmpty(out sessions) is { } refusal)
+            if (RefuseRestartUnlessEmpty(out sessions, out var lookup) is { } refusal)
             {
                 FileLog.Write($"[DirectorSupervisor] RestartAsync REFUSED (onlyIfEmpty): {refusal}");
                 return new DirectorRestartOutcome(DirectorRestartVerdict.Refused, refusal, sessions);
             }
+
+            decidedOn = lookup;
 
             // A PERMIT WITHOUT A ZERO COUNT IS A FAULT, NOT A PERMISSION. The guard reports its verdict as
             // the ABSENCE of a refusal, which is a shape a future edit can fail open through - one added
@@ -391,7 +415,17 @@ public sealed class DirectorSupervisor
         }
 
         FileLog.Write($"[DirectorSupervisor] RestartAsync: proceeding (onlyIfEmpty={onlyIfEmpty})");
-        await StopAsync(ct);
+
+        // A GUARDED RESTART STOPS WHAT THE GUARD SAW, AND NOTHING ELSE. Taking a second reading here
+        // would let the stop act on a Director the decision never covered - including the case an
+        // independent review demonstrated, where the guard read an unreadable registration as nothing
+        // running, and a moment later the same registration resolved to a live Director holding three
+        // sessions. An unconditional restart has decided nothing, so it still reads the machine here.
+        if (decidedOn is { } reading)
+            await StopResolvedAsync(reading, ct);
+        else
+            await StopAsync(ct);
+
         // Brief pause to let file locks release before relaunching.
         await Task.Delay(500, ct);
         var started = Start(out var pid);
@@ -444,10 +478,16 @@ public sealed class DirectorSupervisor
     /// when it could not be established. It is handed out here rather than read again by the caller so the
     /// number reported and the number decided on cannot be two different readings of a moving machine.
     /// </param>
-    public string? RefuseRestartUnlessEmpty(out int? sessions)
+    /// <param name="lookup">
+    /// THE READING THIS VERDICT WAS REACHED ON, handed to the caller so the thing that ACTS can act on
+    /// the same one. A restart that resolves the machine again between deciding and stopping is deciding
+    /// on one reading and acting on another, which is the defect this whole guard exists to prevent,
+    /// one layer down.
+    /// </param>
+    public string? RefuseRestartUnlessEmpty(out int? sessions, out DirectorLookup lookup)
     {
         sessions = null;
-        var lookup = _locator.Resolve();
+        lookup = _locator.Resolve();
 
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
@@ -467,6 +507,21 @@ public sealed class DirectorSupervisor
                    + $"{_locator.InstanceHome} is undecidable ({lookup.Outcome}), so how many sessions it is "
                    + "holding cannot be read, and an unknown count is never read as empty. Claimants: "
                    + $"{Describe(lookup)}.";
+
+        // A RESOLVED CONFLICT IS STILL A MACHINE IN A WRONG STATE. The locator reports one when several
+        // live processes claimed this instance and the tie-break could name the installed one - so there
+        // IS a Director and its count can be read, and reading it would be answering the wrong question.
+        // Something else is also claiming this home; stopping the one we chose leaves the other holding
+        // it, and the start that follows finds the instance taken and declines. The locator's own
+        // contract says every caller must carry a resolved conflict somewhere a person meets it, and for
+        // a guard whose job is to refuse on a machine nobody understands, that means refusing.
+        if (lookup.Conflict is { } conflict)
+            return $"refusing to restart the Director {director.DirectorId} (pid {director.Pid}) on "
+                   + $"{Environment.MachineName}: more than one live process claims "
+                   + $"{_locator.InstanceHome}, and although the tie-break could say which one is the "
+                   + $"installed Director, the machine is still in a state nobody asked for - {conflict} "
+                   + $"Claimants: {Describe(lookup)}. Resolve the claim on this instance by hand, then "
+                   + "ask again.";
 
         sessions = _locator.ReadSessionCount(director);
         if (sessions is null)

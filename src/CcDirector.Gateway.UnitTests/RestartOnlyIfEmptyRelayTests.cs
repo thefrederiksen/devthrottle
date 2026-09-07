@@ -149,6 +149,30 @@ public sealed class RestartOnlyIfEmptyRelayTests
         Assert.Contains("launcher-did-not-honour-only-if-empty", outcome.Payload);
     }
 
+    /// <summary>
+    /// AN ANSWER THAT SAYS A THING TWICE HAS NOT SAID IT. Reading a field with TryGetProperty quietly
+    /// takes the LAST occurrence, so an acknowledgement stating the condition both unapplied and applied
+    /// was resolving to the permissive one and being accepted as proof the guard ran. An independent
+    /// review found it; the request side of this feature already refused a doubly-spelled flag, and this
+    /// is that rule carried to the reply, where it was missing.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"onlyIfEmpty":false,"onlyIfEmpty":true,"restarted":true,"sessions":0}""")]
+    [InlineData("""{"onlyIfEmpty":true,"restarted":false,"restarted":true,"sessions":0}""")]
+    [InlineData("""{"onlyIfEmpty":true,"restarted":true,"sessions":3,"sessions":0}""")]
+    public async Task SendDirectorVerbAsync_AnAcknowledgementThatStatesAFieldTwice_IsNotAccepted(string payload)
+    {
+        LauncherCommandRouter.SendLauncherCommandAsync contradictory = (_, _, _, _) =>
+            Task.FromResult<LauncherCommandResult?>(LauncherCommandResult.OkWithPayload(payload));
+
+        var outcome = await LauncherLifecycleRelay.SendDirectorVerbAsync(TenantId.Local, Machine, "restart",
+            exePath: null, confirmProtected: false, new LauncherRegistry(), contradictory,
+            CancellationToken.None, onlyIfEmpty: true);
+
+        Assert.Equal(502, outcome.RelayStatus);
+        Assert.Contains("launcher-did-not-honour-only-if-empty", outcome.Payload);
+    }
+
     /// <summary>A launcher that adds fields of its own is still understood - the check requires what it
     /// needs and tolerates what it does not, so a newer launcher is not refused for being newer.</summary>
     [Fact]
