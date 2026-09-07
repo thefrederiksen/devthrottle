@@ -52,19 +52,17 @@ internal static class WorkspaceEndpoints
     /// </summary>
     /// <param name="app">The route builder.</param>
     /// <param name="store">The persisted workspace store.</param>
-    /// <param name="snapshotConnected">The live sessions of every stream-connected Director in the tenant
-    /// of the current request. A delegate rather than the store itself, so the tenant resolution stays in
-    /// the one place that owns it.</param>
+    /// <param name="connectedFleet">Whether one Director is stream-connected AND what it is running, as
+    /// ONE atomic read. A delegate rather than the store itself, so the tenant resolution stays in the one
+    /// place that owns it - and one delegate rather than two, so the two facts cannot come from either
+    /// side of a disconnection.</param>
     /// <param name="lookupDirector">Resolve a Director's display name and version, for the capture header.
     /// Returns null when the Gateway does not know that Director.</param>
-    /// <param name="isStreamConnected">Whether that Director currently holds a push stream, so its live
-    /// roster is real rather than absent. False is a refusal, not an empty capture.</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
-        Func<IReadOnlyList<(string DirectorId, SessionDto Session)>> snapshotConnected,
-        Func<string, DirectorDto?> lookupDirector,
-        Func<string, bool> isStreamConnected)
+        Func<string, (bool Connected, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
+        Func<string, DirectorDto?> lookupDirector)
     {
         app.MapGet("/gateway/workspaces", () =>
         {
@@ -144,7 +142,11 @@ internal static class WorkspaceEndpoints
                     statusCode: StatusCodes.Status404NotFound);
             }
 
-            if (!isStreamConnected(req.DirectorId))
+            // ONE read for both facts. Asking "is it connected?" and then "what is it running?" as two
+            // calls leaves a gap a disconnection fits through, and what comes out of that gap is a
+            // capture recording an EMPTY fleet - the exact thing this refusal exists to prevent.
+            var (connected, sessions) = connectedFleet(req.DirectorId);
+            if (!connected)
             {
                 FileLog.Write(
                     $"[WorkspaceEndpoints] capture REFUSED: directorId={req.DirectorId} is not stream connected");
@@ -159,11 +161,6 @@ internal static class WorkspaceEndpoints
                     },
                     statusCode: StatusCodes.Status409Conflict);
             }
-
-            var sessions = snapshotConnected()
-                .Where(x => string.Equals(x.DirectorId, req.DirectorId, StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.Session)
-                .ToList();
 
             var doc = WorkspaceCapture.Capture(
                 req, sessions, director.DisplayName, director.Version, director.MachineName, DateTime.UtcNow);

@@ -628,6 +628,39 @@ public sealed class PushedSessionStore
     }
 
     /// <summary>
+    /// ONE atomic answer to "is this Director connected, and what is it running?" - both read under the
+    /// same entry lock, in one operation.
+    ///
+    /// The pair exists because asking the two questions separately is a check followed by an action, and
+    /// the gap between them has a specific and dangerous shape: a Director that disconnects in between
+    /// passes the connected check and then contributes no sessions, so the caller sees an EMPTY fleet.
+    /// Empty is exactly what a Director that has finished looks like, so the answer "nothing was running"
+    /// is indistinguishable from "I could not see it" - the failure this store's caller (the workspace
+    /// capture) refuses precisely to avoid.
+    ///
+    /// Returns Connected=false with no sessions when the Director is unknown or not streaming.
+    /// </summary>
+    /// <param name="tenant">The tenant the Director belongs to.</param>
+    /// <param name="directorId">The Director to read.</param>
+    public (bool Connected, IReadOnlyList<SessionDto> Sessions) ConnectedFleet(TenantId tenant, string directorId)
+    {
+        if (!DirectorsFor(tenant).TryGetValue(directorId, out var entry))
+            return (false, Array.Empty<SessionDto>());
+
+        var now = _utcNow();
+        lock (entry.Gate)
+        {
+            if (entry.ActiveConnectionId is null || entry.ReceivedAtUtc == DateTime.MinValue)
+                return (false, Array.Empty<SessionDto>());
+
+            var sessions = entry.Sessions.Values
+                .Select(x => RecomputeClocks(x.Clone(), now))
+                .ToList();
+            return (true, sessions);
+        }
+    }
+
+    /// <summary>
     /// True when this Director currently has an active stream connection.
     ///
     /// Reads under the entry gate. It used to read <c>ActiveConnectionId</c> without it, which inspection 2
