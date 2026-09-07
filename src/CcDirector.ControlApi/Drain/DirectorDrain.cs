@@ -269,7 +269,11 @@ public sealed class DirectorDrain
         FileLog.Write($"[DirectorDrain] RunAsync: director={_directorId}, workspace={options.WorkspaceId}");
         Report("capturing", 0, 0, 0, "folding this Director's live sessions into a workspace");
 
-        var doc = await _sink.CaptureAsync(new WorkspaceCaptureRequest
+        // THE CAPTURE IS A DOOR TOO. The boundary guard was put on the save and the capture was left
+        // open, so the workspace name, the reason the operator typed and the note about who drove it all
+        // reached the Gateway unswept - and a later save overwriting them does not un-send them. One
+        // guard on one of two doors is not a boundary.
+        var doc = await _sink.CaptureAsync(RedactedForTransmission(new WorkspaceCaptureRequest
         {
             Id = options.WorkspaceId,
             Name = options.WorkspaceName,
@@ -279,7 +283,7 @@ public sealed class DirectorDrain
             DrivenBySessionId = options.DrivenBySessionId,
             DrivenByDirectorId = string.IsNullOrWhiteSpace(options.DrivenBySessionId) ? null : _directorId,
             DrivenByNote = options.DrivenByNote,
-        }, ct).ConfigureAwait(false);
+        }), ct).ConfigureAwait(false);
 
         var dir = directory ?? DrainPaths.DirectoryFor(StartedUtc.ToLocalTime(), doc.DirectorName);
         Directory.CreateDirectory(dir);
@@ -585,6 +589,28 @@ public sealed class DirectorDrain
                 "again.");
         }
 
+        // NO JUDGMENT SURVIVES INTO THIS RUN. A capture is supposed to arrive carrying facts and no
+        // verdicts, but nothing here made that true - so a workspace that already held a drain state, a
+        // handover path or a coverage claim would have had them believed. A seat arriving already marked
+        // "covered" is skipped by collection, needs no read stamp at close time, and is flagged on a
+        // declaration made by somebody else on another day. The rule is that drain state comes only from
+        // a valid declaration IN THIS RUN, and this is where that is made true rather than assumed.
+        foreach (var seat in seats)
+        {
+            if (seat.DrainState is null && seat.HandoverPath is null && seat.CoveredBy is null) continue;
+            _problems.Add(
+                $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) arrived from the capture already " +
+                $"carrying a verdict - drain state \"{seat.DrainState ?? "none"}\" - which no declaration " +
+                "in THIS drain produced. It has been cleared and the seat starts unaccounted for.");
+            seat.DrainState = null;
+            seat.HandoverPath = null;
+            seat.CoveredBy = null;
+            seat.CoveredNote = null;
+            seat.BlockedReason = null;
+            seat.ClosedAtUtc = null;
+            seat.Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+        }
+
         // THE CHAIN IS BUILT OVER WHAT THIS DRAIN CAN DRIVE, not over everything the capture returned. A
         // seat that cannot be addressed cannot be a senior either, so anything reporting to one has nobody
         // here to report through and is a head - which is the same rule as a controller on another
@@ -825,7 +851,7 @@ public sealed class DirectorDrain
             // read first could cover a worker whose own handover said "blocked", the worker's document
             // would never be parsed, its questions would be dropped, and it would be closed as covered.
             var ownDocument = DrainPaths.HandoverFor(dir, target.SessionId!, target.Name);
-            if (File.Exists(ownDocument))
+            if (SeatWroteItsOwn(ownDocument))
             {
                 notes.Add(
                     $"seat {DrainPaths.ShortId(seat.SessionId)} says it covers " +
@@ -848,6 +874,30 @@ public sealed class DirectorDrain
                 Command = null,
             };
             FileLog.Write($"[DirectorDrain] covered: {target.SessionId} by {seat.SessionId}");
+        }
+    }
+
+    /// <summary>
+    /// Whether this seat has written a document of its own - and TRUE when that cannot be determined.
+    ///
+    /// File.Exists answers FALSE for an access error, a bad path, a share violation. On this branch false
+    /// is the permissive answer: it says the seat wrote nothing of its own, so its senior may account for
+    /// it and it may be closed on somebody else's word. "I could not look" landing on the side that
+    /// destroys a session is the defect this whole component keeps rediscovering, so a failure to look is
+    /// treated as "it did", and the seat keeps running.
+    /// </summary>
+    /// <param name="path">Where the seat's own document would be.</param>
+    private static bool SeatWroteItsOwn(string path)
+    {
+        try
+        {
+            return new FileInfo(path).Exists;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or NotSupportedException or ArgumentException)
+        {
+            FileLog.Write($"[DirectorDrain] SeatWroteItsOwn: cannot tell for {path}: {ex.Message}");
+            return true;
         }
     }
 
@@ -1001,7 +1051,11 @@ public sealed class DirectorDrain
             if (string.IsNullOrWhiteSpace(coveringPath))
                 return Refuse(seat, "is covered and names no document, so nothing accounts for it");
 
-            var covering = TryReadFile(coveringPath, 0);
+            // THE SAME FLOOR THE CLAIM PASSED. Reading with no minimum let a senior replace a full
+            // handover with a two-line stub that still parses, and close its worker on it - a close-time
+            // check easier to pass than the collect-time one, which is the shape this method exists to
+            // stop and which it was quietly reproducing one field down.
+            var covering = TryReadFile(coveringPath, options.MinimumHandoverBytes);
             if (covering.Status != ReadStatus.Read)
                 return Refuse(seat, "is covered by a document that could not be read at close time" +
                                     (covering.Error is null ? "" : ": " + covering.Error));
@@ -1031,7 +1085,7 @@ public sealed class DirectorDrain
             // AND ITS OWN DOCUMENT MUST STILL NOT EXIST. A seat is covered because it had nothing of its
             // own; if it has written one since the claim was made, that document is what accounts for it
             // and closing it on its senior's word would bury it unread.
-            if (File.Exists(DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name)))
+            if (SeatWroteItsOwn(DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name)))
             {
                 seat.DrainState = null;
                 seat.CoveredBy = null;
@@ -1489,14 +1543,21 @@ public sealed class DirectorDrain
     /// </summary>
     /// <param name="doc">The live document. Not modified - the copy is what is redacted and sent.</param>
     internal static WorkspaceDocument RedactedForTransmission(WorkspaceDocument doc)
+        => RedactedForTransmission<WorkspaceDocument>(doc);
+
+    /// <summary>The same guard, for anything else that goes out of the same doors - notably the capture
+    /// request, which carries the operator's own words and used to leave unswept.</summary>
+    /// <typeparam name="T">The payload type.</typeparam>
+    /// <param name="payload">The live object. Not modified - the copy is what is redacted and sent.</param>
+    internal static T RedactedForTransmission<T>(T payload) where T : class
     {
-        var clone = JsonSerializer.Deserialize<WorkspaceDocument>(
-            JsonSerializer.Serialize(doc, TransmissionJson), TransmissionJson);
+        var clone = JsonSerializer.Deserialize<T>(
+            JsonSerializer.Serialize(payload, TransmissionJson), TransmissionJson);
 
         if (clone is null)
             throw new InvalidOperationException(
-                "The workspace could not be read back before redaction, so what would have been stored is " +
-                "unknown. Nothing was sent.");
+                $"A {typeof(T).Name} could not be read back before redaction, so what would have been sent " +
+                "is unknown. Nothing was sent.");
 
         RedactStrings(clone, 0);
         return clone;
@@ -1510,8 +1571,16 @@ public sealed class DirectorDrain
     /// Director on the one call that stands between a secret and the wire.</param>
     private static void RedactStrings(object? value, int depth)
     {
+        // THE CAP IS LOUD. It used to return quietly, which meant everything below it was accepted
+        // UNSWEPT - a guard whose failure mode is silence, in the one method standing between a secret and
+        // the wire. Nothing legitimate here is twelve deep; if something ever is, the send stops.
         const int MaxDepth = 12;
-        if (value is null || depth > MaxDepth) return;
+        if (value is null) return;
+        if (depth > MaxDepth)
+            throw new InvalidOperationException(
+                $"The redaction guard reached {MaxDepth} levels and stopped. Everything below that point " +
+                "would have been sent unswept, so nothing was sent. The document's shape has changed and " +
+                "this guard has to be looked at.");
 
         var type = value.GetType();
 
@@ -1523,6 +1592,22 @@ public sealed class DirectorDrain
                 if (list[i] is string s) list[i] = HandoverSecretSweep.RedactLine(s);
                 else RedactStrings(list[i], depth + 1);
             }
+            return;
+        }
+
+        // A DICTIONARY IS NOT AN IList, and skipping it was a hole exactly the shape of the one this
+        // guard was built to close: a container the walk did not recognise, whose contents went out
+        // untouched. Keys are redacted into a rebuilt map rather than edited in place, because a
+        // dictionary cannot be mutated while it is being read.
+        if (value is System.Collections.IDictionary map)
+        {
+            var replacements = new List<(object Key, object? Value)>();
+            foreach (System.Collections.DictionaryEntry entry in map)
+            {
+                if (entry.Value is string sv) replacements.Add((entry.Key, HandoverSecretSweep.RedactLine(sv)));
+                else RedactStrings(entry.Value, depth + 1);
+            }
+            foreach (var (key, replaced) in replacements) map[key] = replaced;
             return;
         }
 
@@ -1541,9 +1626,19 @@ public sealed class DirectorDrain
 
             if (current is string text)
             {
-                if (!property.CanWrite) continue;
                 var redacted = HandoverSecretSweep.RedactLine(text);
-                if (!ReferenceEquals(redacted, text)) property.SetValue(value, redacted);
+                if (ReferenceEquals(redacted, text) || redacted == text) continue;
+
+                // A READ-ONLY STRING CARRYING A SECRET CANNOT BE REDACTED, so it must not be sent. Skipping
+                // it was the quiet option and it let the value out; refusing is the loud one and it is the
+                // only one that keeps the guard's promise. It fires only when something was actually
+                // found, so a read-only property of ordinary prose costs nothing.
+                if (!property.CanWrite)
+                    throw new InvalidOperationException(
+                        $"{type.Name}.{property.Name} carries something the secret sweep recognises and " +
+                        "cannot be rewritten, so it could not be redacted. Nothing was sent.");
+
+                property.SetValue(value, redacted);
             }
             else
             {
