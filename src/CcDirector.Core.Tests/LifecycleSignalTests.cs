@@ -37,6 +37,41 @@ public sealed class LifecycleSignalTests
     }
 
     [Fact]
+    public void HasListener_AnswersWithoutRaisingAnything()
+    {
+        // The question a capability check has to be able to ask. Raising the signal to find out whether
+        // anybody is there would restart a Director or quit a launcher as a side effect of asking, so
+        // this must answer AND leave the listener unfired.
+        if (!OperatingSystem.IsWindows()) return;
+
+        var name = UniqueName();
+        Assert.False(LifecycleSignal.HasListener(name));
+
+        var fired = 0;
+        using (var listener = LifecycleSignal.Listen(name, () => Interlocked.Increment(ref fired)))
+        {
+            Assert.True(LifecycleSignal.HasListener(name));
+            Thread.Sleep(200);
+            Assert.Equal(0, Volatile.Read(ref fired));
+        }
+
+        Assert.False(LifecycleSignal.HasListener(name));
+    }
+
+    [Fact]
+    public void HasListener_WhereItCannotBeObserved_SaysSoRatherThanInventingANo()
+    {
+        // Unix has no named event: the mechanism is a request file a listener polls, and nothing on disk
+        // says whether anybody is polling. A false there would be an invented answer, so it is null.
+        if (OperatingSystem.IsWindows()) return;
+
+        var name = UniqueName();
+        using var listener = LifecycleSignal.Listen(name, () => { });
+
+        Assert.Null(LifecycleSignal.HasListener(name));
+    }
+
+    [Fact]
     public void RaisingASignalNobodyListensFor_ReportsItWasNotDelivered()
     {
         // Windows can say this outright - no kernel object of that name exists. The Unix arm writes a

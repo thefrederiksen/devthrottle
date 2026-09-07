@@ -101,6 +101,50 @@ public static class LifecycleSignal
         }
     }
 
+    /// <summary>
+    /// Is anything listening for <paramref name="name"/> right now - asked WITHOUT asking it to do
+    /// anything?
+    ///
+    /// This exists because the only other way to find out was <see cref="Raise"/>, and raising a
+    /// signal to see whether somebody is there restarts a Director or quits a launcher as a side
+    /// effect of the question. A capability check may not have consequences.
+    ///
+    /// THE ANSWER IS A TRI-STATE AND THAT IS NOT A HEDGE. On Windows a named event either exists in
+    /// this logon session or it does not, so true and false are both facts. On Unix the mechanism is a
+    /// request FILE that the listener polls (see the class comment): there is no listener registry to
+    /// consult, and the absence of a request file says nothing at all about whether anybody is
+    /// watching for one. Returning false there would be an invented no, so the answer is null - NOT
+    /// OBSERVABLE - and a caller has to decide what to do about a question this platform cannot
+    /// answer, rather than being handed a confident wrong one.
+    ///
+    /// WHAT A TRUE PROVES. That the named handle EXISTS - the listener got far enough to arm it. It
+    /// does NOT prove the thread waiting on that handle is still pumping, so a process that armed its
+    /// signals and then wedged answers true here. Closing that gap would mean raising the signal and
+    /// watching for the effect, which is exactly the destructive question this method exists to avoid.
+    /// Callers get the honest weaker fact; anything that needs "is it being serviced" has to accept
+    /// the consequences of asking.
+    /// </summary>
+    /// <returns>True/false on Windows; null on Unix, where a listener cannot be observed at all.</returns>
+    public static bool? HasListener(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A signal name is required", nameof(name));
+        if (!OperatingSystem.IsWindows()) return null;
+
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(WindowsPrefix + name, out var handle) || handle is null)
+                return false;
+            // Opened, never set: this asks who is there, it does not ask them to act.
+            handle.Dispose();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LifecycleSignal] HasListener FAILED: name={name}: {ex.Message}");
+            return null;
+        }
+    }
+
     [SupportedOSPlatform("windows")]
     private static bool RaiseWindows(string name)
     {

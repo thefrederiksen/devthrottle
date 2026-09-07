@@ -58,14 +58,29 @@ public sealed class InstallLayout
 
     private static string HomeDir => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+    /// <summary>
+    /// The configuration directory of this install - the parent of every per-tool config folder, and
+    /// the same directory <c>CcStorage.Config()</c> resolves to for a process whose storage home is
+    /// <see cref="LocalRoot"/>. Named here so the paths under it are composed from ONE definition
+    /// rather than from a "config" string repeated at each site.
+    /// </summary>
+    public string ConfigDir => Path.Combine(LocalRoot, "config");
+
     /// <summary>Per-user install bookkeeping (installed-version manifest, pins) - NOT user data.</summary>
-    public string SetupStateDir => Path.Combine(LocalRoot, "config", "setup");
+    public string SetupStateDir => Path.Combine(ConfigDir, "setup");
 
     /// <summary>The installed-version manifest: component id -> the version actually placed on disk.</summary>
     public string InstalledManifestPath => Path.Combine(SetupStateDir, "installed.json");
 
     /// <summary>The shared app config (%LOCALAPPDATA%\cc-director\config\config.json), incl. the autoUpdate section.</summary>
-    public string ConfigPath => Path.Combine(LocalRoot, "config", "config.json");
+    public string ConfigPath => Path.Combine(ConfigDir, "config.json");
+
+    /// <summary>
+    /// Where the launcher serving this install registers what it is: its version, its process id and
+    /// its interface state. Written by the running launcher (<c>LauncherDiscovery</c>) and read by
+    /// anything that needs to know which launcher is on this machine.
+    /// </summary>
+    public string LauncherRegistrationPath => Path.Combine(ConfigDir, "launcher", "launcher.json");
 
     /// <summary>The Gateway tray app's binaries.</summary>
     public string GatewayDir => Path.Combine(LocalRoot, "gateway");

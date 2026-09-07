@@ -202,7 +202,20 @@ public static class Program
         // so both waits certify the process they actually started - never whatever else wrote the file.
         var relaunchedPid = 0;
 
-        var result = new LauncherSelfUpdate().ApplyAsync(
+        // THE THIRD SWAP ROUTE, AND IT TAKES THE SAME MACHINE-WIDE LOCK (issue #2719).
+        //
+        // This helper replaces the launcher binary, and since Phase 0 the DIRECTOR also replaces that
+        // same binary through LauncherUpdateOwner. Two swaps overlapping on one target is not a near
+        // miss: both write the same target, the same .new and the same .old, so the second swap can
+        // delete the FIRST swap's real backup and leave a copy of the new build in its place. If that
+        // build then fails its health check, the rollback faithfully "restores" the bad build - and
+        // the machine ends up on it with no way back.
+        //
+        // It WAITS for the lock rather than skipping, unlike the two periodic owners. This process was
+        // started for the single purpose of performing one swap and has no next cycle to return on;
+        // skipping would silently drop the update it exists to apply.
+        var result = BinarySwapLock.RunExclusivelyAsync<SelfUpdateResult>(
+            work: () => new LauncherSelfUpdate().ApplyAsync(
             target, stagedSelf, version,
             stopLauncher: () =>
             {
@@ -268,7 +281,11 @@ public static class Program
                     && CcDirector.Core.Configuration.LauncherDiscovery.IsRunning(fact);
                 return Task.FromResult(healthy);
             },
-            healthTimeout: TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            healthTimeout: TimeSpan.FromSeconds(30)),
+            whenBusy: why => new SelfUpdateResult(SelfUpdateOutcome.Failed,
+                $"The launcher self-update did not run: {why}", Array.Empty<string>()),
+            who: "launcher-self-update",
+            waitFor: TimeSpan.FromMinutes(5)).GetAwaiter().GetResult();
 
         FileLog.Write($"[Program] self-update outcome={result.Outcome}: {result.Message}");
         foreach (var step in result.Steps) FileLog.Write($"[Program]   {step}");

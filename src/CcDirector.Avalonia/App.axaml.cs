@@ -509,6 +509,23 @@ public partial class App : Application
                             outcome = UpdatePhase.Failed;
                             FileLog.Write($"[App] auto-update cycle FAILED: {ex.Message}");
                         }
+
+                        // The launcher's own update, which the Director owns (issue #2719). The mirror
+                        // of the launcher owning the Director's: whatever replaces a binary has to
+                        // outlive the process being replaced, and the launcher cannot honestly swap
+                        // itself. Nothing owned this before, so a machine whose launcher fell behind
+                        // became permanently uncommandable - and could not be fixed remotely, because
+                        // the thing that would receive the fix was the broken thing. A Director update
+                        // still reaches it, which is why this runs here.
+                        //
+                        // IT HAS ITS OWN try, DELIBERATELY. Inside the one above, a failure in the
+                        // Director's own check or the tool refresh - a network timeout, most likely -
+                        // skipped this entirely. That is precisely backwards: a launcher build is
+                        // ALREADY DOWNLOADED and needs no network at all to install, and the machines
+                        // whose launcher is stale are exactly the machines with something else wrong.
+                        // A stranded launcher update is the failure this whole change exists to end,
+                        // so it does not share a failure path with the network.
+                        await RunLauncherUpdatePassAsync();
                     }
 
                     // Tool reconcile is governed by its OWN switch (tools.autoUpdate.enabled), independent
@@ -631,6 +648,11 @@ public partial class App : Application
                         .GetAwaiter().GetResult();
                     FileLog.Write($"[CcDirector] on-demand update check concluded: "
                                   + $"{outcome?.ToString() ?? "the updater has not started yet"}");
+                    // "Check for updates now" covers the machine's launcher too, not only this
+                    // Director. A machine whose launcher is too old to be commanded is exactly the
+                    // machine somebody is standing at when they ask for this, and the periodic loop
+                    // does not run at all on a development build.
+                    RunLauncherUpdatePassAsync().GetAwaiter().GetResult();
                 });
 
             log($"Lifecycle signals listening for directorId={directorId}");
@@ -642,6 +664,59 @@ public partial class App : Application
             log($"Lifecycle signals FAILED to start: {ex.Message}. This Director cannot be stopped or "
                 + "asked to check for updates from outside itself; closing its window still works.");
         }
+    }
+
+    /// <summary>
+    /// One pass of the Director's ownership of the LAUNCHER's update (issue #2719): install a staged
+    /// cc-launcher build over the installed one, and confirm the new launcher is alive AND commandable
+    /// before believing it.
+    ///
+    /// THE ROOT IS THE SHARED ONE. This Director's own storage is redirected to its instance home, so
+    /// the layout must be built from <see cref="InstanceContext.SharedRoot"/>. Resolved the ordinary
+    /// way it would look for a staged launcher under <c>instances/&lt;slug&gt;/state</c> - a directory
+    /// no installer has ever written - and report "nothing staged" for ever, on every machine.
+    ///
+    /// Never throws: this is called from a background loop and from a signal handler.
+    /// </summary>
+    private static async Task RunLauncherUpdatePassAsync()
+    {
+        try
+        {
+            var directorId = DirectorIdStore.LoadOrCreate();
+            var owner = new CcDirector.Setup.Engine.LauncherUpdateOwner(
+                InstanceContext.SharedRoot,
+                directorStillHoldsItsInstance: () => DirectorStillHoldsItsInstance(directorId));
+
+            var result = await owner.RunOnceAsync();
+            if (result.Decision != CcDirector.Setup.Engine.LauncherUpdateDecision.NothingStaged)
+                FileLog.Write($"[App] launcher update pass: {result.Decision} - {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] launcher update pass FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Is this Director still the live owner of its instance - the check that a launcher swap did not
+    /// take it with it, or leave a second Director holding the same home? Read from the registration
+    /// this process writes about itself, so a yes means THIS process id is still the registered owner
+    /// and not merely that some Director is.
+    /// </summary>
+    private static bool DirectorStillHoldsItsInstance(string directorId)
+    {
+        var path = Path.Combine(InstanceRegistration.InstancesDirectory, $"{directorId}.json");
+        if (!File.Exists(path)) return false;
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        foreach (var property in doc.RootElement.EnumerateObject())
+        {
+            if (property.Name.Equals("pid", StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.Number
+                && property.Value.TryGetInt32(out var pid))
+                return pid == Environment.ProcessId;
+        }
+        return false;
     }
 
     private void StartControlApi(Action<string> log)

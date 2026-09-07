@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THE DRIVER for scripts/launcher-swap-proof.ps1 - the end-to-end proof of the Director installing
+    the launcher's update, run against an ISOLATED storage root with REAL launcher binaries.
+
+    It is a console project on purpose and it is NOT in cc-director.sln and NOT in the project list
+    scripts/test-local.ps1 runs. A rig that needs two published launchers and a live process is not a
+    unit test, and putting it in the suite as a test that skips itself would put a check that cannot
+    fail into the gate - which reads exactly like coverage and is not.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>launcher-swap-proof</AssemblyName>
+    <RootNamespace>CcDirector.Proof.LauncherSwap</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+  </ItemGroup>
+
+</Project>
