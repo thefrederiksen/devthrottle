@@ -129,7 +129,7 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
         var lookup = Locator().Resolve();
 
         Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
-        Assert.Contains("names no Director", string.Join(" ", lookup.Unreadable));
+        Assert.Contains("names no usable Director", string.Join(" ", lookup.Unreadable));
     }
 
     /// <summary>
@@ -173,34 +173,20 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
     // =========================================================================================
 
     /// <summary>
-    /// THE LIVE DEFECT, ASSERTED ON THE REAL START PATH.
+    /// WHAT USED TO BE HERE, AND WHY IT IS GONE RATHER THAN AMENDED.
     ///
-    /// HOW THIS OBSERVES A START WITHOUT STARTING ANYTHING. The installed Director is a file named
-    /// <c>cc-director.exe</c> whose contents are text. <c>Start</c> checks that the file EXISTS - it
-    /// does - and then, if it decides to go ahead, hands it to ShellExecute, which refuses it as not a
-    /// valid application and throws. So a refusal to start is an ordinary return, and an ATTEMPT to start
-    /// is an exception. Nothing is ever launched.
+    /// This slot held a test asserting that Start REFUSES on an unreadable claim. That behaviour was
+    /// reversed deliberately: refusing converted a recoverable state into a permanent one, and it was
+    /// defending against a duplicate that the Director-s own SingleInstanceGuard already prevents. The
+    /// test is deleted rather than inverted in place, because a test whose name still describes the old
+    /// promise is worse than no test - the next reader trusts the name.
     ///
-    /// Read this test together with <see cref="An_empty_instance_home_lets_Start_attempt_a_start"/>. On
-    /// its own, a pass condition of "no exception was thrown" is an ABSENCE, and an absence certifies a
-    /// run that never happened - if the rig could not have thrown, this would pass against the defect it
-    /// exists to catch. Its partner proves the rig throws when a start is attempted, which is what turns
-    /// this into evidence.
+    /// The behaviour that replaced it is asserted by
+    /// <see cref="A_corrupt_file_left_behind_by_a_stop_does_not_stop_the_Director_starting_again"/>, and
+    /// the START path is still covered for the cases where something IS demonstrably there:
+    /// <see cref="An_ambiguous_instance_home_does_not_let_Start_add_another_Director"/> and
+    /// <see cref="An_unsupervised_process_holding_the_instance_home_does_not_let_Start_add_another_Director"/>.
     /// </summary>
-    [Fact]
-    public void One_corrupt_registration_does_not_let_Start_put_a_second_Director_on_a_live_instance_home()
-    {
-        // Windows-only premise: off Windows the installed Director is the machine-global
-        // ~/Applications/Director.app, so this rig cannot control whether the exe-exists guard passes.
-        if (!OperatingSystem.IsWindows()) return;
-
-        var layout = FakeInstalledDirector();
-        WriteTruncatedRegistration();
-        var supervisor = new DirectorSupervisor(layout, Locator());
-
-        // No throw = it refused to start. See the partner test for why that is a real assertion.
-        supervisor.Start();
-    }
 
     /// <summary>
     /// THE PARTNER THAT MAKES THE ONE ABOVE MEAN SOMETHING. An empty instance home is a genuine
@@ -349,5 +335,364 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
         var nulled = lookup with { Unreadable = forcedNull };
         Assert.NotNull(nulled.Unreadable);
         Assert.Empty(nulled.Unreadable);
+    }
+
+    // =========================================================================================
+    // The fix round. Every one of these comes from an independent review, and every one of them
+    // is a hole this change LEFT OPEN or, in the last case, one it OPENED.
+    // =========================================================================================
+
+    /// <summary>
+    /// A FIXTURE-SHAPED BLIND SPOT, and the reason it matters more than the assertion it adds.
+    ///
+    /// Every test above writes exactly ONE corrupt registration. So the guard could be narrowed from
+    /// "more than none" to "exactly one" and the whole file still passed - the mutation survived not
+    /// because the code was right but because every fixture looked the same. Two corrupt files is the
+    /// ordinary case on a machine that has crashed twice, and it would have resolved NotRunning again.
+    ///
+    /// The lesson is about the fixture rather than the assertion: varying the SHAPE of the input finds
+    /// what another assertion on the same input cannot.
+    /// </summary>
+    [Fact]
+    public void TWO_corrupt_registrations_are_also_Unknown_not_NotRunning()
+    {
+        WriteTruncatedRegistration("aaaa0001-0000-0000-0000-000000000001");
+        WriteTruncatedRegistration("aaaa0002-0000-0000-0000-000000000002");
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.Equal(2, lookup.Unreadable.Count);
+    }
+
+    /// <summary>Three, for the same reason - the count is not a magic number in either direction.</summary>
+    [Fact]
+    public void THREE_corrupt_registrations_are_also_Unknown()
+    {
+        for (var i = 1; i <= 3; i++)
+            WriteTruncatedRegistration($"aaaa000{i}-0000-0000-0000-00000000000{i}");
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.Equal(3, lookup.Unreadable.Count);
+    }
+
+    /// <summary>
+    /// AN UNREADABLE DIRECTORY, WHICH WAS THE SAME FOLD ONE LAYER UP. Directory.Exists answers FALSE for
+    /// a directory that exists and cannot be reached, so "not there" and "not readable" came back as one
+    /// answer - and the listing catch then continued without recording anything either. A directory of
+    /// registrations nobody can see is the strongest possible reason not to call the home empty.
+    ///
+    /// Driven by putting a FILE where the directory belongs, which is a real on-disk state and makes the
+    /// listing fail without needing a permission change this rig cannot make.
+    /// </summary>
+    [Fact]
+    public void A_registrations_directory_that_cannot_be_listed_is_Unknown_not_NotRunning()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(InstanceDirectory)!);
+        File.WriteAllText(InstanceDirectory, "this is a file where a directory belongs");
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.Contains("could not be listed", string.Join(" ", lookup.Unreadable));
+    }
+
+    /// <summary>
+    /// THE CONTROL for the test above, and it is what makes that one evidence. A registrations directory
+    /// that genuinely does not exist must still be NotRunning - otherwise the fix would simply have made
+    /// every absent directory Unknown, which passes the test above and stops the launcher ever starting a
+    /// Director on a fresh machine.
+    /// </summary>
+    [Fact]
+    public void A_registrations_directory_that_does_not_exist_is_still_NotRunning()
+    {
+        // Nothing created at all: neither the instance home nor the legacy flat path exists.
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
+        Assert.Empty(lookup.Unreadable);
+    }
+
+    /// <summary>
+    /// A REGISTRATION WITH NO START TIME MADE Resolve THROW, against the "never throws" contract in its
+    /// own summary. An unset stamp is DateTime.MinValue, and subtracting the registration lag from it
+    /// throws outside every catch in the file.
+    ///
+    /// It is also right on the merits: the stamp is the ONLY thing that tells this Director from a
+    /// process that inherited its process id, so a registration without one certifies nothing and
+    /// belongs with the others that could not be read.
+    /// </summary>
+    [Fact]
+    public void A_registration_with_no_start_time_does_not_throw_and_is_Unknown()
+    {
+        Directory.CreateDirectory(InstanceDirectory);
+        File.WriteAllText(Path.Combine(InstanceDirectory, "ffff0001-0000-0000-0000-000000000001.json"),
+            $$"""
+            {
+              "DirectorId": "ffff0001-0000-0000-0000-000000000001",
+              "Pid": {{Environment.ProcessId}},
+              "Version": "2.0.6"
+            }
+            """);
+
+        var lookup = Locator().Resolve();   // must not throw
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.Contains("startedAt=missing", string.Join(" ", lookup.Unreadable));
+    }
+
+    /// <summary>
+    /// THE REGRESSION THIS FIX INTRODUCED, WHICH WAS WORSE THAN THE DEFECT IT FIXES.
+    ///
+    /// A corrupt file beside one good live Director resolves Running, so an update pass would proceed:
+    /// it stops the Director - which deletes that Director-s own registration - and then only the
+    /// corrupt file is left, at which point Start REFUSES. The health wait times out, the rollback tries
+    /// the same refused start, and a formerly working Director is left down with every relaunch
+    /// refusing. Before the fix, the corrupt file was ignored and the Director came back.
+    ///
+    /// A fix that turns a recoverable state into a permanent one is not a fix. So the evidence has to
+    /// reach the DECISION rather than stopping at the locator: DirectorStatus carries it, and the update
+    /// owner holds on it.
+    /// </summary>
+    [Fact]
+    public void A_corrupt_registration_beside_a_live_Director_reaches_the_status_the_update_owner_reads()
+    {
+        WriteLiveRegistration("bbbb0002-0000-0000-0000-000000000002");
+        WriteTruncatedRegistration("cccc0002-0000-0000-0000-000000000002");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        var status = supervisor.ReadStatus();
+
+        Assert.NotNull(status);
+        Assert.Equal("bbbb0002-0000-0000-0000-000000000002", status!.DirectorId);
+
+        // THE ASSERTION THE REGRESSION TURNED ON. Without this the update owner cannot know, and it
+        // stops a Director it will not be able to start again.
+        Assert.Single(status.Unreadable);
+        Assert.Contains("could not be read", string.Join(" ", status.Unreadable));
+    }
+
+    /// <summary>And the control: a clean machine carries nothing, so a normal update is not held.</summary>
+    [Fact]
+    public void A_live_Director_with_nothing_unreadable_carries_an_empty_list()
+    {
+        WriteLiveRegistration("bbbb0003-0000-0000-0000-000000000003");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        var status = supervisor.ReadStatus();
+
+        Assert.NotNull(status);
+        Assert.Empty(status!.Unreadable);
+    }
+
+    /// <summary>The same never-null promise on DirectorStatus as on DirectorLookup, and for the same
+    /// reason - the setter coalesces, so a with-expression cannot put a null through the sentence.</summary>
+    [Fact]
+    public void The_status_Unreadable_list_is_never_null_even_through_a_with_expression()
+    {
+        var status = new DirectorStatus("d-1", 1, "2.0.6", 0);
+        Assert.NotNull(status.Unreadable);
+
+        IReadOnlyList<string> forcedNull = null!;
+        Assert.Empty((status with { Unreadable = forcedNull }).Unreadable);
+    }
+
+    // =========================================================================================
+    // THE PROPERTY, ASSERTED DIRECTLY
+    // =========================================================================================
+
+    /// <summary>
+    /// NO READING OF A CORRUPT FILE MAY LEAVE A FORMERLY WORKING DIRECTOR UNABLE TO START.
+    ///
+    /// The property, driven end to end rather than argued: a corrupt file beside a live Director, then
+    /// the stop that removes that Director-s own registration, then the start - and the start must
+    /// reach its launch attempt rather than refusing.
+    ///
+    /// THIS TEST FAILED AGAINST THE FIRST DRAFT OF THIS FIX, which is why it exists. That draft refused
+    /// to start on an unreadable claim, so after a stop the machine was left with only the corrupt file,
+    /// every relaunch refused, and a working Director stayed down. Converting a recoverable state into a
+    /// permanent one is worse than the fail-open it replaced.
+    ///
+    /// WHAT ACTUALLY PREVENTS A DUPLICATE, since it is not this refusal: SingleInstanceGuard, keyed on
+    /// the exe path slot and acquired in the Director-s own startup. A second Director from the installed
+    /// exe raises the existing window and exits. That works whether or not this launcher could read a
+    /// registration file, which is exactly why a refusal here bought nothing and cost everything.
+    /// </summary>
+    [Fact]
+    public void A_corrupt_file_left_behind_by_a_stop_does_not_stop_the_Director_starting_again()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // The state a stop leaves behind: the good registration is gone (a Director deletes its own on
+        // shutdown) and the corrupt one is still there.
+        WriteTruncatedRegistration("dddd0009-0000-0000-0000-000000000009");
+        var locator = Locator();
+        Assert.Equal(DirectorResolution.Unknown, locator.Resolve().Outcome);
+
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), locator);
+
+        // It must REACH the launch. The rig turns a launch attempt into Win32Exception, so throwing is
+        // the pass here and returning quietly is the failure - the exact inverse of the refusal tests
+        // above, and the reason the rig was built to make both observable.
+        Assert.Throws<Win32Exception>(() => supervisor.Start());
+    }
+
+    // =========================================================================================
+    // THE MIXED DIRECTORY, AS A FIRST-CLASS FIXTURE
+    //
+    // Both review rounds missed something for the same reason: every fixture in the first draft had
+    // the corrupt file as the ONLY file. That shape is what let "more than none" survive being
+    // narrowed to "exactly one", and it is what hid the Running-with-unreadable-evidence state from
+    // the consumer that decides whether a binary swap is safe. Varying the SHAPE of the input is what
+    // found both; another assertion on the same input would have found neither.
+    // =========================================================================================
+
+    /// <summary>
+    /// A mixed directory: two good live registrations and two corrupt ones. It must resolve the live
+    /// pair through the ordinary tie-break, AND carry both unreadable claims.
+    /// </summary>
+    [Fact]
+    public void A_mixed_directory_resolves_its_live_registrations_and_carries_every_unreadable_claim()
+    {
+        WriteLiveRegistration("eeee0011-0000-0000-0000-000000000011");
+        WriteLiveRegistration("eeee0012-0000-0000-0000-000000000012");
+        WriteTruncatedRegistration("ffff0011-0000-0000-0000-000000000011");
+        WriteRegistrationNamingNoDirector("ffff0012-0000-0000-0000-000000000012");
+
+        var lookup = Locator().Resolve();
+
+        // Two live claimants of the same image is the pre-existing ambiguous case, untouched.
+        Assert.Equal(DirectorResolution.Ambiguous, lookup.Outcome);
+        Assert.Equal(2, lookup.Unreadable.Count);
+    }
+
+    /// <summary>
+    /// AND THE CONSUMER THAT MATTERS SEES IT. This is the state the independent review found: one good
+    /// live registration plus corrupt ones resolves Running, and the update owner reads DirectorStatus -
+    /// so if the evidence stops at the locator, a binary swap is authorized on a home the launcher could
+    /// not fully read. The fold had moved rather than gone: Running-plus-unreadable became a clean status.
+    /// </summary>
+    [Fact]
+    public void A_mixed_directory_carries_its_unreadable_claims_all_the_way_to_the_update_decision()
+    {
+        WriteLiveRegistration("eeee0013-0000-0000-0000-000000000013");
+        WriteTruncatedRegistration("ffff0013-0000-0000-0000-000000000013");
+        WriteRegistrationNamingNoDirector("ffff0014-0000-0000-0000-000000000014");
+        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+
+        var status = supervisor.ReadStatus();
+
+        Assert.NotNull(status);
+        Assert.Equal("eeee0013-0000-0000-0000-000000000013", status!.DirectorId);
+        Assert.Equal(2, status.Unreadable.Count);
+    }
+
+    /// <summary>
+    /// A mixed directory whose only LIVE registration is removed becomes Unknown, not NotRunning - which
+    /// is the transition a stop performs, and the moment the whole defect used to fire.
+    /// </summary>
+    [Fact]
+    public void A_mixed_directory_becomes_Unknown_when_its_live_registration_goes()
+    {
+        WriteLiveRegistration("eeee0014-0000-0000-0000-000000000014");
+        WriteTruncatedRegistration("ffff0015-0000-0000-0000-000000000015");
+        Assert.Equal(DirectorResolution.Running, Locator().Resolve().Outcome);
+
+        // What a clean shutdown does: the Director deletes its own registration.
+        File.Delete(Path.Combine(InstanceDirectory, "eeee0014-0000-0000-0000-000000000014.json"));
+
+        var lookup = Locator().Resolve();
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.Single(lookup.Unreadable);
+    }
+
+    // =========================================================================================
+    // A PROCESS THAT IS ALIVE AND CANNOT BE INSPECTED
+    //
+    // The mutation sweep found this gap rather than a reviewer: the fix for it was written and had
+    // NO test, so removing the fix survived the whole suite. A live process the operating system
+    // will not describe is not a dead one, and erasing its claim is the same fail-open the rest of
+    // this file is about - one method further down.
+    // =========================================================================================
+
+    /// <summary>
+    /// A registration naming a REAL live process this test cannot inspect.
+    ///
+    /// PID 4 on Windows is the System process: it exists, it is running, and a normal user process is
+    /// refused when it asks when that process started. So this is a genuine uninspectable-live-process
+    /// input rather than a mock - which matters, because the branch under test exists precisely for a
+    /// state the operating system produces and a fake would not.
+    ///
+    /// Either of the two guards may catch it - the inspection itself, or the start-time read - and the
+    /// test deliberately does not care which: both record an unreadable claim, and asserting on the
+    /// specific one would pin an implementation detail rather than the property. What must NOT happen is
+    /// the claim being erased and the answer coming back NotRunning.
+    /// </summary>
+    [Fact]
+    public void A_live_process_that_cannot_be_inspected_is_Unknown_not_NotRunning()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(InstanceDirectory);
+        File.WriteAllText(Path.Combine(InstanceDirectory, "9999aaaa-0000-0000-0000-000000000001.json"),
+            $$"""
+            {
+              "DirectorId": "9999aaaa-0000-0000-0000-000000000001",
+              "Pid": 4,
+              "StartedAt": "{{DateTime.UtcNow:o}}",
+              "Version": "2.0.6"
+            }
+            """);
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
+        Assert.NotEmpty(lookup.Unreadable);
+        Assert.Null(lookup.Director);
+    }
+
+    /// <summary>
+    /// THE CONTROL that makes the test above evidence rather than a coincidence. The SAME registration
+    /// shape naming a process this test CAN inspect - itself - resolves normally. Without this, the test
+    /// above would pass equally well if the locator had simply started answering Unknown for everything.
+    /// </summary>
+    [Fact]
+    public void The_same_registration_shape_naming_an_inspectable_process_resolves_normally()
+    {
+        WriteLiveRegistration("9999bbbb-0000-0000-0000-000000000001");
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.Running, lookup.Outcome);
+        Assert.Empty(lookup.Unreadable);
+    }
+
+    /// <summary>
+    /// And a registration naming a process id that is POSITIVELY DEAD is still NotRunning - the third of
+    /// the four answers, and the one that must not be swept up with the other two. A dead process id is a
+    /// FACT about the world; an uninspectable one is the absence of a fact.
+    /// </summary>
+    [Fact]
+    public void A_registration_naming_a_dead_process_id_is_still_NotRunning()
+    {
+        Directory.CreateDirectory(InstanceDirectory);
+        // A process id that is real in shape and certain not to be running: the maximum Windows allows
+        // is far below this, so the operating system answers "no such process" rather than refusing.
+        File.WriteAllText(Path.Combine(InstanceDirectory, "9999cccc-0000-0000-0000-000000000001.json"),
+            $$"""
+            {
+              "DirectorId": "9999cccc-0000-0000-0000-000000000001",
+              "Pid": 2147483646,
+              "StartedAt": "{{DateTime.UtcNow:o}}",
+              "Version": "2.0.6"
+            }
+            """);
+
+        var lookup = Locator().Resolve();
+
+        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
+        Assert.Empty(lookup.Unreadable);
     }
 }

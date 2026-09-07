@@ -17,6 +17,25 @@ public enum DirectorResolution
     /// </summary>
     NotRunning,
 
+
+    /// <summary>
+    /// More than one live process claims the supervised instance. NOTHING may be done to any of them:
+    /// see the class comment on <see cref="DirectorInstanceLocator"/>.
+    /// </summary>
+    Ambiguous,
+
+    /// <summary>
+    /// A live process holds the supervised instance, but it is NOT running the image this launcher
+    /// supervises. Something is there, so nothing new may be started on top of it - and it must not be
+    /// stopped, force-killed or updated over, because it is not this launcher's process to end.
+    ///
+    /// This is a distinct answer from <see cref="Ambiguous"/> on purpose. Ambiguous means the launcher
+    /// cannot tell WHICH of several claimants is its Director; this means it can tell perfectly well,
+    /// and the answer is "none of them". A log line that said "ambiguous" about a single claimant would
+    /// send the next person looking for a second process that does not exist.
+    /// </summary>
+    NotSupervised,
+
     /// <summary>
     /// Something claims the supervised instance and it could not be READ or CERTIFIED, so whether a
     /// Director is running here is unknown. Nothing survived to be named, but nothing was ruled out
@@ -48,24 +67,6 @@ public enum DirectorResolution
     /// its evidence rather than assert a cause.
     /// </summary>
     Unknown,
-
-    /// <summary>
-    /// More than one live process claims the supervised instance. NOTHING may be done to any of them:
-    /// see the class comment on <see cref="DirectorInstanceLocator"/>.
-    /// </summary>
-    Ambiguous,
-
-    /// <summary>
-    /// A live process holds the supervised instance, but it is NOT running the image this launcher
-    /// supervises. Something is there, so nothing new may be started on top of it - and it must not be
-    /// stopped, force-killed or updated over, because it is not this launcher's process to end.
-    ///
-    /// This is a distinct answer from <see cref="Ambiguous"/> on purpose. Ambiguous means the launcher
-    /// cannot tell WHICH of several claimants is its Director; this means it can tell perfectly well,
-    /// and the answer is "none of them". A log line that said "ambiguous" about a single claimant would
-    /// send the next person looking for a second process that does not exist.
-    /// </summary>
-    NotSupervised,
 }
 
 /// <summary>
@@ -292,8 +293,17 @@ public sealed class DirectorInstanceLocator
                 continue;
             }
 
-            var process = TryGetLiveProcess(dto.Pid);
-            if (process is null) continue;
+            var (process, uninspectable) = TryGetLiveProcess(dto.Pid);
+            if (uninspectable is not null)
+            {
+                // NOT THE SAME AS A DEAD PROCESS. The operating system refused to tell us about this
+                // process id - it may be a live Director we are not allowed to look at. Erasing the
+                // claim here was the same fail-open, one method below the one it was written for.
+                FileLog.Write($"[DirectorInstanceLocator] {uninspectable}");
+                unreadable.Add(uninspectable);
+                continue;
+            }
+            if (process is null) continue;   // positively dead: no such process id
 
             using (process)
             {
@@ -571,25 +581,51 @@ public sealed class DirectorInstanceLocator
     {
         foreach (var dir in RegistrationDirectories)
         {
-            string[] files;
-            try
-            {
-                if (!Directory.Exists(dir)) continue;
-                files = Directory.GetFiles(dir, "*.json");
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[DirectorInstanceLocator] cannot list {dir}: {ex.Message}");
-                continue;
-            }
-
             // The storage home this registration belongs to: three levels up from
             // <home>/config/director/instances. Carried per registration rather than assumed, because
             // the crash journal that says how busy that Director is lives under ITS home, and the two
-            // layouts put it in different places.
+            // layouts put it in different places. Resolved BEFORE the listing, because an unreadable
+            // directory has to be reported against its home too.
             var home = Path.GetFullPath(Path.Combine(dir, "..", "..", ".."));
 
-            foreach (var file in files)
+            // ASKED BY TRYING, NOT BY Directory.Exists. That check answers FALSE for a directory that
+            // exists and cannot be reached, so "not there" and "not readable" came back as one answer -
+            // the very fold this change exists to remove, one layer above the one it was written for.
+            // GetFiles discriminates them positively: a directory that is genuinely absent throws
+            // DirectoryNotFoundException, and anything else means something IS there and could not be
+            // listed.
+            string[]? files = null;
+            string? listingFailure = null;
+            var absent = false;
+            try
+            {
+                files = Directory.GetFiles(dir, "*.json");
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Genuinely absent, and that is ordinary: the pre-1.8 flat path does not exist on a
+                // modern install, and an instance home has no registrations directory until a Director
+                // has run there. Nothing is there, so nothing is claimed.
+                absent = true;
+            }
+            catch (Exception ex)
+            {
+                listingFailure = $"the registration directory {dir} exists and could not be listed: {ex.Message}";
+            }
+
+            if (absent) continue;
+
+            if (listingFailure is not null)
+            {
+                // It exists and could not be read. A directory of registrations we cannot see is the
+                // strongest possible reason NOT to conclude the instance home is empty. Yielded out here
+                // rather than from the catch, which the language forbids in an iterator.
+                FileLog.Write($"[DirectorInstanceLocator] {listingFailure}");
+                yield return (dir, home, null, listingFailure);
+                continue;
+            }
+
+            foreach (var file in files!)
             {
                 Gateway.Contracts.DirectorDto? dto = null;
                 string? failure = null;
@@ -614,11 +650,19 @@ public sealed class DirectorInstanceLocator
                 // would not parse at all - in both cases a file is sitting in this directory and this
                 // code cannot tell what process, if any, it stands for. Reading it as an empty directory
                 // is the failure being fixed, and it does not become safe because the parser succeeded.
-                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId))
+                // StartedAt IS PART OF BEING COMPLETE, and leaving it out of this check made the
+                // "never throws" contract on Resolve false: an unset stamp is DateTime.MinValue, and
+                // subtracting RegistrationLag from it throws ArgumentOutOfRangeException outside every
+                // catch in this file. It is also right on the merits - the stamp is the ONLY thing that
+                // tells this Director from a process that inherited its id, so a registration without
+                // one certifies nothing and belongs with the others that could not be read.
+                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)
+                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)
                 {
-                    var incomplete = $"the registration {file} parsed but names no Director "
+                    var incomplete = $"the registration {file} parsed but names no usable Director "
                                      + $"(directorId={(string.IsNullOrWhiteSpace(dto?.DirectorId) ? "missing" : dto!.DirectorId)}, "
-                                     + $"pid={dto?.Pid ?? 0})";
+                                     + $"pid={dto?.Pid ?? 0}, "
+                                     + $"startedAt={(dto is null || dto.StartedAt == default ? "missing" : dto.StartedAt.ToString("o"))})";
                     FileLog.Write($"[DirectorInstanceLocator] {incomplete}");
                     yield return (file, home, null, incomplete);
                     continue;
@@ -631,7 +675,17 @@ public sealed class DirectorInstanceLocator
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    private static Process? TryGetLiveProcess(int pid)
+    /// <summary>
+    /// The live process for a registered process id.
+    ///
+    /// THREE ANSWERS, NEVER TWO (issue #2730). A null process with a null reason means the process id is
+    /// POSITIVELY DEAD - the operating system says no such process, which is a fact. A non-null reason
+    /// means the operating system REFUSED TO SAY, which is not a fact about the process and must never
+    /// be treated as one: it may be a live Director this launcher is not permitted to inspect. Collapsing
+    /// the second into the first is what let an inaccessible live Director read as an empty instance
+    /// home, one method below the defect this change was written for.
+    /// </summary>
+    private static (Process? Process, string? Uninspectable) TryGetLiveProcess(int pid)
     {
         try
         {
@@ -639,18 +693,18 @@ public sealed class DirectorInstanceLocator
             if (process.HasExited)
             {
                 process.Dispose();
-                return null;
+                return (null, null);      // it ran and is gone: a fact
             }
-            return process;
+            return (process, null);
         }
         catch (ArgumentException)
         {
-            return null; // no such process
+            return (null, null);          // no such process: also a fact
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorInstanceLocator] cannot inspect pid={pid}: {ex.Message}");
-            return null;
+            return (null, $"pid={pid} could not be inspected ({ex.Message}), so whether it is a live "
+                          + "Director is unknown - it is NOT being treated as absent");
         }
     }
 }
