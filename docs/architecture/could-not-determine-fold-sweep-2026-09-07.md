@@ -47,10 +47,39 @@ speech into a live session. Filed as issue 2745. Found by a reviewer, not by thi
 **3. The nine exonerations HAVE since been re-triaged, and the result is recorded below.** Two were
 refuted (`VoiceUploadStore`, `DictationLockReader`), one was right for the wrong reason
 (`TranscriptionMode.IsValid`), two had their stated reason narrowed to display-only, and four
-stand. What is STILL outstanding is one layer up: the shortlist of 24 "has a dangerous consumer"
-was itself built by matching caller NAMES against a pattern of destructive-sounding verbs. A
-consumer that writes, deletes or launches under a name that pattern does not match was never
-shortlisted, so it was never consumer-checked at all. That set has not been re-examined.
+stand.
+
+**The bigger limit is one layer up, and it now has a NUMBER rather than a caveat.** The shortlist
+this document's sections A to C were drawn from was built by matching caller NAMES against a
+pattern of destructive-sounding verbs, so a consumer that writes, deletes or launches under a name
+that pattern did not match was never shortlisted and was never consumer-checked at all.
+
+Re-run with a caller-BODY heuristic instead - does the consumer actually write, delete, start or
+persist, whatever it happens to be called - the numbers are:
+
+| Measure | Count |
+|---|---|
+| Folds with any production caller at all | 69 |
+| Shortlisted by the original caller-NAME heuristic | 22 |
+| Shortlisted by the caller-BODY heuristic | 65 |
+| **Never consumer-checked by this document** | **47** |
+
+So the unexamined set is **more than double** the set that was examined. Stated as a number because
+"some remain" understates it: a reader deciding how far to trust these rows needs 47 of 69, not an
+adjective.
+
+**Why the 47 is credible rather than alarming.** The body heuristic was checked against the known
+instance before its output was believed, and it found `DirectorInstanceLocator.ReadRegistrations`
+and `TryGetLiveProcess` - the issue 2730 root cause - by a route the name heuristic could not take,
+because their consumer is called `Resolve` and `Resolve` is not a destructive-sounding verb. The
+original shortlist only ever reached 2730 because `Resolve`'s OWN consumer happened to be named
+`Start`. It missed the known defect on the first hop and caught it on the second by luck.
+
+**The four newly-shortlisted folds with genuinely destructive consumers were checked, and all four
+are correct** - the worktree reaper folds toward KEEP, the crash journal catches only the two
+exceptions that are proof of not-running and lets anything else propagate, and the orphan-file
+sweep is the model described below. The 47 is a measure of what was not looked at, not a count of
+defects.
 
 **4. TWO SPECIFIC CORRECTIONS TO EARLIER ROWS.**
 
@@ -315,6 +344,28 @@ Listed so nobody re-opens them, and because several are good models for fixing t
   at all, so it is unreachable rather than correct.
 - **`PythonRuntimeProbe.CanImportStdlib`** - unknown folds to "cannot", which blocks rather than
   permits.
+
+### The correct implementation of 2730's fix already exists in this repository
+
+Found by the caller-body re-triage, and recorded here because it is directly actionable.
+
+**`DirectorRegistry.IsProcessDead`** (Gateway) and **`DirectorInstanceLocator.TryGetLiveProcess`**
+(Core) ask the SAME question about the SAME thing - is this Director's process id alive - and answer
+it with opposite discipline.
+
+The Gateway one treats `ArgumentException` alone as proof of death and returns "not dead" for
+everything else, with its reasoning written on it:
+
+> A permission or other unexpected error returns false (do not assume dead) so we never delete on
+> uncertainty.
+
+The Core one folds EVERY exception into `null`, which its caller reads as not-running. That is what
+makes 2730 dangerous.
+
+So the fix for 2730 is not a design problem: the correct version is one assembly away, in code that
+already ships, with the rationale attached. Copy that discipline rather than inventing one - and
+note which way each fold leans, because the Gateway's caller DELETES and the Core caller STARTS, so
+the two are protecting against opposite mistakes with the same rule.
 
 ## D. Owned by another seat
 
