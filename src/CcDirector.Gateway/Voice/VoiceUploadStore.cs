@@ -512,6 +512,10 @@ public sealed class VoiceUploadStore
                         // became, and the sweep has no business destroying evidence it cannot read (#2745).
                         if (read.Kind != DictationRecordReadKind.Present) return;
                         var record = read.Record!;
+                        // Another tenant's record is never ours to retire (issue #1884), exactly as ExpireStalePending
+                        // already refuses. Reachable only through a mis-computed partition root - the one case
+                        // where deleting another account's de-dupe evidence would be worst.
+                        if (!BelongsHere(record)) return;
                         if (!IsRetirableTombstone(record.State)) return; // PENDING / FAILED are never aged out
                         if (Directory.GetLastWriteTimeUtc(dir) >= cutoff) return;
 
@@ -924,29 +928,41 @@ public sealed class VoiceUploadStore
             return DictationRecordRead.CouldNotRead(path, ex.Message);
         }
 
-        DictationDeliveryRecord? record;
+        DictationDeliveryRecord record;
         try
         {
-            record = JsonSerializer.Deserialize<DictationDeliveryRecord>(text, RecordJson);
+            // SHAPE FIRST, then value. The serializer fills in a default for every property the JSON does not
+            // mention, and the default for State is the enum's zero - PENDING. So "{}" or an unrelated object
+            // would deserialize into a perfectly readable pending record, and pending is re-openable: the
+            // exact re-injection this reader exists to refuse, reached through valid JSON. A delivery record
+            // has carried these five properties since the day it existed (issue #1183); a file that lacks one
+            // was not written by this store and is not a record.
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return Malformed(path, "the file does not hold a JSON object");
+            foreach (var required in RequiredRecordProperties)
+                if (!doc.RootElement.TryGetProperty(required, out _))
+                    return Malformed(path, $"the record has no {required} property");
+            record = JsonSerializer.Deserialize<DictationDeliveryRecord>(text, RecordJson)!;
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: {ex.Message}");
-            return DictationRecordRead.NotUnderstood(path, ex.Message);
-        }
-        if (record is null)
-        {
-            FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: the file holds JSON null");
-            return DictationRecordRead.NotUnderstood(path, "the file holds JSON null");
+            return Malformed(path, ex.Message);
         }
         // A number the enum does not name deserializes without complaint, and then matches no state anywhere.
         if (!Enum.IsDefined(record.State))
-        {
-            var problem = $"state {(int)record.State} is not a delivery state this build knows";
-            FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: {problem}");
-            return DictationRecordRead.NotUnderstood(path, problem);
-        }
+            return Malformed(path, $"state {(int)record.State} is not a delivery state this build knows");
         return DictationRecordRead.Found(record);
+    }
+
+    // The properties every delivery record has carried since issue #1183. Case-sensitive, exactly as the
+    // serializer matches them: a file spelling one differently is one the serializer would silently default.
+    private static readonly string[] RequiredRecordProperties = { "State", "Submitted", "MovedOn", "Transcript", "Reason" };
+
+    private static DictationRecordRead Malformed(string path, string problem)
+    {
+        FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: {problem}");
+        return DictationRecordRead.NotUnderstood(path, problem);
     }
 
     /// <summary>
@@ -954,12 +970,14 @@ public sealed class VoiceUploadStore
     /// abandoned, its chunks retained. The enforced per-session dictation lock is a projection of this.
     ///
     /// A marker that cannot be read is NOT pending here. That is a decision, not the #2745 fold, and it goes
-    /// the other way from delivery on purpose: the lock keeps the human's keyboard out of a session while a
-    /// dictation is in flight, and a marker nobody can read can never finish flying - every delivery path
-    /// refuses it (see <see cref="Read"/>) - so locking on it would wedge the session shut until an operator
-    /// found the file, with no client action able to release it. The Core-side lock reader documents the
-    /// same fail-open choice for the same reason, and the user-input source default compensates for a missed
-    /// lock; nothing compensates for a re-injected dictation, which is why delivery is the side that refuses.
+    /// the other way from delivery on purpose. What this projection drives today is DISPLAY: the session's
+    /// "receiving a dictation" state and its orange mark. Sends are no longer refused by source - the Director
+    /// removed that rejection deliberately (see <c>Session.SendTextAsync</c>) - so a missed lock costs a
+    /// missing badge, nothing more. A marker nobody can read can never finish arriving, because every
+    /// delivery path refuses it (see <see cref="Read"/>); projecting a lock from it would paint the session as
+    /// receiving a dictation until an operator found the file, with no client action able to clear it. The
+    /// Core-side lock reader documents the same fail-open choice for the same reason. Nothing compensates for
+    /// a re-injected dictation, which is why delivery is the side that refuses and this side is not.
     /// </summary>
     public bool IsPending(string uploadId)
         => Read(uploadId) is { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending };
