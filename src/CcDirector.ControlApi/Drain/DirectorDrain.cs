@@ -358,10 +358,36 @@ public sealed class DirectorDrain
 
             var text = DrainMessages.Drain(doc.DirectorName, path, dir, subordinatePaths, options.Reason);
             var sent = await _sessions.SendAsync(headId, text).ConfigureAwait(false);
-            if (!sent)
-                _problems.Add($"the drain message could not be delivered to {DrainPaths.ShortId(headId)} " +
-                              $"({seat.Name}); it has no way of knowing a restart is coming.");
-            FileLog.Write($"[DirectorDrain] drain message to {headId} ({seat.Name}): sent={sent}");
+            FileLog.Write(
+                $"[DirectorDrain] drain message to {headId} ({seat.Name}): delivered={sent.Delivered}" +
+                (sent.Reason is null ? "" : $", {sent.Reason}"));
+
+            if (!sent.Delivered)
+            {
+                // AN ASK THAT DID NOT LAND IS KNOWABLE NOW, and it is a different fact from an ask that
+                // landed and has not been answered. The delivery path says so at the moment of the
+                // attempt - a wedged seat comes back refused, with the prompt never echoed into its
+                // composer - so waiting ninety minutes to conclude "it never answered" would be spending
+                // the whole deadline to learn something already known, and would report the seat as
+                // silent when it was never spoken to.
+                //
+                // It is terminal immediately: unreachable, for a reason that says which of the two it is.
+                // The restart does not proceed over it either way.
+                seat.DrainState = WorkspaceDrainStates.Unreachable;
+                seat.Restore ??= new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+
+                var subtree = chain.Descendants(headId).Count;
+                _problems.Add(
+                    $"the drain message could not be DELIVERED to {DrainPaths.ShortId(headId)} " +
+                    $"({seat.Name}) - the ask did not land, so it was never asked rather than asked and " +
+                    $"silent. The delivery path said: {sent.Reason ?? "(no reason given)"}. " +
+                    "It has no way of knowing a restart is coming" +
+                    (subtree == 0
+                        ? "."
+                        : $", and the {subtree} seat(s) reporting through it were to be reached BY it, so " +
+                          "they will not be asked either."));
+                continue;
+            }
         }
 
         await SaveAsync(doc, ct).ConfigureAwait(false);

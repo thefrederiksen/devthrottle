@@ -83,6 +83,31 @@ public class DrainChainTests
     }
 
     [Fact]
+    public void Build_AnExternalControllerDoesNOTFallBackToTheSpawningParent()
+    {
+        // THE CASE THAT MAKES THE RULE MEAN ANYTHING: the seat has a controller somewhere else AND a
+        // spawning parent right here. Falling back to the parent would put it under a seat that does not
+        // control it - it would never be messaged directly, and a session with no authority over it would
+        // be expected to collect its handover and would be held open waiting for it.
+        //
+        // The previous test only has a seat with an external controller and NO local parent, which passes
+        // whether the fallback is guarded or not.
+        var chain = DrainChain.Build(new[]
+        {
+            Seat("spawner", "The seat that spawned it"),
+            Seat("w", "Worker", reportsTo: "somebody-on-another-director", parent: "spawner", order: 1),
+        });
+
+        Assert.Null(chain.Node("w")!.ReportsTo);
+        Assert.Equal(new[] { "spawner", "w" }, chain.Heads);
+        Assert.Empty(chain.Node("spawner")!.Subordinates);
+
+        // And the consequence that matters: the spawner may close without waiting for a seat it does not
+        // control.
+        Assert.True(chain.CanClose("spawner", new HashSet<string>()));
+    }
+
+    [Fact]
     public void Build_SeatReportingToItself_IsAHead_AndIsNotACycle()
     {
         var chain = DrainChain.Build(new[] { Seat("a", "A", reportsTo: "a") });

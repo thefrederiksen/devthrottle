@@ -692,9 +692,9 @@ internal sealed class HarnessSessions : IDrainSessionControl
     /// earlier. Writing on the message is also simply what happens.</summary>
     public void Queue(string path, string text) => _queued.Add((path, text));
 
-    public Task<bool> SendAsync(string sessionId, string text)
+    public Task<DrainDelivery> SendAsync(string sessionId, string text)
     {
-        if (!Live.Contains(sessionId)) return Task.FromResult(false);
+        if (!Live.Contains(sessionId)) return Task.FromResult(DrainDelivery.Gone);
         Sent.Add((sessionId, text));
 
         if (!_responded && text.Contains("START NOTHING NEW"))
@@ -703,7 +703,7 @@ internal sealed class HarnessSessions : IDrainSessionControl
             foreach (var (path, content) in _queued) File.WriteAllText(path, content);
         }
 
-        return Task.FromResult(true);
+        return Task.FromResult(DrainDelivery.Ok);
     }
 
     public bool Rename(string sessionId, string name) => Live.Contains(sessionId);

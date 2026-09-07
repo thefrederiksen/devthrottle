@@ -39,7 +39,12 @@ internal class FakeSessionControl : IDrainSessionControl
     /// <summary>Sessions that never go away however long they are flagged - a session stuck mid-turn.</summary>
     public HashSet<string> NeverReaped { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Sessions whose message delivery fails.</summary>
+    /// <summary>Sessions whose composer will not take the text - alive, and wedged. The value is the
+    /// reason the delivery path gives, which is the whole difference between this and silence.</summary>
+    public Dictionary<string, string> WedgedWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Sessions whose message delivery fails. Shorthand for <see cref="WedgedWithReason"/> with
+    /// the reason the real submit protocol gives.</summary>
     public HashSet<string> RefuseSendTo { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public virtual bool IsPresent(string sessionId)
@@ -93,9 +98,16 @@ internal class FakeSessionControl : IDrainSessionControl
     /// goes out. Where a test takes an exclusive lock on a document, or has a seat do something odd.</summary>
     public Action? WhenMessaged { get; set; }
 
-    public virtual Task<bool> SendAsync(string sessionId, string text)
+    public virtual Task<DrainDelivery> SendAsync(string sessionId, string text)
     {
-        if (RefuseSendTo.Contains(sessionId) || !Live.Contains(sessionId)) return Task.FromResult(false);
+        if (!Live.Contains(sessionId)) return Task.FromResult(DrainDelivery.Gone);
+
+        if (WedgedWithReason.TryGetValue(sessionId, out var why))
+            return Task.FromResult(DrainDelivery.Refused(why));
+        if (RefuseSendTo.Contains(sessionId))
+            return Task.FromResult(DrainDelivery.Refused(
+                "the composer never echoed the typed text after 2 attempts"));
+
         Sent.Add((sessionId, text));
 
         if (!_responded && text.Contains("START NOTHING NEW"))
@@ -105,7 +117,7 @@ internal class FakeSessionControl : IDrainSessionControl
             WhenMessaged?.Invoke();
         }
 
-        return Task.FromResult(true);
+        return Task.FromResult(DrainDelivery.Ok);
     }
 
     public virtual bool Rename(string sessionId, string name)

@@ -1,3 +1,4 @@
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
@@ -11,6 +12,32 @@ namespace CcDirector.ControlApi.Drain;
 /// processes to prove the leaf-first order. The order, the poll-until-absent and the never-force rule are
 /// the parts that carry the risk, and they are exactly the parts a seam makes testable.
 /// </summary>
+/// <summary>
+/// What happened when the drain tried to say something to a session.
+///
+/// THE POINT OF THE TYPE IS THAT DID-NOT-LAND IS A PRESENCE. A drain that only knows "no answer yet"
+/// has to conclude from silence, and ninety minutes of silence is an absence-shaped check in its purest
+/// form: it cannot tell a seat that is thinking from a seat that never heard the question. The delivery
+/// path already knows the difference at the moment of the attempt - a wedged composer refuses the text
+/// and says so - and this carries that answer back instead of flattening it into a bool.
+/// </summary>
+/// <param name="Delivered">The words reached the agent.</param>
+/// <param name="SessionGone">There is no such session here any more. Not a fault - one less thing to
+/// wait for.</param>
+/// <param name="Reason">Why it did not land, in the words the delivery path used. Null when it did.</param>
+public sealed record DrainDelivery(bool Delivered, bool SessionGone, string? Reason)
+{
+    /// <summary>It landed.</summary>
+    public static readonly DrainDelivery Ok = new(true, false, null);
+
+    /// <summary>The session is not here.</summary>
+    public static readonly DrainDelivery Gone = new(false, true, "the session is no longer on this Director");
+
+    /// <summary>It did not land, and here is what the delivery path said.</summary>
+    /// <param name="reason">The delivery path's own words.</param>
+    public static DrainDelivery Refused(string reason) => new(false, false, reason);
+}
+
 public interface IDrainSessionControl
 {
     /// <summary>True when a session with this id is still present on this Director. FALSE IS THE
@@ -45,11 +72,17 @@ public interface IDrainSessionControl
     /// </summary>
     IReadOnlyList<string> LiveSessionIds();
 
-    /// <summary>Deliver a message to a session as an ordinary prompt, submitted. Returns false when the
-    /// session is not there or has exited - never throws for an ordinary absence.</summary>
+    /// <summary>
+    /// Deliver a message to a session as an ordinary prompt, submitted.
+    ///
+    /// It answers with WHY rather than with a bool, because the two failures mean opposite things to a
+    /// drain: a session that has gone is one less thing to wait for, and a session that is alive and
+    /// cannot take the words is one the drain will otherwise wait ninety minutes to call silent when it
+    /// was never spoken to.
+    /// </summary>
     /// <param name="sessionId">The session id.</param>
     /// <param name="text">The message.</param>
-    Task<bool> SendAsync(string sessionId, string text);
+    Task<DrainDelivery> SendAsync(string sessionId, string text);
 
     /// <summary>Rename a session, which is how a drained seat is marked on every screen while it waits to
     /// be reaped.</summary>
@@ -108,20 +141,35 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
         => _sessions.ListSessions().Select(s => s.Id.ToString()).ToList();
 
     /// <inheritdoc />
-    public async Task<bool> SendAsync(string sessionId, string text)
+    public async Task<DrainDelivery> SendAsync(string sessionId, string text)
     {
-        if (!Guid.TryParse(sessionId, out var id)) return false;
+        if (!Guid.TryParse(sessionId, out var id)) return DrainDelivery.Gone;
         var session = _sessions.GetSession(id);
-        if (session is null) return false;
+        if (session is null) return DrainDelivery.Gone;
 
-        var result = await SessionCommandExecutor.SendPromptAsync(
-            session,
-            new Gateway.Contracts.PromptRequest { Text = text, AppendEnter = true },
-            SendSource.Framework).ConfigureAwait(false);
+        try
+        {
+            var result = await SessionCommandExecutor.SendPromptAsync(
+                session,
+                new Gateway.Contracts.PromptRequest { Text = text, AppendEnter = true },
+                SendSource.Framework).ConfigureAwait(false);
 
-        if (result.Status != Gateway.Contracts.DirectorCommandStatus.Ok)
+            if (result.Status == Gateway.Contracts.DirectorCommandStatus.Ok) return DrainDelivery.Ok;
+
             FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} refused: {result.Error}");
-        return result.Status == Gateway.Contracts.DirectorCommandStatus.Ok;
+            return DrainDelivery.Refused(result.Error ?? "the Director refused the prompt");
+        }
+        catch (ComposerNotAcceptingInputException ex)
+        {
+            // A WEDGED SEAT. The submit protocol types the text, watches for the composer to echo it, and
+            // THROWS when it never does - which is the honest answer and the reason this method returns a
+            // reason rather than a bool. Letting it propagate would have taken the whole drain down at the
+            // first wedged session, unhandled, leaving a capture on the Gateway reading "draining" for
+            // ever. That is what the seam's own contract promised would not happen, and it is what would
+            // have happened.
+            FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} wedged: {ex.Message}");
+            return DrainDelivery.Refused(ex.Message);
+        }
     }
 
     /// <inheritdoc />

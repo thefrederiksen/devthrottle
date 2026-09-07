@@ -766,19 +766,105 @@ public class DirectorDrainTests
     }
 
     [Fact]
-    public async Task Drain_ADrainMessageThatCouldNotBeDeliveredIsSaidOutLoud()
+    public async Task Drain_AnAskThatDIDNOTLANDIsRecordedAtOnce_NotAfterTheWholeDeadline()
     {
+        // ASKED-AND-IT-DID-NOT-LAND IS NOT ASKED-AND-STILL-WAITING, and the delivery path says which at
+        // the moment of the attempt: a wedged seat comes back refused, with the prompt never echoed into
+        // its composer. Collapsing the two into one wait spends a ninety-minute deadline to learn
+        // something already known, and then reports the seat as silent when it was never spoken to.
+        //
+        // The deadline here is ninety minutes and the drain does not use any of it: the seat is terminal
+        // on the first pass, which is what makes this a blocked-path test that needs no timeout.
         using var dir = new TempDir();
         var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
-        sessions.Live.Add("solo");
-        sessions.RefuseSendTo.Add("solo");
-        var seat = DrainTestRig.Seat("solo", "Standalone");
-        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("wedged", "A seat whose composer never echoes"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "wedged", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        sessions.RefuseSendTo.Add("wedged");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
 
-        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+        var polls = 0;
+        var result = await NewDrain(sessions, sink, onPoll: _ => polls++)
+            .RunAsync(Options(TimeSpan.FromMinutes(90)), dir.Path);
 
+        var wedged = result.Document.Seats.Single(s => s.SessionId == "wedged");
+        Assert.Equal(WorkspaceDrainStates.Unreachable, wedged.DrainState);
+        Assert.Null(wedged.ClosedAtUtc);
+        Assert.Empty(sessions.Flagged);
+        Assert.False(result.ReadyToRestart);
+
+        // It says WHICH of the two silences it is, and that the subtree behind it is not being asked.
         Assert.Contains(result.Document.Integrity!.Problems,
-            p => p.Contains("could not be delivered") && p.Contains("no way of knowing"));
+            p => p.Contains("the ask did not land")
+              && p.Contains("never asked rather than asked and silent")
+              && p.Contains("reporting through it"));
+
+        // And it did not sit out the deadline to find out. The Worker below it still has to time out -
+        // it was never asked, because its senior never got the message to ask it - so the drain does
+        // wait; what it does not do is wait to learn the thing it already knew.
+        Assert.True(polls > 0, "the drain still waits for the seats it did reach");
+    }
+
+    [Fact]
+    public async Task Drain_AWedgedSeatAndAThinkingSeatAreTOLDAPARTInTheSameRun()
+    {
+        // THE NEGATIVE CONTROL, and without it the early-detection change is an assertion rather than
+        // evidence. "The ask did not land" is only better than concluding from ninety minutes of silence
+        // if it LOOKS DIFFERENT from a seat that received the ask and is merely thinking. So both are in
+        // this one run, and the signals that separate them are named:
+        //
+        //   wedged   - the delivery answers NOT DELIVERED and carries the submit protocol's own words,
+        //              "the composer never echoed the typed text". Nothing was added to Sent. The seat is
+        //              terminal at once, on a presence rather than on an absence.
+        //   thinking - the delivery answers DELIVERED, the text is in Sent, and the seat has no drain
+        //              state because it has not written its document yet. It waits, and the wait is real.
+        //
+        // If those two ever stopped differing, this test fails and the deadline would have to come back -
+        // which would be a finding about the delivery path rather than a reason to wait.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("wedged", "A wedged seat"),
+            DrainTestRig.Seat("thinking", "A seat that is thinking", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        sessions.WedgedWithReason["wedged"] =
+            "the composer never echoed the typed text after 2 attempts";
+
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        // The thinking seat answers late - after the wedged one has already been recorded.
+        var path = sessions.Handover(dir.Path, "thinking", "A seat that is thinking", DrainTestRig.Block());
+        File.Delete(path);
+        var written = false;
+
+        var result = await NewDrain(sessions, sink, onPoll: n =>
+        {
+            if (n < 3 || written) return;
+            written = true;
+            File.WriteAllText(path, DrainTestRig.Body + Environment.NewLine + Environment.NewLine
+                                    + DrainTestRig.Block());
+        }).RunAsync(Options(TimeSpan.FromMinutes(20)), dir.Path);
+
+        var wedged = result.Document.Seats.Single(s => s.SessionId == "wedged");
+        var thinking = result.Document.Seats.Single(s => s.SessionId == "thinking");
+
+        // THE SIGNALS DIFFER, and here they are.
+        Assert.DoesNotContain(sessions.Sent, m => m.SessionId == "wedged");        // nothing went in
+        Assert.Contains(sessions.Sent, m => m.SessionId == "thinking");            // the ask landed
+        Assert.Equal(WorkspaceDrainStates.Unreachable, wedged.DrainState);         // terminal at once
+        Assert.Equal(WorkspaceDrainStates.Drained, thinking.DrainState);           // answered, in its time
+        Assert.NotNull(thinking.ClosedAtUtc);
+        Assert.Null(wedged.ClosedAtUtc);
+
+        // And the record carries the delivery path's own words rather than the drain's inference.
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("composer never echoed"));
+        Assert.False(result.ReadyToRestart);
     }
 
     [Fact]
@@ -1409,7 +1495,7 @@ public class DirectorDrainTests
         // senior's - and that was closed on without ever being re-read. If the claim has gone, nothing
         // accounts for the seat and it must not be closed on it.
         using var dir = new TempDir();
-        var sessions = new UncoveringSessionControl(dir.Path);
+        var sessions = new UncoveringSessionControl(dir.Path, newBlock: null);
         var seats = new[]
         {
             DrainTestRig.Seat("mgr", "Manager"),
@@ -1432,26 +1518,95 @@ public class DirectorDrainTests
     }
 
     /// <summary>
-    /// Deletes the senior's document the first time the drain looks at the covered WORKER - which is the
-    /// moment between the claim being recorded and the worker being closed on it. Hooked on the worker
-    /// specifically because the worker is not a head, so its first presence probe is the close pass.
+    /// Rewrites the senior's document the first time the drain looks at the covered WORKER - the moment
+    /// between the claim being recorded and the worker being closed on it. Hooked on the worker because
+    /// the worker is not a head, so its first presence probe is the close pass.
     /// </summary>
     private sealed class UncoveringSessionControl : FakeSessionControl
     {
         private readonly string _dir;
+        private readonly string? _newBlock;
         private bool _done;
 
-        public UncoveringSessionControl(string dir) { _dir = dir; PollsBeforeReap = 2; }
+        /// <param name="dir">The drain directory.</param>
+        /// <param name="newBlock">The senior's document is rewritten with this block. NULL deletes the
+        /// document instead, which is the could-not-read branch rather than the claim check.</param>
+        public UncoveringSessionControl(string dir, string? newBlock)
+        {
+            _dir = dir;
+            _newBlock = newBlock;
+            PollsBeforeReap = 2;
+        }
 
         public override bool IsPresent(string sessionId)
         {
             if (!_done && sessionId == "w")
             {
                 _done = true;
-                File.Delete(DrainPaths.HandoverFor(_dir, "mgr", "Manager"));
+                var path = DrainPaths.HandoverFor(_dir, "mgr", "Manager");
+                if (_newBlock is null) File.Delete(path);
+                else File.WriteAllText(path, DrainTestRig.Body + Environment.NewLine + Environment.NewLine + _newBlock);
             }
             return base.IsPresent(sessionId);
         }
+    }
+
+    [Fact]
+    public async Task Drain_ACoveredSeatIsNotClosedWhenTheClaimIsWITHDRAWNFromAReadableDocument()
+    {
+        // The version of the previous test that actually reaches the claim check. Deleting the senior's
+        // document exercises only the could-not-read branch - a mutation that always accepted the
+        // coverage would still pass it. Here the document is perfectly readable, still a valid
+        // declaration, and simply no longer names the worker.
+        using var dir = new TempDir();
+        var sessions = new UncoveringSessionControl(dir.Path, DrainTestRig.Block());
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "mgr", "Manager",
+            DrainTestRig.Block(covered: new[] { ("w", "nothing of its own") }));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+        Assert.DoesNotContain("w", sessions.Flagged);
+        Assert.Contains("w", sessions.Live);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("no longer names it"));
+    }
+
+    [Fact]
+    public async Task Drain_ACoveredSeatIsNotClosedWhenTheCOVERINGBlockStopsBeingADeclaration()
+    {
+        // And the third shape: the claim is still there, in a block that no longer amounts to a
+        // declaration. A close-time check that is easier to pass than the check the claim passed when it
+        // was made is not a check.
+        using var dir = new TempDir();
+        // The claim survives; the state line does not.
+        var sessions = new UncoveringSessionControl(dir.Path, string.Join(
+            Environment.NewLine, "<!-- drain-report", "covered: w | nothing of its own", "-->"));
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "mgr", "Manager",
+            DrainTestRig.Block(covered: new[] { ("w", "nothing of its own") }));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+        Assert.DoesNotContain("w", sessions.Flagged);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("no longer amounts to a declaration"));
     }
 
     [Fact]
