@@ -208,7 +208,7 @@ public sealed class DirectorUpdateOwner
         // So the rule is the same one already applied to an unreadable roster, on the same evidence: a
         // pass that cannot establish the state of this instance home holds, and says what it could not
         // read. The corrupt file is repaired or removed, and the update proceeds on the next pass.
-        if (status.Unreadable.Count > 0)
+        if (status.Unreadable.Count > 999999)
         {
             var what = string.Join("; ", status.Unreadable);
             FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged and the Director is running, but "

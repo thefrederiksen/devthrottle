@@ -1,0 +1,2041 @@
+diff --git a/scripts/mutation/issue-2730-mutations.json b/scripts/mutation/issue-2730-mutations.json
+new file mode 100644
+index 000000000..27a6bd452
+--- /dev/null
++++ b/scripts/mutation/issue-2730-mutations.json
+@@ -0,0 +1,115 @@
++{
++  "repo": ".",
++  "project": "src/CcDirector.Launcher.Tests/CcDirector.Launcher.Tests.csproj",
++  "filter": "FullyQualifiedName~UnreadableRegistrationIsNotAnEmptyInstance|FullyQualifiedName~ARosterThatDidNotAnswer",
++  "mutants": [
++    {
++      "name": "2730-a: nothing-left never becomes Unknown (the pre-fix answer)",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "            if (unreadable.Count > 0)",
++      "replace": "            if (unreadable.Count > 999999)"
++    },
++    {
++      "name": "2730-b: an unparseable registration is silently skipped again",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    yield return (file, home, null, failure);\n                    continue;",
++      "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    continue;"
++    },
++    {
++      "name": "2730-c: a registration that names no Director is silently skipped again",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    yield return (file, home, null, incomplete);\n                    continue;",
++      "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    continue;"
++    },
++    {
++      "name": "2730-f: IsRunning reports an unreadable claim as free",
++      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
++      "find": "    public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;",
++      "replace": "    public bool IsRunning => _locator.Resolve().Outcome == DirectorResolution.Running;"
++    },
++    {
++      "name": "2730-g: the corrupt-beside-live case drops the corruption from the answer",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "            return ResolveSingleClaimant(live[0], described) with { Unreadable = unreadable };",
++      "replace": "            return ResolveSingleClaimant(live[0], described);"
++    },
++    {
++      "name": "CONTROL-1: a mutant that cannot COMPILE must report BROKEN, never SURVIVED",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "            if (unreadable.Count > 0)",
++      "replace": "            if (false)",
++      "expect": "BROKEN",
++      "why": "A control. It proves one of this harness's gates FIRES rather than asserting that it would - a zero is only evidence once the instrument has been seen to produce a non-zero."
++    },
++    {
++      "name": "CONTROL-2: an absent anchor must report BROKEN (proves the anchor check only)",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "this string is deliberately not in the file",
++      "replace": "nor is this",
++      "expect": "BROKEN",
++      "why": "A control for the ANCHOR check, and it is labelled as such because it exits before the build - so it does NOT prove the tests-actually-ran gate. CONTROL-3 does that."
++    },
++    {
++      "name": "2730-i: an unreadable DIRECTORY is silently skipped again",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "                FileLog.Write($\"[DirectorInstanceLocator] {listingFailure}\");\n                yield return (dir, home, null, listingFailure);\n                continue;",
++      "replace": "                FileLog.Write($\"[DirectorInstanceLocator] {listingFailure}\");\n                continue;"
++    },
++    {
++      "name": "2730-j: an uninspectable live pid is erased as if dead",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "                FileLog.Write($\"[DirectorInstanceLocator] {uninspectable}\");\n                unreadable.Add(uninspectable);\n                continue;",
++      "replace": "                FileLog.Write($\"[DirectorInstanceLocator] {uninspectable}\");\n                continue;"
++    },
++    {
++      "name": "2730-k: a registration with no start time is accepted as complete",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)",
++      "replace": "                    )"
++    },
++    {
++      "name": "2730-l: the guard fires only for EXACTLY ONE unreadable claim (the fixture blind spot)",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "            if (unreadable.Count > 0)",
++      "replace": "            if (unreadable.Count == 1)"
++    },
++    {
++      "name": "2730-m: ReadStatus drops the unreadable evidence before the update decision",
++      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
++      "find": "        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict,\n            lookup.Unreadable);",
++      "replace": "        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict);"
++    },
++    {
++      "name": "2730-n: Start REFUSES on an unreadable claim again (strands a working Director)",
++      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
++      "find": "            // Deliberately falls through to the start below.",
++      "replace": "            return;"
++    },
++    {
++      "name": "CONTROL-3: a no-op mutant must report SURVIVED, proving a real run is read",
++      "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
++      "find": "public enum DirectorResolution",
++      "replace": "public enum DirectorResolution",
++      "expect": "SURVIVED",
++      "why": "The other end of gate two. CONTROL-1 and CONTROL-2 prove the harness reports BROKEN when it cannot get a result; this proves it reports SURVIVED from a run that really happened, rather than only ever being able to say BROKEN or KILLED."
++    },
++    {
++      "name": "2730-e: Start's general guard narrowed to Running only",
++      "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
++      "find": "        else if (lookup.Outcome != DirectorResolution.NotRunning)",
++      "replace": "        else if (lookup.Outcome == DirectorResolution.Running)"
++    },
++    {
++      "name": "2730-o: a roster that carries no session list is accepted again (positive zero)",
++      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
++      "find": "                if (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement))",
++      "replace": "                if (false && (document.RootElement.ValueKind != JsonValueKind.Object\n                    || !CarriesASessionList(document.RootElement)))"
++    },
++    {
++      "name": "2730-p: an EXPLICIT empty session list is refused too (the over-correction)",
++      "file": "src/CcDirector.Core/Sessions/DirectorCrashJournal.cs",
++      "find": "                return property.Value.ValueKind == JsonValueKind.Array;",
++      "replace": "                return property.Value.ValueKind == JsonValueKind.Array\n                       && property.Value.GetArrayLength() > 0;"
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/scripts/mutation/launcher-update-mutations.py b/scripts/mutation/launcher-update-mutations.py
+deleted file mode 100644
+index bd7b453de..000000000
+--- a/scripts/mutation/launcher-update-mutations.py
++++ /dev/null
+@@ -1,219 +0,0 @@
+-"""
+-THE MUTATION PROOF FOR ISSUE #2719 PHASE 0, WITH A COMPILE GATE.
+-
+-Run it from the repository root:  python scripts/mutation/launcher-update-mutations.py
+-
+-WHY THE COMPILE GATE EXISTS, AND WHY IT IS THE POINT OF THIS FILE.
+-
+-The first harness used for this branch decided "survived" from the ABSENCE of failure lines in the
+-test output. A mutant that does not COMPILE produces no failing test - which is indistinguishable
+-from a mutant no test caught. It duly reported a SURVIVOR on a mutation that had never run at all,
+-and the mutation in question was `if (p.Pid <= 0)` changed to `if (false)`, which the compiler
+-rejects as unreachable code.
+-
+-That is the same defect this mission hit at two other altitudes on the same day: could-not-read
+-reported as nothing-is-there, and did-not-run reported as came-back-clean. A pass condition that is
+-an ABSENCE is satisfied by a broken instrument.
+-
+-So a mutant counts here only if the product project BUILDS, and there are THREE outcomes, never two:
+-
+-    KILLED   - it built, and at least one test failed
+-    SURVIVED - it built, every test passed. A REAL DEFECT IN THE TESTS.
+-    BROKEN   - it did not build, or no test summary line was observed. Neither killed nor survived;
+-               the mutation must be rewritten before it means anything.
+-
+-The gate has been run against a known-bad input rather than trusted: with the non-compiling mutant
+-above, this harness reports BROKEN and the old absence-based reading reports SURVIVED, on the same
+-mutant, in the same run.
+-
+-Every claim of the form "each new test dies to the defect it names" on pull request #2728 was
+-produced by this file. Re-run it before trusting that claim again - and if you add a test to this
+-area, add the mutation that should kill it, so the two lists stay reconciled in both directions.
+-"""
+-
+-"""
+-Mutation harness with a COMPILE GATE.
+-
+-The previous harness decided "survived" from the ABSENCE of failure lines in the test output.
+-A mutant that does not COMPILE produces no failing test, which is indistinguishable from a mutant
+-no test caught - so it reported a survivor on a mutation that had never run at all.
+-
+-Here a mutant counts only if the product project BUILDS. Three outcomes, never two:
+-    KILLED  - it built, and at least one test failed
+-    SURVIVED- it built, and every test passed          <- a real defect in the tests
+-    BROKEN  - it did not build; neither killed nor survived, and the mutation must be rewritten
+-"""
+-import io, subprocess, os, sys, json
+-
+-REPO = r"D:\ReposFred\devthrottle-launcher-update"
+-ENGINE_SRC = r"tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj"
+-ENGINE_TESTS = r"tools\cc-director-setup-engine.Tests\CcDirector.Setup.Engine.Tests.csproj"
+-LAUNCHER_SRC = r"src\CcDirector.Launcher\CcDirector.Launcher.csproj"
+-LAUNCHER_TESTS = r"src\CcDirector.Launcher.Tests\CcDirector.Launcher.Tests.csproj"
+-
+-OWNER = r"tools\cc-director-setup-engine\LauncherUpdateOwner.cs"
+-WITNESS = r"tools\cc-director-setup-engine\LauncherWitness.cs"
+-PROCS = r"tools\cc-director-setup-engine\InstalledLauncherProcesses.cs"
+-STOP = r"tools\cc-director-setup-engine\SingleProcessStop.cs"
+-LOCK = r"tools\cc-director-setup-engine\BinarySwapLock.cs"
+-DIRUPD = r"src\CcDirector.Launcher\DirectorUpdateOwner.cs"
+-
+-E = (ENGINE_SRC, ENGINE_TESTS)
+-L = (LAUNCHER_SRC, LAUNCHER_TESTS)
+-
+-# (label, (src_proj, test_proj), file, find, replace, expected_test_substring)
+-MUTATIONS = [
+- ("the shortcut accepts a merely-alive launcher", E, OWNER,
+-  "var witnessedTheInstalledLauncher =\n            reading.Witnessed && ours.Count == 1 && ours[0].Pid == reading.Pid;",
+-  "var witnessedTheInstalledLauncher =\n            reading.ProcessAlive;",
+-  "AlreadyTheStagedVersionButCANNOTBeCommanded"),
+-
+- ("the shortcut ignores WHICH process was witnessed", E, OWNER,
+-  "reading.Witnessed && ours.Count == 1 && ours[0].Pid == reading.Pid;",
+-  "reading.Witnessed;",
+-  "AWITNESSEDLauncherThatIsNotTheINSTALLEDOne"),
+-
+- ("the shortcut never fires at all", E, OWNER,
+-  "if (witnessedTheInstalledLauncher && VersionsMatch(staged.Version, reading.Version))",
+-  "if (!witnessedTheInstalledLauncher && VersionsMatch(staged.Version, reading.Version))",
+-  "AND_COMMANDABLE_InstallsNothing"),
+-
+- ("a not-observable platform is no longer refused", E, OWNER,
+-  "if (reading.CommandSurface == LauncherCommandSurface.NotObservable)",
+-  "if (reading.CommandSurface == LauncherCommandSurface.Absent)",
+-  "WhereTheCommandSurfaceCannotBeObserved"),
+-
+- ("the swap takes a lock nobody else takes", E, OWNER,
+-  'who: "launcher-update",\n            name: SwapLockName);',
+-  'who: "launcher-update",\n            name: SwapLockName + "-unshared");',
+-  "WhileAnotherBinarySwapHoldsTheMachineWideLock"),
+-
+- ("the orphaned Director is a plain success again", E, OWNER,
+-  "SelfUpdateOutcome.Updated when !stillOurs => LauncherUpdateDecision.AppliedButThisDirectorLostItsInstance,\n            SelfUpdateOutcome.Updated => LauncherUpdateDecision.Applied,",
+-  "SelfUpdateOutcome.Updated => LauncherUpdateDecision.Applied,",
+-  "ThatIsItsOwnDecision"),
+-
+- ("the after-the-swap reading is not reported", E, OWNER,
+-  'steps.Add($"after the swap: {_witness.Read().Detail}");',
+-  'steps.Add("after the swap: done");',
+-  "AfterARollback"),
+-
+- ("the started launcher is not told which root to serve", E, OWNER,
+-  'psi.Environment["CC_DIRECTOR_ROOT"] = layout.LocalRoot;',
+-  'psi.Environment.Remove("CC_DIRECTOR_ROOT");',
+-  "IsTOLDWhichRootToServe"),
+-
+- ("the unreadable sentinel is handed to the stop again", E, OWNER,
+-  "if (p.Pid <= 0)",
+-  "if (p.Pid < 0)",
+-  "IsNeverHandedToTheStop"),
+-
+- ("an unreadable list is reported as an empty one", E, OWNER,
+-  'return [new LauncherProcess(0, "the process list is unreadable")];',
+-  "return [];",
+-  "IsNotAnEmptyOne"),
+-
+- ("the witness accepts a not-observable surface", E, WITNESS,
+-  "public bool Witnessed => Registered && ProcessAlive && CommandSurface == LauncherCommandSurface.Present;",
+-  "public bool Witnessed => Registered && ProcessAlive && CommandSurface != LauncherCommandSurface.Absent;",
+-  "ThatIsNOTAWITNESS"),
+-
+- ("an unreadable process is dropped instead of refused", E, PROCS,
+-  "if (unreadable.Count > 0)\n            throw new InvalidOperationException(",
+-  "if (unreadable.Count > 99)\n            throw new InvalidOperationException(",
+-  "MakesTheMachineUNDECIDABLE"),
+-
+- ("a null main module is fail-open again", E, PROCS,
+-  "if (hasExited == true) return UnreadableVerdict.CannotBeOurs;",
+-  "if (hasExited != true) return UnreadableVerdict.CannotBeOurs;",
+-  "IsUndecidableOnlyWhenItCouldBeOurs"),
+-
+- ("an unreadable session is assumed not ours", E, PROCS,
+-  "if (sessionId is null) return UnreadableVerdict.CouldBeOurs;",
+-  "if (sessionId is null) return UnreadableVerdict.CannotBeOurs;",
+-  "IsUndecidableOnlyWhenItCouldBeOurs"),
+-
+- ("every unreadable process is undecidable regardless of session", E, PROCS,
+-  "return sessionId == ourSession ? UnreadableVerdict.CouldBeOurs : UnreadableVerdict.CannotBeOurs;",
+-  "return UnreadableVerdict.CouldBeOurs;",
+-  "IsUndecidableOnlyWhenItCouldBeOurs"),
+-
+- ("the single kill becomes a tree kill", E, STOP,
+-  "process.Kill(entireProcessTree: false);",
+-  "process.Kill(entireProcessTree: true);",
+-  "KillsOneProcess_NeverATree"),
+-
+- ("a kill is put back into the swap's own file", E, OWNER,
+-  "    private List<LauncherProcess> OursNow()",
+-  "    private static bool StopHard(System.Diagnostics.Process p) { p.Kill(entireProcessTree: true); return true; }\n\n    private List<LauncherProcess> OursNow()",
+-  "ExpressesNoProcessKillAtAll"),
+-
+- ("the two owners take different locks", L, DIRUPD,
+-  "internal string SwapLockName { get; init; } = BinarySwapLock.Name;",
+-  'internal string SwapLockName { get; init; } = @"Global\\a-different-lock";',
+-  "TheTwoOwnersDefaultToTheSameMachineWideLock"),
+-
+- ("the lock stops being machine-wide", L, LOCK,
+-  'public const string Name = @"Global\\cc-director-binary-swap";',
+-  'public const string Name = @"Local\\cc-director-binary-swap";',
+-  "TheLockIsMachineWide"),
+-]
+-
+-def run(cmd, timeout=1200):
+-    return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+-
+-results = []
+-for label, (src_proj, test_proj), relpath, find, replace, expect in MUTATIONS:
+-    path = os.path.join(REPO, relpath)
+-    original = io.open(path, encoding="utf-8").read()
+-
+-    if find not in original:
+-        results.append((label, "ANCHOR-MISSING", "", ""))
+-        print(f"[ANCHOR-MISSING] {label}"); sys.stdout.flush(); continue
+-
+-    io.open(path, "w", encoding="utf-8", newline="").write(original.replace(find, replace, 1))
+-    try:
+-        # ---- THE COMPILE GATE. A mutant that does not build is a broken instrument. ----
+-        build = run(["dotnet", "build", src_proj, "--nologo", "-v", "q"])
+-        if build.returncode != 0:
+-            err = [l for l in (build.stdout + build.stderr).splitlines() if "error CS" in l]
+-            results.append((label, "BROKEN", "did not compile", err[0][:150] if err else ""))
+-            print(f"[BROKEN - DID NOT COMPILE] {label}\n    {err[0][:150] if err else ''}")
+-            sys.stdout.flush(); continue
+-
+-        test = run(["dotnet", "test", test_proj, "--nologo", "-v", "q"])
+-        text = test.stdout + test.stderr
+-        # If the TEST project itself failed to build, that is also a broken instrument.
+-        if "error CS" in text:
+-            err = [l for l in text.splitlines() if "error CS" in l]
+-            results.append((label, "BROKEN", "test project did not compile", err[0][:150]))
+-            print(f"[BROKEN - TEST PROJECT DID NOT COMPILE] {label}\n    {err[0][:150]}")
+-            sys.stdout.flush(); continue
+-
+-        failed = sorted({ln.split("[FAIL]")[0].strip().split(".")[-1] for ln in text.splitlines() if "[FAIL]" in ln})
+-        # A positive presence check: a summary line must exist, or we did not observe a run.
+-        ran = "Passed!" in text or "Failed!" in text
+-        if not ran:
+-            results.append((label, "BROKEN", "no test summary line - the run was not observed", ""))
+-            print(f"[BROKEN - NO RUN OBSERVED] {label}"); sys.stdout.flush(); continue
+-
+-        if failed:
+-            hit = any(expect in f for f in failed)
+-            results.append((label, "KILLED" if hit else "KILLED-BY-OTHER", "; ".join(failed)[:200], expect))
+-            print(f"[{'KILLED' if hit else 'KILLED BUT NOT BY THE EXPECTED TEST'}] {label}\n    {failed}")
+-        else:
+-            results.append((label, "SURVIVED", "", expect))
+-            print(f"[*** SURVIVED ***] {label}  (expected {expect} to die)")
+-        sys.stdout.flush()
+-    finally:
+-        io.open(path, "w", encoding="utf-8", newline="").write(original)
+-
+-print("\n================ SUMMARY ================")
+-for label, verdict, detail, expect in results:
+-    print(f"{verdict:<22} {label}")
+-counts = {}
+-for _, v, _, _ in results:
+-    counts[v] = counts.get(v, 0) + 1
+-print("\ncounts:", json.dumps(counts, indent=None))
+-io.open(os.path.join(r"C:\Users\soren\AppData\Local\Temp\claude\D--ReposFred-devthrottle\b24f87d3-e91b-434f-bf16-d00e58b25903\scratchpad", "mutation-results.json"), "w", encoding="utf-8").write(
+-    json.dumps([{"label": a, "verdict": b, "detail": c, "expected": d} for a, b, c, d in results], indent=2))
+diff --git a/scripts/mutation/mutate.py b/scripts/mutation/mutate.py
+new file mode 100644
+index 000000000..78d7686f9
+--- /dev/null
++++ b/scripts/mutation/mutate.py
+@@ -0,0 +1,197 @@
++"""THE FLEET'S MUTATION RUNNER. Reusable: point it at a spec.
++
++Mutation harness with a COMPILE GATE, and a GATE THAT ACTUALLY FAILS.
++
++A spec names the repository (relative to the repository root), the test project, the test filter,
++and a list of mutants - so this runner is not pinned to one branch, one worktree or one mission.
++
++Usage: python scripts/mutation/mutate.py <spec.json>
++
++--------------------------------------------------------------------------------------------------
++WHY THE COMPILE GATE EXISTS
++
++A mutant that does not build produces no failing test line, which looks identical to a mutant no
++test caught. A harness that decided "survived" from the ABSENCE of failure lines duly reported a
++survivor on a mutation that had never run at all. That is the same defect at three altitudes on one
++day: could-not-read reported as nothing-is-there, did-not-run reported as came-back-clean, and
++did-not-compile reported as survived.
++
++So a mutant counts only once the build has exited 0 AND the test run has produced a count line it
++can be read from. Three outcomes, never two:
++
++    KILLED   - it built, tests ran, at least one failed
++    SURVIVED - it built, tests ran, none failed
++    BROKEN   - it did not build, or the run produced no readable result. NEITHER of the other two,
++               and never silently one of them. An instrument fault, not a verdict.
++
++--------------------------------------------------------------------------------------------------
++THREE THINGS THIS GETS RIGHT THAT AN EARLIER VERSION OF IT DID NOT
++
++All three were found by an independent review of the harness this one replaced, and all three were
++present here too - which is the point worth keeping: a harness that checks other people's evidence
++is itself unchecked by anything, so it has to be reviewed like the code it judges.
++
++1. THE TEST PROCESS'S EXIT CODE IS READ. It was not. The verdict came entirely from a regular
++   expression over standard output, so a run that exited NONZERO for a reason the count line does
++   not describe - a crashed test host, a failing non-C# build step, one target of a multi-target
++   project blowing up - was still recorded as a verdict. A nonzero exit that no counted failure
++   explains is now BROKEN.
++
++2. EVERY COUNT LINE IS AGGREGATED, NOT THE FIRST. This repository's test projects are MULTI-TARGET:
++   one `dotnet test` prints one summary per target framework. Reading the first match meant reading
++   one target's line and ignoring the other, so a mutant killed only on the second target would have
++   been recorded as SURVIVED. Not hypothetical - the launcher tests are exactly that shape.
++
++3. A BAD RUN FAILS THE PROCESS. It did not: the table was printed and the script fell off the end,
++   so a run that was entirely SURVIVED and BROKEN exited 0. A gate whose failure states do not fail
++   is a report, not a gate, and any caller reading the process status got success for an invalid run.
++
++--------------------------------------------------------------------------------------------------
++EXPECTED OUTCOMES, AND WHY THE GATE IS NOT SIMPLY "ALL KILLED"
++
++A mutant may declare `"expect": "SURVIVED"` or `"expect": "BROKEN"`; the default is `"KILLED"`. The
++run fails when an outcome differs from what the spec expected.
++
++That is not a loophole, it is the same three-state discipline applied to the harness's own verdict.
++A survivor somebody has understood and written down - a deliberately redundant guard whose real
++guard is killed by its own mutant - is a RESULT. A survivor nobody knew about is a DEFECT IN THE
++TESTS. Failing on both, or on neither, folds those two together, which is the exact mistake this
++file exists to stop making. Deliberate BROKEN entries are how a spec proves its own gates fire: a
++mutant that cannot compile, and one whose anchor text is absent, must both come back BROKEN rather
++than being read as either verdict.
++"""
++import json
++import re
++import subprocess
++import sys
++from pathlib import Path
++
++spec = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
++repo = (Path(sys.argv[1]).parent.parent.parent / spec["repo"]).resolve()
++project = spec["project"]
++test_filter = spec["filter"]
++
++# One backup per file touched, taken before anything is mutated and restored after every mutant.
++files = sorted({m["file"] for m in spec["mutants"]})
++backups = {f: (repo / f).read_bytes() for f in files}
++
++
++def restore():
++    # BYTE-FOR-BYTE, NOT LINE-FOR-LINE. read_text/write_text round-trip through universal newlines, so
++    # on a CRLF checkout a "restored" file came back with LF endings: the sweep printed PASS and left
++    # every mutated production file showing as modified in git. A proof tool that dirties the worktree it
++    # is proving is one bad `git commit -a` away from committing a whole-file line-ending change nobody
++    # intended - and it also makes its own PASS harder to believe, because the tree afterwards is not the
++    # tree it tested.
++    for f, data in backups.items():
++        (repo / f).write_bytes(data)
++
++
++def run(args, timeout):
++    # NO SHELL. It used to pass shell=True with an argument LIST, which on Windows joins the list into
++    # one command line and lets the shell reinterpret it - so a test filter containing "|", the ordinary
++    # way to name two test classes, was read as a pipe and the whole invocation collapsed. Every mutant
++    # in that run came back exit 255 with no output.
++    #
++    # WORTH RECORDING: the gate caught it. All seventeen reported BROKEN - "no test-count line" - rather
++    # than SURVIVED, so a harness fault produced a refusal to answer instead of seventeen clean bills of
++    # health. That is the third instrument fault this gate has caught in this file, and the reason the
++    # BROKEN state exists at all.
++    return subprocess.run(args, cwd=repo, capture_output=True, text=True, timeout=timeout)
++
++
++COUNT = re.compile(r"Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)")
++
++CRLF = b"\r\n"
++
++
++def read_run(result):
++    """(outcome, detail) for one test invocation. Never guesses from an absence."""
++    counts = COUNT.findall(result.stdout)
++    if not counts:
++        # No readable result at all. Whether it exited 0 or not, there is nothing to read a verdict
++        # from - and an exit code alone cannot tell "every test passed" from "nothing ran".
++        return "BROKEN", f"no test-count line (exit {result.returncode}) - the run produced no result"
++
++    failed = sum(int(c[0]) for c in counts)
++    passed = sum(int(c[1]) for c in counts)
++    total = sum(int(c[3]) for c in counts)
++    summaries = len(counts)
++
++    if failed > 0:
++        return "KILLED", f"{failed} failed of {total} ({passed} passed, {summaries} target summary/ies)"
++
++    # Zero counted failures. Believe that ONLY if the process agreed - a nonzero exit with nothing
++    # failing is something the count line does not describe, and reading it as SURVIVED is exactly
++    # the absence-shaped mistake.
++    if result.returncode != 0:
++        return "BROKEN", (f"exit {result.returncode} with no counted failure across {summaries} "
++                          f"summary/ies - something failed that the count line does not describe")
++
++    return "SURVIVED", f"0 failed of {total} ({summaries} target summary/ies)"
++
++
++def sweep():
++    """Every mutant, in order. Wrapped by the caller so a fault cannot leave source mutated."""
++    results = []
++    for mutant in spec["mutants"]:
++        expected = mutant.get("expect", "KILLED")
++        restore()
++        path = repo / mutant["file"]
++        # MATCH ON NORMALISED TEXT, WRITE BACK IN THE FILE'S OWN ENDINGS. Anchors in a spec are written
++        # with plain newlines, and these files are checked out CRLF - so matching has to normalise, and
++        # writing has to un-normalise, or the runner either finds nothing or rewrites every line.
++        # Reading bytes and matching them raw made every anchor miss and reported seven BROKEN.
++        raw = path.read_bytes()
++        crlf = CRLF in raw
++        text = raw.decode("utf-8").replace("\r\n", "\n")
++        if mutant["find"] not in text:
++            results.append((mutant["name"], "BROKEN", expected, "the text to mutate was not found in the file"))
++            continue
++        mutated = text.replace(mutant["find"], mutant["replace"], 1)
++        if crlf:
++            mutated = mutated.replace("\n", "\r\n")
++        path.write_bytes(mutated.encode("utf-8"))
++
++        # GATE ONE: it must build. A non-building mutant is an instrument fault, not a survivor.
++        build = run(["dotnet", "build", project, "-v", "q", "--nologo"], timeout=900)
++        if build.returncode != 0:
++            first = next((l.strip() for l in build.stdout.splitlines() if "error" in l.lower()), "")
++            results.append((mutant["name"], "BROKEN", expected, f"did not compile: {first[:150]}"))
++            continue
++
++        # GATE TWO: the run must produce a readable result AND agree with its own exit code.
++        outcome, detail = read_run(run(["dotnet", "test", project, "--no-build", "--filter", test_filter, "--nologo"],
++                                       timeout=900))
++        results.append((mutant["name"], outcome, expected, detail))
++
++    return results
++
++# RESTORATION IS IN A finally, AND THAT IS NOT TIDINESS. Both reviews caught it: a timeout, a Ctrl+C
++# or any unexpected fault after a mutation was applied left the PRODUCT SOURCE MUTATED on disk. The next
++# person to build would be building a deliberately broken tree, with nothing saying so - and a mutation
++# harness is exactly the tool somebody runs and walks away from.
++try:
++    results = sweep()
++finally:
++    restore()
++
++print("")
++print(f"{'MUTANT':<58} {'OUTCOME':<10} {'EXPECTED':<10} DETAIL")
++print("-" * 120)
++unexpected = 0
++for name, outcome, expected, detail in results:
++    flag = "" if outcome == expected else "   <-- NOT WHAT THE SPEC EXPECTED"
++    if outcome != expected:
++        unexpected += 1
++    print(f"{name:<58} {outcome:<10} {expected:<10} {detail}{flag}")
++print("-" * 120)
++for outcome in ("KILLED", "SURVIVED", "BROKEN"):
++    print(f"{outcome}: {sum(1 for _, o, _, _ in results if o == outcome)}")
++
++# THE GATE. A bad run fails the process, so a caller reading the exit status learns what the table
++# says rather than "it ran".
++if unexpected:
++    print(f"\nFAIL: {unexpected} mutant(s) did not match the outcome the spec expected.")
++    sys.exit(1)
++print("\nPASS: every mutant matched the outcome the spec expected.")
+diff --git a/src/CcDirector.Core/Instances/DirectorInstanceLocator.cs b/src/CcDirector.Core/Instances/DirectorInstanceLocator.cs
+index 6e3dc687a..b28f6a8ef 100644
+--- a/src/CcDirector.Core/Instances/DirectorInstanceLocator.cs
++++ b/src/CcDirector.Core/Instances/DirectorInstanceLocator.cs
+@@ -11,9 +11,13 @@ public enum DirectorResolution
+     /// <summary>Exactly one live Director owns the supervised instance. It is named in the lookup.</summary>
+     Running,
+ 
+-    /// <summary>No live Director owns the supervised instance.</summary>
++    /// <summary>
++    /// No live Director owns the supervised instance, AND everything that claimed it was read and ruled
++    /// out. It is a positive finding, not the absence of one - see <see cref="Unknown"/>.
++    /// </summary>
+     NotRunning,
+ 
++
+     /// <summary>
+     /// More than one live process claims the supervised instance. NOTHING may be done to any of them:
+     /// see the class comment on <see cref="DirectorInstanceLocator"/>.
+@@ -31,6 +35,38 @@ public enum DirectorResolution
+     /// send the next person looking for a second process that does not exist.
+     /// </summary>
+     NotSupervised,
++
++    /// <summary>
++    /// Something claims the supervised instance and it could not be READ or CERTIFIED, so whether a
++    /// Director is running here is unknown. Nothing survived to be named, but nothing was ruled out
++    /// either.
++    ///
++    /// WHY THIS IS NOT <see cref="NotRunning"/>, WHICH IS THE DEFECT IT REMOVES (issue #2730). A
++    /// registration that will not parse, and a live process that will not say when it started, were both
++    /// SKIPPED - and skipping is right, because neither can be certified and an uncertified process must
++    /// never be stopped or updated over. What was wrong is where the skips landed: with nothing left,
++    /// the answer came back <see cref="NotRunning"/>, so "I could not read what is there" and "nothing is
++    /// there" were the same answer.
++    ///
++    /// That is safe for a caller asking MAY I STOP THIS - declining is the careful direction - and it is
++    /// a fail-open for every caller asking IS THIS EMPTY, because there the same answer means PERMIT.
++    /// <c>DirectorSupervisor.Start</c> reads it as permission to start a Director, so ONE corrupt
++    /// registration file was enough to start a second Director on an instance home that already had a
++    /// live one. Two Directors sharing one home is the shape of the failure that corrupted a database and
++    /// took the hosted service down for thirty-two minutes on 30 July 2026.
++    ///
++    /// THE DISTINCTION ALREADY EXISTED ONE METHOD DOWN. <see cref="DirectorInstanceLocator.ReadSessionCount"/>
++    /// returns null rather than a number when the roster cannot be read, and says why in its own words:
++    /// the absence of that file beside a live Director is not zero sessions, it is no answer. The
++    /// resolution path simply never got the same treatment.
++    ///
++    /// EVERY CALLER CHOOSES WHAT TO DO WITH IT, and they do not all choose the same thing: decline on it
++    /// when deciding whether to STOP something, refuse on it when deciding whether something is EMPTY,
++    /// and treat it as occupied when deciding whether to START something.
++    /// <see cref="DirectorLookup.Unreadable"/> carries what was skipped and why, so a refusal can show
++    /// its evidence rather than assert a cause.
++    /// </summary>
++    Unknown,
+ }
+ 
+ /// <summary>
+@@ -79,9 +115,38 @@ public sealed record SupervisedDirector(
+ /// mission that was looking at something else. Callers must carry it somewhere a person will meet it, not
+ /// only into a log file.
+ /// </param>
++/// <param name="Unreadable">
++/// Everything that claimed this instance and could not be read or certified, each with the reason it was
++/// skipped. Empty on a clean answer.
++///
++/// IT TRAVELS ON EVERY LOOKUP, NOT ONLY ON <see cref="DirectorResolution.Unknown"/>. A registration that
++/// will not parse beside a Director that resolved perfectly is still a machine in a state that should not
++/// exist, and it is exactly the state that becomes an Unknown the moment the good registration goes. A
++/// caller carries it somewhere a person will meet it, in the same way <paramref name="Conflict"/> is
++/// carried through a resolved tie-break rather than being dropped because the answer came out fine.
++/// </param>
+ public sealed record DirectorLookup(
+     DirectorResolution Outcome, SupervisedDirector? Director, IReadOnlyList<string> Candidates,
+-    string? Conflict = null);
++    string? Conflict = null, IReadOnlyList<string>? Unreadable = null)
++{
++    private readonly IReadOnlyList<string> _unreadable = Unreadable ?? Array.Empty<string>();
++
++    /// <summary>
++    /// What could not be read or certified. Never null, so a caller need not guard it.
++    ///
++    /// THE SETTER COALESCES, AND AN AUTO-PROPERTY INITIALIZER WOULD NOT HAVE. Written as
++    /// <c>{ get; init; } = Unreadable ?? Array.Empty&lt;string&gt;();</c> the fallback runs only on the
++    /// primary constructor, so <c>with { Unreadable = null }</c> would put a null straight through and
++    /// the sentence above would be false at exactly the moment a caller relied on it. This was caught by
++    /// reading the claim against the code under it rather than by any test - which is the point of doing
++    /// that pass, because a promise written next to the code that breaks it reads as documentation.
++    /// </summary>
++    public IReadOnlyList<string> Unreadable
++    {
++        get => _unreadable;
++        init => _unreadable = value ?? Array.Empty<string>();
++    }
++}
+ 
+ /// <summary>
+ /// Answers "is THIS Director running, and which process is it" - the question the launcher has to get
+@@ -202,19 +267,43 @@ public sealed class DirectorInstanceLocator
+     }
+ 
+     /// <summary>
+-    /// Resolve the supervised Director. Never throws: an unreadable directory is reported as nothing
+-    /// running, because a launcher that throws while working out whether to stop something is worse
+-    /// than one that declines to.
++    /// Resolve the supervised Director. Never throws: a launcher that throws while working out whether to
++    /// stop something is worse than one that declines to.
++    ///
++    /// A SKIP IS RECORDED, NEVER SWALLOWED (issue #2730). Two things here cannot be certified and are
++    /// therefore not acted on: a registration that will not parse, and a live process that will not say
++    /// when it started. Declining to act on them is right. What was wrong is that they then vanished, so
++    /// with nothing left the answer was <see cref="DirectorResolution.NotRunning"/> - the same answer as
++    /// a genuinely empty instance home. They are now collected, and an answer built entirely out of skips
++    /// is <see cref="DirectorResolution.Unknown"/>, which no caller may read as permission.
+     /// </summary>
+     public DirectorLookup Resolve()
+     {
+         var live = new List<SupervisedDirector>();
+         var described = new List<string>();
++        var unreadable = new List<string>();
+ 
+-        foreach (var (file, home, dto) in ReadRegistrations())
++        foreach (var (file, home, dto, unreadableReason) in ReadRegistrations())
+         {
+-            var process = TryGetLiveProcess(dto.Pid);
+-            if (process is null) continue;
++            if (dto is null)
++            {
++                // Something IS in this directory and it could not be read. Recorded rather than dropped:
++                // see the class comment on DirectorResolution.Unknown.
++                unreadable.Add(unreadableReason ?? $"the registration {file} could not be read");
++                continue;
++            }
++
++            var (process, uninspectable) = TryGetLiveProcess(dto.Pid);
++            if (uninspectable is not null)
++            {
++                // NOT THE SAME AS A DEAD PROCESS. The operating system refused to tell us about this
++                // process id - it may be a live Director we are not allowed to look at. Erasing the
++                // claim here was the same fail-open, one method below the one it was written for.
++                FileLog.Write($"[DirectorInstanceLocator] {uninspectable}");
++                unreadable.Add(uninspectable);
++                continue;
++            }
++            if (process is null) continue;   // positively dead: no such process id
+ 
+             using (process)
+             {
+@@ -226,10 +315,15 @@ public sealed class DirectorInstanceLocator
+                 catch (Exception ex)
+                 {
+                     // A process that cannot be interrogated cannot be certified as the registration's
+-                    // author, and an uncertified process must not be stopped or updated over.
+-                    FileLog.Write($"[DirectorInstanceLocator] pid={dto.Pid} from {file} could not be asked when it "
+-                                  + $"started ({ex.Message}), so it cannot be certified as the Director that wrote "
+-                                  + "that registration. Ignoring it.");
++                    // author, and an uncertified process must not be stopped or updated over. It is ALIVE
++                    // though, which is why this is recorded as an unreadable claim rather than dropped:
++                    // a live process holding this instance home is the strongest possible reason not to
++                    // start a second Director in it.
++                    var reason = $"pid={dto.Pid} from {file} is alive and could not be asked when it started "
++                                 + $"({ex.Message}), so it cannot be certified as the Director that wrote that "
++                                 + "registration";
++                    FileLog.Write($"[DirectorInstanceLocator] {reason}. Not acted on, and NOT treated as absent.");
++                    unreadable.Add(reason);
+                     continue;
+                 }
+ 
+@@ -253,12 +347,26 @@ public sealed class DirectorInstanceLocator
+         }
+ 
+         if (live.Count == 0)
+-            return new DirectorLookup(DirectorResolution.NotRunning, null, described);
++        {
++            // NOTHING SURVIVED. Which of the two answers that is depends entirely on whether anything was
++            // skipped on the way here, and the whole of issue #2730 is that this used to be one answer.
++            if (unreadable.Count > 0)
++            {
++                var reason = $"whether a Director holds {_instanceHome} is UNKNOWN: nothing could be certified, "
++                             + $"and {unreadable.Count} claim(s) could not be read - {string.Join("; ", unreadable)}. "
++                             + "This is NOT an empty instance home. Do not start a Director here, and do not read "
++                             + "it as idle.";
++                FileLog.Write($"[DirectorInstanceLocator] {reason}");
++                return new DirectorLookup(DirectorResolution.Unknown, null, described, reason, unreadable);
++            }
++
++            return new DirectorLookup(DirectorResolution.NotRunning, null, described, null, unreadable);
++        }
+ 
+         if (live.Count == 1)
+-            return ResolveSingleClaimant(live[0], described);
++            return ResolveSingleClaimant(live[0], described) with { Unreadable = unreadable };
+ 
+-        return BreakTheTie(live, described);
++        return BreakTheTie(live, described) with { Unreadable = unreadable };
+     }
+ 
+     /// <summary>
+@@ -461,49 +569,136 @@ public sealed class DirectorInstanceLocator
+         return roster.Sessions.Count;
+     }
+ 
+-    private IEnumerable<(string File, string Home, Gateway.Contracts.DirectorDto Dto)> ReadRegistrations()
++    /// <summary>
++    /// Every registration file found, parsed where possible.
++    ///
++    /// A FILE THAT WOULD NOT PARSE IS YIELDED WITH A NULL DTO AND A REASON, never dropped (issue #2730).
++    /// It used to be skipped here, silently, and the caller then had no way to tell an empty directory
++    /// from a directory full of files it could not read - which is how a corrupt registration came to
++    /// authorize starting a second Director on a live instance home.
++    /// </summary>
++    private IEnumerable<(string File, string Home, Gateway.Contracts.DirectorDto? Dto, string? Unreadable)> ReadRegistrations()
+     {
+         foreach (var dir in RegistrationDirectories)
+         {
+-            string[] files;
++            // The storage home this registration belongs to: three levels up from
++            // <home>/config/director/instances. Carried per registration rather than assumed, because
++            // the crash journal that says how busy that Director is lives under ITS home, and the two
++            // layouts put it in different places. Resolved BEFORE the listing, because an unreadable
++            // directory has to be reported against its home too.
++            var home = Path.GetFullPath(Path.Combine(dir, "..", "..", ".."));
++
++            // ASKED BY TRYING, NOT BY Directory.Exists. That check answers FALSE for a directory that
++            // exists and cannot be reached, so "not there" and "not readable" came back as one answer -
++            // the very fold this change exists to remove, one layer above the one it was written for.
++            // GetFiles discriminates them positively: a directory that is genuinely absent throws
++            // DirectoryNotFoundException, and anything else means something IS there and could not be
++            // listed.
++            string[]? files = null;
++            string? listingFailure = null;
++            var absent = false;
+             try
+             {
+-                if (!Directory.Exists(dir)) continue;
+                 files = Directory.GetFiles(dir, "*.json");
+             }
++            catch (DirectoryNotFoundException)
++            {
++                // Genuinely absent, and that is ordinary: the pre-1.8 flat path does not exist on a
++                // modern install, and an instance home has no registrations directory until a Director
++                // has run there. Nothing is there, so nothing is claimed.
++                absent = true;
++            }
+             catch (Exception ex)
+             {
+-                FileLog.Write($"[DirectorInstanceLocator] cannot list {dir}: {ex.Message}");
+-                continue;
++                listingFailure = $"the registration directory {dir} exists and could not be listed: {ex.Message}";
+             }
+ 
+-            // The storage home this registration belongs to: three levels up from
+-            // <home>/config/director/instances. Carried per registration rather than assumed, because
+-            // the crash journal that says how busy that Director is lives under ITS home, and the two
+-            // layouts put it in different places.
+-            var home = Path.GetFullPath(Path.Combine(dir, "..", "..", ".."));
++            if (absent) continue;
+ 
+-            foreach (var file in files)
++            if (listingFailure is not null)
++            {
++                // It exists and could not be read. A directory of registrations we cannot see is the
++                // strongest possible reason NOT to conclude the instance home is empty. Yielded out here
++                // rather than from the catch, which the language forbids in an iterator.
++                FileLog.Write($"[DirectorInstanceLocator] {listingFailure}");
++                yield return (dir, home, null, listingFailure);
++                continue;
++            }
++
++            foreach (var file in files!)
+             {
+                 Gateway.Contracts.DirectorDto? dto = null;
++                string? failure = null;
+                 try
+                 {
+                     dto = JsonSerializer.Deserialize<Gateway.Contracts.DirectorDto>(File.ReadAllText(file), JsonOptions);
+                 }
+                 catch (Exception ex)
+                 {
+-                    FileLog.Write($"[DirectorInstanceLocator] cannot read the registration {file}: {ex.Message}");
++                    failure = $"the registration {file} could not be read: {ex.Message}";
++                }
++
++                if (failure is not null)
++                {
++                    FileLog.Write($"[DirectorInstanceLocator] {failure}");
++                    yield return (file, home, null, failure);
++                    continue;
++                }
++
++                // Parsed, and it does not name a Director. A file whose contents are valid JavaScript
++                // Object Notation and are not a registration is the SAME class of fault as one that
++                // would not parse at all - in both cases a file is sitting in this directory and this
++                // code cannot tell what process, if any, it stands for. Reading it as an empty directory
++                // is the failure being fixed, and it does not become safe because the parser succeeded.
++                // StartedAt IS PART OF BEING COMPLETE, and leaving it out of this check made the
++                // "never throws" contract on Resolve false: an unset stamp is DateTime.MinValue, and
++                // subtracting RegistrationLag from it throws ArgumentOutOfRangeException outside every
++                // catch in this file. It is also right on the merits - the stamp is the ONLY thing that
++                // tells this Director from a process that inherited its id, so a registration without
++                // one certifies nothing and belongs with the others that could not be read.
++                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)
++                    || dto.StartedAt == default || dto.StartedAt - RegistrationLag < DateTime.MinValue)
++                {
++                    var incomplete = $"the registration {file} parsed but names no usable Director "
++                                     + $"(directorId={(string.IsNullOrWhiteSpace(dto?.DirectorId) ? "missing" : dto!.DirectorId)}, "
++                                     + $"pid={dto?.Pid ?? 0}, "
++                                     + $"startedAt={(dto is null || dto.StartedAt == default ? "missing" : dto.StartedAt.ToString("o"))})";
++                    FileLog.Write($"[DirectorInstanceLocator] {incomplete}");
++                    yield return (file, home, null, incomplete);
++                    continue;
+                 }
+ 
+-                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)) continue;
+-                yield return (file, home, dto);
++                yield return (file, home, dto, null);
+             }
+         }
+     }
+ 
+     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+ 
+-    private static Process? TryGetLiveProcess(int pid)
++    /// <summary>
++    /// The live process for a registered process id.
++    ///
++    /// THREE ANSWERS, NEVER TWO (issue #2730). A null process with a null reason means the process id is
++    /// POSITIVELY DEAD - the operating system says no such process, which is a fact. A non-null reason
++    /// means the operating system REFUSED TO SAY, which is not a fact about the process and must never
++    /// be treated as one: it may be a live Director this launcher is not permitted to inspect. Collapsing
++    /// the second into the first is what let an inaccessible live Director read as an empty instance
++    /// home, one method below the defect this change was written for.
++    ///
++    /// THIS DISCIPLINE IS NOT NEW HERE - IT IS COPIED FROM ITS SIBLING, WHICH HAD IT ALL ALONG.
++    /// <c>DirectorRegistry.IsProcessDead</c> in the Gateway asks the identical question about the
++    /// identical thing, catches <see cref="ArgumentException"/> ALONE as proof of death, and returns
++    /// do-not-assume-dead for everything else - with the reason written on it: "A permission or other
++    /// unexpected error returns false (do not assume dead) so we never delete on uncertainty." One
++    /// assembly away, the same question was already being answered correctly; this one folded every
++    /// exception into the not-running answer, and that is what made the defect dangerous.
++    ///
++    /// The two now agree, and the citation is here so the next reader can check that rather than take it.
++    /// Worth remembering as a habit: in this repository the correct answer to a question is usually
++    /// already written somewhere and simply not reached, so the question to ask is not "what is missing"
++    /// but "where else does this repository already answer exactly this".
++    /// </summary>
++    private static (Process? Process, string? Uninspectable) TryGetLiveProcess(int pid)
+     {
+         try
+         {
+@@ -511,18 +706,18 @@ public sealed class DirectorInstanceLocator
+             if (process.HasExited)
+             {
+                 process.Dispose();
+-                return null;
++                return (null, null);      // it ran and is gone: a fact
+             }
+-            return process;
++            return (process, null);
+         }
+         catch (ArgumentException)
+         {
+-            return null; // no such process
++            return (null, null);          // no such process: also a fact
+         }
+         catch (Exception ex)
+         {
+-            FileLog.Write($"[DirectorInstanceLocator] cannot inspect pid={pid}: {ex.Message}");
+-            return null;
++            return (null, $"pid={pid} could not be inspected ({ex.Message}), so whether it is a live "
++                          + "Director is unknown - it is NOT being treated as absent");
+         }
+     }
+ }
+diff --git a/src/CcDirector.Core/Sessions/DirectorCrashJournal.cs b/src/CcDirector.Core/Sessions/DirectorCrashJournal.cs
+index c55a33fad..fc14c76bd 100644
+--- a/src/CcDirector.Core/Sessions/DirectorCrashJournal.cs
++++ b/src/CcDirector.Core/Sessions/DirectorCrashJournal.cs
+@@ -182,7 +182,38 @@ public sealed class DirectorCrashJournal
+         try
+         {
+             if (!File.Exists(path)) return null;
+-            return JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions);
++            var text = File.ReadAllText(path);
++
++            // THE SESSION LIST MUST BE POSITIVELY PRESENT IN THE DOCUMENT, and this check is the point of
++            // the method rather than defensive tidying.
++            //
++            // DirectorCrashJournalData.Sessions has an empty-list initializer, so deserializing a document
++            // that never mentioned sessions - "{}", a half-written file, or one written by a newer build
++            // that renamed the property - produces a NON-NULL roster whose Sessions.Count is ZERO. The
++            // caller then reads a confident "this Director holds no sessions" out of a document that said
++            // nothing at all, and a guard standing on that number permits a restart over a busy Director.
++            //
++            // That is the same fold this method's own summary warns about - "callers must treat null as
++            // unknown, never as no sessions" - defeated one layer BELOW it, at deserialization, where
++            // absent and explicitly-empty become the same in-memory value. The sentence was true and the
++            // layer beneath it made it false, which is why the check belongs here and not in the caller:
++            // no caller can tell the two apart once they have been folded.
++            //
++            // An EXPLICIT empty list is a real answer and still passes: "sessions": [] means the Director
++            // says it holds none.
++            using (var document = JsonDocument.Parse(text))
++            {
++                if (document.RootElement.ValueKind != JsonValueKind.Object
++                    || !CarriesASessionList(document.RootElement))
++                {
++                    FileLog.Write($"[DirectorCrashJournal] ReadLiveRoster: {path} carries no session list, so how "
++                                  + "busy this Director is is UNKNOWN. It is NOT being reported as zero sessions - "
++                                  + "a document that did not answer must never read as an answer of none.");
++                    return null;
++                }
++            }
++
++            return JsonSerializer.Deserialize<DirectorCrashJournalData>(text, JsonOptions);
+         }
+         catch (Exception ex)
+         {
+@@ -191,6 +222,19 @@ public sealed class DirectorCrashJournal
+         }
+     }
+ 
++    /// <summary>
++    /// Is a session list actually present in this document? Matched case-insensitively, because the
++    /// serializer that reads the document is case-insensitive too - a check stricter than the parser it
++    /// guards would refuse documents the product itself writes.
++    /// </summary>
++    private static bool CarriesASessionList(JsonElement root)
++    {
++        foreach (var property in root.EnumerateObject())
++            if (string.Equals(property.Name, "sessions", StringComparison.OrdinalIgnoreCase))
++                return property.Value.ValueKind == JsonValueKind.Array;
++        return false;
++    }
++
+     /// <summary>
+     /// Mark a clean shutdown by deleting the journal. A missing journal means "this Director
+     /// stopped gracefully; nothing to recover" - so only an abnormal death leaves a file.
+diff --git a/src/CcDirector.Launcher.Tests/ARosterThatDidNotAnswerIsNotZeroSessionsTests.cs b/src/CcDirector.Launcher.Tests/ARosterThatDidNotAnswerIsNotZeroSessionsTests.cs
+new file mode 100644
+index 000000000..86e9f6b19
+--- /dev/null
++++ b/src/CcDirector.Launcher.Tests/ARosterThatDidNotAnswerIsNotZeroSessionsTests.cs
+@@ -0,0 +1,169 @@
++using CcDirector.Core.Instances;
++using CcDirector.Core.Sessions;
++using Xunit;
++
++namespace CcDirector.Launcher.Tests;
++
++/// <summary>
++/// A live roster document that carries NO session list must read as "unknown", never as zero sessions.
++///
++/// FOUND BY AN INDEPENDENT REVIEWER ON ANOTHER PULL REQUEST, and routed here because the defect is in
++/// this file rather than in the consumer that tripped over it.
++///
++/// <c>DirectorCrashJournalData.Sessions</c> has an empty-list initializer, so a document that never
++/// mentioned sessions - <c>{}</c>, a half-written file, or one written by a newer build that renamed the
++/// property - deserializes to a NON-NULL roster whose count is ZERO. <c>ReadSessionCount</c> then returns
++/// a confident zero derived from a document that said nothing at all, and a guard standing on that number
++/// permits a restart over a busy Director.
++///
++/// IT IS THE SAME FOLD AS THE REST OF THIS BRANCH, ONE LAYER LOWER. <c>ReadSessionCount</c>'s own summary
++/// says the absence of a roster beside a live Director "is not zero sessions, it is no answer" - a true
++/// sentence, defeated at deserialization, where ABSENT and EXPLICITLY-EMPTY became one in-memory value.
++/// No caller can tell them apart once that has happened, which is why the check has to be where the
++/// document is read.
++///
++/// THE THREE ANSWERS, and each one is asserted below: the roster says a number; the roster says an
++/// explicit none; the roster did not answer.
++/// </summary>
++[Collection(StorageRootCollection.Name)]
++public sealed class ARosterThatDidNotAnswerIsNotZeroSessionsTests : IDisposable
++{
++    private readonly string _dir;
++
++    public ARosterThatDidNotAnswerIsNotZeroSessionsTests()
++    {
++        _dir = Path.Combine(Path.GetTempPath(), "cc-roster-" + Guid.NewGuid().ToString("N"));
++        Directory.CreateDirectory(_dir);
++    }
++
++    public void Dispose()
++    {
++        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
++    }
++
++    private const string Id = "aaaa1111-0000-0000-0000-000000000001";
++
++    private void WriteRoster(string json) => File.WriteAllText(Path.Combine(_dir, Id + ".json"), json);
++
++    /// <summary>THE KNOWN-BAD INPUT. An empty object is a readable document that answers nothing.</summary>
++    [Fact]
++    public void An_empty_object_is_no_answer_and_not_zero_sessions()
++    {
++        WriteRoster("{}");
++
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>A document naming the Director but no sessions is the same: it did not answer the
++    /// question that was asked, and the fields it does carry do not make it an answer.</summary>
++    [Fact]
++    public void A_document_with_every_field_except_the_session_list_is_still_no_answer()
++    {
++        WriteRoster($$"""{"directorId":"{{Id}}","pid":1234,"machineName":"SOREN_NORTH"}""");
++
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>A newer build that renamed the property is the realistic version of the same thing, and
++    /// it is the one a version check would never see coming.</summary>
++    [Fact]
++    public void A_document_whose_session_list_is_under_another_name_is_no_answer()
++    {
++        WriteRoster($$"""{"directorId":"{{Id}}","liveSessions":[{"sessionId":"s1"}]}""");
++
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>A session list of the wrong SHAPE is not a session list either.</summary>
++    [Fact]
++    public void A_session_property_that_is_not_a_list_is_no_answer()
++    {
++        WriteRoster($$"""{"directorId":"{{Id}}","sessions":"none"}""");
++
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>
++    /// THE CONTROL, and the test above means nothing without it. An EXPLICIT empty list is a real answer -
++    /// the Director says it holds none - and must still read as zero. Otherwise the fix would simply have
++    /// made every roster unknown, which passes every test above and stops any Director ever being
++    /// restarted.
++    /// </summary>
++    [Fact]
++    public void An_explicit_empty_session_list_IS_an_answer_of_zero()
++    {
++        WriteRoster($$"""{"directorId":"{{Id}}","sessions":[]}""");
++
++        var roster = DirectorCrashJournal.ReadLiveRoster(Id, _dir);
++
++        Assert.NotNull(roster);
++        Assert.Empty(roster!.Sessions);
++    }
++
++    /// <summary>And the ordinary case: a roster with sessions in it reads as that number.</summary>
++    [Fact]
++    public void A_roster_with_sessions_reads_as_that_many()
++    {
++        WriteRoster($$"""
++            {"directorId":"{{Id}}","sessions":[
++              {"sessionId":"s1","repoPath":"D:/repo","agent":"ClaudeCode"},
++              {"sessionId":"s2","repoPath":"D:/repo","agent":"ClaudeCode"}]}
++            """);
++
++        var roster = DirectorCrashJournal.ReadLiveRoster(Id, _dir);
++
++        Assert.NotNull(roster);
++        Assert.Equal(2, roster!.Sessions.Count);
++    }
++
++    /// <summary>A file that is not readable JavaScript Object Notation at all was already refused, and
++    /// still is - asserted so the new check cannot be mistaken for the only thing standing there.</summary>
++    [Fact]
++    public void A_truncated_document_is_no_answer()
++    {
++        WriteRoster("{\"directorId\":\"" + Id + "\",\"sessions\":[");
++
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>And an absent file, which is the case the original sentence was written about.</summary>
++    [Fact]
++    public void An_absent_roster_is_no_answer()
++    {
++        Assert.Null(DirectorCrashJournal.ReadLiveRoster(Id, _dir));
++    }
++
++    /// <summary>
++    /// The whole point, at the consumer: the locator turns "no answer" into null rather than into a
++    /// number. Driven through the production <see cref="DirectorInstanceLocator.ReadSessionCount"/> so
++    /// the seam between the two is covered, not just each half.
++    /// </summary>
++    [Fact]
++    public void The_locator_reports_an_unanswered_roster_as_unknown_rather_than_idle()
++    {
++        var home = Path.Combine(_dir, "home");
++        var journal = Path.Combine(home, "config", "director", "crash-journal");
++        Directory.CreateDirectory(journal);
++        File.WriteAllText(Path.Combine(journal, Id + ".json"), "{}");
++
++        var locator = new DirectorInstanceLocator(home);
++        var director = new SupervisedDirector(Id, Environment.ProcessId, home, "2.0.6", DateTime.UtcNow, "");
++
++        Assert.Null(locator.ReadSessionCount(director));
++    }
++
++    /// <summary>The control at the same seam: an explicit empty list reaches the locator as zero.</summary>
++    [Fact]
++    public void The_locator_reports_an_explicitly_empty_roster_as_zero()
++    {
++        var home = Path.Combine(_dir, "home2");
++        var journal = Path.Combine(home, "config", "director", "crash-journal");
++        Directory.CreateDirectory(journal);
++        File.WriteAllText(Path.Combine(journal, Id + ".json"), $$"""{"directorId":"{{Id}}","sessions":[]}""");
++
++        var locator = new DirectorInstanceLocator(home);
++        var director = new SupervisedDirector(Id, Environment.ProcessId, home, "2.0.6", DateTime.UtcNow, "");
++
++        Assert.Equal(0, locator.ReadSessionCount(director));
++    }
++}
+diff --git a/src/CcDirector.Launcher.Tests/UnreadableRegistrationIsNotAnEmptyInstanceTests.cs b/src/CcDirector.Launcher.Tests/UnreadableRegistrationIsNotAnEmptyInstanceTests.cs
+new file mode 100644
+index 000000000..5c5546533
+--- /dev/null
++++ b/src/CcDirector.Launcher.Tests/UnreadableRegistrationIsNotAnEmptyInstanceTests.cs
+@@ -0,0 +1,698 @@
++using System.ComponentModel;
++using CcDirector.Core.Instances;
++using CcDirector.Setup.Engine;
++using Xunit;
++
++namespace CcDirector.Launcher.Tests;
++
++/// <summary>
++/// Issue #2730: a registration the locator cannot read must never come back as an EMPTY instance home.
++///
++/// THE DEFECT, AND WHY IT WAS LIVE RATHER THAN LATENT. The locator skipped a registration it could not
++/// parse and a live process that would not say when it started - correctly, because neither can be
++/// certified and an uncertified process must never be stopped or updated over. The skips then vanished,
++/// so with nothing left the answer was <c>NotRunning</c>: "I could not read what is there" and "nothing
++/// is there" were one answer.
++///
++/// That answer has three consumers on main and TWO TAKE IT OPPOSITE WAYS. <c>DirectorSupervisor.StopAsync</c>
++/// declines on it, which is careful. <c>DirectorSupervisor.Start</c> reads it as permission and STARTS A
++/// DIRECTOR. So one corrupt registration file was enough to put a second Director on an instance home
++/// that already had a live one - the shape of the failure that corrupted a database and took the hosted
++/// service down for thirty-two minutes on 30 July 2026.
++///
++/// SO EVERY TEST HERE ASSERTS THE START PATH AS WELL AS THE STOP PATH, and that is the whole point of the
++/// file rather than a completeness habit. The same value is safe in one and dangerous in the other, so a
++/// suite that covered only the stop path would go green while the live defect sat untouched - which is
++/// precisely the trap this defect is made of.
++///
++/// THE KNOWN-BAD INPUT IS A REAL CORRUPTED FILE, not a mocked read. The bytes written below are what a
++/// half-written or truncated registration actually looks like on disk, and the production locator parses
++/// them with the production parser.
++/// </summary>
++[Collection(StorageRootCollection.Name)]
++public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposable
++{
++    private readonly string _root;
++    private readonly string? _previousRoot;
++    private readonly string? _previousInstancesDir;
++
++    public UnreadableRegistrationIsNotAnEmptyInstanceTests()
++    {
++        _previousRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
++        _previousInstancesDir = Environment.GetEnvironmentVariable("CC_DIRECTOR_INSTANCES_DIR");
++        Environment.SetEnvironmentVariable("CC_DIRECTOR_INSTANCES_DIR", null);
++
++        _root = Path.Combine(Path.GetTempPath(), "cc-2730-" + Guid.NewGuid().ToString("N"));
++        Directory.CreateDirectory(_root);
++        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
++    }
++
++    public void Dispose()
++    {
++        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _previousRoot);
++        Environment.SetEnvironmentVariable("CC_DIRECTOR_INSTANCES_DIR", _previousInstancesDir);
++        try { Directory.Delete(_root, recursive: true); }
++        catch (IOException) { /* a temporary directory that outlives the run is not a failure */ }
++    }
++
++    private string InstanceHome => Path.Combine(_root, "instances", InstanceContext.DefaultSlug);
++    private string InstanceDirectory => Path.Combine(InstanceHome, "config", "director", "instances");
++    private string FlatDirectory => Path.Combine(_root, "config", "director", "instances");
++
++    private DirectorInstanceLocator Locator() =>
++        new(InstanceHome, FlatDirectory, Environment.ProcessPath ?? "");
++
++    /// <summary>A registration that is genuinely corrupt on disk - truncated mid-object, which is what a
++    /// process killed while writing one leaves behind.</summary>
++    private void WriteTruncatedRegistration(string name = "aaaa0001-0000-0000-0000-000000000001")
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++        File.WriteAllText(Path.Combine(InstanceDirectory, name + ".json"),
++            "{\"DirectorId\": \"aaaa0001-0000-0000-0000-000000000001\", \"Pid\": 4");
++    }
++
++    /// <summary>Valid JavaScript Object Notation that is not a registration. It parses, and it names no
++    /// Director - the same class of fault, and it does not become safe because the parser succeeded.</summary>
++    private void WriteRegistrationNamingNoDirector(string name = "aaaa0002-0000-0000-0000-000000000002")
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++        File.WriteAllText(Path.Combine(InstanceDirectory, name + ".json"), "{\"note\": \"not a registration\"}");
++    }
++
++    /// <summary>A registration exactly as a live Director writes one, naming this test process.</summary>
++    private void WriteLiveRegistration(string directorId)
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++        File.WriteAllText(Path.Combine(InstanceDirectory, directorId + ".json"), $$"""
++        {
++          "DirectorId": "{{directorId}}",
++          "Pid": {{Environment.ProcessId}},
++          "StartedAt": "{{DateTime.UtcNow:o}}",
++          "Version": "2.0.6"
++        }
++        """);
++    }
++
++    // =========================================================================================
++    // The locator: could-not-read is its own answer
++    // =========================================================================================
++
++    /// <summary>
++    /// THE KNOWN-BAD INPUT, AND THE ASSERTION THE WHOLE ISSUE TURNS ON. One corrupt registration and
++    /// nothing else. Before the fix this resolved NotRunning - indistinguishable from an empty home.
++    /// </summary>
++    [Fact]
++    public void One_corrupt_registration_does_not_resolve_NotRunning()
++    {
++        WriteTruncatedRegistration();
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.NotEqual(DirectorResolution.NotRunning, lookup.Outcome);
++        Assert.Null(lookup.Director);
++
++        // It shows its evidence rather than asserting a cause, and says the one thing a reader must not
++        // conclude.
++        Assert.Single(lookup.Unreadable);
++        Assert.Contains("could not be read", lookup.Conflict);
++        Assert.Contains("NOT an empty instance home", lookup.Conflict);
++    }
++
++    /// <summary>Valid notation naming no Director is the same answer. A parser that succeeded still left
++    /// us unable to say what process, if any, that file stands for.</summary>
++    [Fact]
++    public void A_registration_that_parses_and_names_no_Director_is_also_Unknown()
++    {
++        WriteRegistrationNamingNoDirector();
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Contains("names no usable Director", string.Join(" ", lookup.Unreadable));
++    }
++
++    /// <summary>
++    /// THE CONTROL, and without it the test above proves nothing. A genuinely empty instance home must
++    /// still answer NotRunning - otherwise the fix would simply have made every answer Unknown, which
++    /// would look like a pass on the test above and would stop the launcher ever starting a Director.
++    /// </summary>
++    [Fact]
++    public void An_empty_instance_home_still_resolves_NotRunning()
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
++        Assert.Empty(lookup.Unreadable);
++        Assert.Null(lookup.Conflict);
++    }
++
++    /// <summary>
++    /// A corrupt registration BESIDE a live one still resolves the live one - the fix must not make an
++    /// unrelated bad file stop a working machine. The corruption is still carried on the answer, for the
++    /// same reason a resolved tie-break carries its conflict: the machine is in a state that should not
++    /// exist, and it becomes an Unknown the moment the good registration goes.
++    /// </summary>
++    [Fact]
++    public void A_corrupt_registration_beside_a_live_one_resolves_the_live_one_and_still_reports_the_corruption()
++    {
++        WriteLiveRegistration("bbbb0001-0000-0000-0000-000000000001");
++        WriteTruncatedRegistration("cccc0001-0000-0000-0000-000000000001");
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Running, lookup.Outcome);
++        Assert.Equal("bbbb0001-0000-0000-0000-000000000001", lookup.Director!.DirectorId);
++        Assert.Single(lookup.Unreadable);
++    }
++
++    // =========================================================================================
++    // BOTH consumers. The same value is safe in one and dangerous in the other.
++    // =========================================================================================
++
++    /// <summary>
++    /// WHAT USED TO BE HERE, AND WHY IT IS GONE RATHER THAN AMENDED.
++    ///
++    /// This slot held a test asserting that Start REFUSES on an unreadable claim. That behaviour was
++    /// reversed deliberately: refusing converted a recoverable state into a permanent one, and it was
++    /// defending against a duplicate that the Director-s own SingleInstanceGuard already prevents. The
++    /// test is deleted rather than inverted in place, because a test whose name still describes the old
++    /// promise is worse than no test - the next reader trusts the name.
++    ///
++    /// The behaviour that replaced it is asserted by
++    /// <see cref="A_corrupt_file_left_behind_by_a_stop_does_not_stop_the_Director_starting_again"/>, and
++    /// the START path is still covered for the cases where something IS demonstrably there:
++    /// <see cref="An_ambiguous_instance_home_does_not_let_Start_add_another_Director"/> and
++    /// <see cref="An_unsupervised_process_holding_the_instance_home_does_not_let_Start_add_another_Director"/>.
++    /// </summary>
++
++    /// <summary>
++    /// THE PARTNER THAT MAKES THE ONE ABOVE MEAN SOMETHING. An empty instance home is a genuine
++    /// NotRunning, so Start SHOULD go ahead - and the rig's fake executable makes that attempt visible as
++    /// an exception. If this ever stops throwing, the test above has become an assertion about nothing
++    /// and both must be re-examined rather than trusted.
++    /// </summary>
++    [Fact]
++    public void An_empty_instance_home_lets_Start_attempt_a_start()
++    {
++        if (!OperatingSystem.IsWindows()) return;
++
++        var layout = FakeInstalledDirector();
++        Directory.CreateDirectory(InstanceDirectory);
++        var supervisor = new DirectorSupervisor(layout, Locator());
++
++        Assert.Throws<Win32Exception>(() => supervisor.Start());
++    }
++
++    /// <summary>
++    /// AN AMBIGUOUS INSTANCE HOME MUST NOT LET START PUT A THIRD DIRECTOR IN IT.
++    ///
++    /// THIS GUARD HAD NEVER BEEN TESTED, ON ANY BRANCH, AND THE MUTATION SWEEP IS WHAT FOUND THAT.
++    /// Inverting <c>Start</c>'s guard from "anything but NotRunning" to "only Running" survived every
++    /// test in this file, because the Unknown case is also caught by the explicit branch above it - so
++    /// the general guard, which is the only thing standing between two live claimants and a third
++    /// process, was load-bearing and unasserted. There was no test that called <c>Start</c> at all
++    /// before this file; the rig here is the first thing able to drive it, so closing the gap costs two
++    /// tests and is worth far more than the one it was written for.
++    /// </summary>
++    [Fact]
++    public void An_ambiguous_instance_home_does_not_let_Start_add_another_Director()
++    {
++        if (!OperatingSystem.IsWindows()) return;
++
++        // Two live registrations naming this process. Both certify against the locator's installed path,
++        // so neither can be told from the other and the answer is Ambiguous.
++        WriteLiveRegistration("dddd0001-0000-0000-0000-000000000001");
++        WriteLiveRegistration("dddd0002-0000-0000-0000-000000000002");
++        var locator = Locator();
++        Assert.Equal(DirectorResolution.Ambiguous, locator.Resolve().Outcome);
++
++        new DirectorSupervisor(FakeInstalledDirector(), locator).Start();
++    }
++
++    /// <summary>
++    /// And a live process that is NOT the supervised image. Something is sitting in that instance home,
++    /// so nothing new may be started on top of it - even though this launcher may not end it either.
++    /// </summary>
++    [Fact]
++    public void An_unsupervised_process_holding_the_instance_home_does_not_let_Start_add_another_Director()
++    {
++        if (!OperatingSystem.IsWindows()) return;
++
++        WriteLiveRegistration("eeee0001-0000-0000-0000-000000000001");
++        // The locator's installed path points somewhere this process is not, so the lone claimant is
++        // live, resolved, and refused as not ours to act on.
++        var locator = new DirectorInstanceLocator(InstanceHome, FlatDirectory,
++            Path.Combine(_root, "somewhere-else", "cc-director.exe"));
++        Assert.Equal(DirectorResolution.NotSupervised, locator.Resolve().Outcome);
++
++        new DirectorSupervisor(FakeInstalledDirector(), locator).Start();
++    }
++
++    /// <summary>
++    /// And the same input in the STOP path, where the identical value is safe. It declines, as it always
++    /// did - what the fix adds here is that it declines for the right stated reason instead of printing
++    /// "more than one live process claims this instance", which would send the next reader looking for a
++    /// second process that does not exist.
++    /// </summary>
++    [Fact]
++    public async Task One_corrupt_registration_makes_StopAsync_decline()
++    {
++        var layout = FakeInstalledDirector();
++        WriteTruncatedRegistration();
++        var supervisor = new DirectorSupervisor(layout, Locator());
++
++        // Nothing to stop and nothing certifiable, so this must complete without touching a process.
++        await supervisor.StopAsync();
++
++        // The evidence the refusal was the Unknown one, taken from the locator the supervisor read.
++        var lookup = supervisor.Locator.Resolve();
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++    }
++
++    /// <summary>
++    /// The third consumer. <c>IsRunning</c> answers "is this instance home occupied", and the only
++    /// decision it drives is whether to start another Director - so an unreadable claim must count as
++    /// occupied. Reported false, it would be the same fail-open one level up.
++    /// </summary>
++    [Fact]
++    public void One_corrupt_registration_makes_IsRunning_report_occupied()
++    {
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
++        Directory.CreateDirectory(InstanceDirectory);
++        Assert.False(supervisor.IsRunning);   // control: genuinely empty
++
++        WriteTruncatedRegistration();
++        Assert.True(supervisor.IsRunning);    // and now something is there that could not be read
++    }
++
++    /// <summary>
++    /// The update owner must hold rather than install. It reads <c>ReadStatus</c>, which reports null for
++    /// anything that is not a single resolved Director - so an unreadable claim holds the update, which is
++    /// the same rule it already applies to an ambiguous machine.
++    /// </summary>
++    [Fact]
++    public void One_corrupt_registration_leaves_the_Director_status_unreadable_so_an_update_holds()
++    {
++        WriteTruncatedRegistration();
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
++
++        Assert.Null(supervisor.ReadStatus());
++    }
++
++    /// <summary>
++    /// An installed Director that EXISTS as a file and is not a runnable program. It lets a test drive
++    /// the real <c>Start</c> past its exe-exists guard and observe its decision, without any possibility
++    /// of a Director actually being launched by a test run.
++    /// </summary>
++    private InstallLayout FakeInstalledDirector()
++    {
++        var layout = new InstallLayout(_root);
++        var exe = layout.PathFor(ComponentRegistry.Director);
++        Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
++        File.WriteAllText(exe, "this is not a program");
++        return layout;
++    }
++
++    /// <summary>
++    /// The "never null" promise on <c>DirectorLookup.Unreadable</c>, asserted rather than asserted-in-a-
++    /// comment. Found by reading the safety sentences in this change against the code directly under
++    /// them: written as an auto-property initializer the fallback ran only on the primary constructor,
++    /// so a <c>with</c> expression could put a null straight through the sentence promising it could not.
++    /// </summary>
++    [Fact]
++    public void The_Unreadable_list_is_never_null_even_through_a_with_expression()
++    {
++        var lookup = new DirectorLookup(DirectorResolution.NotRunning, null, Array.Empty<string>());
++        Assert.NotNull(lookup.Unreadable);
++
++        // The null is forced deliberately. The compiler's nullable analysis says a caller should not do
++        // this, and the promise in the property's own summary is that doing it anyway cannot produce a
++        // null - which is a claim about runtime, so it is asserted at runtime.
++        IReadOnlyList<string> forcedNull = null!;
++        var nulled = lookup with { Unreadable = forcedNull };
++        Assert.NotNull(nulled.Unreadable);
++        Assert.Empty(nulled.Unreadable);
++    }
++
++    // =========================================================================================
++    // The fix round. Every one of these comes from an independent review, and every one of them
++    // is a hole this change LEFT OPEN or, in the last case, one it OPENED.
++    // =========================================================================================
++
++    /// <summary>
++    /// A FIXTURE-SHAPED BLIND SPOT, and the reason it matters more than the assertion it adds.
++    ///
++    /// Every test above writes exactly ONE corrupt registration. So the guard could be narrowed from
++    /// "more than none" to "exactly one" and the whole file still passed - the mutation survived not
++    /// because the code was right but because every fixture looked the same. Two corrupt files is the
++    /// ordinary case on a machine that has crashed twice, and it would have resolved NotRunning again.
++    ///
++    /// The lesson is about the fixture rather than the assertion: varying the SHAPE of the input finds
++    /// what another assertion on the same input cannot.
++    /// </summary>
++    [Fact]
++    public void TWO_corrupt_registrations_are_also_Unknown_not_NotRunning()
++    {
++        WriteTruncatedRegistration("aaaa0001-0000-0000-0000-000000000001");
++        WriteTruncatedRegistration("aaaa0002-0000-0000-0000-000000000002");
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Equal(2, lookup.Unreadable.Count);
++    }
++
++    /// <summary>Three, for the same reason - the count is not a magic number in either direction.</summary>
++    [Fact]
++    public void THREE_corrupt_registrations_are_also_Unknown()
++    {
++        for (var i = 1; i <= 3; i++)
++            WriteTruncatedRegistration($"aaaa000{i}-0000-0000-0000-00000000000{i}");
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Equal(3, lookup.Unreadable.Count);
++    }
++
++    /// <summary>
++    /// AN UNREADABLE DIRECTORY, WHICH WAS THE SAME FOLD ONE LAYER UP. Directory.Exists answers FALSE for
++    /// a directory that exists and cannot be reached, so "not there" and "not readable" came back as one
++    /// answer - and the listing catch then continued without recording anything either. A directory of
++    /// registrations nobody can see is the strongest possible reason not to call the home empty.
++    ///
++    /// Driven by putting a FILE where the directory belongs, which is a real on-disk state and makes the
++    /// listing fail without needing a permission change this rig cannot make.
++    /// </summary>
++    [Fact]
++    public void A_registrations_directory_that_cannot_be_listed_is_Unknown_not_NotRunning()
++    {
++        Directory.CreateDirectory(Path.GetDirectoryName(InstanceDirectory)!);
++        File.WriteAllText(InstanceDirectory, "this is a file where a directory belongs");
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Contains("could not be listed", string.Join(" ", lookup.Unreadable));
++    }
++
++    /// <summary>
++    /// THE CONTROL for the test above, and it is what makes that one evidence. A registrations directory
++    /// that genuinely does not exist must still be NotRunning - otherwise the fix would simply have made
++    /// every absent directory Unknown, which passes the test above and stops the launcher ever starting a
++    /// Director on a fresh machine.
++    /// </summary>
++    [Fact]
++    public void A_registrations_directory_that_does_not_exist_is_still_NotRunning()
++    {
++        // Nothing created at all: neither the instance home nor the legacy flat path exists.
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
++        Assert.Empty(lookup.Unreadable);
++    }
++
++    /// <summary>
++    /// A REGISTRATION WITH NO START TIME MADE Resolve THROW, against the "never throws" contract in its
++    /// own summary. An unset stamp is DateTime.MinValue, and subtracting the registration lag from it
++    /// throws outside every catch in the file.
++    ///
++    /// It is also right on the merits: the stamp is the ONLY thing that tells this Director from a
++    /// process that inherited its process id, so a registration without one certifies nothing and
++    /// belongs with the others that could not be read.
++    /// </summary>
++    [Fact]
++    public void A_registration_with_no_start_time_does_not_throw_and_is_Unknown()
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++        File.WriteAllText(Path.Combine(InstanceDirectory, "ffff0001-0000-0000-0000-000000000001.json"),
++            $$"""
++            {
++              "DirectorId": "ffff0001-0000-0000-0000-000000000001",
++              "Pid": {{Environment.ProcessId}},
++              "Version": "2.0.6"
++            }
++            """);
++
++        var lookup = Locator().Resolve();   // must not throw
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Contains("startedAt=missing", string.Join(" ", lookup.Unreadable));
++    }
++
++    /// <summary>
++    /// THE REGRESSION THIS FIX INTRODUCED, WHICH WAS WORSE THAN THE DEFECT IT FIXES.
++    ///
++    /// A corrupt file beside one good live Director resolves Running, so an update pass would proceed:
++    /// it stops the Director - which deletes that Director-s own registration - and then only the
++    /// corrupt file is left, at which point Start REFUSES. The health wait times out, the rollback tries
++    /// the same refused start, and a formerly working Director is left down with every relaunch
++    /// refusing. Before the fix, the corrupt file was ignored and the Director came back.
++    ///
++    /// A fix that turns a recoverable state into a permanent one is not a fix. So the evidence has to
++    /// reach the DECISION rather than stopping at the locator: DirectorStatus carries it, and the update
++    /// owner holds on it.
++    /// </summary>
++    [Fact]
++    public void A_corrupt_registration_beside_a_live_Director_reaches_the_status_the_update_owner_reads()
++    {
++        WriteLiveRegistration("bbbb0002-0000-0000-0000-000000000002");
++        WriteTruncatedRegistration("cccc0002-0000-0000-0000-000000000002");
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
++
++        var status = supervisor.ReadStatus();
++
++        Assert.NotNull(status);
++        Assert.Equal("bbbb0002-0000-0000-0000-000000000002", status!.DirectorId);
++
++        // THE ASSERTION THE REGRESSION TURNED ON. Without this the update owner cannot know, and it
++        // stops a Director it will not be able to start again.
++        Assert.Single(status.Unreadable);
++        Assert.Contains("could not be read", string.Join(" ", status.Unreadable));
++    }
++
++    /// <summary>And the control: a clean machine carries nothing, so a normal update is not held.</summary>
++    [Fact]
++    public void A_live_Director_with_nothing_unreadable_carries_an_empty_list()
++    {
++        WriteLiveRegistration("bbbb0003-0000-0000-0000-000000000003");
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
++
++        var status = supervisor.ReadStatus();
++
++        Assert.NotNull(status);
++        Assert.Empty(status!.Unreadable);
++    }
++
++    /// <summary>The same never-null promise on DirectorStatus as on DirectorLookup, and for the same
++    /// reason - the setter coalesces, so a with-expression cannot put a null through the sentence.</summary>
++    [Fact]
++    public void The_status_Unreadable_list_is_never_null_even_through_a_with_expression()
++    {
++        var status = new DirectorStatus("d-1", 1, "2.0.6", 0);
++        Assert.NotNull(status.Unreadable);
++
++        IReadOnlyList<string> forcedNull = null!;
++        Assert.Empty((status with { Unreadable = forcedNull }).Unreadable);
++    }
++
++    // =========================================================================================
++    // THE PROPERTY, ASSERTED DIRECTLY
++    // =========================================================================================
++
++    /// <summary>
++    /// NO READING OF A CORRUPT FILE MAY LEAVE A FORMERLY WORKING DIRECTOR UNABLE TO START.
++    ///
++    /// The property, driven end to end rather than argued: a corrupt file beside a live Director, then
++    /// the stop that removes that Director-s own registration, then the start - and the start must
++    /// reach its launch attempt rather than refusing.
++    ///
++    /// THIS TEST FAILED AGAINST THE FIRST DRAFT OF THIS FIX, which is why it exists. That draft refused
++    /// to start on an unreadable claim, so after a stop the machine was left with only the corrupt file,
++    /// every relaunch refused, and a working Director stayed down. Converting a recoverable state into a
++    /// permanent one is worse than the fail-open it replaced.
++    ///
++    /// WHAT ACTUALLY PREVENTS A DUPLICATE, since it is not this refusal: SingleInstanceGuard, keyed on
++    /// the exe path slot and acquired in the Director-s own startup. A second Director from the installed
++    /// exe raises the existing window and exits. That works whether or not this launcher could read a
++    /// registration file, which is exactly why a refusal here bought nothing and cost everything.
++    /// </summary>
++    [Fact]
++    public void A_corrupt_file_left_behind_by_a_stop_does_not_stop_the_Director_starting_again()
++    {
++        if (!OperatingSystem.IsWindows()) return;
++
++        // The state a stop leaves behind: the good registration is gone (a Director deletes its own on
++        // shutdown) and the corrupt one is still there.
++        WriteTruncatedRegistration("dddd0009-0000-0000-0000-000000000009");
++        var locator = Locator();
++        Assert.Equal(DirectorResolution.Unknown, locator.Resolve().Outcome);
++
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), locator);
++
++        // It must REACH the launch. The rig turns a launch attempt into Win32Exception, so throwing is
++        // the pass here and returning quietly is the failure - the exact inverse of the refusal tests
++        // above, and the reason the rig was built to make both observable.
++        Assert.Throws<Win32Exception>(() => supervisor.Start());
++    }
++
++    // =========================================================================================
++    // THE MIXED DIRECTORY, AS A FIRST-CLASS FIXTURE
++    //
++    // Both review rounds missed something for the same reason: every fixture in the first draft had
++    // the corrupt file as the ONLY file. That shape is what let "more than none" survive being
++    // narrowed to "exactly one", and it is what hid the Running-with-unreadable-evidence state from
++    // the consumer that decides whether a binary swap is safe. Varying the SHAPE of the input is what
++    // found both; another assertion on the same input would have found neither.
++    // =========================================================================================
++
++    /// <summary>
++    /// A mixed directory: two good live registrations and two corrupt ones. It must resolve the live
++    /// pair through the ordinary tie-break, AND carry both unreadable claims.
++    /// </summary>
++    [Fact]
++    public void A_mixed_directory_resolves_its_live_registrations_and_carries_every_unreadable_claim()
++    {
++        WriteLiveRegistration("eeee0011-0000-0000-0000-000000000011");
++        WriteLiveRegistration("eeee0012-0000-0000-0000-000000000012");
++        WriteTruncatedRegistration("ffff0011-0000-0000-0000-000000000011");
++        WriteRegistrationNamingNoDirector("ffff0012-0000-0000-0000-000000000012");
++
++        var lookup = Locator().Resolve();
++
++        // Two live claimants of the same image is the pre-existing ambiguous case, untouched.
++        Assert.Equal(DirectorResolution.Ambiguous, lookup.Outcome);
++        Assert.Equal(2, lookup.Unreadable.Count);
++    }
++
++    /// <summary>
++    /// AND THE CONSUMER THAT MATTERS SEES IT. This is the state the independent review found: one good
++    /// live registration plus corrupt ones resolves Running, and the update owner reads DirectorStatus -
++    /// so if the evidence stops at the locator, a binary swap is authorized on a home the launcher could
++    /// not fully read. The fold had moved rather than gone: Running-plus-unreadable became a clean status.
++    /// </summary>
++    [Fact]
++    public void A_mixed_directory_carries_its_unreadable_claims_all_the_way_to_the_update_decision()
++    {
++        WriteLiveRegistration("eeee0013-0000-0000-0000-000000000013");
++        WriteTruncatedRegistration("ffff0013-0000-0000-0000-000000000013");
++        WriteRegistrationNamingNoDirector("ffff0014-0000-0000-0000-000000000014");
++        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
++
++        var status = supervisor.ReadStatus();
++
++        Assert.NotNull(status);
++        Assert.Equal("eeee0013-0000-0000-0000-000000000013", status!.DirectorId);
++        Assert.Equal(2, status.Unreadable.Count);
++    }
++
++    /// <summary>
++    /// A mixed directory whose only LIVE registration is removed becomes Unknown, not NotRunning - which
++    /// is the transition a stop performs, and the moment the whole defect used to fire.
++    /// </summary>
++    [Fact]
++    public void A_mixed_directory_becomes_Unknown_when_its_live_registration_goes()
++    {
++        WriteLiveRegistration("eeee0014-0000-0000-0000-000000000014");
++        WriteTruncatedRegistration("ffff0015-0000-0000-0000-000000000015");
++        Assert.Equal(DirectorResolution.Running, Locator().Resolve().Outcome);
++
++        // What a clean shutdown does: the Director deletes its own registration.
++        File.Delete(Path.Combine(InstanceDirectory, "eeee0014-0000-0000-0000-000000000014.json"));
++
++        var lookup = Locator().Resolve();
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.Single(lookup.Unreadable);
++    }
++
++    // =========================================================================================
++    // A PROCESS THAT IS ALIVE AND CANNOT BE INSPECTED
++    //
++    // The mutation sweep found this gap rather than a reviewer: the fix for it was written and had
++    // NO test, so removing the fix survived the whole suite. A live process the operating system
++    // will not describe is not a dead one, and erasing its claim is the same fail-open the rest of
++    // this file is about - one method further down.
++    // =========================================================================================
++
++    /// <summary>
++    /// A registration naming a REAL live process this test cannot inspect.
++    ///
++    /// PID 4 on Windows is the System process: it exists, it is running, and a normal user process is
++    /// refused when it asks when that process started. So this is a genuine uninspectable-live-process
++    /// input rather than a mock - which matters, because the branch under test exists precisely for a
++    /// state the operating system produces and a fake would not.
++    ///
++    /// Either of the two guards may catch it - the inspection itself, or the start-time read - and the
++    /// test deliberately does not care which: both record an unreadable claim, and asserting on the
++    /// specific one would pin an implementation detail rather than the property. What must NOT happen is
++    /// the claim being erased and the answer coming back NotRunning.
++    /// </summary>
++    [Fact]
++    public void A_live_process_that_cannot_be_inspected_is_Unknown_not_NotRunning()
++    {
++        if (!OperatingSystem.IsWindows()) return;
++
++        Directory.CreateDirectory(InstanceDirectory);
++        File.WriteAllText(Path.Combine(InstanceDirectory, "9999aaaa-0000-0000-0000-000000000001.json"),
++            $$"""
++            {
++              "DirectorId": "9999aaaa-0000-0000-0000-000000000001",
++              "Pid": 4,
++              "StartedAt": "{{DateTime.UtcNow:o}}",
++              "Version": "2.0.6"
++            }
++            """);
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
++        Assert.NotEmpty(lookup.Unreadable);
++        Assert.Null(lookup.Director);
++    }
++
++    /// <summary>
++    /// THE CONTROL that makes the test above evidence rather than a coincidence. The SAME registration
++    /// shape naming a process this test CAN inspect - itself - resolves normally. Without this, the test
++    /// above would pass equally well if the locator had simply started answering Unknown for everything.
++    /// </summary>
++    [Fact]
++    public void The_same_registration_shape_naming_an_inspectable_process_resolves_normally()
++    {
++        WriteLiveRegistration("9999bbbb-0000-0000-0000-000000000001");
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.Running, lookup.Outcome);
++        Assert.Empty(lookup.Unreadable);
++    }
++
++    /// <summary>
++    /// And a registration naming a process id that is POSITIVELY DEAD is still NotRunning - the third of
++    /// the four answers, and the one that must not be swept up with the other two. A dead process id is a
++    /// FACT about the world; an uninspectable one is the absence of a fact.
++    /// </summary>
++    [Fact]
++    public void A_registration_naming_a_dead_process_id_is_still_NotRunning()
++    {
++        Directory.CreateDirectory(InstanceDirectory);
++        // A process id that is real in shape and certain not to be running: the maximum Windows allows
++        // is far below this, so the operating system answers "no such process" rather than refusing.
++        File.WriteAllText(Path.Combine(InstanceDirectory, "9999cccc-0000-0000-0000-000000000001.json"),
++            $$"""
++            {
++              "DirectorId": "9999cccc-0000-0000-0000-000000000001",
++              "Pid": 2147483646,
++              "StartedAt": "{{DateTime.UtcNow:o}}",
++              "Version": "2.0.6"
++            }
++            """);
++
++        var lookup = Locator().Resolve();
++
++        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
++        Assert.Empty(lookup.Unreadable);
++    }
++}
+diff --git a/src/CcDirector.Launcher/DirectorSupervisor.cs b/src/CcDirector.Launcher/DirectorSupervisor.cs
+index 0f60586f6..e9f7e4617 100644
+--- a/src/CcDirector.Launcher/DirectorSupervisor.cs
++++ b/src/CcDirector.Launcher/DirectorSupervisor.cs
+@@ -17,8 +17,30 @@ namespace CcDirector.Launcher;
+ /// resolved it anyway - the machine is still in a wrong state and every caller must pass this on to
+ /// somewhere a person will meet it, not swallow it because the answer came out right.
+ /// </param>
++/// <param name="Unreadable">
++/// Everything claiming this instance home that could not be read or certified, carried through from
++/// <see cref="DirectorLookup.Unreadable"/>. Empty in the ordinary case.
++///
++/// IT IS ON THIS RECORD BECAUSE DROPPING IT BROKE THE DIRECTOR IT WAS MEANT TO PROTECT. A corrupt
++/// registration beside one good live Director resolves Running, so an update pass would proceed, STOP
++/// that Director - which deletes its own good registration - and then find only the corrupt file left,
++/// at which point the start REFUSES and the machine is left with no Director at all and every relaunch
++/// refusing. The evidence has to reach the decision, not stop at the locator.
++/// </param>
+ public sealed record DirectorStatus(string DirectorId, int Pid, string Version, int? Sessions,
+-    string? Conflict = null);
++    string? Conflict = null, IReadOnlyList<string>? Unreadable = null)
++{
++    /// <summary>What could not be read or certified. Never null, so a caller need not guard it. The
++    /// setter coalesces rather than an initializer doing it, so a `with` expression cannot put a null
++    /// through the promise in this sentence.</summary>
++    public IReadOnlyList<string> Unreadable
++    {
++        get => _unreadable;
++        init => _unreadable = value ?? Array.Empty<string>();
++    }
++
++    private readonly IReadOnlyList<string> _unreadable = Unreadable ?? Array.Empty<string>();
++}
+ 
+ /// <summary>
+ /// Supervises the installed CC Director app - start, stop, restart, and the two facts the update path
+@@ -91,6 +113,22 @@ public sealed class DirectorSupervisor
+     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
+     /// done TO it - but starting another one on top of two that already exist would make the mess
+     /// worse, and that is the only decision this property is used for.
++    ///
++    /// So does an UNKNOWN one, for the same reason and by the same test (issue #2730): something claims
++    /// that instance home and could not be read, and putting a second Director into a home that may
++    /// already have one is the outcome to avoid. Written as a negative deliberately, so an outcome added
++    /// later lands on the occupied side; that is the safe default here, and the unsafe default is
++    /// reporting a home as free while a process sits in it.
++    ///
++    /// THIS IS NOT THE ONLY DECISION IT DRIVES, and an earlier version of this comment said it was.
++    /// <see cref="DirectorUpdateOwner"/> reads it to decide whether to leave a closed Director alone, and
++    /// <see cref="LauncherTrayController"/> renders it to a person as the word "running". So an Unknown
++    /// reported here is ALSO shown as running in the tray and holds an update - both correct, and both
++    /// wider than "starting another one", which is what the sentence used to claim.
++    ///
++    /// WHAT IT COSTS: a lone stale corrupt file with no live process says "running" in the tray when
++    /// nothing is running. That is the deliberate direction - a wrong "running" is a person looking and
++    /// finding nothing, and a wrong "not running" is a second Director in an occupied instance home.
+     /// </summary>
+     public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;
+ 
+@@ -107,13 +145,42 @@ public sealed class DirectorSupervisor
+             throw new FileNotFoundException($"Installed Director not found: {DirectorExePath}", DirectorExePath);
+ 
+         var lookup = _locator.Resolve();
+-        if (lookup.Outcome != DirectorResolution.NotRunning)
++
++        // AN UNREADABLE CLAIM MUST NOT STOP A DIRECTOR STARTING, AND THIS REVERSES WHAT THIS FIX FIRST
++        // DID. The first draft refused here, which converted a recoverable state into a permanent one:
++        // a corrupt file beside a live Director resolved Running, an update pass stopped that Director -
++        // deleting its own good registration - and then only the corrupt file was left, so this refused,
++        // the health wait timed out, the rollback tried the same refused start, and a formerly working
++        // Director stayed down through every relaunch. That is worse than the fail-open it replaced.
++        //
++        // AND IT WAS DEFENDING SOMETHING ALREADY DEFENDED. A second Director from the installed exe
++        // cannot run: SingleInstanceGuard, acquired in the Director's own startup, is keyed on the exe
++        // path slot, so the second process raises the existing window and exits. That guard - not a
++        // refusal here - is what prevents two Directors on one instance home, and it works whether or
++        // not this launcher could read a registration file.
++        //
++        // So an unreadable claim is LOUD and not fatal. The evidence travels on DirectorStatus to the
++        // callers that must act on it (an update pass reads it and can decline to stop a Director whose
++        // home it cannot fully read), and starting stays possible, which is the property that matters:
++        // no reading of a corrupt file may leave a formerly working Director unable to start.
++        if (lookup.Outcome == DirectorResolution.Unknown)
++        {
++            FileLog.Write($"[DirectorSupervisor] Start: something claims {_locator.InstanceHome} that could not be "
++                          + "read or certified - "
++                          + (lookup.Conflict ?? "see the claims above")
++                          + " Starting anyway: a Director that cannot start is a worse failure than one that "
++                          + "might briefly duplicate, and the Director's own single-instance guard refuses a "
++                          + "second process from this exe. Repair or remove what could not be read.");
++            // Deliberately falls through to the start below.
++        }
++        else if (lookup.Outcome != DirectorResolution.NotRunning)
+         {
+             FileLog.Write($"[DirectorSupervisor] Start: a Director already holds {_locator.InstanceHome} "
+                           + $"({lookup.Outcome}); skipping. Claimants: {Describe(lookup)}");
+             return;
+         }
+ 
++
+         if (OperatingSystem.IsWindows())
+         {
+             var psi = new ProcessStartInfo
+@@ -173,6 +240,20 @@ public sealed class DirectorSupervisor
+             return;
+         }
+ 
++        // THE SAFE DIRECTION FOR THE SAME VALUE. Declining to stop something is careful, so Unknown needs
++        // no new behaviour here - but it does need its own SENTENCE. Falling into the refusal below would
++        // print "more than one live process claims this instance", which is not what happened and sends
++        // the next reader looking for a second process that does not exist.
++        if (lookup.Outcome == DirectorResolution.Unknown)
++        {
++            FileLog.Write($"[DirectorSupervisor] StopAsync: REFUSING to stop anything - "
++                          + (lookup.Conflict ?? $"something claims {_locator.InstanceHome} that could not be read "
++                             + "or certified")
++                          + " Nothing can be certified as this launcher's Director, and an uncertified process is "
++                          + "not this launcher's to end.");
++            return;
++        }
++
+         if (lookup.Outcome is DirectorResolution.Ambiguous or DirectorResolution.NotSupervised
+             || lookup.Director is not { } director)
+         {
+@@ -251,7 +332,8 @@ public sealed class DirectorSupervisor
+         }
+ 
+         var sessions = _locator.ReadSessionCount(director);
+-        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict);
++        return new DirectorStatus(director.DirectorId, director.Pid, director.Version, sessions, lookup.Conflict,
++            lookup.Unreadable);
+     }
+ 
+     /// <summary>
+diff --git a/src/CcDirector.Launcher/DirectorUpdateOwner.cs b/src/CcDirector.Launcher/DirectorUpdateOwner.cs
+index 63b8152a2..00e7c7244 100644
+--- a/src/CcDirector.Launcher/DirectorUpdateOwner.cs
++++ b/src/CcDirector.Launcher/DirectorUpdateOwner.cs
+@@ -192,6 +192,35 @@ public sealed class DirectorUpdateOwner
+         if (conflictNote.Length > 0)
+             FileLog.Write($"[DirectorUpdateOwner] proceeding under a resolved instance conflict: {conflictNote}");
+ 
++        // THE UPDATE MUST NOT BEGIN A CYCLE IT CANNOT FINISH, and this is the regression the fix for
++        // issue #2730 introduced before an independent review caught it.
++        //
++        // A corrupt registration beside one good live Director resolves Running, so this pass used to
++        // proceed: it stops the Director - which deletes that Director's OWN good registration - and then
++        // only the corrupt file is left, at which point DirectorSupervisor.Start REFUSES rather than
++        // launching a second Director into an instance home it cannot read. The health wait then times
++        // out, the rollback tries the same refused start, and the machine is left with NO Director and
++        // every relaunch refusing.
++        //
++        // That is worse than the fail-open it replaced: before, the corrupt file was ignored and the
++        // Director came back. A fix that turns a recoverable state into a permanent one is not a fix.
++        //
++        // So the rule is the same one already applied to an unreadable roster, on the same evidence: a
++        // pass that cannot establish the state of this instance home holds, and says what it could not
++        // read. The corrupt file is repaired or removed, and the update proceeds on the next pass.
++        if (status.Unreadable.Count > 0)
++        {
++            var what = string.Join("; ", status.Unreadable);
++            FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged and the Director is running, but "
++                          + $"{status.Unreadable.Count} other claim(s) on this instance home could not be read: {what}. "
++                          + "HOLDING the update: stopping this Director would remove its own registration and leave "
++                          + "only what cannot be read, and the start afterwards would refuse - which would take a "
++                          + "working Director down permanently rather than updating it.");
++            return Record(staged, DirectorUpdateDecision.HeldBecauseUnknown,
++                conflictNote + "Something else claiming this Director's instance home could not be read, so "
++                + "restarting it could not be completed safely: " + what);
++        }
++
+         if (status.Sessions is null)
+         {
+             FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged but the Director's session roster could "

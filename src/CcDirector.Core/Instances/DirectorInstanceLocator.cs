@@ -5,7 +5,23 @@ using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Instances;
 
-/// <summary>How the search for the supervised Director ended.</summary>
+/// <summary>
+/// How the search for the supervised Director ended.
+///
+/// A NOTE TO ANYONE TIDYING THIS ENUM: <see cref="Unknown"/> IS APPENDED, NOT INSERTED, AND THAT IS
+/// DELIBERATE. It reads as the odd one out - it belongs conceptually beside <see cref="NotRunning"/>,
+/// which is the value it was split from - and moving it there would renumber
+/// <see cref="Ambiguous"/> from 2 to 3 and <see cref="NotSupervised"/> from 3 to 4.
+///
+/// Nothing in this repository serialises those numbers today, so a reorder would compile, pass every
+/// test, and look like an improvement. A mixed-version or externally compiled consumer would then
+/// mislabel outcomes silently - an ambiguous machine read as unsupervised, or the reverse - and there
+/// is no test that could catch it, because both sides would be internally consistent.
+///
+/// So the ordering is a compatibility decision, it is invisible in a diff, and this paragraph is the
+/// only thing standing between it and a future tidy-up. If the enum ever genuinely needs reordering,
+/// give every member an explicit numeric value first.
+/// </summary>
 public enum DirectorResolution
 {
     /// <summary>Exactly one live Director owns the supervised instance. It is named in the lookup.</summary>
