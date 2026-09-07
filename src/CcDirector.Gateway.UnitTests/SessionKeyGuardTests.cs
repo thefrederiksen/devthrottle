@@ -49,6 +49,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/workflows/mission/instructions")]
     [InlineData("GET", "/gateway/workflow-runs")]
     [InlineData("GET", "/gateway/workflow-runs/run-9")]
+    // Workspaces (issue #2722): the named set of seats a drain captures and a restore reads.
+    [InlineData("GET", "/gateway/workspaces")]
+    [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06")]
     public void The_read_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -71,6 +74,12 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/machines/SOREN_NORTH/launch")]
     [InlineData("POST", "/gateway/skills/move-session/publish")]
     [InlineData("POST", "/gateway/workflows/mission/clone")]
+    // Capture a Director's live fleet into a workspace, write the drain's judgments onto it, and
+    // delete one. A SESSION drives a drain, so a session key that could only read these would leave
+    // the record to a human at the keyboard of the machine being restarted.
+    [InlineData("POST", "/gateway/workspaces")]
+    [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06")]
+    [InlineData("DELETE", "/gateway/workspaces/director-restart-2026-09-06")]
     public void The_action_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -109,6 +118,28 @@ public sealed class SessionKeyGuardTests
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is what the shipped client sends; refusing it returns 403 to every agent");
+
+    [Theory]
+    // The workspace surface is an exact method+path allow list, not a method/path cross-product.
+    // Each of these is a shape the Gateway does not route: today they 404, and the day somebody adds
+    // a route at one of them it must be classified before a session key can reach it.
+    [InlineData("PUT", "/gateway/workspaces")]
+    [InlineData("DELETE", "/gateway/workspaces")]
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06")]
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restart")]
+    [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/seats")]
+    public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} is not a routed workspace shape and must not be authorized");
+
+    [Fact]
+    public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
+    {
+        // The whole point of the split. An agent may write down what was running; asking the machine
+        // to restart is the admission surface and stays with a key that has that scope.
+        Assert.True(SessionKeyGuard.Check("POST", "/gateway/workspaces").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/machines/SOREN_NORTH/director/restart").Allowed);
+    }
 
     [Fact]
     public void Turning_a_fleet_wide_capability_off_is_still_the_owners_call()

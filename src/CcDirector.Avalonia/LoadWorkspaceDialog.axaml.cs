@@ -2,56 +2,108 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Avalonia;
 
+/// <summary>
+/// Choose a workspace to start. Reads from the GATEWAY (issue #2722), not from this machine: a workspace
+/// has to be readable when the machine it describes is down, so the store moved and this dialog asks for
+/// it over the Director's own Gateway connection.
+///
+/// That makes every read here ASYNCHRONOUS, which the local-file version was not. The list is populated
+/// after the window is already on screen, and a failure is shown IN the window rather than thrown behind
+/// it - a dialog that opens empty because the Gateway could not be reached would read as "you have no
+/// workspaces", which is a different and much worse message.
+/// </summary>
 public partial class LoadWorkspaceDialog : Window
 {
-    private readonly WorkspaceStore _store;
+    private readonly IWorkspaceCatalog _catalog;
+    private readonly string? _importProblem;
     private List<WorkspaceListItem> _workspaces = new();
 
-    public WorkspaceDefinition? SelectedWorkspace { get; private set; }
+    /// <summary>The workspace the user chose, or null when they cancelled.</summary>
+    public WorkspaceDocument? SelectedWorkspace { get; private set; }
 
+    /// <summary>Designer constructor.</summary>
     public LoadWorkspaceDialog()
     {
         InitializeComponent();
-        _store = null!;
+        _catalog = null!;
     }
 
-    public LoadWorkspaceDialog(WorkspaceStore store)
+    /// <param name="catalog">Where the workspaces live.</param>
+    /// <param name="importProblem">Why the one-time import of this machine's older workspace files could
+    /// not be done, or null when there was nothing wrong. Shown on screen: a list quietly missing the
+    /// user's saved work reads as complete and is not.</param>
+    public LoadWorkspaceDialog(IWorkspaceCatalog catalog, string? importProblem = null)
     {
         FileLog.Write("[LoadWorkspaceDialog] Constructor");
         InitializeComponent();
 
-        _store = store;
+        _catalog = catalog;
+        _importProblem = importProblem;
 
-        Loaded += (_, _) => LoadWorkspaces();
+        // An entry point, so it carries the try/catch: an exception out of an async void handler has
+        // nowhere to go but the dispatcher, where nobody sees it and the window sits on "Loading...".
+        Loaded += async (_, _) =>
+        {
+            try
+            {
+                await LoadWorkspacesAsync();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[LoadWorkspaceDialog] Loaded FAILED: {ex.Message}");
+                TxtEmpty.Text = ex.Message;
+                TxtEmpty.IsVisible = true;
+                WorkspaceListBox.IsVisible = false;
+            }
+        };
     }
 
+    /// <summary>Owner is set through ShowDialog; kept for callers that expect it.</summary>
+    /// <param name="owner">The owning window.</param>
     public void SetOwner(Window owner)
     {
         // Avalonia uses ShowDialog<T>(Window) for owner, this is a no-op placeholder
     }
 
-    private WorkspaceDefinition? _defaultWorkspace;
+    private WorkspaceSummaryDto? _defaultWorkspace;
 
-    private void LoadWorkspaces()
+    private async Task LoadWorkspacesAsync()
     {
-        FileLog.Write("[LoadWorkspaceDialog] LoadWorkspaces");
+        FileLog.Write("[LoadWorkspaceDialog] LoadWorkspacesAsync");
 
-        var definitions = _store.LoadAll();
+        TxtEmpty.Text = "Loading...";
+        TxtEmpty.IsVisible = true;
+        WorkspaceListBox.IsVisible = false;
 
-        // Separate _default from the rest
-        _defaultWorkspace = definitions.FirstOrDefault(d =>
+        IReadOnlyList<WorkspaceSummaryDto> summaries;
+        try
+        {
+            summaries = await _catalog.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LoadWorkspaceDialog] LoadWorkspacesAsync FAILED: {ex.Message}");
+            TxtEmpty.Text = ex.Message;
+            TxtEmpty.IsVisible = true;
+            WorkspaceListBox.IsVisible = false;
+            return;
+        }
+
+        // A workspace named "_default" is the one the big button starts, kept from the local-file version.
+        _defaultWorkspace = summaries.FirstOrDefault(d =>
             string.Equals(d.Name, "_default", StringComparison.OrdinalIgnoreCase));
         BtnLoadDefault.IsVisible = _defaultWorkspace != null;
 
-        _workspaces = definitions
+        _workspaces = summaries
             .Where(d => !string.Equals(d.Name, "_default", StringComparison.OrdinalIgnoreCase))
             .Select(d => new WorkspaceListItem(d))
             .ToList();
@@ -59,94 +111,187 @@ public partial class LoadWorkspaceDialog : Window
         if (_workspaces.Count == 0)
         {
             WorkspaceListBox.IsVisible = false;
+            TxtEmpty.Text = _importProblem ?? "No saved workspaces";
             TxtEmpty.IsVisible = true;
         }
         else
         {
             WorkspaceListBox.ItemsSource = _workspaces;
+            WorkspaceListBox.IsVisible = true;
+            // The import problem stays on screen even when the list has rows: what is missing from the
+            // list is exactly what could not be imported, so an empty-state-only message would hide it
+            // in the one case where the list looks fine.
+            TxtEmpty.Text = _importProblem ?? "";
+            TxtEmpty.IsVisible = _importProblem is not null;
         }
     }
 
-    private void WorkspaceListBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private async void WorkspaceListBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
+        try
         {
+            if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
+            {
+                BtnLoad.IsEnabled = false;
+                BtnDelete.IsEnabled = false;
+                TxtPreviewEmpty.IsVisible = true;
+                PreviewList.IsVisible = false;
+                TxtPreviewDescription.IsVisible = false;
+                return;
+            }
+
+            BtnLoad.IsEnabled = true;
+            BtnDelete.IsEnabled = true;
+
+            if (!string.IsNullOrWhiteSpace(item.Summary.Description))
+            {
+                TxtPreviewDescription.Text = item.Summary.Description;
+                TxtPreviewDescription.IsVisible = true;
+            }
+            else
+            {
+                TxtPreviewDescription.IsVisible = false;
+            }
+
+            // The list carries summaries only; the seats come from the document, fetched when a workspace
+            // is actually selected rather than for every row up front.
+            TxtPreviewEmpty.Text = "Loading...";
+            TxtPreviewEmpty.IsVisible = true;
+            PreviewList.IsVisible = false;
+
+            WorkspaceDocument? doc;
+            try
+            {
+                doc = await _catalog.GetAsync(item.Summary.Id);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[LoadWorkspaceDialog] preview FAILED for {item.Summary.Id}: {ex.Message}");
+                TxtPreviewEmpty.Text = ex.Message;
+                return;
+            }
+
+            if (doc is null)
+            {
+                TxtPreviewEmpty.Text = "That workspace is no longer on the Gateway.";
+                BtnLoad.IsEnabled = false;
+                return;
+            }
+
+            // Selection can move while the fetch is in flight; render only what is still selected.
+            if (WorkspaceListBox.SelectedItem is not WorkspaceListItem stillSelected
+                || !string.Equals(stillSelected.Summary.Id, item.Summary.Id, StringComparison.Ordinal))
+                return;
+
+            item.Document = doc;
+
+            var previewItems = doc.Seats
+                .OrderBy(s => s.SortOrder)
+                .Select(s => new PreviewSessionItem
+                {
+                    DisplayName = !string.IsNullOrWhiteSpace(s.Name)
+                        ? s.Name
+                        : Path.GetFileName(s.RepoPath.TrimEnd('\\', '/')),
+                    RepoPath = s.RepoPath,
+                    HasColor = !string.IsNullOrWhiteSpace(s.Color),
+                    ColorBrush = GetColorBrush(s.Color)
+                }).ToList();
+
+            PreviewList.ItemsSource = previewItems;
+            TxtPreviewEmpty.IsVisible = false;
+            PreviewList.IsVisible = true;
+        }
+        catch (Exception ex)
+        {
+            // Say so where the reader is looking. Logging alone would leave the preview on "Loading..."
+            // for ever, which reads as a slow fetch rather than a failed one.
+            FileLog.Write($"[LoadWorkspaceDialog] WorkspaceListBox_SelectionChanged FAILED: {ex.Message}");
+            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.IsVisible = true;
+            PreviewList.IsVisible = false;
+        }
+    }
+
+    private async void BtnLoadDefault_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_defaultWorkspace == null)
+                return;
+
+            FileLog.Write("[LoadWorkspaceDialog] BtnLoadDefault_Click: loading _default workspace");
+            var doc = await _catalog.GetAsync(_defaultWorkspace.Id);
+            if (doc is null)
+            {
+                TxtEmpty.Text = "The default workspace is no longer on the Gateway.";
+                TxtEmpty.IsVisible = true;
+                return;
+            }
+
+            SelectedWorkspace = doc;
+            Close(true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LoadWorkspaceDialog] BtnLoadDefault_Click FAILED: {ex.Message}");
+            TxtEmpty.Text = ex.Message;
+            TxtEmpty.IsVisible = true;
+        }
+    }
+
+    private async void BtnLoad_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
+                return;
+
+            FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click: id={item.Summary.Id}");
+
+            // Usually already fetched for the preview; fetched here when it is not.
+            var doc = item.Document ?? await _catalog.GetAsync(item.Summary.Id);
+            if (doc is null)
+            {
+                TxtPreviewEmpty.Text = "That workspace is no longer on the Gateway.";
+                TxtPreviewEmpty.IsVisible = true;
+                return;
+            }
+
+            SelectedWorkspace = doc;
+            Close(true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click FAILED: {ex.Message}");
+            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.IsVisible = true;
+        }
+    }
+
+    private async void BtnDelete_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
+                return;
+
+            FileLog.Write($"[LoadWorkspaceDialog] BtnDelete_Click: deleting id={item.Summary.Id}");
+            await _catalog.DeleteAsync(item.Summary.Id);
+
+            await LoadWorkspacesAsync();
             BtnLoad.IsEnabled = false;
             BtnDelete.IsEnabled = false;
+            TxtPreviewEmpty.Text = "Select a workspace to preview";
             TxtPreviewEmpty.IsVisible = true;
             PreviewList.IsVisible = false;
             TxtPreviewDescription.IsVisible = false;
-            return;
         }
-
-        BtnLoad.IsEnabled = true;
-        BtnDelete.IsEnabled = true;
-
-        if (!string.IsNullOrWhiteSpace(item.Definition.Description))
+        catch (Exception ex)
         {
-            TxtPreviewDescription.Text = item.Definition.Description;
-            TxtPreviewDescription.IsVisible = true;
+            FileLog.Write($"[LoadWorkspaceDialog] BtnDelete_Click FAILED: {ex.Message}");
+            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.IsVisible = true;
         }
-        else
-        {
-            TxtPreviewDescription.IsVisible = false;
-        }
-
-        var previewItems = item.Definition.Sessions
-            .OrderBy(s => s.SortOrder)
-            .Select(s => new PreviewSessionItem
-            {
-                DisplayName = !string.IsNullOrWhiteSpace(s.CustomName)
-                    ? s.CustomName
-                    : Path.GetFileName(s.RepoPath.TrimEnd('\\', '/')),
-                RepoPath = s.RepoPath,
-                HasColor = !string.IsNullOrWhiteSpace(s.CustomColor),
-                ColorBrush = GetColorBrush(s.CustomColor)
-            }).ToList();
-
-        PreviewList.ItemsSource = previewItems;
-        TxtPreviewEmpty.IsVisible = false;
-        PreviewList.IsVisible = true;
-    }
-
-    private void BtnLoadDefault_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_defaultWorkspace == null)
-            return;
-
-        FileLog.Write("[LoadWorkspaceDialog] BtnLoadDefault_Click: loading _default workspace");
-        SelectedWorkspace = _defaultWorkspace;
-        Close(true);
-    }
-
-    private void BtnLoad_Click(object? sender, RoutedEventArgs e)
-    {
-        if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
-            return;
-
-        FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click: name={item.Definition.Name}");
-        SelectedWorkspace = item.Definition;
-        Close(true);
-    }
-
-    private void BtnDelete_Click(object? sender, RoutedEventArgs e)
-    {
-        if (WorkspaceListBox.SelectedItem is not WorkspaceListItem item)
-            return;
-
-        // TODO: Replace with proper Avalonia confirmation dialog
-        FileLog.Write($"[LoadWorkspaceDialog] BtnDelete_Click: confirming delete for name={item.Definition.Name}");
-
-        var slug = WorkspaceStore.ToSlug(item.Definition.Name);
-        FileLog.Write($"[LoadWorkspaceDialog] BtnDelete_Click: deleting slug={slug}");
-        _store.Delete(slug);
-
-        LoadWorkspaces();
-        BtnLoad.IsEnabled = false;
-        BtnDelete.IsEnabled = false;
-        TxtPreviewEmpty.IsVisible = true;
-        PreviewList.IsVisible = false;
-        TxtPreviewDescription.IsVisible = false;
     }
 
     private void BtnCancel_Click(object? sender, RoutedEventArgs e)
@@ -165,25 +310,37 @@ public partial class LoadWorkspaceDialog : Window
             var color = Color.Parse(hex);
             return new SolidColorBrush(color);
         }
-        catch
+        catch (FormatException)
         {
             return new SolidColorBrush(Colors.Transparent);
         }
     }
 
+    /// <summary>One row in the list: the summary, plus the document once it has been fetched.</summary>
     internal class WorkspaceListItem
     {
-        public WorkspaceDefinition Definition { get; }
-        public string Name => Definition.Name;
-        public string SessionCountDisplay => $"{Definition.Sessions.Count} session{(Definition.Sessions.Count == 1 ? "" : "s")}";
-        public string UpdatedDisplay => Definition.UpdatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+        public WorkspaceSummaryDto Summary { get; }
 
-        public WorkspaceListItem(WorkspaceDefinition definition)
+        /// <summary>The full document, once the preview has fetched it. Null until then.</summary>
+        public WorkspaceDocument? Document { get; set; }
+
+        public string Name => Summary.Name;
+
+        public string SessionCountDisplay =>
+            $"{Summary.SeatCount} session{(Summary.SeatCount == 1 ? "" : "s")}";
+
+        // SpecifyKind first: a DateTime that came back from JSON without a kind would otherwise be
+        // treated as already-local and shown hours out.
+        public string UpdatedDisplay =>
+            DateTime.SpecifyKind(Summary.UpdatedUtc, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+        public WorkspaceListItem(WorkspaceSummaryDto summary)
         {
-            Definition = definition;
+            Summary = summary;
         }
     }
 
+    /// <summary>One seat, as shown in the preview panel.</summary>
     internal class PreviewSessionItem
     {
         public string DisplayName { get; set; } = string.Empty;

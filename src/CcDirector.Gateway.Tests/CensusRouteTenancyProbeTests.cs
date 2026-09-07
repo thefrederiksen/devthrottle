@@ -501,6 +501,93 @@ public sealed class CensusRouteTenancyProbeTests : IAsyncLifetime
         return v.GetBoolean();
     }
 
+    // ==================================================================== workspaces (workspaces table)
+
+    /// <summary>
+    /// GET + DELETE /gateway/workspaces/{id} - both context-less (WorkspaceEndpoints.cs, handlers
+    /// <c>(string id)</c>), scoped ONLY by the ambient request scope and the entity global query filter.
+    ///
+    /// THIS PROBE EXISTS BECAUSE THE CENSUS CLAIMED IT. The census comment says every family it lists was
+    /// executed cross-tenant, and for workspaces that was a claim about a test nobody had written - the
+    /// structural guard covers the MODEL (tenant_id, the query filter, the composite key), and a model
+    /// guard is not a statement about what a route hands to a caller. A comment asserting an execution
+    /// that did not happen is worse than no comment: it retires the question.
+    ///
+    /// The sharpest available shape, and the same one the mission-WHY probe uses: BOTH tenants store a
+    /// workspace under the SAME slug, which the composite key (TenantId, Id) makes legal, each with a
+    /// distinctive name. If the seam were missing the second write would find and overwrite the first
+    /// tenant's row - so this catches a cross-tenant READ, a cross-tenant DELETE, and a cross-tenant
+    /// OVERWRITE in one. The positive controls matter as much as the refusals: each tenant must be able
+    /// to read and delete its OWN row, or a store that refused everybody would pass.
+    /// </summary>
+    [Fact]
+    public async Task Workspaces_ContextLess_KeepEachTenantsWorkspaceUnderTheSameSlugSeparate()
+    {
+        const string slug = "morning-fleet";
+
+        var bodyA = WorkspaceBody("A's morning fleet", @"D:\A\repo");
+        var bodyB = WorkspaceBody("B's morning fleet", @"D:\B\repo");
+
+        Assert.Equal(HttpStatusCode.OK, (await Send("PUT", $"gateway/workspaces/{slug}", _keyA, bodyA)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send("PUT", $"gateway/workspaces/{slug}", _keyB, bodyB)).StatusCode);
+
+        // POSITIVE CONTROL: each tenant reads its OWN row under the shared slug, and gets its own.
+        var readA = await Json(await Send("GET", $"gateway/workspaces/{slug}", _keyA, null),
+            HttpStatusCode.OK, "A reads its own workspace under the shared slug");
+        Assert.Equal("A's morning fleet", readA.GetProperty("name").GetString());
+
+        var readB = await Json(await Send("GET", $"gateway/workspaces/{slug}", _keyB, null),
+            HttpStatusCode.OK, "B reads its own workspace under the shared slug");
+        Assert.Equal("B's morning fleet", readB.GetProperty("name").GetString());
+
+        // B's write did not overwrite A's row, which is what a missing tenant qualifier on the store's
+        // own key lookup would have done.
+        Assert.Equal(@"D:\A\repo",
+            readA.GetProperty("seats")[0].GetProperty("repoPath").GetString());
+
+        // Each tenant's LIST is its own row and nothing else.
+        var listA = await Json(await Send("GET", "gateway/workspaces", _keyA, null), HttpStatusCode.OK,
+            "A lists its own workspaces");
+        var rowsA = listA.GetProperty("workspaces").EnumerateArray().ToList();
+        Assert.Equal("A's morning fleet", Assert.Single(rowsA).GetProperty("name").GetString());
+
+        // A DELETE by the other tenant finds nothing and destroys nothing.
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await Send("DELETE", "gateway/workspaces/only-in-a", _keyB, null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await Send("PUT", "gateway/workspaces/only-in-a", _keyA, bodyA)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await Send("GET", "gateway/workspaces/only-in-a", _keyB, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await Send("DELETE", "gateway/workspaces/only-in-a", _keyB, null)).StatusCode);
+
+        // ...and it is still there for its owner afterwards, which is the half that proves the refusal
+        // was a refusal and not a deletion that answered 404 on its way out.
+        Assert.Equal(HttpStatusCode.OK,
+            (await Send("GET", "gateway/workspaces/only-in-a", _keyA, null)).StatusCode);
+
+        // POSITIVE CONTROL: the owner CAN delete its own, so a store refusing everybody fails here.
+        Assert.Equal(HttpStatusCode.OK,
+            (await Send("DELETE", "gateway/workspaces/only-in-a", _keyA, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await Send("GET", "gateway/workspaces/only-in-a", _keyA, null)).StatusCode);
+
+        // The shared slug is untouched by all of that, for both of them.
+        Assert.Equal(HttpStatusCode.OK, (await Send("GET", $"gateway/workspaces/{slug}", _keyA, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send("GET", $"gateway/workspaces/{slug}", _keyB, null)).StatusCode);
+    }
+
+    private static string WorkspaceBody(string name, string repoPath) =>
+        $$"""
+        {
+          "name": {{System.Text.Json.JsonSerializer.Serialize(name)}},
+          "origin": "authored",
+          "seats": [ { "name": "a seat", "agent": "ClaudeCode",
+                       "repoPath": {{System.Text.Json.JsonSerializer.Serialize(repoPath)}} } ]
+        }
+        """;
+
     private Task<HttpResponseMessage> Send(string method, string path, string bearer, string? body)
     {
         var req = new HttpRequestMessage(new HttpMethod(method), path);

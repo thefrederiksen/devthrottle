@@ -144,6 +144,9 @@ public static class SessionKeyGuard
             // version history. This is how an agent reads a capability the fleet holds centrally.
             if (IsCatalogueRead(s)) return true;
 
+            // One workspace. See IsWorkspaceRoute for why a session key writes these at all.
+            if (IsWorkspaceRoute(verb, s)) return true;
+
             // The automation browsers on one Director's machine. See IsBrowserRoute for how the /directors
             // surface is split between configuration and admission.
             if (IsBrowserRoute(verb, s)) return true;
@@ -206,6 +209,9 @@ public static class SessionKeyGuard
             // Contribute to the fleet's shared skills and workflows: create one, publish it, clone one.
             if (IsCatalogueWrite(verb, s)) return true;
 
+            // Capture a Director's live fleet into a workspace - the first act of a drain.
+            if (IsWorkspaceRoute(verb, s)) return true;
+
             // Create a scheduled job, or run one now.
             if (IsScheduleRoute(verb, s)) return true;
 
@@ -232,6 +238,10 @@ public static class SessionKeyGuard
             // inspection found that the shipped command line has always sent PUT here.
             if (IsCatalogueWrite(verb, s)) return true;
             if (IsScheduleRoute(verb, s)) return true;
+
+            // Write a workspace - including writing the drain's judgments and, afterwards, what the
+            // restart actually produced, back onto a captured one.
+            if (IsWorkspaceRoute(verb, s)) return true;
             return false;
         }
 
@@ -271,8 +281,46 @@ public static class SessionKeyGuard
             // exactly the trip back to the interface the ruling exists to remove.
             if (IsHandoverWrite(s)) return true;
 
+            // Delete a workspace, on the same terms as the skills and workflows beside it.
+            if (IsWorkspaceRoute(verb, s)) return true;
+
             return false;
         }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The workspace shapes under <c>/gateway/workspaces</c> (issue #2722): list, read one, CAPTURE one
+    /// from a running Director (POST), store one (PUT), delete one.
+    ///
+    /// A session key may write these because a SESSION drives a drain. The whole point of the object is
+    /// that a session, on another machine, empties a Director and writes down what was running so the
+    /// fleet can be brought back; a guard that let an agent read workspaces but never write one would
+    /// leave the record to a human at the keyboard of the machine being restarted, which is the one
+    /// person the exercise exists to spare.
+    ///
+    /// It is nowhere near the admission surface this guard protects. A workspace decides nothing about
+    /// who is admitted and nothing about account identity: it is a document, resolved inside the
+    /// caller's own tenant, describing seats. Restarting the Director it describes is a different route
+    /// entirely, and that one stays refused.
+    ///
+    /// Matched by STRUCTURE, and here is exactly what that does and does not buy. A DEEPER shape -
+    /// /gateway/workspaces/{id}/anything - is refused until somebody classifies it. A new THREE-segment
+    /// LITERAL, say POST /gateway/workspaces/purge, would be authorized on the day it is mapped, because
+    /// this cannot tell a literal segment from an id. So do not add one: put a new verb one level deeper,
+    /// or extend this method deliberately. (The skills and workflows families beside it have the same
+    /// property; it is written down here rather than left to be discovered.)
+    /// </summary>
+    private static bool IsWorkspaceRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "gateway" || s[1] != "workspaces") return false;
+
+        // /gateway/workspaces - list, or capture a running Director's fleet into a new one.
+        if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
+
+        // /gateway/workspaces/{id} - read, store, delete.
+        if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
 
         return false;
     }

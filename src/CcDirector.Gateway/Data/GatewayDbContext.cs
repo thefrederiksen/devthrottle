@@ -225,6 +225,11 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Mission WHY notes (<c>mission_notes</c>), keyed by the normalized mission name.</summary>
     public DbSet<MissionNoteEntity> MissionNotes => Set<MissionNoteEntity>();
 
+    /// <summary>Workspaces (<c>workspaces</c>, issue #2722) - a named set of seats, authored by hand or
+    /// captured from a running Director. Stored here rather than on the machine because it must be readable
+    /// when that machine is down.</summary>
+    public DbSet<WorkspaceEntity> Workspaces => Set<WorkspaceEntity>();
+
     /// <summary>Stored dictation transcripts (<c>dictation_transcripts</c>, issue #509) - the raw and cleaned
     /// transcript per utterance, per tenant, write-only, for later mistranscription mining (devthrottle #2075).</summary>
     public DbSet<DictationTranscriptEntity> DictationTranscripts => Set<DictationTranscriptEntity>();
@@ -756,6 +761,18 @@ public sealed class GatewayDbContext : DbContext
             b.HasKey(e => new { e.TenantId, e.Key });
         });
 
+        modelBuilder.Entity<WorkspaceEntity>(b =>
+        {
+            b.ToTable("workspaces");
+            // COMPOSITE primary key (tenant_id, Id) - the established per-tenant key pattern. The id is a
+            // slug the author mints, so without the tenant in the key two tenants naming a workspace
+            // "morning-fleet" would collide at the database.
+            b.HasKey(e => new { e.TenantId, e.Id });
+            // The list reads every workspace for one tenant, newest first; the index leads with tenant_id so
+            // it rides the global query filter's "tenant_id = @t" prefix rather than scanning.
+            b.HasIndex(e => new { e.TenantId, e.UpdatedUtc });
+        });
+
         modelBuilder.Entity<DictationTranscriptEntity>(b =>
         {
             b.ToTable("dictation_transcripts");
@@ -1064,6 +1081,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionSpendEntity>(modelBuilder);
         ApplyTenantScope<AccountHostedAiSpendEntity>(modelBuilder);
         ApplyTenantScope<MissionNoteEntity>(modelBuilder);
+        ApplyTenantScope<WorkspaceEntity>(modelBuilder);
         ApplyTenantScope<GovernanceAuditEventEntity>(modelBuilder);
         ApplyTenantScope<TenantSettingEntity>(modelBuilder);
         ApplyTenantScope<DictationTranscriptEntity>(modelBuilder);
@@ -1111,6 +1129,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");
+            // workspaces.Id is a slug in a composite primary key, compared ordinally by the store exactly
+            // like the workflow and skill ids above - pin it to "C" so both providers agree on equality.
+            modelBuilder.Entity<WorkspaceEntity>().Property(e => e.Id).UseCollation("C");
             // tenant_settings.Key is a fixed ordinally-compared identifier (issue #2017), same byte-ordinal
             // equality requirement as mission_notes.Key - pin it to "C" so both providers agree exactly.
             modelBuilder.Entity<TenantSettingEntity>().Property(e => e.Key).UseCollation("C");

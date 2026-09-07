@@ -241,6 +241,151 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         public List<DirectorReachabilityDto>? Directors { get; set; }
     }
 
+    // ===== Workspaces (issue #2722) =====
+    // A workspace - a named set of seats - lives on the GATEWAY, not on this machine. The desktop used to
+    // keep them as files under its own configuration directory, which meant they were readable only while
+    // this machine was up and editable only at this keyboard. The one moment a workspace is worth having
+    // is the moment the machine has been restarted out from under its fleet, so the store moved and these
+    // four calls are how the desktop reaches it. They THROW on failure, like the fleet relays above: a
+    // workspace that was not saved must never look saved.
+
+    /// <summary>Every workspace on the Gateway, newest first. Summaries only.</summary>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<List<WorkspaceSummaryDto>> ListWorkspacesAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "Gateway is not configured; workspaces are stored on the Gateway, so there is nowhere to " +
+                "read them from. Connect this Director to a Gateway in Settings.");
+
+        FileLog.Write("[GatewayClient] ListWorkspacesAsync: GET /gateway/workspaces");
+        using var resp = await _http.GetAsync("gateway/workspaces", ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, "GET /gateway/workspaces", ct);
+
+        var env = await resp.Content.ReadFromJsonAsync<WorkspaceListEnvelope>(ct);
+        if (env?.Workspaces is null)
+            throw new InvalidOperationException("Gateway GET /gateway/workspaces returned an unparsable body.");
+
+        FileLog.Write($"[GatewayClient] ListWorkspacesAsync: {env.Workspaces.Count} workspace(s)");
+        return env.Workspaces;
+    }
+
+    /// <summary>One workspace document, or null when the Gateway has no workspace with that id.</summary>
+    /// <param name="id">The workspace slug.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot read a workspace.");
+
+        FileLog.Write($"[GatewayClient] GetWorkspaceAsync: GET /gateway/workspaces/{id}");
+        using var resp = await _http.GetAsync($"gateway/workspaces/{Uri.EscapeDataString(id)}", ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"GET /gateway/workspaces/{id}", ct);
+
+        var doc = await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct);
+        if (doc is null)
+            throw new InvalidOperationException(
+                $"Gateway GET /gateway/workspaces/{id} returned an unparsable body.");
+        return doc;
+    }
+
+    /// <summary>Create or replace a workspace. Returns the stored document with the Gateway's timestamps.</summary>
+    /// <param name="doc">The workspace to store. Its Id is the route.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceDocument> SaveWorkspaceAsync(WorkspaceDocument doc, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "Gateway is not configured; workspaces are stored on the Gateway, so there is nowhere to " +
+                "save this. Connect this Director to a Gateway in Settings.");
+
+        FileLog.Write($"[GatewayClient] SaveWorkspaceAsync: PUT /gateway/workspaces/{doc.Id}, seats={doc.Seats.Count}");
+        using var resp = await _http.PutAsJsonAsync(
+            $"gateway/workspaces/{Uri.EscapeDataString(doc.Id)}", doc, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"PUT /gateway/workspaces/{doc.Id}", ct);
+
+        var saved = await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct);
+        if (saved is null)
+            throw new InvalidOperationException(
+                $"Gateway PUT /gateway/workspaces/{doc.Id} returned an unparsable body.");
+        return saved;
+    }
+
+    /// <summary>
+    /// Create a workspace, and REFUSE if one with that id already exists.
+    ///
+    /// This is the whole point of the header. Without it the only way not to clobber somebody is to
+    /// list, check the answer, and then PUT - three operations with two gaps in them, and a workspace
+    /// created inside either gap is destroyed by a caller that had honestly checked. "If-None-Match: *"
+    /// is the standard way to say "write this only if it does not exist", and the Gateway decides it
+    /// under the same lock it writes under, so there is no gap left to lose anything in.
+    /// </summary>
+    /// <param name="doc">The workspace to create. Its Id is the route.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <exception cref="WorkspaceAlreadyExistsException">A workspace with that id is already there.
+    /// This is a normal answer, not a transport failure: the caller decides whether to leave it alone
+    /// or to overwrite it deliberately.</exception>
+    public async Task<WorkspaceDocument> CreateWorkspaceAsync(
+        WorkspaceDocument doc, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "Gateway is not configured; workspaces are stored on the Gateway, so there is nowhere " +
+                "to create this. Connect this Director to a Gateway in Settings.");
+
+        FileLog.Write($"[GatewayClient] CreateWorkspaceAsync: PUT (create-only) /gateway/workspaces/{doc.Id}");
+        using var req = new HttpRequestMessage(
+            HttpMethod.Put, $"gateway/workspaces/{Uri.EscapeDataString(doc.Id)}")
+        {
+            Content = JsonContent.Create(doc),
+        };
+        req.Headers.IfNoneMatch.Add(EntityTagHeaderValue.Any);
+
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+        {
+            FileLog.Write($"[GatewayClient] CreateWorkspaceAsync: '{doc.Id}' already exists");
+            throw new WorkspaceAlreadyExistsException(doc.Id);
+        }
+
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"PUT /gateway/workspaces/{doc.Id} (create-only)", ct);
+
+        var saved = await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct);
+        if (saved is null)
+            throw new InvalidOperationException(
+                $"Gateway PUT /gateway/workspaces/{doc.Id} returned an unparsable body.");
+        return saved;
+    }
+
+    /// <summary>Delete a workspace. False when the Gateway had none with that id.</summary>
+    /// <param name="id">The workspace slug.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<bool> DeleteWorkspaceAsync(string id, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot delete a workspace.");
+
+        FileLog.Write($"[GatewayClient] DeleteWorkspaceAsync: DELETE /gateway/workspaces/{id}");
+        using var resp = await _http.DeleteAsync($"gateway/workspaces/{Uri.EscapeDataString(id)}", ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return false;
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"DELETE /gateway/workspaces/{id}", ct);
+        return true;
+    }
+
+    /// <summary>The /gateway/workspaces response shape.</summary>
+    private sealed class WorkspaceListEnvelope
+    {
+        public List<WorkspaceSummaryDto>? Workspaces { get; set; }
+    }
+
 
 
     // The fleet-relay legs that used to live here - SendPromptToFleetAsync, RequestDeletionFleetAsync,

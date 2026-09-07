@@ -561,6 +561,11 @@ public sealed class GatewayHost : IAsyncDisposable
     // Workflow runs (phase 4, issue #1771): one row per execution of a workflow definition, pinned to
     // the version that governed it. The governance outcome spine.
     private readonly Workflows.WorkflowRunStore _workflowRuns;
+    // Workspaces (issue #2722): a named set of seats, authored by hand or captured from a running
+    // Director. Held here, and not on the machine, because the one moment a workspace matters is the
+    // moment that machine has just been restarted out from under its fleet. Served by
+    // Api.WorkspaceEndpoints; REPLACES the Director-local workspace files.
+    private readonly Workspaces.WorkspaceStore _workspaces;
     // The central skill library (devthrottle_internal issue 995): the capabilities agents reach for,
     // held here and fetched, instead of copied onto every machine by the installer. Served by
     // Api.SkillEndpoints - a separate register from workflows, sharing their storage shape.
@@ -1386,6 +1391,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // Workflow runs (phase 4, issue #1771): built after the catalog store so the built-ins a run
         // pins are already seeded.
         _workflowRuns = new Workflows.WorkflowRunStore(_gatewayDb, deferInitialize: true);
+        // Workspaces (issue #2722): persisted in the workspaces table. No legacy import - the
+        // Director-local workspace files it replaces live on each machine, under each Director's own
+        // configuration directory, and the Gateway cannot see them. The desktop pushes them up.
+        _workspaces = new Workspaces.WorkspaceStore(_gatewayDb);
         // The central skill library: persisted in the skills tables, the shipped built-ins
         // seeded/upgraded at construction. Nothing is deployed to any machine - agents fetch.
         _skills = new Skills.SkillStore(_gatewayDb, deferInitialize: true);
@@ -3628,6 +3637,17 @@ public sealed class GatewayHost : IAsyncDisposable
         // each carrying a private copy. Served from the persisted store (built-ins seeded at startup);
         // authoring routes are the next phase. Inherits the host-wide token middleware above.
         Api.WorkflowEndpoints.Map(_app, _workflows);
+
+        // Workspaces (issue #2722, Phase 3 of #2719): the stored object a restart index and a workspace
+        // both are. The capture verb folds a Director's live sessions here rather than letting a caller
+        // assemble the facts, because this document is read after those sessions are gone.
+        Api.WorkspaceEndpoints.Map(
+            _app,
+            _workspaces,
+            directorId => _tenantPass.Current is { } tenant
+                ? PushedSessions.ConnectedFleet(tenant, directorId)
+                : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
+            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing

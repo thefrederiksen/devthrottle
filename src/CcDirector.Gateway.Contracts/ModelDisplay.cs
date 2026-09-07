@@ -54,6 +54,17 @@ public sealed class ModelDisplay
     /// <summary>True in both absent states, so a client can style the badge as muted/outlined without
     /// branching on <see cref="Kind"/>. A convenience for STYLING, never a decision.</summary>
     public bool IsAbsent { get; set; }
+
+    /// <summary>
+    /// Anything in this object a reading build does not know a field for, kept verbatim.
+    ///
+    /// It is here because a workspace stores one of these, and the claim made when the bags went in was
+    /// that EVERY extensible object in a stored workspace carried one. This was the one that did not -
+    /// caught by a reviewer, and worth correcting rather than quietly closing, because the claim was
+    /// wider than the code by exactly one type.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, System.Text.Json.JsonElement>? Unknown { get; set; }
 }
 
 /// <summary>

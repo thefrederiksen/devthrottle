@@ -240,6 +240,11 @@ public sealed class PostgresProviderProofTests
             ("turn_log_switches", "account"),
             ("turn_log_switches", "machine"),
             ("workflow_tenant_overrides", "WorkflowId"),
+            // The workspace slug (issue #2722). Caller-supplied, in a composite primary key with
+            // tenant_id, and compared ordinally by the store exactly like the skill and workflow ids -
+            // so the two providers have to agree on equality or one of them would admit a second
+            // workspace under an id the other calls a duplicate.
+            ("workspaces", "Id"),
         };
         Assert.Equal(expected, withExplicitC.ToArray());
 
