@@ -98,7 +98,8 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
         var fresh = Guid.NewGuid().ToString();
         var control = await RegisterAsync(fresh);
         Assert.Equal(HttpStatusCode.OK, control.status);
-        Assert.Equal(fresh, control.body.GetProperty("upload_id").GetString());
+        // The store answers the normalized 32-character form of the id, as it always has.
+        Assert.Equal(Guid.Parse(fresh).ToString("N"), control.body.GetProperty("upload_id").GetString());
         Assert.True(Store().IsPending(fresh));
     }
 

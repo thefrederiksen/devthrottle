@@ -2046,6 +2046,23 @@ export interface DictationSubmitResult {
   transcript: string;
   error?: string;
   outOfCredits?: boolean;
+  /** Set when the Gateway refused to touch this upload's on-disk delivery record (issue #2745): the record is
+   *  there but cannot be read. "needs-operator" (a 409): it was read and is not a delivery record, or is
+   *  another account's - no retry changes that, someone has to look at the file. "retry-later" (a 423): it
+   *  could not be read just now and a retry may read it. Never terminal, never acknowledged; the driver keeps
+   *  the reason on screen past the throttle hour and slows the operator-needed case right down. */
+  recordRefusal?: RecordRefusalKind;
+}
+
+export type RecordRefusalKind = "needs-operator" | "retry-later";
+
+// The refusal kind carried by a Gateway error body, or undefined when the body is not a record refusal. A
+// refusal body always names the record kind in `record` (see the Gateway's RecordRefusal); the status says
+// whether a retry can help.
+function recordRefusalKind(body: unknown, status: number): RecordRefusalKind | undefined {
+  const record = body && typeof body === "object" ? (body as { record?: unknown }).record : undefined;
+  if (typeof record !== "string") return undefined;
+  return status === 423 ? "retry-later" : "needs-operator";
 }
 
 export interface DictationUploadArgs {
@@ -2117,8 +2134,8 @@ export async function uploadDictationToSession(
   // result (terminal:false) with the honest reason, so the driver keeps the audio and retries.
   const sid = args.sessionId;
   const uploadId = args.uploadId;
-  const held = (error: string, outOfCredits = false): DictationSubmitResult =>
-    ({ terminal: false, submitted: false, movedOn: false, transcript: "", error, outOfCredits });
+  const held = (error: string, outOfCredits = false, recordRefusal?: RecordRefusalKind): DictationSubmitResult =>
+    ({ terminal: false, submitted: false, movedOn: false, transcript: "", error, outOfCredits, recordRefusal });
   const permanent = (reason: PermanentDictationReason): DictationSubmitResult =>
     ({ terminal: false, submitted: false, movedOn: false, transcript: "", permanent: true, permanentReason: reason });
 
@@ -2136,7 +2153,15 @@ export async function uploadDictationToSession(
   } catch {
     return held(DICTATION_HELD_NO_CONNECTION_MESSAGE);
   }
-  if (!reg.ok) return held(transcriptionFailureMessage(await readGatewayErrorBody(reg), reg.status, true));
+  if (!reg.ok) {
+    // Read once, parse once: the message mapper wants the error sentence, and the record-refusal flag (issue
+    // #2745) wants the `record` field of the same body.
+    const text = await reg.text().catch(() => "");
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+    const serverError = stringFromErrorBody(parsed) ?? (text.trim() ? text : undefined);
+    return held(transcriptionFailureMessage(serverError, reg.status, true), false, recordRefusalKind(parsed, reg.status));
+  }
   const regBody = (await reg.json().catch(() => ({}))) as {
     upload_id?: string;
     terminal?: boolean;
@@ -2242,7 +2267,8 @@ export async function uploadDictationToSession(
       // there but is not readable as a delivery record, or belongs to another account. That is not a
       // missing-chunk answer, and re-sending chunks cannot change it - an operator has to look at the file
       // the server named. Held with that message; no ack, because an ack retires the server's evidence.
-      if (typeof body.record === "string") return held(transcriptionFailureMessage(body.error, comp.status, true));
+      if (typeof body.record === "string")
+        return held(transcriptionFailureMessage(body.error, comp.status, true), false, recordRefusalKind(body, comp.status));
       // Missing chunks: send exactly those, pausing (held) if the connection drops mid-chunk.
       const missing = (body.missing ?? []).filter((i) => ranges[i]);
       if (missing.length === 0) return held(transcriptionFailureMessage(undefined, 502, true));
@@ -2290,7 +2316,7 @@ export async function uploadDictationToSession(
 
     const body = (await comp.json().catch(() => ({}))) as {
       submitted?: boolean; movedOn?: boolean; dropped?: boolean; transcript?: string; error?: string;
-      permanent?: boolean; reason?: string;
+      permanent?: boolean; reason?: string; record?: string;
     };
 
     // Genuinely permanent, non-retryable failure (issue #1184). The server (a later, coordinated step)
@@ -2304,8 +2330,9 @@ export async function uploadDictationToSession(
 
     if (!comp.ok) {
       // A reachable Gateway that answered with a server-side transcription fault (timeout / outage / no
-      // key / session gone). Held, not lost - the honest "saved and will keep trying" copy.
-      return held(transcriptionFailureMessage(body.error, comp.status, true));
+      // key / session gone) - or, at 423, a delivery record it could not read just now (issue #2745). Held,
+      // not lost - the honest "saved and will keep trying" copy.
+      return held(transcriptionFailureMessage(body.error, comp.status, true), false, recordRefusalKind(body, comp.status));
     }
 
     // 200: the server made a final decision. submitted -> the turn was injected; movedOn -> the server

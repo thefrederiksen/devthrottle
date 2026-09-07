@@ -211,27 +211,31 @@ internal static class GatewayDictationEndpoint
             // read is still a marker: it says this upload id already became something, and re-opening it is
             // how the operator's own speech was injected a second time. The client is told why and holds the
             // recording; nothing is written over the marker, so the evidence is still there for an operator.
-            var read = string.IsNullOrWhiteSpace(key) ? DictationRecordRead.Absent : store.Read(key);
-            if (read.Refuses)
+            //
+            // And it is ONE operation under the upload's record gate (review round two): the read, the decision,
+            // the staging refresh and the PENDING write happen together in OpenPending. As three separate calls
+            // a complete could land the DELIVERED tombstone between the read and the PENDING write, and the
+            // write buried it - the same re-injection, reached through a race instead of a fold.
+            var opened = store.OpenPending(string.IsNullOrWhiteSpace(key) ? null : key, sid);
+            var uploadId = opened.UploadId;
+            if (opened.Before.Refuses)
             {
-                FileLog.Write($"[GatewayDictation] upload re-register REFUSED: {read.Describe(key)}; not re-opened");
-                return RecordRefusal(read, key);
+                FileLog.Write($"[GatewayDictation] upload re-register REFUSED: {opened.Before.Describe(uploadId)}; not re-opened");
+                return RecordRefusal(opened.Before, uploadId);
             }
-            var existing = read.Record;
-            if (existing is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
+            if (!opened.Opened)
             {
-                FileLog.Write($"[GatewayDictation] upload re-register of terminal uploadId={key} state={existing.State}");
-                return TerminalRegisterResult(store.Register(key), existing);
+                var existing = opened.Before.Record!;
+                FileLog.Write($"[GatewayDictation] upload re-register of terminal uploadId={uploadId} state={existing.State}");
+                return TerminalRegisterResult(uploadId, existing);
             }
-            // A PENDING or FAILED record (or none) is (re-)opened as a fresh PENDING upload. Register
-            // (re-)opens the staging dir; MarkPending writes the explicit durable PENDING marker carrying the
-            // sessionId, which BOTH persists the owning session on disk for the enforced session lock (issue
-            // #1188, so the lock survives a Gateway restart) AND, for a FAILED id, IS the retry re-entry back
-            // to PENDING - overwriting the FAILED marker while keeping the staged chunks (issue #1185).
-            if (existing is { State: DictationDeliveryState.Failed })
-                FileLog.Write($"[GatewayDictation] upload re-register clears FAILED uploadId={key}, retrying");
-            var uploadId = store.Register(string.IsNullOrWhiteSpace(key) ? null : key);
-            store.MarkPending(uploadId, sid);
+            // A PENDING or FAILED record (or none) has been (re-)opened as a fresh PENDING upload: the staging
+            // dir exists and the explicit durable PENDING marker carries the sessionId, which BOTH persists the
+            // owning session on disk for the enforced session lock (issue #1188, so the lock survives a Gateway
+            // restart) AND, for a FAILED id, IS the retry re-entry back to PENDING - overwriting the FAILED
+            // marker while keeping the staged chunks (issue #1185).
+            if (opened.Before.Record is { State: DictationDeliveryState.Failed })
+                FileLog.Write($"[GatewayDictation] upload re-register clears FAILED uploadId={uploadId}, retrying");
             _uploadSids.Set(tenant, uploadId, sid);
             try { transcribingSessions.Begin(tenant, sid); } catch { /* the orange mark is a nicety */ }
             FileLog.Write($"[GatewayDictation] upload registered sid={sid} uploadId={uploadId}");

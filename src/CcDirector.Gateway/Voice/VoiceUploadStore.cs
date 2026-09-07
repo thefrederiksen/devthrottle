@@ -940,24 +940,48 @@ public sealed class VoiceUploadStore
             using var doc = JsonDocument.Parse(text);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 return Malformed(path, "the file does not hold a JSON object");
-            foreach (var required in RequiredRecordProperties)
-                if (!doc.RootElement.TryGetProperty(required, out _))
-                    return Malformed(path, $"the record has no {required} property");
+            foreach (var (name, allowed) in RequiredRecordProperties)
+            {
+                if (!doc.RootElement.TryGetProperty(name, out var value))
+                    return Malformed(path, $"the record has no {name} property");
+                if (Array.IndexOf(allowed, value.ValueKind) < 0)
+                    return Malformed(path, $"the record's {name} is a JSON {value.ValueKind}, not {string.Join(" or ", allowed)}");
+            }
             record = JsonSerializer.Deserialize<DictationDeliveryRecord>(text, RecordJson)!;
         }
         catch (JsonException ex)
         {
             return Malformed(path, ex.Message);
         }
-        // A number the enum does not name deserializes without complaint, and then matches no state anywhere.
+        // A state NAME the enum does not carry throws above; this is the remaining way a value could arrive
+        // that matches no state anywhere, and it is kept so the claim "Present means a known state" is checked
+        // where it is made rather than assumed from the converter.
         if (!Enum.IsDefined(record.State))
             return Malformed(path, $"state {(int)record.State} is not a delivery state this build knows");
         return DictationRecordRead.Found(record);
     }
 
-    // The properties every delivery record has carried since issue #1183. Case-sensitive, exactly as the
-    // serializer matches them: a file spelling one differently is one the serializer would silently default.
-    private static readonly string[] RequiredRecordProperties = { "State", "Submitted", "MovedOn", "Transcript", "Reason" };
+    // The properties every delivery record has carried since issue #1183, each with the JSON kinds the store
+    // itself writes. Case-sensitive, exactly as the serializer matches them: a file spelling one differently is
+    // one the serializer would silently default.
+    //
+    // State must be a NAME, never a number. The enum converter accepts integers too, and 0 is PENDING and 1 is
+    // DELIVERED: "State":0 would read as a re-openable pending record, and "State":1 as a delivered outcome
+    // the phone would acknowledge - and then drop its only copy of the audio for. Transcript must be a string,
+    // because a delivered outcome carries it verbatim to the client. Reason is the one field the store writes
+    // as null.
+    //
+    // Properties this build does NOT know are accepted on purpose: a record written by a newer Gateway carries
+    // fields an older build has never heard of, and a rollback that refused every one of them would hold every
+    // upload on the machine. The five known properties, present and of the right kind, are the contract.
+    private static readonly (string Name, JsonValueKind[] Allowed)[] RequiredRecordProperties =
+    {
+        ("State", new[] { JsonValueKind.String }),
+        ("Submitted", new[] { JsonValueKind.True, JsonValueKind.False }),
+        ("MovedOn", new[] { JsonValueKind.True, JsonValueKind.False }),
+        ("Transcript", new[] { JsonValueKind.String }),
+        ("Reason", new[] { JsonValueKind.String, JsonValueKind.Null }),
+    };
 
     private static DictationRecordRead Malformed(string path, string problem)
     {
@@ -975,9 +999,12 @@ public sealed class VoiceUploadStore
     /// removed that rejection deliberately (see <c>Session.SendTextAsync</c>) - so a missed lock costs a
     /// missing badge, nothing more. A marker nobody can read can never finish arriving, because every
     /// delivery path refuses it (see <see cref="Read"/>); projecting a lock from it would paint the session as
-    /// receiving a dictation until an operator found the file, with no client action able to clear it. The
-    /// Core-side lock reader documents the same fail-open choice for the same reason. Nothing compensates for
-    /// a re-injected dictation, which is why delivery is the side that refuses and this side is not.
+    /// receiving a dictation until an operator found the file, because nothing on the delivery or abandon
+    /// paths can clear such a marker. Only an explicit acknowledgement can - <see cref="Acknowledge"/> retires
+    /// the directory without reading it, and that is the client stating its own copy is gone, which the
+    /// official client never does after a refusal. The Core-side lock reader documents the same fail-open
+    /// choice for the same reason. Nothing compensates for a re-injected dictation, which is why delivery is
+    /// the side that refuses and this side is not.
     /// </summary>
     public bool IsPending(string uploadId)
         => Read(uploadId) is { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending };
@@ -987,7 +1014,12 @@ public sealed class VoiceUploadStore
     /// #1188). While a PENDING marker exists the session is LOCKED for human input (a projection read by
     /// <see cref="IsSessionLocked"/>). Called at register so the session id is on disk and the lock survives
     /// a Gateway restart. Keeps any staged chunks and overwrites a prior PENDING or FAILED marker (a retry
-    /// re-entry back to PENDING); the DELIVERED/ABANDONED short-circuit means those never reach here.
+    /// re-entry back to PENDING).
+    ///
+    /// This is the RAW writer. It does not decide: it will write PENDING over a terminal tombstone if told to,
+    /// which is why the register leg no longer calls it - the register transition is <see cref="OpenPending"/>,
+    /// which reads, decides and writes under one hold of the gate (issue #2745). What this still refuses, by
+    /// reading through the strict <see cref="ReadRecord"/>, is a marker it cannot read at all.
     /// </summary>
     public void MarkPending(string uploadId, string sessionId)
     {
@@ -1003,6 +1035,49 @@ public sealed class VoiceUploadStore
             WriteRecordMarker(dir, new DictationDeliveryRecord(
                 DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", ExistingRebaseline(uid)));
             FileLog.Write($"[VoiceUploadStore] MarkPending: uploadId={uid} sessionId={sessionId}");
+        });
+    }
+
+    /// <summary>
+    /// The REGISTER transition as ONE operation under the per-upload gate (issue #2745, review round two): read
+    /// the record, decide, refresh the staging directory, and write the PENDING marker - or not - without
+    /// releasing the gate in between. The endpoint used to do this as three calls (a read, then Register, then
+    /// MarkPending), and a complete could land the DELIVERED tombstone between the read and the PENDING write;
+    /// the write then buried the tombstone, and the next complete injected the same speech again. That is the
+    /// issue's harm reached through a race rather than a fold, and only a single gated operation closes it.
+    ///
+    /// Returns the normalized upload id (a blank or non-GUID id mints a fresh one, exactly as
+    /// <see cref="Register"/> does), what the record was BEFORE, and whether PENDING was written. It is NOT
+    /// written when the read refuses (Malformed, Unreadable, ForeignTenant - the caller answers with the
+    /// refusal, and the directory is left untouched) or when the record is terminal (DELIVERED or ABANDONED -
+    /// the caller answers with the cached outcome; the staging directory is still refreshed, as a re-register
+    /// always did, so the sweep does not take it out from under a client that is about to acknowledge). A
+    /// PENDING, FAILED, or absent record is (re-)opened, carrying the #1593 re-baseline forward from a FAILED
+    /// marker for the same reason <see cref="MarkPending"/> gives.
+    /// </summary>
+    public DictationOpenOutcome OpenPending(string? uploadId, string sessionId)
+    {
+        var uid = NormalizeId(uploadId) ?? Guid.NewGuid().ToString("N");
+        return WithRecordLock(uid, () =>
+        {
+            var before = Read(uid);
+            if (before.Refuses)
+            {
+                FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} refused ({before.Kind}); nothing written");
+                return new DictationOpenOutcome(uid, before, false);
+            }
+            EnsureFreshStaging(uid); // the gate is reentrant on this thread, so this stays inside it
+            if (before.Record is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
+            {
+                FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} is terminal ({before.Record.State}); not re-opened");
+                return new DictationOpenOutcome(uid, before, false);
+            }
+            BetweenRecordReadAndWriteForTests?.Invoke(uid);
+            WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
+                DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", before.Record?.RebaselineBufferBytes));
+            FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened " +
+                $"(was {(before.Record is { } r ? r.State.ToString() : before.Kind.ToString())})");
+            return new DictationOpenOutcome(uid, before, true);
         });
     }
 
@@ -1580,3 +1655,10 @@ public sealed class UnreadableDictationRecordException : InvalidOperationExcepti
         Read = read;
     }
 }
+
+/// <summary>
+/// What <see cref="VoiceUploadStore.OpenPending"/> did: the normalized upload id, the record as it was BEFORE
+/// (so the caller can answer a refusal or a terminal outcome from the same read the decision was made on),
+/// and whether the PENDING marker was written.
+/// </summary>
+public sealed record DictationOpenOutcome(string UploadId, DictationRecordRead Before, bool Opened);

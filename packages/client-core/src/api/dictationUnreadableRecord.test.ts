@@ -75,6 +75,7 @@ describe("a dictation whose server-side delivery record cannot be read (issue #2
     expect(result.submitted).toBe(false);
     expect(result.error).toContain("delivery record");
     expect(result.error).toContain("operator");
+    expect(result.recordRefusal).toBe("needs-operator");
     expect(ackFired(calls)).toBe(false);
     expect(chunkPuts(calls)).toBe(0);
     expect(calls.some((c) => c.url.includes("/complete"))).toBe(false);
@@ -92,6 +93,7 @@ describe("a dictation whose server-side delivery record cannot be read (issue #2
     expect(result.terminal).toBe(false);
     expect(result.error).toContain("could not read");
     expect(result.error).not.toContain("transcription service");
+    expect(result.recordRefusal).toBe("retry-later");
   });
 
   it("a 409 record refusal at COMPLETE is not read as a missing-chunk answer: held, no re-upload, no ack", async () => {
@@ -108,6 +110,7 @@ describe("a dictation whose server-side delivery record cannot be read (issue #2
     expect(result.terminal).toBe(false);
     expect(result.submitted).toBe(false);
     expect(result.error).toContain("delivery record");
+    expect(result.recordRefusal).toBe("needs-operator");
     // A resumed clip completes FIRST and sends only what the server reports missing (see the control below).
     // The refusal carries no missing list, so no chunk may have been sent on the strength of it.
     expect(chunkPuts(calls)).toBe(0);
@@ -128,6 +131,7 @@ describe("a dictation whose server-side delivery record cannot be read (issue #2
 
     expect(result.terminal).toBe(false);
     expect(result.error).toContain("could not read");
+    expect(result.recordRefusal).toBe("retry-later");
     expect(ackFired(calls)).toBe(false);
   });
 
@@ -150,6 +154,7 @@ describe("a dictation whose server-side delivery record cannot be read (issue #2
 
     expect(result.terminal).toBe(true);
     expect(result.submitted).toBe(true);
+    expect(result.recordRefusal).toBeUndefined();
     expect(chunkPuts(calls)).toBe(1); // exactly the chunk the server reported missing
     expect(ackFired(calls)).toBe(true);
   });
