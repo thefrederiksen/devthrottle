@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using CcDirector.ControlApi;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -87,9 +88,12 @@ public static class LegacyWorkspaceImport
 
             FileLog.Write($"[LegacyWorkspaceImport] RunOnceAsync: {files.Length} legacy file(s) in {folder}");
 
-            var onGateway = (await catalog.ListAsync(ct))
-                .Select(w => w.Id)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // THERE IS NO LIST-THEN-WRITE HERE ANY MORE. Reading the ids first and treating absence
+            // from that snapshot as permission to create is the shape that destroyed data: between the
+            // list and the write, another Director, another window, or a person on the Cockpit could
+            // create that id, and this loop would replace their bytes and then archive the legacy file
+            // as though the import had been safe. Every write below is create-only, decided on the
+            // Gateway under the lock it writes under, so there is no snapshot to go stale.
 
             // Which id each file in THIS run claimed, so a second file claiming the same one is a
             // collision that can be reported with both names rather than silently dropped.
@@ -127,19 +131,22 @@ public static class LegacyWorkspaceImport
                     continue;
                 }
 
-                if (onGateway.Contains(doc.Id))
+                try
                 {
-                    FileLog.Write(
-                        $"[LegacyWorkspaceImport] {name} -> id '{doc.Id}' already on the Gateway; leaving " +
-                        "the Gateway's copy alone");
-                }
-                else
-                {
-                    await catalog.SaveAsync(doc, ct);
-                    onGateway.Add(doc.Id);
+                    await catalog.CreateAsync(doc, ct);
                     imported++;
                     FileLog.Write(
                         $"[LegacyWorkspaceImport] imported {name} as '{doc.Id}' ({doc.Seats.Count} seat(s))");
+                }
+                catch (WorkspaceAlreadyExistsException)
+                {
+                    // Somebody already has that id - either from before this ran, or created while it
+                    // was running. Either way this file is not imported and the Gateway's copy is left
+                    // exactly as it is. An import never overwrites; that is a decision for a person at
+                    // the Save dialog, not for a migration nobody asked to run.
+                    FileLog.Write(
+                        $"[LegacyWorkspaceImport] {name} -> id '{doc.Id}' already on the Gateway; leaving " +
+                        "the Gateway's copy alone");
                 }
 
                 claimedInThisRun[doc.Id] = name;

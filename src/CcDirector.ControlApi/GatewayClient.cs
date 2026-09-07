@@ -316,6 +316,54 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         return saved;
     }
 
+    /// <summary>
+    /// Create a workspace, and REFUSE if one with that id already exists.
+    ///
+    /// This is the whole point of the header. Without it the only way not to clobber somebody is to
+    /// list, check the answer, and then PUT - three operations with two gaps in them, and a workspace
+    /// created inside either gap is destroyed by a caller that had honestly checked. "If-None-Match: *"
+    /// is the standard way to say "write this only if it does not exist", and the Gateway decides it
+    /// under the same lock it writes under, so there is no gap left to lose anything in.
+    /// </summary>
+    /// <param name="doc">The workspace to create. Its Id is the route.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <exception cref="WorkspaceAlreadyExistsException">A workspace with that id is already there.
+    /// This is a normal answer, not a transport failure: the caller decides whether to leave it alone
+    /// or to overwrite it deliberately.</exception>
+    public async Task<WorkspaceDocument> CreateWorkspaceAsync(
+        WorkspaceDocument doc, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "Gateway is not configured; workspaces are stored on the Gateway, so there is nowhere " +
+                "to create this. Connect this Director to a Gateway in Settings.");
+
+        FileLog.Write($"[GatewayClient] CreateWorkspaceAsync: PUT (create-only) /gateway/workspaces/{doc.Id}");
+        using var req = new HttpRequestMessage(
+            HttpMethod.Put, $"gateway/workspaces/{Uri.EscapeDataString(doc.Id)}")
+        {
+            Content = JsonContent.Create(doc),
+        };
+        req.Headers.IfNoneMatch.Add(EntityTagHeaderValue.Any);
+
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+        {
+            FileLog.Write($"[GatewayClient] CreateWorkspaceAsync: '{doc.Id}' already exists");
+            throw new WorkspaceAlreadyExistsException(doc.Id);
+        }
+
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"PUT /gateway/workspaces/{doc.Id} (create-only)", ct);
+
+        var saved = await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct);
+        if (saved is null)
+            throw new InvalidOperationException(
+                $"Gateway PUT /gateway/workspaces/{doc.Id} returned an unparsable body.");
+        return saved;
+    }
+
     /// <summary>Delete a workspace. False when the Gateway had none with that id.</summary>
     /// <param name="id">The workspace slug.</param>
     /// <param name="ct">Cancellation.</param>

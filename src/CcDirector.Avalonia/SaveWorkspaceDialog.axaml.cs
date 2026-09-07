@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using CcDirector.ControlApi;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -99,6 +100,17 @@ public partial class SaveWorkspaceDialog : Window
     private HashSet<string>? _existingIds;
     private string? _existingIdsProblem;
 
+    /// <summary>
+    /// The id the user has SAID they want to replace, or null.
+    ///
+    /// Overwriting is a decision somebody makes, not a thing that happens because a check did not run.
+    /// The first Save is always create-only; if the Gateway answers that the id is taken - whether the
+    /// list said so, said nothing, or could not be read at all - the dialog says so and this remembers
+    /// which id was confirmed. It is cleared whenever the name changes, so a confirmation for one name
+    /// can never authorise replacing a different workspace.
+    /// </summary>
+    private string? _overwriteConfirmedFor;
+
     private async System.Threading.Tasks.Task LoadExistingIdsAsync()
     {
         try
@@ -142,10 +154,23 @@ public partial class SaveWorkspaceDialog : Window
     {
         var name = TxtName.Text?.Trim() ?? string.Empty;
 
+        // A NEW NAME IS A NEW DECISION. Whatever the user confirmed a moment ago was a confirmation
+        // about one workspace; carrying it across a rename would replace a different one.
+        if (_overwriteConfirmedFor is not null
+            && !string.Equals(_overwriteConfirmedFor, WorkspaceSlug.From(name), StringComparison.OrdinalIgnoreCase))
+        {
+            _overwriteConfirmedFor = null;
+        }
+
         // Save stays OFF until the overwrite check has an answer, either way. The local-file version
         // could ask the disk on every keystroke and so was never in this state; this one fetches once,
         // and between opening the window and the answer arriving a name that IS taken shows no warning -
         // which looks exactly like a name that is free.
+        //
+        // Enabling it when the check FAILED is safe now and was not before. It used to reach the same
+        // unconditional replace as everything else, so an unread check became permission to overwrite;
+        // the write below is create-only, so a name that turns out to be taken comes back as a question
+        // instead of as a destroyed workspace.
         BtnSave.IsEnabled = !string.IsNullOrWhiteSpace(name)
             && (_existingIds is not null || _existingIdsProblem is not null);
 
@@ -172,7 +197,10 @@ public partial class SaveWorkspaceDialog : Window
 
         if (!string.IsNullOrWhiteSpace(name) && _existingIds.Contains(WorkspaceSlug.From(name)))
         {
-            TxtWarning.Text = "A workspace with this name already exists and will be overwritten.";
+            // NOT "will be overwritten". Saving asks first, and this is an early notice so the user can
+            // pick another name before they get there rather than a statement of what Save does.
+            TxtWarning.Text =
+                "A workspace with this name already exists. Save will ask before replacing it.";
             TxtWarning.IsVisible = true;
         }
         else
@@ -220,8 +248,40 @@ public partial class SaveWorkspaceDialog : Window
             };
 
             BtnSave.IsEnabled = false;
-            Result = await _catalog.SaveAsync(doc);
-            FileLog.Write($"[SaveWorkspaceDialog] Workspace saved: {name} ({selected.Count} seats)");
+
+            // CREATE-ONLY UNLESS THE USER SAID OTHERWISE. The check that runs when the window opens is
+            // a snapshot and always was: a workspace created after it, by another Director or another
+            // window, is not in it, and the dialog would show the name as free while replacing somebody
+            // else's work. So the write itself refuses, and only a second click - after the sentence
+            // below has been read - overwrites.
+            if (string.Equals(_overwriteConfirmedFor, doc.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                Result = await _catalog.SaveAsync(doc);
+                FileLog.Write(
+                    $"[SaveWorkspaceDialog] Workspace REPLACED on the user's confirmation: {name} " +
+                    $"({selected.Count} seats)");
+            }
+            else
+            {
+                try
+                {
+                    Result = await _catalog.CreateAsync(doc);
+                }
+                catch (WorkspaceAlreadyExistsException)
+                {
+                    _overwriteConfirmedFor = doc.Id;
+                    TxtWarning.Text =
+                        $"A workspace named \"{name}\" is already on the Gateway. Save again to replace " +
+                        "it, or change the name to keep both.";
+                    TxtWarning.IsVisible = true;
+                    BtnSave.IsEnabled = true;
+                    FileLog.Write(
+                        $"[SaveWorkspaceDialog] BtnSave_Click: '{doc.Id}' is taken; asking before replacing");
+                    return;
+                }
+
+                FileLog.Write($"[SaveWorkspaceDialog] Workspace saved: {name} ({selected.Count} seats)");
+            }
 
             Close(true);
         }

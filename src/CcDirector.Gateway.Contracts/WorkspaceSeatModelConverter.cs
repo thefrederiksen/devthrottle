@@ -40,14 +40,42 @@ public sealed class WorkspaceSeatModelConverter : JsonConverter<string?>
         if (reader.TokenType == JsonTokenType.StartObject)
         {
             using var doc = JsonDocument.ParseValue(ref reader);
-            foreach (var property in doc.RootElement.EnumerateObject())
-            {
-                if (!string.Equals(property.Name, "modelId", StringComparison.OrdinalIgnoreCase)) continue;
-                return property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() : null;
-            }
+            var root = doc.RootElement;
 
-            // An object with no modelId is the "no model recorded" case, and null is exactly what it says.
-            return null;
+            // POSITIVELY RECOGNISED, not "it is an object so it must be the folded display". Treating
+            // every object as that shape collapsed three different things into "no model was recorded":
+            // the real folded verdict with a null id, an object from a newer schema that names its id
+            // differently, and a malformed one. Two of those are present-but-not-understood, and writing
+            // them back as absent is the loss this schema exists to avoid.
+            var looksFolded = root.TryGetProperty("kind", out var kind)
+                              && kind.ValueKind == JsonValueKind.String
+                              && root.TryGetProperty("isAbsent", out var isAbsent)
+                              && (isAbsent.ValueKind == JsonValueKind.True
+                                  || isAbsent.ValueKind == JsonValueKind.False);
+
+            if (!looksFolded)
+                throw new JsonException(
+                    "A seat's model is an object this build does not recognise. The folded model object " +
+                    "carries a string \"kind\" and a boolean \"isAbsent\"; this one does not, and " +
+                    "reading it as \"no model was recorded\" would turn something present into an absence.");
+
+            if (!root.TryGetProperty("modelId", out var modelId))
+                throw new JsonException(
+                    "A seat's model object carries no \"modelId\". The folded model object always has " +
+                    "the field, null when no model has been recorded, so its absence is a shape this " +
+                    "build does not understand rather than a model that was not recorded.");
+
+            return modelId.ValueKind switch
+            {
+                JsonValueKind.String => modelId.GetString(),
+
+                // Null is the real "no model recorded yet" answer and the commonest half of the index.
+                JsonValueKind.Null => null,
+
+                _ => throw new JsonException(
+                    $"A seat's model object has a \"modelId\" of {modelId.ValueKind}. It is the recorded " +
+                    "model id as a string, or null when none has been recorded."),
+            };
         }
 
         throw new JsonException(

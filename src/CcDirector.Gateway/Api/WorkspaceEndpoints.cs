@@ -166,20 +166,35 @@ internal static class WorkspaceEndpoints
             // Only Observed captures - INCLUDING an observed empty snapshot, which is a real answer and
             // is what a finished Director genuinely looks like.
             var (observation, sessions) = connectedFleet(req.DirectorId);
-            var refusal = observation switch
-            {
-                Streaming.FleetObservation.Unknown =>
-                    $"This Gateway has no live record of Director '{req.DirectorId}' at all, so there is " +
-                    "nothing to read. It may have been restarted or evicted since it registered.",
-                Streaming.FleetObservation.NotConnected =>
-                    $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) is " +
-                    "registered but not connected to this Gateway, so its live sessions cannot be read.",
-                Streaming.FleetObservation.ConnectedButSilent =>
-                    $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) has " +
-                    "just connected and has not yet said what it is running. That is not the same as " +
-                    "running nothing - wait for its first push and capture again.",
-                _ => null,
-            };
+
+            // THE PERMISSIVE ARM IS THE POSITIVE ONE, and this is the whole shape of it. The first
+            // version named the three unsafe states and used the default arm as permission to capture -
+            // so ONE observation was allowed by name and every other value, including every state added
+            // after today, was allowed by falling through. Naming four states instead of three does not
+            // fix that; it buys the fifth. What fixes it is that the allow is a single positive test
+            // against the one state known to be safe, and everything else - named or not - refuses.
+            var refusal = observation == Streaming.FleetObservation.Observed
+                ? null
+                : observation switch
+                {
+                    Streaming.FleetObservation.Unknown =>
+                        $"This Gateway has no live record of Director '{req.DirectorId}' at all, so there " +
+                        "is nothing to read. It may have been restarted or evicted since it registered.",
+                    Streaming.FleetObservation.NotConnected =>
+                        $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) " +
+                        "is registered but not connected to this Gateway, so its live sessions cannot be read.",
+                    Streaming.FleetObservation.ConnectedButSilent =>
+                        $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) " +
+                        "has just connected and has not yet said what it is running. That is not the same " +
+                        "as running nothing - wait for its first push and capture again.",
+
+                    // Anything this build does not recognise. It cannot be reached today, and that is the
+                    // point: when a later build adds an observation, this is where it lands until somebody
+                    // decides it is safe to capture, rather than being captured because nobody decided.
+                    _ => $"This Gateway read Director '{req.DirectorId}' and got an observation this build " +
+                         $"does not recognise ({observation}). Nothing is captured on an answer nobody " +
+                         "here can interpret.",
+                };
 
             if (refusal is not null)
             {

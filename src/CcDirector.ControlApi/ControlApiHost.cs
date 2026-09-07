@@ -155,6 +155,14 @@ public sealed class ControlApiHost : IAsyncDisposable
         Gateway.Contracts.WorkspaceDocument doc, CancellationToken ct = default)
         => _gatewayClient?.SaveWorkspaceAsync(doc, ct);
 
+    /// <summary>Create a workspace, refusing if the id is taken. See <see cref="ListWorkspacesAsync"/>
+    /// for the null case.</summary>
+    /// <param name="doc">The workspace to create.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<Gateway.Contracts.WorkspaceDocument>? CreateWorkspaceAsync(
+        Gateway.Contracts.WorkspaceDocument doc, CancellationToken ct = default)
+        => _gatewayClient?.CreateWorkspaceAsync(doc, ct);
+
     /// <summary>Delete a workspace. See <see cref="ListWorkspacesAsync"/> for the null case.</summary>
     /// <param name="id">The workspace slug.</param>
     /// <param name="ct">Cancellation.</param>

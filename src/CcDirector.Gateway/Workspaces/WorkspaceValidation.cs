@@ -168,14 +168,41 @@ public static class WorkspaceValidation
             // somebody DECIDED to bring back. Bounding them by the fleet size alone left the unnamed
             // state "some owed seats are not accounted for" falling into "all" - four seats owed, one
             // restored, none missing, and the record says everything came back.
-            var owed = doc.Seats?.Count(x =>
-                x?.Restore is { Decision: WorkspaceRestoreDecisions.Restore }) ?? 0;
+            var seatsHere = doc.Seats ?? new List<WorkspaceSeat>();
+            var owedSeats = seatsHere
+                .Where(x => x?.Restore is { Decision: WorkspaceRestoreDecisions.Restore })
+                .ToList();
+            var owed = owedSeats.Count;
             var accounted = (long)seatOutcome.RestoredCount + seatOutcome.NotRestoredCount;
             if (accounted != owed)
                 throw new WorkspaceValidationException(
                     $"seatOutcome accounts for {accounted} seat(s), but {owed} seat(s) in this workspace " +
                     "were decided \"restore\". Every seat that was owed has to be either restored or " +
                     "explained.");
+
+            // THE NUMERATOR IS NAMED EVIDENCE, not a number somebody typed. Fixing the denominator alone
+            // left "one seat owed, restoredCount 1, no seat naming a restored session, and an empty
+            // restore list" deriving scope "all" - a record saying every owed seat came back while naming
+            // none that did. A restore driver reading that stops on a false terminal answer and leaves
+            // the work missing.
+            var namedRestored = owedSeats.Count(x => !string.IsNullOrWhiteSpace(x!.RestoredSessionId));
+            if (seatOutcome.RestoredCount != namedRestored)
+                throw new WorkspaceValidationException(
+                    $"seatOutcome says {seatOutcome.RestoredCount} seat(s) came back, but {namedRestored} " +
+                    "seat(s) name a restoredSessionId. A seat that came back says which session it is.");
+
+            // ...and the instruction that was run has to be there. The restore list is what somebody acts
+            // on; a terminal answer reached without one is an answer about work nobody was told to do.
+            var listed = new HashSet<string>(doc.RestoreAfterRestart ?? new List<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            var missing = owedSeats
+                .Where(x => x!.SessionId is null || !listed.Contains(x.SessionId))
+                .Select(x => x!.SessionId ?? "(a seat naming no session)")
+                .ToList();
+            if (missing.Count > 0)
+                throw new WorkspaceValidationException(
+                    "seatOutcome is a terminal answer, so every seat decided \"restore\" has to be in " +
+                    $"restoreAfterRestart - the list somebody acts on. These are not: {string.Join(", ", missing)}.");
 
             // scope is NOT validated: it is derived from the two counts above, so there is nothing a
             // caller can send that could be wrong, and nothing that could disagree with them.
