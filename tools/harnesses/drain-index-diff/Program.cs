@@ -239,8 +239,12 @@ public static class Program
             if (seedSecret && handSeats.IndexOf(handSeat) == 0)
                 body += "\n\nThe virtual machine password: Zx9kkQQmm44rrSS\n";
 
+            // QUEUED, not written. The drain refuses to start over a directory that already holds
+            // documents - at start time a file for one of its own seats is indistinguishable from a stale
+            // one left by a run cancelled a minute earlier - so the harness writes them when the drain
+            // message goes out, which is also simply what happens.
             var path = DrainPaths.HandoverFor(dir, id, Str(handSeat["name"]));
-            await File.WriteAllTextAsync(path, body + "\n\n" + Block(
+            sessions.Queue(path, body + "\n\n" + Block(
                 state ?? WorkspaceDrainStates.Drained, restore, why, covered, questions));
             paths[id] = path;
         }
@@ -679,14 +683,36 @@ internal sealed class HarnessSessions : IDrainSessionControl
         return true;
     }
 
+    private readonly List<(string Path, string Text)> _queued = new();
+    private bool _responded;
+
+    /// <summary>Queue a seat's handover, to be written WHEN THE DRAIN MESSAGE GOES OUT. Not before: the
+    /// drain refuses to start over a directory that already holds documents, because at start time a file
+    /// for one of its own seats is indistinguishable from a stale one left by a run cancelled a minute
+    /// earlier. Writing on the message is also simply what happens.</summary>
+    public void Queue(string path, string text) => _queued.Add((path, text));
+
     public Task<bool> SendAsync(string sessionId, string text)
     {
         if (!Live.Contains(sessionId)) return Task.FromResult(false);
         Sent.Add((sessionId, text));
+
+        if (!_responded && text.Contains("START NOTHING NEW"))
+        {
+            _responded = true;
+            foreach (var (path, content) in _queued) File.WriteAllText(path, content);
+        }
+
         return Task.FromResult(true);
     }
 
     public bool Rename(string sessionId, string name) => Live.Contains(sessionId);
+
+    /// <summary>Every id in the hand-written index is a real session GUID, so the harness can address
+    /// them all - and the drain's roster and the live set agree, which is what it checks at the end.</summary>
+    public bool CanDrive(string? sessionId) => !string.IsNullOrWhiteSpace(sessionId);
+
+    public IReadOnlyList<string> LiveSessionIds() => Live.ToList();
 
     public bool MarkForDeletion(string sessionId, string reason)
     {

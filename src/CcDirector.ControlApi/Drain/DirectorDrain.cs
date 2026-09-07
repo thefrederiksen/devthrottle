@@ -135,13 +135,39 @@ public sealed class DirectorDrain
     private readonly HashSet<string> _flagged = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _flaggedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _closed = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _problems = new();
+    private readonly ProblemLog _problems = new();
+
+    /// <summary>
+    /// The problems, said ONCE each. A ninety-minute drain polls hundreds of times, and a condition that
+    /// persists - an unreadable document, a seat that never declared - would otherwise write the same
+    /// sentence hundreds of times into a record somebody has to read after every session is gone.
+    /// </summary>
+    private sealed class ProblemLog
+    {
+        private readonly List<string> _lines = new();
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+        public void Add(string line) { if (_seen.Add(line)) _lines.Add(line); }
+        public int Count => _lines.Count;
+        public List<string> ToList() => new(_lines);
+    }
     // Documents that are on disk and could not be read, so the same failure is reported once rather than
     // on every poll of a ninety-minute drain.
     private readonly HashSet<string> _unreadable = new(StringComparer.OrdinalIgnoreCase);
-    // Seats that DECLARED they reached a clean stop. A document on disk says a seat wrote something; only
-    // a declared "state: drained" says it FINISHED. Nothing is closed on the first without the second.
-    private readonly HashSet<string> _declaredClean = new(StringComparer.OrdinalIgnoreCase);
+    // Seats whose close this Director refused, so the request is made once rather than on every poll.
+    private readonly HashSet<string> _closeRefused = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What is wrong with ONE SEAT'S CURRENT DOCUMENT, replaced wholesale every time that document is
+    /// read again, and folded into the record's problems at the end.
+    ///
+    /// These are kept apart from the permanent problems because they are statements about a file that is
+    /// still being written. A seat's first draft has no declaration, and saying so permanently would leave
+    /// "this seat never declared it finished" in the record - and block the restart - after the seat
+    /// finished perfectly two polls later. A problem that cannot be un-said is not a problem, it is a
+    /// grudge.
+    /// </summary>
+    private readonly Dictionary<string, List<string>> _seatNotes = new(StringComparer.OrdinalIgnoreCase);
     // Seats whose session id this drain cannot drive at all. They are never messaged, never closed, and
     // never called absent - "I could not look it up" must not arrive as "it is gone".
     private readonly HashSet<string> _undrivable = new(StringComparer.OrdinalIgnoreCase);
@@ -252,80 +278,37 @@ public sealed class DirectorDrain
         Directory.CreateDirectory(dir);
         FileLog.Write($"[DirectorDrain] documents directory: {dir}");
 
-        // A DIRECTORY THAT ALREADY HOLDS DOCUMENTS IS REFUSED. The directory name is a timestamp to the
-        // minute, so a drain cancelled and restarted inside the same minute lands on the same one - and
-        // every stale document in it would be read as this run's, its seat closed on somebody else's
-        // handover. Refusing is loud; picking a different name quietly would hide that two runs happened.
-        var existing = Directory.GetFiles(dir, "*.md");
-        if (existing.Length > 0)
-            throw new InvalidOperationException(
-                $"The drain directory already holds {existing.Length} document(s): {dir}. Those are from " +
-                "an earlier run and this drain would read them as its own, closing seats on handovers " +
-                "they did not write. Move or delete that directory, then start again.");
-
-        // A SEAT THIS DRAIN CANNOT DRIVE. An empty or malformed session id cannot be messaged, cannot be
-        // closed, and - the dangerous one - cannot be LOOKED UP, so a presence probe would answer false
-        // and a close time would be written for a session nobody ever found. Named, never driven, and it
-        // blocks the restart.
-        var seats = new List<WorkspaceSeat>();
-        foreach (var seat in doc.Seats)
+        // EVERY REFUSAL BELOW IS WRITTEN INTO THE RECORD BEFORE IT IS THROWN. The capture is already
+        // stored on the Gateway by this point, so a refusal that only threw left a workspace sitting there
+        // with outcome "draining" and nothing saying why it stopped - a record that reads like a drain
+        // still in progress, for ever. The exception still reaches the caller; the record is what a
+        // stranger finds afterwards.
+        List<WorkspaceSeat> seats;
+        Dictionary<string, WorkspaceSeat> byId;
+        DrainChain chain;
+        try
         {
-            if (!_sessions.CanDrive(seat.SessionId))
+            (seats, byId, chain) = Preflight(doc, dir);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException)
+        {
+            doc.Outcome = WorkspaceOutcomes.Blocked;
+            doc.CompletedAtUtc = _utcNow();
+            doc.Integrity = new WorkspaceIntegrity
             {
-                _undrivable.Add(seat.SessionId ?? $"(seat '{seat.Name}' with no session id)");
-                _problems.Add(
-                    $"seat '{seat.Name}' carries the session id '{seat.SessionId}', which is not one this " +
-                    "Director can look up. It was not messaged and it will not be closed, and nothing " +
-                    "here says whether such a session is running.");
-                continue;
+                CheckedAtUtc = _utcNow(),
+                ReadyToRestart = false,
+                NotReadyReason = "The drain refused to start: " + ex.Message,
+                Problems = { "The drain refused to start and NOTHING was messaged or closed: " + ex.Message },
+            };
+            try { await SaveAsync(doc, ct).ConfigureAwait(false); }
+            catch (Exception saveEx)
+            {
+                FileLog.Write($"[DirectorDrain] refusal could not be recorded: {saveEx.Message}");
             }
-            seats.Add(seat);
+            Report("blocked", doc.Seats.Count, 0, 0, ex.Message);
+            throw;
         }
-
-        // Two seats with one id would make the chain, the close set and the record all ambiguous, and
-        // ToDictionary would throw halfway through with the capture already stored.
-        var byId = new Dictionary<string, WorkspaceSeat>(StringComparer.OrdinalIgnoreCase);
-        foreach (var seat in seats.ToList())
-        {
-            if (byId.TryAdd(seat.SessionId!, seat)) continue;
-            seats.Remove(seat);
-            _problems.Add(
-                $"the capture carries session id {DrainPaths.ShortId(seat.SessionId)} more than once. " +
-                "Only the first seat with it is being drained; the others were left alone.");
-        }
-
-        // Two seats whose documents would land on ONE path - an eight-character prefix collision, or two
-        // names that sanitize to the same thing. The second write overwrites the first and both seats get
-        // closed on one document.
-        var byFile = new Dictionary<string, WorkspaceSeat>(StringComparer.OrdinalIgnoreCase);
-        foreach (var seat in seats)
-        {
-            var file = DrainPaths.HandoverFileName(seat.SessionId!, seat.Name);
-            if (byFile.TryAdd(file, seat)) continue;
-            throw new InvalidOperationException(
-                $"Seats {DrainPaths.ShortId(byFile[file].SessionId)} and " +
-                $"{DrainPaths.ShortId(seat.SessionId)} would both write \"{file}\". One would overwrite " +
-                "the other and both would be closed on a single document. Rename one of them and start " +
-                "again.");
-        }
-
-        // THE CHAIN IS BUILT OVER WHAT THIS DRAIN CAN DRIVE, not over everything the capture returned. A
-        // seat that cannot be addressed cannot be a senior either, so anything reporting to one has nobody
-        // here to report through and is a head - which is the same rule as a controller on another
-        // Director. Building it over every captured seat also put an unaddressable seat in the head list
-        // and then looked it up among the drivable ones, which threw.
-        var chain = DrainChain.Build(seats);
-
-        // A CYCLE IN THE REPORTING CHAIN REFUSES THE DRAIN. The chain decides what may be closed and when;
-        // on a corrupt one the leaf-first gate means nothing, and a whole ring of sessions can be reaped
-        // before the record gets round to saying the topology was wrong. Nothing is closed on a tree
-        // nobody can trust.
-        if (chain.SeatsInCycles.Count > 0)
-            throw new InvalidOperationException(
-                "The reporting chain of this Director loops back on itself at " +
-                string.Join(", ", chain.SeatsInCycles.Select(DrainPaths.ShortId)) +
-                ". The leaf-first close order cannot be trusted on a cycle, so nothing has been messaged " +
-                "and nothing has been closed. Fix the controller relationships and start again.");
 
         // ---- Message the chain, not the roster.
         Report("messaging", seats.Count, 0, 0, $"messaging {chain.Heads.Count} senior and standalone seats");
@@ -402,10 +385,22 @@ public sealed class DirectorDrain
                 var waited = _utcNow() - StartedUtc;
                 foreach (var s in seats.Where(s => s.DrainState is null))
                 {
-                    s.DrainState = WorkspaceDrainStates.Unreachable;
-                    _problems.Add(
-                        $"seat {DrainPaths.ShortId(s.SessionId)} ({s.Name}) never wrote a handover; " +
-                        $"waited {waited.TotalMinutes:0} minutes. It is still running and nothing was forced.");
+                    // TWO DIFFERENT SILENCES, and they are not the same fact. A seat that wrote NOTHING is
+                    // unreachable - it never answered. A seat whose document is on disk but never carried
+                    // a declaration DID answer, and its answer did not amount to a handover, which is
+                    // exactly what "declined" means. Recording the second as unreachable would say a
+                    // document that exists was never written.
+                    var wroteSomething = !string.IsNullOrWhiteSpace(s.HandoverPath);
+                    s.DrainState = wroteSomething
+                        ? WorkspaceDrainStates.Declined
+                        : WorkspaceDrainStates.Unreachable;
+
+                    _problems.Add(wroteSomething
+                        ? $"seat {DrainPaths.ShortId(s.SessionId)} ({s.Name}) wrote a handover and never " +
+                          $"declared that it had finished; waited {waited.TotalMinutes:0} minutes. Its " +
+                          "document is kept and named. It is still running and nothing was forced."
+                        : $"seat {DrainPaths.ShortId(s.SessionId)} ({s.Name}) never wrote a handover; " +
+                          $"waited {waited.TotalMinutes:0} minutes. It is still running and nothing was forced.");
                 }
                 await SaveAsync(doc, ct).ConfigureAwait(false);
                 break;
@@ -467,6 +462,99 @@ public sealed class DirectorDrain
         return new DirectorDrainResult(doc, dir, integrity.ReadyToRestart, integrity.NotReadyReason);
     }
 
+
+    /// <summary>
+    /// Everything that must be true before a single session is messaged. Every failure here throws, and
+    /// the caller writes the reason into the record before letting it out.
+    /// </summary>
+    /// <param name="doc">The captured workspace.</param>
+    /// <param name="dir">The drain's document directory.</param>
+    private (List<WorkspaceSeat> Seats, Dictionary<string, WorkspaceSeat> ById, DrainChain Chain)
+        Preflight(WorkspaceDocument doc, string dir)
+    {
+        // A DIRECTORY THAT ALREADY HOLDS DOCUMENTS IS REFUSED. The directory name is a timestamp to the
+        // minute, so a drain cancelled and restarted inside the same minute lands on the same one - and
+        // every stale document in it would be read as this run's, its seat closed on somebody else's
+        // handover. Refusing is loud; picking a different name quietly would hide that two runs happened.
+        var existing = Directory.GetFiles(dir, "*.md");
+        if (existing.Length > 0)
+            throw new InvalidOperationException(
+                $"The drain directory already holds {existing.Length} document(s): {dir}. Those are from " +
+                "an earlier run and this drain would read them as its own, closing seats on handovers " +
+                "they did not write. Move or delete that directory, then start again.");
+
+        // A SEAT THIS DRAIN CANNOT DRIVE. An empty or malformed session id cannot be messaged, cannot be
+        // closed, and - the dangerous one - cannot be LOOKED UP, so a presence probe would answer false
+        // and a close time would be written for a session nobody ever found. Named, never driven, and it
+        // blocks the restart.
+        var seats = new List<WorkspaceSeat>();
+        foreach (var seat in doc.Seats)
+        {
+            if (!_sessions.CanDrive(seat.SessionId))
+            {
+                _undrivable.Add(seat.SessionId ?? $"(seat '{seat.Name}' with no session id)");
+                _problems.Add(
+                    $"seat '{seat.Name}' carries the session id '{seat.SessionId}', which is not one this " +
+                    "Director can look up. It was not messaged and it will not be closed, and nothing " +
+                    "here says whether such a session is running.");
+                continue;
+            }
+            seats.Add(seat);
+        }
+
+        // Two seats with one id would make the chain, the close set and the record all ambiguous, and
+        // ToDictionary would throw halfway through with the capture already stored.
+        // TWO SEATS WITH ONE ID REFUSE THE DRAIN. Keeping the first and dropping the rest looked tidy and
+        // was a lie: there is one physical session behind that id, and it would have been messaged and
+        // closed using ONE row's name, controller and restore intent while the other row was recorded as
+        // "left alone" - which is not something the drain could do, because it is the same session.
+        var byId = new Dictionary<string, WorkspaceSeat>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seat in seats)
+        {
+            if (byId.TryAdd(seat.SessionId!, seat)) continue;
+            throw new InvalidOperationException(
+                $"The capture carries session id {seat.SessionId} more than once, as " +
+                $"\"{byId[seat.SessionId!].Name}\" and \"{seat.Name}\". There is one session behind that " +
+                "id and the drain cannot tell which row describes it, so nothing has been messaged and " +
+                "nothing has been closed.");
+        }
+
+        // Two seats whose documents would land on ONE path - an eight-character prefix collision, or two
+        // names that sanitize to the same thing. The second write overwrites the first and both seats get
+        // closed on one document.
+        var byFile = new Dictionary<string, WorkspaceSeat>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seat in seats)
+        {
+            var file = DrainPaths.HandoverFileName(seat.SessionId!, seat.Name);
+            if (byFile.TryAdd(file, seat)) continue;
+            throw new InvalidOperationException(
+                $"Seats {DrainPaths.ShortId(byFile[file].SessionId)} and " +
+                $"{DrainPaths.ShortId(seat.SessionId)} would both write \"{file}\". One would overwrite " +
+                "the other and both would be closed on a single document. Rename one of them and start " +
+                "again.");
+        }
+
+        // THE CHAIN IS BUILT OVER WHAT THIS DRAIN CAN DRIVE, not over everything the capture returned. A
+        // seat that cannot be addressed cannot be a senior either, so anything reporting to one has nobody
+        // here to report through and is a head - which is the same rule as a controller on another
+        // Director. Building it over every captured seat also put an unaddressable seat in the head list
+        // and then looked it up among the drivable ones, which threw.
+        var chain = DrainChain.Build(seats);
+
+        // A CYCLE IN THE REPORTING CHAIN REFUSES THE DRAIN. The chain decides what may be closed and when;
+        // on a corrupt one the leaf-first gate means nothing, and a whole ring of sessions can be reaped
+        // before the record gets round to saying the topology was wrong. Nothing is closed on a tree
+        // nobody can trust.
+        if (chain.SeatsInCycles.Count > 0)
+            throw new InvalidOperationException(
+                "The reporting chain of this Director loops back on itself at " +
+                string.Join(", ", chain.SeatsInCycles.Select(DrainPaths.ShortId)) +
+                ". The leaf-first close order cannot be trusted on a cycle, so nothing has been messaged " +
+                "and nothing has been closed. Fix the controller relationships and start again.");
+
+        return (seats, byId, chain);
+    }
+
     // ================= collect =================
 
     private bool CollectDocuments(
@@ -484,26 +572,36 @@ public sealed class DirectorDrain
 
             var path = DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name);
             var read = TryReadFile(path, options.MinimumHandoverBytes);
-            if (read.Status == ReadStatus.Failed && _unreadable.Add(path))
+            if (read.Status == ReadStatus.Failed)
             {
-                // Recorded ONCE, and the seat is left unaccounted rather than blamed. The drain keeps
-                // trying on every pass; if it never succeeds, the record says the document is there and
-                // unreadable, not that the seat never wrote one.
-                _problems.Add(
+                // The seat is left unaccounted rather than blamed, and the note is REPLACED rather than
+                // appended: the drain keeps trying on every pass, and if it succeeds later this sentence
+                // goes away with the condition it described.
+                var note =
                     $"the handover for {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) IS on disk and " +
                     $"could not be read: {read.Error}. That is this drain's instrument failing, not the " +
-                    "seat failing to write. The file is at " + path);
-                changed = true;
+                    "seat failing to write. The file is at " + path;
+                _seatNotes[seat.SessionId!] = new List<string> { note };
+                if (_unreadable.Add(path)) changed = true;
             }
             if (read.Status != ReadStatus.Read) continue;
             var text = read.Text!;
+
+            // A document that has not changed since the last poll is not re-applied. A seat that wrote a
+            // handover and has not yet declared anything is re-read on EVERY poll - which is the point,
+            // it is how the seat converges when it finally finishes - and re-applying an identical
+            // document would save the record hundreds of times over a ninety-minute drain for no change.
+            var seen = _stamps.TryGetValue(seat.SessionId!, out var last)
+                       && string.Equals(last.Sha256, read.Stamp!.Sha256, StringComparison.Ordinal);
+            if (seen) continue;
 
             _stamps[seat.SessionId!] = read.Stamp!;
             seat.HandoverPath = path;
             var block = DrainReportBlock.Parse(text);
             ApplyBlock(seat, block, chain, byId, dir, path);
             changed = true;
-            FileLog.Write($"[DirectorDrain] handover read: {seat.SessionId} -> {seat.DrainState}");
+            FileLog.Write(
+                $"[DirectorDrain] handover read: {seat.SessionId} -> {seat.DrainState ?? "no declaration"}");
         }
 
         return changed;
@@ -522,15 +620,29 @@ public sealed class DirectorDrain
         string dir,
         string path)
     {
-        seat.DrainState = WorkspaceDrainStates.Drained;
+        // DRAIN STATE IS ONLY EVER SET FROM A VALID DECLARATION. Nothing here writes it from the mere
+        // existence of a file, and that single rule closes four separate failures that the previous shape
+        // had one patch each for:
+        //
+        //  - the record and the code no longer disagree. A private "did it really declare?" set beside a
+        //    seat that already said "drained" is a split brain, and the durable half - the one a stranger
+        //    reads after every session is gone - was the optimistic one.
+        //  - a document read before its final block is appended no longer LATCHES. It has no state, so
+        //    the collector keeps re-reading it, and the seat converges when it actually finishes. Setting
+        //    "drained" on the first read froze that seat for the rest of the drain.
+        //  - a block with no state line no longer applies its "covered:" claims or its restore answer.
+        //    Half a declaration is not a declaration.
+        //  - an unparsed line inside the block is a seat saying something the drain did not understand,
+        //    which is the same trinary as an unknown state and is treated the same way.
+        //
+        // A seat that wrote a document and never declared anything ends the drain as "declined" - its
+        // answer did not amount to a handover - with its document kept and named. It is never "drained".
+        var notes = new List<string>();
+        _seatNotes[seat.SessionId!] = notes;
 
         if (block is null)
         {
-            // A DOCUMENT IS NOT A DECLARATION. The file says the seat wrote something; only "state:
-            // drained" says it FINISHED. A seat mid-write leaves a draft above the size floor and this
-            // would otherwise read it as a clean stop and close the session on it. So the handover is
-            // recorded - it is real and it must not be lost - and the seat is NOT closed.
-            _problems.Add(
+            notes.Add(
                 $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) wrote a handover but declared no " +
                 "drain-report block, so nothing says it FINISHED, whether it should be restored, which " +
                 "seats its document covers, or what it is leaving on the owner. It has not been closed. " +
@@ -538,36 +650,34 @@ public sealed class DirectorDrain
             return;
         }
 
-        foreach (var line in block.UnparsedLines)
-            _problems.Add($"seat {DrainPaths.ShortId(seat.SessionId)} wrote a drain-report line that was " +
-                          $"not understood and has been ignored: \"{Trim(line, 200)}\"");
+        if (block.UnparsedLines.Count > 0)
+        {
+            foreach (var line in block.UnparsedLines)
+                notes.Add($"seat {DrainPaths.ShortId(seat.SessionId)} wrote a drain-report line that " +
+                              $"was not understood: \"{Trim(line, 200)}\". Nothing in this block has been " +
+                              "acted on and the seat has not been closed - a seat that meant something the " +
+                              "drain could not read has not given it an answer.");
+            return;
+        }
 
         // ONLY THREE STATES ARE A SEAT'S TO DECLARE about itself. "covered" is its senior's word and
-        // "unreachable" is the drain's; anything else is a typo. An unrecognised state used to leave the
-        // seat DRAINED, which is the permissive branch and would have closed the session on an answer
-        // nobody understood. It is now "declined" - its answer did not amount to a handover - which keeps
-        // it running and stops the restart.
-        if (block.State is WorkspaceDrainStates.Drained
-                        or WorkspaceDrainStates.Blocked
-                        or WorkspaceDrainStates.Declined)
+        // "unreachable" is the drain's; anything else is a typo.
+        if (block.State is not (WorkspaceDrainStates.Drained
+                             or WorkspaceDrainStates.Blocked
+                             or WorkspaceDrainStates.Declined))
         {
-            seat.DrainState = block.State;
-            if (block.State == WorkspaceDrainStates.Drained) _declaredClean.Add(seat.SessionId!);
+            notes.Add(block.State is null
+                ? $"seat {DrainPaths.ShortId(seat.SessionId)} wrote a drain-report block with no state " +
+                  "line, so nothing says it reached a clean stop. Nothing in the block has been acted on " +
+                  "and it has not been closed. Read the document."
+                : $"seat {DrainPaths.ShortId(seat.SessionId)} declared drain state " +
+                  $"\"{Trim(block.State, 60)}\", which is not one a seat may declare about itself " +
+                  "(drained, blocked or declined). Nothing in the block has been acted on, it has NOT " +
+                  "been closed, and the restart must not proceed over it. Read the document.");
+            return;
         }
-        else if (block.State is not null)
-        {
-            seat.DrainState = WorkspaceDrainStates.Declined;
-            _problems.Add(
-                $"seat {DrainPaths.ShortId(seat.SessionId)} declared drain state \"{Trim(block.State, 60)}\", " +
-                "which is not one a seat may declare about itself (drained, blocked or declined). It has " +
-                "NOT been closed and the restart must not proceed over it. Read the document.");
-        }
-        else
-        {
-            _problems.Add(
-                $"seat {DrainPaths.ShortId(seat.SessionId)} wrote a drain-report block with no state line, " +
-                "so nothing says it reached a clean stop. It has not been closed. Read the document.");
-        }
+
+        seat.DrainState = block.State;
 
         if (seat.DrainState == WorkspaceDrainStates.Blocked)
         {
@@ -602,14 +712,14 @@ public sealed class DirectorDrain
             var target = ResolveClaim(claim.SessionId, byId);
             if (target is null)
             {
-                _problems.Add(
+                notes.Add(
                     $"seat {DrainPaths.ShortId(seat.SessionId)} says it covers \"{Trim(claim.SessionId, 60)}\", " +
                     "which is not a seat on this Director. The claim was rejected.");
                 continue;
             }
             if (!descendants.Contains(target.SessionId!))
             {
-                _problems.Add(
+                notes.Add(
                     $"seat {DrainPaths.ShortId(seat.SessionId)} says it covers " +
                     $"{DrainPaths.ShortId(target.SessionId)}, which does not report to it. The claim was " +
                     "rejected and that seat is still expected to account for itself.");
@@ -617,9 +727,24 @@ public sealed class DirectorDrain
             }
             if (target.DrainState is not null && target.DrainState != WorkspaceDrainStates.Covered)
             {
-                _problems.Add(
+                notes.Add(
                     $"seat {DrainPaths.ShortId(target.SessionId)} is already {target.DrainState} and cannot " +
                     $"also be covered by {DrainPaths.ShortId(seat.SessionId)}. The claim was rejected.");
+                continue;
+            }
+
+            // A SEAT THAT WROTE ITS OWN DOCUMENT IS NOT COVERED, whatever its senior says. "Covered" means
+            // it had nothing of its own and reported up; a file at its own path is the opposite of that.
+            // Rejecting only an already-PROCESSED target made this depend on iteration order: a senior
+            // read first could cover a worker whose own handover said "blocked", the worker's document
+            // would never be parsed, its questions would be dropped, and it would be closed as covered.
+            var ownDocument = DrainPaths.HandoverFor(dir, target.SessionId!, target.Name);
+            if (File.Exists(ownDocument))
+            {
+                notes.Add(
+                    $"seat {DrainPaths.ShortId(seat.SessionId)} says it covers " +
+                    $"{DrainPaths.ShortId(target.SessionId)}, but that seat has written its OWN handover. " +
+                    "The claim was rejected and its own document is what accounts for it.");
                 continue;
             }
 
@@ -678,12 +803,15 @@ public sealed class DirectorDrain
             // keep running, and because the leaf-first gate below waits on them, their seniors stay open
             // too. That is the mechanical shape of never forcing - not a rule, a missing verb.
             //
-            // A "drained" seat that never declared it - a document with no block, or with no state line -
-            // is NOT closed either. The file proves it wrote something, not that it finished.
-            var declared = seat.DrainState == WorkspaceDrainStates.Covered
-                           || (seat.DrainState == WorkspaceDrainStates.Drained
-                               && _declaredClean.Contains(id));
+            // A seat that wrote a document and declared nothing has NO drain state at all, so it is not
+            // eligible here either - the file proves it wrote something, not that it finished.
+            var declared = seat.DrainState is WorkspaceDrainStates.Covered or WorkspaceDrainStates.Drained;
             if (!declared) continue;
+
+            // A seat whose close was already REFUSED is not asked again. Retrying every poll re-renames a
+            // live session and tells it it is closing, over and over, for the rest of a ninety-minute
+            // drain - and appends the same problem to the record each time.
+            if (_closeRefused.Contains(id)) continue;
 
             if (!chain.CanClose(id, _closed)) continue;
 
@@ -704,20 +832,26 @@ public sealed class DirectorDrain
                 continue;
             }
 
-            _sessions.Rename(id, DrainMessages.DrainedName(seat.Name));
-            await _sessions.SendAsync(id, DrainMessages.Closing(reread.Note)).ConfigureAwait(false);
-
             // A CLOSE REQUEST THAT WAS REFUSED IS NOT A CLOSE REQUEST. Recording it as flagged anyway is
             // the error landing in the optimistic branch: a later ambiguous absence would then be written
             // as a close time for a session nobody ever successfully asked to stop.
+            //
+            // THE FLAG GOES FIRST, then the message. The other order told a session it was being closed
+            // and then failed to close it, so the branch below could not honestly say it had not been
+            // asked - it had, and the message was already delivered.
             if (!_sessions.MarkForDeletion(id, "Director restart: handover written and read."))
             {
+                _closeRefused.Add(id);
                 _problems.Add(
                     $"seat {DrainPaths.ShortId(id)} ({seat.Name}) could not be flagged for deletion - this " +
-                    "Director refused the request. It has NOT been asked to close and it is still running.");
+                    "Director refused the request. Nothing was said to it and it will not be asked again; " +
+                    "whether it is still running is not something this drain can now say.");
                 changed = true;
                 continue;
             }
+
+            _sessions.Rename(id, DrainMessages.DrainedName(seat.Name));
+            await _sessions.SendAsync(id, DrainMessages.Closing(reread.Note)).ConfigureAwait(false);
 
             _flagged.Add(id);
             _flaggedAt[id] = _utcNow();
@@ -747,10 +881,35 @@ public sealed class DirectorDrain
         string dir,
         DrainOptions options)
     {
+        // A COVERED SEAT IS RE-READ THROUGH ITS SENIOR'S DOCUMENT, which is the only document that says
+        // anything about it. If that document has gone, or no longer covers this seat, the claim that
+        // accounted for it no longer stands and it must not be closed on it.
         if (seat.DrainState == WorkspaceDrainStates.Covered)
-            return new RereadVerdict(true, null);          // its document is its senior's, re-read there
-        if (!_stamps.TryGetValue(seat.SessionId!, out var before))
+        {
+            var coveringPath = seat.HandoverPath;
+            if (string.IsNullOrWhiteSpace(coveringPath))
+                return Refuse(seat, "is covered and names no document, so nothing accounts for it");
+
+            var covering = TryReadFile(coveringPath, 0);
+            if (covering.Status != ReadStatus.Read)
+                return Refuse(seat, "is covered by a document that could not be read at close time" +
+                                    (covering.Error is null ? "" : ": " + covering.Error));
+
+            var stillCovers = DrainReportBlock.Parse(covering.Text)?.Covered
+                .Any(c => !string.IsNullOrWhiteSpace(c.SessionId)
+                          && seat.SessionId!.StartsWith(c.SessionId.Trim(), StringComparison.OrdinalIgnoreCase))
+                ?? false;
+            if (!stillCovers)
+                return Refuse(seat, "is covered by a document that no longer names it");
+
             return new RereadVerdict(true, null);
+        }
+
+        // NO STAMP IS NOT PERMISSION. An absent record of what was read is the drain not knowing, and the
+        // forbidden default is for not-knowing to land on the permissive side - which is the whole defect
+        // this method exists to catch, one level down inside its own fix.
+        if (!_stamps.TryGetValue(seat.SessionId!, out var before))
+            return Refuse(seat, "has no record of the document that was read, so nothing can be compared");
 
         var path = seat.HandoverPath ?? DrainPaths.HandoverFor(dir, seat.SessionId!, seat.Name);
         var read = TryReadFile(path, options.MinimumHandoverBytes);
@@ -758,12 +917,19 @@ public sealed class DirectorDrain
         {
             // Two different problems, said differently: the file has GONE, or it is there and this drain
             // cannot read it. Both stop the restart; only one of them is about the seat.
-            _problems.Add(read.Status == ReadStatus.Failed
-                ? $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
-                  $"and it could not be read again at close time: {read.Error}. It has NOT been closed - " +
-                  "this session is the only thing that could write that document again."
-                : $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
-                  "and the record now points at a file that is not there. It has NOT been closed.");
+            _problems.Add(
+                $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) had a handover when it was read " +
+                "and " + read.Status switch
+                {
+                    // Three different facts, said as three. "Too short" used to be reported as "not
+                    // there", which denies the existence of a document that is sitting on the disk.
+                    ReadStatus.Failed => $"it could not be read again at close time: {read.Error}",
+                    ReadStatus.TooShort => "it is now shorter than a finished handover - it has been " +
+                                           "truncated, or it is being rewritten",
+                    _ => "the record now points at a file that is not there",
+                } +
+                ". It has NOT been closed - this session is the only thing that could write that " +
+                "document again.");
             return new RereadVerdict(false, null);
         }
 
@@ -777,7 +943,6 @@ public sealed class DirectorDrain
         // restore fields would have left it drained and closed it anyway. So the whole block is applied
         // again, and whether the seat may close is decided from the version that is on disk NOW.
         _stamps[seat.SessionId!] = after;
-        _declaredClean.Remove(seat.SessionId!);
         seat.DrainState = null;
         seat.BlockedReason = null;
         ApplyBlock(seat, DrainReportBlock.Parse(text), chain, byId, dir, path);
@@ -788,12 +953,18 @@ public sealed class DirectorDrain
             $"{after.Length} bytes at {after.LastWriteUtc:yyyy-MM-dd HH:mm:ss}Z). The later version is the " +
             $"one recorded, and it now reads {seat.DrainState ?? "nothing at all"}. Read it.");
 
-        var mayClose = seat.DrainState == WorkspaceDrainStates.Drained
-                       && _declaredClean.Contains(seat.SessionId!);
+        var mayClose = seat.DrainState == WorkspaceDrainStates.Drained;
         return new RereadVerdict(
             mayClose,
             mayClose ? "Your document changed after it was first read; the later version is the one recorded."
                      : null);
+    }
+
+    /// <summary>Refuse a close, and say why once. The seat keeps running.</summary>
+    private RereadVerdict Refuse(WorkspaceSeat seat, string why)
+    {
+        _problems.Add($"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) {why}. It has NOT been closed.");
+        return new RereadVerdict(false, null);
     }
 
     /// <summary>What the re-read decided: whether this seat may be closed, and anything to tell it.</summary>
@@ -881,7 +1052,25 @@ public sealed class DirectorDrain
     private void CheckForSessionsThatAreNotSeats(List<WorkspaceSeat> seats)
     {
         var known = new HashSet<string>(seats.Select(s => s.SessionId!), StringComparer.OrdinalIgnoreCase);
-        foreach (var id in _sessions.LiveSessionIds())
+
+        IReadOnlyList<string> live;
+        try
+        {
+            live = _sessions.LiveSessionIds();
+        }
+        catch (Exception ex)
+        {
+            // AN ENUMERATION THAT FAILED IS NOT AN EMPTY FLEET. Letting the exception become "no extra
+            // sessions" is the same fail-open as everything else here, and it is the last check before a
+            // restart is allowed.
+            _problems.Add(
+                "this Director's live sessions could not be listed at the end of the drain " +
+                $"({ex.GetType().Name}: {ex.Message}), so NOTHING here says a session did not appear after " +
+                "the capture.");
+            return;
+        }
+
+        foreach (var id in live)
         {
             if (known.Contains(id)) continue;
             _problems.Add(
@@ -946,7 +1135,13 @@ public sealed class DirectorDrain
         integrity.SweepPatternsTotal = proof.PatternsTotal;
         integrity.SweepProofFailures = proof.Failures.ToList();
 
-        var problems = new List<string>(_problems);
+        var problems = _problems.ToList();
+
+        // Every seat's CURRENT complaint about its own document. Folded in here rather than accumulated
+        // as they were found, so a first draft's "it declared nothing" does not outlive the draft.
+        foreach (var seat in seats)
+            if (_seatNotes.TryGetValue(seat.SessionId!, out var notes))
+                problems.AddRange(notes);
 
         if (proof.Valid)
         {
@@ -1042,15 +1237,20 @@ public sealed class DirectorDrain
 
         integrity.Problems = problems;
 
+        // The "documents were actually read" rule is expressed ONCE, as the problem above - which both
+        // blocks readiness and says why. A second boolean conjunct saying the same thing is a copy, and
+        // two copies of one rule diverge the moment the rule changes. It was here, it was unreachable as
+        // a difference, and a mutation of it survived the suite for exactly that reason.
         integrity.ReadyToRestart =
             seats.Count > 0
             && notDrained.Count == 0
             && integrity.SecretFindings.Count == 0
             && problems.Count == 0
-            && proof.Valid
-            && (!expectDocuments || integrity.DocumentsSwept > 0);
+            && proof.Valid;
 
-        integrity.NotReadyReason = integrity.ReadyToRestart ? null : FirstReason(seats, notDrained, integrity, proof);
+        integrity.NotReadyReason = integrity.ReadyToRestart
+            ? null
+            : FirstReason(seats, notDrained, integrity, proof, _undrivable.Count);
 
         FileLog.Write(
             $"[DirectorDrain] integrity: swept={integrity.DocumentsSwept}, " +
@@ -1062,10 +1262,21 @@ public sealed class DirectorDrain
     }
 
     private static string FirstReason(
-        List<WorkspaceSeat> seats, List<WorkspaceSeat> notDrained, WorkspaceIntegrity integrity, SweepProof proof)
+        List<WorkspaceSeat> seats,
+        List<WorkspaceSeat> notDrained,
+        WorkspaceIntegrity integrity,
+        SweepProof proof,
+        int undrivable)
     {
         if (seats.Count == 0)
-            return "this Director had no sessions to drain, so there is nothing this record can say about a restart.";
+            return undrivable > 0
+                // Undrivable seats are filtered out of `seats`, so a capture made entirely of them used to
+                // reach here and report "no sessions to drain" - hiding the real fault behind the tidiest
+                // possible sentence.
+                ? $"none of the {undrivable} seat(s) this Director captured carries a session id it can " +
+                  "look up, so the drain could not address any of them. That is a fault in the capture, " +
+                  "not an empty Director."
+                : "this Director had no sessions to drain, so there is nothing this record can say about a restart.";
         if (!proof.Valid)
             return "the secret sweep could not be shown able to fail, so a clean result would mean nothing.";
         if (integrity.SecretFindings.Count > 0)
@@ -1147,8 +1358,24 @@ public sealed class DirectorDrain
 
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(fs, Encoding.UTF8);
-            var text = reader.ReadToEnd();
 
+            // BOUNDED AT THE READ, not only at the length check. The file is opened FileShare.ReadWrite -
+            // a session can be writing it - so a file that measured under the limit a moment ago can grow
+            // past it while it is being read. Checking the length and then calling ReadToEnd bounds
+            // nothing; the comment said it did.
+            var buffer = new char[64 * 1024];
+            var sb = new StringBuilder();
+            int read;
+            while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                sb.Append(buffer, 0, read);
+                if (sb.Length > MaxHandoverBytes)
+                    return new ReadResult(ReadStatus.Failed, null, null,
+                        $"the file grew past the {MaxHandoverBytes / 1024 / 1024} MB limit for a handover " +
+                        "while it was being read. It was not read.");
+            }
+
+            var text = sb.ToString();
             return new ReadResult(
                 ReadStatus.Read, text, new ReadStamp(info.Length, info.LastWriteTimeUtc, Sha256(text)), null);
         }

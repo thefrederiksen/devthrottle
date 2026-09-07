@@ -18,10 +18,25 @@ public class DirectorDrainTests
     private DateTime _now = new(2026, 9, 6, 17, 25, 0, DateTimeKind.Utc);
 
     private DirectorDrain NewDrain(
-        FakeSessionControl sessions, FakeWorkspaceSink sink, Action<DrainProgress>? progress = null)
-        => new(sessions, sink, "director-under-test", progress,
+        FakeSessionControl sessions,
+        FakeWorkspaceSink sink,
+        Action<DrainProgress>? progress = null,
+        Action<int>? onPoll = null)
+    {
+        // onPoll fires on each injected wait, numbered from one. It is the ONE deterministic seam a test
+        // has for "something happens between two passes of the drain" - a seat finishing its document, a
+        // senior withdrawing a coverage claim. Hooking a presence probe instead depends on how many times
+        // the drain happens to ask, which is not a fact any test should assert on.
+        var polls = 0;
+        return new DirectorDrain(sessions, sink, "director-under-test", progress,
             utcNow: () => _now,
-            delay: (d, _) => { _now = _now.Add(d); return Task.CompletedTask; });
+            delay: (d, _) =>
+            {
+                _now = _now.Add(d);
+                onPoll?.Invoke(++polls);
+                return Task.CompletedTask;
+            });
+    }
 
     private static DrainOptions Options(TimeSpan? deadline = null) => new()
     {
@@ -596,8 +611,12 @@ public class DirectorDrainTests
     }
 
     [Fact]
-    public async Task Drain_ASeatThatWroteNoBlockIsStillDrained_ButTheRecordSaysSomebodyMustReadIt()
+    public async Task Drain_ASeatThatWroteNoBlockIsNeverRecordedAsDrained()
     {
+        // THE RECORD AND THE CODE MUST NOT DISAGREE. This used to write "drained" onto the seat and keep
+        // "it did not really declare" in a private set - so the DURABLE half, the one a stranger reads
+        // after every session is gone, was the optimistic one. Drain state is now only ever set from a
+        // valid declaration; a seat that wrote a document and declared nothing ends "declined".
         using var dir = new TempDir();
         var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
         var seat = DrainTestRig.Seat("solo", "Standalone");
@@ -605,11 +624,12 @@ public class DirectorDrainTests
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
         sessions.Handover(dir.Path, "solo", "Standalone", block: "");
 
-        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
 
-        var s = result.Document.Seats.Single();
-        Assert.Equal(WorkspaceDrainStates.Drained, s.DrainState);
-        Assert.Equal(WorkspaceRestoreDecisions.Undecided, s.Restore!.Decision);
+        var only = result.Document.Seats.Single();
+        Assert.Equal(WorkspaceDrainStates.Declined, only.DrainState);
+        Assert.NotNull(only.HandoverPath);                 // its document is kept and named
+        Assert.Empty(sessions.Flagged);
         Assert.False(result.ReadyToRestart);
         Assert.Contains(result.Document.Integrity!.Problems, p => p.Contains("declared no drain-report block"));
     }
@@ -838,8 +858,9 @@ public class DirectorDrainTests
 
         var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
 
-        // The handover is KEPT - it is real and must not be lost - and the seat keeps running.
-        Assert.Equal(WorkspaceDrainStates.Drained, result.Document.Seats.Single().DrainState);
+        // The handover is KEPT - it is real and must not be lost - and the seat keeps running. It is
+        // never recorded "drained": nothing said it finished.
+        Assert.Equal(WorkspaceDrainStates.Declined, result.Document.Seats.Single().DrainState);
         Assert.NotNull(result.Document.Seats.Single().HandoverPath);
         Assert.Empty(sessions.Flagged);
         Assert.Contains("solo", sessions.Live);
@@ -1129,8 +1150,12 @@ public class DirectorDrainTests
     }
 
     [Fact]
-    public async Task Drain_ARepeatedSessionIdIsNamedRatherThanThrowing()
+    public async Task Drain_RefusesWhenOneSessionIdAppearsOnTwoSeats()
     {
+        // Keeping the first row and dropping the rest looked tidy and was a lie: there is ONE session
+        // behind that id, and it would have been messaged and closed using one row's name, controller and
+        // restore intent while the other row was recorded as "left alone" - which the drain cannot do,
+        // because it is the same session.
         using var dir = new TempDir();
         var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
         var seats = new[]
@@ -1140,12 +1165,19 @@ public class DirectorDrainTests
         };
         sessions.Live.Add("solo");
         var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
-        sessions.Handover(dir.Path, "solo", "First", DrainTestRig.Block());
 
-        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewDrain(sessions, sink).RunAsync(Options(), dir.Path));
 
-        Assert.False(result.ReadyToRestart);
-        Assert.Contains(result.Document.Integrity!.Problems, p => p.Contains("more than once"));
+        Assert.Contains("more than once", ex.Message);
+        Assert.Empty(sessions.Sent);
+        Assert.Empty(sessions.Flagged);
+
+        // AND THE REFUSAL IS IN THE RECORD. The capture is already on the Gateway by this point; a refusal
+        // that only threw would leave a workspace reading "draining" for ever with nothing saying why.
+        Assert.Equal(WorkspaceOutcomes.Blocked, sink.Last.Outcome);
+        Assert.Contains(sink.Last.Integrity!.Problems, p => p.Contains("refused to start"));
+        Assert.False(sink.Last.Integrity.ReadyToRestart);
     }
 
     [Fact]
@@ -1190,5 +1222,218 @@ public class DirectorDrainTests
 
         // The DIRECTOR placeholder is still there and must be: this Director does get a new identifier.
         Assert.Contains("--director " + DrainRestoreCommand.NewDirectorToken, command);
+    }
+
+    // ================= round three: what the fix round itself got wrong =================
+
+    [Fact]
+    public async Task Drain_ASeatThatWroteItsOwnDocumentIsNotCovered_WhateverItsSeniorSays()
+    {
+        // THE WORST FINDING OF ROUND TWO, and the fix round created it. A covered claim was rejected only
+        // if the target had already been PROCESSED, so on the wrong iteration order a senior read first
+        // could cover a worker whose own handover said "state: blocked" - the worker's document would
+        // never be parsed, its questions would be dropped, and it would be closed as covered while the
+        // record still read ready.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        // The Manager, read FIRST, claims the Worker. The Worker has written its own document, and it
+        // says it is blocked.
+        sessions.Handover(dir.Path, "mgr", "Manager",
+            DrainTestRig.Block(covered: new[] { ("w", "nothing of its own") }));
+        sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block(
+            state: "blocked", restore: null, why: null,
+            blockedReason: "A release is being published; stopping now leaves a half-pushed tag."));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        var worker = result.Document.Seats.Single(s => s.SessionId == "w");
+        Assert.Equal(WorkspaceDrainStates.Blocked, worker.DrainState);
+        Assert.Null(worker.CoveredBy);
+        Assert.Contains("half-pushed tag", worker.BlockedReason!);
+        Assert.Empty(sessions.Flagged);                 // and its Manager is held open behind it
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("has written its OWN handover") && p.Contains("rejected"));
+    }
+
+    [Fact]
+    public async Task Drain_ADocumentReadBeforeItsBlockIsAppendedStillCONVERGES()
+    {
+        // THE LATCH. A document read before its final block was appended used to be stamped "drained" on
+        // that first read, and every later poll skipped it - so the seat never converged even after it
+        // finished properly, and the drain waited out its whole deadline for a document that was ready.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+
+        // Written WITHOUT a block, and finished two passes later - which is what a seat writing its
+        // handover in pieces actually does.
+        var path = sessions.Handover(dir.Path, "solo", "Standalone", block: "");
+
+        var result = await NewDrain(sessions, sink, onPoll: n =>
+        {
+            if (n == 2) File.AppendAllText(path, Environment.NewLine + DrainTestRig.Block());
+        }).RunAsync(Options(TimeSpan.FromMinutes(5)), dir.Path);
+
+        var only = result.Document.Seats.Single();
+        Assert.Equal(WorkspaceDrainStates.Drained, only.DrainState);
+        Assert.NotNull(only.ClosedAtUtc);
+        Assert.Contains("solo", sessions.Flagged);
+        Assert.True(result.ReadyToRestart);
+    }
+
+    [Fact]
+    public async Task Drain_ABlockCarryingALineItDidNotUnderstandIsNotActedOnAtAll()
+    {
+        // A seat that wrote a line the drain could not read has said something, and the drain does not
+        // know what. Acting on the REST of that block - closing the seat, applying its covers - is the
+        // same trinary failure as an unknown state: not-knowing landing on the permissive side.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "mgr", "Manager",
+            "<!-- drain-report\nstate: drained\nresore: yes\ncovered: w | nothing of its own\n-->");
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        // Neither the Manager's clean stop nor its coverage claim was acted on.
+        Assert.Equal(WorkspaceDrainStates.Declined, result.Document.Seats.Single(s => s.SessionId == "mgr").DrainState);
+        Assert.Null(result.Document.Seats.Single(s => s.SessionId == "w").CoveredBy);
+        Assert.Empty(sessions.Flagged);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("resore") && p.Contains("Nothing in this block has been acted on"));
+    }
+
+    [Fact]
+    public async Task Drain_ACoveredSeatIsNotClosedWhenItsSeniorsDocumentNoLongerNamesIt()
+    {
+        // A covered seat has no document of its own, so the only thing that accounts for it is its
+        // senior's - and that was closed on without ever being re-read. If the claim has gone, nothing
+        // accounts for the seat and it must not be closed on it.
+        using var dir = new TempDir();
+        var sessions = new UncoveringSessionControl(dir.Path);
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        sessions.Handover(dir.Path, "mgr", "Manager",
+            DrainTestRig.Block(covered: new[] { ("w", "nothing of its own") }));
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(3)), dir.Path);
+
+
+        Assert.DoesNotContain("w", sessions.Flagged);
+        Assert.Contains("w", sessions.Live);
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("covered by a document that"));
+    }
+
+    /// <summary>
+    /// Deletes the senior's document the first time the drain looks at the covered WORKER - which is the
+    /// moment between the claim being recorded and the worker being closed on it. Hooked on the worker
+    /// specifically because the worker is not a head, so its first presence probe is the close pass.
+    /// </summary>
+    private sealed class UncoveringSessionControl : FakeSessionControl
+    {
+        private readonly string _dir;
+        private bool _done;
+
+        public UncoveringSessionControl(string dir) { _dir = dir; PollsBeforeReap = 2; }
+
+        public override bool IsPresent(string sessionId)
+        {
+            if (!_done && sessionId == "w")
+            {
+                _done = true;
+                File.Delete(DrainPaths.HandoverFor(_dir, "mgr", "Manager"));
+            }
+            return base.IsPresent(sessionId);
+        }
+    }
+
+    [Fact]
+    public async Task Drain_ARefusedCloseIsAskedONCE_NotOnEveryPollForNinetyMinutes()
+    {
+        // A refused close used to stay eligible, so every ten-second poll re-renamed a live session, told
+        // it again that it was being closed, and appended the same sentence to the record - for the rest
+        // of the drain.
+        using var dir = new TempDir();
+        var sessions = new RefusingSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(30)), dir.Path);
+
+        // Nothing was said to it at all: the flag goes first, and it failed.
+        Assert.Empty(sessions.Renamed);
+        Assert.DoesNotContain(sessions.Sent, m => m.Text.Contains("you are being closed"));
+        Assert.Single(result.Document.Integrity!.Problems, p => p.Contains("could not be flagged"));
+    }
+
+    [Fact]
+    public async Task Drain_ACaptureOfNothingItCanAddressSaysSO_NotThatTheDirectorWasEmpty()
+    {
+        // Undrivable seats are filtered out, so a capture made entirely of them reached the "no sessions
+        // to drain" branch - hiding a real addressability fault behind the tidiest possible sentence.
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl();
+        sessions.Undrivable.Add("not-an-id");
+        var seat = DrainTestRig.Seat("not-an-id", "A seat with a malformed id");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains("not an empty Director", result.NotReadyReason!);
+        Assert.DoesNotContain("had no sessions to drain", result.NotReadyReason!);
+    }
+
+    [Fact]
+    public async Task Drain_AFailedLiveSessionListingIsNotReadAsAnEmptyFleet()
+    {
+        // The last check before a restart is allowed. An exception becoming "no extra sessions" is the
+        // same fail-open as everything else here.
+        using var dir = new TempDir();
+        var sessions = new UnlistableSessionControl { PollsBeforeReap = 1 };
+        var seat = DrainTestRig.Seat("solo", "Standalone");
+        sessions.Live.Add("solo");
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seat) };
+        sessions.Handover(dir.Path, "solo", "Standalone", DrainTestRig.Block());
+
+        var result = await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
+
+        Assert.False(result.ReadyToRestart);
+        Assert.Contains(result.Document.Integrity!.Problems,
+            p => p.Contains("could not be listed") && p.Contains("NOTHING here says"));
+    }
+
+    private sealed class UnlistableSessionControl : FakeSessionControl
+    {
+        public override IReadOnlyList<string> LiveSessionIds()
+            => throw new InvalidOperationException("the session registry is unreachable");
     }
 }

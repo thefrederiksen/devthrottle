@@ -123,6 +123,27 @@ public class HandoverSecretSweepTests
     }
 
     [Fact]
+    public void Sweep_ASecondSecretOnTheSameLineIsHiddenToo()
+    {
+        // Redacting only the match that FIRED left the context either side of it in the clear, so on a
+        // line carrying two credentials each finding published the other one - verbatim, into a record
+        // that is stored off this machine. Every match from every pattern is hidden before any finding
+        // quotes the line.
+        const string Password = "Zx9kkQQmm44rrSS";
+        const string ApiKey = "abcd1234efgh5678ijklmnop";
+
+        var findings = HandoverSecretSweep.Sweep(
+            "seeded.md", $"password: {Password} api_key={ApiKey}");
+
+        Assert.Equal(2, findings.Count);
+        Assert.All(findings, f =>
+        {
+            Assert.DoesNotContain(Password, f.RedactedExcerpt);
+            Assert.DoesNotContain(ApiKey, f.RedactedExcerpt);
+        });
+    }
+
+    [Fact]
     public void Sweep_ReportsTheLineNumberSoSomebodyCanGoAndFixIt()
     {
         var text = "one\ntwo\nthree\npassword: NotARealOne123!\nfive";
