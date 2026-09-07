@@ -73,4 +73,32 @@ public static class InstanceContext
     /// <summary>Normalize a raw slug: blank -&gt; default, else trimmed lower-case.</summary>
     public static string Normalize(string? slug)
         => string.IsNullOrWhiteSpace(slug) ? DefaultSlug : slug.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// Does <paramref name="root"/> have the shape of a Director's INSTANCE HOME -
+    /// <c>&lt;something&gt;/instances/&lt;slug&gt;</c> - rather than a machine's shared root?
+    ///
+    /// WHY ANYTHING ASKS. A launcher is machine-wide and must serve the SHARED root. On 2026-09-06 one
+    /// was started from a shell carrying a Director's <c>CC_DIRECTOR_ROOT</c>, inherited it, and took that
+    /// Director's instance home for the machine root. It registered, heartbeated, opened its command
+    /// stream and armed both lifecycle signals - all of it filed under the wrong root, where nothing
+    /// computing from the real root could see or reach it. From outside it was a perfectly healthy
+    /// launcher that could not restart anything.
+    ///
+    /// The test is STRUCTURAL - a parent directory named <c>instances</c>, which is exactly how
+    /// <see cref="InstanceHome"/> composes one - and it is deliberately narrow. A launcher serving a
+    /// throwaway root of its own (a test rig) is NOT this fault and answers false, which is right: an
+    /// isolated root is a legitimate thing to serve, and refusing it would refuse the only safe way to
+    /// exercise any of this. What this catches is the one shape that is wrong by construction.
+    /// </summary>
+    public static bool LooksLikeAnInstanceHome(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return false;
+
+        var trimmed = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parent = Path.GetDirectoryName(trimmed);
+        if (string.IsNullOrEmpty(parent)) return false;
+
+        return string.Equals(Path.GetFileName(parent), "instances", StringComparison.OrdinalIgnoreCase);
+    }
 }

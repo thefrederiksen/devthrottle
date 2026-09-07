@@ -190,32 +190,48 @@ internal static class LauncherLifecycleRelay
         // Undeliverable. Decide WHICH refusal, in the CALLER'S partition - a machine name alone reaches
         // nothing here either. THREE distinct answers, because they have three different fixes and a
         // refusal that cannot say which one it is sends the reader to check the wrong thing.
+        //
+        // THE RULE ITSELF LIVES IN LauncherReachability AND IS NOT SPELT OUT AGAIN HERE. It used to be
+        // written inline right at this spot, which was fine while a refusal was the only place anybody
+        // asked - and stopped being fine the moment the capability query had to ask the SAME question
+        // BEFORE sending anything. Two spellings of one rule agree until the day one of them is edited,
+        // and then the query that exists to be trusted is the one that is wrong.
         var registered = launchers.Get(tenant, machine);
-        if (registered is null)
-        {
-            FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: no launcher registered for tenant={tenant.Value}, machine={machine}");
-            return new LauncherRelayOutcome(RelayOutcomeKind.NoLauncher);
-        }
+        var reach = LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
+        var quietForSeconds = LauncherReachability.QuietForSeconds(registered, DateTime.UtcNow);
 
-        // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO this
-        // Gateway and this Gateway cannot talk to it, which is what a launcher predating the stream looks
-        // like. Reported as what was observed - fresh heartbeat, no stream, this version - so the reader
-        // can check the inference rather than take it.
-        var quietFor = DateTime.UtcNow - registered.LastSeenAt;
-        if (quietFor < LauncherRegistry.HeartbeatTimeout)
+        switch (reach)
         {
-            FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
-                          + $"({quietFor.TotalSeconds:F0}s ago, version '{registered.Version}') but holds NO command "
-                          + $"stream for tenant={tenant.Value}, machine={machine} - refused. A launcher that reaches "
-                          + "this Gateway but opens no stream is too old to accept stream commands; update it.");
-            return new LauncherRelayOutcome(RelayOutcomeKind.NotStreamCapable, LauncherVersion: registered.Version,
-                QuietForSeconds: (int)quietFor.TotalSeconds);
-        }
+            case LauncherReach.NoLauncher:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: no launcher registered for tenant={tenant.Value}, machine={machine}");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NoLauncher);
 
-        FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "
-                      + $"{quietFor.TotalSeconds:F0}s and NOT stream-connected for tenant={tenant.Value}, "
-                      + $"machine={machine} - refused (the stream is the only path)");
-        return new LauncherRelayOutcome(RelayOutcomeKind.NotConnected, LauncherVersion: registered.Version,
-            QuietForSeconds: (int)quietFor.TotalSeconds);
+            // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO
+            // this Gateway and this Gateway cannot talk to it, which is what a launcher predating the
+            // stream looks like. Reported as what was observed - fresh heartbeat, no stream, this version
+            // - so the reader can check the inference rather than take it.
+            case LauncherReach.NotStreamCapable:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
+                              + $"({quietForSeconds}s ago, version '{registered!.Version}') but holds NO command "
+                              + $"stream for tenant={tenant.Value}, machine={machine} - refused. A launcher that reaches "
+                              + "this Gateway but opens no stream is too old to accept stream commands; update it.");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NotStreamCapable, LauncherVersion: registered.Version,
+                    QuietForSeconds: quietForSeconds);
+
+            case LauncherReach.NotConnected:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "
+                              + $"{quietForSeconds}s and NOT stream-connected for tenant={tenant.Value}, "
+                              + $"machine={machine} - refused (the stream is the only path)");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NotConnected, LauncherVersion: registered!.Version,
+                    QuietForSeconds: quietForSeconds);
+
+            default:
+                // Unreachable by construction: streamConnected was passed false, so Classify cannot answer
+                // Connected. It is a throw rather than a fall-through to one of the refusals above,
+                // because picking one would invent a refusal for a state that means the opposite.
+                throw new InvalidOperationException(
+                    $"LauncherReachability.Classify answered {reach} for an undeliverable command on "
+                    + $"machine '{machine}'; a command that could not be delivered cannot be Connected.");
+        }
     }
 }

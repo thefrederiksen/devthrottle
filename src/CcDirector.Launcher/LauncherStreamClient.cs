@@ -128,6 +128,17 @@ public sealed class LauncherStreamClient : IAsyncDisposable
                 return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, "command is required");
 
             FileLog.Write($"[LauncherStreamClient] Command received: verb={cmd.Verb}, path={cmd.Path ?? "(none)"}, confirmProtected={cmd.ConfirmProtected}");
+
+            // THE DECLARATION IS THE GATE, which is what stops it from being a description that drifts.
+            // This launcher tells the Gateway what it honours on every Hello, and the same list decides
+            // here what actually runs - so the promise and the behaviour are one fact rather than two
+            // that have to be kept in step. A verb outside it is refused before anything is dispatched.
+            if (!LauncherDeclaredCapabilities.Honours(cmd.Verb))
+            {
+                FileLog.Write($"[LauncherStreamClient] Command declined (not a declared verb): {cmd.Verb}");
+                return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, $"unknown verb: {cmd.Verb}");
+            }
+
             switch (cmd.Verb)
             {
                 case "director/start":
@@ -169,8 +180,18 @@ public sealed class LauncherStreamClient : IAsyncDisposable
                             JsonOptions));
 
                 default:
-                    FileLog.Write($"[LauncherStreamClient] Command declined (unknown verb): {cmd.Verb}");
-                    return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, $"unknown verb: {cmd.Verb}");
+                    // OVER-DECLARATION, AND IT IS OURS, NOT THE CALLER'S. The gate above only ever
+                    // REMOVES verbs, so reaching here means this launcher DECLARED a verb it has no arm
+                    // for - it promised something a caller then asked for in good faith. A generic
+                    // "unknown verb" would send that caller to correct a request that was exactly right.
+                    // So it names the fault, names the class to fix, and fails loudly.
+                    FileLog.Write($"[LauncherStreamClient] Command FAILED: verb={cmd.Verb} is DECLARED by "
+                                  + "LauncherDeclaredCapabilities.Verbs and has no dispatch arm here. This "
+                                  + "launcher promised a capability it does not have.");
+                    return LauncherCommandResult.Fail(LauncherCommandStatus.Error,
+                        $"this launcher declares '{cmd.Verb}' and cannot perform it - the declaration in "
+                        + "LauncherDeclaredCapabilities.Verbs and the dispatch in LauncherStreamClient "
+                        + "disagree. Your request was correct; the launcher build is wrong.");
             }
         }
         catch (Exception ex)
@@ -207,6 +228,11 @@ public sealed class LauncherStreamClient : IAsyncDisposable
             {
                 MachineName = Environment.MachineName,
                 Version = _version,
+                // Issue #2720: say what this build can honour, rather than leaving the Gateway to infer
+                // it from the version. Computed here, on every Hello including every reconnect, because
+                // two of the three facts in it - the signal listener and the root actually being served -
+                // are only observable inside this process and can change across a reconnect.
+                Capability = LauncherDeclaredCapabilities.Describe(),
             }),
             () => _connection?.State ?? HubConnectionState.Disconnected,
             () => _disposed,
