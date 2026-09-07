@@ -4853,16 +4853,24 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         if (command is null) throw new ArgumentNullException(nameof(command));
 
-        var connectionId = LauncherConnections.GetActiveConnectionId(tenant, machineName);
+        // ONE READ yields both the connection the command goes down and what that connection declared.
+        // Issue #2725: a guarded restart is refused HERE, on that same read, when the connection did not
+        // declare the guard - so the check and the dispatch cannot be about two different launchers.
+        var connection = LauncherConnections.GetActiveConnection(tenant, machineName);
         var hub = _app?.Services.GetService(typeof(Microsoft.AspNetCore.SignalR.IHubContext<Streaming.LauncherHub>))
             as Microsoft.AspNetCore.SignalR.IHubContext<Streaming.LauncherHub>;
-        if (connectionId is null || hub is null)
+        if (connection is null || hub is null)
         {
             FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: no active stream for machine={machineName}, verb={command.Verb}");
             return null;
         }
-        FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}");
-        return await hub.Clients.Client(connectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
+        if (Api.GuardedRestartDispatchGate.Refusal(command, connection) is { } refusal)
+        {
+            FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: REFUSED before dispatch machine={machineName}, verb={command.Verb}: {refusal}");
+            return LauncherCommandResult.Refuse(refusal);
+        }
+        FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}, connection={connection.ConnectionId}");
+        return await hub.Clients.Client(connection.ConnectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
     }
 
     public async Task StopAsync()

@@ -50,6 +50,40 @@ public sealed class DirectorRestartRequestStoreTests
     }
 
     [Fact]
+    public void An_accepted_and_running_request_blocks_a_new_one_for_that_machine_too()
+    {
+        var (store, _, _) = Clocked();
+        store.TryCreate(Tenant, Request(), out _);
+        var id = store.List(Tenant).Single().Id;
+        Assert.Equal(RestartAcceptOutcome.Accepted, store.Accept(Tenant, id, out _));
+
+        Assert.False(store.TryCreate(Tenant, Request(), out var open));
+        Assert.Equal(DirectorRestartRequestState.Accepted, open!.State);
+    }
+
+    [Fact]
+    public void An_accepted_request_that_never_reports_its_end_expires_after_three_hours_with_its_last_word()
+    {
+        var (store, _, advance) = Clocked();
+        store.TryCreate(Tenant, Request(), out _);
+        var id = store.List(Tenant).Single().Id;
+        store.Accept(Tenant, id, out _);
+        store.Report(Tenant, id, new DirectorRestartProgressReport { State = DirectorRestartRequestState.Accepted, Progress = "asking the launcher" }, out _);
+
+        advance(DirectorRestartRequestStore.RunningExpiry - TimeSpan.FromMinutes(1));
+        Assert.Equal(DirectorRestartRequestState.Accepted, store.Get(Tenant, id)!.State);
+
+        advance(TimeSpan.FromMinutes(2));
+        var expired = store.Get(Tenant, id)!;
+        Assert.Equal(DirectorRestartRequestState.Expired, expired.State);
+        Assert.Contains("asking the launcher", expired.StateReason);
+        Assert.Contains("do not assume the restart happened", expired.StateReason);
+
+        // And the machine is free for a new request again.
+        Assert.True(store.TryCreate(Tenant, Request(), out _));
+    }
+
+    [Fact]
     public void A_different_machine_may_have_its_own_pending_request()
     {
         var (store, _, _) = Clocked();

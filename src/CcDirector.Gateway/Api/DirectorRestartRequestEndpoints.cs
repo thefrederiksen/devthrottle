@@ -147,7 +147,11 @@ internal static class DirectorRestartRequestEndpoints
         var text = await reader.ReadToEndAsync(ct);
         if (string.IsNullOrWhiteSpace(text)) return null;
         using var doc = System.Text.Json.JsonDocument.Parse(text);
-        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+        // A body that was sent and is not an object is refused, not read as "no reason": the words the
+        // owner typed would otherwise be dropped in silence. Thrown as the same exception the caller
+        // already turns into a 400.
+        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            throw new System.Text.Json.JsonException($"the decline body must be an object with a 'reason'; this one is {doc.RootElement.ValueKind}");
         return doc.RootElement.TryGetProperty("reason", out var r) && r.ValueKind == System.Text.Json.JsonValueKind.String
             ? r.GetString()
             : null;

@@ -51,6 +51,14 @@ public sealed class DirectorRestartEligibilityDto
 
     /// <summary>The instance slug this Director runs as.</summary>
     public string InstanceSlug { get; set; } = "";
+
+    /// <summary>Whether this Director BUILD can drain itself. False on a build that does not carry the drain
+    /// (issue #2723), so the owner is never shown an approval this Director would abandon at its first
+    /// step. Null when the Director did not say - an older build - which the Gateway reads as a refusal.</summary>
+    public bool? DrainAvailable { get; set; }
+
+    /// <summary>Why the drain is or is not available, in a sentence.</summary>
+    public string DrainReason { get; set; } = "";
 }
 
 /// <summary>The two host-level verbs of the restart cycle, spelled once for the Gateway that sends them

@@ -101,7 +101,11 @@ public sealed class DirectorRestartRequestRouteTests : IAsyncLifetime
     {
         _director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine, cmd => cmd.Verb switch
         {
-            DirectorRestartVerbs.Eligibility => FakeTunnelDirector.Ok(new DirectorRestartEligibilityDto { Eligible = true, Reason = "it is the launcher's Director" }),
+            DirectorRestartVerbs.Eligibility => FakeTunnelDirector.Ok(new DirectorRestartEligibilityDto
+            {
+                Eligible = true, Reason = "it is the launcher's Director",
+                DrainAvailable = true, DrainReason = "this build carries the drain",
+            }),
             DirectorRestartVerbs.Cycle => FakeTunnelDirector.Ok(new { taken = true }),
             _ => DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {cmd.Verb}"),
         });

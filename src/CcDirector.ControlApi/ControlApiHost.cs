@@ -946,10 +946,24 @@ public sealed class ControlApiHost : IAsyncDisposable
         => new CcDirector.Setup.Engine.InstallLayout(InstanceContext.SharedRoot)
             .PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
 
-    /// <summary>This Director's own answer to "am I the Director my launcher would restart?", read fresh.</summary>
+    /// <summary>
+    /// THE DRAIN SEAM. On a tree carrying the drain inside the Director (issue #2723) this is the real step
+    /// over CreateDrain; on this tree it is the step that says the drain is not here - and says so BEFORE
+    /// the owner is asked, through the eligibility answer, not only when the cycle runs.
+    /// </summary>
+    private static Restart.IRestartCycleDrain RestartDrainStep() => new Restart.NoDrainOnThisBuild();
+
+    /// <summary>This Director's own answer to "am I the Director my launcher would restart, and can I drain?",
+    /// read fresh.</summary>
     private static DirectorRestartEligibilityDto JudgeRestartEligibility()
-        => Restart.RestartEligibility.Judge(InstanceContext.Slug, InstanceContext.IsDefault,
+    {
+        var answer = Restart.RestartEligibility.Judge(InstanceContext.Slug, InstanceContext.IsDefault,
             Environment.ProcessPath, SupervisedDirectorPath());
+        var drain = RestartDrainStep().Availability;
+        answer.DrainAvailable = drain.Available;
+        answer.DrainReason = drain.Reason;
+        return answer;
+    }
 
     /// <summary>The Gateway asks, before the owner is shown a request, whether a launcher restart would
     /// restart THIS Director. A read: it changes nothing.</summary>
@@ -997,21 +1011,22 @@ public sealed class ControlApiHost : IAsyncDisposable
             return fail;
         }
 
-        if (Restart.DirectorRestartCycle.Running is { } running)
-        {
-            var fail = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
-                $"a restart cycle is already running on this Director for request {running.Order.RequestId}; a second is refused before it touches anything.");
-            fail.CommandId = cmd.CommandId;
-            return fail;
-        }
-
         var cycle = new Restart.DirectorRestartCycle(order,
-            // THE DRAIN SEAM. On a tree carrying the drain inside the Director (issue #2723) this is the real
-            // step over CreateDrain; on this tree it is the refusal that says the drain is not here.
-            new Restart.NoDrainOnThisBuild(),
+            RestartDrainStep(),
             new Restart.GatewayClientRestartCycleGateway(client),
             JudgeRestartEligibility,
             Environment.ProcessPath);
+
+        // CLAIMED HERE, SYNCHRONOUSLY, BEFORE "TAKEN" IS ANSWERED. Checking Running and then scheduling left a
+        // window in which two commands were both told "taken" and only one cycle ran; the other's request
+        // was never reported. The claim is the answer.
+        if (!cycle.TryClaim())
+        {
+            var fail = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                $"a restart cycle is already running on this Director for request {Restart.DirectorRestartCycle.Running?.Order.RequestId}; a second is refused before it touches anything.");
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
 
         FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}': taking the restart cycle for request {order.RequestId} (asked by {order.RequestedBySessionName}: {order.Reason})");
         _ = Task.Run(async () =>

@@ -48,6 +48,8 @@ export interface DirectorRestartRequest {
   capability?: RestartCapability | null;
   title: string;
   askedBySentence: string;
+  /** What accepting does, written on the Gateway. The card shows it beside its confirmation. */
+  acceptSentence?: string;
   canAccept: boolean;
 }
 
@@ -59,8 +61,14 @@ export async function listRestartRequests(signal?: AbortSignal): Promise<Directo
     signal,
   }, { timeoutMs: POLL_TIMEOUT_MS });
   if (!res.ok) throw await GatewayError.from(res, "load the restart requests");
-  const body = (await res.json()) as { requests?: DirectorRestartRequest[] };
-  return Array.isArray(body.requests) ? body.requests : [];
+  const body = (await res.json()) as { requests?: unknown };
+  // A successful body that does not carry the array is NOT an empty list. Reading it as one would clear
+  // a pending approval off the screen while telling the owner nothing is needed - a malformed answer
+  // must reach the screen as an error and leave the last-known list standing.
+  if (!Array.isArray(body.requests)) {
+    throw new GatewayError(res.status, "The Gateway answered the restart-request list without a 'requests' array; showing the last-known list.");
+  }
+  return body.requests as DirectorRestartRequest[];
 }
 
 /** POST .../accept - the owner's one accept. The Gateway re-checks the machine and hands the cycle to the

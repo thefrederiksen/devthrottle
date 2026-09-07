@@ -46,6 +46,14 @@ public sealed class DirectorRestartRequestStore
     /// <summary>How long a closed request is kept for reading.</summary>
     public static readonly TimeSpan Retention = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// How long an ACCEPTED request may run without a final report before it is closed as expired. The
+    /// drain's own handover deadline is ninety minutes; a cycle that has not reported its end in three
+    /// hours has lost the Director that owed the report, and a record that says "running" for ever is a
+    /// lie the owner acts on.
+    /// </summary>
+    public static readonly TimeSpan RunningExpiry = TimeSpan.FromHours(3);
+
     private readonly object _gate = new();
     private readonly Dictionary<TenantId, Dictionary<string, DirectorRestartRequestDto>> _byTenant = new();
 
@@ -70,8 +78,11 @@ public sealed class DirectorRestartRequestStore
             var requests = For(tenant);
             ApplyExpiryAndSweep(requests, now);
 
+            // ONE OPEN REQUEST PER MACHINE, where open means pending OR accepted-and-running. A second
+            // request while a cycle is running would be a second approval racing the drain - the hazard
+            // the pending rule exists for, one state later.
             alreadyPending = requests.Values.FirstOrDefault(r =>
-                r.State == DirectorRestartRequestState.Pending
+                (r.State == DirectorRestartRequestState.Pending || r.State == DirectorRestartRequestState.Accepted)
                 && string.Equals(r.Machine, request.Machine, StringComparison.OrdinalIgnoreCase));
             if (alreadyPending is not null)
             {
@@ -273,6 +284,13 @@ public sealed class DirectorRestartRequestStore
                     $"nobody accepted within {Expiry.TotalMinutes:0} minutes of the request, so the approval "
                     + "that was being waited for can no longer arrive. Ask again if the restart is still wanted.",
                     now);
+            else if (r.State == DirectorRestartRequestState.Accepted && r.AcceptedAtUtc is { } accepted
+                     && now - accepted >= RunningExpiry)
+                Close(r, DirectorRestartRequestState.Expired,
+                    $"the Director reported nothing final within {RunningExpiry.TotalHours:0} hours of the accept. "
+                    + "Its last word was: " + (string.IsNullOrWhiteSpace(r.Progress) ? "(none)" : r.Progress)
+                    + ". Read the Director and launcher logs on that machine; do not assume the restart happened.",
+                    now);
         }
 
         var stale = requests.Values
@@ -318,6 +336,7 @@ public sealed class DirectorRestartRequestStore
         Capability = r.Capability,
         Title = r.Title,
         AskedBySentence = r.AskedBySentence,
+        AcceptSentence = r.AcceptSentence,
         CanAccept = r.CanAccept,
     };
 }

@@ -40,6 +40,12 @@ public sealed class DirectorRestartRequestService
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>How long a Director may take to answer the two commands this service sends it. The same
+    /// bound every other command carries through the command router; a Director holding its stream open
+    /// and answering nothing must not hold a request - or an accept that has already moved the record -
+    /// open for ever.</summary>
+    public TimeSpan DirectorAnswerTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
     private readonly DirectorRestartRequestStore _store;
     private readonly Func<TenantId, IReadOnlyCollection<DirectorDto>> _listDirectors;
     private readonly Func<TenantId, string, LauncherDto?> _launcherRegistration;
@@ -236,6 +242,9 @@ public sealed class DirectorRestartRequestService
         };
         record.Title = $"Restart the Director on {machine}?";
         record.AskedBySentence = $"{requesterName} asks: {reason}";
+        record.AcceptSentence = liveCount == 0
+            ? "Accept once, and nothing more is asked of you: the Director checks the machine again, asks its launcher for a restart only if it is still empty, and reports here."
+            : $"Accept once, and nothing more is asked of you: the Director asks its {liveCount} live {(liveCount == 1 ? "session" : "sessions")} to write a handover and close, records them in a workspace, checks the machine again, asks its launcher for a restart only if it is empty, and reports here. If any seat cannot stop cleanly it stops, forces nothing, and says why.";
 
         if (!_store.TryCreate(tenant, record, out var pending))
             return new RestartRequestAnswer(409, new
@@ -256,6 +265,11 @@ public sealed class DirectorRestartRequestService
     public async Task<RestartRequestAnswer> AcceptAsync(TenantId tenant, string machine, string id, CancellationToken ct)
     {
         FileLog.Write($"[DirectorRestartRequestService] Accept tenant={tenant.Value} machine={machine} id={id}");
+
+        // THE PATH NAMES A MACHINE, AND THE RECORD IS CHECKED AGAINST IT BEFORE ANYTHING MOVES. An id
+        // under the wrong machine is not this machine's request: 404, exactly as the read answers, and
+        // the record is untouched.
+        if (NotOnThisMachine(tenant, machine, id) is { } wrongMachine) return wrongMachine;
 
         var outcome = _store.Accept(tenant, id, out var request);
         switch (outcome)
@@ -284,19 +298,6 @@ public sealed class DirectorRestartRequestService
                 });
         }
 
-        if (!string.Equals(request!.Machine, machine, StringComparison.OrdinalIgnoreCase))
-        {
-            // The id is real and it names a different machine than the path. Nothing dispatched.
-            _store.Abandon(tenant, id, $"the accept named machine '{machine}' but the request is for '{request.Machine}'", out request);
-            return new RestartRequestAnswer(409, new
-            {
-                code = "machine_mismatch",
-                error = $"request {id} is for '{request!.Machine}', not '{machine}'. Nothing was done.",
-                machine,
-                request,
-            });
-        }
-
         // THE MACHINE MAY HAVE CHANGED SINCE THE REQUEST. The same scrutiny again, on the accept, so an
         // approval never starts a cycle the machine can no longer finish. The Director runs it a third
         // time immediately before asking its launcher, and that one is not redundant either.
@@ -322,6 +323,9 @@ public sealed class DirectorRestartRequestService
         }
 
         // ---- Hand the cycle to the Director. Nothing else is asked of anybody after this. ----
+        // The store answered Accepted above, and an Accepted answer always carries the record.
+        if (request is null)
+            throw new InvalidOperationException($"the store reported request {id} accepted and returned no record; refusing to dispatch on a record nobody has");
         var command = new DirectorCommand
         {
             CommandId = Guid.NewGuid().ToString("N"),
@@ -341,7 +345,13 @@ public sealed class DirectorRestartRequestService
         DirectorCommandResult? result;
         try
         {
-            result = await _sendCommand(request.DirectorId, command, ct);
+            result = await SendBoundedAsync(request.DirectorId, command, ct);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _store.Abandon(tenant, id, $"the Director did not answer within {DirectorAnswerTimeout.TotalSeconds:0} seconds when told to begin. Nothing is known to have started; read that Director's log.", out request);
+            FileLog.Write($"[DirectorRestartRequestService] Accept dispatch TIMED OUT id={id}");
+            return new RestartRequestAnswer(502, new { code = "director_did_not_answer", error = request!.StateReason, machine, request });
         }
         catch (Exception ex)
         {
@@ -373,6 +383,7 @@ public sealed class DirectorRestartRequestService
     /// <summary>The owner declines.</summary>
     public RestartRequestAnswer Decline(TenantId tenant, string machine, string id, string? reason)
     {
+        if (NotOnThisMachine(tenant, machine, id) is { } wrongMachine) return wrongMachine;
         var why = string.IsNullOrWhiteSpace(reason) ? "declined by the owner" : $"declined by the owner: {reason.Trim()}";
         if (_store.Decline(tenant, id, why, out var request))
             return new RestartRequestAnswer(200, request!);
@@ -398,6 +409,7 @@ public sealed class DirectorRestartRequestService
                 error = $"a Director reports Accepted (still running), Abandoned or Completed; '{report.State}' is not its to set.",
                 machine,
             });
+        if (NotOnThisMachine(tenant, machine, id) is { } wrongMachine) return wrongMachine;
         if (_store.Report(tenant, id, report, out var request))
             return new RestartRequestAnswer(200, request!);
         if (request is null) return NotFound(machine, id);
@@ -436,13 +448,17 @@ public sealed class DirectorRestartRequestService
         DirectorCommandResult? result;
         try
         {
-            result = await _sendCommand(directorId, new DirectorCommand
+            result = await SendBoundedAsync(directorId, new DirectorCommand
             {
                 CommandId = Guid.NewGuid().ToString("N"),
                 Verb = EligibilityVerb,
                 SessionId = "",
                 PayloadJson = "{}",
             }, ct);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new Eligibility($"Director {directorId} did not answer within {DirectorAnswerTimeout.TotalSeconds:0} seconds whether its launcher would restart it. No answer is not a yes. No request was created.");
         }
         catch (Exception ex)
         {
@@ -462,11 +478,35 @@ public sealed class DirectorRestartRequestService
         if (answer is null)
             return new Eligibility($"Director {directorId} answered the eligibility question with a body this Gateway could not read. No request was created.");
 
-        // == against the one answer that permits.
-        if (answer.Eligible == true) return new Eligibility(null);
-        return new Eligibility(string.IsNullOrWhiteSpace(answer.Reason)
-            ? $"Director {directorId} says it is not the Director its launcher supervises, and gave no reason. No request was created."
-            : answer.Reason + " No request was created.");
+        // == against the one answer that permits, on BOTH facts: the launcher would restart this Director,
+        // and this Director build can drain itself. A Director that cannot drain would abandon the cycle at
+        // its first step for a fact known now, and the owner must not be shown that approval.
+        if (answer.Eligible != true)
+            return new Eligibility(string.IsNullOrWhiteSpace(answer.Reason)
+                ? $"Director {directorId} says it is not the Director its launcher supervises, and gave no reason. No request was created."
+                : answer.Reason + " No request was created.");
+        if (answer.DrainAvailable != true)
+            return new Eligibility(string.IsNullOrWhiteSpace(answer.DrainReason)
+                ? $"Director {directorId} did not say that it can drain itself, and a cycle it would abandon at its first step must not be offered for approval. Update that Director. No request was created."
+                : answer.DrainReason + " No request was created.");
+        return new Eligibility(null);
+    }
+
+    /// <summary>Send a command down the Director's stream with the bound every command carries. A linked
+    /// source so the caller's own cancellation still propagates as itself.</summary>
+    private async Task<DirectorCommandResult?> SendBoundedAsync(string directorId, DirectorCommand command, CancellationToken ct)
+    {
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bounded.CancelAfter(DirectorAnswerTimeout);
+        try
+        {
+            return await _sendCommand(directorId, command, bounded.Token);
+        }
+        catch (Exception) when (bounded.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // Whatever the transport threw when the bound fired, the fact is "did not answer in time".
+            throw new OperationCanceledException($"the Director did not answer '{command.Verb}' within {DirectorAnswerTimeout.TotalSeconds:0} seconds", bounded.Token);
+        }
     }
 
     private string RequesterName(TenantId tenant, SessionCredentialIdentity? caller)
@@ -476,6 +516,16 @@ public sealed class DirectorRestartRequestService
         var shortId = caller.SessionId.ToString("N")[..8];
         if (session is null) return $"session {shortId} (not on the roster)";
         return string.IsNullOrWhiteSpace(session.Name) ? $"session {shortId} (unnamed)" : $"{session.Name} ({shortId})";
+    }
+
+    /// <summary>The 404 for an id that is not this machine's request, or null when it is. The same
+    /// answer for "no such id" and "that id is another machine's", so the path cannot be used to find
+    /// out which machines have requests.</summary>
+    private RestartRequestAnswer? NotOnThisMachine(TenantId tenant, string machine, string id)
+    {
+        var found = _store.Get(tenant, id);
+        if (found is null) return NotFound(machine, id);
+        return string.Equals(found.Machine, machine, StringComparison.OrdinalIgnoreCase) ? null : NotFound(machine, id);
     }
 
     private static RestartRequestAnswer NotFound(string machine, string id) => new(404, new

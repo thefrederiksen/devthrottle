@@ -20,12 +20,19 @@ public enum RestartDrainVerdict
 /// <summary>The drain step's outcome: the verdict, the record it wrote (when it wrote one), and why.</summary>
 public sealed record RestartDrainOutcome(RestartDrainVerdict Verdict, string? WorkspaceId, string Detail);
 
+/// <summary>Whether a build can drain, and the sentence that says why.</summary>
+public sealed record RestartDrainAvailability(bool Available, string Reason);
+
 /// <summary>
 /// The drain, behind a seam. Issue #2723 builds the drain itself; this is the shape the cycle calls it
 /// through, so the cycle's own rules - order, gates, never forcing - can be proved without a fleet.
 /// </summary>
 public interface IRestartCycleDrain
 {
+    /// <summary>Whether this build can drain at all, and why. Asked BEFORE the owner is shown a request, so
+    /// a cycle that would stop at its first step is never offered for approval.</summary>
+    RestartDrainAvailability Availability { get; }
+
     /// <summary>Drain this Director to a record on the Gateway.</summary>
     /// <param name="order">What was accepted, for the record.</param>
     /// <param name="progress">Called with one sentence on every state change.</param>
@@ -42,12 +49,17 @@ public interface IRestartCycleDrain
 /// </summary>
 public sealed class NoDrainOnThisBuild : IRestartCycleDrain
 {
+    private const string Why =
+        "this Director build carries no drain - the drain inside the Director (issue #2723) is not part of "
+        + "it - so a restart cycle would stop at its first step, before closing anything. Update this Director "
+        + "to a build that carries the drain and ask again.";
+
+    /// <inheritdoc />
+    public RestartDrainAvailability Availability => new(false, Why);
+
     /// <inheritdoc />
     public Task<RestartDrainOutcome> RunAsync(DirectorRestartCycleOrder order, Action<string> progress, CancellationToken ct)
-        => Task.FromResult(new RestartDrainOutcome(RestartDrainVerdict.Unavailable, null,
-            "this Director build carries no drain - the drain inside the Director (issue #2723) is not part of "
-            + "it - so the cycle stops here, before closing anything. Update this Director to a build that "
-            + "carries the drain and ask again."));
+        => Task.FromResult(new RestartDrainOutcome(RestartDrainVerdict.Unavailable, null, Why));
 }
 
 /// <summary>The launcher's answer to a guarded restart, as the Gateway relayed it.</summary>
@@ -104,6 +116,23 @@ public sealed class DirectorRestartCycle
     /// <summary>The cycle running on this Director right now, or null.</summary>
     public static DirectorRestartCycle? Running { get { lock (Gate) return _running; } }
 
+    /// <summary>
+    /// Claim the one-at-a-time gate for this cycle NOW, synchronously, before it is scheduled. False when
+    /// another cycle holds it. A host that checked <see cref="Running"/> and then scheduled a cycle had a
+    /// window in which two commands could both be told "taken" and only one could run - the other threw
+    /// inside its task and nobody reported its request. Claiming here closes that window: the answer
+    /// "taken" is given only to the cycle that holds the gate.
+    /// </summary>
+    public bool TryClaim()
+    {
+        lock (Gate)
+        {
+            if (_running is not null && !ReferenceEquals(_running, this)) return false;
+            _running = this;
+            return true;
+        }
+    }
+
     /// <summary>The order this cycle is running.</summary>
     public DirectorRestartCycleOrder Order { get; }
 
@@ -130,14 +159,10 @@ public sealed class DirectorRestartCycle
     /// </summary>
     public async Task<DirectorRestartRequestState> RunAsync(CancellationToken ct = default)
     {
-        lock (Gate)
-        {
-            if (_running is not null)
-                throw new InvalidOperationException(
-                    $"a restart cycle is already running on this Director for request {_running.Order.RequestId}; "
-                    + "two cycles on one Director is two drains racing, so this one is refused before it touches anything.");
-            _running = this;
-        }
+        if (!TryClaim())
+            throw new InvalidOperationException(
+                $"a restart cycle is already running on this Director for request {Running?.Order.RequestId}; "
+                + "two cycles on one Director is two drains racing, so this one is refused before it touches anything.");
 
         FileLog.Write($"[DirectorRestartCycle] RunAsync: request={Order.RequestId} machine={Order.Machine} askedBy={Order.RequestedBySessionName}");
         try
@@ -176,6 +201,14 @@ public sealed class DirectorRestartCycle
             ct);
         switch (drained.Verdict)
         {
+            case RestartDrainVerdict.Drained when string.IsNullOrWhiteSpace(drained.WorkspaceId):
+                // DRAINED WITHOUT A RECORD IS NOT DRAINED. The workspace is what the restore reads and what a
+                // reader of an abandoned request follows to the closed seats; a restart sent without one
+                // would lose the fleet with every session reported closed. A drain that could not name its
+                // record is treated as blocked, and the restart is not asked for.
+                return await AbandonAsync(
+                    "the drain reported every seat closed but named no workspace record, so there is nothing a "
+                    + "restore could read. The restart is not asked for. " + drained.Detail, null, ct);
             case RestartDrainVerdict.Drained:
                 break;
             case RestartDrainVerdict.Blocked:
@@ -200,7 +233,15 @@ public sealed class DirectorRestartCycle
                 drained.WorkspaceId, ct);
 
         // ---- 4. Ask my own launcher, only if empty. ----
-        await ReportAsync(DirectorRestartRequestState.Accepted, "asking this Director's launcher for a restart only if it is empty", drained.WorkspaceId, ct);
+        // THIS REPORT IS WRITTEN BEFORE THE ASK BECAUSE A SUCCESSFUL ASK MAY NEVER RETURN HERE. The
+        // launcher answers only after it has stopped this process and started the next one, so the line
+        // below is the last thing this process can say when the restart goes ahead. The next process,
+        // seeded from the workspace named here, owes the final report (issue #2724); a record that never
+        // moves past this line expires as unreported on the Gateway rather than reading "running" for ever.
+        await ReportAsync(DirectorRestartRequestState.Accepted,
+            $"asking this Director's launcher for a restart only if it is empty. If the restart goes ahead this process "
+            + $"is stopped before it can say so; the Director that comes back reports the outcome. Its fleet is recorded in workspace '{drained.WorkspaceId}'.",
+            drained.WorkspaceId, ct);
         var answer = await _gateway.AskOwnLauncherRestartOnlyIfEmptyAsync(Order.Machine, _exePath, ct);
         if (answer.Status is < 200 or >= 300)
             return await AbandonAsync(

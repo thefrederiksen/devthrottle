@@ -154,6 +154,10 @@ public sealed class DirectorRestartRequestDto
     /// <summary>Who asked and why, as one sentence.</summary>
     public string AskedBySentence { get; set; } = "";
 
+    /// <summary>What accepting does, as one sentence the card shows beside its confirmation. Written here so
+    /// the promise the owner reads is the Gateway's and cannot drift from what the Director will do.</summary>
+    public string AcceptSentence { get; set; } = "";
+
     /// <summary>Whether an accept would be honoured RIGHT NOW: pending and not yet expired. A client shows
     /// the accept and decline actions when this is true and never works it out from the timestamps itself.</summary>
     public bool CanAccept { get; set; }

@@ -14,11 +14,12 @@ import {
 // `restart-request-*` classes.
 //
 // THE CARD DECIDES NOTHING. The Gateway wrote every sentence on the request - who asked and why, how many
-// sessions are live, what the capability check said in Phase 1's own words, and whether an accept would
-// be honoured right now (`canAccept`). This renders those verbatim and offers the two actions only when
-// the Gateway says they are available. The accept goes through an in-card confirmation step rather than
-// a browser dialog, because accepting closes every session on that Director and a single tap must not
-// be enough.
+// sessions are live, what the capability check said in Phase 1's own words, what accepting will do
+// (`acceptSentence`), and whether an accept would be honoured right now (`canAccept`). This renders those
+// verbatim and offers the two actions only when the Gateway says they are available. The accept goes
+// through an in-card confirmation step rather than a browser dialog, because accepting closes every
+// session on that Director and a single tap must not be enough. The only words of this file's own are
+// the button labels and the two lines that say a read or an action failed.
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -153,9 +154,7 @@ export function RestartRequestCard({ request, onChanged }: RestartRequestCardPro
       )}
       {request.canAccept && confirming && (
         <div className="restart-request-actions restart-request-confirm">
-          <span className="restart-request-line">
-            Accept once, and nothing more is asked of you: the Director drains its sessions, restarts, and reports here.
-          </span>
+          <span className="restart-request-line">{request.acceptSentence || request.title}</span>
           <button type="button" className="restart-request-btn restart-request-btn-danger" onClick={() => void act("accept")} disabled={busy !== null}>
             {busy === "accept" ? "Accepting..." : "Yes, restart it"}
           </button>

@@ -39,7 +39,11 @@ public sealed class DirectorRestartRequestServiceTests
             new SessionDto { SessionId = Guid.NewGuid().ToString(), DirectorId = DirectorId, Name = "another seat" },
         };
         public Func<DirectorCommand, DirectorCommandResult?> Director = cmd => cmd.Verb == DirectorRestartVerbs.Eligibility
-            ? DirectorCommandResult.Success(JsonSerializer.Serialize(new DirectorRestartEligibilityDto { Eligible = true, Reason = "it is the launcher's Director" }, Web))
+            ? DirectorCommandResult.Success(JsonSerializer.Serialize(new DirectorRestartEligibilityDto
+            {
+                Eligible = true, Reason = "it is the launcher's Director",
+                DrainAvailable = true, DrainReason = "this build carries the drain",
+            }, Web))
             : DirectorCommandResult.Success("{\"taken\":true}");
         public List<DirectorCommand> Sent = new();
         public DirectorRestartRequestStore Store = new();
@@ -69,11 +73,18 @@ public sealed class DirectorRestartRequestServiceTests
                 d == DirectorId && RosterPushed ? Now : null,
                 d == DirectorId && DirectorConnected),
             findSession: (_, sid) => Sessions.FirstOrDefault(s => s.SessionId == sid),
-            sendCommand: (d, cmd, _) =>
+            sendCommand: async (d, cmd, ct) =>
             {
                 Sent.Add(cmd);
-                return Task.FromResult(d == DirectorId ? Director(cmd) : null);
+                if (DirectorNeverAnswers)
+                {
+                    // Hold until the caller's own bound fires, as a Director holding its stream open does.
+                    await Task.Delay(Timeout.Infinite, ct);
+                }
+                return d == DirectorId ? Director(cmd) : null;
             });
+
+        public bool DirectorNeverAnswers;
     }
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
@@ -255,6 +266,69 @@ public sealed class DirectorRestartRequestServiceTests
         Assert.Empty(world.Store.List(Tenant));
     }
 
+    [Fact]
+    public async Task A_Director_build_that_cannot_drain_is_refused_at_ask_time_so_the_owner_is_never_shown_it()
+    {
+        // The exact answer a build without the drain inside the Director gives (issue #2723 not carried).
+        var world = new World();
+        world.Director = _ => DirectorCommandResult.Success(JsonSerializer.Serialize(new DirectorRestartEligibilityDto
+        {
+            Eligible = true, Reason = "it is the launcher's Director",
+            DrainAvailable = false, DrainReason = "this Director build carries no drain - the drain inside the Director (issue #2723) is not part of it",
+        }, Web));
+
+        var answer = await world.Service().CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None);
+
+        Assert.Equal(409, answer.Status);
+        var body = Json(answer.Body);
+        Assert.Equal("director_not_restartable_by_its_launcher", S(body, "code"));
+        Assert.Contains("carries no drain", S(body, "error"));
+        Assert.Empty(world.Store.List(Tenant));
+    }
+
+    [Fact]
+    public async Task A_Director_that_does_not_say_whether_it_can_drain_is_refused_because_silence_is_not_a_yes()
+    {
+        var world = new World { Director = _ => DirectorCommandResult.Success("{\"eligible\":true,\"reason\":\"yes\"}") };
+        var answer = await world.Service().CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None);
+        Assert.Equal(409, answer.Status);
+        Assert.Contains("did not say that it can drain", S(Json(answer.Body), "error"));
+    }
+
+    [Fact]
+    public async Task A_Director_that_never_answers_the_eligibility_question_is_refused_when_the_bound_fires()
+    {
+        var world = new World { DirectorNeverAnswers = true };
+        var service = world.Service();
+        service.DirectorAnswerTimeout = TimeSpan.FromMilliseconds(200);
+
+        var answer = await service.CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None);
+
+        Assert.Equal(409, answer.Status);
+        var body = Json(answer.Body);
+        Assert.Equal("director_not_restartable_by_its_launcher", S(body, "code"));
+        Assert.Contains("did not answer within", S(body, "error"));
+        Assert.Empty(world.Store.List(Tenant));
+    }
+
+    [Fact]
+    public async Task A_Director_that_never_answers_the_accept_abandons_the_request_when_the_bound_fires()
+    {
+        var world = new World();
+        var id = await Ask(world);
+        world.DirectorNeverAnswers = true;
+        var service = world.Service();
+        service.DirectorAnswerTimeout = TimeSpan.FromMilliseconds(200);
+
+        var answer = await service.AcceptAsync(Tenant, Machine, id, CancellationToken.None);
+
+        Assert.Equal(502, answer.Status);
+        Assert.Equal("director_did_not_answer", S(Json(answer.Body), "code"));
+        var record = world.Store.Get(Tenant, id)!;
+        Assert.Equal(DirectorRestartRequestState.Abandoned, record.State);
+        Assert.Contains("did not answer within", record.StateReason);
+    }
+
     [Theory]
     [InlineData("false")]
     [InlineData("null")]
@@ -377,6 +451,47 @@ public sealed class DirectorRestartRequestServiceTests
         Assert.Equal(409, again.Status);
         Assert.Equal("request_not_pending", S(Json(again.Body), "code"));
         Assert.Single(world.Sent);
+    }
+
+    [Fact]
+    public async Task Accepting_under_the_wrong_machine_is_a_404_and_the_request_is_untouched()
+    {
+        var world = new World();
+        var id = await Ask(world);
+        world.Sent.Clear();
+
+        var answer = await world.Service().AcceptAsync(Tenant, "SOME-OTHER-MACHINE", id, CancellationToken.None);
+
+        Assert.Equal(404, answer.Status);
+        Assert.Empty(world.Sent);
+        var record = world.Store.Get(Tenant, id)!;
+        Assert.Equal(DirectorRestartRequestState.Pending, record.State);
+        Assert.True(record.CanAccept);
+    }
+
+    [Fact]
+    public async Task Declining_or_reporting_under_the_wrong_machine_is_a_404_and_the_request_is_untouched()
+    {
+        var world = new World();
+        var id = await Ask(world);
+        var service = world.Service();
+
+        Assert.Equal(404, service.Decline(Tenant, "SOME-OTHER-MACHINE", id, "no").Status);
+        Assert.Equal(DirectorRestartRequestState.Pending, world.Store.Get(Tenant, id)!.State);
+
+        await service.AcceptAsync(Tenant, Machine, id, CancellationToken.None);
+        var report = service.Report(Tenant, "SOME-OTHER-MACHINE", id, new DirectorRestartProgressReport { State = DirectorRestartRequestState.Abandoned, Progress = "x" });
+        Assert.Equal(404, report.Status);
+        Assert.Equal(DirectorRestartRequestState.Accepted, world.Store.Get(Tenant, id)!.State);
+    }
+
+    [Fact]
+    public async Task The_accept_sentence_is_written_on_the_Gateway_and_names_the_live_count()
+    {
+        var world = new World();
+        var dto = (DirectorRestartRequestDto)(await world.Service().CreateAsync(Tenant, Machine, Body(), Caller(), CancellationToken.None)).Body;
+        Assert.Contains("2 live sessions", dto.AcceptSentence);
+        Assert.Contains("forces nothing", dto.AcceptSentence);
     }
 
     [Fact]

@@ -33,6 +33,7 @@ function request(overrides: Partial<DirectorRestartRequest> = {}): DirectorResta
     },
     title: "Restart the Director on SOREN_NORTH?",
     askedBySentence: "Rig Alpha - Architect (11111111) asks: the launcher has a staged update",
+    acceptSentence: "Accept once, and nothing more is asked of you: the Director asks its 7 live sessions to write a handover and close, records them in a workspace, checks the machine again, asks its launcher for a restart only if it is empty, and reports here.",
     canAccept: true,
     ...overrides,
   };
@@ -100,9 +101,10 @@ describe("RestartRequestCard", () => {
     render(<RestartRequestCard request={request()} onChanged={changed} />);
 
     fireEvent.click(screen.getByText("Accept"));
-    // One tap is not enough: nothing has gone over the wire yet.
+    // One tap is not enough: nothing has gone over the wire yet, and the promise shown is the Gateway's.
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
     expect(screen.getByText("Yes, restart it")).toBeTruthy();
+    expect(screen.getByText(/asks its 7 live sessions to write a handover/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("Yes, restart it"));
     await waitFor(() => expect(changed).toHaveBeenCalled());
@@ -152,6 +154,14 @@ describe("RestartRequestsPanel", () => {
     fakeGateway([request()]);
     render(<RestartRequestsPanel />);
     await waitFor(() => expect(screen.getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy());
+  });
+});
+
+describe("listRestartRequests", () => {
+  it("treats a successful body without a requests array as an error, never as an empty list", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const { listRestartRequests } = await import("./restartRequests");
+    await expect(listRestartRequests()).rejects.toThrow(/without a 'requests' array/);
   });
 });
 

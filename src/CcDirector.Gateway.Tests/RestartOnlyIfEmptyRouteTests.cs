@@ -70,7 +70,22 @@ public sealed class RestartOnlyIfEmptyRouteTests : IAsyncLifetime
         });
 
         await conn.StartAsync();
-        await conn.InvokeAsync("Hello", new LauncherStreamHello { MachineName = Machine, Version = "9.9.9" });
+        // The stub DECLARES the guard (issue #2725): since the join with the capability handshake a
+        // guarded restart is refused before dispatch to a launcher that did not declare it, so a stub
+        // that declared nothing would never receive one. Whether it then HONOURS what it declared is the
+        // separate switch below - a launcher that declares the guard and answers a bare success is the
+        // lying launcher the relay's acknowledgement check still exists for.
+        await conn.InvokeAsync("Hello", new LauncherStreamHello
+        {
+            MachineName = Machine,
+            Version = "9.9.9",
+            Capability = new LauncherCapabilityDeclaration
+            {
+                Commands = new List<string> { LauncherCapabilities.DirectorRestart, LauncherCapabilities.DirectorRestartOnlyIfEmpty },
+                RestartSignalArmed = true,
+                ServingRootIsInstanceHome = false,
+            },
+        });
         _launcher = conn;
 
         // The presence row the real launcher's registration client posts alongside its stream.
@@ -88,8 +103,9 @@ public sealed class RestartOnlyIfEmptyRouteTests : IAsyncLifetime
         if (cmd.Verb != "director/restart")
             return LauncherCommandResult.Fail(LauncherCommandStatus.BadRequest, $"unexpected verb: {cmd.Verb}");
 
-        // A launcher older than the flag cannot see it. It restarts and says so, and says nothing about a
-        // condition it has never heard of.
+        // A launcher that DECLARED the guard and then ignores it: restarts and says nothing about the
+        // condition. (A launcher that never declared it is refused before dispatch and never gets here -
+        // see GuardedRestartDispatchRouteTests.)
         if (!_launcherHonoursTheFlag)
             return LauncherCommandResult.Ok();
 

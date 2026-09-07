@@ -15,6 +15,7 @@ public sealed class DirectorRestartCycleTests
     {
         public RestartDrainOutcome Outcome = new(RestartDrainVerdict.Drained, "ws-1", "every seat reached a clean stop");
         public int Calls;
+        public RestartDrainAvailability Availability => new(true, "test drain");
         public Task<RestartDrainOutcome> RunAsync(DirectorRestartCycleOrder order, Action<string> progress, CancellationToken ct)
         {
             Calls++;
@@ -109,6 +110,51 @@ public sealed class DirectorRestartCycleTests
         Assert.Contains("#2723", gateway.Last.Progress);
         Assert.Equal(0, gateway.CapabilityChecks);
         Assert.Equal(0, gateway.LauncherAsks);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Drained_without_a_workspace_record_is_not_drained_and_the_launcher_is_not_asked(string? workspace)
+    {
+        var drain = new Drain { Outcome = new(RestartDrainVerdict.Drained, workspace, "every seat closed") };
+        var gateway = new Gateway();
+
+        var final = await Cycle(drain, gateway).RunAsync();
+
+        Assert.Equal(DirectorRestartRequestState.Abandoned, final);
+        Assert.Equal(0, gateway.CapabilityChecks);
+        Assert.Equal(0, gateway.LauncherAsks);
+        Assert.Contains("named no workspace record", gateway.Last.Progress);
+    }
+
+    [Fact]
+    public async Task The_gate_is_claimed_synchronously_and_a_second_claim_is_refused_until_the_first_runs_out()
+    {
+        var first = Cycle(new Drain(), new Gateway());
+        var second = Cycle(new Drain(), new Gateway());
+        Assert.True(first.TryClaim());
+        Assert.True(first.TryClaim(), "re-claiming by the holder is not a second cycle");
+        Assert.False(second.TryClaim());
+        Assert.Same(first, DirectorRestartCycle.Running);
+
+        // Running the holder releases the gate at its end.
+        await first.RunAsync();
+        Assert.Null(DirectorRestartCycle.Running);
+        Assert.True(second.TryClaim());
+        await second.RunAsync();
+    }
+
+    [Fact]
+    public async Task The_report_before_the_ask_names_the_workspace_because_the_ask_may_never_return()
+    {
+        var gateway = new Gateway();
+        await Cycle(new Drain(), gateway).RunAsync();
+        var beforeAsk = gateway.Reports[^2];
+        Assert.Equal(DirectorRestartRequestState.Accepted, beforeAsk.State);
+        Assert.Contains("stopped before it can say so", beforeAsk.Progress);
+        Assert.Equal("ws-1", beforeAsk.WorkspaceId);
     }
 
     [Fact]
@@ -227,6 +273,7 @@ public sealed class DirectorRestartCycleTests
 
     private sealed class SlowDrain : IRestartCycleDrain
     {
+        public RestartDrainAvailability Availability => new(true, "test drain");
         private readonly Task _release;
         public readonly TaskCompletionSource Entered = new();
         public SlowDrain(Task release) => _release = release;
