@@ -1230,6 +1230,81 @@ public class DirectorDrainTests
         Assert.Contains("--director " + DrainRestoreCommand.NewDirectorToken, command);
     }
 
+    // ================= the one door off this machine =================
+
+    [Theory]
+    [InlineData("why")]
+    [InlineData("blocked-reason")]
+    [InlineData("question")]
+    [InlineData("covered-note")]
+    [InlineData("unparsed-line")]
+    public async Task Drain_NothingASeatWROTEReachesTheGatewayUnswept(string where)
+    {
+        // THE SWEEP WAS GUARDING THE WRONG EXIT. It redacted its own finding excerpts while the drain
+        // lifted a seat's prose straight out of its block and stored it verbatim - and several of those
+        // fields are written before the sweep has run at all. So a token a seat typed into "why:" left
+        // this machine inside a record built by the component whose job is to stop that.
+        //
+        // The remedy is NOT a list of fields to redact - that is the same enumeration gap in a different
+        // coat, and the next field anybody adds is not on it. The guard is at the boundary, over the
+        // payload. This test is a Theory for exactly that reason: it names five different places and the
+        // code that protects them knows about none of them.
+        const string Secret = "Zx9kkQQmm44rrSS";
+
+        using var dir = new TempDir();
+        var sessions = new FakeSessionControl { PollsBeforeReap = 1 };
+        var seats = new[]
+        {
+            DrainTestRig.Seat("mgr", "Manager"),
+            DrainTestRig.Seat("w", "Worker", reportsTo: "mgr", order: 1),
+        };
+        foreach (var s in seats) sessions.Live.Add(s.SessionId!);
+        var sink = new FakeWorkspaceSink { Captured = DrainTestRig.Document(seats) };
+
+        var block = where switch
+        {
+            "why" => DrainTestRig.Block(restore: true, why: $"Continue: the box password: {Secret}"),
+            "blocked-reason" => DrainTestRig.Block(
+                state: "blocked", restore: null, why: null,
+                blockedReason: $"Waiting on a deploy; password: {Secret}"),
+            "question" => DrainTestRig.Block(questions: new[] { $"Is the password: {Secret} still right?" }),
+            "covered-note" => DrainTestRig.Block(covered: new[] { ("w", $"nothing of its own; password: {Secret}") }),
+            _ => "<!-- drain-report\nstate: drained\nrestore: no\nwhy: done\n"
+                 + $"resore: password: {Secret}\n-->",
+        };
+
+        sessions.Handover(dir.Path, "mgr", "Manager", block);
+        if (where != "covered-note") sessions.Handover(dir.Path, "w", "Worker", DrainTestRig.Block());
+
+        await NewDrain(sessions, sink).RunAsync(Options(TimeSpan.FromMinutes(2)), dir.Path);
+
+        // EVERY save, not only the last: several of these fields are stored long before the sweep runs.
+        foreach (var stored in sink.Saves)
+            Assert.DoesNotContain(Secret, System.Text.Json.JsonSerializer.Serialize(stored));
+    }
+
+    [Fact]
+    public void RedactedForTransmission_HidesAValueInAFieldThisCodeHasNeverHeardOf()
+    {
+        // The property the boundary has that a list of fields cannot: it does not know what it is
+        // protecting. A secret in the workspace's DESCRIPTION - a field no drain ever writes and no
+        // redaction rule mentions - is hidden by the same pass, because what is checked is the payload.
+        const string Secret = "Zx9kkQQmm44rrSS";
+        var doc = DrainTestRig.Document(DrainTestRig.Seat("solo", "Standalone"));
+        doc.Description = $"password: {Secret}";
+        doc.Reason = $"api_key = {Secret}0000";
+
+        var redacted = DirectorDrain.RedactedForTransmission(doc);
+
+        Assert.DoesNotContain(Secret, System.Text.Json.JsonSerializer.Serialize(redacted));
+        Assert.Contains("[REDACTED", redacted.Description);
+
+        // And the document still parses back into itself - the seats and the shape survive.
+        Assert.Single(redacted.Seats);
+        Assert.Equal("Standalone", redacted.Seats[0].Name);
+        Assert.Equal(doc.Id, redacted.Id);
+    }
+
     // ================= round three: what the fix round itself got wrong =================
 
     [Fact]

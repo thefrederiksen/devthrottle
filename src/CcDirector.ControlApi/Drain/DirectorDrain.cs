@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Reflection;
+using System.Text.Json;
 using System.Text;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -705,7 +707,7 @@ public sealed class DirectorDrain
         {
             foreach (var line in block.UnparsedLines)
                 notes.Add($"seat {DrainPaths.ShortId(seat.SessionId)} wrote a drain-report line that " +
-                              $"was not understood: \"{Trim(Redacted(line)!, 200)}\". Nothing in this block has been " +
+                              $"was not understood: \"{Trim(line, 200)}\". Nothing in this block has been " +
                               "acted on and the seat has not been closed - a seat that meant something the " +
                               "drain could not read has not given it an answer.");
             return;
@@ -735,7 +737,7 @@ public sealed class DirectorDrain
             // The field is read later as the seat's OWN WORDS, and it is the evidence the never-force rule
             // exists to collect. When the seat left it empty, what goes in must be unmistakably the drain
             // speaking - not prose a later reader attributes to a session that never said it.
-            seat.BlockedReason = Redacted(block.BlockedReason)
+            seat.BlockedReason = block.BlockedReason
                 ?? "(no words from the seat: it declared itself blocked and did not say what on. " +
                    "This line was written by the drain, not by the session.)";
         }
@@ -745,7 +747,7 @@ public sealed class DirectorDrain
         // document that might since have changed, taking questions from a block this method had REJECTED,
         // and treating an unreadable file as a seat with no questions - three ways for a question waiting
         // on the owner to vanish out of the one list that exists to stop exactly that.
-        _seatQuestions[seat.SessionId!] = block.Questions.Select(q => Redacted(q)!).ToList();
+        _seatQuestions[seat.SessionId!] = block.Questions.ToList();
 
         seat.Restore = new WorkspaceSeatRestore
         {
@@ -755,7 +757,7 @@ public sealed class DirectorDrain
                 false => WorkspaceRestoreDecisions.Close,
                 _ => WorkspaceRestoreDecisions.Undecided,
             },
-            Why = Redacted(block.Why),
+            Why = block.Why,
             Command = block.Restore == true
                 ? DrainRestoreCommand.Build(seat, path, ControllerIsBeingRestarted(seat, byId))
                 : null,
@@ -812,7 +814,7 @@ public sealed class DirectorDrain
             target.CoveredNote = string.IsNullOrWhiteSpace(claim.Note)
                 ? $"Reported up to {seat.Name} rather than writing its own document, which is the chain " +
                   "working as designed. Its senior's handover accounts for it."
-                : Redacted(claim.Note)!;
+                : claim.Note;
             target.Restore = new WorkspaceSeatRestore
             {
                 Decision = WorkspaceRestoreDecisions.Close,
@@ -1403,19 +1405,132 @@ public sealed class DirectorDrain
     // ================= plumbing =================
 
     /// <summary>
-    /// Store the record as it stands, and KEEP THE LOCAL DOCUMENT as the one being mutated.
+    /// THE ONE DOOR OFF THIS MACHINE. Everything the drain stores goes through here, and nothing goes
+    /// through here unswept.
     ///
-    /// The store returns its own copy, round-tripped through the wire and stamped with its timestamps. If
-    /// the drain adopted that copy it would be holding a DIFFERENT object graph from the seat instances it
-    /// is still writing into, and every change after the first save would be made to a document nobody
-    /// ever stores. The stamps are the only thing the store adds, and they are carried across by hand.
+    /// WHY THE SWEEP IS HERE AND NOT ON A LIST OF FIELDS. The sweep began life redacting its own finding
+    /// excerpts, and that was the only redaction there was - while the drain lifted a seat's own prose
+    /// straight out of its block and stored it verbatim: a blocked reason, a restore why, a coverage note,
+    /// an owner question, the quoted text of a line it could not parse. Several were stored before the
+    /// sweep had run at all. So a token a seat typed into "why:" left this machine inside a record built
+    /// by the very component whose job is to stop that.
+    ///
+    /// The obvious remedy - redact those four or five fields where they are assigned - is the SAME DEFECT
+    /// IN A DIFFERENT COAT. It is a list of what to protect, and the next field anybody adds is not on it.
+    /// This mission has spent its whole length on enumerations that were missing an entry; putting one in
+    /// the remedy would have been the last place to notice.
+    ///
+    /// So the guard is at the BOUNDARY and it enumerates nothing. The document is serialized exactly as it
+    /// will be transmitted, the sweep is run over those bytes, and what is stored is the redacted form.
+    /// Every field, every field anybody adds later, and every value nested anywhere inside one - because
+    /// the thing being checked is the payload rather than a list of places a payload can hide.
+    ///
+    /// WHAT THIS DOES NOT DO, said so nobody reads more into it: it protects what LEAVES. The unredacted
+    /// values stay in this process and on this machine's disk, in the handover documents themselves, which
+    /// is where they already were and where the operator can see them. And it is bounded by the sweep's
+    /// own sensitivity - it hides what the patterns recognise, and proving a pattern can fire is a
+    /// different property from proving the patterns cover every shape a credential takes. We proved the
+    /// sweep CAN FAIL and never proved it SEES EVERYTHING; this closes the second half of the sentence
+    /// only for the part about where it looks.
+    ///
+    /// THE LOCAL DOCUMENT IS KEPT as the one being mutated. The store returns its own copy, round-tripped
+    /// through the wire and stamped with its timestamps; adopting it would leave the drain holding a
+    /// different object graph from the seat instances it is still writing into, and every change after the
+    /// first save would be made to a document nobody ever stores.
     /// </summary>
+    /// <param name="doc">The live document. Not modified - a redacted copy is what is sent.</param>
+    /// <param name="ct">Cancellation.</param>
     private async Task SaveAsync(WorkspaceDocument doc, CancellationToken ct)
     {
-        var saved = await _sink.SaveAsync(doc, ct).ConfigureAwait(false);
+        var saved = await _sink.SaveAsync(RedactedForTransmission(doc), ct).ConfigureAwait(false);
         doc.CreatedUtc = saved.CreatedUtc;
         doc.UpdatedUtc = saved.UpdatedUtc;
     }
+
+    /// <summary>
+    /// The document as it will be transmitted, with every secret the sweep recognises replaced - wherever
+    /// in it they happen to live.
+    ///
+    /// It walks the OBJECT GRAPH rather than the serialized text. Redacting the JSON was the first
+    /// attempt and it is a trap: compact JSON carries no whitespace, so a pattern whose value is "the
+    /// rest of the non-space run" swallows the remainder of the document, quotes and commas included, and
+    /// what comes back is not JSON at all. Indenting only moves the boundary onto the closing quote. The
+    /// graph has no such ambiguity - a string is a string, and the structure is never inside one.
+    ///
+    /// It enumerates NOTHING. It does not know that a blocked reason or an owner question exists; it
+    /// finds every string reachable from the document, including in fields added long after this was
+    /// written, which is the whole reason it is here rather than a list of places to be careful about.
+    /// </summary>
+    /// <param name="doc">The live document. Not modified - the copy is what is redacted and sent.</param>
+    internal static WorkspaceDocument RedactedForTransmission(WorkspaceDocument doc)
+    {
+        var clone = JsonSerializer.Deserialize<WorkspaceDocument>(
+            JsonSerializer.Serialize(doc, TransmissionJson), TransmissionJson);
+
+        if (clone is null)
+            throw new InvalidOperationException(
+                "The workspace could not be read back before redaction, so what would have been stored is " +
+                "unknown. Nothing was sent.");
+
+        RedactStrings(clone, 0);
+        return clone;
+    }
+
+    /// <summary>
+    /// Replace every string reachable from this object with its redacted form.
+    /// </summary>
+    /// <param name="value">The object to walk.</param>
+    /// <param name="depth">Recursion depth, bounded so a graph that ever gains a cycle cannot hang the
+    /// Director on the one call that stands between a secret and the wire.</param>
+    private static void RedactStrings(object? value, int depth)
+    {
+        const int MaxDepth = 12;
+        if (value is null || depth > MaxDepth) return;
+
+        var type = value.GetType();
+
+        // A list of strings is redacted in place; a list of anything else is walked.
+        if (value is System.Collections.IList list)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i] is string s) list[i] = HandoverSecretSweep.RedactLine(s);
+                else RedactStrings(list[i], depth + 1);
+            }
+            return;
+        }
+
+        // Only the contract types are walked. Anything else - a DateTime, an int, a framework type - has
+        // no prose in it and no settable string this drain put there.
+        if (type.Namespace is null || !type.Namespace.StartsWith("CcDirector.", StringComparison.Ordinal))
+            return;
+
+        foreach (var property in type.GetProperties())
+        {
+            if (property.GetIndexParameters().Length > 0) continue;
+
+            object? current;
+            try { current = property.GetValue(value); }
+            catch (Exception ex) when (ex is TargetInvocationException or NotSupportedException) { continue; }
+
+            if (current is string text)
+            {
+                if (!property.CanWrite) continue;
+                var redacted = HandoverSecretSweep.RedactLine(text);
+                if (!ReferenceEquals(redacted, text)) property.SetValue(value, redacted);
+            }
+            else
+            {
+                RedactStrings(current, depth + 1);
+            }
+        }
+    }
+
+    private static readonly JsonSerializerOptions TransmissionJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
 
     /// <summary>Why a read did not produce a document. COULD NOT READ IS NOT THE SAME AS NOT THERE.</summary>
     private enum ReadStatus
@@ -1498,22 +1613,6 @@ public sealed class DirectorDrain
 
     private static string Sha256(string text)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
-
-    /// <summary>
-    /// EVERYTHING A SEAT WROTE THAT THE DRAIN COPIES ONTO THE RECORD GOES THROUGH HERE FIRST.
-    ///
-    /// The secret sweep redacts its own finding excerpts, and that used to be the only place anything was
-    /// redacted - while the drain lifted a seat's own prose straight out of its block and stored it on the
-    /// GATEWAY: the blocked reason, the restore why, a coverage note, an owner question, and the verbatim
-    /// quote of a line it could not parse. Several of those are saved before the sweep has run at all. So
-    /// a token a seat happened to type into "why:" left this machine, in a record built by the very
-    /// component whose job is to stop that.
-    ///
-    /// Null in, null out, so a caller can keep its own "the seat said nothing" branch.
-    /// </summary>
-    /// <param name="text">Whatever the seat wrote.</param>
-    private static string? Redacted(string? text)
-        => text is null ? null : HandoverSecretSweep.RedactLine(text);
 
     private static string Trim(string value, int max)
         => value.Length <= max ? value : value[..max] + "...";
