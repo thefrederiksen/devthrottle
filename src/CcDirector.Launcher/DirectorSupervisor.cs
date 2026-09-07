@@ -91,6 +91,12 @@ public sealed class DirectorSupervisor
     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
     /// done TO it - but starting another one on top of two that already exist would make the mess
     /// worse, and that is the only decision this property is used for.
+    ///
+    /// So does an UNKNOWN one, for the same reason and by the same test (issue #2730): something claims
+    /// that instance home and could not be read, and putting a second Director into a home that may
+    /// already have one is the outcome to avoid. Written as a negative deliberately, so an outcome added
+    /// later lands on the occupied side; that is the safe default here, and the unsafe default is
+    /// reporting a home as free while a process sits in it.
     /// </summary>
     public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;
 
@@ -107,6 +113,27 @@ public sealed class DirectorSupervisor
             throw new FileNotFoundException($"Installed Director not found: {DirectorExePath}", DirectorExePath);
 
         var lookup = _locator.Resolve();
+
+        // THE DANGEROUS DIRECTION, AND THE REASON ISSUE #2730 WAS URGENT. Everywhere else a resolution
+        // that is not Running means "do not act", which is the careful direction. Here it means "go
+        // ahead and start one", so the SAME value that is safe in StopAsync below is what starts a second
+        // Director in an instance home that already has a live one. Two Directors sharing one home is the
+        // shape of the failure that corrupted a database and took the hosted service down for
+        // thirty-two minutes on 30 July 2026.
+        //
+        // Unknown is called out by name rather than relying on the "not NotRunning" test to cover it. The
+        // test does cover it, and that is not the same as a reader being able to see that it does - which
+        // is precisely the reasoning that failed the first time: an outcome nobody had thought about
+        // reaching this line is what the whole defect was.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] Start: REFUSING to start a Director in {_locator.InstanceHome} - "
+                          + (lookup.Conflict ?? "something claims it that could not be read or certified")
+                          + " Starting one here could put a second Director on an instance home that already "
+                          + "has a live one. Fix or remove what could not be read, then start it.");
+            return;
+        }
+
         if (lookup.Outcome != DirectorResolution.NotRunning)
         {
             FileLog.Write($"[DirectorSupervisor] Start: a Director already holds {_locator.InstanceHome} "
@@ -170,6 +197,20 @@ public sealed class DirectorSupervisor
         if (lookup.Outcome == DirectorResolution.NotRunning)
         {
             FileLog.Write("[DirectorSupervisor] StopAsync: Director not running");
+            return;
+        }
+
+        // THE SAFE DIRECTION FOR THE SAME VALUE. Declining to stop something is careful, so Unknown needs
+        // no new behaviour here - but it does need its own SENTENCE. Falling into the refusal below would
+        // print "more than one live process claims this instance", which is not what happened and sends
+        // the next reader looking for a second process that does not exist.
+        if (lookup.Outcome == DirectorResolution.Unknown)
+        {
+            FileLog.Write($"[DirectorSupervisor] StopAsync: REFUSING to stop anything - "
+                          + (lookup.Conflict ?? $"something claims {_locator.InstanceHome} that could not be read "
+                             + "or certified")
+                          + " Nothing can be certified as this launcher's Director, and an uncertified process is "
+                          + "not this launcher's to end.");
             return;
         }
 

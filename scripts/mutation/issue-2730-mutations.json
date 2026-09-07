@@ -1,0 +1,67 @@
+{
+ "repo": ".",
+ "project": "src/CcDirector.Launcher.Tests/CcDirector.Launcher.Tests.csproj",
+ "filter": "FullyQualifiedName~UnreadableRegistrationIsNotAnEmptyInstance",
+ "mutants": [
+  {
+   "name": "2730-a: nothing-left never becomes Unknown (the pre-fix answer)",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "            if (unreadable.Count > 0)",
+   "replace": "            if (unreadable.Count > 999999)"
+  },
+  {
+   "name": "2730-b: an unparseable registration is silently skipped again",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    yield return (file, home, null, failure);\n                    continue;",
+   "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {failure}\");\n                    continue;"
+  },
+  {
+   "name": "2730-c: a registration that names no Director is silently skipped again",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    yield return (file, home, null, incomplete);\n                    continue;",
+   "replace": "                    FileLog.Write($\"[DirectorInstanceLocator] {incomplete}\");\n                    continue;"
+  },
+  {
+   "name": "2730-d: Start's explicit Unknown branch removed (general guard still stands)",
+   "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+   "find": "        if (lookup.Outcome == DirectorResolution.Unknown)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: REFUSING",
+   "replace": "        if (false && lookup.Outcome == DirectorResolution.Unknown)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: REFUSING"
+  },
+  {
+   "name": "2730-e: Start's general guard inverted to permit anything but Running",
+   "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+   "find": "        if (lookup.Outcome != DirectorResolution.NotRunning)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: a Director already holds",
+   "replace": "        if (lookup.Outcome == DirectorResolution.Running)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: a Director already holds"
+  },
+  {
+   "name": "2730-f: IsRunning reports an unreadable claim as free",
+   "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+   "find": "    public bool IsRunning => _locator.Resolve().Outcome != DirectorResolution.NotRunning;",
+   "replace": "    public bool IsRunning => _locator.Resolve().Outcome == DirectorResolution.Running;"
+  },
+  {
+   "name": "2730-g: the corrupt-beside-live case drops the corruption from the answer",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "            return ResolveSingleClaimant(live[0], described) with { Unreadable = unreadable };",
+   "replace": "            return ResolveSingleClaimant(live[0], described);"
+  },
+  {
+   "name": "2730-h2: (paired with h) general guard narrowed to Running only",
+   "file": "src/CcDirector.Launcher/DirectorSupervisor.cs",
+   "find": "        if (lookup.Outcome != DirectorResolution.NotRunning)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: a Director already holds",
+   "replace": "        if (lookup.Outcome == DirectorResolution.Running)\n        {\n            FileLog.Write($\"[DirectorSupervisor] Start: a Director already holds"
+  },
+  {
+   "name": "CONTROL-1: a mutant that cannot COMPILE must report BROKEN, never SURVIVED",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "            if (unreadable.Count > 0)",
+   "replace": "            if (false)"
+  },
+  {
+   "name": "CONTROL-2: a mutant whose target text is absent must report BROKEN",
+   "file": "src/CcDirector.Core/Instances/DirectorInstanceLocator.cs",
+   "find": "this string is deliberately not in the file",
+   "replace": "nor is this"
+  }
+ ]
+}
