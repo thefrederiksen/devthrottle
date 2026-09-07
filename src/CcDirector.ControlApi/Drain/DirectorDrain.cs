@@ -514,7 +514,12 @@ public sealed class DirectorDrain
             $"[DirectorDrain] finished: seats={seats.Count}, closed={_closed.Count}, " +
             $"ready={integrity.ReadyToRestart}, reason={integrity.NotReadyReason ?? "-"}");
 
-        return new DirectorDrainResult(doc, dir, integrity.ReadyToRestart, integrity.NotReadyReason);
+        // THE RESULT CARRIES WHAT WAS STORED, redacted, rather than the live graph. The live document
+        // holds a seat's own prose exactly as it was written; handing that back made the result a second
+        // outbound door - anything that serialized it would send what the boundary had just been built to
+        // stop. It also makes the type's "exactly as it was last stored" contract true, which it was not.
+        return new DirectorDrainResult(
+            RedactedForTransmission(doc), dir, integrity.ReadyToRestart, integrity.NotReadyReason);
     }
 
 
@@ -597,11 +602,29 @@ public sealed class DirectorDrain
         // a valid declaration IN THIS RUN, and this is where that is made true rather than assumed.
         foreach (var seat in seats)
         {
-            if (seat.DrainState is null && seat.HandoverPath is null && seat.CoveredBy is null) continue;
-            _problems.Add(
+            // ClosedAtUtc IS IN THE LIST, and leaving it out was a hole with teeth. A seat carrying only
+            // a stale close time passed this check untouched, and a close time makes a seat TERMINAL: it
+            // is never flagged, its senior can be held ineligible waiting for it, and the final verdict
+            // accepts the stale time as proof it is gone. The record reads ready while that session is
+            // still running, and the restart destroys it.
+            if (seat.DrainState is null && seat.HandoverPath is null
+                && seat.CoveredBy is null && seat.ClosedAtUtc is null
+                && seat.BlockedReason is null && seat.CoveredNote is null
+                && (seat.Restore is null || seat.Restore.Decision == WorkspaceRestoreDecisions.Undecided))
+                continue;
+            // NOT a problem: it is normalisation, and it happens BEFORE this run has asked anybody
+            // anything. Recording it in the problems would have blocked the restart for ever on a
+            // condition that every seat then went on to resolve properly, which is a warning outliving
+            // the thing it warned about. It is on the seat's note, replaced the moment that seat's own
+            // document is read, so it survives only while it is still true.
+            _seatNotes[seat.SessionId!] = new List<string>
+            {
                 $"seat {DrainPaths.ShortId(seat.SessionId)} ({seat.Name}) arrived from the capture already " +
                 $"carrying a verdict - drain state \"{seat.DrainState ?? "none"}\" - which no declaration " +
-                "in THIS drain produced. It has been cleared and the seat starts unaccounted for.");
+                "in THIS drain produced. It was cleared and the seat started unaccounted for.",
+            };
+            FileLog.Write(
+                $"[DirectorDrain] cleared a captured verdict on {seat.SessionId}: {seat.DrainState ?? "none"}");
             seat.DrainState = null;
             seat.HandoverPath = null;
             seat.CoveredBy = null;
@@ -891,11 +914,26 @@ public sealed class DirectorDrain
     {
         try
         {
-            return new FileInfo(path).Exists;
+            // GetAttributes THROWS where Exists SWALLOWS. That is the whole point of using it: both
+            // File.Exists and FileInfo.Exists answer FALSE when they cannot tell - an access denial, a
+            // share violation, a path the process may not walk - and on this branch false is the
+            // permissive answer that lets a seat be closed on somebody else's document. The previous
+            // version of this method caught exceptions that the API it called never raises, so it read
+            // exactly like the fix it was supposed to be and behaved exactly like the defect.
+            File.GetAttributes(path);
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                      or NotSupportedException or ArgumentException)
+        catch (FileNotFoundException)
         {
+            return false;                 // the only answer that means "it wrote nothing of its own"
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;                 // the drain's own directory, so this is the same answer
+        }
+        catch (Exception ex)
+        {
+            // Anything else is "I could not look", and a failure to look must not authorise a close.
             FileLog.Write($"[DirectorDrain] SeatWroteItsOwn: cannot tell for {path}: {ex.Message}");
             return true;
         }
@@ -1559,8 +1597,42 @@ public sealed class DirectorDrain
                 $"A {typeof(T).Name} could not be read back before redaction, so what would have been sent " +
                 "is unknown. Nothing was sent.");
 
+        // AN IDENTITY IS REFUSED, NEVER REWRITTEN. Redacting content is right; redacting the id a record
+        // is stored under, or the Director it names, hands the Gateway a record under a name the caller
+        // cannot find afterwards - the drain would go on writing to a workspace nobody can retrieve, and
+        // two such records would collide on the same redacted string. A routing value that looks like a
+        // secret is a reason to stop, not a thing to quietly change.
+        foreach (var (what, id) in RoutingIdentities(clone))
+        {
+            if (id is null || HandoverSecretSweep.RedactLine(id) == id) continue;
+            throw new InvalidOperationException(
+                $"The {what} \"{DrainPaths.ShortId(id)}...\" matches something the secret sweep " +
+                "recognises. Redacting it would store this record under a name nobody could find, so " +
+                "nothing was sent. Choose a different one.");
+        }
+
         RedactStrings(clone, 0);
         return clone;
+    }
+
+    /// <summary>The values that ROUTE a record rather than describe one - the ones a later reader looks it
+    /// up by. Named here because they are the only strings in the payload that must not be rewritten.</summary>
+    /// <param name="payload">The clone about to be sent.</param>
+    private static IEnumerable<(string What, string? Id)> RoutingIdentities(object payload)
+    {
+        switch (payload)
+        {
+            case WorkspaceDocument d:
+                yield return ("workspace id", d.Id);
+                yield return ("director id", d.DirectorId);
+                yield return ("driving session id", d.DrivenBySessionId);
+                break;
+            case WorkspaceCaptureRequest r:
+                yield return ("workspace id", r.Id);
+                yield return ("director id", r.DirectorId);
+                yield return ("driving session id", r.DrivenBySessionId);
+                break;
+        }
     }
 
     /// <summary>
@@ -1576,13 +1648,22 @@ public sealed class DirectorDrain
         // the wire. Nothing legitimate here is twelve deep; if something ever is, the send stops.
         const int MaxDepth = 12;
         if (value is null) return;
-        if (depth > MaxDepth)
-            throw new InvalidOperationException(
-                $"The redaction guard reached {MaxDepth} levels and stopped. Everything below that point " +
-                "would have been sent unswept, so nothing was sent. The document's shape has changed and " +
-                "this guard has to be looked at.");
 
         var type = value.GetType();
+
+        // THE CAP IS CHECKED AFTER THE CHEAP EXITS, not before them. Checked first it threw on any value
+        // at depth thirteen - an integer, an empty list, a DateTime - none of which carries prose and all
+        // of which the walk would have skipped anyway. A guard that stops a drain over a harmless
+        // primitive is a guard people turn off.
+        var walkable = value is System.Collections.IList or System.Collections.IDictionary
+                       || (type.Namespace?.StartsWith("CcDirector.", StringComparison.Ordinal) ?? false);
+        if (!walkable) return;
+
+        if (depth > MaxDepth)
+            throw new InvalidOperationException(
+                $"The redaction guard went past {MaxDepth} levels and stopped. Everything below that " +
+                "point would have been sent unswept, so nothing was sent. The document's shape has " +
+                "changed and this guard has to be looked at.");
 
         // A list of strings is redacted in place; a list of anything else is walked.
         if (value is System.Collections.IList list)
@@ -1597,13 +1678,25 @@ public sealed class DirectorDrain
 
         // A DICTIONARY IS NOT AN IList, and skipping it was a hole exactly the shape of the one this
         // guard was built to close: a container the walk did not recognise, whose contents went out
-        // untouched. Keys are redacted into a rebuilt map rather than edited in place, because a
-        // dictionary cannot be mutated while it is being read.
+        // untouched. Values are collected and written back after the read, because a dictionary cannot
+        // be mutated while it is being enumerated.
+        //
+        // A STRING KEY IS REDACTED BY REFUSING THE SEND, not by rewriting it. An earlier version of this
+        // comment said keys were "redacted into a rebuilt map" and the code never looked at a key at all
+        // - a sentence describing a thing that was not happening, in the guard whose whole subject is
+        // things that do not happen quietly. Rewriting a key is worse than refusing: a key is an
+        // identity, and silently changing one hands the Gateway a record under a name nobody can find.
         if (value is System.Collections.IDictionary map)
         {
             var replacements = new List<(object Key, object? Value)>();
             foreach (System.Collections.DictionaryEntry entry in map)
             {
+                if (entry.Key is string key && HandoverSecretSweep.RedactLine(key) != key)
+                    throw new InvalidOperationException(
+                        "A key in this record carries something the secret sweep recognises. A key is an " +
+                        "identity and rewriting one would store the record under a name nobody can find, " +
+                        "so nothing was sent.");
+
                 if (entry.Value is string sv) replacements.Add((entry.Key, HandoverSecretSweep.RedactLine(sv)));
                 else RedactStrings(entry.Value, depth + 1);
             }
@@ -1611,18 +1704,26 @@ public sealed class DirectorDrain
             return;
         }
 
-        // Only the contract types are walked. Anything else - a DateTime, an int, a framework type - has
-        // no prose in it and no settable string this drain put there.
-        if (type.Namespace is null || !type.Namespace.StartsWith("CcDirector.", StringComparison.Ordinal))
-            return;
-
+        // Only the contract types are walked past this point. Anything else - a DateTime, an int, a
+        // framework type - has no prose in it and no settable string this drain put there.
         foreach (var property in type.GetProperties())
         {
             if (property.GetIndexParameters().Length > 0) continue;
 
             object? current;
-            try { current = property.GetValue(value); }
-            catch (Exception ex) when (ex is TargetInvocationException or NotSupportedException) { continue; }
+            try
+            {
+                current = property.GetValue(value);
+            }
+            catch (Exception ex) when (ex is TargetInvocationException or NotSupportedException)
+            {
+                // A GETTER THAT THREW IS NOT A PROPERTY WITH NOTHING IN IT. Skipping it quietly meant the
+                // serializer could still read that value a moment later and send it, unswept, while this
+                // guard had already decided it was fine.
+                throw new InvalidOperationException(
+                    $"{type.Name}.{property.Name} could not be read for redaction ({ex.GetType().Name}), " +
+                    "so whether it carries a secret is unknown and nothing was sent.", ex);
+            }
 
             if (current is string text)
             {

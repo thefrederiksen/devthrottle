@@ -165,6 +165,51 @@ public class HandoverSecretSweepTests
     }
 
     [Fact]
+    public void RedactLine_DoesNotTRUNCATEWhatItIsAskedToProtect()
+    {
+        // REDACTION AND SHORTENING ARE DIFFERENT JOBS, and they were the same method. The 300-character
+        // cap belongs to a FINDING EXCERPT, which is read in a report; applying it to a value being
+        // STORED silently chopped the tail off everything the boundary guard touched - a restore command
+        // with its seed path at the end, a problem sentence, a seat's own words. A guard against losing
+        // information that loses information is worse than the leak it closed, because the leak was at
+        // least visible. Three drain tests caught it and this one pins it.
+        var long_ = "cc-devthrottle session spawn " + new string('x', 400) + " --prompt END-OF-COMMAND";
+
+        var redacted = HandoverSecretSweep.RedactLine(long_);
+
+        Assert.Equal(long_, redacted);
+        Assert.EndsWith("END-OF-COMMAND", redacted);
+        Assert.DoesNotContain("...", redacted);
+    }
+
+    [Fact]
+    public void RedactLine_StillHidesASecretInALongValue()
+    {
+        // And the other half: no truncation must not mean no redaction.
+        const string Secret = "Zx9kkQQmm44rrSS";
+        var long_ = new string('x', 400) + $" password: {Secret} " + new string('y', 400);
+
+        var redacted = HandoverSecretSweep.RedactLine(long_);
+
+        Assert.DoesNotContain(Secret, redacted);
+        Assert.Contains("[REDACTED", redacted);
+        Assert.EndsWith("yyy", redacted);
+    }
+
+    [Fact]
+    public void Sweep_AFindingExcerptIsStillCapped()
+    {
+        // The cap did not go away, it went where it belongs: a report excerpt is read by a person and is
+        // shortened; a stored value is not.
+        var text = new string('x', 400) + " password: NotARealOne123! " + new string('y', 400);
+
+        var finding = Assert.Single(HandoverSecretSweep.Sweep("d.md", text));
+
+        Assert.True(finding.RedactedExcerpt.Length < text.Length);
+        Assert.EndsWith("...", finding.RedactedExcerpt);
+    }
+
+    [Fact]
     public void Sweep_ReportsTheLineNumberSoSomebodyCanGoAndFixIt()
     {
         var text = "one\ntwo\nthree\npassword: NotARealOne123!\nfive";

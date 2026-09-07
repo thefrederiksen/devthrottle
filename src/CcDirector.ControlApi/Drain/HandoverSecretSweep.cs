@@ -205,7 +205,13 @@ public static class HandoverSecretSweep
             throw new InvalidOperationException(
                 "The secret sweep failed its own proof and will not redact: " +
                 string.Join("; ", proof.Failures));
-        return Redact(text ?? "", Patterns);
+
+        // NOT TRUNCATED. Redaction and shortening are two different jobs and they were the same method:
+        // the 300-character cap belongs to a FINDING EXCERPT, which exists to be read in a report, and
+        // applying it here silently chopped the tail off every value the boundary guard touched - restore
+        // commands, problem sentences, a seat's own words. A guard against losing information that loses
+        // information is worse than the leak it was closing, because the leak was at least visible.
+        return Redact(text ?? "", Patterns, truncateTo: 0);
     }
 
     /// <summary>
@@ -214,9 +220,11 @@ public static class HandoverSecretSweep
     /// </summary>
     /// <param name="line">The line.</param>
     /// <param name="patterns">Every pattern - not just the one that fired.</param>
-    private static string Redact(string line, IReadOnlyList<SecretPattern> patterns)
+    /// <param name="truncateTo">Shorten the result to this many characters, or 0 to leave it whole. A
+    /// finding excerpt is read in a report and is capped; a value being STORED is not, because shortening
+    /// it there destroys the record this whole component exists to produce.</param>
+    private static string Redact(string line, IReadOnlyList<SecretPattern> patterns, int truncateTo = 300)
     {
-        const int MaxLine = 300;
 
         // Collect every span to hide, from every pattern.
         var spans = new List<(int Start, int End)>();
@@ -259,6 +267,6 @@ public static class HandoverSecretSweep
         }
 
         var result = sb.ToString();
-        return result.Length <= MaxLine ? result : result[..MaxLine] + "...";
+        return truncateTo <= 0 || result.Length <= truncateTo ? result : result[..truncateTo] + "...";
     }
 }
