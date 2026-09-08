@@ -106,6 +106,9 @@ public static class SessionKeyGuard
                 case "gateway/workflows":
                 case "gateway/workflow-runs":
                 case "cron/jobs":
+                // Every restart request in the account, so an agent can see what is pending before it
+                // asks. The same class of read as the machine-scoped list below, one level up.
+                case "gateway/director-restart-requests":
                     return true;
             }
 
@@ -129,7 +132,20 @@ public static class SessionKeyGuard
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
-            if (s.Length == 3 && s[0] == "machines" && (s[2] == "apps" || s[2] == "files")) return true;
+            //
+            // restart-capability joins them: CAN this machine complete a Director restart? Issue #2720.
+            // It is the safest read on this surface - it sends no command, opens no connection and raises
+            // no signal - and it is the one an agent must be able to ask, because the alternative is the
+            // 2026-09-06 failure: drain seventeen sessions, then discover the answer was no. It is also
+            // what makes the admission guard on POST .../director/restart affordable. That verb stays
+            // refused to a session key; asking whether it COULD work is not asking to run it, and an
+            // agent that can only act blindly is the argument for widening the guard itself.
+            if (s.Length == 3 && s[0] == "machines"
+                && (s[2] == "apps" || s[2] == "files" || s[2] == "restart-capability")) return true;
+
+            // A session may read the restart REQUESTS on a machine, and one request by id - its own, or
+            // the one already pending that refused it. Reads of a record the session could create.
+            if (IsRestartRequestRead(s)) return true;
 
             // The fleet's shared skills and workflows: the catalogue entry, its body/instructions, and its
             // version history. This is how an agent reads a capability the fleet holds centrally.
@@ -189,6 +205,15 @@ public static class SessionKeyGuard
 
             // Start a session, or an application, on a machine in this account.
             if (s.Length == 3 && s[0] == "machines" && (s[2] == "sessions" || s[2] == "launch")) return true;
+
+            // ASK for a Director restart - issue #2725, and the line it draws. A session may CREATE a
+            // restart request: a pending record that restarts nothing and grants nothing, which the
+            // Gateway scrutinises and the owner then accepts or declines. The ACCEPT, the DECLINE and the
+            // Director's REPORT on that record are NOT here, deliberately: the accept is the admission
+            // decision, and it stays on the surface that already holds the direct restart, which this
+            // guard refuses to a session key a few lines down and keeps refusing. Matched at length
+            // exactly, so /accept and /decline hung off the same path never match by accident.
+            if (IsRestartRequestCreate(s)) return true;
 
             // Start a session on ONE named Director. The same verb as the machine route above, addressed
             // precisely rather than to "some Director over there" - which is the only way to be specific on
@@ -296,7 +321,12 @@ public static class SessionKeyGuard
     /// caller's own tenant, describing seats. Restarting the Director it describes is a different route
     /// entirely, and that one stays refused.
     ///
-    /// Matched by structure so a new sibling under /gateway/workspaces cannot be reached by accident.
+    /// Matched by STRUCTURE, and here is exactly what that does and does not buy. A DEEPER shape -
+    /// /gateway/workspaces/{id}/anything - is refused until somebody classifies it. A new THREE-segment
+    /// LITERAL, say POST /gateway/workspaces/purge, would be authorized on the day it is mapped, because
+    /// this cannot tell a literal segment from an id. So do not add one: put a new verb one level deeper,
+    /// or extend this method deliberately. (The skills and workflows families beside it have the same
+    /// property; it is written down here rather than left to be discovered.)
     /// </summary>
     private static bool IsWorkspaceRoute(string verb, string[] s)
     {
@@ -349,6 +379,25 @@ public static class SessionKeyGuard
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// <c>POST /machines/{machine}/director/restart-requests</c> exactly - five segments, and the last is
+    /// the collection, never an id and never an action. A restart request is a record a session asks the
+    /// owner to decide on (issue #2725).
+    /// </summary>
+    private static bool IsRestartRequestCreate(string[] s)
+        => s.Length == 4 && s[0] == "machines" && s[2] == "director" && s[3] == "restart-requests";
+
+    /// <summary>
+    /// The read shapes of the restart-request record: the machine's list at
+    /// <c>/machines/{machine}/director/restart-requests</c> and one request at <c>.../{id}</c>. Length is
+    /// matched exactly on both, so <c>.../{id}/accept</c> - a POST anyway - is not a read.
+    /// </summary>
+    private static bool IsRestartRequestRead(string[] s)
+    {
+        if (s.Length < 4 || s[0] != "machines" || s[2] != "director" || s[3] != "restart-requests") return false;
+        return s.Length == 4 || s.Length == 5;
     }
 
     /// <summary>

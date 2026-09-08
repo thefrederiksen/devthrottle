@@ -13,7 +13,9 @@ namespace CcDirector.Gateway.Contracts;
 /// Verbs fall into two families:
 ///
 ///   * ACTION verbs, which change something on the machine and answer only with success or failure:
-///     "director/start", "director/stop", "director/restart", "launch".
+///     "director/start", "director/stop", "director/restart", "launch". One of them can also answer with a
+///     REFUSAL: a "director/restart" carrying <see cref="LauncherCommand.OnlyIfEmpty"/> declines while the
+///     Director still holds live sessions, and says how many.
 ///   * QUERY verbs, which change nothing and answer WITH DATA carried in
 ///     <see cref="LauncherCommandResult.Payload"/>: "apps" (the installed application catalogue) and
 ///     "files" (a filename search across the machine's drives).
@@ -31,6 +33,28 @@ public sealed class LauncherCommand
 
     /// <summary>Optional workspace/context hint for a launch, reserved for future verbs. Unused by the current verbs.</summary>
     public string? Workspace { get; set; }
+
+    /// <summary>
+    /// For "director/restart": restart ONLY when the Director is holding no live sessions, and REFUSE
+    /// otherwise - with a refusal that says how many sessions are live.
+    ///
+    /// THIS IS THE MECHANICAL HALF OF "NEVER FORCE". A drain empties a Director one session at a time,
+    /// and a restart that lands in the middle of one takes the remaining sessions with it. The rule
+    /// against that used to live in a written instruction, and an instruction cannot stop a mistake -
+    /// this flag can, because the launcher itself reads the count and declines.
+    ///
+    /// A LAUNCHER THAT PREDATES THIS FLAG IGNORES IT AND RESTARTS ANYWAY, which is exactly the failure
+    /// this exists to prevent, so an answer must never be read as a guarantee just because it says OK.
+    /// A launcher that HONOURED the flag says so in <see cref="LauncherCommandResult.Payload"/> - it
+    /// carries "onlyIfEmpty":true and the session count it read. An OK with no payload came from a
+    /// launcher that did not understand the request; update that machine's launcher.
+    ///
+    /// No other verb can honour it, and both ends refuse it rather than letting it look honoured: the
+    /// Gateway's machine route answers 400 before anything is sent, and the launcher answers 400 if a
+    /// command carrying it arrives on any verb but this one. The relay in between does NOT check - it
+    /// carries what it is given - so the launcher's refusal is the one that covers every caller.
+    /// </summary>
+    public bool OnlyIfEmpty { get; set; }
 
     /// <summary>For "launch": the absolute path to the executable. For lifecycle verbs: the target Director exe (informational).</summary>
     public string? Path { get; set; }
@@ -76,6 +100,20 @@ public enum LauncherCommandStatus
     Ok = 0,
     BadRequest = 1,
     Error = 2,
+
+    /// <summary>
+    /// The launcher understood the command perfectly, was able to run it, and DECIDED NOT TO because a
+    /// condition the caller attached was not met - today, "restart only if the Director is empty" against
+    /// a Director that is holding live sessions.
+    ///
+    /// It is its own outcome because the other two would both lie about it. <see cref="BadRequest"/> says
+    /// the caller asked for something malformed, and would send them to fix a request that was correct;
+    /// <see cref="Error"/> says the launcher broke, and would send them to look for a fault on a machine
+    /// that is working exactly as asked. A refusal is a NORMAL, EXPECTED answer with an action attached -
+    /// drain the Director, then ask again - and <see cref="LauncherCommandResult.Error"/> carries the
+    /// reason, including the live session count.
+    /// </summary>
+    Refused = 3,
 }
 
 /// <summary>
@@ -91,8 +129,11 @@ public sealed class LauncherCommandResult
     public string? Error { get; set; }
 
     /// <summary>
-    /// The answer to a QUERY verb, already serialised as JavaScript Object Notation by the launcher; null for
-    /// the action verbs, which have nothing to say beyond success or failure.
+    /// The answer to a QUERY verb, already serialised as JavaScript Object Notation by the launcher - and
+    /// null for the action verbs, which have nothing to say beyond success or failure, with ONE exception:
+    /// a restart carrying <see cref="LauncherCommand.OnlyIfEmpty"/> answers with the condition it applied
+    /// and the count it read, because a caller that asked for a guarantee has to be able to tell that
+    /// answer from an older launcher's bare success.
     ///
     /// It is carried as text rather than as a typed object on purpose. The launcher and the Gateway are
     /// upgraded separately, and a launcher that is a version ahead may answer with fields this Gateway has
@@ -115,4 +156,13 @@ public sealed class LauncherCommandResult
     /// <summary>Build a failure result with the given status and message.</summary>
     public static LauncherCommandResult Fail(LauncherCommandStatus status, string error) =>
         new() { Status = status, Error = error };
+
+    /// <summary>
+    /// Build a REFUSAL: the launcher could have done it and chose not to, because a condition the caller
+    /// attached was not met. <paramref name="reason"/> must say what the condition was and what was
+    /// actually observed - "3 live sessions", never a bare "refused" - because the reader's next move
+    /// depends entirely on the number.
+    /// </summary>
+    public static LauncherCommandResult Refuse(string reason) =>
+        new() { Status = LauncherCommandStatus.Refused, Error = reason };
 }

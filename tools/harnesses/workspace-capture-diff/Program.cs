@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using CcDirector.Gateway.Contracts;
 
 namespace WorkspaceCaptureDiff;
@@ -65,7 +66,6 @@ public static class Program
         ("drivenByDirectorId", "drivenByDirectorId", ""),
         ("drivenByNote", "drivenByNote", ""),
         ("reason", "reason", ""),
-        ("outcome", "outcome", ""),
         ("sessions", "seats", "renamed: a workspace holds SEATS, which is what they are before and after"),
         ("ownerQuestions", "ownerQuestions", "collected from handovers, not from a capture"),
         ("restoreAfterRestart", "restoreAfterRestart", "decided by a reader of the handovers"),
@@ -75,6 +75,17 @@ public static class Program
         ("restartMechanism", "restartMechanism", ""),
         ("restartPerformed", "restartPerformed", "written back after the restart"),
         ("restoredBy", "restoredBy", "written back after the restore"),
+    };
+
+    /// <summary>
+    /// Fields the hand-written index carries that the schema DELIBERATELY does not model, and why. They
+    /// are not lost - an unmodelled field is kept verbatim in the document's extension data and written
+    /// back out - so they are listed rather than counted as gaps.
+    /// </summary>
+    private static readonly (string HandWritten, string Why)[] DeliberatelyNotModelled =
+    {
+        ("outcome", "one coarse word welding two independent facts; replaced by directorOutcome and " +
+                    "seatOutcome, which are orthogonal. Kept verbatim, never read."),
     };
 
     private static readonly (string HandWritten, string Captured, string Note)[] SeatMap =
@@ -175,6 +186,7 @@ public static class Program
         report.AppendLine();
 
         var lost = ReportFieldParity(report, handWritten, captured);
+        lost += ReportDepth(report, handWritten, captured);
         var valueDifferences = ReportValueParity(report, handWritten, captured);
         var replayDifferences = ReportReplay(report, handWritten);
 
@@ -197,7 +209,10 @@ public static class Program
             Console.WriteLine($"(written to {outPath})");
         }
 
-        return 0;
+        // A NON-ZERO EXIT when anything is wrong. A checker that always exits 0 cannot fail a script that
+        // runs it, and then the only thing standing between a lost field and a green run is somebody
+        // reading the output - which is the whole failure mode this harness exists to close.
+        return (lost > 0 || valueDifferences > 0 || replayDifferences > 0) ? 1 : 0;
     }
 
     /// <summary>
@@ -230,6 +245,12 @@ public static class Program
                 seatFilled.Add(f);
 
         var lost = 0;
+
+        report.AppendLine("0. DELIBERATELY NOT MODELLED (kept verbatim, never read)");
+        report.AppendLine("--------------------------------------------------------");
+        foreach (var (field, why) in DeliberatelyNotModelled)
+            report.AppendLine($"  {field}: {why}");
+        report.AppendLine();
 
         report.AppendLine("1. FIELD PARITY - DOCUMENT LEVEL");
         report.AppendLine("--------------------------------");
@@ -281,7 +302,12 @@ public static class Program
             report.AppendLine($"  {hand + arrow,-38} {homeText,-7} {filledText,-6}{suffix}");
         }
 
-        var mapped = map.Select(m => m.HandWritten).ToHashSet(StringComparer.Ordinal);
+        // The deliberately-unmodelled fields are excluded here as well as listed above. Without this the
+        // harness reports one as LOST and exits non-zero - which it did, for exactly as long as it took
+        // somebody to read it: a checker that cries wolf is on its way to being ignored.
+        var mapped = map.Select(m => m.HandWritten)
+            .Concat(DeliberatelyNotModelled.Select(d => d.HandWritten))
+            .ToHashSet(StringComparer.Ordinal);
         var unmapped = handFields.Where(k => !mapped.Contains(k))
             .OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (unmapped.Count > 0)
@@ -292,6 +318,107 @@ public static class Program
             foreach (var k in unmapped) report.AppendLine($"    {k}");
         }
 
+        return lost;
+    }
+
+    /// <summary>
+    /// DESCEND. Every field the hand-written index carries, at ANY depth, must have somewhere to live.
+    ///
+    /// This exists because the two-level comparison above returned zero while the real index carried
+    /// restore.seedPrompt, restore.workInProgress, restartCommand.body and three fields inside
+    /// restartBlocked - all of them present, none of them understood, and every one dropped by a typed
+    /// read that had no bag at that level. The check and the defect had the same shape, so the check
+    /// could not see it.
+    ///
+    /// "Somewhere to live" is one of two things: a modelled property, or an extension bag on the object
+    /// that contains it. The second is why this walks the CAPTURED shape rather than a list of names -
+    /// a bag is a property like any other, and its presence is what makes an unmodelled field survivable.
+    /// </summary>
+    private static int ReportDepth(StringBuilder report, JsonObject handWritten, WorkspaceDocument captured)
+    {
+        report.AppendLine("2b. DEPTH - every nested field has somewhere to live");
+        report.AppendLine("---------------------------------------------------");
+
+        var lost = 0;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(JsonNode? node, Type? type, string path)
+        {
+            if (node is JsonArray array)
+            {
+                // Every element, not just the first: the hand-written index carries eighteen seats and
+                // the interesting fields are not all on the same one.
+                var element = type is not null && type.IsGenericType
+                    ? type.GetGenericArguments()[0]
+                    : null;
+                foreach (var item in array) Walk(item, element, path + "[]");
+                return;
+            }
+
+            if (node is not JsonObject obj) return;
+
+            if (type is null)
+            {
+                // Nothing typed here at all - an unmodelled subtree. It survives only if its PARENT had
+                // a bag, which the caller established before recursing.
+                return;
+            }
+
+            var props = type.GetProperties()
+                .ToDictionary(pr => JsonNamingPolicy.CamelCase.ConvertName(pr.Name), pr => pr,
+                    StringComparer.Ordinal);
+            var hasBag = props.ContainsKey("unknown");
+
+            foreach (var (key, value) in obj)
+            {
+                var where = path.Length == 0 ? key : path + "." + key;
+
+                if (props.TryGetValue(key, out var prop))
+                {
+                    // THE ONE POLYMORPHIC FIELD. The hand-written index writes "model" as a plain string
+                    // when the agent had reported one and as the whole FOLDED DISPLAY OBJECT when it had
+                    // not - one field carrying two shapes. The schema separates them, keeping the id in
+                    // "model" and the folded verdict in "modelDisplay", so the object form corresponds to
+                    // ModelDisplay and has to be walked against it. Walking it against string reported
+                    // its five fields as lost when every one of them has a home.
+                    var target = key == "model" && value is JsonObject
+                        ? typeof(ModelDisplay)
+                        : prop.PropertyType;
+                    Walk(value, target, where);
+                    continue;
+                }
+
+                if (DeliberatelyNotModelled.Any(d => d.HandWritten == key) && path.Length == 0)
+                    continue;
+
+                if (hasBag)
+                {
+                    if (seen.Add(where))
+                        report.AppendLine($"  KEPT VERBATIM  {where}   (its object carries an extension bag)");
+                    continue;
+                }
+
+                lost++;
+                if (seen.Add(where))
+                    report.AppendLine($"  NO HOME        {where}   (no property and no extension bag on {type.Name})");
+            }
+        }
+
+        // The hand-written index calls the seat list "sessions"; the schema calls it "seats". Renaming it
+        // for the walk is the same mapping the tables above declare, applied once.
+        var renamed = handWritten.DeepClone()!.AsObject();
+        if (renamed["sessions"] is { } sessions)
+        {
+            renamed.Remove("sessions");
+            renamed["seats"] = sessions.DeepClone();
+        }
+
+        Walk(renamed, typeof(WorkspaceDocument), "");
+
+        if (lost == 0)
+            report.AppendLine("  every nested field in the hand-written index has a property or a bag.");
+
+        _ = captured;
         return lost;
     }
 

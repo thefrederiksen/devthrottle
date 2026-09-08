@@ -28,6 +28,9 @@
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
     <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <!-- Issue #2725: the Director must know which executable its launcher supervises, to refuse a restart
+         cycle on an instance the launcher would not restart. InstallLayout is the one definition of that path. -->
+    <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
   </ItemGroup>
 
   <ItemGroup>

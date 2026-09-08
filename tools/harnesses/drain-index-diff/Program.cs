@@ -196,7 +196,7 @@ public static class Program
             DirectorId = Str(hand["directorId"]),
             DirectorName = Str(hand["directorName"]),
             DirectorVersionBefore = Str(hand["directorVersionBefore"]),
-            Outcome = WorkspaceOutcomes.Draining,
+            DirectorOutcome = null,
             Seats = handSeats.Select((s, i) => WorkspaceCapture.CaptureSeat(ToSessionDto(s), i)).ToList(),
         };
 

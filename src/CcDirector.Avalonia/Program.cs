@@ -10,6 +10,20 @@ namespace CcDirector.Avalonia;
 
 internal static class Program
 {
+    /// <summary>
+    /// The process id this build was asked to wait for, from <c>--wait-for-exit &lt;pid&gt;</c>, or null.
+    /// Parsed rather than assumed: an unreadable value means NO wait, because refusing to start over a
+    /// malformed argument would be a Director that does not come back - which is the failure every part
+    /// of this ordering exists to avoid.
+    /// </summary>
+    private static int? TryReadWaitForExit(string[] args)
+    {
+        for (var i = 0; i + 1 < args.Length; i++)
+            if (args[i] == "--wait-for-exit" && int.TryParse(args[i + 1], out var pid) && pid > 0)
+                return pid;
+        return null;
+    }
+
     [STAThread]
     public static int Main(string[] args)
     {
@@ -70,6 +84,64 @@ internal static class Program
             }
         }
 
+        // WAIT FOR THE PROCESS THAT STARTED US, when it asked us to. A relaunch that hands over to a new
+        // build has to let the outgoing one finish exiting first, or the incoming one claims the
+        // single-instance mutex against a process that is on its way out and refuses to start. The
+        // staged-update path has always done this (LaunchRelauncher passes the parent process id and
+        // ApplyUpdate waits on it); the ROLLBACK relaunch did not, and that omission is the only reason
+        // the guard below could not be taken earlier.
+        if (TryReadWaitForExit(args) is { } waitForPid)
+        {
+            FileLog.Write($"[Program] waiting for process {waitForPid} to exit before claiming this instance");
+            UpdateInstaller.WaitForProcessExit(waitForPid, TimeSpan.FromSeconds(30));
+        }
+
+        // THE SINGLE-INSTANCE GUARD IS TAKEN BEFORE ANY UPDATE ACTION, AND THAT IS THE WHOLE POINT OF
+        // THIS BLOCK BEING HERE RATHER THAN NINETY LINES DOWN.
+        //
+        // It used to sit after five update actions - RecoverHalfAppliedSwap, TryRollBackFailedUpdate,
+        // the relaunch, CleanupAfterUpdate and TryApplyStagedUpdateAtStartup - so a second copy of the
+        // Director started against a live one would run all five before finding out it was not wanted.
+        // The guard prevented a duplicate DIRECTOR; it did not prevent duplicate UPDATER WORK, because
+        // the updater ran first. That mattered because a launcher that cannot fully read an instance
+        // home still starts a Director there (deliberately - refusing strands a working one), so an
+        // update could proceed over a Director nobody had accounted for.
+        //
+        // The comment above the staged-update call said the apply happens "before any session exists,
+        // so no running work is ever lost". That is true of THIS process and false of the OTHER live
+        // Director, which is the one whose work is at stake - a reassurance written from the wrong
+        // process's point of view.
+        //
+        // WHY IT COULD NOT SIMPLY BE MOVED. The rollback relaunch above started the restored build and
+        // exited without any handshake, so an early guard would have made the incoming build find the
+        // mutex still held by its dying parent and exit - leaving NO Director at all, worse than either
+        // problem being solved. It now carries the parent process id and the wait handled above, which
+        // is the same handshake its sibling has always had, so the guard can come first.
+        using var guard = SingleInstanceGuard.TryAcquire();
+        if (guard is null)
+        {
+            // A second launch must NOT vanish silently -- "clicking does nothing" is exactly the
+            // failure this issue targets (issue #242). Bring the already-running window to the
+            // foreground; only if no window can be raised do we fall back to an explanatory dialog.
+            if (TryRaiseExistingWindow())
+            {
+                FileLog.Write("[Program] Second launch: raised the already-running window and exited.");
+                return 0;
+            }
+
+            var busyExe = Environment.ProcessPath ?? "(unknown)";
+            var busyMessage =
+                "Director is already running." + Environment.NewLine + Environment.NewLine +
+                $"Exe: {busyExe}" + Environment.NewLine + Environment.NewLine +
+                "Only one instance per install location can run at a time. " +
+                "Identity, ports, and state files are keyed by the exe path -- " +
+                "running a second copy would collide with the existing one.";
+            ShowStartupNotice(busyMessage, "Director", MB_ICONWARNING);
+            FileLog.Write("[Program] Second launch refused: another instance holds this exe path.");
+            FileLog.Stop();
+            return 1;
+        }
+
         // Self-heal a broken install BEFORE cleanup deletes the ".old" backup we recover from
         // (issue #242). Two distinct failure modes are handled here:
         //
@@ -90,8 +162,14 @@ internal static class Program
                 // Started the same way an update relaunch is: no inherited CC_DIRECTOR_ROOT (which would
                 // make the restored build nest a new, empty data home inside this instance's one) and the
                 // instance carried explicitly.
+                // THE HANDSHAKE, which this path never had. Without it the restored build starts while
+                // this process is still exiting, and - now that the single-instance guard is claimed
+                // first - it would find the mutex held by a dying parent and refuse to start, leaving
+                // the machine with no Director at all. Its sibling LaunchRelauncher has always passed
+                // this; the correct pattern was a hundred lines away in the same file.
                 System.Diagnostics.Process.Start(
-                    UpdateInstaller.BuildRelaunchStartInfo(Environment.ProcessPath ?? "", InstanceContext.Slug));
+                    UpdateInstaller.BuildRelaunchStartInfo(Environment.ProcessPath ?? "", InstanceContext.Slug,
+                        waitForProcessId: Environment.ProcessId));
             }
             catch (Exception ex)
             {
@@ -119,28 +197,10 @@ internal static class Program
         if (updateNotice is not null)
             ShowStartupNotice(updateNotice, "Director - Update", MB_ICONWARNING);
 
-        using var guard = SingleInstanceGuard.TryAcquire();
-        if (guard is null)
-        {
-            // A second launch must NOT vanish silently -- "clicking does nothing" is exactly the
-            // failure this issue targets (issue #242). Bring the already-running window to the
-            // foreground; only if no window can be raised do we fall back to an explanatory dialog.
-            if (TryRaiseExistingWindow())
-            {
-                FileLog.Write("[Program] Second launch: raised the already-running window and exited.");
-                return 0;
-            }
-
-            var exe = Environment.ProcessPath ?? "(unknown)";
-            var msg =
-                "Director is already running.\n\n" +
-                $"Exe: {exe}\n\n" +
-                "Only one instance per install location can run at a time. " +
-                "Identity, ports, and state files are keyed by the exe path -- " +
-                "running a second copy would collide with the existing one.";
-            ShowStartupNotice(msg, "Director", MB_ICONWARNING);
-            return 1;
-        }
+        // THE GUARD IS ALREADY HELD. It was claimed near the top of Main, before any update action -
+        // see the block there for why it moved and what had to change first. It is NOT re-taken here:
+        // the same process claiming its own mutex twice would deadlock on a non-reentrant wait, and a
+        // second claim would in any case answer a question that was already settled.
 
         // Never let a startup exception exit with no window and no message (issue #242).
         try

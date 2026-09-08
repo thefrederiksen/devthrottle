@@ -1807,13 +1807,72 @@ public partial class MainWindow : Window
     // ==================== WORKSPACE LOADING ====================
 
     /// <summary>
+    /// Everything that must be true of a workspace BEFORE anything is closed, checked as one answer.
+    ///
+    /// It is separate from the load, and it runs first, because loading a workspace CLOSES THE RUNNING
+    /// FLEET. Anything discovered after that point is discovered too late: the sessions the user had are
+    /// already gone, and the choice left is between a half-started workspace and an empty Director.
+    /// </summary>
+    /// <param name="workspace">The workspace about to be started.</param>
+    /// <returns>Every reason it cannot be started, or an empty list.</returns>
+    private static IReadOnlyList<string> WorkspaceCannotStartBecause(WorkspaceDocument workspace)
+    {
+        var problems = new List<string>();
+
+        foreach (var seat in workspace.Seats.OrderBy(x => x.SortOrder))
+        {
+            var raw = (seat.Agent ?? "").Trim();
+            if (raw.Length > 0
+                && (raw.Contains(',')
+                    || !Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind)
+                    || !Enum.IsDefined(kind)))
+                problems.Add($"\"{seat.Name}\" names the agent \"{raw}\", which this build cannot run.");
+
+            // The repository is checked HERE and not at create time, because create time is after the
+            // close. A moved or unmounted repository is the ordinary way this fails - a workspace saved
+            // months ago naming a worktree that has since been removed.
+            if (string.IsNullOrWhiteSpace(seat.RepoPath))
+                problems.Add($"\"{seat.Name}\" names no repository.");
+            else if (!Directory.Exists(seat.RepoPath))
+                problems.Add($"\"{seat.Name}\" names the repository {seat.RepoPath}, which is not there.");
+
+            // FIELDS THIS PATH CANNOT HONOUR. The schema carries a seat's mission, role, controller,
+            // workflow run and opening prompt, and this cold start passes none of them to CreateSession -
+            // so starting such a seat produces a session with the right name and the wrong identity, and
+            // nothing about it looks wrong afterwards. Refusing is the honest answer until the seeded
+            // start of Phase 5 can honour them.
+            var unhonoured = new List<string>();
+            if (!string.IsNullOrWhiteSpace(seat.Role)) unhonoured.Add("role");
+            if (seat.Mission is not null && (seat.Mission.Id is not null || seat.Mission.Name is not null))
+                unhonoured.Add("mission");
+            if (!string.IsNullOrWhiteSpace(seat.ReportsTo)) unhonoured.Add("controller");
+            if (!string.IsNullOrWhiteSpace(seat.WorkflowRunId)) unhonoured.Add("workflow run");
+            if (!string.IsNullOrWhiteSpace(seat.OpeningPrompt)) unhonoured.Add("opening prompt");
+            if (unhonoured.Count > 0)
+                problems.Add(
+                    $"\"{seat.Name}\" carries a {string.Join(", ", unhonoured)}, which starting a " +
+                    "workspace cold cannot set. Starting it would give you a session with the right name " +
+                    "and the wrong identity.");
+        }
+
+        return problems;
+    }
+
+    /// <summary>
     /// Start every seat in a workspace (issue #2722). The workspace itself came from the Gateway; this
     /// only starts what it names.
     ///
     /// This is the COLD start - each seat begins with no history. Starting a seat SEEDED by its own
     /// handover, which is what a restart needs, is Phase 5 of issue #2719 and is not this path.
+    ///
+    /// IT NEVER REPORTS A SUCCESS IT DID NOT ACHIEVE. The window used to say "Workspace loaded"
+    /// unconditionally - after the running fleet had been closed, and whether or not anything came up in
+    /// its place. A destructive operation that partially completes and reports success is the worst shape
+    /// this product has: the user has lost what they had, has not got what they asked for, and has been
+    /// told it worked.
     /// </summary>
-    /// <param name="workspace">The workspace to start.</param>
+    /// <param name="workspace">The workspace to start. Already checked by
+    /// <see cref="WorkspaceCannotStartBecause"/> - this is called only after the fleet has been closed.</param>
     private async Task LoadWorkspaceAsync(WorkspaceDocument workspace)
     {
         FileLog.Write($"[MainWindow] LoadWorkspaceAsync: '{workspace.Name}' with {workspace.Seats.Count} seats");
@@ -1825,6 +1884,8 @@ public partial class MainWindow : Window
         {
             var sorted = workspace.Seats.OrderBy(s => s.SortOrder).ToList();
             int total = sorted.Count;
+            var started = 0;
+            var failed = new List<string>();
 
             for (int i = 0; i < total; i++)
             {
@@ -1834,13 +1895,24 @@ public partial class MainWindow : Window
                 progress.UpdateProgress(i + 1, total, entry.Name);
 
                 // Issue #1635: start the seat on the agent it was saved with. Without the agentKind the
-                // overload default silently made every restored session Claude Code.
+                // overload default silently made every restored session Claude Code. The value was
+                // checked before anything closed, so this cannot throw here.
                 var vm = CreateSession(entry.RepoPath, claudeArgs: entry.AgentArgs,
                     agentKind: ResolveSeatAgent(entry));
                 if (vm != null)
                 {
                     vm.Rename(entry.Name, entry.Color);
                     SaveSessionToHistory(vm);
+                    started++;
+                }
+                else
+                {
+                    // CreateSession swallows a launch failure and returns null. Counting it is what
+                    // turns "the loop finished" into "every seat came up", which are not the same
+                    // sentence and used to produce the same screen.
+                    var why = _lastSessionCreateError ?? "the session did not start";
+                    failed.Add($"{entry.Name}: {why}");
+                    FileLog.Write($"[MainWindow] LoadWorkspaceAsync: seat '{entry.Name}' did NOT start: {why}");
                 }
 
                 // Delay between sessions to prevent Claude Code settings corruption
@@ -1848,8 +1920,23 @@ public partial class MainWindow : Window
                     await Task.Delay(2500);
             }
 
-            progress.SetComplete();
-            FileLog.Write($"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' loaded");
+            if (failed.Count == 0)
+            {
+                progress.SetComplete();
+                FileLog.Write($"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' loaded");
+                await Task.Delay(600);
+            }
+            else
+            {
+                progress.SetIncomplete(started, total, string.Join("  |  ", failed));
+                FileLog.Write(
+                    $"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' INCOMPLETE - " +
+                    $"{started}/{total} started; failures: {string.Join("; ", failed)}");
+
+                // Held open, because the fleet that was there is gone and this is the only place the
+                // user is told which seats did not replace it.
+                await Task.Delay(8000);
+            }
         }
         finally
         {
@@ -1860,22 +1947,32 @@ public partial class MainWindow : Window
     /// <summary>
     /// Which agent command line a seat starts on.
     ///
-    /// A value that does not parse is a real problem - a hand-edited workspace, or one written by a
-    /// newer build that knows an agent this one does not - so it is LOGGED with the offending value
-    /// rather than passed over in silence. Starting a seat on the wrong agent is exactly the defect the
-    /// field exists to prevent, and the log line is what makes it findable.
+    /// A value that does not parse REFUSES rather than substituting Claude Code. The old local-file
+    /// feature substituted, and that is the exact defect the agent field was added to fix (issue
+    /// #1635): a seat that comes back on the wrong agent is not the session that was saved, and
+    /// nothing about it looks wrong afterwards.
+    ///
+    /// The Gateway refuses to STORE an unknown agent, so this cannot be reached by anything it holds.
+    /// It stays because the value crosses a version boundary - a workspace written by a newer build may
+    /// name an agent this one cannot run - and the honest answer there is to say so, not to guess.
     /// </summary>
     private static AgentKind ResolveSeatAgent(WorkspaceSeat seat)
     {
         var raw = (seat.Agent ?? "").Trim();
         if (raw.Length == 0) return AgentKind.ClaudeCode;
 
-        if (Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind))
+        // TryParse alone accepts "999" (no such member) AND "ClaudeCode, Codex" (which combines into a
+        // real one), so a comma is refused first and IsDefined follows. A session started on either would
+        // be a process launched from a value nobody chose.
+        if (!raw.Contains(',')
+            && Enum.TryParse<AgentKind>(raw, ignoreCase: true, out var kind) && Enum.IsDefined(kind))
             return kind;
 
-        FileLog.Write($"[MainWindow] ResolveSeatAgent: unknown agent '{raw}' for {seat.RepoPath} - " +
-                      $"starting as {AgentKind.ClaudeCode}; the session will run the wrong agent");
-        return AgentKind.ClaudeCode;
+        FileLog.Write($"[MainWindow] ResolveSeatAgent: unknown agent '{raw}' for {seat.RepoPath}");
+        throw new InvalidOperationException(
+            $"The seat '{seat.Name}' names the agent '{raw}', which this build cannot run. " +
+            "It was probably written by a newer version - update this Director, or change the seat's " +
+            "agent in the workspace.");
     }
 
     /// <summary>
@@ -1887,19 +1984,33 @@ public partial class MainWindow : Window
             (global::Avalonia.Application.Current as App)?.ControlApiHost);
 
     /// <summary>
-    /// Push any workspaces this machine saved before they lived on the Gateway up to it, once. A
-    /// failure is logged and the dialog opens anyway: it will report the same Gateway problem itself,
-    /// in the window where the user is looking, and the legacy files are still on disk for next time.
+    /// Push any workspaces this machine saved before they lived on the Gateway up to it, once.
+    /// Returns null on success, or the reason it could not be done.
+    ///
+    /// The reason is RETURNED rather than logged and forgotten, because a swallowed import failure
+    /// shows the user a workspace list that is simply missing their saved work, with nothing said
+    /// about why - a list that reads as complete and is not. The dialog puts the reason on screen.
+    ///
+    /// It runs on a background thread: the import reads and renames files, and this is called from a
+    /// menu click, so doing it inline would freeze the window before anything had even been shown.
     /// </summary>
-    private static async Task ImportLegacyWorkspacesAsync(IWorkspaceCatalog catalog)
+    private static async Task<string?> ImportLegacyWorkspacesAsync(IWorkspaceCatalog catalog)
     {
         try
         {
-            await LegacyWorkspaceImport.RunOnceAsync(catalog);
+            var result = await Task.Run(() => LegacyWorkspaceImport.RunOnceAsync(catalog));
+            if (result.Refused.Count == 0) return null;
+
+            // A refused file is a workspace the user saved that is NOT in the list they are about to
+            // look at. Saying nothing makes that list read as complete.
+            return "Some workspaces saved on this machine before they moved to the Gateway were not " +
+                   "imported and are still on disk: " + string.Join("; ", result.Refused);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync FAILED: {ex.Message}");
+            return "The workspaces saved on this machine before they moved to the Gateway could not " +
+                   $"be imported: {ex.Message} They are still on disk and will be tried again.";
         }
     }
 
@@ -4086,18 +4197,32 @@ public partial class MainWindow : Window
                 // save time, and the session can only come back as the CreateSession default.
                 vm.Session.AgentKind.ToString()));
             var catalog = WorkspaceCatalog();
-            await ImportLegacyWorkspacesAsync(catalog);
-            var dialog = new SaveWorkspaceDialog(catalog, sessionData);
+            var importProblem = await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new SaveWorkspaceDialog(catalog, sessionData, importProblem);
             await dialog.ShowDialog<bool?>(this);
         }));
         file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
             var catalog = WorkspaceCatalog();
-            await ImportLegacyWorkspacesAsync(catalog);
-            var dialog = new LoadWorkspaceDialog(catalog);
+            var importProblem = await ImportLegacyWorkspacesAsync(catalog);
+            var dialog = new LoadWorkspaceDialog(catalog, importProblem);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.SelectedWorkspace != null)
             {
+                // CHECKED BEFORE ANYTHING IS CLOSED. Loading a workspace destroys the running fleet, so
+                // every reason it could fail has to be known while the user still has what they had.
+                var problems = WorkspaceCannotStartBecause(dialog.SelectedWorkspace);
+                if (problems.Count > 0)
+                {
+                    FileLog.Write(
+                        $"[MainWindow] Load Workspace REFUSED for '{dialog.SelectedWorkspace.Name}': " +
+                        string.Join("; ", problems));
+                    ShowNotification(
+                        $"Not starting \"{dialog.SelectedWorkspace.Name}\" - your sessions are untouched. " +
+                        string.Join("  ", problems));
+                    return;
+                }
+
                 if (_sessions.Count > 0) await CloseAllSessionsAsync();
                 await LoadWorkspaceAsync(dialog.SelectedWorkspace);
             }

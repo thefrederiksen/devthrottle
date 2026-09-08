@@ -63,6 +63,42 @@ is deliberate: a workspace is a RECORD, its shape grew three whole blocks during
 launcher update, how the restart was actually asked for, what came back - and it will grow again. Columns
 would make each of those a migration.
 
+## What happened to the Director, and what happened to the seats
+
+These are TWO independent facts and the record keeps them apart. The hand-written index had one coarse
+word for both - `outcome`, with four values - and two of them welded the pair into a single token:
+`restored` meant *the Director was restarted AND the seats came back*. So the first combination nobody
+happened to weld had no word at all, and that combination is not exotic: a drain that BLOCKS has already
+closed, leaf-first, every seat that handed over cleanly, so the expected result of never forcing is a
+half-gone fleet with no restart whose seats must then be brought back WITHOUT one.
+
+Three fixes were tried, and the first two each looked finished:
+
+1. **A fifth value.** It hid the same defect one case further out - the next case (restarted, restore only
+   half complete) needs a sixth.
+2. **Deriving the word from the pair.** That stopped it CONTRADICTING them but still welded them: a
+   refused restart and a session that would not stop both derive `blocked`, which are the two most
+   confusable results a run can have. The fix for that was a warning telling every future reader never to
+   read the field alone, and a rule that must be obeyed forever by people who were not in the conversation
+   is the weakest kind of fix there is.
+3. **Deleting it**, which is what shipped.
+
+So the record carries:
+
+| Field | Values |
+|---|---|
+| `directorOutcome` | `not-restarted`, `restarted`, `restart-refused` |
+| `seatOutcome` | `restoredCount`, `notRestoredCount`, `notRestoredWhy`, and a `scope` DERIVED from the two counts: `nothing-to-restore`, `none`, `some`, `all` |
+
+`scope` has four values and not three for the same reason the pair exists at all: "nothing was owed" and
+"everything owed is missing" are a success and a total failure, and one word for both is the
+absence-shaped hazard in miniature - an empty restore list reading as success is how a run that restored
+nothing certifies itself. `notRestoredWhy` is REQUIRED whenever `notRestoredCount` is above zero, because
+a missing seat with no reason beside it is indistinguishable from one nobody noticed.
+
+A document written elsewhere that still carries `outcome` keeps it verbatim in the unknown-field bag: not
+modelled, not obeyed, and not lost.
+
 ## The surface
 
 ```

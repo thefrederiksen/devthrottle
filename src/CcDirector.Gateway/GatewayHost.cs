@@ -211,6 +211,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Streaming.LauncherConnectionRegistry LauncherConnections { get; }
 
+    /// <summary>
+    /// Issue #2725 (restart epic, Phase 6): the pending requests to restart a Director - a session asks,
+    /// the Gateway scrutinises, the owner accepts once. In memory, per tenant, thirty-minute expiry; see
+    /// the store for why it is deliberately not persisted. Public so a test can move its clock.
+    /// </summary>
+    public Api.DirectorRestartRequestStore DirectorRestartRequests { get; } = new();
+
     // Issue #1176 (Phase 1a): Gateway-side stream feature switch + staleness window, resolved from
     // config.json (or an explicit constructor override for tests). When off, the hub is not mapped and
     // /sessions never consults the pushed cache, so behaviour is byte-identical to today.
@@ -3644,7 +3651,9 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.WorkspaceEndpoints.Map(
             _app,
             _workspaces,
-            AmbientSnapshotConnected,
+            directorId => _tenantPass.Current is { } tenant
+                ? PushedSessions.ConnectedFleet(tenant, directorId)
+                : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
             directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
         Api.SkillEndpoints.Map(_app, _skills);
 
@@ -3901,7 +3910,30 @@ public sealed class GatewayHost : IAsyncDisposable
             // stamp the resolved mission name onto the create request forwarded to the Director.
             missions: Missions,
             // Workflows mission (phase 5b): seat spawns on workflow runs and record participants.
-            workflowRuns: _workflowRuns);
+            workflowRuns: _workflowRuns,
+            // Issue #2720: the same connection registry SendLauncherCommandAsync addresses commands
+            // down, so the capability query and the delivery it predicts read one set of connections.
+            // A second instance here would let the query answer "a stream is up" about a connection no
+            // command could ever travel on.
+            launcherConnections: LauncherConnections);
+
+        // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
+        // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,
+        // and the owner accepts once on the admission-scoped surface. The request is a record; the
+        // restart route above and its guard are untouched. The accept hands the cycle to the Director
+        // over its stream through SendCommandAsync, the one chokepoint every down-channel command uses.
+        var restartRequests = new Api.DirectorRestartRequestService(
+            DirectorRestartRequests,
+            listDirectors: tenant => Registry.ListDirectors(tenant),
+            launcherRegistration: (tenant, machine) => Launchers.Get(tenant, machine),
+            launcherConnection: (tenant, machine) => LauncherConnections.GetActiveConnection(tenant, machine),
+            directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
+            findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
+            sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
+        Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
+            listForAccount: tenant => DirectorRestartRequests.List(tenant),
+            listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
+            getOne: (tenant, id) => DirectorRestartRequests.Get(tenant, id));
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
@@ -4841,16 +4873,24 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         if (command is null) throw new ArgumentNullException(nameof(command));
 
-        var connectionId = LauncherConnections.GetActiveConnectionId(tenant, machineName);
+        // ONE READ yields both the connection the command goes down and what that connection declared.
+        // Issue #2725: a guarded restart is refused HERE, on that same read, when the connection did not
+        // declare the guard - so the check and the dispatch cannot be about two different launchers.
+        var connection = LauncherConnections.GetActiveConnection(tenant, machineName);
         var hub = _app?.Services.GetService(typeof(Microsoft.AspNetCore.SignalR.IHubContext<Streaming.LauncherHub>))
             as Microsoft.AspNetCore.SignalR.IHubContext<Streaming.LauncherHub>;
-        if (connectionId is null || hub is null)
+        if (connection is null || hub is null)
         {
             FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: no active stream for machine={machineName}, verb={command.Verb}");
             return null;
         }
-        FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}");
-        return await hub.Clients.Client(connectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
+        if (Api.GuardedRestartDispatchGate.Refusal(command, connection) is { } refusal)
+        {
+            FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: REFUSED before dispatch machine={machineName}, verb={command.Verb}: {refusal}");
+            return LauncherCommandResult.Refuse(refusal);
+        }
+        FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}, connection={connection.ConnectionId}");
+        return await hub.Clients.Client(connection.ConnectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
     }
 
     public async Task StopAsync()

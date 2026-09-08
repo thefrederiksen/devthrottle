@@ -32,6 +32,7 @@ import {
   type DirectorReachability,
 } from "@devthrottle/client-core/fleet/fleetClient";
 import { SessionMenu } from "./SessionMenu";
+import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 
 // The fleet-wide session roster (issue #972) - the React port of the Blazor SessionRail. It lists
 // EVERY session the Gateway roster aggregation (GET /sessions) returns, across every Director, with
@@ -102,6 +103,11 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           or off again, so a person leaving their desk can put the whole fleet on voice and take it back
           off later without touching each session. It reads the roster to pick its own direction. */}
       {sessions !== null && total > 0 && <VoiceAllButton sessions={sessions} />}
+
+      {/* A Director restart a session has asked for (issue #2725): the owner's one accept, above the
+          roster where "Needs you" lives. The same shared component the phone mounts; this shell only
+          tunes its layout. Renders nothing while no request exists. */}
+      <RestartRequestsPanel />
 
       {error !== null && (
         <div className="roster-error" role="alert">

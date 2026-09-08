@@ -17,6 +17,7 @@ import { voiceRowState } from "@devthrottle/client-core/voice/voiceRowState";
 import { voiceQueueFor } from "@devthrottle/client-core/voice/voiceQueue";
 import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
+import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
 import { useSessionFilter } from "../hooks/useSessionFilter";
 import {
@@ -423,6 +424,11 @@ export function Home() {
           </button>
         </p>
       )}
+
+      {/* A Director restart a session has asked for (issue #2725): the owner's one accept, at the top of
+          the roster where "Needs you" lives. The same shared component the Cockpit mounts; this shell
+          only tunes its layout under .screen. Renders nothing while no request exists. */}
+      {tab === "all" && <RestartRequestsPanel />}
 
       {tab === "all" && needsYou.length > 0 && (
         <section className="group">

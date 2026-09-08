@@ -506,8 +506,16 @@ public sealed class VoiceUploadStore
 
                         // Re-read INSIDE the gate: an ack may have retired it, or a re-complete rewritten it,
                         // since the enumeration above.
-                        var record = ReadRecordFile(RecordPath(dir));
-                        if (record is null) return;                     // no marker, or unreadable: leave it
+                        var read = ReadRecordFile(RecordPath(dir));
+                        // Only a marker we can READ is a candidate. No marker: nothing to retire. Malformed or
+                        // unreadable: leave it standing - it is still the only evidence of what this upload id
+                        // became, and the sweep has no business destroying evidence it cannot read (#2745).
+                        if (read.Kind != DictationRecordReadKind.Present) return;
+                        var record = read.Record!;
+                        // Another tenant's record is never ours to retire (issue #1884), exactly as ExpireStalePending
+                        // already refuses. Reachable only through a mis-computed partition root - the one case
+                        // where deleting another account's de-dupe evidence would be worst.
+                        if (!BelongsHere(record)) return;
                         if (!IsRetirableTombstone(record.State)) return; // PENDING / FAILED are never aged out
                         if (Directory.GetLastWriteTimeUtc(dir) >= cutoff) return;
 
@@ -590,12 +598,15 @@ public sealed class VoiceUploadStore
                     {
                         if (!Directory.Exists(dir)) return;
 
-                        var record = ReadRecordFile(RecordPath(dir));
-                        // No marker, unreadable, or any state but PENDING: not ours. FAILED is left alone on
-                        // purpose - it holds no session lock (IsPending is false while FAILED) and it is an
-                        // explicit user-retryable pause, so ageing it out would cancel a retry the user was
-                        // offered rather than release a lock nobody can clear.
-                        if (record is not { State: DictationDeliveryState.Pending }) return;
+                        var read = ReadRecordFile(RecordPath(dir));
+                        // No marker, a marker we cannot read, or any state but PENDING: not ours. A marker we
+                        // cannot read holds no lock (see IsPending), so there is no lock here to release, and
+                        // abandoning it would write over the only evidence of what it was (#2745). FAILED is
+                        // left alone on purpose - it holds no session lock (IsPending is false while FAILED)
+                        // and it is an explicit user-retryable pause, so ageing it out would cancel a retry the
+                        // user was offered rather than release a lock nobody can clear.
+                        if (read is not { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending }) return;
+                        var record = read.Record!;
                         if (!BelongsHere(record)) return;               // another tenant's record: never ours to resolve
                         if (Directory.GetLastWriteTimeUtc(dir) >= cutoff) return;
 
@@ -827,56 +838,194 @@ public sealed class VoiceUploadStore
     // terminal tombstones written as record.json AFTER the heavy chunk bytes are discarded. The tombstone
     // is the durable "already resolved" marker and is retired only by a client acknowledgment - so it is
     // exactly as long-lived as the audio it guards, and a delivered/abandoned upload id never re-injects.
+    //
+    // That last sentence holds ONLY because the read that guards it distinguishes every answer the file can
+    // give (issue #2745). A record.json that is there but cannot be read - corrupt, half-written, locked by
+    // another process, in a shape this build does not know - is evidence that this upload id was already
+    // resolved. It is NOT "no record". Before #2745 the reader answered null for both, the de-dupe check
+    // above register saw null, and the upload was re-opened as a fresh PENDING - the operator's own speech
+    // injected a second time. See ReadRecordFile for the answers and Read for the contract.
 
     /// <summary>
-    /// The durable delivery record for this upload id, or null when there is none (an unknown id, or a
-    /// staged upload that was never given a marker). Read from disk, so it survives a Gateway restart (a
-    /// fresh store instance over the same root finds it).
+    /// The honest read of this upload id's durable delivery record: every answer the file can give has its
+    /// own <see cref="DictationRecordReadKind"/>, and only <see cref="DictationRecordReadKind.Absent"/> means
+    /// "never resolved here". Read from disk, so it survives a Gateway restart (a fresh store instance over
+    /// the same root finds it).
+    ///
+    /// A caller deciding whether to (re-)open, deliver, or overwrite MUST switch on the kind and must treat
+    /// <see cref="DictationRecordReadKind.Malformed"/>, <see cref="DictationRecordReadKind.Unreadable"/> and
+    /// <see cref="DictationRecordReadKind.ForeignTenant"/> as a refusal: a marker it cannot read is still a
+    /// marker, and writing over it destroys the only evidence of what this upload id already became.
+    /// </summary>
+    public DictationRecordRead Read(string uploadId)
+    {
+        var uid = NormalizeId(uploadId);
+        // Not a GUID-shaped id: it cannot name a staging directory, so nothing was ever written for it.
+        if (uid is null) return DictationRecordRead.Absent;
+        var path = RecordPath(DirFor(uid));
+        var read = ReadRecordFile(path);
+        if (read.Kind != DictationRecordReadKind.Present) return read;
+        // Tenant-checked as well as partitioned (issue #1884). See BelongsHere: the directory is the boundary,
+        // this is the independent second opinion, and a record that fails it is refused rather than handed to
+        // a caller it does not belong to. Refused with its OWN name, not as absent (issue #2745): "absent"
+        // means "go ahead and open", and opening here would write this tenant's PENDING marker over another
+        // tenant's record - which can only happen if a partition root was mis-computed, the very fault this
+        // check exists to catch, and the one moment a silent overwrite is least acceptable.
+        if (!BelongsHere(read.Record!))
+        {
+            FileLog.Write($"[VoiceUploadStore] Read: uploadId={uid} record belongs to another tenant " +
+                $"(partition={_tenant.ToLogString()}); refused");
+            return DictationRecordRead.Foreign(path);
+        }
+        return read;
+    }
+
+    /// <summary>
+    /// The durable delivery record for this upload id when it is present and readable, or null ONLY when it
+    /// is genuinely absent (an unknown id, or a staged upload that was never given a marker).
+    ///
+    /// Every other answer THROWS <see cref="UnreadableDictationRecordException"/> rather than returning null.
+    /// This is deliberate (issue #2745): null used to stand for both "no record" and "a record I could not
+    /// read", and the de-dupe guard read the second as the first. A caller that wants to act on those
+    /// answers calls <see cref="Read"/> and switches on the kind; a caller that did not think about them
+    /// fails loudly here instead of quietly re-opening a resolved upload. The store's own writers read
+    /// through this on purpose, so none of them can compose a new marker on top of one it cannot read.
     /// </summary>
     public DictationDeliveryRecord? ReadRecord(string uploadId)
     {
-        var uid = NormalizeId(uploadId);
-        if (uid is null) return null;
-        var record = ReadRecordFile(RecordPath(DirFor(uid)));
-        if (record is null) return null;
-        // Tenant-checked as well as partitioned (issue #1884). See BelongsHere: the directory is the boundary,
-        // this is the independent second opinion, and a record that fails it is treated as absent rather than
-        // handed to a caller it does not belong to.
-        if (!BelongsHere(record))
+        var read = Read(uploadId);
+        return read.Kind switch
         {
-            FileLog.Write($"[VoiceUploadStore] ReadRecord: uploadId={uid} record belongs to another tenant " +
-                $"(partition={_tenant.ToLogString()}); refused");
-            return null;
-        }
-        return record;
+            DictationRecordReadKind.Present => read.Record,
+            DictationRecordReadKind.Absent => null,
+            _ => throw new UnreadableDictationRecordException(uploadId, read),
+        };
     }
 
-    private static DictationDeliveryRecord? ReadRecordFile(string path)
+    // The one place a record.json is turned into an answer. Four answers, each with a name, and NO
+    // pre-check with File.Exists: that call answers false for a file it was not allowed to look at, which
+    // would fold "could not look" into "absent" one line before the honest read even starts.
+    private static DictationRecordRead ReadRecordFile(string path)
     {
-        if (!File.Exists(path)) return null;
+        string text;
         try
         {
-            return JsonSerializer.Deserialize<DictationDeliveryRecord>(File.ReadAllText(path), RecordJson);
+            text = File.ReadAllText(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return DictationRecordRead.Absent;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return DictationRecordRead.Absent;
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[VoiceUploadStore] ReadRecord {path} failed: {ex.Message}");
-            return null;
+            // Locked by another process, permission denied, a directory sitting where the file should be,
+            // a disk fault: the file may well be there and we could not look. Say so; never say "absent".
+            FileLog.Write($"[VoiceUploadStore] ReadRecord {path} could not be read: {ex.Message}");
+            return DictationRecordRead.CouldNotRead(path, ex.Message);
         }
+
+        DictationDeliveryRecord record;
+        try
+        {
+            // SHAPE FIRST, then value. The serializer fills in a default for every property the JSON does not
+            // mention, and the default for State is the enum's zero - PENDING. So "{}" or an unrelated object
+            // would deserialize into a perfectly readable pending record, and pending is re-openable: the
+            // exact re-injection this reader exists to refuse, reached through valid JSON. A delivery record
+            // has carried these five properties since the day it existed (issue #1183); a file that lacks one
+            // was not written by this store and is not a record.
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return Malformed(path, "the file does not hold a JSON object");
+            foreach (var (name, allowed) in RequiredRecordProperties)
+            {
+                if (!doc.RootElement.TryGetProperty(name, out var value))
+                    return Malformed(path, $"the record has no {name} property");
+                if (Array.IndexOf(allowed, value.ValueKind) < 0)
+                    return Malformed(path, $"the record's {name} is a JSON {value.ValueKind}, not {string.Join(" or ", allowed)}");
+            }
+            // The state must be EXACTLY one of the names this store writes - ordinal, case-sensitive. The enum
+            // converter is more generous than that: it accepts a number spelled as a string ("1" is DELIVERED)
+            // and any casing ("pending" is PENDING), so checking the JSON kind alone still let "State":"0"
+            // re-open an upload and "State":"1" fabricate a delivered outcome. Only the canonical name is a
+            // record; nothing else was ever written by this store.
+            var stateName = doc.RootElement.GetProperty("State").GetString() ?? "";
+            if (Array.IndexOf(KnownStateNames, stateName) < 0)
+                return Malformed(path, $"state \"{stateName}\" is not a delivery state this build writes");
+            record = JsonSerializer.Deserialize<DictationDeliveryRecord>(text, RecordJson)!;
+        }
+        catch (JsonException ex)
+        {
+            return Malformed(path, ex.Message);
+        }
+        return DictationRecordRead.Found(record);
+    }
+
+    // The exact spellings the store writes for State, and the only ones it reads back.
+    private static readonly string[] KnownStateNames = Enum.GetNames<DictationDeliveryState>();
+
+    // The properties every delivery record has carried since issue #1183, each with the JSON kinds the store
+    // itself writes. Case-sensitive, exactly as the serializer matches them: a file spelling one differently is
+    // one the serializer would silently default.
+    //
+    // State must be a NAME, never a number. The enum converter accepts integers too, and 0 is PENDING and 1 is
+    // DELIVERED: "State":0 would read as a re-openable pending record, and "State":1 as a delivered outcome
+    // the phone would acknowledge - and then drop its only copy of the audio for. Transcript must be a string,
+    // because a delivered outcome carries it verbatim to the client. Reason is the one field the store writes
+    // as null.
+    //
+    // Properties this build does NOT know are accepted on purpose: a record written by a newer Gateway carries
+    // fields an older build has never heard of, and a rollback that refused every one of them would hold every
+    // upload on the machine. The five known properties, present and of the right kind, are the contract.
+    private static readonly (string Name, JsonValueKind[] Allowed)[] RequiredRecordProperties =
+    {
+        ("State", new[] { JsonValueKind.String }),
+        ("Submitted", new[] { JsonValueKind.True, JsonValueKind.False }),
+        ("MovedOn", new[] { JsonValueKind.True, JsonValueKind.False }),
+        ("Transcript", new[] { JsonValueKind.String }),
+        ("Reason", new[] { JsonValueKind.String, JsonValueKind.Null }),
+    };
+
+    private static DictationRecordRead Malformed(string path, string problem)
+    {
+        FileLog.Write($"[VoiceUploadStore] ReadRecord {path} is not a delivery record: {problem}");
+        return DictationRecordRead.NotUnderstood(path, problem);
     }
 
     /// <summary>
-    /// True when this upload id holds an explicit PENDING marker (issue #1188): undelivered and not
+    /// True when this upload id holds an explicit, READABLE PENDING marker (issue #1188): undelivered and not
     /// abandoned, its chunks retained. The enforced per-session dictation lock is a projection of this.
+    ///
+    /// A marker that cannot be read is NOT pending here. That is a decision, not the #2745 fold, and it goes
+    /// the other way from delivery on purpose. What this projection drives today is DISPLAY: the session's
+    /// "receiving a dictation" state and its orange mark. Sends are no longer refused by source - the Director
+    /// removed that rejection deliberately (see <c>Session.SendTextAsync</c>) - so a missed lock costs a
+    /// missing badge, nothing more. A marker nobody can read can never finish arriving, because every
+    /// delivery path refuses it (see <see cref="Read"/>); projecting a lock from it would paint the session as
+    /// receiving a dictation until an operator found the file, because nothing on the delivery or abandon
+    /// paths can clear such a marker. Only an explicit acknowledgement can - <see cref="Acknowledge"/> retires
+    /// the directory without reading it, and that is the client stating its own copy is gone, which the
+    /// official client never does after a refusal. The Core-side lock reader documents the same fail-open
+    /// choice for the same reason. Nothing compensates for a re-injected dictation, which is why delivery is
+    /// the side that refuses and this side is not.
     /// </summary>
-    public bool IsPending(string uploadId) => ReadRecord(uploadId) is { State: DictationDeliveryState.Pending };
+    public bool IsPending(string uploadId)
+        => Read(uploadId) is { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending };
 
     /// <summary>
     /// Write the explicit durable PENDING marker for this upload id, carrying the owning session id (issue
     /// #1188). While a PENDING marker exists the session is LOCKED for human input (a projection read by
     /// <see cref="IsSessionLocked"/>). Called at register so the session id is on disk and the lock survives
     /// a Gateway restart. Keeps any staged chunks and overwrites a prior PENDING or FAILED marker (a retry
-    /// re-entry back to PENDING); the DELIVERED/ABANDONED short-circuit means those never reach here.
+    /// re-entry back to PENDING).
+    ///
+    /// This is the RAW writer. It does not decide: it will write PENDING over a terminal tombstone if told to,
+    /// which is why the register leg no longer calls it - the register transition is <see cref="OpenPending"/>,
+    /// which reads, decides and writes under one hold of the gate (issue #2745). What this still refuses, by
+    /// reading through the strict <see cref="ReadRecord"/>, is a marker it cannot read at all.
     /// </summary>
     public void MarkPending(string uploadId, string sessionId)
     {
@@ -892,6 +1041,82 @@ public sealed class VoiceUploadStore
             WriteRecordMarker(dir, new DictationDeliveryRecord(
                 DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", ExistingRebaseline(uid)));
             FileLog.Write($"[VoiceUploadStore] MarkPending: uploadId={uid} sessionId={sessionId}");
+        });
+    }
+
+    /// <summary>
+    /// The REGISTER transition as ONE operation under the per-upload gate (issue #2745, review round two): read
+    /// the record, decide, refresh the staging directory, and write the PENDING marker - or not - without
+    /// releasing the gate in between. The endpoint used to do this as three calls (a read, then Register, then
+    /// MarkPending), and a complete could land the DELIVERED tombstone between the read and the PENDING write;
+    /// the write then buried the tombstone, and the next complete injected the same speech again. That is the
+    /// issue's harm reached through a race rather than a fold, and only a single gated operation closes it.
+    ///
+    /// Returns the normalized upload id (a blank or non-GUID id mints a fresh one, exactly as
+    /// <see cref="Register"/> does), what the record was BEFORE, and whether PENDING was written. It is NOT
+    /// written when the read refuses (Malformed, Unreadable, ForeignTenant - the caller answers with the
+    /// refusal, and the directory is left untouched) or when the record is terminal (DELIVERED or ABANDONED -
+    /// the caller answers with the cached outcome; the staging directory is still refreshed, as a re-register
+    /// always did, so the sweep does not take it out from under a client that is about to acknowledge). A
+    /// PENDING, FAILED, or absent record is (re-)opened, carrying the #1593 re-baseline forward from a FAILED
+    /// marker for the same reason <see cref="MarkPending"/> gives.
+    /// </summary>
+    public DictationOpenOutcome OpenPending(string? uploadId, string sessionId)
+    {
+        var uid = NormalizeId(uploadId) ?? Guid.NewGuid().ToString("N");
+        return WithRecordLock(uid, () =>
+        {
+            var before = Read(uid);
+            if (before.Refuses)
+            {
+                FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} refused ({before.Kind}); nothing written");
+                return new DictationOpenOutcome(uid, before, false);
+            }
+            EnsureFreshStaging(uid); // the gate is reentrant on this thread, so this stays inside it
+            if (before.Record is { State: DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned })
+            {
+                FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} is terminal ({before.Record.State}); not re-opened");
+                return new DictationOpenOutcome(uid, before, false);
+            }
+            BetweenRecordReadAndWriteForTests?.Invoke(uid);
+            WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
+                DictationDeliveryState.Pending, false, false, "", null, sessionId ?? "", before.Record?.RebaselineBufferBytes));
+            FileLog.Write($"[VoiceUploadStore] OpenPending: uploadId={uid} sessionId={sessionId} opened " +
+                $"(was {(before.Record is { } r ? r.State.ToString() : before.Kind.ToString())})");
+            return new DictationOpenOutcome(uid, before, true);
+        });
+    }
+
+    /// <summary>
+    /// The ABANDON transition as ONE operation under the per-upload gate (issue #2745, review round three):
+    /// read, decide, write the ABANDONED tombstone - or not - without releasing the gate in between. The
+    /// endpoint used to read, decide "not delivered", and then call the raw <see cref="MarkAbandoned"/>; a
+    /// complete could inject the speech and land DELIVERED between those two calls, and the abandon then wrote
+    /// ABANDONED over it - so the next re-complete told the user "dropped" about words that were acted on.
+    ///
+    /// Not abandoned when the read refuses (Malformed, Unreadable, ForeignTenant - nothing is written) or when
+    /// the record is already DELIVERED (delivery is the stronger fact and is final). PENDING, FAILED, ABANDONED
+    /// and absent are abandoned as before, discarding the staged chunks.
+    /// </summary>
+    public DictationAbandonOutcome Abandon(string uploadId, string reason)
+    {
+        var uid = NormalizeId(uploadId) ?? throw new InvalidOperationException("invalid upload id");
+        return WithRecordLock(uid, () =>
+        {
+            var before = Read(uid);
+            if (before.Refuses)
+            {
+                FileLog.Write($"[VoiceUploadStore] Abandon: uploadId={uid} refused ({before.Kind}); nothing written");
+                return new DictationAbandonOutcome(before, false);
+            }
+            if (before.Record is { State: DictationDeliveryState.Delivered })
+            {
+                FileLog.Write($"[VoiceUploadStore] Abandon: uploadId={uid} is DELIVERED; not abandoned");
+                return new DictationAbandonOutcome(before, false);
+            }
+            BetweenRecordReadAndWriteForTests?.Invoke(uid);
+            MarkAbandoned(uid, reason); // the gate is reentrant on this thread, so this stays inside it
+            return new DictationAbandonOutcome(before, true);
         });
     }
 
@@ -944,7 +1169,7 @@ public sealed class VoiceUploadStore
             // NO CANARY HERE EITHER, and for a different reason than the containment guard in
             // PartitionRootFor - this one is REDUNDANT rather than unreachable. Measured: removing this line
             // reddens nothing. It cannot, because the container directory holds other tenants' partitions and
-            // no record.json of its own, so ReadRecordFile returns null and the pattern match already declines
+            // no record.json of its own, so ReadRecordFile answers Absent and the pattern match already declines
             // it; and even if a record were somehow found there, BelongsHere on the same line refuses a record
             // belonging to another tenant. Two independent things downstream already give the right answer.
             //
@@ -952,7 +1177,10 @@ public sealed class VoiceUploadStore
             // stops a pointless file probe per partition on every projection. It is clarity and cost, not a
             // security boundary; the security boundary on this line is BelongsHere, and THAT one has canaries.
             if (IsPartitionContainer(dir)) continue;
-            if (ReadRecordFile(RecordPath(dir)) is { State: DictationDeliveryState.Pending } rec && BelongsHere(rec))
+            // A readable PENDING marker of our own, and nothing else: a marker that cannot be read holds no
+            // lock, for the reason given on IsPending.
+            if (ReadRecordFile(RecordPath(dir)) is { Kind: DictationRecordReadKind.Present, Record: { State: DictationDeliveryState.Pending } rec }
+                && BelongsHere(rec))
                 yield return (Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), rec);
         }
     }
@@ -1017,7 +1245,18 @@ public sealed class VoiceUploadStore
         // write PENDING back over a tombstone that landed in between, resurrecting a resolved upload id.
         return WithRecordLock(uid, () =>
         {
-            if (ReadRecord(uid) is not { State: DictationDeliveryState.Failed } failed) return false;
+            // Through Read, not ReadRecord: this is a query ("was there a FAILED marker to clear?") and the
+            // honest answer for a marker that cannot be read is "no, and I wrote nothing" - which is what
+            // false says. The endpoint has already refused the complete that would have got here for such a
+            // marker (issue #2745); this line keeps the store from writing over it on its own account.
+            var read = Read(uid);
+            if (read.Kind != DictationRecordReadKind.Present)
+            {
+                if (read.Kind != DictationRecordReadKind.Absent)
+                    FileLog.Write($"[VoiceUploadStore] ClearFailed: uploadId={uid} marker is {read.Kind}; not cleared ({read.Problem})");
+                return false;
+            }
+            if (read.Record is not { State: DictationDeliveryState.Failed } failed) return false;
             try
             {
                 WriteRecordMarker(DirFor(uid), new DictationDeliveryRecord(
@@ -1064,7 +1303,17 @@ public sealed class VoiceUploadStore
         //      over a tombstone that landed in the meantime and resurrect a delivered upload id (issue #1183).
         return WithRecordLock(uid, () =>
         {
-            if (ReadRecord(uid) is not { } record) return false;
+            // Through Read: a marker that cannot be read gets no re-baseline written over it - false is the
+            // true answer ("nothing recorded"), and the marker stays as the evidence it is (issue #2745).
+            var read = Read(uid);
+            if (read.Kind != DictationRecordReadKind.Present)
+            {
+                if (read.Kind != DictationRecordReadKind.Absent)
+                    FileLog.Write($"[VoiceUploadStore] RecordFailedDeliveryBaseline: uploadId={uid} marker is {read.Kind}; " +
+                        $"not written ({read.Problem})");
+                return false;
+            }
+            var record = read.Record!;
             // Terminal is final: its guard has already run for the last time, and rewriting the tombstone here
             // is precisely how a resolved upload id would come back to life.
             if (record.State is DictationDeliveryState.Delivered or DictationDeliveryState.Abandoned) return false;
@@ -1126,11 +1375,17 @@ public sealed class VoiceUploadStore
 
     // The owning session id already recorded for this upload id (empty when there is no record yet), so a
     // state transition preserves the session id first written by MarkPending at register (issue #1188).
+    //
+    // Through the STRICT ReadRecord, on purpose (issue #2745): every writer that composes a new marker asks
+    // one of these two helpers first, inside the gate, and ReadRecord throws for a marker it cannot read. So
+    // no writer - MarkPending, MarkDelivered, MarkAbandoned, MarkFailed - can put a fresh marker on top of a
+    // corrupt, locked, or foreign one; the write fails loudly with the file named, and the evidence stays.
     private string ExistingSessionId(string uploadId) => ReadRecord(uploadId)?.SessionId ?? "";
 
     // The re-baseline already recorded for this upload id (null when there is no record, or no attempt has
     // failed), so a NON-TERMINAL state transition preserves what a failed delivery attempt learned (#1593).
     // The terminal tombstones deliberately do NOT carry it: their guard has already run for the last time.
+    // Strict for the same reason as ExistingSessionId.
     private long? ExistingRebaseline(string uploadId) => ReadRecord(uploadId)?.RebaselineBufferBytes;
 
     // Write the small durable marker first (atomic temp+move), THEN discard the heavy chunk bytes, so a
@@ -1360,3 +1615,96 @@ public sealed record DictationDeliveryRecord(
     string SessionId = "",
     long? RebaselineBufferBytes = null,
     string Tenant = "");
+
+/// <summary>
+/// Every answer a read of an upload id's record.json can give (issue #2745). The reader used to have two -
+/// a record, or null - and null stood for both "no record" and "a record I could not read". The de-dupe
+/// guard at register read the second as the first and re-opened a delivered upload, so the operator's
+/// speech was injected twice. Now each answer has a name, and only <see cref="Absent"/> means "go ahead".
+/// </summary>
+public enum DictationRecordReadKind
+{
+    /// <summary>No record.json for this upload id: never resolved here. The only answer that permits opening.</summary>
+    Absent,
+    /// <summary>A record this build can read and that belongs to this partition's tenant.</summary>
+    Present,
+    /// <summary>
+    /// A record.json is there and its bytes were read, but it is not a delivery record this build understands:
+    /// invalid JSON, a half-written file, a state value the enum does not name. It is evidence that this upload
+    /// id was already resolved by SOMETHING, and it must not be re-opened or written over.
+    /// </summary>
+    Malformed,
+    /// <summary>
+    /// Could not look: the file could not be read at all - locked by another process, permission denied, a
+    /// disk fault. Whether a record is there is unknown, and unknown is not "absent".
+    /// </summary>
+    Unreadable,
+    /// <summary>
+    /// A readable record stamped for a different tenant than this partition (issue #1884). The directory
+    /// partition makes this unreachable unless a partition root was mis-computed, which is exactly when writing
+    /// over it would be worst. Refused, and never treated as absent.
+    /// </summary>
+    ForeignTenant,
+}
+
+/// <summary>
+/// The result of <see cref="VoiceUploadStore.Read"/>: the kind, the record (only when
+/// <see cref="Kind"/> is <see cref="DictationRecordReadKind.Present"/>), and for the refusals the path of
+/// the file and what was wrong with it, so a log line or an error response can name the fix.
+/// </summary>
+public sealed record DictationRecordRead(DictationRecordReadKind Kind, DictationDeliveryRecord? Record, string? Path, string? Problem)
+{
+    public static readonly DictationRecordRead Absent = new(DictationRecordReadKind.Absent, null, null, null);
+
+    public static DictationRecordRead Found(DictationDeliveryRecord record)
+        => new(DictationRecordReadKind.Present, record, null, null);
+
+    public static DictationRecordRead NotUnderstood(string path, string problem)
+        => new(DictationRecordReadKind.Malformed, null, path, problem);
+
+    public static DictationRecordRead CouldNotRead(string path, string problem)
+        => new(DictationRecordReadKind.Unreadable, null, path, problem);
+
+    public static DictationRecordRead Foreign(string path)
+        => new(DictationRecordReadKind.ForeignTenant, null, path, "the record is stamped for another tenant");
+
+    /// <summary>
+    /// True for every answer that forbids opening, delivering, or writing over this upload id: anything but a
+    /// record we can read or a record that is genuinely not there.
+    /// </summary>
+    public bool Refuses => Kind is not (DictationRecordReadKind.Present or DictationRecordReadKind.Absent);
+
+    /// <summary>One line, ASCII, naming the kind, the file and the problem - for logs and error bodies.</summary>
+    public string Describe(string uploadId)
+        => $"the delivery record for upload {uploadId} is {Kind}: {Problem} (file: {Path})";
+}
+
+/// <summary>
+/// Thrown by the strict <see cref="VoiceUploadStore.ReadRecord"/> for any answer other than a readable record
+/// or a genuinely absent one (issue #2745). Carries the full <see cref="Read"/> so the handler that catches it
+/// can say which file, and what was wrong, rather than only that something was.
+/// </summary>
+public sealed class UnreadableDictationRecordException : InvalidOperationException
+{
+    public DictationRecordRead Read { get; }
+
+    public UnreadableDictationRecordException(string uploadId, DictationRecordRead read)
+        : base(read.Describe(uploadId) + "; refusing to treat it as absent")
+    {
+        Read = read;
+    }
+}
+
+/// <summary>
+/// What <see cref="VoiceUploadStore.OpenPending"/> did: the normalized upload id, the record as it was BEFORE
+/// (so the caller can answer a refusal or a terminal outcome from the same read the decision was made on),
+/// and whether the PENDING marker was written.
+/// </summary>
+public sealed record DictationOpenOutcome(string UploadId, DictationRecordRead Before, bool Opened);
+
+/// <summary>
+/// What <see cref="VoiceUploadStore.Abandon"/> did: the record as it was BEFORE (so the caller can answer a
+/// refusal or an already-delivered outcome from the same read the decision was made on) and whether the
+/// ABANDONED tombstone was written.
+/// </summary>
+public sealed record DictationAbandonOutcome(DictationRecordRead Before, bool Abandoned);

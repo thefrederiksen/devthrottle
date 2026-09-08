@@ -27,6 +27,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /launchers                                 list registered launchers
 ///
 ///   POST /machines/{machine}/director/restart       push -> launcher verb director/restart
+///        body {"onlyIfEmpty": true} restarts ONLY while that Director holds no live sessions, and
+///        answers 409 with the launcher's own sentence - naming how many are live - when it holds some
 ///   POST /machines/{machine}/director/start         push -> launcher verb director/start
 ///   POST /machines/{machine}/director/stop          push -> launcher verb director/stop
 ///   POST /machines/{machine}/launch                 push -> launcher verb launch
@@ -158,14 +160,23 @@ internal static class MachineEndpoints
         // spawn with no explicit run auto-seats onto the mission's run. After a successful spawn the new
         // session is recorded as a run PARTICIPANT - the persisted run-to-session membership governance
         // reads. Null (old callers, tests) seats nothing and changes nothing.
-        Workflows.WorkflowRunStore? workflowRuns = null)
+        Workflows.WorkflowRunStore? workflowRuns = null,
+        // Issue #2720 (restart epic, Phase 1): the launcher stream connections, read by the restart
+        // capability query to see whether a machine's launcher holds a command stream and what it
+        // declared about itself on joining.
+        //
+        // NULL MAKES THAT ONE ROUTE ANSWER 503, NOT A VERDICT. Every other route here is unaffected. The
+        // query's whole job is to be believed before a drain closes a session, and the two facts it needs
+        // most both come from this registry - so a Gateway wired without it must say "I cannot answer",
+        // never compute a verdict from the absence and report a reachable machine as unreachable.
+        Streaming.LauncherConnectionRegistry? launcherConnections = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
 
         FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={GatewayHostedMode.IsHosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
-        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary);
+        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -276,12 +287,64 @@ internal static class MachineEndpoints
         LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
         Core.Sessions.MissionStore? missions,
         Workflows.WorkflowRunStore? workflowRuns,
-        HostedTenantBoundary? boundary)
+        HostedTenantBoundary? boundary,
+        Streaming.LauncherConnectionRegistry? launcherConnections)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
         // the launcher/connection is resolved as (callerTenant, machine) - so a caller can only ever reach a
         // launcher its OWN tenant registered, never another tenant's machine of the same bare name.
+
+        // GET /machines/{machine}/restart-capability - CAN this machine be restarted? Issue #2720.
+        //
+        // A READ THAT CHANGES NOTHING AND TOUCHES NOTHING. It sends no command, opens no connection and
+        // raises no signal - deliberately, because the one other way to learn whether a launcher is
+        // listening for the restart signal is to RAISE that signal, which restarts a Director as a side
+        // effect of the question. The answer is folded from what this Gateway already holds and what the
+        // machine's launcher declared about itself when it joined.
+        //
+        // IT IS ASKED BEFORE A DRAIN, WHICH IS THE ENTIRE POINT. On 2026-09-06 seventeen sessions were
+        // closed and only then did it turn out no route could restart that Director. This route is the
+        // question that was not asked.
+        app.MapGet("/{machine}/restart-capability", (string machine, HttpContext ctx) =>
+        {
+            FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/restart-capability: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+
+            // A Gateway wired without the stream registry cannot see either fact this answer turns on.
+            // It says so instead of computing a verdict from what it cannot observe - a "no launcher
+            // stream" derived from a missing registry would be indistinguishable from a real one, and
+            // this is the answer a drain is about to trust with seventeen sessions.
+            if (launcherConnections is null)
+            {
+                FileLog.Write("[MachineEndpoints] restart-capability: NO launcher connection registry is wired - refusing to answer");
+                return Results.Json(new
+                {
+                    error = "this Gateway cannot answer the restart-capability question: its launcher stream "
+                          + "registry is not wired, so whether a launcher holds a command stream and what it "
+                          + "declared are both unobservable here. This is a Gateway wiring fault, not a "
+                          + "fact about the machine.",
+                    machine,
+                }, statusCode: 503);
+            }
+
+            var answer = MachineRestartCapability.Judge(
+                machine,
+                launchers.Get(tenant, machine),
+                launcherConnections.GetActiveConnection(tenant, machine),
+                DateTime.UtcNow);
+
+            FileLog.Write($"[MachineEndpoints] restart-capability tenant={tenant.Value} machine={machine}: "
+                          + $"verdict={answer.Verdict}, reach={answer.Reach}, declaration={answer.Declaration}, "
+                          + $"signal={answer.RestartSignal}, guardedRestart={answer.GuardedRestart}");
+
+            // ALWAYS 200, INCLUDING WHEN THE ANSWER IS NO. A verdict of cannot-restart is a successful
+            // answer to the question that was asked, not a failed request - and a 404 or 502 here would
+            // be read by a caller's error handling as "the query broke", which is precisely the reading
+            // that lets a drain carry on. The refusals on the ACTION routes keep their status codes;
+            // this is a question, and it answered.
+            return Results.Json(answer, statusCode: 200);
+        });
 
         // POST /machines/{machine}/director/restart
         app.MapPost("/{machine}/director/restart", async (string machine, HttpContext ctx, CancellationToken ct) =>
@@ -589,20 +652,76 @@ internal static class MachineEndpoints
         // Do NOT gate on ContentLength - transfer-encoded bodies may have no explicit length.
         string? exePathFromBody = null;
         bool? confirmProtectedFromBody = null;
-        try
+        var onlyIfEmptyFromBody = false;
+
+        // THE BODY IS READ, NOT GUESSED AT. This used to decide whether a body existed from the content
+        // type or a declared length, and that heuristic was wrong in both directions: an empty body
+        // labelled as JavaScript Object Notation was parsed and failed, while a chunked body - which
+        // declares no length - carrying "onlyIfEmpty" was treated as no body at all and quietly became an
+        // unconditional restart. Reading the bytes answers both: nothing sent is absent, anything sent
+        // must parse.
+        ctx.Request.EnableBuffering();
+        using var bodyReader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+        var bodyText = await bodyReader.ReadToEndAsync(ct);
+        if (!string.IsNullOrWhiteSpace(bodyText))
         {
-            ctx.Request.EnableBuffering();
-            if (ctx.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true
-                || ctx.Request.ContentLength is > 0)
+            JsonDocument doc;
+            try
             {
-                using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ct);
-                if (doc.RootElement.TryGetProperty("exePath", out var ep))
+                doc = JsonDocument.Parse(bodyText);
+            }
+            catch (JsonException ex)
+            {
+                // A BODY THAT WAS SENT AND WILL NOT PARSE IS A 400, NOT AN EMPTY BODY. No body at all is
+                // fine - every field here is optional - but silently discarding a body the caller did
+                // send discards whatever safety flag was in it, and this route's flags decide whether
+                // somebody's live sessions survive.
+                FileLog.Write($"[MachineEndpoints] RELAY_REFUSED machine={machine} verb={verb} reason=unparseable body: {ex.Message}");
+                return Results.Json(new
+                {
+                    error = "bad_request_body",
+                    detail = "the request body was sent but could not be read as JavaScript Object Notation, "
+                           + "so nothing was done. It is not treated as an empty body: a flag that was meant "
+                           + "to be in it would have been dropped in silence.",
+                    machine,
+                    verb,
+                }, statusCode: 400);
+            }
+
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    return Results.Json(new
+                    {
+                        error = "bad_request_body",
+                        detail = $"the request body must be a JavaScript Object Notation object; this one is "
+                               + $"{doc.RootElement.ValueKind}. Nothing was done.",
+                        machine,
+                        verb,
+                    }, statusCode: 400);
+
+                // ONLY A STRING IS READ AS A PATH. GetString throws on a number or an object, and this
+                // block no longer sits under a catch-everything - narrowing that catch to a parse failure
+                // is what made this reachable, so a body of {"exePath": 123} would have left the route as
+                // an unhandled fault instead of the ignored field it has always been.
+                if (doc.RootElement.TryGetProperty("exePath", out var ep) && ep.ValueKind == JsonValueKind.String)
                     exePathFromBody = ep.GetString();
                 if (doc.RootElement.TryGetProperty("confirmProtected", out var cp) && cp.ValueKind == JsonValueKind.True)
                     confirmProtectedFromBody = true;
+
+                if (ReadOnlyIfEmpty(doc.RootElement, machine, verb, out onlyIfEmptyFromBody) is { } flagRefusal)
+                    return flagRefusal;
             }
         }
-        catch { /* body is optional */ }
+
+        // ONLY-IF-EMPTY BELONGS TO RESTART, AND ASKING FOR IT ANYWHERE ELSE IS REFUSED RATHER THAN IGNORED.
+        // A caller sending it to stop is asking not to interrupt live work; quietly dropping the flag and
+        // stopping the Director anyway would answer that request with the exact outcome it was trying to
+        // prevent, and report success. A stop that must not interrupt anything has no implementation here
+        // yet - so the honest answer is to say so.
+        if (onlyIfEmptyFromBody && verb != "restart")
+            return OnlyIfEmptyNotUnderstood(machine, verb,
+                $"onlyIfEmpty is understood by 'restart' alone, and this is '{verb}'");
 
         // Slot guard: refuse restart/stop targeting the main build or slots 1-4 without confirm.
         if ((verb == "restart" || verb == "stop") && exePathFromBody is { } exePath)
@@ -629,8 +748,82 @@ internal static class MachineEndpoints
         // guard above has already run before anything is delivered.
         var outcome = await LauncherLifecycleRelay.SendDirectorVerbAsync(
             tenant, machine, verb, exePathFromBody, confirmProtectedFromBody == true,
-            launchers, sendLauncherCommand, ct);
+            launchers, sendLauncherCommand, ct, onlyIfEmptyFromBody);
         return ToResult(machine, verb, outcome);
+    }
+
+    /// <summary>
+    /// Read the onlyIfEmpty flag out of a lifecycle request body. Returns null when the body is fine (and
+    /// <paramref name="onlyIfEmpty"/> holds the answer), or the refusal to return when it is not.
+    ///
+    /// IT IS THE ONE FIELD ON THIS ROUTE WHOSE ABSENCE IS THE DANGEROUS READING, and every rule here comes
+    /// from that. A malformed confirmProtected is safely read as absent, because absent is its careful
+    /// side - a missing confirmProtected REFUSES a protected slot. (A missing exePath is NOT the careful
+    /// side: it skips the slot guard entirely. That is this route's long-standing behaviour, pinned by its
+    /// own test, and it is neither changed nor endorsed here.) Absent HERE means "restart regardless of
+    /// what the Director is holding", so anything the caller might have MEANT as the flag and this route
+    /// cannot be sure of has to be refused instead of ignored:
+    ///
+    ///   * a value that is not a boolean - "true", 1, null - is refused rather than read as false;
+    ///   * the NAME is matched without regard to case, because {"OnlyIfEmpty": true} is unmistakably a
+    ///     caller asking for the guard, and a case-sensitive lookup answered it with an unconditional
+    ///     restart and a success;
+    ///   * two spellings of the name in one object are refused, because which one wins is a detail of the
+    ///     parser and not something the caller can have intended.
+    ///
+    /// WHAT IT STILL CANNOT CATCH, stated rather than implied: a plain misspelling ("onlyIfEmtpy") is
+    /// indistinguishable from a field this route has never heard of, and is ignored. Closing that needs
+    /// the guard to be something other than an optional field - a separate route, or a required mode on
+    /// every lifecycle call - which is a bigger change than this one and is not smuggled in here.
+    /// </summary>
+    private static IResult? ReadOnlyIfEmpty(JsonElement body, string machine, string verb, out bool onlyIfEmpty)
+    {
+        onlyIfEmpty = false;
+
+        JsonElement? found = null;
+        foreach (var property in body.EnumerateObject())
+        {
+            if (!property.NameEquals("onlyIfEmpty")
+                && !string.Equals(property.Name, "onlyIfEmpty", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (found is not null)
+                return OnlyIfEmptyNotUnderstood(machine, verb,
+                    "the request body names onlyIfEmpty more than once, and which spelling would win is a "
+                    + "detail of the parser rather than anything you asked for");
+
+            found = property.Value;
+        }
+
+        if (found is not { } value)
+            return null; // absent: an ordinary, unconditional lifecycle call
+
+        if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return OnlyIfEmptyNotUnderstood(machine, verb,
+                $"onlyIfEmpty must be true or false; this request sent {value.ValueKind}");
+
+        onlyIfEmpty = value.ValueKind == JsonValueKind.True;
+        return null;
+    }
+
+    /// <summary>
+    /// The one refusal for every way a caller can ask for onlyIfEmpty and not get it: on a verb that
+    /// cannot honour it, or written as something that is not a boolean. Both mean the same thing to the
+    /// reader - the condition you attached was NOT applied and nothing was done - and they are refused
+    /// rather than ignored because the whole point of the flag is that live work is not interrupted.
+    /// </summary>
+    private static IResult OnlyIfEmptyNotUnderstood(string machine, string verb, string reason)
+    {
+        FileLog.Write($"[MachineEndpoints] RELAY_REFUSED machine={machine} verb={verb} reason={reason}");
+        return Results.Json(new
+        {
+            error = "only_if_empty_not_supported",
+            detail = reason + ". It was NOT applied and nothing was done: a flag that asks not to "
+                   + "interrupt live work must never be dropped in silence.",
+            machine,
+            verb,
+            hint = "Send \"onlyIfEmpty\": true (a boolean) on POST /machines/{machine}/director/restart.",
+        }, statusCode: 400);
     }
 
     /// <summary>

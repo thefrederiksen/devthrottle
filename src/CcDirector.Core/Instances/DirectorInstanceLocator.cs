@@ -5,14 +5,34 @@ using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Instances;
 
-/// <summary>How the search for the supervised Director ended.</summary>
+/// <summary>
+/// How the search for the supervised Director ended.
+///
+/// A NOTE TO ANYONE TIDYING THIS ENUM: <see cref="Unknown"/> IS APPENDED, NOT INSERTED, AND THAT IS
+/// DELIBERATE. It reads as the odd one out - it belongs conceptually beside <see cref="NotRunning"/>,
+/// which is the value it was split from - and moving it there would renumber
+/// <see cref="Ambiguous"/> from 2 to 3 and <see cref="NotSupervised"/> from 3 to 4.
+///
+/// Nothing in this repository serialises those numbers today, so a reorder would compile, pass every
+/// test, and look like an improvement. A mixed-version or externally compiled consumer would then
+/// mislabel outcomes silently - an ambiguous machine read as unsupervised, or the reverse - and there
+/// is no test that could catch it, because both sides would be internally consistent.
+///
+/// So the ordering is a compatibility decision, it is invisible in a diff, and this paragraph is the
+/// only thing standing between it and a future tidy-up. If the enum ever genuinely needs reordering,
+/// give every member an explicit numeric value first.
+/// </summary>
 public enum DirectorResolution
 {
     /// <summary>Exactly one live Director owns the supervised instance. It is named in the lookup.</summary>
     Running,
 
-    /// <summary>No live Director owns the supervised instance.</summary>
+    /// <summary>
+    /// No live Director owns the supervised instance, AND everything that claimed it was read and ruled
+    /// out. It is a positive finding, not the absence of one - see <see cref="Unknown"/>.
+    /// </summary>
     NotRunning,
+
 
     /// <summary>
     /// More than one live process claims the supervised instance. NOTHING may be done to any of them:
@@ -31,6 +51,38 @@ public enum DirectorResolution
     /// send the next person looking for a second process that does not exist.
     /// </summary>
     NotSupervised,
+
+    /// <summary>
+    /// Something claims the supervised instance and it could not be READ or CERTIFIED, so whether a
+    /// Director is running here is unknown. Nothing survived to be named, but nothing was ruled out
+    /// either.
+    ///
+    /// WHY THIS IS NOT <see cref="NotRunning"/>, WHICH IS THE DEFECT IT REMOVES (issue #2730). A
+    /// registration that will not parse, and a live process that will not say when it started, were both
+    /// SKIPPED - and skipping is right, because neither can be certified and an uncertified process must
+    /// never be stopped or updated over. What was wrong is where the skips landed: with nothing left,
+    /// the answer came back <see cref="NotRunning"/>, so "I could not read what is there" and "nothing is
+    /// there" were the same answer.
+    ///
+    /// That is safe for a caller asking MAY I STOP THIS - declining is the careful direction - and it is
+    /// a fail-open for every caller asking IS THIS EMPTY, because there the same answer means PERMIT.
+    /// <c>DirectorSupervisor.Start</c> reads it as permission to start a Director, so ONE corrupt
+    /// registration file was enough to start a second Director on an instance home that already had a
+    /// live one. Two Directors sharing one home is the shape of the failure that corrupted a database and
+    /// took the hosted service down for thirty-two minutes on 30 July 2026.
+    ///
+    /// THE DISTINCTION ALREADY EXISTED ONE METHOD DOWN. <see cref="DirectorInstanceLocator.ReadSessionCount"/>
+    /// returns null rather than a number when the roster cannot be read, and says why in its own words:
+    /// the absence of that file beside a live Director is not zero sessions, it is no answer. The
+    /// resolution path simply never got the same treatment.
+    ///
+    /// EVERY CALLER CHOOSES WHAT TO DO WITH IT, and they do not all choose the same thing: decline on it
+    /// when deciding whether to STOP something, refuse on it when deciding whether something is EMPTY,
+    /// and treat it as occupied when deciding whether to START something.
+    /// <see cref="DirectorLookup.Unreadable"/> carries what was skipped and why, so a refusal can show
+    /// its evidence rather than assert a cause.
+    /// </summary>
+    Unknown,
 }
 
 /// <summary>
@@ -79,9 +131,38 @@ public sealed record SupervisedDirector(
 /// mission that was looking at something else. Callers must carry it somewhere a person will meet it, not
 /// only into a log file.
 /// </param>
+/// <param name="Unreadable">
+/// Everything that claimed this instance and could not be read or certified, each with the reason it was
+/// skipped. Empty on a clean answer.
+///
+/// IT TRAVELS ON EVERY LOOKUP, NOT ONLY ON <see cref="DirectorResolution.Unknown"/>. A registration that
+/// will not parse beside a Director that resolved perfectly is still a machine in a state that should not
+/// exist, and it is exactly the state that becomes an Unknown the moment the good registration goes. A
+/// caller carries it somewhere a person will meet it, in the same way <paramref name="Conflict"/> is
+/// carried through a resolved tie-break rather than being dropped because the answer came out fine.
+/// </param>
 public sealed record DirectorLookup(
     DirectorResolution Outcome, SupervisedDirector? Director, IReadOnlyList<string> Candidates,
-    string? Conflict = null);
+    string? Conflict = null, IReadOnlyList<string>? Unreadable = null)
+{
+    private readonly IReadOnlyList<string> _unreadable = Unreadable ?? Array.Empty<string>();
+
+    /// <summary>
+    /// What could not be read or certified. Never null, so a caller need not guard it.
+    ///
+    /// THE SETTER COALESCES, AND AN AUTO-PROPERTY INITIALIZER WOULD NOT HAVE. Written as
+    /// <c>{ get; init; } = Unreadable ?? Array.Empty&lt;string&gt;();</c> the fallback runs only on the
+    /// primary constructor, so <c>with { Unreadable = null }</c> would put a null straight through and
+    /// the sentence above would be false at exactly the moment a caller relied on it. This was caught by
+    /// reading the claim against the code under it rather than by any test - which is the point of doing
+    /// that pass, because a promise written next to the code that breaks it reads as documentation.
+    /// </summary>
+    public IReadOnlyList<string> Unreadable
+    {
+        get => _unreadable;
+        init => _unreadable = value ?? Array.Empty<string>();
+    }
+}
 
 /// <summary>
 /// Answers "is THIS Director running, and which process is it" - the question the launcher has to get
@@ -202,19 +283,43 @@ public sealed class DirectorInstanceLocator
     }
 
     /// <summary>
-    /// Resolve the supervised Director. Never throws: an unreadable directory is reported as nothing
-    /// running, because a launcher that throws while working out whether to stop something is worse
-    /// than one that declines to.
+    /// Resolve the supervised Director. Never throws: a launcher that throws while working out whether to
+    /// stop something is worse than one that declines to.
+    ///
+    /// A SKIP IS RECORDED, NEVER SWALLOWED (issue #2730). Two things here cannot be certified and are
+    /// therefore not acted on: a registration that will not parse, and a live process that will not say
+    /// when it started. Declining to act on them is right. What was wrong is that they then vanished, so
+    /// with nothing left the answer was <see cref="DirectorResolution.NotRunning"/> - the same answer as
+    /// a genuinely empty instance home. They are now collected, and an answer built entirely out of skips
+    /// is <see cref="DirectorResolution.Unknown"/>, which no caller may read as permission.
     /// </summary>
     public DirectorLookup Resolve()
     {
         var live = new List<SupervisedDirector>();
         var described = new List<string>();
+        var unreadable = new List<string>();
 
-        foreach (var (file, home, dto) in ReadRegistrations())
+        foreach (var (file, home, dto, unreadableReason) in ReadRegistrations())
         {
-            var process = TryGetLiveProcess(dto.Pid);
-            if (process is null) continue;
+            if (dto is null)
+            {
+                // Something IS in this directory and it could not be read. Recorded rather than dropped:
+                // see the class comment on DirectorResolution.Unknown.
+                unreadable.Add(unreadableReason ?? $"the registration {file} could not be read");
+                continue;
+            }
+
+            var (process, uninspectable) = TryGetLiveProcess(dto.Pid);
+            if (uninspectable is not null)
+            {
+                // NOT THE SAME AS A DEAD PROCESS. The operating system refused to tell us about this
+                // process id - it may be a live Director we are not allowed to look at. Erasing the
+                // claim here was the same fail-open, one method below the one it was written for.
+                FileLog.Write($"[DirectorInstanceLocator] {uninspectable}");
+                unreadable.Add(uninspectable);
+                continue;
+            }
+            if (process is null) continue;   // positively dead: no such process id
 
             using (process)
             {
@@ -226,10 +331,15 @@ public sealed class DirectorInstanceLocator
                 catch (Exception ex)
                 {
                     // A process that cannot be interrogated cannot be certified as the registration's
-                    // author, and an uncertified process must not be stopped or updated over.
-                    FileLog.Write($"[DirectorInstanceLocator] pid={dto.Pid} from {file} could not be asked when it "
-                                  + $"started ({ex.Message}), so it cannot be certified as the Director that wrote "
-                                  + "that registration. Ignoring it.");
+                    // author, and an uncertified process must not be stopped or updated over. It is ALIVE
+                    // though, which is why this is recorded as an unreadable claim rather than dropped:
+                    // a live process holding this instance home is the strongest possible reason not to
+                    // start a second Director in it.
+                    var reason = $"pid={dto.Pid} from {file} is alive and could not be asked when it started "
+                                 + $"({ex.Message}), so it cannot be certified as the Director that wrote that "
+                                 + "registration";
+                    FileLog.Write($"[DirectorInstanceLocator] {reason}. Not acted on, and NOT treated as absent.");
+                    unreadable.Add(reason);
                     continue;
                 }
 
@@ -253,12 +363,26 @@ public sealed class DirectorInstanceLocator
         }
 
         if (live.Count == 0)
-            return new DirectorLookup(DirectorResolution.NotRunning, null, described);
+        {
+            // NOTHING SURVIVED. Which of the two answers that is depends entirely on whether anything was
+            // skipped on the way here, and the whole of issue #2730 is that this used to be one answer.
+            if (unreadable.Count > 0)
+            {
+                var reason = $"whether a Director holds {_instanceHome} is UNKNOWN: nothing could be certified, "
+                             + $"and {unreadable.Count} claim(s) could not be read - {string.Join("; ", unreadable)}. "
+                             + "This is NOT an empty instance home. Do not start a Director here, and do not read "
+                             + "it as idle.";
+                FileLog.Write($"[DirectorInstanceLocator] {reason}");
+                return new DirectorLookup(DirectorResolution.Unknown, null, described, reason, unreadable);
+            }
+
+            return new DirectorLookup(DirectorResolution.NotRunning, null, described, null, unreadable);
+        }
 
         if (live.Count == 1)
-            return ResolveSingleClaimant(live[0], described);
+            return ResolveSingleClaimant(live[0], described) with { Unreadable = unreadable };
 
-        return BreakTheTie(live, described);
+        return BreakTheTie(live, described) with { Unreadable = unreadable };
     }
 
     /// <summary>
@@ -461,49 +585,154 @@ public sealed class DirectorInstanceLocator
         return roster.Sessions.Count;
     }
 
-    private IEnumerable<(string File, string Home, Gateway.Contracts.DirectorDto Dto)> ReadRegistrations()
+    /// <summary>
+    /// Every registration file found, parsed where possible.
+    ///
+    /// A FILE THAT WOULD NOT PARSE IS YIELDED WITH A NULL DTO AND A REASON, never dropped (issue #2730).
+    /// It used to be skipped here, silently, and the caller then had no way to tell an empty directory
+    /// from a directory full of files it could not read - which is how a corrupt registration came to
+    /// authorize starting a second Director on a live instance home.
+    /// </summary>
+    private IEnumerable<(string File, string Home, Gateway.Contracts.DirectorDto? Dto, string? Unreadable)> ReadRegistrations()
     {
         foreach (var dir in RegistrationDirectories)
         {
-            string[] files;
-            try
-            {
-                if (!Directory.Exists(dir)) continue;
-                files = Directory.GetFiles(dir, "*.json");
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[DirectorInstanceLocator] cannot list {dir}: {ex.Message}");
-                continue;
-            }
-
             // The storage home this registration belongs to: three levels up from
             // <home>/config/director/instances. Carried per registration rather than assumed, because
             // the crash journal that says how busy that Director is lives under ITS home, and the two
-            // layouts put it in different places.
+            // layouts put it in different places. Resolved BEFORE the listing, because an unreadable
+            // directory has to be reported against its home too.
             var home = Path.GetFullPath(Path.Combine(dir, "..", "..", ".."));
 
-            foreach (var file in files)
+            // ASKED BY TRYING, NOT BY Directory.Exists. That check answers FALSE for a directory that
+            // exists and cannot be reached, so "not there" and "not readable" came back as one answer -
+            // the very fold this change exists to remove, one layer above the one it was written for.
+            // GetFiles discriminates them positively: a directory that is genuinely absent throws
+            // DirectoryNotFoundException, and anything else means something IS there and could not be
+            // listed.
+            string[]? files = null;
+            string? listingFailure = null;
+            var absent = false;
+            try
+            {
+                files = Directory.GetFiles(dir, "*.json");
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Genuinely absent, and that is ordinary: the pre-1.8 flat path does not exist on a
+                // modern install, and an instance home has no registrations directory until a Director
+                // has run there. Nothing is there, so nothing is claimed.
+                absent = true;
+            }
+            catch (Exception ex)
+            {
+                listingFailure = $"the registration directory {dir} exists and could not be listed: {ex.Message}";
+            }
+
+            if (absent) continue;
+
+            if (listingFailure is not null)
+            {
+                // It exists and could not be read. A directory of registrations we cannot see is the
+                // strongest possible reason NOT to conclude the instance home is empty. Yielded out here
+                // rather than from the catch, which the language forbids in an iterator.
+                FileLog.Write($"[DirectorInstanceLocator] {listingFailure}");
+                yield return (dir, home, null, listingFailure);
+                continue;
+            }
+
+            foreach (var file in files!)
             {
                 Gateway.Contracts.DirectorDto? dto = null;
+                string? failure = null;
                 try
                 {
                     dto = JsonSerializer.Deserialize<Gateway.Contracts.DirectorDto>(File.ReadAllText(file), JsonOptions);
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[DirectorInstanceLocator] cannot read the registration {file}: {ex.Message}");
+                    failure = $"the registration {file} could not be read: {ex.Message}";
                 }
 
-                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)) continue;
-                yield return (file, home, dto);
+                if (failure is not null)
+                {
+                    FileLog.Write($"[DirectorInstanceLocator] {failure}");
+                    yield return (file, home, null, failure);
+                    continue;
+                }
+
+                // Parsed, and it does not name a Director. A file whose contents are valid JavaScript
+                // Object Notation and are not a registration is the SAME class of fault as one that
+                // would not parse at all - in both cases a file is sitting in this directory and this
+                // code cannot tell what process, if any, it stands for. Reading it as an empty directory
+                // is the failure being fixed, and it does not become safe because the parser succeeded.
+                // StartedAt IS PART OF BEING COMPLETE, and leaving it out of this check made the
+                // "never throws" contract on Resolve false: an unset stamp is DateTime.MinValue, and
+                // subtracting RegistrationLag from it throws ArgumentOutOfRangeException outside every
+                // catch in this file. It is also right on the merits - the stamp is the ONLY thing that
+                // tells this Director from a process that inherited its id, so a registration without
+                // one certifies nothing and belongs with the others that could not be read.
+                // THE BOUNDS ARE CHECKED WITHOUT PERFORMING THE ARITHMETIC THEY MAKE SAFE, and the
+                // first draft of this guard did the opposite: it wrote
+                // `dto.StartedAt - RegistrationLag < DateTime.MinValue`, which THROWS for exactly the
+                // timestamps it was meant to reject. A guard that has to do the dangerous thing in
+                // order to decide whether the dangerous thing is safe is not a guard.
+                //
+                // Both ends matter and only one was considered. A stamp just above DateTime.MinValue
+                // throws on the SUBTRACTION here; a stamp within the skew of DateTime.MaxValue survives
+                // that and throws on the ADDITION in Resolve. Comparing against the boundary shifted the
+                // other way - MinValue PLUS the lag, MaxValue MINUS the skew - can never overflow,
+                // because both are computed from constants known to fit.
+                //
+                // The harm is the one the binding property forbids: Resolve is called by Start,
+                // StopAsync, ReadStatus and IsRunning with no local recovery, so one parseable
+                // registration with a boundary timestamp would keep a stopped Director from starting
+                // until somebody deleted the file by hand.
+                if (dto is null || dto.Pid <= 0 || string.IsNullOrWhiteSpace(dto.DirectorId)
+                    || dto.StartedAt == default
+                    || dto.StartedAt < DateTime.MinValue + RegistrationLag
+                    || dto.StartedAt > DateTime.MaxValue - RegistrationSkew)
+                {
+                    var incomplete = $"the registration {file} parsed but names no usable Director "
+                                     + $"(directorId={(string.IsNullOrWhiteSpace(dto?.DirectorId) ? "missing" : dto!.DirectorId)}, "
+                                     + $"pid={dto?.Pid ?? 0}, "
+                                     + $"startedAt={(dto is null || dto.StartedAt == default ? "missing" : dto.StartedAt.ToString("o"))})";
+                    FileLog.Write($"[DirectorInstanceLocator] {incomplete}");
+                    yield return (file, home, null, incomplete);
+                    continue;
+                }
+
+                yield return (file, home, dto, null);
             }
         }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    private static Process? TryGetLiveProcess(int pid)
+    /// <summary>
+    /// The live process for a registered process id.
+    ///
+    /// THREE ANSWERS, NEVER TWO (issue #2730). A null process with a null reason means the process id is
+    /// POSITIVELY DEAD - the operating system says no such process, which is a fact. A non-null reason
+    /// means the operating system REFUSED TO SAY, which is not a fact about the process and must never
+    /// be treated as one: it may be a live Director this launcher is not permitted to inspect. Collapsing
+    /// the second into the first is what let an inaccessible live Director read as an empty instance
+    /// home, one method below the defect this change was written for.
+    ///
+    /// THIS DISCIPLINE IS NOT NEW HERE - IT IS COPIED FROM ITS SIBLING, WHICH HAD IT ALL ALONG.
+    /// <c>DirectorRegistry.IsProcessDead</c> in the Gateway asks the identical question about the
+    /// identical thing, catches <see cref="ArgumentException"/> ALONE as proof of death, and returns
+    /// do-not-assume-dead for everything else - with the reason written on it: "A permission or other
+    /// unexpected error returns false (do not assume dead) so we never delete on uncertainty." One
+    /// assembly away, the same question was already being answered correctly; this one folded every
+    /// exception into the not-running answer, and that is what made the defect dangerous.
+    ///
+    /// The two now agree, and the citation is here so the next reader can check that rather than take it.
+    /// Worth remembering as a habit: in this repository the correct answer to a question is usually
+    /// already written somewhere and simply not reached, so the question to ask is not "what is missing"
+    /// but "where else does this repository already answer exactly this".
+    /// </summary>
+    private static (Process? Process, string? Uninspectable) TryGetLiveProcess(int pid)
     {
         try
         {
@@ -511,18 +740,18 @@ public sealed class DirectorInstanceLocator
             if (process.HasExited)
             {
                 process.Dispose();
-                return null;
+                return (null, null);      // it ran and is gone: a fact
             }
-            return process;
+            return (process, null);
         }
         catch (ArgumentException)
         {
-            return null; // no such process
+            return (null, null);          // no such process: also a fact
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorInstanceLocator] cannot inspect pid={pid}: {ex.Message}");
-            return null;
+            return (null, $"pid={pid} could not be inspected ({ex.Message}), so whether it is a live "
+                          + "Director is unknown - it is NOT being treated as absent");
         }
     }
 }

@@ -171,7 +171,7 @@ internal sealed class FakeWorkspaceSink : IDrainWorkspaceSink
         Captured.Name = request.Name;
         Captured.DirectorId = request.DirectorId;
         Captured.Origin = WorkspaceOrigins.Captured;
-        Captured.Outcome = WorkspaceOutcomes.Draining;
+        Captured.DirectorOutcome = null;
         Captured.Reason = request.Reason;
         return Task.FromResult(Captured);
     }

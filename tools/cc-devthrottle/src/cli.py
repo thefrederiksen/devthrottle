@@ -325,6 +325,48 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "machine-restart-capability",
+        "description": (
+            "Ask whether one computer can complete a Director restart, BEFORE draining it. Changes "
+            "nothing: no command is sent, no connection opened and no signal raised. It answers with a "
+            "verdict and the reason - and separately with whether that machine's launcher would refuse a "
+            "restart while sessions are still live, which is not the same question. A drain that cannot "
+            "end in a restart is a fleet-wide close with paperwork, so ask first."
+        ),
+        "command": "cc-devthrottle machine restart-capability <machine>",
+        "mutatesState": False,
+        "args": [
+            {"name": "machine", "required": True},
+        ],
+    },
+    {
+        "id": "machine-restart-request",
+        "description": (
+            "ASK for a Director restart on one computer, in your own words. This restarts nothing: it "
+            "creates a request the owner accepts once, after the Gateway has checked that the machine "
+            "can actually be restarted (refused on the spot otherwise, naming why). While one request "
+            "is pending for a machine a second is refused, and a request nobody accepts expires after "
+            "thirty minutes. After the accept the Director drains itself, restarts and restores alone."
+        ),
+        "command": "cc-devthrottle machine restart-request <machine> --reason \"<why>\" [--director <id>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "machine", "required": True},
+            {"name": "reason", "required": True},
+            {"name": "director", "required": False},
+        ],
+    },
+    {
+        "id": "machine-restart-request-status",
+        "description": "Where one restart request stands, with the owner's or the Director's reason.",
+        "command": "cc-devthrottle machine restart-request-status <machine> <request-id>",
+        "mutatesState": False,
+        "args": [
+            {"name": "machine", "required": True},
+            {"name": "request-id", "required": True},
+        ],
+    },
+    {
         "id": "machine-launch",
         "description": (
             "Start an application on another computer, by catalogue name (--app) or by absolute path "
@@ -979,6 +1021,50 @@ def machine_files(
     from .machine_ops import search_files
 
     search_files(machine, query, count, seconds, json_output)
+
+
+@machine_app.command("restart-capability")
+def machine_restart_capability(
+    machine: str = typer.Argument(..., help="The computer to ask about."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Can this computer complete a Director restart? Ask this BEFORE draining it.
+
+    Changes nothing: no command is sent, no connection opened and no signal raised. A drain that
+    cannot end in a restart is a fleet-wide close with paperwork, so the machine says so first.
+    """
+    from .machine_ops import restart_capability
+
+    restart_capability(machine, json_output)
+
+
+@machine_app.command("restart-request")
+def machine_restart_request(
+    machine: str = typer.Argument(..., help="The computer whose Director should be restarted."),
+    reason: str = typer.Option(..., "--reason", "-r", help="Why, in your own words. The owner decides on this sentence."),
+    director: Optional[str] = typer.Option(None, "--director", help="Which Director on that computer, when it runs several."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+
+    A request, not a restart: it creates a pending record, refused on the spot when the machine cannot
+    be restarted or another request is already pending. The direct restart stays refused to a session.
+    """
+    from .machine_ops import restart_request
+
+    restart_request(machine, reason, director, json_output)
+
+
+@machine_app.command("restart-request-status")
+def machine_restart_request_status(
+    machine: str = typer.Argument(..., help="The computer the request was for."),
+    request_id: str = typer.Argument(..., help="The request id the ask printed."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+) -> None:
+    """Where one restart request stands."""
+    from .machine_ops import restart_request_status
+
+    restart_request_status(machine, request_id, json_output)
 
 
 @machine_app.command("launch")

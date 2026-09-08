@@ -78,7 +78,12 @@ public static class WorkspaceCapture
             DrivenByDirectorId = request.DrivenByDirectorId,
             DrivenByNote = request.DrivenByNote,
             Reason = request.Reason,
-            Outcome = WorkspaceOutcomes.Draining,
+
+            // No director or seat outcome: nothing has happened to either yet. Leaving them null is what
+            // says "this run has not reached an answer", and it is the honest value rather than a
+            // placeholder that reads like one.
+            DirectorOutcome = null,
+            SeatOutcome = null,
             Seats = seats,
         };
     }

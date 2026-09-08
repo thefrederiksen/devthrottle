@@ -57,8 +57,12 @@ public sealed class ToolDetectionService
         var plugin = AgentPluginRegistry.Get(tool);
         var display = plugin.DisplayName;
         var configured = string.IsNullOrWhiteSpace(overridePath) ? GetConfiguredPath(tool, options) : overridePath.Trim();
+        // "Still the untouched default" - which is what makes probing the known candidates the right
+        // move rather than an override the user chose. This MUST compare against the same constant
+        // AgentOptions defaults to: when that default was an npm .cmd path and this comparison was
+        // rebuilt independently, the two could drift and the branch would silently stop firing.
         var preferKnownCandidate = tool == AgentKind.Pi
-            && string.Equals(configured, DefaultNpmCliPath("pi"), StringComparison.OrdinalIgnoreCase);
+            && string.Equals(configured, AgentOptions.DefaultPiPath, StringComparison.OrdinalIgnoreCase);
 
         if (preferKnownCandidate)
         {
@@ -223,12 +227,6 @@ public sealed class ToolDetectionService
         var resolved = ExecutableResolver.Resolve(configured);
         return string.Equals(storedPath, resolved, StringComparison.OrdinalIgnoreCase)
             || string.Equals(storedPath, configured, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string DefaultNpmCliPath(string binName)
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return string.IsNullOrWhiteSpace(appData) ? binName : Path.Combine(appData, "npm", binName + ".cmd");
     }
 
     private static async Task<(int ExitCode, string Output)> RunVersionCommandAsync(string resolvedPath, string arguments, CancellationToken ct)

@@ -20,10 +20,10 @@ namespace CcDirector.Gateway.Tests;
 ///     one.
 ///
 /// What is NOT proven here: a capture of a Director with LIVE SESSIONS on it. That needs a Director
-/// holding an open push stream, which this suite has no harness for; the capture route is exercised
-/// against a registered Director with no live sessions (the empty fleet a finished drain leaves), and the
-/// FOLD itself - every seat field, taken from the hand-written index of 2026-09-06 - is covered by
-/// WorkspaceCaptureTests over real session records.
+/// holding an open push stream, which this suite has no harness for. What IS proven is the refusal in
+/// front of it - a Director that is registered but not stream-connected is refused rather than captured
+/// as an empty fleet - and the FOLD itself, every seat field taken from the hand-written index of
+/// 2026-09-06, is covered by WorkspaceCaptureTests over real session records.
 /// </summary>
 public sealed class WorkspaceEndpointTests : IAsyncLifetime
 {
@@ -177,8 +177,12 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
     // ---- 3. THE REFUSALS REACH THE CALLER ------------------------------------------------------------
 
     [Fact]
-    public async Task A_seat_marked_for_restore_with_no_command_is_refused_with_the_reason()
+    public async Task An_authored_workspace_carrying_a_restore_decision_is_refused_with_the_reason()
     {
+        // A restore DECISION only belongs on a captured workspace, so this asserts the refusal an
+        // authored one gets for carrying one at all. The command rule itself is held over a real captured
+        // workspace in WorkspaceStoreTests, which can create one; this suite cannot, because a capture
+        // needs a Director on the push stream.
         var id = FreshId();
         var doc = Authored(id);
         doc.Seats[0].Restore = new WorkspaceSeatRestore
@@ -189,7 +193,7 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
 
         using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        Assert.Contains("command that brings it back", await put.Content.ReadAsStringAsync());
+        Assert.Contains("not the record of a run", await put.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -243,7 +247,118 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Capture_records_the_Director_it_folded_and_refuses_to_replace_it()
+    public async Task Capturing_a_Director_that_is_not_connected_is_refused_rather_than_recorded_as_empty()
+    {
+        // The registry knows a Director for a while after it stops talking, and the live roster comes
+        // from the push stream. Without this refusal the capture folds to ZERO seats and returns 201 -
+        // and "no sessions" is exactly what a finished drain looks like, so the record would say nothing
+        // was running on a machine nobody could reach.
+        var directorId = Guid.NewGuid().ToString();
+        using var register = await Authed(HttpMethod.Post, "directors/register", new DirectorRegistrationRequest
+        {
+            DirectorId = directorId,
+            TailnetEndpoint = "http://soren-north.tailnet:7879",
+            Pid = 9999,
+            MachineName = "SOREN_NORTH",
+            User = "tester",
+            Version = "2.0.5",
+            StartedAt = DateTime.UtcNow,
+        });
+        Assert.Equal(HttpStatusCode.Created, register.StatusCode);
+
+        var id = FreshId();
+        using var capture = await Authed(HttpMethod.Post, "/gateway/workspaces", new WorkspaceCaptureRequest
+        {
+            Id = id,
+            Name = "DevThrottle_1 restart",
+            DirectorId = directorId,
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, capture.StatusCode);
+        var body = await capture.Content.ReadAsStringAsync();
+
+        // A Director that registered over HTTP and never opened a push stream has no live record at all,
+        // which is its OWN answer and not "not connected" - the four states are separated precisely so a
+        // refusal says which one it is rather than picking the nearest word.
+        Assert.Contains("no live record", body);
+        Assert.Contains("EMPTY fleet", body);
+
+        // And nothing was stored, so a retry after reconnecting is not blocked by a phantom row.
+        using var get = await Authed(HttpMethod.Get, $"/gateway/workspaces/{id}");
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_PUT_cannot_mint_a_captured_workspace()
+    {
+        var id = FreshId();
+        var doc = Authored(id);
+        doc.Origin = WorkspaceOrigins.Captured;
+        doc.DirectorId = Guid.NewGuid().ToString();
+        doc.Machine = "A MACHINE THAT NEVER RAN THIS";
+
+        // The capture verb exists because these facts come firsthand from the Gateway. A write path that
+        // let a caller assemble them would make that reason worth nothing.
+        using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("POST /gateway/workspaces", await put.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_malformed_body_is_a_bad_request_and_not_a_server_error()
+    {
+        var id = FreshId();
+        var doc = Authored(id);
+        doc.Seats = null!;
+
+        // This used to reach the store as a NullReferenceException and come back as a bare 500, telling
+        // the caller nothing about what they had sent.
+        using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("seats", await put.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_authored_workspace_is_refused_when_it_claims_a_run()
+    {
+        // This test used to do the opposite: it built an AUTHORED workspace, wrote both outcome fields
+        // onto it and expected 200. It was encoding a document the product should never accept, and it
+        // went on passing until an independent reviewer read it against the rule it contradicts.
+        var id = FreshId();
+        var doc = Authored(id);
+        doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
+
+        using var put = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", doc);
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        Assert.Contains("not the record of a run", await put.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_create_only_PUT_refuses_rather_than_replacing_what_is_there()
+    {
+        var id = FreshId();
+        using var first = await Authed(HttpMethod.Put, $"/gateway/workspaces/{id}", Authored(id));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        // "If-None-Match: *" is the standard way to say "only if it does not exist". Without it the only
+        // way to avoid clobbering is list-check-write, which is three operations with two gaps.
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/gateway/workspaces/{id}")
+        {
+            Content = JsonContent.Create(Authored(id, "somebody else's fleet")),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        req.Headers.Add("If-None-Match", "*");
+        using var second = await _http.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, second.StatusCode);
+
+        using var get = await Authed(HttpMethod.Get, $"/gateway/workspaces/{id}");
+        var stored = await get.Content.ReadFromJsonAsync<WorkspaceDocument>();
+        Assert.Equal("Morning fleet", stored!.Name);
+    }
+
+    [Fact]
+    public async Task Registering_a_Director_is_not_enough_to_capture_it()
     {
         var directorId = Guid.NewGuid().ToString();
         using var register = await Authed(HttpMethod.Post, "directors/register", new DirectorRegistrationRequest
@@ -267,23 +382,15 @@ public sealed class WorkspaceEndpointTests : IAsyncLifetime
             DrivenBySessionId = "3807b006-185a-419a-9897-c885455117ae",
         };
 
+        // Registered is not connected, and only connected can be captured.
         using var capture = await Authed(HttpMethod.Post, "/gateway/workspaces", request);
-        Assert.Equal(HttpStatusCode.Created, capture.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, capture.StatusCode);
 
-        var doc = await capture.Content.ReadFromJsonAsync<WorkspaceDocument>();
-        Assert.NotNull(doc);
-        Assert.Equal(WorkspaceOrigins.Captured, doc!.Origin);
-        Assert.Equal(directorId, doc.DirectorId);
-        Assert.Equal("SOREN_NORTH", doc.Machine);
-        Assert.Equal("2.0.5", doc.DirectorVersionBefore);
-        Assert.Equal(WorkspaceOutcomes.Draining, doc.Outcome);
-        Assert.Equal("update to 2.0.6", doc.Reason);
-
-        // Capture creates and never replaces: overwriting would destroy a drain somebody is halfway
-        // through, silently.
-        using var again = await Authed(HttpMethod.Post, "/gateway/workspaces", request);
-        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
-        Assert.Contains("already exists", await again.Content.ReadAsStringAsync());
+        // WHAT THIS FILE THEREFORE DOES NOT COVER, said here rather than left to be assumed: a successful
+        // capture, and the create-only guarantee over the route. This suite cannot put a Director on the
+        // push stream. WorkspaceStoreTests.Create_refuses_to_replace_an_existing_workspace holds the
+        // create-only rule, and WorkspaceCaptureTests holds what the fold produces from real session
+        // records.
     }
 
     private sealed class WorkspaceListEnvelope

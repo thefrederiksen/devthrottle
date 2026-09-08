@@ -182,13 +182,57 @@ public sealed class DirectorCrashJournal
         try
         {
             if (!File.Exists(path)) return null;
-            return JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions);
+            var text = File.ReadAllText(path);
+
+            // THE SESSION LIST MUST BE POSITIVELY PRESENT IN THE DOCUMENT, and this check is the point of
+            // the method rather than defensive tidying.
+            //
+            // DirectorCrashJournalData.Sessions has an empty-list initializer, so deserializing a document
+            // that never mentioned sessions - "{}", a half-written file, or one written by a newer build
+            // that renamed the property - produces a NON-NULL roster whose Sessions.Count is ZERO. The
+            // caller then reads a confident "this Director holds no sessions" out of a document that said
+            // nothing at all, and a guard standing on that number permits a restart over a busy Director.
+            //
+            // That is the same fold this method's own summary warns about - "callers must treat null as
+            // unknown, never as no sessions" - defeated one layer BELOW it, at deserialization, where
+            // absent and explicitly-empty become the same in-memory value. The sentence was true and the
+            // layer beneath it made it false, which is why the check belongs here and not in the caller:
+            // no caller can tell the two apart once they have been folded.
+            //
+            // An EXPLICIT empty list is a real answer and still passes: "sessions": [] means the Director
+            // says it holds none.
+            using (var document = JsonDocument.Parse(text))
+            {
+                if (document.RootElement.ValueKind != JsonValueKind.Object
+                    || !CarriesASessionList(document.RootElement))
+                {
+                    FileLog.Write($"[DirectorCrashJournal] ReadLiveRoster: {path} carries no session list, so how "
+                                  + "busy this Director is is UNKNOWN. It is NOT being reported as zero sessions - "
+                                  + "a document that did not answer must never read as an answer of none.");
+                    return null;
+                }
+            }
+
+            return JsonSerializer.Deserialize<DirectorCrashJournalData>(text, JsonOptions);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorCrashJournal] ReadLiveRoster: cannot read {path}: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Is a session list actually present in this document? Matched case-insensitively, because the
+    /// serializer that reads the document is case-insensitive too - a check stricter than the parser it
+    /// guards would refuse documents the product itself writes.
+    /// </summary>
+    private static bool CarriesASessionList(JsonElement root)
+    {
+        foreach (var property in root.EnumerateObject())
+            if (string.Equals(property.Name, "sessions", StringComparison.OrdinalIgnoreCase))
+                return property.Value.ValueKind == JsonValueKind.Array;
+        return false;
     }
 
     /// <summary>

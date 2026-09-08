@@ -348,7 +348,7 @@ public class DirectorDrainTests
         // holds open behind it.
         Assert.Empty(sessions.Flagged);
         Assert.Equal(2, sessions.Live.Count);
-        Assert.Equal(WorkspaceOutcomes.Blocked, result.Document.Outcome);
+        Assert.Equal(WorkspaceDirectorOutcomes.NotRestarted, result.Document.DirectorOutcome);
         Assert.False(result.ReadyToRestart);
         Assert.Contains("half-pushed tag", result.NotReadyReason!);
     }
@@ -504,8 +504,8 @@ public class DirectorDrainTests
         await NewDrain(sessions, sink).RunAsync(Options(), dir.Path);
 
         Assert.True(sink.Saves.Count >= 3);
-        Assert.Equal(WorkspaceOutcomes.Draining, sink.Saves[0].Outcome);
-        Assert.Equal(WorkspaceOutcomes.Drained, sink.Last.Outcome);
+        Assert.Null(sink.Saves[0].DirectorOutcome);
+        Assert.Equal(WorkspaceDirectorOutcomes.NotRestarted, sink.Last.DirectorOutcome);
     }
 
     [Fact]
@@ -1267,7 +1267,7 @@ public class DirectorDrainTests
 
         // AND THE REFUSAL IS IN THE RECORD. The capture is already on the Gateway by this point; a refusal
         // that only threw would leave a workspace reading "draining" for ever with nothing saying why.
-        Assert.Equal(WorkspaceOutcomes.Blocked, sink.Last.Outcome);
+        Assert.Equal(WorkspaceDirectorOutcomes.NotRestarted, sink.Last.DirectorOutcome);
         Assert.Contains(sink.Last.Integrity!.Problems, p => p.Contains("refused to start"));
         Assert.False(sink.Last.Integrity.ReadyToRestart);
     }

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 
@@ -13,6 +14,7 @@ public sealed record PythonToolsResult(
 /// Consumes the two release assets built by scripts/build-python-bundle.(ps1|sh):
 ///   Windows: cc-python-win-x64.zip + cc-tools-pyenv-win-x64.zip
 ///   macOS:   cc-python-macos-arm64.tar.gz + cc-tools-pyenv-macos-arm64.tar.gz
+///   Linux:   cc-python-linux-x64.tar.gz + cc-tools-pyenv-linux-x64.tar.gz
 /// Each carries a relocatable CPython and a de-duped wheelhouse + requirements.lock + tools-manifest.json.
 ///
 /// Flow: download + SHA-verify both assets, read the tools bundle, and ONLY when a rebuild is actually
@@ -29,13 +31,41 @@ public sealed record PythonToolsResult(
 /// </summary>
 public sealed class PythonToolsInstaller
 {
+    /// <summary>
+    /// The bundled-CPython asset name for a given platform. The platform is a PARAMETER rather than
+    /// read from the environment, following <see cref="Component.AssetFor"/>, so every branch can be
+    /// asserted from any development machine. A property that reads the environment can only ever be
+    /// tested for the one platform the test run happens to be on, which is how the Linux branch below
+    /// came to be missing without a single test going red.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">
+    /// The platform has no Python tools bundle. Deliberately a throw and not a default: returning
+    /// somebody else's asset is what the two-way branch used to do, and it produced a Linux Director
+    /// that downloaded the macOS arm64 CPython, staged a Mach-O binary, failed to import its own
+    /// standard library, and reported a corrupt-download reason for a wrong-platform cause.
+    /// </exception>
+    public static string PythonAssetFor(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "cc-python-win-x64.zip"
+        : platform == OSPlatform.OSX ? "cc-python-macos-arm64.tar.gz"
+        : platform == OSPlatform.Linux ? "cc-python-linux-x64.tar.gz"
+        : throw new PlatformNotSupportedException($"There is no Python tools bundle for {platform}.");
+
+    /// <summary>
+    /// The tools wheelhouse asset name for a given platform. See <see cref="PythonAssetFor"/> for why
+    /// the platform is a parameter and why an unknown one throws.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">The platform has no Python tools bundle.</exception>
+    public static string ToolsAssetFor(OSPlatform platform) =>
+        platform == OSPlatform.Windows ? "cc-tools-pyenv-win-x64.zip"
+        : platform == OSPlatform.OSX ? "cc-tools-pyenv-macos-arm64.tar.gz"
+        : platform == OSPlatform.Linux ? "cc-tools-pyenv-linux-x64.tar.gz"
+        : throw new PlatformNotSupportedException($"There is no Python tools bundle for {platform}.");
+
     /// <summary>The bundled-CPython asset for the current OS.</summary>
-    public static string PythonAsset =>
-        OperatingSystem.IsWindows() ? "cc-python-win-x64.zip" : "cc-python-macos-arm64.tar.gz";
+    public static string PythonAsset => PythonAssetFor(HostPlatform.Current);
 
     /// <summary>The tools wheelhouse asset for the current OS.</summary>
-    public static string ToolsAsset =>
-        OperatingSystem.IsWindows() ? "cc-tools-pyenv-win-x64.zip" : "cc-tools-pyenv-macos-arm64.tar.gz";
+    public static string ToolsAsset => ToolsAssetFor(HostPlatform.Current);
 
     /// <summary>The component id the bundle's version is tracked under in installed.json.</summary>
     public const string ComponentId = "python-tools";

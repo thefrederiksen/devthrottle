@@ -12,6 +12,14 @@
   <ItemGroup>
     <!-- Expose internals (e.g. ProcessRunner) to the engine test project for direct unit testing. -->
     <InternalsVisibleTo Include="CcDirector.Setup.Engine.Tests" />
+    <!--
+      BothUpdateOwnersTakeTheSameLockTests lives in the launcher's test project, because that is the
+      only project that can see the Director's launcher-update owner AND the launcher's Director-update
+      owner at once, and what it asserts is that the two default to the SAME machine-wide lock. The
+      lock-name override those owners expose is internal so no production caller can select a different
+      one; this is how the guard still reads it.
+    -->
+    <InternalsVisibleTo Include="CcDirector.Launcher.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -224,6 +224,70 @@ def search_files(machine: str, query: str, limit: int, timeout_seconds: int, jso
         console.print(f"[yellow]{unreadable} directories could not be read and were not searched.[/yellow]")
 
 
+def restart_capability(machine: str, json_output: bool) -> None:
+    """Can this computer complete a Director restart? Ask BEFORE draining it, not after.
+
+    This changes nothing on the machine. It sends no command, opens no connection and raises no
+    signal - which matters, because the only other way to find out whether a launcher is listening
+    for the restart signal is to RAISE that signal, and raising it restarts a Director as a side
+    effect of the question.
+
+    Why it exists: on 2026-09-06 a Director was drained of seventeen sessions and only then did it
+    turn out that no route could restart it. The launcher was two days older than the code that lets
+    a launcher be told anything, and it was running, registered and heartbeating the whole time.
+    Every liveness check on that machine said yes.
+
+    The Gateway computes the verdict and writes both sentences; this command renders them and does
+    not re-derive anything. A verdict this printed itself is the one an agent acts on.
+    """
+    payload: Dict[str, Any] = _call(f"machines/{machine}/restart-capability") or {}
+
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+
+    verdict = str(gateway.field(payload, "verdict", "Verdict") or "Unknown")
+    reason = str(gateway.field(payload, "reason", "Reason") or "")
+    guard = str(gateway.field(payload, "guardedRestart", "GuardedRestart") or "Unknown")
+    guard_reason = str(gateway.field(payload, "guardedRestartReason", "GuardedRestartReason") or "")
+
+    # ASCII only, and no colour carrying meaning on its own: this output is read in terminals, piped
+    # into logs, and quoted into reports. The word is the answer; the colour only decorates it.
+    headline = {
+        "CanRestart": ("[green]", "CAN RESTART"),
+        "CannotRestart": ("[red]", "CANNOT RESTART"),
+    }.get(verdict, ("[yellow]", "UNKNOWN"))
+    console.print(f"{headline[0]}{headline[1]}[/] {machine}")
+    console.print(f"  {reason}")
+    console.print("")
+
+    table = Table(show_header=True, header_style="bold", box=box.ASCII)
+    for column in ("FACT", "VALUE"):
+        table.add_column(column)
+    table.add_row("launcher version", str(gateway.field(payload, "launcherVersion", "LauncherVersion") or "-"))
+    table.add_row("reach", str(gateway.field(payload, "reach", "Reach") or "-"))
+    table.add_row("declaration", str(gateway.field(payload, "declaration", "Declaration") or "-"))
+    table.add_row("restart signal", str(gateway.field(payload, "restartSignal", "RestartSignal") or "-"))
+    root_key = gateway.field(payload, "servingRootKey", "ServingRootKey")
+    table.add_row("serving root key", str(root_key or "(not declared)"))
+    instance_home = gateway.field(payload, "servingRootIsInstanceHome", "ServingRootIsInstanceHome")
+    table.add_row(
+        "serving an instance home",
+        "(not declared)" if instance_home is None else ("YES - this is the fault" if instance_home else "no"),
+    )
+    declared: List[str] = gateway.field(payload, "declaredCommands", "DeclaredCommands") or []
+    table.add_row("declares", ", ".join(str(d) for d in declared) if declared else "(nothing)")
+    table.add_row("seconds since heartbeat", str(gateway.field(payload, "quietForSeconds", "QuietForSeconds") or 0))
+    console.print(table)
+
+    # The guarded restart is printed as its own line and never folded into the verdict above. A
+    # machine can be perfectly restartable and offer no guard - which is what every launcher built
+    # before the guard existed looks like - so one sentence cannot carry both answers.
+    console.print("")
+    console.print(f"Guarded restart (refuse while sessions are live): {guard}")
+    console.print(f"  {guard_reason}")
+
+
 def launch(machine: str, app: Optional[str], path: Optional[str], args: Optional[str],
            cwd: Optional[str], headless: bool, json_output: bool) -> None:
     """Start an application on one machine, by catalogue name or by absolute path."""
@@ -248,3 +312,59 @@ def launch(machine: str, app: Optional[str], path: Optional[str], args: Optional
         _fail(str(payload["error"]))
 
     console.print(f"Started {app or path} on {machine}.")
+
+
+def restart_request(machine: str, reason: str, director_id: Optional[str], json_output: bool) -> None:
+    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+
+    This is a REQUEST and nothing more: it restarts nothing and grants nothing. The Gateway first asks
+    the same capability question `machine restart-capability` asks and refuses on the spot, in that
+    answer's own words, when the machine cannot be restarted - so the owner is never shown an approval
+    for a restart that cannot work. It is also refused while another request for that machine is
+    pending, and a request nobody accepts expires after thirty minutes.
+
+    The direct restart route stays refused to a session key. Asking is not doing.
+    """
+    body: Dict[str, Any] = {"reason": reason}
+    if director_id:
+        body["directorId"] = director_id
+    try:
+        payload = gateway.post_json(f"machines/{machine}/director/restart-requests", body)
+    except gateway.GatewayError as err:
+        _fail(str(err))
+    if isinstance(payload, dict) and payload.get("code") and payload.get("error"):
+        _fail(str(payload["error"]))
+
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+
+    request_id = str(gateway.field(payload, "id", "Id") or "-")
+    console.print(f"[green]REQUESTED[/] {machine} - request {request_id}")
+    console.print(f"  {gateway.field(payload, 'title', 'Title')}")
+    console.print(f"  {gateway.field(payload, 'askedBySentence', 'AskedBySentence')}")
+    console.print(f"  {gateway.field(payload, 'liveSessionsSentence', 'LiveSessionsSentence')}")
+    capability = payload.get("capability") if isinstance(payload, dict) else None
+    if isinstance(capability, dict):
+        console.print(f"  {gateway.field(capability, 'reason', 'Reason')}")
+        console.print(f"  {gateway.field(capability, 'guardedRestartReason', 'GuardedRestartReason')}")
+    console.print(f"  Expires at {gateway.field(payload, 'expiresAtUtc', 'ExpiresAtUtc')} UTC unless the owner accepts.")
+    console.print(f"  Read it back with: cc-devthrottle machine restart-request-status {machine} {request_id}")
+
+
+def restart_request_status(machine: str, request_id: str, json_output: bool) -> None:
+    """Where one restart request stands: pending, accepted and running, declined, expired, abandoned
+    with the Director's reason, or completed."""
+    payload: Dict[str, Any] = _call(f"machines/{machine}/director/restart-requests/{request_id}") or {}
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+    state = str(gateway.field(payload, "state", "State") or "-")
+    console.print(f"{state.upper()} {machine} - request {request_id}")
+    for key in ("title", "askedBySentence", "liveSessionsSentence", "stateReason", "progress"):
+        value = gateway.field(payload, key)
+        if value:
+            console.print(f"  {value}")
+    workspace = gateway.field(payload, "workspaceId", "WorkspaceId")
+    if workspace:
+        console.print(f"  Record: workspace {workspace}")

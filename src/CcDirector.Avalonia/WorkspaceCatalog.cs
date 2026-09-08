@@ -26,7 +26,21 @@ public interface IWorkspaceCatalog
     /// <param name="ct">Cancellation.</param>
     Task<WorkspaceDocument?> GetAsync(string id, CancellationToken ct = default);
 
-    /// <summary>Create or replace a workspace.</summary>
+    /// <summary>
+    /// Create a workspace, refusing if that id is already taken.
+    ///
+    /// THIS IS THE DEFAULT WAY THE DESKTOP WRITES ONE, and <see cref="SaveAsync"/> is the deliberate
+    /// overwrite. The surface used to offer only create-or-replace, which meant every caller that did
+    /// not want to clobber anybody had to list, check, and then write - and a workspace created between
+    /// the check and the write was destroyed by a caller that had honestly checked. A create-only route
+    /// existed on the Gateway and no desktop call could reach it, so the race was closed on paper.
+    /// </summary>
+    /// <param name="doc">The workspace to create.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <exception cref="CcDirector.ControlApi.WorkspaceAlreadyExistsException">The id is taken.</exception>
+    Task<WorkspaceDocument> CreateAsync(WorkspaceDocument doc, CancellationToken ct = default);
+
+    /// <summary>Create or REPLACE a workspace. Only for a caller that has decided to overwrite.</summary>
     /// <param name="doc">The workspace to store.</param>
     /// <param name="ct">Cancellation.</param>
     Task<WorkspaceDocument> SaveAsync(WorkspaceDocument doc, CancellationToken ct = default);
@@ -62,6 +76,10 @@ public sealed class GatewayWorkspaceCatalog : IWorkspaceCatalog
     /// <inheritdoc />
     public Task<WorkspaceDocument?> GetAsync(string id, CancellationToken ct = default)
         => Require(_host?.GetWorkspaceAsync(id, ct));
+
+    /// <inheritdoc />
+    public Task<WorkspaceDocument> CreateAsync(WorkspaceDocument doc, CancellationToken ct = default)
+        => Require(_host?.CreateWorkspaceAsync(doc, ct));
 
     /// <inheritdoc />
     public Task<WorkspaceDocument> SaveAsync(WorkspaceDocument doc, CancellationToken ct = default)

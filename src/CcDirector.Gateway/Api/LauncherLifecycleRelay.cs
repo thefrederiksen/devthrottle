@@ -97,19 +97,153 @@ internal static class LauncherLifecycleRelay
     /// <paramref name="machine"/>. The slot guard is NOT applied here: it reads the caller's request body and
     /// so belongs to the HTTP route, which runs it before calling this.
     /// </summary>
-    public static Task<LauncherRelayOutcome> SendDirectorVerbAsync(
+    /// <param name="onlyIfEmpty">
+    /// Restart ONLY while the Director is holding no live sessions, and take the launcher's refusal - which
+    /// names the count - when it is holding some. Meaningful to "restart" alone; the HTTP route refuses to
+    /// send it with any other verb rather than letting a caller believe a stop was guarded.
+    /// </param>
+    public static async Task<LauncherRelayOutcome> SendDirectorVerbAsync(
         TenantId tenant, string machine, string verb, string? exePath, bool confirmProtected,
         LauncherRegistry launchers, LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
-        CancellationToken ct)
-        => SendAsync(
+        CancellationToken ct, bool onlyIfEmpty = false)
+    {
+        var outcome = await SendAsync(
             tenant, machine,
             new LauncherCommand
             {
                 Verb = $"director/{verb}",
                 Path = exePath,
                 ConfirmProtected = confirmProtected,
+                OnlyIfEmpty = onlyIfEmpty,
             },
-            isQuery: false, launchers, sendLauncherCommand, ct);
+            // Only a GUARDED restart has anything of its own to say; every other lifecycle verb's news is
+            // whether it worked, and its answer stays the envelope every existing caller reads.
+            passLauncherPayloadThrough: onlyIfEmpty,
+            launchers, sendLauncherCommand, ct);
+
+        return onlyIfEmpty ? RequireTheGuardWasHonoured(machine, outcome) : outcome;
+    }
+
+    /// <summary>
+    /// A SUCCESS TO A GUARDED RESTART IS ONLY BELIEVED WHEN THE LAUNCHER SAYS IT GUARDED IT.
+    ///
+    /// This is the fail-open the whole feature would otherwise have. A launcher built before
+    /// <see cref="LauncherCommand.OnlyIfEmpty"/> existed deserialises the command, cannot see a field it
+    /// has never heard of, restarts a Director holding live sessions, and answers a perfectly ordinary
+    /// OK. Nothing about that answer is distinguishable from a launcher that read the count and found
+    /// zero - unless the honouring launcher SAYS SO, which it does, in the payload it writes.
+    ///
+    /// So an unacknowledged success becomes a loud failure naming the real cause and the real risk. It is
+    /// 502 rather than a refusal because nothing was refused: the command was carried out, by a launcher
+    /// that could not honour the condition attached to it, and the caller has to know that the Director
+    /// may have been restarted mid-drain. Telling them "done" would be a lie that costs sessions.
+    ///
+    /// THIS IS DETECTION, NOT PREVENTION, AND THE DIFFERENCE MATTERS. By the time the answer comes back
+    /// the old launcher has already restarted the Director; what this saves is every attempt after the
+    /// first, and the caller's belief that the first one was safe. Preventing it needs the launcher to
+    /// declare what it can honour when it joins the stream, so the Gateway can refuse BEFORE dispatch -
+    /// which is the capability work this epic has a separate phase for, and is deliberately not invented
+    /// here in a second, competing shape.
+    /// </summary>
+    private static LauncherRelayOutcome RequireTheGuardWasHonoured(string machine, LauncherRelayOutcome outcome)
+    {
+        if (outcome.Kind != RelayOutcomeKind.Relayed || outcome.RelayStatus is < 200 or >= 300)
+            return outcome; // not a success - it already says what happened
+
+        if (AcknowledgesTheGuard(outcome.Payload))
+            return outcome;
+
+        FileLog.Write($"[LauncherLifecycleRelay] director/restart on {machine}: a restart was asked to happen "
+                      + "ONLY IF the Director was empty, and the launcher answered success WITHOUT saying it "
+                      + "honoured that. Reported as a failure: the launcher is older than the condition.");
+        return outcome with
+        {
+            RelayStatus = 502,
+            Payload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                error = $"the launcher on '{machine}' accepted a restart that was to happen only if the "
+                      + "Director was empty, and answered success without confirming it applied that "
+                      + "condition. A launcher older than the condition ignores it silently, so this "
+                      + "restart may have taken live sessions with it. Update the launcher on that machine "
+                      + "before relying on a guarded restart there.",
+                machine,
+                verb = "restart",
+                reason = "launcher-did-not-honour-only-if-empty",
+                via = "stream",
+            }),
+        };
+    }
+
+    /// <summary>
+    /// Whether a launcher's answer states, in full, that it applied the only-if-empty condition: it read
+    /// the count, the count was ZERO, and it restarted the Director on that basis.
+    ///
+    /// ALL THREE ARE REQUIRED, and an earlier version of this check asked only for the first. A payload
+    /// saying <c>{"onlyIfEmpty":true,"sessions":3}</c> or <c>{"onlyIfEmpty":true,"restarted":false}</c>
+    /// would have passed it - answers that contradict themselves, and exactly the shape a half-finished
+    /// implementation on the other side produces. An acknowledgement that only echoes the flag back
+    /// acknowledges nothing.
+    ///
+    /// EXTRA FIELDS ARE FINE, so a newer launcher that adds to its answer still passes. A launcher that
+    /// RENAMES these fields fails closed, which is the right way round: this check exists to catch a
+    /// launcher whose answer we do not understand.
+    /// </summary>
+    private static bool AcknowledgesTheGuard(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(payload);
+            var root = doc.RootElement;
+            return root.ValueKind == System.Text.Json.JsonValueKind.Object
+                   && StatedOnce(root, "onlyIfEmpty", out var applied)
+                   && applied.ValueKind == System.Text.Json.JsonValueKind.True
+                   && StatedOnce(root, "restarted", out var restarted)
+                   && restarted.ValueKind == System.Text.Json.JsonValueKind.True
+                   && StatedOnce(root, "sessions", out var sessions)
+                   && sessions.ValueKind == System.Text.Json.JsonValueKind.Number
+                   && sessions.TryGetInt32(out var count)
+                   && count == 0;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Read a field that the answer must state EXACTLY ONCE. False when it is absent, and false when it
+    /// is stated more than once.
+    ///
+    /// A DOCUMENT MAY SAY A THING TWICE, AND THEN IT HAS NOT SAID IT. TryGetProperty quietly returns the
+    /// LAST occurrence, so <c>{"onlyIfEmpty":false,"onlyIfEmpty":true,...}</c> - an answer that says both
+    /// that the condition was applied and that it was not - was being read as the permissive one and
+    /// accepted as proof the guard ran. That is the same shape as every other defect this change has
+    /// fixed: a state nobody can make sense of resolving to the agreeable reading.
+    ///
+    /// The REQUEST side of this feature already refuses a doubly-spelled flag, for exactly this reason.
+    /// This is that rule carried to the REPLY, which is where it was missing - fixing one side of a rule
+    /// and leaving the other is how a defect moves rather than closes.
+    /// </summary>
+    private static bool StatedOnce(System.Text.Json.JsonElement root, string name,
+        out System.Text.Json.JsonElement value)
+    {
+        value = default;
+        var found = false;
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!property.NameEquals(name)) continue;
+            if (found)
+            {
+                FileLog.Write($"[LauncherLifecycleRelay] a launcher's acknowledgement states '{name}' more "
+                              + "than once, so what it claims cannot be established. Not accepted.");
+                return false;
+            }
+            value = property.Value;
+            found = true;
+        }
+        return found;
+    }
 
     /// <summary>
     /// Run a generic launch on the CALLING TENANT's launcher for <paramref name="machine"/>.
@@ -129,16 +263,20 @@ internal static class LauncherLifecycleRelay
                 Cwd = body?.Cwd,
                 Headless = body?.Headless ?? false,
             },
-            isQuery: false, launchers, sendLauncherCommand, ct);
+            passLauncherPayloadThrough: false,
+            launchers, sendLauncherCommand, ct);
 
     /// <summary>
     /// Run a QUERY verb - "apps" or "files" - on the CALLING TENANT's launcher for <paramref name="machine"/>
     /// and return the launcher's answer.
     ///
-    /// It differs from the action verbs in the only way a question differs from an instruction: the
-    /// launcher's answer is carried back to the caller rather than reduced to whether it worked. Everything
-    /// else - tenant scoping, the failure outcomes - is the shared path, because a query that could reach a
-    /// machine the action verbs could not would be a second, weaker boundary.
+    /// It differs from the action verbs in the only way a question differs from an instruction: a query
+    /// ALWAYS has an answer to carry, and the HTTP route serves that document as the response body rather
+    /// than wrapping it in a relay envelope. (An action verb's payload is carried too, whenever the
+    /// launcher writes one - a guarded restart does - but it travels inside the envelope, because the news
+    /// there really is whether the machine did the thing.) Everything else - tenant scoping, the failure
+    /// outcomes - is the shared path, because a query that could reach a machine the action verbs could not
+    /// would be a second, weaker boundary.
     /// </summary>
     public static Task<LauncherRelayOutcome> SendQueryAsync(
         TenantId tenant, string machine, string verb, string? query, int limit, int timeoutMilliseconds,
@@ -153,7 +291,8 @@ internal static class LauncherLifecycleRelay
                 Limit = limit,
                 TimeoutMilliseconds = timeoutMilliseconds,
             },
-            isQuery: true, launchers, sendLauncherCommand, ct);
+            passLauncherPayloadThrough: true,
+            launchers, sendLauncherCommand, ct);
 
     /// <summary>
     /// The single-arm dispatch: push the command down the calling tenant's launcher stream. A null from the
@@ -162,7 +301,7 @@ internal static class LauncherLifecycleRelay
     /// "registered but not connected". Nothing is dialed in either case.
     /// </summary>
     private static async Task<LauncherRelayOutcome> SendAsync(
-        TenantId tenant, string machine, LauncherCommand streamCommand, bool isQuery,
+        TenantId tenant, string machine, LauncherCommand streamCommand, bool passLauncherPayloadThrough,
         LauncherRegistry launchers, LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
         CancellationToken ct)
     {
@@ -173,12 +312,24 @@ internal static class LauncherLifecycleRelay
             {
                 LauncherCommandStatus.Ok => 200,
                 LauncherCommandStatus.BadRequest => 400,
+                // A REFUSAL IS 409, NOT 502. The launcher understood the command, could have run it, and
+                // declined because a condition the caller attached was not met - "restart only if empty"
+                // against a Director holding live sessions. 502 would say the machine is broken and send
+                // the reader to look for a fault that is not there; 409 says the machine is in a state
+                // that conflicts with the request, which is exactly what happened, and the launcher's own
+                // sentence (carrying the session count) rides back in the body.
+                LauncherCommandStatus.Refused => 409,
                 _ => 502,
             };
-            // A QUERY answers with data, so its payload is passed through exactly as the launcher wrote it.
-            // Synthesising {ok:true} here - which is right for an action verb, whose only news is that it
-            // worked - would throw away the entire answer and hand the caller a success with no result in it.
-            var streamPayload = isQuery && streamResult.IsOk && streamResult.Payload is not null
+            // WHOSE ANSWER THE CALLER GETS IS DECIDED BY THE CALLER'S QUESTION, NOT BY WHAT CAME BACK.
+            // A query asked for data, so the launcher's own document is passed through - synthesising
+            // {ok:true} over it would hand back a success with the whole result thrown away. A guarded
+            // restart asked a CONDITIONAL question, so its answer travels too: it carries the condition
+            // the launcher honoured and the count it read, which is the only way to tell it from an older
+            // launcher that ignored the flag. Every other verb keeps the envelope it has always had,
+            // byte for byte, even if some future launcher starts writing a payload for it - a response
+            // shape that changes because the other side got chattier is a change nobody asked for.
+            var streamPayload = passLauncherPayloadThrough && streamResult.IsOk && streamResult.Payload is not null
                 ? streamResult.Payload
                 : streamResult.IsOk
                 ? System.Text.Json.JsonSerializer.Serialize(new { ok = true, via = "stream" })
@@ -190,32 +341,48 @@ internal static class LauncherLifecycleRelay
         // Undeliverable. Decide WHICH refusal, in the CALLER'S partition - a machine name alone reaches
         // nothing here either. THREE distinct answers, because they have three different fixes and a
         // refusal that cannot say which one it is sends the reader to check the wrong thing.
+        //
+        // THE RULE ITSELF LIVES IN LauncherReachability AND IS NOT SPELT OUT AGAIN HERE. It used to be
+        // written inline right at this spot, which was fine while a refusal was the only place anybody
+        // asked - and stopped being fine the moment the capability query had to ask the SAME question
+        // BEFORE sending anything. Two spellings of one rule agree until the day one of them is edited,
+        // and then the query that exists to be trusted is the one that is wrong.
         var registered = launchers.Get(tenant, machine);
-        if (registered is null)
-        {
-            FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: no launcher registered for tenant={tenant.Value}, machine={machine}");
-            return new LauncherRelayOutcome(RelayOutcomeKind.NoLauncher);
-        }
+        var reach = LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
+        var quietForSeconds = LauncherReachability.QuietForSeconds(registered, DateTime.UtcNow);
 
-        // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO this
-        // Gateway and this Gateway cannot talk to it, which is what a launcher predating the stream looks
-        // like. Reported as what was observed - fresh heartbeat, no stream, this version - so the reader
-        // can check the inference rather than take it.
-        var quietFor = DateTime.UtcNow - registered.LastSeenAt;
-        if (quietFor < LauncherRegistry.HeartbeatTimeout)
+        switch (reach)
         {
-            FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
-                          + $"({quietFor.TotalSeconds:F0}s ago, version '{registered.Version}') but holds NO command "
-                          + $"stream for tenant={tenant.Value}, machine={machine} - refused. A launcher that reaches "
-                          + "this Gateway but opens no stream is too old to accept stream commands; update it.");
-            return new LauncherRelayOutcome(RelayOutcomeKind.NotStreamCapable, LauncherVersion: registered.Version,
-                QuietForSeconds: (int)quietFor.TotalSeconds);
-        }
+            case LauncherReach.NoLauncher:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: no launcher registered for tenant={tenant.Value}, machine={machine}");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NoLauncher);
 
-        FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "
-                      + $"{quietFor.TotalSeconds:F0}s and NOT stream-connected for tenant={tenant.Value}, "
-                      + $"machine={machine} - refused (the stream is the only path)");
-        return new LauncherRelayOutcome(RelayOutcomeKind.NotConnected, LauncherVersion: registered.Version,
-            QuietForSeconds: (int)quietFor.TotalSeconds);
+            // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO
+            // this Gateway and this Gateway cannot talk to it, which is what a launcher predating the
+            // stream looks like. Reported as what was observed - fresh heartbeat, no stream, this version
+            // - so the reader can check the inference rather than take it.
+            case LauncherReach.NotStreamCapable:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
+                              + $"({quietForSeconds}s ago, version '{registered!.Version}') but holds NO command "
+                              + $"stream for tenant={tenant.Value}, machine={machine} - refused. A launcher that reaches "
+                              + "this Gateway but opens no stream is too old to accept stream commands; update it.");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NotStreamCapable, LauncherVersion: registered.Version,
+                    QuietForSeconds: quietForSeconds);
+
+            case LauncherReach.NotConnected:
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "
+                              + $"{quietForSeconds}s and NOT stream-connected for tenant={tenant.Value}, "
+                              + $"machine={machine} - refused (the stream is the only path)");
+                return new LauncherRelayOutcome(RelayOutcomeKind.NotConnected, LauncherVersion: registered!.Version,
+                    QuietForSeconds: quietForSeconds);
+
+            default:
+                // Unreachable by construction: streamConnected was passed false, so Classify cannot answer
+                // Connected. It is a throw rather than a fall-through to one of the refusals above,
+                // because picking one would invent a refusal for a state that means the opposite.
+                throw new InvalidOperationException(
+                    $"LauncherReachability.Classify answered {reach} for an undeliverable command on "
+                    + $"machine '{machine}'; a command that could not be delivered cannot be Connected.");
+        }
     }
 }

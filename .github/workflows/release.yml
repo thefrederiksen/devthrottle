@@ -476,6 +476,171 @@ jobs:
           path: src/CcDirector.Launcher/bin/Release/net10.0/osx-arm64/publish/cc-launcher
           if-no-files-found: error
 
+  # ---------------------------------------------------------------
+  # Job 1e: Build the main CC Director Avalonia app (Linux x64)
+  # ---------------------------------------------------------------
+  # SELF-CONTAINED, and that is a decision rather than a copy of the Windows job's wording: a
+  # clean Ubuntu desktop has no .NET at all, and the Director needs the ASP.NET CORE runtime
+  # rather than the base one because ControlApi hosts Kestrel. A framework-dependent download
+  # would dead-end on exactly the machine this job exists for. About 107 MB is the price.
+  #
+  # It ships as a bare executable, like the macOS launcher and setup CLI. Linux has no
+  # application bundle, no code signature and no quarantine flag, so there is nothing for a
+  # wrapper to carry and no signing step to add.
+  #
+  # Only linux-x64 is published. linux-arm64 compiles - Phase 0 of the Linux mission produced
+  # one - but nobody has ever executed it, so it is deliberately not offered as a download.
+  build-director-linux:
+    name: Build CC Director (Linux x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish for Linux x64
+        run: >
+          dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:UpdaterEnabled=true
+
+      # actions/upload-artifact does not carry the executable bit, so what comes back down in
+      # create-release is a plain file. That is already true of cc-launcher-mac-arm64 and
+      # devthrottle-setup-cli-mac-arm64; whatever places the binary chmods it (scripts/install-linux.sh
+      # does, and so does the setup engine). Do not read a non-executable release asset as a defect.
+      - name: Upload cc-director linux artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: cc-director-linux
+          path: src/CcDirector.Avalonia/bin/Release/net10.0/linux-x64/publish/cc-director
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1f: Build the Linux Python tools bundle (x64)
+  # ---------------------------------------------------------------
+  # The Linux analog of build-python-bundle-mac, running the SAME script: it switches on
+  # uname and emits cc-python-linux-x64.tar.gz + cc-tools-pyenv-linux-x64.tar.gz, core tools
+  # only (a tool ships when it has "ship": true in tools/registry.json).
+  #
+  # actions/setup-python is load-bearing here and not decoration. Step 4 of the script fills the
+  # wheelhouse with "python3 -m pip download", and stock Ubuntu ships python3 with no pip module
+  # at all - Debian and Ubuntu package it separately. The runner's own python3 would fail the
+  # script's up-front pip check; setup-python supplies one that has pip.
+  build-python-bundle-linux:
+    name: Build Python Tools Bundle (Linux x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build the Linux Python tools bundle
+        run: bash scripts/build-python-bundle.sh dist/python-bundle
+
+      - name: Upload Linux Python bundle artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: python-bundle-linux
+          path: dist/python-bundle/*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1g: Build the Linux setup wizard and setup CLI (x64)
+  # ---------------------------------------------------------------
+  # The counterpart of build-setup-mac, and like it this one job produces both the graphical
+  # wizard and the headless CLI. The wizard is the same cross-platform Avalonia project the Mac
+  # uses (tools/cc-director-setup-avalonia, AssemblyName cc-director-setup), published
+  # self-contained so a machine with no .NET can run it - which is the whole point of the
+  # installer. scripts/install-linux.sh downloads exactly this asset and hands over to it.
+  build-setup-linux:
+    name: Build Setup Wizard (Linux x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish setup wizard for Linux x64
+        run: >
+          dotnet publish tools/cc-director-setup-avalonia/CcDirectorSetup.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --nologo
+
+      - name: Upload Linux setup wizard artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: setup-linux
+          path: tools/cc-director-setup-avalonia/bin/Release/net10.0/linux-x64/publish/cc-director-setup
+          if-no-files-found: error
+
+      # The headless CLI ships for Linux for the same reason it ships for macOS (issue #1445): an
+      # agent, or a person over ssh, can install and update every component from the command line
+      # with no graphical session at all.
+      - name: Publish self-contained setup CLI for Linux x64
+        run: >
+          dotnet publish tools/cc-director-setup-cli/CcDirector.Setup.Cli.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --nologo
+
+      - name: Upload Linux setup CLI artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: setup-cli-linux
+          path: tools/cc-director-setup-cli/bin/Release/net10.0/linux-x64/publish/cc-director-setup-cli
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1h: Build the CC Launcher (Linux x64)
+  # ---------------------------------------------------------------
+  # The counterpart of build-launcher-mac. The project multi-targets net10.0-windows;net10.0, so
+  # the plain net10.0 framework must be selected explicitly here exactly as the macOS job does.
+  build-launcher-linux:
+    name: Build CC Launcher (Linux x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Launcher for Linux x64
+        run: >
+          dotnet publish src/CcDirector.Launcher/CcDirector.Launcher.csproj
+          -c Release -f net10.0 -r linux-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload launcher linux artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-linux
+          path: src/CcDirector.Launcher/bin/Release/net10.0/linux-x64/publish/cc-launcher
+          if-no-files-found: error
+
   # The Blazor Server Cockpit had its own build job here; it was retired in the epic #967 cutover
   # (issue #979). The React Cockpit now ships INSIDE the Gateway: the release-gated BuildCockpitApp
   # MSBuild target on CcDirector.Gateway.csproj builds apps/cockpit and stages it into the Gateway's
@@ -604,6 +769,10 @@ jobs:
       - build-python-bundle-mac
       - build-setup-wizard-win
       - build-setup-mac
+      - build-director-linux
+      - build-launcher-linux
+      - build-python-bundle-linux
+      - build-setup-linux
 
     steps:
       - uses: actions/checkout@v5
@@ -724,6 +893,18 @@ jobs:
           # macOS setup CLI (issue #1445: command line install/update on the Mac)
           cp release-artifacts/setup-cli-mac/cc-director-setup-cli "$RELEASE_DIR/devthrottle-setup-cli-mac-arm64"
 
+          # Linux x64: the Director, the Launcher, the setup wizard, the setup CLI and the Python
+          # tools bundle. All bare executables apart from the two tarballs - Linux has no
+          # application bundle and no signature, so there is nothing to wrap them in. The
+          # executable bit does not survive actions/upload-artifact; whatever places the binary
+          # sets it (scripts/install-linux.sh and the setup engine both do).
+          cp release-artifacts/cc-director-linux/cc-director "$RELEASE_DIR/cc-director-linux-x64"
+          cp release-artifacts/launcher-linux/cc-launcher "$RELEASE_DIR/cc-launcher-linux-x64"
+          cp release-artifacts/setup-linux/cc-director-setup "$RELEASE_DIR/devthrottle-setup-linux-x64"
+          cp release-artifacts/setup-cli-linux/cc-director-setup-cli "$RELEASE_DIR/devthrottle-setup-cli-linux-x64"
+          cp release-artifacts/python-bundle-linux/cc-python-linux-x64.tar.gz "$RELEASE_DIR/cc-python-linux-x64.tar.gz"
+          cp release-artifacts/python-bundle-linux/cc-tools-pyenv-linux-x64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-linux-x64.tar.gz"
+
           echo ""
           echo "Release files:"
           ls -lh "$RELEASE_DIR/"
@@ -753,6 +934,12 @@ jobs:
             cc-python-macos-arm64.tar.gz
             cc-tools-pyenv-macos-arm64.tar.gz
             devthrottle-setup-mac-arm64.zip
+            cc-director-linux-x64
+            cc-launcher-linux-x64
+            devthrottle-setup-linux-x64
+            devthrottle-setup-cli-linux-x64
+            cc-python-linux-x64.tar.gz
+            cc-tools-pyenv-linux-x64.tar.gz
           )
 
           missing_required=()
@@ -800,6 +987,8 @@ jobs:
               platform="windows"
             elif echo "$filename" | grep -qE "mac.*arm64"; then
               platform="macos"
+            elif echo "$filename" | grep -q "linux-x64"; then
+              platform="linux"
             else
               platform="unknown"
             fi
@@ -940,6 +1129,8 @@ jobs:
             devthrottle-setup-mac-arm64.zip
             devthrottle-mac-arm64.dmg
             devthrottle-setup-cli-mac-arm64
+            devthrottle-setup-linux-x64
+            devthrottle-setup-cli-linux-x64
             release-manifest.json
           "
 

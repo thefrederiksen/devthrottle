@@ -307,7 +307,7 @@ public sealed class DirectorDrain
             // built over a corrupt roster, a seam that raises something unexpected - each leaves a
             // workspace already stored on the Gateway, and a capture that says "draining" for ever with
             // nothing saying why is worse than no capture at all.
-            doc.Outcome = WorkspaceOutcomes.Blocked;
+            doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
             doc.CompletedAtUtc = _utcNow();
             doc.Integrity = new WorkspaceIntegrity
             {
@@ -501,7 +501,7 @@ public sealed class DirectorDrain
                    "session_key_out_of_scope - because this is the admission surface, which is a " +
                    "deliberate product decision and not an oversight.",
         };
-        doc.Outcome = integrity.ReadyToRestart ? WorkspaceOutcomes.Drained : WorkspaceOutcomes.Blocked;
+        doc.DirectorOutcome = WorkspaceDirectorOutcomes.NotRestarted;
         doc.CompletedAtUtc = _utcNow();
 
         await SaveAsync(doc, ct).ConfigureAwait(false);

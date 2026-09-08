@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using CcDirector.Setup.Engine;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace CcDirector.Setup.Engine.Tests;
@@ -57,7 +58,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
 
         foreach (var component in new[] { ComponentRegistry.Director, ComponentRegistry.Launcher })
         {
-            var assetName = OperatingSystem.IsWindows() ? component.WindowsAsset : component.MacAsset;
+            var assetName = component.AssetFor(HostPlatform.Current);
             if (assetName is null) continue;
 
             var path = Path.Combine(_releaseDir, assetName);
@@ -83,7 +84,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
         var items = new List<PlanItem>();
         foreach (var c in components)
         {
-            var assetName = OperatingSystem.IsWindows() ? c.WindowsAsset : c.MacAsset;
+            var assetName = c.AssetFor(HostPlatform.Current);
             if (assetName is null) continue;
             var asset = release.Manifest.TryGetAsset(assetName);
             if (asset is null) continue;
@@ -112,7 +113,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     {
         var release = BuildRelease("1.8.6");
         var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => (OperatingSystem.IsWindows() ? c.WindowsAsset : c.MacAsset) is not null)
+            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
             .ToList();
 
         var runner = new UpdateRunner(_layout, components, FromReleaseDir());
@@ -138,7 +139,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     {
         var release = BuildRelease("1.8.6");
         var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => (OperatingSystem.IsWindows() ? c.WindowsAsset : c.MacAsset) is not null)
+            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
             .ToList();
         var plan = PlanFor(release, components);
 
@@ -170,7 +171,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     {
         var release = BuildRelease("1.8.6");
         var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => (OperatingSystem.IsWindows() ? c.WindowsAsset : c.MacAsset) is not null)
+            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
             .Take(1)
             .ToList();
 

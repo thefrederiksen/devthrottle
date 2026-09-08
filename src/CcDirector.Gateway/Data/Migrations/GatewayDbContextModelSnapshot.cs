@@ -2070,9 +2070,6 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Outcome")
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("SeatCount")
                         .HasColumnType("INTEGER");
 

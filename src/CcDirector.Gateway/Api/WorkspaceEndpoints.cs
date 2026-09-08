@@ -16,7 +16,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET    /gateway/workspaces/{id}   -> the whole document | 404
 ///   POST   /gateway/workspaces        -> CAPTURE: fold a Director's live sessions into a new one
 ///                                       | 400 | 404 | 409
-///   PUT    /gateway/workspaces/{id}   -> store (create or replace) a document | 400
+///   PUT    /gateway/workspaces/{id}   -> store a document | 400
+///                                     with "If-None-Match: *", create only | 412 if it exists
 ///   DELETE /gateway/workspaces/{id}   -> 200 | 404
 ///
 /// The routes sit under /gateway for the same reason the workflow routes do: the Gateway serves the
@@ -28,10 +29,16 @@ namespace CcDirector.Gateway.Api;
 /// the Gateway already holds firsthand. A caller that assembles them is a caller that can get them wrong,
 /// and this document is read after the sessions are gone, when nobody can check. So the capture reads
 /// them, and the caller supplies only what the Gateway cannot know: what to call it and why it is being
-/// taken.
+/// taken. The store enforces the other half of that: a PUT can never mint or rewrite a capture header.
 ///
 /// The capture CREATES and never replaces. Overwriting an existing workspace would destroy a drain that
 /// somebody is halfway through, and it would do it silently.
+///
+/// AND IT REFUSES A DIRECTOR IT CANNOT SEE. The registry knows a Director for a while after it stops
+/// talking, and the live roster comes from the push stream - so a Director that is registered but not
+/// stream-connected folds to ZERO seats and would be recorded as an empty fleet. Empty is exactly what a
+/// finished drain looks like, so that record would say "nothing was running" about a machine nobody could
+/// reach. A capture whose emptiness cannot be distinguished from unreachability is refused.
 ///
 /// AUTH: these are device-authed client routes carrying no per-route auth of their own. They sit under
 /// the "/gateway/..." prefix, so the host-wide device-key middleware gates them exactly like every other
@@ -46,15 +53,16 @@ internal static class WorkspaceEndpoints
     /// </summary>
     /// <param name="app">The route builder.</param>
     /// <param name="store">The persisted workspace store.</param>
-    /// <param name="snapshotConnected">The live sessions of every stream-connected Director in the tenant
-    /// of the current request. A delegate rather than the store itself, so the tenant resolution stays in
-    /// the one place that owns it.</param>
+    /// <param name="connectedFleet">Whether one Director is stream-connected AND what it is running, as
+    /// ONE atomic read. A delegate rather than the store itself, so the tenant resolution stays in the one
+    /// place that owns it - and one delegate rather than two, so the two facts cannot come from either
+    /// side of a disconnection.</param>
     /// <param name="lookupDirector">Resolve a Director's display name and version, for the capture header.
     /// Returns null when the Gateway does not know that Director.</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
-        Func<IReadOnlyList<(string DirectorId, SessionDto Session)>> snapshotConnected,
+        Func<string, (Streaming.FleetObservation Observation, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
         Func<string, DirectorDto?> lookupDirector)
     {
         app.MapGet("/gateway/workspaces", () =>
@@ -103,9 +111,18 @@ internal static class WorkspaceEndpoints
 
             doc.Id = id;
 
+            // CREATE-ONLY, when the caller asks for it. "If-None-Match: *" is the standard way to say
+            // "write this only if it does not exist", and a caller who has to overwrite must first read
+            // what is there. Without it the only way to avoid clobbering is to list, check, and then PUT
+            // - three operations with two gaps, which is how the legacy import could overwrite a
+            // workspace somebody else created a moment earlier.
+            var createOnly = ctx.Request.Headers.IfNoneMatch.Any(v => v == "*");
+
             try
             {
-                var saved = store.Save(doc, DateTime.UtcNow);
+                var saved = createOnly
+                    ? store.CreateAuthored(doc, DateTime.UtcNow)
+                    : store.Save(doc, DateTime.UtcNow);
                 FileLog.Write($"[WorkspaceEndpoints] PUT: id={id}, seats={saved.Seats.Count}");
                 return Results.Json(saved, WorkspaceStore.DocumentJsonOptions);
             }
@@ -113,6 +130,11 @@ internal static class WorkspaceEndpoints
             {
                 FileLog.Write($"[WorkspaceEndpoints] PUT REFUSED: id={id}: {ex.Message}");
                 return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] PUT CONFLICT: id={id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status412PreconditionFailed);
             }
         });
 
@@ -135,10 +157,57 @@ internal static class WorkspaceEndpoints
                     statusCode: StatusCodes.Status404NotFound);
             }
 
-            var sessions = snapshotConnected()
-                .Where(x => string.Equals(x.DirectorId, req.DirectorId, StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.Session)
-                .ToList();
+            // ONE read for both facts, and FOUR answers out of it. Asking "is it connected?" and then
+            // "what is it running?" as two calls leaves a gap a disconnection fits through; reducing the
+            // answer to a boolean leaves a Director that has connected and not yet spoken looking exactly
+            // like one running nothing. Either way what comes out is a capture recording an EMPTY fleet,
+            // and that record is a restart that restores nothing, silently.
+            //
+            // Only Observed captures - INCLUDING an observed empty snapshot, which is a real answer and
+            // is what a finished Director genuinely looks like.
+            var (observation, sessions) = connectedFleet(req.DirectorId);
+
+            // THE PERMISSIVE ARM IS THE POSITIVE ONE, and this is the whole shape of it. The first
+            // version named the three unsafe states and used the default arm as permission to capture -
+            // so ONE observation was allowed by name and every other value, including every state added
+            // after today, was allowed by falling through. Naming four states instead of three does not
+            // fix that; it buys the fifth. What fixes it is that the allow is a single positive test
+            // against the one state known to be safe, and everything else - named or not - refuses.
+            var refusal = observation == Streaming.FleetObservation.Observed
+                ? null
+                : observation switch
+                {
+                    Streaming.FleetObservation.Unknown =>
+                        $"This Gateway has no live record of Director '{req.DirectorId}' at all, so there " +
+                        "is nothing to read. It may have been restarted or evicted since it registered.",
+                    Streaming.FleetObservation.NotConnected =>
+                        $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) " +
+                        "is registered but not connected to this Gateway, so its live sessions cannot be read.",
+                    Streaming.FleetObservation.ConnectedButSilent =>
+                        $"Director '{req.DirectorId}' ({director.DisplayName} on {director.MachineName}) " +
+                        "has just connected and has not yet said what it is running. That is not the same " +
+                        "as running nothing - wait for its first push and capture again.",
+
+                    // Anything this build does not recognise. It cannot be reached today, and that is the
+                    // point: when a later build adds an observation, this is where it lands until somebody
+                    // decides it is safe to capture, rather than being captured because nobody decided.
+                    _ => $"This Gateway read Director '{req.DirectorId}' and got an observation this build " +
+                         $"does not recognise ({observation}). Nothing is captured on an answer nobody " +
+                         "here can interpret.",
+                };
+
+            if (refusal is not null)
+            {
+                FileLog.Write(
+                    $"[WorkspaceEndpoints] capture REFUSED: directorId={req.DirectorId}, observation={observation}");
+                return Results.Json(
+                    new
+                    {
+                        error = refusal + " Capturing it now would record an EMPTY fleet, which is " +
+                                "indistinguishable from a Director that had genuinely finished.",
+                    },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
 
             var doc = WorkspaceCapture.Capture(
                 req, sessions, director.DisplayName, director.Version, director.MachineName, DateTime.UtcNow);

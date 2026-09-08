@@ -22,7 +22,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     Machine = table.Column<string>(type: "TEXT", nullable: true),
                     DirectorId = table.Column<string>(type: "TEXT", nullable: true),
                     DirectorName = table.Column<string>(type: "TEXT", nullable: true),
-                    Outcome = table.Column<string>(type: "TEXT", nullable: true),
                     Description = table.Column<string>(type: "TEXT", nullable: true),
                     SeatCount = table.Column<int>(type: "INTEGER", nullable: false),
                     CreatedUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
