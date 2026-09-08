@@ -25,10 +25,16 @@ public sealed class SessionEntry
 }
 
 /// <summary>
-/// The port of mentor_tools/surface.py ToolSurface, the TEXT side: the tools the mentor agent calls that
-/// need no metrics document - session_index, session_prompts, session_outcomes, prompt_search, cite,
-/// verify_quote, turn_record, note. The metrics side (week_overview, prior_weeks, dimension_candidates)
-/// is the next slice's and is deliberately absent, not stubbed.
+/// The port of mentor_tools/surface.py ToolSurface: the eleven tools the mentor agent calls. The text side
+/// (session_index, session_prompts, session_outcomes, prompt_search, cite, verify_quote, turn_record, note)
+/// needs no metrics document; the metrics side (week_overview, prior_weeks, dimension_candidates) reads the
+/// document <see cref="Document"/> builds once from the store, exactly as the reference caches it.
+///
+/// The numbers week_overview answers are the numbers <see cref="Metrics.BuildMetrics"/> computes, by
+/// construction: the document is built live from the store and cached for the surface's lifetime.
+/// prior_weeks applies the week's source coverage, exactly the rule the baseline uses. dimension_candidates
+/// proposes and the model judges: a fixed rule per dimension over ALL the week's human prompts, and the
+/// share it answers is a candidate count from a rule, never a level.
 ///
 /// One method per tool, every one wrapped so the call is logged whether it succeeds or raises: a refusal
 /// (<see cref="ToolError"/>) is logged with ok=false and its message; any other exception is logged with
@@ -63,6 +69,21 @@ public sealed class ToolSurface
     public const string Unnamed = "(unnamed session)";
     public const string SummaryScope = "the session row holds one summary, of the session's final state; earlier contexts are not "
         + "summarised separately";
+    public const int MaxPriorWeeks = 8;
+
+    /// <summary>The six prompting dimensions of slots.DIMENSIONS, in the rubric's order.</summary>
+    public static readonly string[] DimensionKeys =
+    {
+        "specific_target", "check_agent_can_run", "one_task_per_prompt", "corrections_carry_reason", "not_re_explaining", "session_hygiene",
+    };
+    public static readonly string[] BothLists = { "specific_target", "check_agent_can_run", "corrections_carry_reason" };
+    public const int MultiAskMinWords = 20;
+    public const int CorrectionReasonMinWords = 12;
+
+    /// <summary>The two phrase lists dimension_candidates adds to the metrics' word lists; matched on a word
+    /// boundary, case-insensitive, by <see cref="MarkerMatch"/>.</summary>
+    public static readonly string[] MultiAskMarkers = { "also", "and while you are at it", "then", "after that", "as well" };
+    public static readonly string[] ReExplainMarkers = { "as I said", "again", "I told you", "like I said" };
 
     public MentorStore Store { get; }
     public ToolLog Log { get; }
@@ -77,6 +98,7 @@ public sealed class ToolSurface
     private Dictionary<string, List<string>> _names = new(StringComparer.Ordinal);
     private ReportCheck.Prompts? _promptsIndex;
     private WeekData? _week;
+    private Dictionary<string, object?>? _document;
 
     public ToolSurface(MentorStore store, ToolLog log)
     {
@@ -372,6 +394,224 @@ public sealed class ToolSurface
             if (only is not null) summary += " session=" + only.Id8;
             return (answer, summary, null);
         });
+
+    // ------------------------------------------------------------------ the metrics side
+
+    /// <summary>The earliest of <paramref name="markers"/> found in <paramref name="text"/> on a word boundary,
+    /// case-insensitive: (position, marker), or null when no marker is in the text.</summary>
+    public static (int Position, string Marker)? MarkerMatch(string text, IReadOnlyList<string> markers)
+    {
+        (int Position, string Marker)? best = null;
+        foreach (var marker in markers)
+        {
+            var found = Regex.Match(text, @"\b" + Regex.Escape(marker) + @"\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (found.Success && (best is null || found.Index < best.Value.Position)) best = (found.Index, marker);
+        }
+        return best;
+    }
+
+    /// <summary>The metrics document for the run's week (<c>metrics.build_metrics</c>), built once from the store.</summary>
+    public Dictionary<string, object?> Document()
+    {
+        lock (_gate)
+        {
+            _document ??= Metrics.BuildMetrics(Store.World(), WeekLabel, ToolLog.UtcNow(), Store.Hours);
+            return _document;
+        }
+    }
+
+    private static Dictionary<string, object?> Dict(object? value, string what)
+        => value as Dictionary<string, object?> ?? throw new MentorDataException("The document's " + what + " is not an object.");
+
+    /// <summary>The metrics document for the run's week, computed live from the store.</summary>
+    public Dictionary<string, object?> WeekOverview()
+        => Logged<Dictionary<string, object?>>("week_overview", new Dictionary<string, object?>(), () =>
+        {
+            var document = Document();
+            var count = Metrics.GroupOrder.Sum(group => Dict(document[group], group).Count);
+            return (document, Metrics.GroupOrder.Length + " groups, " + count + " metrics", null);
+        });
+
+    /// <summary>`&lt;group&gt;.&lt;key&gt;` over up to n prior ISO weeks, newest first; a week any of the metric's
+    /// sources does not fully cover answers {"covered": false, "sources": [...]}. Also the baseline the
+    /// document carries for the metric and the weeks that fed it.</summary>
+    public Dictionary<string, object?> PriorWeeks(string? metric, int n = 4)
+        => Logged<Dictionary<string, object?>>("prior_weeks", new Dictionary<string, object?> { ["metric"] = metric, ["n"] = n }, () =>
+        {
+            if (metric is null || metric.Count(c => c == '.') != 1)
+                throw new ToolError("metric is '<group>.<key>', for example rhythm.sessions_started; known groups: " + string.Join(", ", Metrics.GroupOrder));
+            var parts = metric.Split('.');
+            var group = parts[0];
+            var key = parts[1];
+            if (!Metrics.GroupIds.TryGetValue(group, out var keys))
+                throw new ToolError("unknown metric group '" + group + "'; known groups: " + string.Join(", ", Metrics.GroupOrder));
+            if (!keys.Contains(key))
+                throw new ToolError("unknown metric '" + key + "' in group '" + group + "'; its keys: " + string.Join(", ", keys));
+            if (n < 1 || n > MaxPriorWeeks)
+                throw new ToolError("n is a whole number from 1 to " + MaxPriorWeeks + ", got " + n.ToString(CultureInfo.InvariantCulture));
+            var sources = Metrics.MetricSources(key);
+            var labels = MentorReaders.PriorWeeks(WeekLabel, n);
+            labels.Reverse();
+            var weeks = new List<object?>();
+            var coveredCount = 0;
+            foreach (var label in labels)
+            {
+                var week = Store.Week(label);
+                if (!week.CoveredBy(sources))
+                {
+                    weeks.Add(new Dictionary<string, object?> { ["week"] = label, ["covered"] = false, ["sources"] = sources.Cast<object?>().ToList() });
+                    continue;
+                }
+                var (values, _) = Metrics.ComputeAll(week, forBaseline: true);
+                weeks.Add(new Dictionary<string, object?> { ["week"] = label, ["covered"] = true, ["value"] = values[key] });
+                coveredCount++;
+            }
+            var entry = Dict(Dict(Document()[group], group)[key], metric);
+            var answer = new Dictionary<string, object?>
+            {
+                ["metric"] = metric,
+                ["unit"] = entry["unit"],
+                ["definition"] = entry["definition"],
+                ["source"] = entry["source"],
+                ["week"] = WeekLabel,
+                ["value"] = entry["value"],
+                ["baseline"] = entry["baseline"],
+                ["baseline_weeks"] = entry["baseline_weeks"],
+                ["prior_weeks"] = weeks,
+            };
+            return (answer, metric + ": " + weeks.Count + " prior weeks, " + coveredCount + " covered", null);
+        });
+
+    /// <summary>A tool proposes, the model judges: over ALL the week's human prompts, how many a fixed rule
+    /// flags for one of the six prompting dimensions, the rule in one sentence, and up to limit flagged
+    /// prompts in time order - for the dimensions with a with/without pair, two lists. share is a candidate
+    /// count from a rule, never a level.</summary>
+    public Dictionary<string, object?> DimensionCandidates(string? dimension, int limit = DefaultSearchLimit)
+        => Logged<Dictionary<string, object?>>("dimension_candidates", new Dictionary<string, object?> { ["dimension"] = dimension, ["limit"] = limit }, () =>
+        {
+            if (dimension is null || !DimensionKeys.Contains(dimension))
+                throw new ToolError("dimension is one of " + string.Join(", ", DimensionKeys) + "; got " + PyText.Repr(dimension));
+            CheckLimit(limit);
+            var pairs = WeekHuman();
+            var total = pairs.Count;
+            var answer = new Dictionary<string, object?> { ["dimension"] = dimension, ["total"] = (long)total, ["heuristic"] = true };
+            var with = new List<Dictionary<string, object?>>();
+            var without = new List<Dictionary<string, object?>>();
+            var flagged = new List<Dictionary<string, object?>>();
+            string rule;
+            switch (dimension)
+            {
+                case "specific_target":
+                    foreach (var (record, entry) in pairs)
+                    {
+                        if (Metrics.HasSpecificityMarker(record.Text)) with.Add(Hit(record, entry, 0, SnippetMargin));
+                        else if (record.Words >= Metrics.ShortPromptWords) without.Add(Hit(record, entry, 0, SnippetMargin));
+                    }
+                    flagged = with;
+                    rule = "with: prompts carrying a specificity marker - a path, an issue number, a URL or a quoted "
+                        + "string (metrics.has_specificity_marker); without: prompts of at least "
+                        + Metrics.ShortPromptWords + " words with no marker; flagged counts the with list.";
+                    break;
+                case "check_agent_can_run":
+                    foreach (var (record, entry) in pairs)
+                    {
+                        if (Metrics.HasDoneCriteria(record.Text, record.Words)) with.Add(Hit(record, entry, 0, SnippetMargin));
+                        else if (record.Words >= Metrics.DoneCriteriaMinWords) without.Add(Hit(record, entry, 0, SnippetMargin));
+                    }
+                    flagged = with;
+                    rule = "with: prompts of at least " + Metrics.DoneCriteriaMinWords + " words carrying one of "
+                        + string.Join(", ", Metrics.DoneCriteriaWords) + " (metrics.has_done_criteria); without: prompts of "
+                        + "at least " + Metrics.DoneCriteriaMinWords + " words with none; flagged counts the with list.";
+                    break;
+                case "one_task_per_prompt":
+                    foreach (var (record, entry) in pairs)
+                    {
+                        if (record.Words < MultiAskMinWords) continue;
+                        var found = MarkerMatch(AsciiOf(record), MultiAskMarkers);
+                        if (found is null) continue;
+                        var one = Hit(record, entry, found.Value.Position, found.Value.Marker.Length);
+                        one["marker"] = found.Value.Marker;
+                        flagged.Add(one);
+                    }
+                    rule = "flagged: prompts of at least " + MultiAskMinWords + " words carrying one of "
+                        + string.Join(", ", MultiAskMarkers) + " on a word boundary (MULTI_ASK_MARKERS).";
+                    break;
+                case "corrections_carry_reason":
+                    foreach (var (record, entry) in pairs)
+                    {
+                        if (!Metrics.IsCorrectionCandidate(record.Text)) continue;
+                        var one = Hit(record, entry, 0, SnippetMargin);
+                        flagged.Add(one);
+                        (record.Words >= CorrectionReasonMinWords ? with : without).Add(one);
+                    }
+                    rule = "flagged: prompts whose first words are a correction marker (metrics.is_correction_candidate: "
+                        + string.Join(", ", Metrics.CorrectionMarkers.Select(PyText.Strip)) + "); with: those of at least "
+                        + CorrectionReasonMinWords + " words; without: those under " + CorrectionReasonMinWords
+                        + " words, a bare no carrying no reason.";
+                    break;
+                case "not_re_explaining":
+                {
+                    var clusters = ListOf(Dict(Dict(Document()["prompt_shape"], "prompt_shape")["repeated_instruction_clusters"], "repeated_instruction_clusters")["value"], "repeated_instruction_clusters value");
+                    var members = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var cluster in clusters)
+                        foreach (var pid in ListOf(Dict(cluster, "cluster")["prompt_ids"], "a cluster's prompt_ids"))
+                            members.Add(pid as string ?? throw new MentorDataException("A prompt id in a cluster is not a string."));
+                    foreach (var (record, entry) in pairs)
+                    {
+                        var inCluster = members.Contains(record.Pid);
+                        var found = MarkerMatch(AsciiOf(record), ReExplainMarkers);
+                        if (!inCluster && found is null) continue;
+                        var one = Hit(record, entry, found?.Position ?? 0, found?.Marker.Length ?? SnippetMargin);
+                        one["marker"] = found?.Marker;
+                        one["in_cluster"] = inCluster;
+                        flagged.Add(one);
+                    }
+                    rule = "flagged: members of the overview's repeated_instruction_clusters (" + clusters.Count
+                        + " clusters, " + members.Count + " prompts) plus prompts carrying one of "
+                        + string.Join(", ", ReExplainMarkers) + " on a word boundary (RE_EXPLAIN_MARKERS).";
+                    break;
+                }
+                default:
+                {
+                    var p90 = Dict(Dict(Document()["arc"], "arc")["peak_context_tokens_p90"], "peak_context_tokens_p90")["value"];
+                    foreach (var (record, entry) in pairs)
+                    {
+                        var peak = entry.Row?.PeakContext;
+                        if (p90 is not long threshold || peak is null || peak.Value < threshold) continue;
+                        var one = Hit(record, entry, 0, SnippetMargin);
+                        one["peak_context"] = peak.Value;
+                        flagged.Add(one);
+                    }
+                    rule = "flagged: prompts in sessions whose peak_context is at or above the overview's "
+                        + "arc.peak_context_tokens_p90 (" + (p90 is null ? "no session in the week reports a peak context, so nothing is flagged"
+                            : PyNumbers.Str(p90) + " tokens") + ").";
+                    break;
+                }
+            }
+            answer["flagged"] = (long)flagged.Count;
+            answer["share"] = Metrics.Share(flagged.Count, total);
+            answer["rule"] = rule;
+            if (BothLists.Contains(dimension))
+            {
+                answer["with_total"] = (long)with.Count;
+                answer["without_total"] = (long)without.Count;
+                answer["with"] = with.Take(limit).Cast<object?>().ToList();
+                answer["without"] = without.Take(limit).Cast<object?>().ToList();
+            }
+            else
+            {
+                answer["hits"] = flagged.Take(limit).Cast<object?>().ToList();
+            }
+            var summary = "dimension=" + dimension + " total=" + total + " flagged=" + flagged.Count + " share=" + PyNumbers.Str(answer["share"]);
+            return (answer, summary, null);
+        });
+
+    private static List<object?> ListOf(object? value, string what)
+        => value as List<object?> ?? throw new MentorDataException("The document's " + what + " is not a list.");
+
+    /// <summary>The ASCII text the index cached on a human record; every record the surface answers has one.</summary>
+    private static string AsciiOf(MentorRecord record)
+        => record.AsciiText ?? throw new MentorDataException("The record at " + record.Pid + " has no ASCII text; the index was not built over it.");
 
     private Dictionary<string, object?> CutMessage(JsonElement message)
     {
