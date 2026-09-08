@@ -93,6 +93,11 @@
          C# string literals, so they stay diffable against the skill files they came from and cannot
          drift through escaping. -->
     <EmbeddedResource Include="Skills\Content\*.skill.md" />
+    <!-- The mentor's skill and rubric (Mentor on the Gateway, Phase B): the agent loop's system prompt, copied
+         VERBATIM from the internal repository at the commit named on each file's first line. Kept as .md files
+         so they stay diffable against their source and cannot drift through escaping. -->
+    <EmbeddedResource Include="Mentor\Skill\SKILL.md" LogicalName="CcDirector.Gateway.Mentor.Skill.SKILL.md" />
+    <EmbeddedResource Include="Mentor\Skillubric.md" LogicalName="CcDirector.Gateway.Mentor.Skill.rubric.md" />
   </ItemGroup>
 
   <!-- ============================================================================

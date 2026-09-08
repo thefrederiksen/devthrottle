@@ -426,29 +426,34 @@ public static class Slots
         if (list.Count != RecommendationCount)
             throw new SlotError(slot, "holds " + list.Count + " recommendations; exactly " + RecommendationCount + " are required");
         for (var position = 0; position < list.Count; position++)
-        {
-            var path = slot + "[" + position + "]";
-            var item = CheckKeys(path, list[position], RecommendationKeys);
-            var title = path + ".title";
-            CheckPlain(title, item["title"]);
-            var titleText = (string)item["title"]!;
-            if (ReportCheck.MinuteRe.IsMatch(titleText))
-                throw new SlotError(title, "carries a citation; a title is words only");
-            if (DigitRe.IsMatch(titleText))
-                throw new SlotError(title, "carries a figure; a title is words only");
-            if (titleText.Contains('"'))
-                throw new SlotError(title, "carries a double quotation mark; a title is words only");
-            var words = CountWords(titleText);
-            if (words < TitleMinWords || words > TitleMaxWords)
-                throw new SlotError(title, "has " + words + " words; " + TitleMinWords + " to " + TitleMaxWords + " required");
-            CheckFigures(title, titleText);
-            var names = CheckCall.ProviderNamesIn(titleText);
-            if (names.Count > 0)
-                throw new SlotError(title, "names a provider or a model: " + string.Join(", ", names) + "; " + CheckCall.ProviderRuling);
-            CheckText(path + ".saw", item["saw"], resolver, maxWords: SawMaxWords, minCitations: SawMinCitations, minQuoted: 1, figures: true);
-            CheckText(path + ".cost", item["cost"], resolver, maxWords: CostMaxWords, minCitations: CostMinCitations, sentences: (1, CostMaxSentences), figures: true);
-            CheckText(path + ".try", item["try"], resolver, maxWords: TryMaxWords, sentences: (1, 1), figures: true);
-        }
+            ValidateRecommendation(slot + "[" + position + "]", list[position], resolver);
+    }
+
+    /// <summary>ONE recommendation at its path (<c>recommendations[0]</c> ...): the rule <see cref="ValidateRecommendations"/>
+    /// applies to each of the three, callable alone so the agent loop validates the slot it just asked for and nothing
+    /// else. The refusal names the field inside the path.</summary>
+    public static void ValidateRecommendation(string path, object? value, Resolver resolver)
+    {
+        var item = CheckKeys(path, value, RecommendationKeys);
+        var title = path + ".title";
+        CheckPlain(title, item["title"]);
+        var titleText = (string)item["title"]!;
+        if (ReportCheck.MinuteRe.IsMatch(titleText))
+            throw new SlotError(title, "carries a citation; a title is words only");
+        if (DigitRe.IsMatch(titleText))
+            throw new SlotError(title, "carries a figure; a title is words only");
+        if (titleText.Contains('"'))
+            throw new SlotError(title, "carries a double quotation mark; a title is words only");
+        var words = CountWords(titleText);
+        if (words < TitleMinWords || words > TitleMaxWords)
+            throw new SlotError(title, "has " + words + " words; " + TitleMinWords + " to " + TitleMaxWords + " required");
+        CheckFigures(title, titleText);
+        var names = CheckCall.ProviderNamesIn(titleText);
+        if (names.Count > 0)
+            throw new SlotError(title, "names a provider or a model: " + string.Join(", ", names) + "; " + CheckCall.ProviderRuling);
+        CheckText(path + ".saw", item["saw"], resolver, maxWords: SawMaxWords, minCitations: SawMinCitations, minQuoted: 1, figures: true);
+        CheckText(path + ".cost", item["cost"], resolver, maxWords: CostMaxWords, minCitations: CostMinCitations, sentences: (1, CostMaxSentences), figures: true);
+        CheckText(path + ".try", item["try"], resolver, maxWords: TryMaxWords, sentences: (1, 1), figures: true);
     }
 
     public static void ValidateWentWell(object? value, Resolver resolver)
@@ -466,26 +471,34 @@ public static class Slots
         const string slot = "prompting";
         var entries = CheckKeys(slot, value, DimensionKeys);
         foreach (var key in DimensionKeys)
+            ValidateDimension(key, entries[key], resolver, humanCount);
+    }
+
+    /// <summary>ONE dimension (<c>prompting.&lt;key&gt;</c>): the rule <see cref="ValidatePrompting"/> applies to each of the
+    /// six, callable alone so the agent loop validates the slot it just asked for and nothing else. <paramref name="key"/>
+    /// must be one of <see cref="DimensionKeys"/>.</summary>
+    public static void ValidateDimension(string key, object? value, Resolver resolver, long humanCount)
+    {
+        if (!DimensionKeys.Contains(key))
+            throw new ArgumentException("'" + key + "' is not a prompting dimension; the keys are " + string.Join(", ", DimensionKeys), nameof(key));
+        var path = "prompting." + key;
+        var entry = CheckKeys(path, value, PromptingKeys);
+        var level = path + ".level";
+        CheckPlain(level, entry["level"]);
+        var word = (string)entry["level"]!;
+        if (humanCount < Contract.TooFewBelow)
         {
-            var path = slot + "." + key;
-            var entry = CheckKeys(path, entries[key], PromptingKeys);
-            var level = path + ".level";
-            CheckPlain(level, entry["level"]);
-            var word = (string)entry["level"]!;
-            if (humanCount < Contract.TooFewBelow)
-            {
-                if (word != Contract.TooFew)
-                    throw new SlotError(level, "is '" + word + "' with " + humanCount + " prompts, under "
-                        + Contract.TooFewBelow + "; the level must be exactly '" + Contract.TooFew + "'");
-            }
-            else if (!Contract.JudgedWords.Contains(word))
-            {
-                throw new SlotError(level, "is '" + word + "'; with " + humanCount + " prompts the level is one of "
-                    + string.Join(", ", Contract.JudgedWords));
-            }
-            CheckText(path + ".observation", entry["observation"], resolver, maxWords: ObservationMaxWords, minCitations: ObservationMinCitations, minQuoted: 1);
-            CheckText(path + ".step", entry["step"], resolver, maxWords: StepMaxWords, sentences: (1, 1));
+            if (word != Contract.TooFew)
+                throw new SlotError(level, "is '" + word + "' with " + humanCount + " prompts, under "
+                    + Contract.TooFewBelow + "; the level must be exactly '" + Contract.TooFew + "'");
         }
+        else if (!Contract.JudgedWords.Contains(word))
+        {
+            throw new SlotError(level, "is '" + word + "'; with " + humanCount + " prompts the level is one of "
+                + string.Join(", ", Contract.JudgedWords));
+        }
+        CheckText(path + ".observation", entry["observation"], resolver, maxWords: ObservationMaxWords, minCitations: ObservationMinCitations, minQuoted: 1);
+        CheckText(path + ".step", entry["step"], resolver, maxWords: StepMaxWords, sentences: (1, 1));
     }
 
     /// <summary>The slot STRUCTURE, and nothing about the words: one object with exactly the top keys; exactly three
