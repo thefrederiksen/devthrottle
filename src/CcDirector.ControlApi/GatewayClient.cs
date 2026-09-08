@@ -384,6 +384,41 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
     }
 
     /// <summary>
+    /// CAPTURE: ask the Gateway to fold a Director's live sessions into a new workspace, which is what a
+    /// drain produces (issue #2723). The Gateway does the fold because the seat facts - the agent, the
+    /// resolved role, the controller, the model, the transcript path - are ones it already holds
+    /// firsthand, and this document is read after the sessions are gone, when nobody can check.
+    ///
+    /// It CREATES and never replaces, so a second drain cannot silently overwrite a record somebody is
+    /// halfway through; the Gateway answers 409 and this throws.
+    /// </summary>
+    /// <param name="request">What to call it, which Director to fold, and why.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceDocument> CaptureWorkspaceAsync(
+        WorkspaceCaptureRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "Gateway is not configured; a drain's record is stored on the Gateway, so there is " +
+                "nowhere to capture this fleet to. Connect this Director to a Gateway in Settings.");
+
+        FileLog.Write(
+            $"[GatewayClient] CaptureWorkspaceAsync: POST /gateway/workspaces, id={request.Id}, " +
+            $"directorId={request.DirectorId}");
+        using var resp = await _http.PostAsJsonAsync("gateway/workspaces", request, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, "POST /gateway/workspaces", ct);
+
+        var doc = await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct);
+        if (doc is null)
+            throw new InvalidOperationException("Gateway POST /gateway/workspaces returned an unparsable body.");
+
+        FileLog.Write($"[GatewayClient] CaptureWorkspaceAsync: id={doc.Id}, seats={doc.Seats.Count}");
+        return doc;
+    }
+
+    /// <summary>
     /// Create a workspace, and REFUSE if one with that id already exists.
     ///
     /// This is the whole point of the header. Without it the only way not to clobber somebody is to
