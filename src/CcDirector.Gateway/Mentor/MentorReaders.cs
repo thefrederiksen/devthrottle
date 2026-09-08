@@ -57,6 +57,15 @@ public static class MentorReaders
         };
     }
 
+    /// <summary>
+    /// The reference's <c>parse_utc</c> keeps SIX fractional digits: Python's <c>fromisoformat</c> truncates a
+    /// seventh (198 of the snapshot's prompt-log stamps carry one), so a duration the metrics compute from a
+    /// prompt's timestamp is a whole number of microseconds on the reference's side. The Gateway's reader
+    /// keeps the seventh digit; this cuts it, so the port measures the same microseconds.
+    /// </summary>
+    public static DateTime ToMicroseconds(DateTime utc)
+        => new(utc.Ticks - utc.Ticks % 10, utc.Kind);
+
     /// <summary>The reference's <c>stamp_utc</c>: seconds precision, Z suffix.</summary>
     public static string StampUtc(DateTime utc)
         => new DateTime(utc.Ticks - utc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
@@ -209,7 +218,7 @@ public static class MentorReaders
                 throw new MentorDataException("Missing sessionId at " + where + ".");
             records.Add(new MentorRecord
             {
-                Ts = AsUtc(row.TsUtc, where),
+                Ts = ToMicroseconds(AsUtc(row.TsUtc, where)),
                 Session = row.SessionId,
                 Context = row.ContextId,
                 Role = row.Role,
