@@ -15,7 +15,7 @@ using Xunit.Abstractions;
 namespace CcDirector.Gateway.Tests.Mentor;
 
 /// <summary>
-/// THE PARITY TEST of the C# mentor port, part 1 (Mentor on the Gateway, Phase B slice 4a, ruling R1): the
+/// THE PARITY TEST of the C# mentor port, parts 1 and 2 (Mentor on the Gateway, Phase B slice 4a, ruling R1): the
 /// Python reference's numbers are the oracle, and the port must answer the fixed parity script of
 /// PHASE-B-PLAN.md identically, file for file.
 ///
@@ -26,11 +26,8 @@ namespace CcDirector.Gateway.Tests.Mentor;
 /// the business hours and the manifest's extract times, and reads through the Gateway's readers only.
 /// Production is never touched.
 ///
-/// THE SCRIPT. This slice answers steps 2, 3, 4, 6, 8, 9 and 10 of the script and writes 999-tool-log.json;
-/// steps 1, 5 and 7 (week_overview, prior_weeks, dimension_candidates) are the next slice's. Every file this
-/// slice writes carries the sequence number the WHOLE script gives it, so the next slice's files slot in
-/// without renumbering. With N index rows the numbering is (each step's first call follows the last call of
-/// the step before):
+/// THE SCRIPT. The whole script, steps 1 to 11, numbered as the plan numbers it. With N index rows the
+/// numbering is (each step's first call follows the last call of the step before):
 ///     step 1  week_overview           1 call        seq 1
 ///     step 2  session_index           1 call        seq 2
 ///     step 3  session_prompts         N calls       seq 3        .. N+2
@@ -43,12 +40,13 @@ namespace CcDirector.Gateway.Tests.Mentor;
 ///     step 10 note                    1 call        seq 6N+97
 /// With N = 203 that is 1315 calls, and the oracle holds 1315 call files plus the log.
 ///
-/// THE COMPARISON. Every file this slice writes is compared against the oracle in
-/// &lt;CC_MENTOR_PARITY_ROOT&gt;/python structurally (JSON nodes, exact floats, exact strings) and byte for byte,
-/// and the test FAILS listing the first 20 differing paths, or when the oracle has no such file. The one file
-/// not compared is 999-tool-log.json: the log's seq is the count of calls MADE, and this slice does not make
-/// the calls of steps 1, 5 and 7, so its log cannot equal the whole script's until the next slice adds them.
-/// It is written all the same so the next slice's diff starts from it.
+/// THE COMPARISON. The csharp folder is emptied first, so a stale file cannot pass. EVERY file - the 1315
+/// call files and 999-tool-log.json - is compared against the oracle in &lt;CC_MENTOR_PARITY_ROOT&gt;/python
+/// structurally (JSON nodes, exact floats, exact strings) and byte for byte; a file in one folder and not the
+/// other is a failure, a differing path is a failure, and the test prints "parity: n files, d differences"
+/// and fails on d above zero. Before the script, the document is compared against the reference's own
+/// metrics.json for the week: every metric's value, baseline and baseline weeks and every coverage key
+/// except generated_utc, the run's own clock.
 ///
 /// The independent instrument is the reference's own parity_diff.py over the two folders; this test is the
 /// gate, that script is the record.
@@ -72,6 +70,8 @@ public sealed class MentorParityTests
     private const int PlusOneRows = 20;
     private const int Pairs = 5;
     private const string NoSuchSession = "no-such-session";
+    private const string NoSuchDimension = "no_such_dimension";
+    private const string LogFile = "999-tool-log.json";
     private const string NoteText = "parity run";
     private const int MetricCount = 45;
     private const int DimensionCount = 6;
@@ -211,15 +211,31 @@ public sealed class MentorParityTests
             Assert.Equal(OracleHumanPrompts, parsed.StampCount);
             AssertOriginCountsOfTheWeek(week);
 
-            // 4. The script: the steps this slice answers, numbered as the whole script numbers them.
+            // The reference's own document for the week (prove_w36 step 1's comparison): every metric's value,
+            // baseline and baseline weeks and every coverage key except the run's clock must be equal.
+            Assert.Equal(MetricCount, Metrics.Definitions.Length);
+            Assert.Equal(DimensionCount, ToolSurface.DimensionKeys.Length);
+            var referenceMetrics = Path.Combine(snapshotRoot, "accounts", Label, "derived", Week, "metrics.json");
+            Assert.True(File.Exists(referenceMetrics), "the reference metrics.json is not there: " + referenceMetrics);
+            var referenceDocument = (Dictionary<string, object?>)JsonValues.Parse(File.ReadAllText(referenceMetrics, new UTF8Encoding(false)))!;
+            var ourDocument = surface.Document();
+            var documentDifferences = new List<string>();
+            Compare("metrics.json", "", WithoutGeneratedUtc(referenceDocument), WithoutGeneratedUtc(ourDocument), documentDifferences);
+            var metricCount = Metrics.GroupOrder.Sum(group => ((Dictionary<string, object?>)ourDocument[group]!).Count);
+            var coverageKeys = ((Dictionary<string, object?>)ourDocument["coverage"]!).Count;
+            _output.WriteLine("reference metrics.json: " + metricCount + " metrics, " + coverageKeys + " coverage keys, " + documentDifferences.Count + " differences");
+            Assert.True(documentDifferences.Count == 0, documentDifferences.Count + " differing paths against the reference metrics.json; the first 20:\n" + string.Join("\n", documentDifferences.Take(20)));
+            Assert.Equal(MetricCount, metricCount);
+
+            // 4. The script, the whole of it, numbered as the plan numbers it.
             if (Directory.Exists(csharpDir))
                 foreach (var stale in Directory.GetFiles(csharpDir, "*.json")) File.Delete(stale);
             Directory.CreateDirectory(csharpDir);
             var dumper = new Dumper(csharpDir);
-            var n = surface.SessionIndex().Count;
-            Assert.Equal(OracleSessions, n);
-            dumper.Seq = 1;                                                        // step 1 is the next slice's
+            dumper.Call("week_overview", new(), () => WithoutGeneratedUtc(surface.WeekOverview()));
             var index = (List<Dictionary<string, object?>>)dumper.Call("session_index", new(), surface.SessionIndex)!;
+            var n = index.Count;
+            Assert.Equal(OracleSessions, n);
             var ids = index.Select(row => (string)row["id"]!).ToList();
             var promptsById = new Dictionary<string, Dictionary<string, object?>>();
             foreach (var sid in ids)
@@ -227,13 +243,26 @@ public sealed class MentorParityTests
             foreach (var sid in ids)
                 dumper.Call("session_outcomes", new() { ["session"] = sid }, () => surface.SessionOutcomes(sid));
             Assert.Equal(2 * n + 2, dumper.Seq);
-            dumper.Seq += MetricCount + 2;                                         // step 5 is the next slice's
+            foreach (var group in Metrics.GroupOrder)
+            {
+                foreach (var key in Metrics.GroupIds[group])
+                {
+                    var metric = group + "." + key;
+                    dumper.Call("prior_weeks", new() { ["metric"] = metric, ["n"] = 4 }, () => surface.PriorWeeks(metric, 4));
+                }
+            }
+            dumper.Call("prior_weeks", new() { ["metric"] = "origin.prompts_by_origin", ["n"] = 8 }, () => surface.PriorWeeks("origin.prompts_by_origin", 8));
+            dumper.Call("prior_weeks", new() { ["metric"] = "no.such_metric", ["n"] = 4 }, () => surface.PriorWeeks("no.such_metric", 4));
+            Assert.Equal(2 * n + 49, dumper.Seq);
             foreach (var query in SearchQueries)
                 dumper.Call("prompt_search", new() { ["query"] = query, ["limit"] = SearchLimit }, () => surface.PromptSearch(query, SearchLimit));
             dumper.Call("prompt_search", new() { ["query"] = "the", ["limit"] = SearchLimit, ["session"] = ids[0] }, () => surface.PromptSearch("the", SearchLimit, ids[0]));
             dumper.Call("prompt_search", new() { ["query"] = "the", ["limit"] = SearchLimit, ["session"] = NoSuchSession }, () => surface.PromptSearch("the", SearchLimit, NoSuchSession));
             Assert.Equal(2 * n + 60, dumper.Seq);
-            dumper.Seq += DimensionCount + 1;                                      // step 7 is the next slice's
+            foreach (var dimension in ToolSurface.DimensionKeys)
+                dumper.Call("dimension_candidates", new() { ["dimension"] = dimension, ["limit"] = SearchLimit }, () => surface.DimensionCandidates(dimension, SearchLimit));
+            dumper.Call("dimension_candidates", new() { ["dimension"] = NoSuchDimension }, () => surface.DimensionCandidates(NoSuchDimension));
+            Assert.Equal(2 * n + 67, dumper.Seq);
             var firsts = new Dictionary<string, string>();
             foreach (var sid in ids)
             {
@@ -276,9 +305,10 @@ public sealed class MentorParityTests
             dumper.Call("note", new() { ["text"] = NoteText }, () => surface.Note(NoteText));
             Assert.Equal(6 * n + 97, dumper.Seq);
             var logEntries = surface.Log.Entries().Select(entry => entry.Where(kv => kv.Key != "ts_utc" && kv.Key != "ms").ToDictionary(kv => kv.Key, kv => kv.Value)).ToList();
-            File.WriteAllText(Path.Combine(csharpDir, "999-tool-log.json"), ParityJson.Pretty(logEntries) + "\n", new UTF8Encoding(false));
-            _output.WriteLine("script: " + dumper.Written + " call files written, " + dumper.Refused + " refused, log entries " + logEntries.Count
-                + " (steps 1, 5 and 7 are the next slice's: " + (1 + MetricCount + 2 + DimensionCount + 1) + " calls not made)");
+            File.WriteAllText(Path.Combine(csharpDir, LogFile), ParityJson.Pretty(logEntries) + "\n", new UTF8Encoding(false));
+            var files = dumper.Files.Append(LogFile).ToList();
+            Assert.Equal(dumper.Written, logEntries.Count);
+            _output.WriteLine("script: " + dumper.Written + " calls, " + dumper.Refused + " refused, log entries " + logEntries.Count + ", " + files.Count + " files written");
 
             // 5. The comparison against the oracle.
             var compared = 0;
@@ -286,7 +316,7 @@ public sealed class MentorParityTests
             var missing = new List<string>();
             var differences = new List<string>();
             var byteDifferent = new List<string>();
-            foreach (var name in dumper.Files)
+            foreach (var name in files)
             {
                 var pythonPath = Path.Combine(pythonDir, name);
                 if (!File.Exists(pythonPath)) { missing.Add(name); continue; }
@@ -299,12 +329,17 @@ public sealed class MentorParityTests
                 var oracle = JsonValues.Parse(Encoding.UTF8.GetString(theirs));
                 Compare(name, "", oracle, mine, differences);
             }
+            var pythonOnly = Directory.GetFiles(pythonDir, "*.json").Select(path => Path.GetFileName(path))
+                .Where(name => !files.Contains(name, StringComparer.Ordinal)).OrderBy(name => name, StringComparer.Ordinal).ToList();
+            var total = differences.Count + missing.Count + pythonOnly.Count + byteDifferent.Count;
             _output.WriteLine("comparison: " + compared + " files compared against the oracle, " + byteIdentical + " byte-identical, "
-                + differences.Count + " differing JSON paths, " + missing.Count + " without an oracle file; 999-tool-log.json written, not compared (see the class summary)");
+                + differences.Count + " differing JSON paths, " + missing.Count + " without an oracle file, " + pythonOnly.Count + " oracle files not written");
+            _output.WriteLine("parity: " + compared + " files, " + total + " differences");
             Assert.True(missing.Count == 0, "the oracle has no file for: " + string.Join(", ", missing.Take(20)));
+            Assert.True(pythonOnly.Count == 0, "the oracle has files the port did not write: " + string.Join(", ", pythonOnly.Take(20)));
             Assert.True(differences.Count == 0, differences.Count + " differing paths; the first 20:\n" + string.Join("\n", differences.Take(20)));
             Assert.True(byteDifferent.Count == 0, "structurally equal but not byte-identical (a serializer defect): " + string.Join(", ", byteDifferent.Take(20)));
-            Assert.Equal(dumper.Written, compared);
+            Assert.Equal(files.Count, compared);
         }
         finally
         {
@@ -403,6 +438,10 @@ public sealed class MentorParityTests
     }
 
     // ------------------------------------------------------------------ the script's derived arguments
+
+    /// <summary>The document less generated_utc, the run's own clock, which the dump removes as it removes the log's ts_utc and ms.</summary>
+    private static Dictionary<string, object?> WithoutGeneratedUtc(Dictionary<string, object?> document)
+        => document.Where(kv => kv.Key != "generated_utc").ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
 
     /// <summary>Python's text[:n], by code points.</summary>
     private static string Head(string text, int n)
