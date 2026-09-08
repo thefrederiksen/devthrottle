@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>You can start a session - you have to be able to stop one</title>
+<style>
+  :root {
+    --ink: #1c1f26; --muted: #5b6270; --line: #e3e6eb; --bg: #ffffff; --soft: #f5f6f8;
+    --accent: #0f5fbf; --accent-soft: #e8f0fb; --ok: #1a7f37; --warn: #9a6700; --bad: #b42318;
+    --term-bg: #14161c; --term-fg: #d7dbe3; --term-dim: #7c8494; --term-green: #7ee787; --term-blue: #79c0ff; --term-yellow: #e3b341;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 32px 90px; }
+  h1 { font-size: 36px; line-height: 1.16; margin: 0 0 10px; letter-spacing: -0.015em; }
+  h2 { font-size: 24px; margin: 56px 0 12px; padding-top: 16px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 18px; margin: 30px 0 8px; }
+  h4 { font-size: 15px; margin: 22px 0 6px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); font-size: 16px; margin: 0 0 6px; }
+  .meta { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: var(--muted); margin: 0 0 26px; }
+  .tag { display: inline-block; font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .tag.ok { background: #e6f4ea; color: var(--ok); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 20px; font-size: 14.5px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+  .tablewrap { overflow-x: auto; }
+  code, pre { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--soft); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--soft); border: 1px solid var(--line); padding: 12px 14px; overflow-x: auto; border-radius: 4px; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; margin: 18px 0; border-radius: 0 4px 4px 0; }
+  .callout.warn { border-color: var(--warn); background: #fff8e6; }
+  a { color: var(--accent); }
+  ul, ol { padding-left: 24px; }
+  li { margin: 5px 0; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; background: #fff; margin: 14px 0; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid3 { grid-template-columns: 1fr; } }
+  .term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 14px 16px; font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13px; line-height: 1.55; overflow-x: auto; white-space: pre; margin: 16px 0; }
+  .term .d { color: var(--term-dim); } .term .g { color: var(--term-green); } .term .y { color: var(--term-yellow); }
+  .rule { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 16px 0; }
+  .rule h3 { margin: 0 0 6px; font-size: 17px; }
+  .rule .q { font-family: system-ui, sans-serif; font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); margin: 0 0 4px; }
+  .rule .why { font-size: 14.5px; color: var(--muted); border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
+  .rule.settled { border-left-color: var(--ok); background: #f6fbf7; }
+  .rule.settled .q { color: var(--ok); }
+  .rule .decided { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14.5px; background: #fff; border: 1px solid #cfe6d6; border-radius: 4px; padding: 10px 13px; margin: 10px 0; }
+  .rule .decided b { color: var(--ok); }
+  .seat h3 { margin-top: 0; }
+  .lead { font-size: 18px; line-height: 1.5; }
+  .cap { font-size: 13.5px; color: var(--muted); margin-top: -6px; }
+  .headline { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 8px; }
+  @media (max-width: 800px) { .headline { grid-template-columns: 1fr; } }
+  .hl { border: 1px solid var(--line); border-top: 4px solid var(--muted); border-radius: 0 0 6px 6px; padding: 14px 18px; background: #fff; }
+  .hl.goal { border-top-color: var(--ok); background: #f6fbf7; }
+  .hl .k { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .hl.goal .k { color: var(--ok); }
+  .hl p { margin: 6px 0 0; font-size: 15.5px; }
+  .shot { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 10px 0; background: #fff; }
+  .shot b { display: block; font-family: system-ui, sans-serif; font-size: 14px; }
+  .shot span { font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>You can start a session - you have to be able to stop one</h1>
+<p class="sub">Mission document</p>
+<p class="meta">
+  <span class="tag">DevThrottle</span>
+  <span class="tag">public repo</span>
+  Issue <a href="https://github.com/thefrederiksen/devthrottle/issues/2633">thefrederiksen/devthrottle #2633</a>
+  &middot; raised 1 September 2026 &middot; mission opened 8 September 2026
+  &middot; owner's rulings written in 8 September 2026
+</p>
+
+<p class="lead">DevThrottle can open a session anywhere on the fleet in one command. It cannot close one.
+There is no verb that ends a session now, and the operator cannot tell whether the closest thing to it
+worked. This mission gives the product the other half of the pair.</p>
+
+<div class="headline">
+  <div class="hl">
+    <p class="k">Why it exists</p>
+    <p>Starting a session is immediate and tells you what it did. Ending one is eventual and tells you
+    nothing. A tool that is confident in one direction and vague in the other teaches its operator not
+    to trust it.</p>
+  </div>
+  <div class="hl goal">
+    <p class="k">The goal</p>
+    <p><strong>A QA report showing this feature working, with screenshots.</strong> Not a description of
+    a session being stopped - pictures of it happening. That document is the outcome of this mission.</p>
+  </div>
+</div>
+
+<h2>1. The goal</h2>
+
+<div class="callout ok">
+  <strong>Every mission has a goal, and it is written down before the work starts.</strong> Where the
+  work can be shown, the goal is a curated report that shows it. This mission is finished when a person
+  who was not here can read that report and see the feature working.
+</div>
+
+<p>The deliverable is a QA report - a single document, screenshots included, that demonstrates a session
+being stopped on this fleet. Passing tests are necessary and they are not the goal; a test says the code
+does what its author expected, and a screenshot says the product did what the operator asked. Section 6
+lists what the report has to show.</p>
+
+<p>The report is written against the shipped feature, on a real fleet, using the commands and the buttons
+a user would actually reach for - not a harness, and not a description of what would happen.</p>
+
+<h2>2. Why this mission exists</h2>
+
+<p>On 1 September the owner spawned a review session into the wrong visibility mode. It was doing the
+wrong work, in the wrong place, and it needed to stop. The strongest word available was
+<code>session done</code>, which does not stop anything - it leaves a note asking for the session to be
+removed later. There was no way to force it, no way to watch it happen, and no way to tell whether the
+note had been read.</p>
+
+<p>That is the whole complaint, and it is not really about a missing command. Starting a session is
+immediate and it tells you what it did. Ending one is eventual and tells you nothing. A tool that is
+confident in one direction and vague in the other teaches its operator not to trust it.</p>
+
+<div class="callout">
+  <strong>The sentence this mission has to make true:</strong> when a session should not be running any
+  more, one command ends it, and the answer says what actually happened to it.
+</div>
+
+<h2>3. What exists today</h2>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:26%">Command</th><th style="width:37%">What it does</th><th>What it does not do</th></tr>
+  <tr>
+    <td><code>session interrupt</code></td>
+    <td>Stops the turn the session is currently running.</td>
+    <td>The session is still there, still seated, and will accept the next prompt.</td>
+  </tr>
+  <tr>
+    <td><code>session done</code></td>
+    <td>Flags the session for deletion. The owning Director's reaper removes it on some later sweep.</td>
+    <td>Does not end the agent process. Cannot be forced, cannot be watched, and reports nothing about
+    when or whether it took effect. On the un-flagging
+    (<a href="https://github.com/thefrederiksen/devthrottle/issues/2505">#2505</a>) this document was checked
+    against the code and needs one correction: the Gateway and the Director <em>can</em> already cancel a
+    pending deletion, and both the route and the Director's verb for it exist and are tested. What is missing
+    is the way to ask - no command reaches them. So the flag cannot be undone by anyone driving the fleet from
+    a command line, which is the complaint; but the work to fix it is one command, not new plumbing.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><em>nothing</em></td>
+    <td>End the session now and tell me it is gone.</td>
+  </tr>
+</table>
+</div>
+
+<p>Two further costs fall out of the gap. Seats are finite, so a session that should have died at 10am
+holds one until the reaper reaches it. And because the flag is silent, the only way an operator can
+confirm anything is to keep re-reading <code>session list</code> and inferring.</p>
+
+<h2>4. What the Architect settles before anyone writes code</h2>
+
+<p>These are the questions that decide the shape of the feature. They are answered once, in writing, on
+this document - not discovered three times over in three different seats.</p>
+
+<p><strong>Two of the six are now settled by the owner</strong>, on 8 September 2026, and are marked as such
+below with what he decided and why. Nobody reopens those - not the Architect, not a Manager, not a seat that
+thinks it has found a better shape. The remaining four belong to the Architect, which settles them in this
+document before any seat starts work.</p>
+
+<div class="rule">
+  <p class="q">Ruling 1</p>
+  <h3>Is stopping a session one verb or two?</h3>
+  <p>There are genuinely two behaviours: let the current turn finish and then remove the session, versus
+  end the process now. The choice is whether those are two named commands, or one command with a
+  <code>--force</code> flag.</p>
+  <p class="why"><strong>Why it matters:</strong> DevThrottle's own rule is one word per idea and one idea per
+  word. A flag hides the single most consequential decision - whether work in flight survives - behind
+  something an operator forgets to type under pressure, which is exactly when this command gets used.</p>
+</div>
+
+<div class="rule settled">
+  <p class="q">Ruling 2 &middot; settled by the owner, 8 September 2026</p>
+  <h3>May stopping a session destroy uncommitted work?</h3>
+  <p class="decided"><b>It stops, and the answer says what it left behind.</b> There is no refusal on a dirty
+  tree, and nothing to type a second time to insist.</p>
+  <p>The question turned out to be smaller than this document assumed when it was written. Stopping a session
+  ends the agent process; it does not touch the files. Uncommitted changes stay in the worktree exactly as they
+  were - and the service that removes worktrees later already refuses outright to remove one holding any
+  modified or untracked content. That is a hard rule near the top of its own safety check, and it fails closed
+  when it cannot tell. So the changes survive the stop, and they survive the sweep that comes after it. What is
+  genuinely lost is only what the session had worked out and never wrote down, and no gate on the stop can save
+  that.</p>
+  <p><strong>What the seat builds:</strong> the stop never refuses. When the session owned a worktree with
+  uncommitted changes in it, the answer names that worktree, says the changes were left untouched, and says
+  where they are.</p>
+  <p class="why"><strong>Why it is this way:</strong> the whole complaint is that stopping is hesitant, and a
+  refusal you have to argue with is that same hesitancy wearing a safety jacket. The session you most want to
+  stop is the one doing the wrong work - which is exactly when its tree is dirty.</p>
+</div>
+
+<div class="rule">
+  <p class="q">Ruling 3</p>
+  <h3>What happens when you stop something that is already stopped?</h3>
+  <p>The command has to succeed quietly. It also has to handle the halfway states: the process is gone but
+  the row is still in the list, or the row is gone but the process is still running.</p>
+  <p class="why"><strong>Why it matters:</strong> the first thing an operator does when a command seems not to
+  have worked is run it again. If the second run returns an error, the tool has just told them the
+  session is still alive when it is not - the same failure of trust the mission exists to fix.
+  Reconciling the process against the row is most of the real work here.</p>
+</div>
+
+<div class="rule settled">
+  <p class="q">Ruling 4 &middot; settled by the owner, 8 September 2026</p>
+  <h3>Who is allowed to stop whom?</h3>
+  <p class="decided"><b>Any session may stop any other session in the same account, and the Gateway requires a
+  reason with the stop.</b> There is no parent-child restriction: a session does not have to have started the
+  one it is stopping. Narrowing it to the seats a caller had started was considered and rejected as too tight.</p>
+  <p>Today the Gateway keeps an allow list of what a session's own key may call, and that list refuses the
+  route which ends a session, permitting only the polite flag. That refusal comes out. In its place the stop
+  carries a reason, and the reason is not a courtesy: the Gateway asks for it, will not carry a stop without
+  one, and records it with the stop.</p>
+  <p><strong>What the seat builds:</strong> the allow-list entry; the required reason on the route, so a stop
+  with no reason is refused and the refusal says plainly that a reason is what is missing; and that reason
+  carried through to the record of the stop and to whatever the operator is shown afterwards.</p>
+  <p class="why"><strong>Why it is this way, in the owner's words:</strong> it leaves a lot more flexibility in
+  how we interact with the tool. Agents are good now at not just killing things, and it is audited anyway - so
+  if it becomes a problem, we deal with it differently then.</p>
+</div>
+
+<div class="rule">
+  <p class="q">Ruling 5</p>
+  <h3>Where the control lives, and what it says back</h3>
+  <p>The command line is the first surface, but the Director window and the Cockpit both show a live
+  session and neither can end one. Whatever is built has to answer in words: the process was ended, or it
+  was already gone, or it could not be ended and here is why.</p>
+  <p class="why"><strong>Why it matters:</strong> the original complaint was as much about the silence as about
+  the missing verb. A stop control that accepts the click and says nothing reproduces the defect in a
+  nicer font.</p>
+</div>
+
+<div class="rule">
+  <p class="q">Ruling 6</p>
+  <h3>What happens to a flag that was set by mistake?</h3>
+  <p><code>session done</code> cannot be un-flagged from a command line - though, as section 3 records, the
+  route and the Director verb that would do it are already built and only lack a way to be called. Once the
+  verbs above are settled, the question is
+  whether the fix for a wrong flag is to clear it, or whether being able to stop the session outright
+  makes clearing it unnecessary.</p>
+  <p class="why"><strong>Why it matters:</strong> deciding this now is what keeps the mission from growing a
+  fourth seat later.</p>
+</div>
+
+<h2>5. The work, in three seats</h2>
+
+<p>Each seat takes the rulings above as settled fact and builds against them. No seat re-opens a ruling;
+if one turns out to be wrong, it comes back to the Architect and is changed in one place.</p>
+
+<div class="grid3">
+  <div class="card seat">
+    <h3>Seat 1<br>The Director ends it</h3>
+    <p>The part that actually terminates: end the agent process on the machine that owns the session,
+    reconcile the process against the row, and report which of those two things it had to do.</p>
+    <p>Carries Ruling 2 - which is settled: stop without refusing, and report the worktree left behind -
+    and Ruling 3 (already stopped, and the halfway states).</p>
+  </div>
+  <div class="card seat">
+    <h3>Seat 2<br>The command and the route</h3>
+    <p>The verb or verbs settled in Ruling 1, in <code>cc-devthrottle</code>, and the Gateway route behind
+    them, so it works on any machine on the fleet and not only on this one.</p>
+    <p>Carries Ruling 4 - which is settled: any session may stop any other in the account, the allow list
+    opens, and the Gateway requires and records a reason - and the honest output required by Ruling 5.</p>
+  </div>
+  <div class="card seat">
+    <h3>Seat 3<br>The controls people can see</h3>
+    <p>A stop control in the Director window and in the Cockpit, going through the same route as Seat 2
+    rather than a second implementation, and showing the same answer.</p>
+    <p>Carries the rest of Ruling 5, and Ruling 6 if the Architect keeps it.</p>
+  </div>
+</div>
+
+<h2>6. The QA report - what it has to show</h2>
+
+<p>This is the goal from section 1, written out as a checklist. The report is one document. Every item
+below carries a screenshot; a line of prose saying it happened does not count, and neither does a green
+test run on its own.</p>
+
+<div class="shot"><b>1. The fleet before</b><span>A session running, with its id and its process id
+both visible in the same frame - so the reader can match them against the frames that follow.</span></div>
+
+<div class="shot"><b>2. The stop, from the command line</b><span>The command being issued - reason included, which
+Ruling 4 makes mandatory - and the exact answer it gave back. Ruling 5 says that answer has to be in words;
+this is where the reader sees whether it is. One more frame beside it: the same stop attempted with no reason,
+refused, and saying that a reason is what is missing.</span></div>
+
+<div class="shot"><b>3. The fleet after</b><span><code>session list</code> without that row.</span></div>
+
+<div class="shot"><b>4. The process is actually gone</b><span>The machine itself showing that process id
+no longer exists. This is the frame that separates a row being hidden from a session being ended.</span></div>
+
+<div class="shot"><b>5. The second stop</b><span>The same command run again, succeeding quietly instead
+of erroring - Ruling 3, shown rather than asserted.</span></div>
+
+<div class="shot"><b>6. The stop control in the Director window</b><span>The same thing done by clicking
+rather than typing, with the answer it shows.</span></div>
+
+<div class="shot"><b>7. The stop control in the Cockpit</b><span>The same again from the web, which is
+also the proof that Seat 3 went through Seat 2's route rather than growing a second implementation.</span></div>
+
+<div class="shot"><b>8. The dirty working tree</b><span>A session stopped while it has uncommitted changes in its
+worktree. Ruling 2 is settled, so this frame has a shape: the stop goes through without argument, the answer
+names the worktree and says the changes were left untouched - and the frame after it shows those changes still
+on disk.</span></div>
+
+<p>The report names the version it was run against and the date it was run, so a later reader can tell
+whether it still describes the product.</p>
+
+<h4>The shape of the run behind it</h4>
+<ol>
+  <li>Spawn a session and note its id and its process id.</li>
+  <li>Stop it with the command the mission built.</li>
+  <li>Show that process id no longer exists on that machine.</li>
+  <li>Show <code>session list</code> no longer carries the row.</li>
+  <li>Run the same stop command a second time and show it succeeds quietly rather than erroring.</li>
+  <li>Repeat through the Director window and the Cockpit, then once more on a dirty tree.</li>
+</ol>
+
+<div class="term"><span class="d">$</span> cc-devthrottle session spawn D:\Repos\scratch --name <span class="y">"throwaway"</span>
+<span class="g">seated</span> 9c41e7a2  pid 51884
+
+<span class="d">$</span> cc-devthrottle session stop 9c41e7a2 --reason <span class="y">"spawned into the wrong mode"</span>
+<span class="g">stopped</span> 9c41e7a2  process 51884 ended  row removed
+
+<span class="d">$</span> cc-devthrottle session stop 9c41e7a2 --reason <span class="y">"spawned into the wrong mode"</span>
+<span class="d">already stopped</span> 9c41e7a2  nothing to do
+
+<span class="d">$</span> cc-devthrottle session stop 4f10b8d3
+<span class="y">refused</span> a stop needs a reason  pass --reason "why"
+</div>
+<p class="cap">Illustrative only - except the reason, which Ruling 4 settles as required. The exact verb and
+the exact wording are Ruling 1 and Ruling 5, and they belong to the Architect.</p>
+
+<h2>7. Out of scope</h2>
+
+<ul>
+  <li>Changing what <code>session interrupt</code> does. It stops a turn, it works, and it stays.</li>
+  <li>Redesigning the reaper. <code>session done</code> and its sweep remain the polite path.</li>
+  <li>Restarting a Director or draining a fleet. Different mission, already under way.</li>
+  <li>Stopping sessions in bulk, or on a rule. Get one session stopped honestly first.</li>
+</ul>
+
+<h2>8. How this mission is run</h2>
+
+<p>Under DevThrottle's <code>mission</code> workflow - Architect, Manager, Workers, Inspector. That
+document is the conduct and it is the only place those rules live:
+<code>cc-devthrottle workflow instructions mission</code>. This document is the work.</p>
+
+<div class="callout">
+  <p style="margin-top:0"><strong>It runs itself. The owner is done.</strong> His two rulings are in section
+  4 and they are the last thing anyone needs from him. From the moment the Architect is seated, this mission
+  seats its own people, builds, inspects, lands and reports without asking him for anything - no per-phase
+  approval, no per-pull-request approval, no "just checking".</p>
+  <p style="margin-bottom:0">The single exception is the one the workflow already names, and it is real: if
+  something genuinely undecidable turns up - a product question nobody has answered, a discovery that changes
+  what the mission is for, a cost he should carry - the Architect brings it to him, with a recommendation, and
+  says what it found. Guessing to look self-sufficient is the worse failure by a distance. Everything else it
+  decides for itself.</p>
+</div>
+
+<h3>The seats, in the order they exist</h3>
+
+<ol>
+  <li><strong>The Architect</strong> is seated from this document and reads it first, along with the mission
+  workflow. It settles Rulings 1, 3, 5 and 6 in writing, in this document, before any code is written - and it
+  does not reopen Rulings 2 and 4, which are the owner's. It cuts one worktree from <code>origin/main</code>,
+  holds the design, and is the only seat that lands anything on <code>main</code>. It does not build.</li>
+  <li><strong>A Manager</strong> is seated by the Architect, one at a time, one per seat of section 5. It takes
+  the work, hires Workers as it needs them, gets that seat finished and pushed - and is then killed and replaced
+  by a fresh one at the next boundary. That is deliberate maintenance, not a setback: a Manager's state lives in
+  the branch and the handoff note, never in its own head.</li>
+  <li><strong>The code review is a Codex session</strong>, seated by the Architect, never by the Manager who
+  wrote the code. The builders are Claude Code, so the review comes from a different agent family and does not
+  inherit the author's blind spots. It is told to be adversarial and told not to trust the mission's own
+  account of itself. It writes its review to a file and replies with one line - a fleet message is cut off at
+  its first line break, so a review asked for in a message arrives as a heading and nothing else. It never
+  fixes anything it finds; findings go back to a Manager.</li>
+  <li><strong>The QA report of section 6 is written by a seat that did not build the feature</strong>, and it
+  drives the real product to get its pictures. A builder photographing its own work reaches for the path it
+  already knows works.</li>
+</ol>
+
+<p>Every one of those runs in the foreground as a tracked, named session -
+<code>Stop a session - Architect</code>, <code>Stop a session - Manager</code>, and so on - so the whole run
+is visible on the fleet while it happens. Nothing is backgrounded or detached.</p>
+
+<h3>Starting it</h3>
+
+<p>Two commands, from any machine on the fleet. The first opens the Mission every seat attaches to and
+prints its id; the second seats the Architect on that Mission and hands it this document. Every seat the
+Architect goes on to hire inherits the Mission from it, so the whole run shows up as one body of work on the
+fleet map rather than as loose sessions.</p>
+
+<div class="term"><span class="d">$</span> cc-devthrottle mission create <span class="y">"Stop a session"</span>
+
+<span class="d">$</span> cc-devthrottle session spawn <span class="y">&lt;your devthrottle checkout&gt;</span> --standalone --role Architect --mission <span class="y">&lt;the id it just printed&gt;</span>     --name <span class="y">"Stop a session - Architect"</span>     --prompt <span class="y">"You are the Architect of the 'Stop a session' mission on issue #2633. Read missions/stop-a-session.html in this repository in full, then run 'cc-devthrottle workflow instructions mission'. Rulings 2 and 4 are the owner's and are closed. Settle 1, 3, 5 and 6 in that document, then run the whole mission to the QA report without coming back to him unless something is genuinely undecidable."</span>
+</div>
+
+<p class="cap">This document lives in the repository, at <code>missions/stop-a-session.html</code>, so every
+seat on every machine reads the same copy and the rulings are versioned with the code they govern. There is
+no machine-local path to keep in step.</p>
+
+</div>
+</body>
+</html>
