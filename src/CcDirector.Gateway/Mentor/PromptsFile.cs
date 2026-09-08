@@ -21,6 +21,8 @@ public static class PromptsFile
     public const string NoRepoName = "no repository name";
     public const string OpenAtExtract = "open at extract time";
     public const string Indent = "    ";
+    /// <summary>Where metrics.json holds the week's human prompt count; the checkers read this exact path.</summary>
+    public const string HumanCountPath = "origin.prompts_by_origin.value.human.count";
 
     /// <summary>The week's user records the classifier called human, in time order.</summary>
     public static List<MentorRecord> HumanPrompts(WeekData week)

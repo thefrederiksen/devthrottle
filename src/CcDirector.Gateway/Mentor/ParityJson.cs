@@ -29,6 +29,15 @@ public static class ParityJson
         return builder.ToString();
     }
 
+    /// <summary><c>json.dumps(value, indent=2, ensure_ascii=True)</c> WITHOUT sort_keys: insertion order, two-space
+    /// indent - the form the assembler writes metrics.json in, as <c>metrics.write_outputs</c> does.</summary>
+    public static string PrettyOrdered(object? value)
+    {
+        var builder = new StringBuilder();
+        Write(builder, value, sorted: false, indent: 2, level: 0);
+        return builder.ToString();
+    }
+
     public static string Compact(object? value)
     {
         var builder = new StringBuilder();

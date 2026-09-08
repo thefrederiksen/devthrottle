@@ -33,7 +33,11 @@ public sealed class PromptsFileException : Exception
 /// - every other double-quoted span in the report is a failure;
 /// - a report with no proven quoted citation at all is refused.
 ///
-/// The provider-name rule (charter ruling 11) is <c>check_call.py</c>'s and is not part of this slice.
+/// The provider-name rule (charter ruling 11) is the report's side of <c>check_call.py</c>'s one word list:
+/// <see cref="ProviderNamesInReport"/> reads it over the report, exempting by span the developer's own words -
+/// every session name the report carries and every quoted prompt fragment. It runs LAST in the chain, after
+/// the quotations have been proven: a quoted span is only the developer's own words once it has been proven to be
+/// a copy of one of their prompts.
 /// </summary>
 public static class ReportCheck
 {
@@ -46,11 +50,16 @@ public static class ReportCheck
     private static readonly Regex IndexLineRe = new(@"^- (?<id8>[0-9a-f]{8}) \| (?<repo>[^|]*) \| (?<count>\d+) \| (?<by>[^|]*) \| (?<name>.*)$", RegexOptions.CultureInvariant);
     private static readonly Regex SessionHeadingRe = new("^#### Session (?<id>" + PyText.NonSpaceClass + "+) - (?<name>.*)$", RegexOptions.CultureInvariant);
     private static readonly Regex StampRe = new(@"^\[(?<minute>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) local, (?<origin>[^,\]]+), (?<words>\d+) words\]$", RegexOptions.CultureInvariant);
-    private static readonly Regex MinuteRe = new(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", RegexOptions.CultureInvariant);
+    /// <summary>The forms the mentor instruction quotes; the slot validators name them in their refusals.</summary>
+    public const string CitationForm = "<session name>, YYYY-MM-DD HH:MM";
+    public const string QuotedCitationForm = "<session name>, YYYY-MM-DD HH:MM (\"<fragment>\")";
+
+    /// <summary>Every "YYYY-MM-DD HH:MM" in a report line is a citation; the slot validators and the log check read the same expression.</summary>
+    public static readonly Regex MinuteRe = new(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", RegexOptions.CultureInvariant);
     // A quoted fragment is at least one character between the marks; the empty pair is matched apart so it
     // is named as a too-short fragment, not mistaken for a bare quoted span.
-    private static readonly Regex FragmentRe = new(@"^ \(""(?<fragment>[^""]+)""\)", RegexOptions.CultureInvariant);
-    private static readonly Regex EmptyFragmentRe = new(@"^ \(""(?<fragment>)""\)", RegexOptions.CultureInvariant);
+    public static readonly Regex FragmentRe = new(@"^ \(""(?<fragment>[^""]+)""\)", RegexOptions.CultureInvariant);
+    public static readonly Regex EmptyFragmentRe = new(@"^ \(""(?<fragment>)""\)", RegexOptions.CultureInvariant);
     private static readonly Regex BareQuoteRe = new(@"""([^""]*)""", RegexOptions.CultureInvariant);
     private static readonly Regex HeadingPrefixRe = new("^#+" + PyText.SpaceClass + @"*(?:\d+\." + PyText.SpaceClass + "+)?", RegexOptions.CultureInvariant);
 
@@ -324,4 +333,37 @@ public static class ReportCheck
         if (result.Failures.Count > 0) throw new ReportCheckException(string.Join("\n", result.Failures));
         return result;
     }
+
+    // --------------------------------- the report names no provider and no model (ruling 11)
+
+    /// <summary>What a masked-out span is replaced by. A barrier rather than blanks: the words either side of a
+    /// removed span must not weld into something the report never wrote.</summary>
+    public const string ProviderMask = " . ";
+
+    public const string ProviderFailurePrefix = "the report names a provider or a model: ";
+
+    /// <summary>The report text with every quoted span replaced by <see cref="ProviderMask"/>, line by line. The
+    /// spans come from <see cref="QuotedSpans"/> - the citation check's own extraction - so the exemption is exactly
+    /// what this class already calls a quotation and cannot drift from it.</summary>
+    public static string MaskedQuotations(string text)
+    {
+        var lines = new List<string>();
+        foreach (var raw in PyText.SplitLines(text))
+        {
+            var line = raw;
+            foreach (var (start, end) in QuotedSpans(raw).OrderByDescending(s => s.Start).ThenByDescending(s => s.End))
+                line = line.Substring(0, start) + ProviderMask + line.Substring(end);
+            lines.Add(line);
+        }
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>The provider or model names the report STATES, in <see cref="CheckCall.ProviderNames"/> order: every
+    /// quoted prompt fragment and every session name the report carries are exempt, as the developer's own words.</summary>
+    public static List<string> ProviderNamesInReport(string text, Prompts prompts)
+        => CheckCall.ProviderNamesIn(MaskedQuotations(text), CheckCall.ReportSessionNames(text, prompts));
+
+    /// <summary>One failure line per provider or model name the report states, each naming the name.</summary>
+    public static List<string> ProviderFailures(string text, Prompts prompts)
+        => ProviderNamesInReport(text, prompts).Select(name => ProviderFailurePrefix + name + "; " + CheckCall.ProviderRuling).ToList();
 }
