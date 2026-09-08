@@ -104,6 +104,55 @@ internal static class PyText
         return lines;
     }
 
+    /// <summary>
+    /// Python's <c>str.lower()</c>: the simple lowercase mapping of every code point, with the two full
+    /// mappings the Unicode special-casing table makes unconditional or contextual - the capital dotted I
+    /// (U+0130) lowers to <c>i</c> plus a combining dot above, two characters where .NET's invariant
+    /// mapping gives one, and the capital sigma lowers to its final form when it ends a word. The week's
+    /// prompts carry the dotted I; a cluster key or a correction head built with .NET's mapping would
+    /// differ from the reference's by one character.
+    /// </summary>
+    public static string Lower(string text)
+    {
+        var runes = text.EnumerateRunes().ToList();
+        var builder = new StringBuilder(text.Length);
+        for (var i = 0; i < runes.Count; i++)
+        {
+            var rune = runes[i];
+            if (rune.Value == 0x0130) { builder.Append("i\u0307"); continue; }
+            if (rune.Value == 0x03A3) { builder.Append(IsFinalSigma(runes, i) ? '\u03C2' : '\u03C3'); continue; }
+            builder.Append(Rune.ToLowerInvariant(rune).ToString());
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>The Final_Sigma context: a cased letter before (case-ignorable characters between) and no
+    /// cased letter after (case-ignorable characters between).</summary>
+    private static bool IsFinalSigma(List<Rune> runes, int at)
+    {
+        var j = at - 1;
+        while (j >= 0 && IsCaseIgnorable(runes[j])) j--;
+        if (j < 0 || !IsCased(runes[j])) return false;
+        j = at + 1;
+        while (j < runes.Count && IsCaseIgnorable(runes[j])) j++;
+        return j == runes.Count || !IsCased(runes[j]);
+    }
+
+    private static bool IsCased(Rune rune) => Rune.GetUnicodeCategory(rune) is UnicodeCategory.UppercaseLetter
+        or UnicodeCategory.LowercaseLetter or UnicodeCategory.TitlecaseLetter;
+
+    private static bool IsCaseIgnorable(Rune rune)
+    {
+        // The Word_Break MidLetter, MidNumLet and Single_Quote characters: apostrophe, full stop, colon,
+        // middle dot, the curly single quotes, one dot leader, hyphenation point, and their small and
+        // full-width forms.
+        if (rune.Value is 0x27 or 0x2E or 0x3A or 0xB7 or 0x2018 or 0x2019 or 0x2024 or 0x2027
+            or 0xFE13 or 0xFE52 or 0xFE55 or 0xFF07 or 0xFF0E or 0xFF1A)
+            return true;
+        return Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
+            or UnicodeCategory.Format or UnicodeCategory.ModifierLetter or UnicodeCategory.ModifierSymbol;
+    }
+
     /// <summary>Python's <c>str.isalnum()</c> for one character: a letter, or a number of category Nd, Nl or No.</summary>
     public static bool IsAlnum(char c)
     {
