@@ -1,14 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using CcDirector.Core.Tenancy;
-using CcDirector.Gateway.Data;
-using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Mentor;
-using CcDirector.Gateway.Prompts;
-using CcDirector.Gateway.Tests.Data;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -19,12 +12,9 @@ namespace CcDirector.Gateway.Tests.Mentor;
 /// Python reference's numbers are the oracle, and the port must answer the fixed parity script of
 /// PHASE-B-PLAN.md identically, file for file.
 ///
-/// THE TEST WORLD (ruling R2). The W36 snapshot is restored INTO the Gateway's own stores: the daily prompt-log
-/// files are copied into a temporary prompt-log root under tenants/&lt;tenant id&gt;/, the three tables are
-/// inserted through EF into a per-run Postgres database, and the pulled turn-log corpus is the turn-log root.
-/// The store is then built from a TenantId, a GatewayPromptLog, a context factory, the corpus root, the zone,
-/// the business hours and the manifest's extract times, and reads through the Gateway's readers only.
-/// Production is never touched.
+/// THE TEST WORLD (ruling R2) is <see cref="MentorSnapshotWorld"/>, the collection fixture this test shares with the
+/// assemble parity test: the W36 snapshot restored INTO the Gateway's own stores, read through the Gateway's readers
+/// only. Production is never touched.
 ///
 /// THE SCRIPT. The whole script, steps 1 to 11, numbered as the plan numbers it. With N index rows the
 /// numbering is (each step's first call follows the last call of the step before):
@@ -51,17 +41,13 @@ namespace CcDirector.Gateway.Tests.Mentor;
 /// The independent instrument is the reference's own parity_diff.py over the two folders; this test is the
 /// gate, that script is the record.
 /// </summary>
+[Collection(MentorSnapshotCollection.Name)]
 public sealed class MentorParityTests
 {
-    private const string PgVar = PostgresProofDatabase.ConnectionEnvVar;
-    private const string SnapshotVar = "CC_MENTOR_SNAPSHOT_ROOT";
-    private const string TurnLogVar = "CC_MENTOR_TURN_LOG_ROOT";
     private const string ParityVar = "CC_MENTOR_PARITY_ROOT";
 
-    private const string Label = "soren";
-    private const string TenantValue = "9f19679f-2e19-41a7-9acf-8cae7a8a59cc";
-    private const string Week = "2026-W36";
-    private const string ZoneId = "America/Toronto";
+    private const string Label = MentorSnapshotWorld.Label;
+    private const string Week = MentorSnapshotWorld.Week;
     private const string CorpusDay = "2026-09-05";
     private const string EmptyMinute = "2026-08-31 10:00";
     private const int SearchLimit = 50;
@@ -80,110 +66,48 @@ public sealed class MentorParityTests
         "one at a time", "what is your mission", "commit", "do not", "again", "pull request", "test", "the", "zzzz-no-such-phrase",
     };
 
-    /// <summary>The reference's oracle numbers for soren / 2026-W36 (fix round 4, never 1903 / 213 / 1889 / 1887 / 99208).</summary>
-    private const int OracleHumanPrompts = 1888;
-    private const int OracleHumanWords = 99440;
-    private const int OracleSessions = 203;
-    private const int OracleTornLines = 15;
+    private const int OracleHumanPrompts = MentorSnapshotWorld.OracleHumanPrompts;
+    private const int OracleHumanWords = MentorSnapshotWorld.OracleHumanWords;
+    private const int OracleSessions = MentorSnapshotWorld.OracleSessions;
+    private const int OracleTornLines = MentorSnapshotWorld.OracleTornLines;
 
+    private readonly MentorSnapshotWorld _world;
     private readonly ITestOutputHelper _output;
 
-    public MentorParityTests(ITestOutputHelper output) => _output = output;
+    public MentorParityTests(MentorSnapshotWorld world, ITestOutputHelper output)
+    {
+        _world = world;
+        _output = output;
+    }
 
-    /// <summary>Skips naming the first unset variable; the test needs all four.</summary>
+    /// <summary>Skips naming the first unset variable; the test needs the world's three and the parity root.</summary>
     private sealed class MentorParityFactAttribute : FactAttribute
     {
         public MentorParityFactAttribute()
         {
-            foreach (var name in new[] { PgVar, SnapshotVar, TurnLogVar, ParityVar })
-            {
-                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)))
-                {
-                    Skip = "Set " + name + " to run the mentor parity test (" + PgVar + " = the throwaway Postgres, "
-                        + SnapshotVar + " = the mentor data root, " + TurnLogVar + " = the pulled turn-log corpus, "
-                        + ParityVar + " = the folder holding python/ and receiving csharp/).";
-                    return;
-                }
-            }
+            var missing = MentorSnapshotWorld.MissingVariable(ParityVar);
+            if (missing is not null)
+                Skip = "Set " + missing + " to run the mentor parity test (" + MentorSnapshotWorld.PgVar + " = the throwaway Postgres, "
+                    + MentorSnapshotWorld.SnapshotVar + " = the mentor data root, " + MentorSnapshotWorld.TurnLogVar + " = the pulled turn-log corpus, "
+                    + ParityVar + " = the folder holding python/ and receiving csharp/).";
         }
-    }
-
-    private static string Env(string name) => Environment.GetEnvironmentVariable(name)!;
-
-    /// <summary>This test's own throwaway database: the operator's template with its own suffix, so the
-    /// proof classes sharing the per-process database are never touched and the drop at the end is ours alone.</summary>
-    private static string OwnConnection()
-    {
-        var builder = new NpgsqlConnectionStringBuilder(PostgresProofDatabase.Connection);
-        builder.Database = builder.Database + "_mentor";
-        return builder.ConnectionString;
-    }
-
-    private static GatewayDbContext NewContext(string connection, TenantId tenant)
-    {
-        var options = new DbContextOptionsBuilder<GatewayDbContext>()
-            .UseNpgsql(connection, npg =>
-            {
-                npg.MigrationsAssembly("CcDirector.Gateway.Migrations.Postgres");
-                npg.MigrationsHistoryTable("__EFMigrationsHistory", "gateway");
-            })
-            .Options;
-        return new GatewayDbContext(options) { ActiveTenant = tenant.Value };
     }
 
     [MentorParityFact]
     public void The_port_answers_the_parity_script_as_the_python_oracle_does()
     {
-        var snapshotRoot = Env(SnapshotVar);
-        var turnLogRoot = Env(TurnLogVar);
-        var parityRoot = Env(ParityVar);
-        var tenant = new TenantId(TenantValue);
-        var rawDir = Path.Combine(snapshotRoot, "accounts", Label, "raw");
-        var promptLogSource = Path.Combine(rawDir, "prompt-log");
-        var dbDir = Path.Combine(rawDir, "db");
+        var snapshotRoot = MentorSnapshotWorld.Env(MentorSnapshotWorld.SnapshotVar);
+        var parityRoot = MentorSnapshotWorld.Env(ParityVar);
         var pythonDir = Path.Combine(parityRoot, "python");
         var csharpDir = Path.Combine(parityRoot, "csharp");
-        Assert.True(Directory.Exists(promptLogSource), "snapshot prompt-log folder not found: " + promptLogSource);
-        Assert.True(Directory.Exists(dbDir), "snapshot db folder not found: " + dbDir);
-        Assert.True(Directory.Exists(turnLogRoot), "turn-log corpus root not found: " + turnLogRoot);
         Assert.True(Directory.Exists(pythonDir), "the Python oracle folder is not there: " + pythonDir);
-
-        var tempRoot = Path.Combine(Path.GetTempPath(), "mentor-parity-" + Guid.NewGuid().ToString("N"));
-        var connection = OwnConnection();
-        Assert.StartsWith("ccpg", new NpgsqlConnectionStringBuilder(connection).Database, StringComparison.OrdinalIgnoreCase);
-        try
         {
-            // 1. The prompt log: the snapshot's daily files, copied into the tenant's partition of a fresh root.
-            var promptLog = new GatewayPromptLog(tempRoot);
-            var partition = promptLog.DirectoryFor(tenant);
-            Directory.CreateDirectory(partition);
-            var copied = 0;
-            foreach (var path in Directory.GetFiles(promptLogSource, "conversation-*.jsonl"))
-            {
-                File.Copy(path, Path.Combine(partition, Path.GetFileName(path)));
-                copied++;
-            }
-            _output.WriteLine("prompt log: " + copied + " daily files copied into the tenant partition");
-
-            // 2. The three tables, through EF, into this test's own per-run Postgres database.
-            using (var ctx = NewContext(connection, tenant))
-            {
-                ctx.Database.EnsureDeleted();
-                ctx.Database.Migrate();
-            }
-            var inserted = InsertTable<SessionHistoryEntity>(connection, tenant, Path.Combine(dbDir, "session_history.jsonl"), (c, rows) => c.SessionHistory.AddRange(rows))
-                + InsertTable<ActivityEventEntity>(connection, tenant, Path.Combine(dbDir, "activity_events.jsonl"), (c, rows) => c.ActivityEvents.AddRange(rows))
-                + InsertTable<DictationTranscriptEntity>(connection, tenant, Path.Combine(dbDir, "dictation_transcripts.jsonl"), (c, rows) => c.DictationTranscripts.AddRange(rows));
-            _output.WriteLine("database: " + inserted + " rows inserted");
+            // 1-2. The world: the snapshot restored into a temporary prompt-log root and a per-run Postgres database.
+            _world.Restore(_output);
 
             // 3. The store and the surface, bound to the tenant and the week.
-            var zone = LocalZone.FromIana(ZoneId);
-            Assert.Equal(ZoneId, zone.Zone.Id);   // resolved by its IANA id; no Windows-id conversion was needed
-            var sourceEnds = SourceEndsFromManifest(Path.Combine(snapshotRoot, "manifest.jsonl"));
-            var store = new MentorStore(tenant, promptLog, () => NewContext(connection, tenant), turnLogRoot, zone,
-                new BusinessHours(8, 18), sourceEnds, Week, Label);
-            var runDir = Path.Combine(tempRoot, "run");
-            Directory.CreateDirectory(runDir);
+            var store = _world.NewStore();
+            var runDir = _world.NewRunDir("parity");
             var surface = new ToolSurface(store, new ToolLog(Path.Combine(runDir, ToolLog.FileName)));
 
             // The reference's own facts about this world, checked before the script so a wrong world is named
@@ -341,74 +265,9 @@ public sealed class MentorParityTests
             Assert.True(byteDifferent.Count == 0, "structurally equal but not byte-identical (a serializer defect): " + string.Join(", ", byteDifferent.Take(20)));
             Assert.Equal(files.Count, compared);
         }
-        finally
-        {
-            try { if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true); } catch (IOException) { /* the temp root is per run */ }
-            using var ctx = NewContext(connection, tenant);
-            ctx.Database.EnsureDeleted();
-        }
     }
 
-    // ------------------------------------------------------------------ the world
-
-    private static int InsertTable<T>(string connection, TenantId tenant, string path, Action<GatewayDbContext, List<T>> add) where T : TenantScopedEntity
-    {
-        Assert.True(File.Exists(path), "snapshot table file not found: " + path);
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = false };
-        var batch = new List<T>();
-        var total = 0;
-        var number = 0;
-        foreach (var line in File.ReadLines(path, new UTF8Encoding(false)))
-        {
-            number++;
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var entity = JsonSerializer.Deserialize<T>(line, options)
-                ?? throw new MentorDataException(Path.GetFileName(path) + ":" + number + " is not a row.");
-            entity.TenantId = tenant.Value;
-            batch.Add(entity);
-            if (batch.Count == 2000)
-            {
-                total += Flush(connection, tenant, batch, add);
-                batch.Clear();
-            }
-        }
-        if (batch.Count > 0) total += Flush(connection, tenant, batch, add);
-        return total;
-    }
-
-    private static int Flush<T>(string connection, TenantId tenant, List<T> batch, Action<GatewayDbContext, List<T>> add) where T : TenantScopedEntity
-    {
-        using var ctx = NewContext(connection, tenant);
-        ctx.ChangeTracker.AutoDetectChangesEnabled = false;
-        add(ctx, batch);
-        return ctx.SaveChanges();
-    }
-
-    /// <summary>The reference's metrics.source_extract_times over the manifest's LAST line per source for the
-    /// account: the database sources' cutoff, and for the prompt log the end of the last complete UTC day file
-    /// (window.end plus one day at 00:00 UTC).</summary>
-    private static SourceEnds SourceEndsFromManifest(string manifestPath)
-    {
-        Assert.True(File.Exists(manifestPath), "no manifest at " + manifestPath);
-        var last = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
-        foreach (var line in File.ReadLines(manifestPath, new UTF8Encoding(false)))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var record = (Dictionary<string, object?>)JsonValues.Parse(line)!;
-            if ((string?)record["account"] != Label) continue;
-            last[(string)record["source"]!] = record;
-        }
-        DateTime Cutoff(string source)
-        {
-            Assert.True(last.ContainsKey(source), "no " + source + " manifest line for account '" + Label + "'");
-            var cutoff = (string)last[source]["cutoff"]!;
-            return DateTime.Parse(cutoff, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
-        }
-        Assert.True(last.ContainsKey("prompt-log"), "no prompt-log manifest line for account '" + Label + "'");
-        var window = (Dictionary<string, object?>)last["prompt-log"]["window"]!;
-        var endDay = DateTime.ParseExact((string)window["end"]!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        return new SourceEnds(endDay.AddDays(1), Cutoff("db.session_history"), Cutoff("db.activity_events"), Cutoff("db.dictation_transcripts"));
-    }
+    // ------------------------------------------------------------------ the world's own facts
 
     /// <summary>The reference's real-data origin invariants (test_origin.py): a stamped record is human under
     /// rule stamped unless its text starts with a product envelope or an agent-tool framing, the stamped-rule

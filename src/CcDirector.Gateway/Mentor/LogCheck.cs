@@ -216,7 +216,8 @@ public static class LogCheck
             ["log_sha256"] = digest,
             ["written_utc"] = ToolLog.UtcNow(),
         };
-        File.WriteAllText(path, ParityJson.Compact(bound) + "\n", new UTF8Encoding(false));
+        // One line, ended as Python text mode ends it on this platform (the reference's write_bound).
+        File.WriteAllText(path, ParityJson.Compact(bound) + Environment.NewLine, new UTF8Encoding(false));
         return path;
     }
 

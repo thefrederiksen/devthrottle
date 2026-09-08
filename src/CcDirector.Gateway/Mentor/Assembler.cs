@@ -214,7 +214,10 @@ public static class Assembler
         }
         var report = BuildReport((Dictionary<string, object?>)written!, sections, humanCount);
 
-        File.WriteAllText(Path.Combine(runDir, MetricsFile), ParityJson.PrettyOrdered(overview) + "\n", new UTF8Encoding(false));
+        // The reference writes metrics.json in Python text mode, whose line ending is the platform's (CRLF on
+        // Windows, LF on the Gateway's Linux); report.md and prompts-human.md it writes as bytes with LF. The port
+        // reproduces both, so the proof compares bytes on either platform.
+        File.WriteAllText(Path.Combine(runDir, MetricsFile), ParityJson.PrettyOrdered(overview).Replace("\n", Environment.NewLine) + Environment.NewLine, new UTF8Encoding(false));
         var week = surface.Store.WeekDataFor(surface.Store.WeekLabel);
         var (promptsText, _, _) = PromptsFile.RenderFile(week, PromptsFile.HumanPrompts(week), surface.Store.Sessions());
         File.WriteAllBytes(Path.Combine(runDir, PromptsFile.FileName), Encoding.ASCII.GetBytes(promptsText));
