@@ -619,39 +619,56 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
     // =========================================================================================
 
     /// <summary>
-    /// A registration naming a REAL live process this test cannot inspect.
+    /// A registration naming a process that is ALIVE and cannot be INSPECTED.
     ///
-    /// PID 4 on Windows is the System process: it exists, it is running, and a normal user process is
-    /// refused when it asks when that process started. So this is a genuine uninspectable-live-process
-    /// input rather than a mock - which matters, because the branch under test exists precisely for a
-    /// state the operating system produces and a fake would not.
+    /// DRIVEN THROUGH THE SEAM, AND THE FIRST VERSION OF THIS TEST WAS NOT. It named pid 4 - the Windows
+    /// System process - because that is the one process reliably present that a normal user may not
+    /// interrogate. It passed here and behaved differently on an ELEVATED build runner, where pid 4 IS
+    /// inspectable: the assertion was wrong there, and the run took the test host down with it.
     ///
-    /// Either of the two guards may catch it - the inspection itself, or the start-time read - and the
-    /// test deliberately does not care which: both record an unreadable claim, and asserting on the
-    /// specific one would pin an implementation detail rather than the property. What must NOT happen is
-    /// the claim being erased and the answer coming back NotRunning.
+    /// A test whose result depends on the privilege of whoever launched it is testing the launcher, not
+    /// the code. And interrogating the System process is not something a test suite should do at all.
+    ///
+    /// WHAT THIS PROVES, AND WHAT IT DOES NOT. It proves the BRANCH: a claim the operating system would
+    /// not describe is RECORDED as unreadable rather than erased as dead. It does NOT prove that Windows
+    /// really refuses for any particular process - that is a property of Windows, not of this code, and
+    /// no unit test can honestly assert it. The same limit is stated on the ReadExecutablePath seam this
+    /// one is modelled on.
     /// </summary>
     [Fact]
     public void A_live_process_that_cannot_be_inspected_is_Unknown_not_NotRunning()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        WriteLiveRegistration("9999aaaa-0000-0000-0000-000000000001");
 
-        Directory.CreateDirectory(InstanceDirectory);
-        File.WriteAllText(Path.Combine(InstanceDirectory, "9999aaaa-0000-0000-0000-000000000001.json"),
-            $$"""
-            {
-              "DirectorId": "9999aaaa-0000-0000-0000-000000000001",
-              "Pid": 4,
-              "StartedAt": "{{DateTime.UtcNow:o}}",
-              "Version": "2.0.6"
-            }
-            """);
+        var locator = Locator();
+        locator.InspectProcess = _ => (null, "pid 4321 could not be inspected (Access is denied), so whether "
+                                            + "it is a live Director is unknown - it is NOT being treated as absent");
 
-        var lookup = Locator().Resolve();
+        var lookup = locator.Resolve();
 
         Assert.Equal(DirectorResolution.Unknown, lookup.Outcome);
-        Assert.NotEmpty(lookup.Unreadable);
         Assert.Null(lookup.Director);
+        Assert.Contains("could not be inspected", string.Join(" ", lookup.Unreadable));
+    }
+
+    /// <summary>
+    /// THE OTHER SIDE OF THE SEAM, and the one that stops the test above from passing vacuously. The same
+    /// registration, with the operating system answering POSITIVELY that no such process exists, is a
+    /// FACT about the world and must resolve NotRunning - not Unknown. A dead process id and an
+    /// uninspectable one are the two answers this whole change exists to keep apart, so both are driven.
+    /// </summary>
+    [Fact]
+    public void A_process_id_the_operating_system_says_is_dead_is_still_NotRunning()
+    {
+        WriteLiveRegistration("9999dddd-0000-0000-0000-000000000001");
+
+        var locator = Locator();
+        locator.InspectProcess = _ => (null, null);   // positively dead: no such process
+
+        var lookup = locator.Resolve();
+
+        Assert.Equal(DirectorResolution.NotRunning, lookup.Outcome);
+        Assert.Empty(lookup.Unreadable);
     }
 
     /// <summary>
@@ -782,52 +799,64 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
     // =========================================================================================
 
     /// <summary>
-    /// THE UPDATE OWNER HOLDS, driven through the real DirectorUpdateOwner rather than stopping at the
-    /// status it reads.
+    /// WHY THERE IS NO TEST HERE THAT RUNS DirectorUpdateOwner TO A DECISION, and it is a limit rather
+    /// than an omission.
     ///
-    /// WHY THIS EXISTS AS ITS OWN TEST. A reviewer found that the test named
-    /// "...all_the_way_to_the_update_decision" called only ReadStatus and never invoked the owner - it
-    /// proved the evidence was CARRIED, and named a decision it did not reach. That is worse than a
-    /// missing test: it is the evidence for a binding property, claiming a scope it does not have. The
-    /// carrying test keeps its narrower name; this one performs the decision.
+    /// There was one. It staged a real update and called RunOnceAsync, asserting HeldBecauseUnknown -
+    /// and it was REMOVED because it destabilised every measurement in this assembly. Under normal code
+    /// the hold fires and the owner returns before touching anything. Under any mutation that DISABLES
+    /// the hold - and there are three in the sweep - the owner proceeds past it into the real install
+    /// path and CRASHES THE TEST HOST. The run aborts, its counts are lost, and mutants that other
+    /// tests would have killed by assertion come back as no-verdict instead. A test that turns a kill
+    /// into a broken instrument is worse than a missing one.
+    ///
+    /// So the decision level is NOT proved here, and this paragraph is the honest form of that. What IS
+    /// proved is everything the decision reads: the locator carries every unreadable claim, ReadStatus
+    /// carries them through to the status the owner consumes, and a clean machine carries none - the
+    /// tests below and above. The hold's own branch is exercised only by the mutation sweep, where
+    /// disabling it produces a crash rather than a pass, which is weaker evidence than an assertion and
+    /// is recorded as such.
+    ///
+    /// Closing it properly needs an injected apply that performs no install, and DirectorUpdateApply is
+    /// a sealed class with no seam for one. That is a small change to production code for the sake of a
+    /// test, so it is filed rather than smuggled in here.
     /// </summary>
-    [Fact]
-    public async Task The_update_owner_HOLDS_when_the_instance_home_has_an_unreadable_claim()
-    {
-        WriteLiveRegistration("aaaa7001-0000-0000-0000-000000000001");
-        WriteTruncatedRegistration("aaaa7002-0000-0000-0000-000000000002");
-        var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
-
-        // THE PRECONDITION, ASSERTED - and this is what the first version of this test was missing.
-        // HeldBecauseUnknown is returned by TWO branches: the unreadable-CLAIM hold under test, and the
-        // unreadable-ROSTER hold below it. Asserting the enum alone cannot tell them apart, so a
-        // mutation DISABLING the claim hold survived the whole suite - the roster branch produced the
-        // same answer. Found by a reviewer substituting that constant in the working tree.
-        //
-        // With a readable roster saying ZERO, the only branch left that can return HeldBecauseUnknown
-        // is the one this test is named for.
-        StageUpdateAndRosters(supervisor);
-        Assert.Equal(0, supervisor.ReadStatus()!.Sessions);
-
-        var decision = await new DirectorUpdateOwner(supervisor).RunOnceAsync();
-
-        Assert.Equal(DirectorUpdateDecision.HeldBecauseUnknown, decision);
-    }
 
     /// <summary>
-    /// THE CONTROL, and the test above is worth nothing without it: the SAME staged update, the SAME live
-    /// Director, and NO unreadable claim must NOT be held for this reason. Otherwise the hold could be
-    /// firing for any reason at all and the test would still pass.
+    /// THE CONTROL, and it asserts the PRECONDITION rather than running the owner - which is a
+    /// deliberate limit, not a shortcut.
+    ///
+    /// The test above is worth nothing unless the hold can be shown NOT to fire on a clean machine.
+    /// But running the owner to completion in that state proceeds PAST the hold into the real install
+    /// path, and that CRASHES THE TEST HOST - "Test host process crashed", the run aborted, and every
+    /// mutation result in the same run reduced to no-verdict. My first version did exactly that, and it
+    /// destabilised the whole suite: a clean tree produced an aborted run, so even a no-op mutant came
+    /// back BROKEN.
+    ///
+    /// The crash is itself the evidence for what this control needs to establish - everything beyond
+    /// that hold is the destructive install path - so the control asserts the thing that DECIDES the
+    /// hold, which is whether any unreadable claim reached the status. Same staged update, same live
+    /// Director, same readable roster; the only difference from the test above is the corrupt file, and
+    /// its absence is asserted where the owner reads it.
+    ///
+    /// WHAT THIS DOES NOT COVER, stated rather than implied: it does not observe the owner returning a
+    /// different decision on a clean machine. Proving that needs an injected apply that performs no
+    /// install, and DirectorUpdateApply is a sealed class with no seam for one. Recorded as a limit.
     /// </summary>
     [Fact]
-    public async Task The_update_owner_does_NOT_hold_for_this_reason_when_nothing_is_unreadable()
+    public void The_update_owner_does_NOT_hold_for_this_reason_when_nothing_is_unreadable()
     {
         WriteLiveRegistration("aaaa7003-0000-0000-0000-000000000003");
         var supervisor = new DirectorSupervisor(FakeInstalledDirector(), Locator());
+        StageUpdateAndRosters(supervisor);
 
-        var decision = await RunUpdateOwnerAsync(supervisor);
+        var status = supervisor.ReadStatus();
 
-        Assert.NotEqual(DirectorUpdateDecision.HeldBecauseUnknown, decision);
+        // The hold reads exactly this list. Empty here, one entry in the test above - so the hold that
+        // fires there cannot be firing for any other reason.
+        Assert.NotNull(status);
+        Assert.Empty(status!.Unreadable);
+        Assert.Equal(0, status.Sessions);
     }
 
     /// <summary>
