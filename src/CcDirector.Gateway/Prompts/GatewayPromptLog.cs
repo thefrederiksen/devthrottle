@@ -184,17 +184,48 @@ public sealed class GatewayPromptLog
     }
 
     /// <summary>
-    /// Read every message in the inclusive UTC day range for ONE tenant, oldest first. Skips unparseable
-    /// lines rather than failing the whole read, so one bad line cannot hide a month of work.
+    /// Read every message in the inclusive UTC day range for ONE tenant, oldest first. A line the share tore
+    /// (devthrottle #2635) is recovered by <see cref="ReadDetailed"/>, so the record glued onto its tail is
+    /// returned rather than dropped; the torn-line statistics are available from that method.
     /// </summary>
     public IReadOnlyList<PromptRecord> Read(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+        => ReadDetailed(tenant, fromUtc, toUtc).Records.Select(r => r.Record).ToList();
+
+    /// <summary>
+    /// The text a torn line is split at: the start of the record the share glued onto the dead head.
+    /// The Gateway writes every record with <c>ts</c> as its first property, so this is where a record begins.
+    /// </summary>
+    private const string TornSplitMarker = "{\"ts\":\"";
+
+    /// <summary>
+    /// Read every message in the inclusive UTC day range for ONE tenant, oldest first, with the provenance of
+    /// each record (file name and line number) and the torn-line statistics.
+    ///
+    /// TORN LINES (devthrottle #2635, the Architect's ruling of 2026-09-01). The share can swallow a partial
+    /// append and glue the next record onto it, so one physical line holds a dead head followed by a whole
+    /// record. Such a line does not parse. It used to be SKIPPED, which silently dropped the glued-on record -
+    /// fifteen of them on one account's 2026-W36 alone. Now the line is split at the LAST occurrence of
+    /// <see cref="TornSplitMarker"/> and the tail is parsed: the tail is a RECOVERED record, the dead head is
+    /// one LOST record, and a tail that still does not parse is a second lost record. A marker at position
+    /// zero is no split (the whole line is the unparseable record): one lost record, nothing recovered. This
+    /// is exactly the rule the mentor's Python reference applies (tools/mentor/metrics.py
+    /// read_prompt_log_file in the internal repository), so the two readers count the same records.
+    ///
+    /// Line numbers count every physical line of the file, blank lines included, from 1 - the same numbering
+    /// the reference names a torn line by. A recovered record carries the torn line's own number.
+    /// </summary>
+    public PromptLogReadResult ReadDetailed(TenantId tenant, DateTime fromUtc, DateTime toUtc)
     {
-        var results = new List<PromptRecord>();
+        var records = new List<PromptLogLine>();
+        var torn = new List<PromptLogTornLine>();
+        var recovered = 0;
+        var lost = 0;
         var gate = GateFor(tenant);
         for (var day = fromUtc.Date; day <= toUtc.Date; day = day.AddDays(1))
         {
             var path = FileFor(tenant, day);
             if (!File.Exists(path)) continue;
+            var fileName = Path.GetFileName(path);
             string[] lines;
             try
             {
@@ -204,24 +235,62 @@ public sealed class GatewayPromptLog
             {
                 // Same reason as Append: the path itself names the tenant on hosted. The daily FILE name is
                 // safe and is what actually identifies which read failed.
-                FileLog.Write($"[GatewayPromptLog] Read FAILED for tenant={tenant.ToLogString()} file={Path.GetFileName(path)}: {Redact(ex.Message, tenant)}");
+                FileLog.Write($"[GatewayPromptLog] Read FAILED for tenant={tenant.ToLogString()} file={fileName}: {Redact(ex.Message, tenant)}");
                 continue;
             }
-            foreach (var line in lines)
+            for (var index = 0; index < lines.Length; index++)
             {
+                var line = lines[index];
+                var number = index + 1;
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                try
+                if (TryParseRecord(line, out var record))
                 {
-                    var record = JsonSerializer.Deserialize<PromptRecord>(line, JsonOpts);
-                    if (record is not null) results.Add(record);
+                    records.Add(new PromptLogLine(fileName, number, record));
+                    continue;
                 }
-                catch (JsonException ex)
+                torn.Add(new PromptLogTornLine(fileName, number));
+                var (tail, lostHere) = RecoverTornLine(line);
+                lost += lostHere;
+                if (tail is not null)
                 {
-                    FileLog.Write($"[GatewayPromptLog] Skipping unparseable line in {Path.GetFileName(path)}: {ex.Message}");
+                    recovered++;
+                    records.Add(new PromptLogLine(fileName, number, tail));
                 }
+                FileLog.Write($"[GatewayPromptLog] Torn line in {fileName}:{number}: {(tail is null ? "nothing recovered" : "one record recovered")}, {lostHere} lost (devthrottle #2635)");
             }
         }
-        return results;
+        return new PromptLogReadResult(records, torn, recovered, lost);
+    }
+
+    /// <summary>
+    /// Split a torn line at the last <see cref="TornSplitMarker"/> and parse the tail. Answers the recovered
+    /// record (or null) and how many records were lost: the dead head is always one; a tail that does not
+    /// parse is a second.
+    /// </summary>
+    private static (PromptRecord? Record, int Lost) RecoverTornLine(string line)
+    {
+        var cut = line.LastIndexOf(TornSplitMarker, StringComparison.Ordinal);
+        if (cut <= 0) return (null, 1);
+        return TryParseRecord(line.Substring(cut), out var record) ? (record, 1) : (null, 2);
+    }
+
+    private static bool TryParseRecord(string text, out PromptRecord record)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<PromptRecord>(text, JsonOpts);
+            if (parsed is not null)
+            {
+                record = parsed;
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            // Not a record: the caller treats the line as torn.
+        }
+        record = null!;
+        return false;
     }
 
     /// <summary>
@@ -333,3 +402,17 @@ public sealed class GatewayPromptLog
         return files;
     }
 }
+
+/// <summary>One record of the prompt log with where it came from: the daily file's name and its 1-based line.</summary>
+public sealed record PromptLogLine(string FileName, int LineNumber, PromptRecord Record);
+
+/// <summary>A physical line the share tore (devthrottle #2635), by file name and 1-based line number.</summary>
+public sealed record PromptLogTornLine(string FileName, int LineNumber);
+
+/// <summary>What <see cref="GatewayPromptLog.ReadDetailed"/> answers: the records with their provenance, the torn
+/// lines, and how many records the recovery gave back and how many were lost.</summary>
+public sealed record PromptLogReadResult(
+    IReadOnlyList<PromptLogLine> Records,
+    IReadOnlyList<PromptLogTornLine> TornLines,
+    int Recovered,
+    int Lost);
