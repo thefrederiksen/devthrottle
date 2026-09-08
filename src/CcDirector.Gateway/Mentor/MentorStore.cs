@@ -51,6 +51,24 @@ public sealed class MentorSessionRow
     public List<object?>? Branches { get; init; }
     public List<object?>? PullRequests { get; init; }
     public List<object?>? Commits { get; init; }
+
+    /// <summary>One entity with its five JSON array columns parsed; a column that is not null and not a JSON
+    /// array stops the run naming the row and the column.</summary>
+    public static MentorSessionRow Parse(SessionHistoryEntity row)
+    {
+        if (string.IsNullOrEmpty(row.SessionId))
+            throw new MentorDataException("Missing SessionId on a session_history row.");
+        var where = "session_history row " + row.SessionId;
+        return new MentorSessionRow
+        {
+            Entity = row,
+            WhatWasBuilt = MentorReaders.JsonArrayColumn(row.WhatWasBuiltJson, where + " WhatWasBuiltJson"),
+            LeftUnverified = MentorReaders.JsonArrayColumn(row.LeftUnverifiedJson, where + " LeftUnverifiedJson"),
+            Branches = MentorReaders.JsonArrayColumn(row.BranchesJson, where + " BranchesJson"),
+            PullRequests = MentorReaders.JsonArrayColumn(row.PullRequestsJson, where + " PullRequestsJson"),
+            Commits = MentorReaders.JsonArrayColumn(row.CommitsJson, where + " CommitsJson"),
+        };
+    }
 }
 
 /// <summary>One dictation transcript as <c>metrics.load_transcripts</c> keeps it.</summary>
@@ -114,6 +132,7 @@ public sealed class MentorStore
     private List<MentorEvent>? _events;
     private List<MentorTranscript>? _transcripts;
     private Dictionary<string, MentorSessionRow>? _rows;
+    private MetricsWorld? _world;
     private readonly Dictionary<string, WeekData> _weekData = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Session, string Day), List<TurnLogRecord>> _turnLog = new();
 
@@ -254,6 +273,32 @@ public sealed class MentorStore
         }
     }
 
+    // ---------------------------------------------------------------- the metrics side
+
+    /// <summary>
+    /// The metrics world (<c>store.world()</c>): the reference's <c>metrics.load_world</c> over the same reads
+    /// the tools use - the classified records, the raw session rows through the metrics reader's rules, the
+    /// events, the transcripts, the torn-line statistics and the source ends - built once.
+    /// </summary>
+    public MetricsWorld World()
+    {
+        lock (_gate)
+        {
+            if (_world is not null) return _world;
+            FileLog.Write($"[MentorStore] World: building the metrics world of tenant={Tenant.ToLogString()}");
+            var read = PromptLog();
+            var sessions = RawRows().Values.Select(MetricsSession.FromRow).ToList();
+            _world = new MetricsWorld(Label, Zone, Records(), TornLines(), read.Recovered, read.Lost, sessions, Events(), Transcripts(), SourceEnds);
+            FileLog.Write($"[MentorStore] World: tenant={Tenant.ToLogString()} prompts={_world.Prompts.Count} sessions={_world.Sessions.Count} events={_world.Events.Count} transcripts={_world.Transcripts.Count}");
+            return _world;
+        }
+    }
+
+    /// <summary>One ISO week of the world (<c>store.week(iso_week)</c>), under this store's business hours.</summary>
+    public MetricsWeek Week(string isoWeek) => new(World(), isoWeek, Hours);
+
+    // ---------------------------------------------------------------- the packet side
+
     public WeekData WeekDataFor(string isoWeek)
     {
         lock (_gate)
@@ -277,16 +322,7 @@ public sealed class MentorStore
         {
             if (string.IsNullOrEmpty(row.SessionId))
                 throw new MentorDataException("Missing SessionId on a session_history row.");
-            var where = "session_history row " + row.SessionId;
-            parsed[row.SessionId] = new MentorSessionRow
-            {
-                Entity = row,
-                WhatWasBuilt = MentorReaders.JsonArrayColumn(row.WhatWasBuiltJson, where + " WhatWasBuiltJson"),
-                LeftUnverified = MentorReaders.JsonArrayColumn(row.LeftUnverifiedJson, where + " LeftUnverifiedJson"),
-                Branches = MentorReaders.JsonArrayColumn(row.BranchesJson, where + " BranchesJson"),
-                PullRequests = MentorReaders.JsonArrayColumn(row.PullRequestsJson, where + " PullRequestsJson"),
-                Commits = MentorReaders.JsonArrayColumn(row.CommitsJson, where + " CommitsJson"),
-            };
+            parsed[row.SessionId] = MentorSessionRow.Parse(row);
         }
         _rows = parsed;
         return _rows;
