@@ -95,6 +95,13 @@ Details, in this order, and only when they apply:
 sentence, never the second. Write a test that pins exactly that, because it is the single most
 likely thing to be got wrong later.
 
+**The short identifier.** A GUID shortens to its first eight characters, the way this fleet writes a
+session identifier everywhere else. **Anything else passes through whole.** The not-on-this-fleet
+case is reached exactly when the caller typed something no session matched, and that is often a NAME:
+truncating it would print `nothing in this account carries the id Stop a s`, which reads as a
+corrupted answer rather than an honest one. Test both shapes. The same note is on `ShortId` in
+`SessionStopDtos.cs`.
+
 Plain English, no abbreviations - it is a house rule, and these strings are the product's own words.
 
 ### 6. The allow list - item 5

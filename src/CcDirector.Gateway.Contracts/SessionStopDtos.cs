@@ -93,7 +93,16 @@ public sealed class SessionStopResponse
     /// <summary>The session identifier the stop was asked for, exactly as the caller gave it.</summary>
     public string SessionId { get; set; } = "";
 
-    /// <summary>The short form of that identifier, as it appears in the headline.</summary>
+    /// <summary>
+    /// The short form of that identifier, as it appears in the headline.
+    ///
+    /// A GUID shortens to its first eight characters, which is how this fleet writes a session
+    /// identifier everywhere else. ANYTHING ELSE IS PASSED THROUGH WHOLE. The not-on-this-fleet case
+    /// is reached precisely when the caller typed something no session matched, and that is often a
+    /// NAME rather than an identifier - truncating it to eight characters would print "nothing in
+    /// this account carries the id Stop a s", which reads as a corrupted answer rather than an
+    /// honest one.
+    /// </summary>
     public string ShortId { get; set; } = "";
 
     /// <summary>The agent process id found before the stop, or null.</summary>
