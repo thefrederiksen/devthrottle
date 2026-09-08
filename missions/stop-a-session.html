@@ -164,20 +164,35 @@ confirm anything is to keep re-reading <code>session list</code> and inferring.<
 <p>These are the questions that decide the shape of the feature. They are answered once, in writing, on
 this document - not discovered three times over in three different seats.</p>
 
-<p><strong>Two of the six are now settled by the owner</strong>, on 8 September 2026, and are marked as such
-below with what he decided and why. Nobody reopens those - not the Architect, not a Manager, not a seat that
-thinks it has found a better shape. The remaining four belong to the Architect, which settles them in this
-document before any seat starts work.</p>
+<p><strong>All six are now settled.</strong> Two were settled by the owner on 8 September 2026 - Rulings 2 and
+4 - and are marked as such below with what he decided and why. The other four were settled by the Architect on
+the same day, before any seat started work, and each says what it would cost if it turns out to have been
+decided wrongly. <strong>Nobody reopens any of them</strong> - not the Architect, not a Manager, not a seat
+that thinks it has found a better shape. A ruling that turns out to be wrong comes back to the Architect and
+is changed here, in this one document, and nowhere else.</p>
 
-<div class="rule">
-  <p class="q">Ruling 1</p>
+<div class="rule settled">
+  <p class="q">Ruling 1 &middot; settled by the Architect, 8 September 2026</p>
   <h3>Is stopping a session one verb or two?</h3>
-  <p>There are genuinely two behaviours: let the current turn finish and then remove the session, versus
-  end the process now. The choice is whether those are two named commands, or one command with a
-  <code>--force</code> flag.</p>
-  <p class="why"><strong>Why it matters:</strong> DevThrottle's own rule is one word per idea and one idea per
-  word. A flag hides the single most consequential decision - whether work in flight survives - behind
-  something an operator forgets to type under pressure, which is exactly when this command gets used.</p>
+  <p class="decided"><b>One verb, and no flag that changes what it does.</b>
+  <code>cc-devthrottle session stop &lt;session&gt; --reason "why"</code> ends the agent process now. There is
+  no <code>--force</code>, because there is nothing left for it to mean.</p>
+  <p>The document assumed two behaviours needing two names. Checked against the code, the polite one already
+  has a name and it is not new: <code>session done</code> flags the session, and the owning Director's reaper
+  removes it once it has stopped working. That IS "let the current turn finish, then remove the session", it
+  ships today, and section 7 keeps it. The behaviour with no name is the immediate one - so this mission adds
+  exactly one word, for exactly one missing idea.</p>
+  <p>Nor is there anything for a force flag to select. The path that ends a session already escalates on its
+  own: it signals the agent first and forces the process after a short grace. A <code>--force</code> would
+  therefore be either a lie about a decision already taken, or a second, slower kind of stop that the operator
+  has to remember to ask for. The mission's own warning fits it exactly - a flag hides the consequential
+  decision behind something you forget to type under pressure.</p>
+  <p><strong>What the seat builds:</strong> one command, <code>session stop</code>.
+  <code>--reason</code> is required by Ruling 4 and is not a mode: it changes nothing about what happens, only
+  what is recorded.</p>
+  <p class="why"><strong>What it costs if this is decided wrongly:</strong> an operator who wanted the turn to
+  finish first types <code>session done</code> instead, which is the command for that and always was. Nothing
+  is lost and nothing has to be rebuilt - the mistake would be one word, not one architecture.</p>
 </div>
 
 <div class="rule settled">
@@ -200,15 +215,33 @@ document before any seat starts work.</p>
   stop is the one doing the wrong work - which is exactly when its tree is dirty.</p>
 </div>
 
-<div class="rule">
-  <p class="q">Ruling 3</p>
+<div class="rule settled">
+  <p class="q">Ruling 3 &middot; settled by the Architect, 8 September 2026</p>
   <h3>What happens when you stop something that is already stopped?</h3>
-  <p>The command has to succeed quietly. It also has to handle the halfway states: the process is gone but
-  the row is still in the list, or the row is gone but the process is still running.</p>
-  <p class="why"><strong>Why it matters:</strong> the first thing an operator does when a command seems not to
-  have worked is run it again. If the second run returns an error, the tool has just told them the
-  session is still alive when it is not - the same failure of trust the mission exists to fix.
-  Reconciling the process against the row is most of the real work here.</p>
+  <p class="decided"><b>A stop never fails because there is nothing left to stop.</b> Every "it is not running
+  any more" case succeeds, and the answer names which of them it found. Exactly three things are failures: no
+  reason was given, the owning Director could not be reached, and the process would not die.</p>
+  <p>The answer carries one verdict word and the facts behind it:</p>
+  <ul>
+    <li><b>stopped</b> - a process was running, it was ended, and the row was removed.</li>
+    <li><b>already stopped</b> - no process was running. If a row was still sitting in the list it has been
+    removed, and the answer says so in those words: clearing a leftover row is a thing that HAPPENED, and an
+    operator who is not told will keep looking for it.</li>
+    <li><b>not on this fleet</b> - no session in the account carries that identifier. Still a success, still
+    exit code zero, and worded as an answer rather than as an error.</li>
+  </ul>
+  <p><strong>Where the reconciling happens, and where it honestly cannot.</strong> The row and the process are
+  both facts held by ONE machine - the Director that owns the session - so that is where they are compared, and
+  that Director is asked to stop the session whether or not it still has a row for it. The opposite halfway
+  state, a live process with no row anywhere, is answered honestly rather than hunted: with no row there is no
+  machine to address, so the answer says that nothing on the fleet carries that identifier AND says that no
+  machine's processes were searched. This mission does not build a fleet-wide process hunt. Inventing one is
+  the fourth seat section 7 exists to prevent.</p>
+  <p class="why"><strong>What it costs if this is decided wrongly:</strong> the failure being designed out is a
+  second run returning an error, which an operator reads as "it is still alive". Erring the other way - saying
+  "it is gone" when it is not - is the worse mistake, and it is why the verdict keeps <b>already stopped</b> (a
+  machine was asked, and it looked) apart from <b>not on this fleet</b> (no machine was asked). Those two must
+  never be folded into one word.</p>
 </div>
 
 <div class="rule settled">
@@ -229,27 +262,53 @@ document before any seat starts work.</p>
   if it becomes a problem, we deal with it differently then.</p>
 </div>
 
-<div class="rule">
-  <p class="q">Ruling 5</p>
+<div class="rule settled">
+  <p class="q">Ruling 5 &middot; settled by the Architect, 8 September 2026</p>
   <h3>Where the control lives, and what it says back</h3>
-  <p>The command line is the first surface, but the Director window and the Cockpit both show a live
-  session and neither can end one. Whatever is built has to answer in words: the process was ended, or it
-  was already gone, or it could not be ended and here is why.</p>
-  <p class="why"><strong>Why it matters:</strong> the original complaint was as much about the silence as about
-  the missing verb. A stop control that accepts the click and says nothing reproduces the defect in a
-  nicer font.</p>
+  <p class="decided"><b>Three surfaces, one route, and one sentence written in one place.</b> The Gateway folds
+  the answer; every surface renders it verbatim. No surface composes a sentence of its own, and no surface ends
+  a session by any path but the shared one.</p>
+  <p>The Gateway returns the verdict word of Ruling 3, the finished headline an operator reads, whatever
+  further lines the case needs - the worktree sentence Ruling 2 requires, and the reason as it was recorded -
+  and the plain facts underneath them: the process identifier, whether the process was ended, whether a row was
+  removed, which worktree the session held and whether it had uncommitted changes in it, the reason, and who
+  stopped it. The command line prints those strings. The Cockpit shows those strings. The Director window shows
+  those strings. This is the house rule that the Gateway owns all ruling and the client is dumb, applied to a
+  new verb rather than argued about again.</p>
+  <p><strong>What the seats build:</strong> the command line gets
+  <code>session stop &lt;session&gt; --reason "why"</code>. The Cockpit gets a Stop action on the session row
+  that asks for the reason and then calls the route. The Director window gets the same, and its existing
+  close-this-session control is re-pointed at that route rather than left beside it as a second way out.</p>
+  <p><strong>The cost of that last sentence, stated rather than buried.</strong> Re-pointing the Director
+  window's close means ending a session on your own machine now goes through the Gateway. That is a real new
+  dependency and it is taken deliberately: a local stop that quietly worked without the Gateway would be a stop
+  with no recorded reason, which is the one thing Ruling 4 makes mandatory, and a silent second path is how
+  clients come to describe the same event two different ways. If it proves painful in daily use, the fix is to
+  let the Director hold the reason and forward it - never to bring back a silent local kill. Shutting the whole
+  Director down closes its sessions by its own path, and this mission does not touch that.</p>
+  <p class="why"><strong>What it costs if this is decided wrongly:</strong> the failure being designed out is a
+  button that accepts a click and says nothing - and its cousin, two surfaces that end a session two different
+  ways and then describe it in two different sentences. One fold and one route means a new state is one edit,
+  not three.</p>
 </div>
 
-<div class="rule">
-  <p class="q">Ruling 6</p>
+<div class="rule settled">
+  <p class="q">Ruling 6 &middot; settled by the Architect, 8 September 2026</p>
   <h3>What happens to a flag that was set by mistake?</h3>
-  <p><code>session done</code> cannot be un-flagged from a command line - though, as section 3 records, the
-  route and the Director verb that would do it are already built and only lack a way to be called. Once the
-  verbs above are settled, the question is
-  whether the fix for a wrong flag is to clear it, or whether being able to stop the session outright
-  makes clearing it unnecessary.</p>
-  <p class="why"><strong>Why it matters:</strong> deciding this now is what keeps the mission from growing a
-  fourth seat later.</p>
+  <p class="decided"><b>Clear it. Being able to stop a session outright does not make clearing unnecessary -
+  the two are opposites.</b> <code>cc-devthrottle session done --undo</code> takes the flag back off.</p>
+  <p>The alternative on the table was to leave a wrong flag alone, on the grounds that the operator can now
+  stop the session instead. That has it backwards. <code>session done</code> is the POLITE path, and the cure
+  for asking politely about the wrong session cannot be to kill that session outright - it would make the only
+  remedy for a typo the most destructive act the product has. A flag comes off the way it went on.</p>
+  <p><strong>It adds no seat.</strong> As section 3 records, the Gateway route and the Director verb behind it
+  are already built and already tested; what is missing is the allow-list entry and a command that calls them.
+  Both are the same file and the same shape as work Seat 2 is doing anyway, so Ruling 6 lands inside Seat 2. No
+  reason is required to clear a flag: Ruling 4 asks for a reason because stopping is destructive, and this is
+  the safe direction.</p>
+  <p class="why"><strong>What it costs if this is decided wrongly:</strong> very little either way, which is
+  exactly why it is settled here in one paragraph instead of being allowed to grow into a fourth seat later.
+  The expensive outcome was never the decision - it was leaving it open.</p>
 </div>
 
 <h2>5. The work, in three seats</h2>
