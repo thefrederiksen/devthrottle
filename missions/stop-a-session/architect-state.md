@@ -10,7 +10,7 @@ session's conversation.
 |---|---|
 | Mission document | `missions/stop-a-session.html` (all six rulings settled) |
 | Issue | thefrederiksen/devthrottle #2633 |
-| Mission id on the Gateway | `164bc027-7c30-4091-8e95-a4b7e0bb5af4` |
+| Mission id on the Gateway | `e1141592` - "You can start a session - you have to be able to stop one", the one the owner seeded |
 | Branch | `mission/stop-a-session` |
 | Worktree | `C:\ReposFred\devthrottle-stop-a-session`, cut from `origin/main` at `6710a86c` |
 | Conduct | `cc-devthrottle workflow instructions mission` - not restated here |
@@ -89,6 +89,7 @@ stop a session with a reason attached.**
 
 ## Running log
 
-- **8 Sep 2026** - Architect seated. Mission created on the Gateway. Worktree confirmed clean at
+- **8 Sep 2026** - Architect seated. A second Mission was created here by mistake and then removed;
+  every seat attaches to the seeded Mission `e1141592`. Worktree confirmed clean at
   `origin/main` `6710a86c`. Rulings 1, 3, 5 and 6 settled in the mission document. Code facts above
   established and the two document errors corrected.
