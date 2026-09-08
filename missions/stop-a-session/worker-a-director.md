@@ -30,9 +30,27 @@ they carry the reasoning, and the `WorktreeHadUncommittedChanges` comment is loa
 
 2. **Capture the facts BEFORE the stop**, from the session if there is a row for it:
    - `ProcessId` = the agent process id, or null when the session held none (`ProcessId <= 0`).
-   - whether a LIVE process was there. `Session` has no `HasExited` today - add one that reads
-     `_backend.HasExited` (the backend interface already declares it). A live process means: a row
-     exists, `ProcessId > 0`, the backend has not exited, and `Status` is not `Exited` or `Failed`.
+   - whether a LIVE process was there. **CORRECTED BY THE MANAGER - do not use `_backend.HasExited`
+     for this.** An earlier version of this brief said to. It is wrong: `ISessionBackend.HasExited`
+     is documented as "the process has exited", but only `ConPtyBackend` and `UnixPtyBackend`
+     implement it that way. `PipeBackend`, `StudioBackend` and `GitHubActionsBackend` all return
+     `_disposed`, which is a different fact entirely, so on three of the five backends it would
+     answer "has exited" purely on whether somebody had disposed the object.
+
+     **Ask the operating system about the process id instead.** That is backend-independent, it is
+     the same fact the mission's own report has to photograph ("the machine itself showing that
+     process id no longer exists"), and the repository already has the pattern with its reasoning
+     written down: `LauncherDiscovery.IsRunning` in `src/CcDirector.Core/Configuration/` -
+     `Process.GetProcessById(pid)`, catching `ArgumentException` as "no such process". Follow it,
+     including its rule that identity which cannot be checked must not pass for health.
+
+     So a LIVE process means: a row exists, `ProcessId > 0`, and the operating system says that
+     process exists right now.
+
+     **Inject that existence check as a delegate**, the way the git probe is injected, so the tests
+     can drive every branch without starting real processes. Note pid reuse in a comment: between the
+     capture and the re-check the number could in principle belong to something else. It is a
+     vanishingly small window and the honest thing is to name it, not to pretend it is closed.
    - `WorktreePath` = the worktree or repository the session held (`Session.WorkingDirectory`, and
      say in a comment why you chose it over `RepoPath` if they differ).
    - `WorktreeHadUncommittedChanges`, via `GitStatusProvider.GetCountAsync` in
@@ -54,10 +72,10 @@ they carry the reasoning, and the `WorktreeHadUncommittedChanges` comment is loa
    best-effort catch. Do not change the escalation. Four existing tests pin that window; they must
    all still pass untouched.
 
-5. **After the kill, check again.** `ProcessEnded` = a live process was found AND the backend now
-   reports it exited. If a live process was found and it is STILL not exited, that is Ruling 3's
-   third failure - "the process would not die" - so return `DirectorCommandStatus.Error` with a
-   message that says exactly that and names the process id. Do not report it as a success.
+5. **After the kill, ask the operating system again.** `ProcessEnded` = a live process was found AND
+   that process id no longer exists. If a live process was found and it is STILL there, that is
+   Ruling 3's third failure - "the process would not die" - so return `DirectorCommandStatus.Error`
+   with a message that says exactly that and names the process id. Do not report it as a success.
 
 6. **Remove the row** as today. `RowRemoved` = a row WAS present and this removed it.
 
