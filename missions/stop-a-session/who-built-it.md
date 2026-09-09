@@ -1,0 +1,114 @@
+# Who built this - the seats the mission ran through
+
+**The owner asked for this, on 9 September 2026, while Phase C was running:** the QA report is to
+show the sessions that were involved in building, fixing and implementing this feature, and how many
+there were. This file is the establishable answer, written by the Phase C Manager so the QA seat can
+render it rather than reconstruct it.
+
+**A note on the words, because they matter here.** A **session** is one running coding agent. An
+**agent** is the tool that session runs - Claude Code, Codex. A **mission** is why the work exists
+and who is on it together. So the count below is a count of SESSIONS, and the agent column says which
+tool each one ran. Calling a session an agent is what makes a roster like this unreadable a month
+later.
+
+---
+
+## The count
+
+**Fifteen sessions**, across six phases, running two agent families.
+
+| Agent family | Sessions | Which |
+|---|---|---|
+| Claude Code | 14 | Every builder, manager, architect and the quality seat |
+| Codex | 1 | The Inspector, deliberately - see below |
+
+The single Codex seat is not an accident of availability. Law 3 of this fleet's mission workflow
+requires that the seat which inspects the work comes from a **different agent family** to the seats
+that wrote it, because an agent reviewing its own family's work shares too much of its judgement to
+be a check on it. That one session found eight real defects, four of them severity one, in a branch
+whose builders had all reported green.
+
+---
+
+## The roster, in the order the seats existed
+
+| # | Phase | Seat | Session | Agent | What it did |
+|---|---|---|---|---|---|
+| 1 | Design | Architect | `e66d53fb` | Claude Code | Owns the mission. Settled Rulings 1, 3, 5 and 6 in writing before any code was written, corrected two factual errors in the mission document, ruled on every phase report and on the inspection, and is the only seat that may land anything on `main`. Live throughout; it does not build. |
+| 2 | A | Manager | `ee59e5d0` | Claude Code | Drove Seats 1 and 2 - the Director's honest answer and the command line. Caught its own two brief defects mid-flight, and demanded the parked suite run that exposed a cross-tenant isolation regression. |
+| 3 | A | Worker A | not recorded | Claude Code | Rewrote `SessionCommandExecutor.KillAsync` to answer a structured verdict instead of two booleans. |
+| 4 | A | Worker B | not recorded | Claude Code | Built `POST /sessions/{sid}/stop`, the fold that writes every sentence, the refusal, the allow-list entries and the audit record. |
+| 5 | A | Worker C | not recorded | Claude Code | Built `cc-devthrottle session stop` and `session done --undo`. |
+| 6 | B | Manager | `578d8e29` | Claude Code | Drove Seat 3 - the controls - and stood up a local Gateway and Director to close the end-to-end gap: a real session, a real process, really stopped. |
+| 7 | B | Worker D | not recorded | Claude Code | The shared stop function, the Cockpit control and the phone control. |
+| 8 | B | Worker E | not recorded | Claude Code | The Director window's close, re-pointed at the stop route with a dialog that says what happened. |
+| 9 | Inspection | Inspector | not recorded | **Codex** | Read the whole 62-file branch diff adversarially, reproduced rather than asserted, and found eight defects. Never fixed anything - an inspector who picks up a hammer stops being one. |
+| 10 | C | Manager | `e7ea69df` | Claude Code | Rebased the stale branch onto fresh `origin/main`, split the eight findings across four Workers on disjoint files, and verified their proofs rather than accepting them. |
+| 11 | C | Worker F | `4c74ebdf` | Claude Code | Findings I2 and I3 - liveness that cannot be read is neither alive nor gone, and a backend with no process identifier is not an absent process. |
+| 12 | C | Worker G | `53e4e96f` | Claude Code | Finding I1 - a completed stop that the caller hung up on must still leave an audit row. |
+| 13 | C | Worker H | `a881e597` | Claude Code | Findings I4, I7 and I8 - the answer a two-second poll deleted, the busy guard that was only on the button, and the phone failure rendered outside its own modal. |
+| 14 | C | Worker I | `6529c15f` | Claude Code | Findings I5 and I6 - clients that turned an unknown outcome into a definite one, and a session name with a slash in it that stopped routing. |
+| 15 | QA | Quality seat | `9997554e` | Claude Code | Did not build the feature. Repeats the local stack recipe independently and writes the report this mission exists to produce. |
+
+**The owner is not on this list and should not be.** He is not a session. He settled Rulings 2 and 4 -
+whether a stop may destroy uncommitted work, and who is allowed to stop whom - on 8 September 2026,
+and was then left alone, which is what the workflow's first law is for.
+
+### How the seats relate
+
+    Owner - two rulings, then left alone
+      |
+      Architect  e66d53fb  ......... holds the design, lands the work, never builds
+        |
+        +-- Phase A Manager  ee59e5d0
+        |     +-- Worker A, Worker B, Worker C
+        |
+        +-- Phase B Manager  578d8e29
+        |     +-- Worker D, Worker E
+        |
+        +-- Inspector (Codex) ....... a different family, on purpose
+        |
+        +-- Phase C Manager  e7ea69df
+        |     +-- Worker F, Worker G, Worker H, Worker I
+        |
+        +-- QA seat  9997554e ....... did not build it, so it can photograph it
+
+Six of those fifteen were Workers on a single task each; five have been or will be flagged for
+deletion the moment their work was verified, which is why a Manager is a delivery vehicle and not a
+resident.
+
+---
+
+## What could NOT be established, and it is a finding rather than a shrug
+
+**Six of the fifteen sessions cannot be named by their identifier.** Workers A, B, C, D and E and the
+Codex Inspector all finished, reported, and were flagged for deletion. Their work is fully recorded -
+each has a brief and a notes file in this folder - but none of those files records the identifier of
+the session that wrote it, and once a session is reaped it leaves the fleet list.
+
+Two things were tried and neither closed it:
+
+- **The Director's own logs.** 337 log files on this machine, and not one carries the session names
+  for this mission. They cannot answer it.
+- **The Gateway's session history store.** It exists, it keeps records of ended sessions, and
+  `GET /history/sessions` serves them. **A session's own key is refused on that route - 403.** So a
+  session cannot enumerate the seats that worked on its own mission, which is precisely the question
+  the owner asked.
+
+**Two things follow, and both are cheap.**
+
+1. **A seat writes its own session identifier at the top of its notes file.** Every notes file in
+   this folder opens with what the seat built; none opens with who it was. One line, written by the
+   seat that already knows the answer, and this whole reconstruction becomes a read. The Phase C
+   Workers have been told to do it, so entries 11 to 14 above will be verifiable from the record
+   rather than from a live fleet list that empties.
+2. **Whether an agent's key should be able to read session history is a real question, and it is
+   adjacent to this mission rather than inside it.** Ruling 4 opened the allow list for the stop
+   because the owner judged the flexibility worth it and the trail sufficient. Reading the history of
+   sessions that have ended is a different and much safer act than ending a live one. It is not this
+   mission's to decide and it is not being decided here - it is recorded so that somebody decides it
+   on purpose rather than discovering it the next time a report needs a roster.
+
+Everything else in the table above is established from the mission's committed record: the phase
+reports, the briefs, the notes files, the Architect's state note, and the live fleet list for the
+seats that are still seated.

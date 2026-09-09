@@ -128,3 +128,14 @@ Four Workers and a QA seat are all committing to `mission/stop-a-session`. Befor
 force-push on this branch deletes somebody else's commit, and it has already happened once this
 phase. If a rebase conflicts in a file you were told not to touch, stop and tell your manager rather
 than resolving it.
+
+## Put your own session identifier at the top of your notes file
+
+Open `worker-<letter>-notes.md` with one line naming the session identifier you are running as
+(`cc-devthrottle session whoami` prints it), your seat letter, and which agent you are.
+
+This is not bookkeeping. The owner has asked that the mission's report show every session that
+worked on this feature, and **six of the fifteen seats cannot be named** because they finished, were
+reaped, and never wrote their own identifier down anywhere. The Director's logs do not carry it and
+a session key is refused on the Gateway's session-history route. One line from you, now, is the
+whole fix. See `missions/stop-a-session/who-built-it.md`.
