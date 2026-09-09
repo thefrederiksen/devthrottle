@@ -157,6 +157,36 @@ describe("the Cockpit stop dialog asks for the reason before it acts", () => {
     );
   });
 
+  // Enter is the path the disabled button cannot cover: a disabled control never fires a click, so the
+  // "it sends nothing" rule on an empty box is only really exercised through the keyboard.
+  it("sends the stop when Enter is pressed with a reason in the box", async () => {
+    stopSessionMock.mockResolvedValue(answer());
+    render(<SessionMenu session={session()} />);
+    openStopDialog();
+    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
+    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+
+    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledWith(
+      "9c41e7a2-0000-4000-8000-000000000000",
+      "spawned into the wrong mode",
+    ));
+  });
+
+  it("sends nothing when Enter is pressed with an empty box", () => {
+    render(<SessionMenu session={session()} />);
+    openStopDialog();
+    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    expect(stopSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when Enter is pressed with only whitespace", () => {
+    render(<SessionMenu session={session()} />);
+    openStopDialog();
+    fireEvent.change(reasonBox(), { target: { value: "   " } });
+    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    expect(stopSessionMock).not.toHaveBeenCalled();
+  });
+
   it("trims the reason it sends, so leading and trailing space is not recorded as the reason", async () => {
     stopSessionMock.mockResolvedValue(answer());
     render(<SessionMenu session={session()} />);

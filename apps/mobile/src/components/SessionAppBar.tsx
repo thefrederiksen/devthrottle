@@ -261,6 +261,9 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
               className="confirm-input"
               value={stopReason}
               onChange={(e) => setStopReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void onConfirmStop();
+              }}
               placeholder="Spawned into the wrong mode"
               autoFocus
             />

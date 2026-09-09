@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   getHandover,
@@ -58,6 +58,10 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   // screen, because clearing it is what the old Close did the instant the call returned.
   const [stopReason, setStopReason] = useState("");
   const [stopOutcome, setStopOutcome] = useState<SessionStopOutcome | null>(null);
+  // Every rail card renders its own copy of this menu, so the reason box needs an identifier unique to
+  // this one - a fixed string would repeat in the document as soon as two cards had a dialog open, and
+  // a label would then point at the wrong box.
+  const stopReasonId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
@@ -438,12 +442,12 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
                   Stop <strong>{session.name || sid}</strong>? This ends the session on its machine and
                   removes it from the roster. Files in its worktree are left exactly as they are.
                 </p>
-                <label className="session-dialog-label" htmlFor="session-stop-reason">
+                <label className="session-dialog-label" htmlFor={stopReasonId}>
                   Why are you stopping it? A reason is required, and it is recorded with the stop so
                   anyone reading the trail later knows what happened.
                 </label>
                 <input
-                  id="session-stop-reason"
+                  id={stopReasonId}
                   className="session-dialog-input"
                   value={stopReason}
                   onChange={(e) => setStopReason(e.target.value)}
