@@ -61,15 +61,33 @@ Everything below assumes these two paths. Substitute your own throughout:
 Detached, so it does not fight the checked-out mission branch. To repeat this against a LATER tip,
 cut it again from the new commit - do not build from a tree that is behind.
 
-## 2. Publish the Gateway from that worktree
+## 2. Publish the Gateway from that worktree - IN RELEASE, or you get no Cockpit
 
 The `CcDirector.Gateway` project is the local development console host. It runs byte-identical
 startup logic to the hosted container host (`GatewayEntryPoint`), and it takes `--port`.
 
     cd C:\ReposFred\devthrottle-stack
-    dotnet publish src\CcDirector.Gateway\CcDirector.Gateway.csproj -c Debug -o C:\ReposFred\devthrottle-stack\_stack\gateway
+    dotnet publish src\CcDirector.Gateway\CcDirector.Gateway.csproj ^
+      -c Release -m:1 ^
+      -p:RunMobileBuild=true -p:RunCockpitBuild=true -p:RunWorkspaceTypecheck=true ^
+      -o C:\ReposFred\devthrottle-stack\_stack\gateway-release
 
-Roughly four minutes on a warm machine.
+Roughly five minutes on a warm machine.
+
+**The configuration is not a detail, and getting it wrong costs the report two of its frames.** The
+Cockpit and the phone are built by MSBuild targets that only run in Release (or when those three
+properties are passed), and they are what put `wwwroot\c` and `wwwroot\mobile` beside the executable.
+A Debug publish produces a Gateway that serves the fleet perfectly well and has **no Cockpit and no
+phone at all** - `GET /mobile` answers 404. That was the first thing this recipe got wrong; see the
+table at the end.
+
+`-m:1` keeps the node work serialized: every one of those targets drives the one shared
+`node_modules` at the workspace root, and two of them at once corrupt it.
+
+Check the assets landed before going on - an absent file is the whole failure, and it is silent:
+
+    dir C:\ReposFred\devthrottle-stack\_stack\gateway-release\wwwroot\c\index.html
+    dir C:\ReposFred\devthrottle-stack\_stack\gateway-release\wwwroot\mobile\index.html
 
 ## 3. Run the Gateway on its own port and its own storage root
 
@@ -78,7 +96,7 @@ Write `C:\ReposFred\devthrottle-stack\_stack\run-gateway.cmd`:
     @echo off
     set CC_DIRECTOR_ROOT=C:\ReposFred\devthrottle-stack\_stack\gateway-root
     set CC_GATEWAY_NO_TAILSCALE=1
-    "C:\ReposFred\devthrottle-stack\_stack\gateway\CcDirector.Gateway.exe" --port 7997
+    "C:\ReposFred\devthrottle-stack\_stack\gateway-release\CcDirector.Gateway.exe" --port 7997
 
 `CC_DIRECTOR_ROOT` is what keeps this Gateway's whole data tree - its database, its token, its
 registrations - inside the scratch area. `CcStorage` honours it, and every Gateway store resolves
@@ -278,6 +296,7 @@ person who wrote it is driving.
 | `cc-devthrottle: command not found`, twice, then it worked again with no change | Transient. The tool is reached through the session's own path and a few calls did not see it. | Retried. Worth knowing so it is not chased as a real fault. |
 | Running the tool's `main.py` directly still failed, complaining a variable was not set | It imported the **installed** package, not the repository's, because the repository copy was not on the module path. The variable it wanted was one the remove-the-network-port mission deleted - a symptom of the stale install, not of the branch. | Staging the source as `cc_devthrottle` on `PYTHONPATH`, which is what step 8b does. |
 | `cmd /c run-gateway.cmd` was not found although the file was there | The working directory was not what the shell thought it was. | Give the batch file its absolute path. |
+| The first Gateway published had no Cockpit and no phone. `GET /mobile` answered 404 and `wwwroot\c` was empty. | It was published in **Debug**. The targets that build the two web applications into `wwwroot` only run in Release, or when the three `Run*Build` properties are passed explicitly. Nothing failed and nothing warned - the Gateway started and served the fleet normally, so the absence is completely silent. | Step 2, in Release, with the three properties, and **verify the two `index.html` files exist** rather than assuming the publish did it. |
 
 ---
 
@@ -320,3 +339,20 @@ person who wrote it is driving.
 - **This is a builder's smoke test, and it is not the proof.** It exists so that the report is
   possible, not to stand in for it. A builder photographing his own work reaches for the path he
   already knows works.
+
+---
+
+## Reaching the Cockpit and the phone in a browser
+
+Once the Release Gateway of step 2 is running, they are served in-process by it:
+
+    http://127.0.0.1:7997/c          the Cockpit
+    http://127.0.0.1:7997/mobile     the phone application
+
+Both sit behind the same authentication gate as everything else, so a browser has to be signed in or
+carrying a credential; an anonymous `GET /c` answers 401. That is the same gate the hosted Gateway
+runs, and it is left on deliberately - see step 3.
+
+**This recipe has NOT driven either of them.** It established that a Gateway built this way serves
+them, which is what the report's Cockpit and phone frames need to be possible at all. Signing a
+browser in against a local Gateway is the report's own work.
