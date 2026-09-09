@@ -34,7 +34,7 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
   createSession: () => Promise.resolve({ sessionId: "new" }),
   setVoiceModeAllSessions: () => Promise.resolve({ changed: 0, skipped: 0 }),
   holdSession: () => Promise.resolve(),
-  killSession: () => Promise.resolve(),
+  stopSession: () => Promise.resolve({ verdict: "stopped", headline: "stopped", details: [] }),
   getHandover: () => Promise.resolve(null),
   gatewayErrorMessage: (e: unknown) => String(e),
 }));

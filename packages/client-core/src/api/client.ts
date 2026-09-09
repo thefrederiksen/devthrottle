@@ -1845,19 +1845,118 @@ export async function setTranscribing(
   }
 }
 
-// DELETE /sessions/{sid} - kill the agent process and remove the session from the roster (the
-// Android kill/remove semantics, gated behind a confirmation per the owner's #545 request). Reaches
-// the Director through the Gateway catch-all session proxy with the injected Bearer.
-export async function killSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+// What a stop actually did, exactly as the Gateway folded it (mission "Stop a session", Ruling 5).
+//
+// `headline` and `details` are FINISHED WORDS. Every surface renders the headline, then each detail
+// line in the order it arrives, verbatim - the command line, the Cockpit, the Director window and the
+// phone. No client composes a sentence of its own about a stop, and no client branches on `verdict` to
+// decide what one means: the sentence for a new state is one edit on the Gateway, never a new branch in
+// four clients.
+//
+// `verdict` is therefore a plain string and NOT a union of the four words the Gateway ships today
+// ("stopped", "alreadyStopped", "notOnFleet", "stoppedNotDescribed"). A union would invite a switch, and
+// a fifth word added on the Gateway would then arrive at a client that has no case for it. Read it for
+// telemetry or a test; never to choose what to say.
+//
+// EVERY ONE OF THOSE WORDS IS A SUCCESS. A stop never fails because there is nothing left to stop, so a
+// second stop of an already-stopped session, and a stop of an identifier no session carries, both arrive
+// here as ordinary answers rather than as thrown errors.
+//
+// The facts underneath the words are for the surfaces that want them (a log line, a test); they are not
+// what an operator reads. Under the "stopped, not described" verdict they mean NOTHING - the owning
+// Director is an older version that could not say what it found, so the process id is null and the
+// booleans are false because nothing established them, not because they were established to be false.
+export interface SessionStopOutcome {
+  /** The Gateway's verdict word. Rendered by nobody; see the note above. */
+  verdict: string;
+  /** The one line an operator reads. Always present. */
+  headline: string;
+  /** Further lines, in the order they are to be shown. Often empty. */
+  details: string[];
+  /** The identifier the stop was asked for, exactly as it was given. */
+  sessionId: string;
+  /** The short form of that identifier, as it appears in the headline. */
+  shortId: string;
+  /** The agent process id found before the stop, or null when there was none to find. */
+  processId: number | null;
+  /** A live process was found and this stop ended it. */
+  processEnded: boolean;
+  /** A row was present and this stop removed it. */
+  rowRemoved: boolean;
+  /** The worktree or repository the session held, or null. */
+  worktreePath: string | null;
+  /** Whether that worktree had uncommitted changes. NULL MEANS IT COULD NOT BE DETERMINED, and null is
+   *  never "clean" - a failed probe knows nothing about the tree. */
+  worktreeHadUncommittedChanges: boolean | null;
+  /** The reason the caller gave, as it was recorded. */
+  reason: string | null;
+  /** Who asked for the stop, as it was recorded in the audit trail. */
+  stoppedBy: string | null;
+  /** Compatibility with the original DELETE answer: the kill sequence ran. Best-effort, and true even
+   *  when nothing was running - read `processEnded` for the truth. Carried so nothing reading the old
+   *  answer changes meaning; no surface shows it. */
+  killed: boolean;
+  /** Compatibility with the original DELETE answer: the removal ran. See `killed`. */
+  removed: boolean;
+}
+
+// POST /sessions/{sid}/stop - THE stop. Every surface ends a session through this one function, because
+// a second way out is a second sentence describing the same event (Ruling 5), and on the Director window
+// it was also a stop with no recorded reason.
+//
+// The reason is REQUIRED by the Gateway (Ruling 4) and is recorded with the stop. A blank one is refused
+// with a 400 whose body carries the Gateway's own sentence saying so - GatewayError.from lifts that
+// sentence onto `err.message`, so a caller shows it and never writes its own.
+//
+// A NON-2XX IS THE ONLY FAILURE. All four verdicts arrive as a 200 and resolve, including the one that
+// says nothing in the account carries that identifier; treating any of them as an error is the exact
+// defect this mission exists to remove.
+export async function stopSession(
+  sessionId: string,
+  reason: string,
+  signal?: AbortSignal,
+): Promise<SessionStopOutcome> {
   const sid = encodeURIComponent(sessionId);
-  const res = await gatewayFetch(`/sessions/${sid}`, {
-    method: "DELETE",
-    headers: { Accept: "application/json", ...authHeaders() },
+  const res = await gatewayFetch(`/sessions/${sid}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ reason }),
     signal,
   });
   if (!res.ok) {
-    throw await GatewayError.from(res, "close that session");
+    throw await GatewayError.from(res, "stop that session");
   }
+  const body = (await res.json().catch(() => ({}))) as Partial<SessionStopOutcome>;
+
+  // A success with no headline is a Gateway that answered without the words, and there is nothing
+  // honest a client can do with it: inventing a sentence is what Ruling 5 forbids, and showing an
+  // empty dialog is the silent success this mission exists to remove. So it fails loudly, and the
+  // message says the ANSWER could not be read - not that the stop failed, because it did not.
+  if (typeof body.headline !== "string" || body.headline.trim().length === 0) {
+    throw new GatewayError(
+      res.status,
+      "The session was stopped, but the answer came back without the words that describe it. "
+        + "Check the session list to see what happened to it.",
+    );
+  }
+
+  return {
+    verdict: body.verdict ?? "",
+    headline: body.headline,
+    details: Array.isArray(body.details) ? body.details : [],
+    sessionId: body.sessionId ?? sessionId,
+    shortId: body.shortId ?? "",
+    processId: body.processId ?? null,
+    processEnded: body.processEnded === true,
+    rowRemoved: body.rowRemoved === true,
+    worktreePath: body.worktreePath ?? null,
+    // Left as null when the Gateway sent nothing: "we do not know" must not collapse into "clean".
+    worktreeHadUncommittedChanges: body.worktreeHadUncommittedChanges ?? null,
+    reason: body.reason ?? null,
+    stoppedBy: body.stoppedBy ?? null,
+    killed: body.killed === true,
+    removed: body.removed === true,
+  };
 }
 
 // Dictation transcription (issue #817). Speech-to-text for the Speak dialog goes through the

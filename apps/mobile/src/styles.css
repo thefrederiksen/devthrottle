@@ -3168,6 +3168,55 @@ a.banner-btn {
   color: var(--text-dim);
 }
 
+/* The label above the stop sheet reason box. It is a sentence, not a word - it has to say that the
+   reason is required and what it is for - so it wraps like body text rather than sitting on one line. */
+.confirm-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.confirm-input {
+  width: 100%;
+  min-height: 46px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.confirm-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* The Gateway's own answer to a stop: its headline, then its detail lines, both rendered verbatim. */
+.confirm-headline {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.confirm-details {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.confirm-details li {
+  margin-bottom: 6px;
+  /* A worktree path is longer than a phone is wide and has no spaces to break on. */
+  overflow-wrap: anywhere;
+}
+
 .confirm-actions {
   display: flex;
   gap: 8px;

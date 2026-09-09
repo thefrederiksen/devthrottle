@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { holdPillLabel } from "@devthrottle/client-core/sessions/snoozeAction";
+import type { SessionStopOutcome } from "@devthrottle/client-core/api/client";
 import type { SessionManage } from "./useSessionManage";
 
 // The ONE app bar shared by every per-session screen: Chat, Terminal and Voice mode (owner design
@@ -13,7 +14,7 @@ import type { SessionManage } from "./useSessionManage";
 //   * Back to Sessions is NAVIGATION, so it lives at the LEFT of the app bar and is identical on
 //     every screen. styles.css has always intended this ("Shared by every per-session screen via
 //     .back-link", issue #1004); the session screens just never used it.
-//   * Remove is rare and destructive, so it is in the overflow menu - still two taps away, never
+//   * Stop is rare and destructive, so it is in the overflow menu - still two taps away, never
 //     under your thumb. It keeps its confirmation.
 //   * Frequent actions do NOT live up here. They belong at the bottom, in the thumb zone; Voice mode
 //     puts Snooze and Respond there. Screens with no bottom room for Snooze (Chat/Terminal, whose
@@ -29,6 +30,16 @@ import type { SessionManage } from "./useSessionManage";
 //
 //   row 1:  [<- Sessions] ................... [...]     navigation left, menu right
 //   row 2:  102 devthrottle / f9e7 .....................  the name gets the whole row
+//
+// THE STOP SHEET IS THE COCKPIT STOP DIALOG, LAID OUT FOR A PHONE (mission "Stop a session"). Same
+// words, same behaviour, different layout: it asks for the reason the Gateway requires before it acts
+// and will not submit an empty one, and when the answer comes back it SHOWS it - the Gateway headline
+// and then each of its detail lines, verbatim - and waits to be dismissed. Leaving for the roster is
+// what dismissing it does, so the answer is never destroyed by a navigation the user did not ask for.
+// The phone may show less of a card than the desktop; it may not say something different, offer
+// something different, or leave anything out (CLAUDE.md rule 8 reasoning).
+//
+// Nothing here composes a sentence about a stop and nothing branches on the verdict word.
 
 export interface SessionAppBarProps {
   title: string;
@@ -40,7 +51,7 @@ export interface SessionAppBarProps {
    *  this so voice is reachable in one tap from where you already are, instead of making you open the
    *  Voice mode tab first purely to find the button on it. */
   showSwitchToVoice?: boolean;
-  /** Screen-specific menu entries, rendered above Remove. Use <button className="menu-item">. */
+  /** Screen-specific menu entries, rendered above Stop. Use <button className="menu-item">. */
   extraMenuItems?: ReactNode;
   /** Router state for the Back to Sessions navigation. When supplied, the session route is replaced
    *  by the roster route so browser Back cannot reopen the session that was just left. */
@@ -52,6 +63,10 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   const { sessionId } = useParams<{ sessionId: string }>();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // The reason the Gateway requires with a stop, and the answer it gave back. A non-null outcome turns
+  // the sheet from a question into an answer, and it is what the dismiss control then leaves on.
+  const [stopReason, setStopReason] = useState("");
+  const [stopOutcome, setStopOutcome] = useState<SessionStopOutcome | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Close the menu on an outside tap or Escape, the way a menu is expected to behave.
@@ -71,13 +86,32 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
     };
   }, [open]);
 
-  const onConfirmRemove = useCallback(async () => {
+  // Send the stop and KEEP the answer. The sheet stays open either way: on success so the answer can be
+  // read, and on failure so the typed reason is not lost and the banner behind it is readable.
+  const onConfirmStop = useCallback(async () => {
+    const reason = stopReason.trim();
+    if (reason.length === 0) return;
     try {
-      await manage.removeSession();
+      setStopOutcome(await manage.stopSession(reason));
     } catch {
-      // The hook has already surfaced the message; keep the sheet open so it is readable.
-      setConfirming(false);
+      /* the hook has already surfaced the message on manage.error */
     }
+  }, [manage, stopReason]);
+
+  // Dismissing the answer is what leaves for the roster - never the stop returning. The session is gone
+  // under every verdict the Gateway can send, so this looks at no verdict word.
+  const onDismissStopOutcome = useCallback(() => {
+    setConfirming(false);
+    setStopReason("");
+    setStopOutcome(null);
+    navigate("/");
+  }, [navigate]);
+
+  // Backing out of the question, before anything has been asked of the Gateway.
+  const onCancelStop = useCallback(() => {
+    setConfirming(false);
+    setStopReason("");
+    manage.setError(null);
   }, [manage]);
 
   return (
@@ -160,11 +194,14 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
                 role="menuitem"
                 onClick={() => {
                   setOpen(false);
+                  setStopReason("");
+                  setStopOutcome(null);
+                  manage.setError(null);
                   setConfirming(true);
                 }}
                 disabled={manage.busy}
               >
-                Remove session
+                Stop session
               </button>
             </div>
           )}
@@ -206,27 +243,68 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         return pill !== null ? <span className="manage-held-pill">{pill}</span> : null;
       })()}
 
-      {confirming && (
-        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Remove session">
+      {/* One sheet in two states: the QUESTION until the Gateway has answered, then the ANSWER. */}
+      {confirming && stopOutcome === null && (
+        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Stop session">
           <div className="confirm-card">
-            <h2 className="confirm-title">Remove this session?</h2>
-            <p className="confirm-text">This will terminate it. This cannot be undone.</p>
+            <h2 className="confirm-title">Stop this session?</h2>
+            <p className="confirm-text">
+              This ends the session on its machine and removes it from the roster. Files in its worktree
+              are left exactly as they are.
+            </p>
+            <label className="confirm-label" htmlFor="session-stop-reason">
+              Why are you stopping it? A reason is required, and it is recorded with the stop so anyone
+              reading the trail later knows what happened.
+            </label>
+            <input
+              id="session-stop-reason"
+              className="confirm-input"
+              value={stopReason}
+              onChange={(e) => setStopReason(e.target.value)}
+              placeholder="Spawned into the wrong mode"
+              autoFocus
+            />
             <div className="confirm-actions">
               <button
                 type="button"
                 className="confirm-btn confirm-cancel"
-                onClick={() => setConfirming(false)}
+                onClick={onCancelStop}
                 disabled={manage.busy}
               >
                 Cancel
               </button>
+              {/* Disabled on an empty or whitespace-only reason: the Gateway would refuse that stop, and
+                  a control must not offer a tap that can only come back refused. */}
               <button
                 type="button"
                 className="confirm-btn confirm-remove"
-                onClick={onConfirmRemove}
-                disabled={manage.busy}
+                onClick={onConfirmStop}
+                disabled={manage.busy || stopReason.trim().length === 0}
               >
-                {manage.busy ? "Removing..." : "Remove"}
+                {manage.busy ? "Stopping..." : "Stop"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* The answer, rendered VERBATIM: the Gateway headline, then each of its detail lines in the
+          order it sent them. The same strings the Cockpit shows, on a phone-sized card. */}
+      {confirming && stopOutcome !== null && (
+        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Stop session">
+          <div className="confirm-card">
+            <h2 className="confirm-title">Stop session</h2>
+            <p className="confirm-headline">{stopOutcome.headline}</p>
+            {stopOutcome.details.length > 0 && (
+              <ul className="confirm-details">
+                {stopOutcome.details.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            )}
+            <div className="confirm-actions">
+              <button type="button" className="confirm-btn confirm-cancel" onClick={onDismissStopOutcome}>
+                Done
               </button>
             </div>
           </div>

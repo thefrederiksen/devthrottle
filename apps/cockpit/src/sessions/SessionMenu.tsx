@@ -3,9 +3,10 @@ import { createPortal } from "react-dom";
 import {
   getHandover,
   holdSession,
-  killSession,
+  stopSession,
   type SessionDto,
   type SessionHandover,
+  type SessionStopOutcome,
 } from "@devthrottle/client-core/api/client";
 import { renameSession } from "@devthrottle/client-core/fleet/fleetClient";
 import { useSnoozeOptions } from "@devthrottle/client-core/settings/snoozeOptions";
@@ -18,10 +19,21 @@ import { describeAndReport } from "@devthrottle/client-core/errors/reportClientE
 const SURFACE = "cockpit-session-menu";
 
 // The session menu (issue #1214): a three-dot control with Rename, Snooze / Unsnooze, Handover info,
-// and Close session. It is the SAME component on the session page and on every rail card. Every action
+// and Stop session. It is the SAME component on the session page and on every rail card. Every action
 // goes Cockpit -> Gateway with relative URLs through the shared client (renameSession, holdSession,
-// killSession, getHandover) - the browser never learns a Director address. Close asks for confirmation
-// (it is destructive). A failed action shows a visible error, never a silent failure.
+// stopSession, getHandover) - the browser never learns a Director address. A failed action shows a
+// visible error, never a silent failure.
+//
+// STOP ASKS BEFORE IT ACTS AND SPEAKS AFTER IT HAS ACTED (mission "Stop a session", Rulings 4 and 5).
+// Before: the Gateway requires a reason and records it, so the dialog collects one and will not offer a
+// confirm click that could only be refused. After: the stop's answer is SHOWN - the Gateway's headline
+// and then each of its detail lines, verbatim - and the dialog stays open until the user dismisses it,
+// only then telling the page it may navigate away. The old Close did neither: it sent no reason and, on
+// success, closed the dialog and said nothing at all, which is the defect this replaces.
+//
+// This view composes no sentence about a stop and never branches on the verdict word. There are four
+// verdict words today and there may be five tomorrow; adding one is an edit on the Gateway, and this
+// file must not need to know it happened.
 
 export interface SessionMenuProps {
   session: SessionDto;
@@ -31,7 +43,7 @@ export interface SessionMenuProps {
   variant?: "page" | "rail";
 }
 
-type Dialog = "rename" | "close" | "handover";
+type Dialog = "rename" | "stop" | "handover";
 
 export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenuProps) {
   const sid = session.sessionId ?? "";
@@ -41,6 +53,11 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   const [error, setError] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [handover, setHandover] = useState<SessionHandover | null>(null);
+  // The reason the Gateway requires with a stop, and the answer it gave back. A non-null outcome is what
+  // turns the stop dialog from a question into an answer; it is never cleared while that answer is on
+  // screen, because clearing it is what the old Close did the instant the call returned.
+  const [stopReason, setStopReason] = useState("");
+  const [stopOutcome, setStopOutcome] = useState<SessionStopOutcome | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
@@ -154,11 +171,22 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     };
   }, [open]);
 
+  // Dismissing any dialog. When a stop ANSWER is on screen, dismissing it is also the moment the page is
+  // told it may navigate away - so the answer is never destroyed before it has been read, whichever way
+  // the user dismisses it (the button, the backdrop, Escape).
+  //
+  // This is not a view deciding what a verdict means: it does not look at the verdict word at all. Every
+  // verdict the Gateway can send is a session that is no longer running, so every one of them leaves the
+  // page in the same place.
   const closeDialog = useCallback(() => {
+    const stopAnswered = stopOutcome !== null;
     setDialog(null);
     setError(null);
     setHandover(null);
-  }, []);
+    setStopReason("");
+    setStopOutcome(null);
+    if (stopAnswered) onClosed?.();
+  }, [stopOutcome, onClosed]);
 
   // Dismissing by clicking the backdrop. It closes only on a press that STARTED on the backdrop, so
   // highlighting the name in the rename box with the mouse and releasing past the edge of the dialog
@@ -172,10 +200,12 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     setDialog("rename");
   }, [session.name]);
 
-  const openClose = useCallback(() => {
+  const openStop = useCallback(() => {
     setOpen(false);
     setError(null);
-    setDialog("close");
+    setStopReason("");
+    setStopOutcome(null);
+    setDialog("stop");
   }, []);
 
   const openHandover = useCallback(() => {
@@ -239,20 +269,22 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     }
   }, [sid]);
 
-  const doClose = useCallback(async () => {
-    if (sid.length === 0) return;
+  // Send the stop. On success the dialog KEEPS the answer and stays open; the page is told nothing until
+  // the user dismisses it. On failure the dialog also stays open, with the typed reason still in the box,
+  // so a retry does not begin by making the user write their sentence again.
+  const doStop = useCallback(async () => {
+    const reason = stopReason.trim();
+    if (sid.length === 0 || reason.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      await killSession(sid);
-      closeDialog();
-      onClosed?.();
+      setStopOutcome(await stopSession(sid, reason));
     } catch (err) {
-      setError(describeAndReport(SURFACE, "close the session", err));
+      setError(describeAndReport(SURFACE, "stop the session", err));
     } finally {
       setBusy(false);
     }
-  }, [sid, closeDialog, onClosed]);
+  }, [sid, stopReason]);
 
   return (
     <div className={`session-menu ${variant}${open ? " open" : ""}`} ref={rootRef}>
@@ -319,8 +351,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
             <button type="button" role="menuitem" className="session-menu-item" onClick={openHandover}>
               Handover info
             </button>
-            <button type="button" role="menuitem" className="session-menu-item danger" onClick={openClose}>
-              Close session
+            <button type="button" role="menuitem" className="session-menu-item danger" onClick={openStop}>
+              Stop session
             </button>
           </div>,
           document.body,
@@ -397,25 +429,65 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
               </>
             )}
 
-            {dialog === "close" && (
+            {/* The stop dialog is one dialog in two states: the QUESTION until the Gateway has answered,
+                and then the ANSWER. It never shows both, and it never shows neither. */}
+            {dialog === "stop" && stopOutcome === null && (
               <>
-                <h3 className="session-dialog-title">Close session</h3>
+                <h3 className="session-dialog-title">Stop session</h3>
                 <p className="session-dialog-text">
-                  Close <strong>{session.name || sid}</strong>? This ends the session on its machine and
-                  removes it from the roster.
+                  Stop <strong>{session.name || sid}</strong>? This ends the session on its machine and
+                  removes it from the roster. Files in its worktree are left exactly as they are.
                 </p>
+                <label className="session-dialog-label" htmlFor="session-stop-reason">
+                  Why are you stopping it? A reason is required, and it is recorded with the stop so
+                  anyone reading the trail later knows what happened.
+                </label>
+                <input
+                  id="session-stop-reason"
+                  className="session-dialog-input"
+                  value={stopReason}
+                  onChange={(e) => setStopReason(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void doStop();
+                  }}
+                  placeholder="Spawned into the wrong mode"
+                  autoFocus
+                />
                 {error !== null && <div className="session-dialog-error">{error}</div>}
                 <div className="session-dialog-actions">
                   <button type="button" className="session-dialog-btn" onClick={closeDialog} disabled={busy}>
                     Cancel
                   </button>
+                  {/* Disabled on an empty or whitespace-only reason: the Gateway would refuse that stop,
+                      and a control must not offer a click that can only come back refused. */}
                   <button
                     type="button"
                     className="session-dialog-btn danger"
-                    onClick={() => void doClose()}
-                    disabled={busy}
+                    onClick={() => void doStop()}
+                    disabled={busy || stopReason.trim().length === 0}
                   >
-                    {busy ? "Closing..." : "Close session"}
+                    {busy ? "Stopping..." : "Stop session"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* The answer, rendered VERBATIM: the Gateway's headline, then each of its detail lines in the
+                order it sent them. Nothing here is composed, and nothing here reads the verdict word. */}
+            {dialog === "stop" && stopOutcome !== null && (
+              <>
+                <h3 className="session-dialog-title">Stop session</h3>
+                <p className="session-dialog-headline">{stopOutcome.headline}</p>
+                {stopOutcome.details.length > 0 && (
+                  <ul className="session-dialog-details">
+                    {stopOutcome.details.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="session-dialog-actions">
+                  <button type="button" className="session-dialog-btn primary" onClick={closeDialog}>
+                    Done
                   </button>
                 </div>
               </>
