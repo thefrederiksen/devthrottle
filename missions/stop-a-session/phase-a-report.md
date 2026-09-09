@@ -52,7 +52,7 @@ operator reads as "it is still alive".
 |---|---|
 | `.\scripts\test-local.ps1` | 8 of 9 suites green. One suite OVER BUDGET - see below. Not a test failure. |
 | `Gateway.UnitTests` alone, to completion | **4221 tests, 0 failures**, 2 m 36 s |
-| `.\scripts\test-local.ps1 -Parked` | PARKED_RESULT |
+| `.\scripts\test-local.ps1 -Parked` | **STARTED, DID NOT COMPLETE.** See below - and it is incomplete in exactly the place that mattered. |
 | `python -m pytest tools/test_shipped_tools_contract.py` | 36 passed (this is the ASCII-only guard) |
 | `cc-devthrottle` suite, `FORCE_COLOR=1` | **261 passed**, 2 failed - both pre-existing, proved below |
 | `cc_shared` suite | 126 passed, 1 failed - pre-existing, and this branch does not touch `cc_shared` |
@@ -127,7 +127,42 @@ was editing the file while the gate read it. Three Workers building at once in o
 source of noise, and it is worth knowing that the suites disagree with themselves under that load.
 
 **The parked-suite coverage warning fired**, naming `Core.Tests` and `Gateway.Tests` as suites this
-change touches. That is why `-Parked` was run.
+change touches. That is why `-Parked` was started.
+
+### `-Parked` DID NOT COMPLETE, and the gap is the part that mattered
+
+Caught by the Architect, not by me: the first draft of this report carried a literal `PARKED_RESULT`
+placeholder in the table above while the prose beside it said `-Parked` "was run". That is precisely
+a check whose pass condition is nobody looking - it would have certified a run that never finished.
+Corrected here rather than quietly filled in.
+
+**What actually happened.** The run was started and 9 of its 11 suites reported. Every one that
+reported was green:
+
+    Core.UnitTests 227    Gateway.UnitTests 4221 (0 failed, 3 m 30 s)    Avalonia 407
+    Engine 63             HostedAgent 88         Launcher 188            Terminal 25
+    setup.Tests 25        setup-engine.Tests 541
+
+**The two suites that did not report are `CcDirector.Gateway.Tests` and `CcDirector.Core.Tests` -
+the two PARKED suites, which are the entire reason `-Parked` exists.** No verdict block printed. So
+this run currently proves nothing that the default gate had not already proven.
+
+That matters specifically because **Worker B's 16 route tests live in `Gateway.Tests`** - the tests
+that cover `POST /sessions/{sid}/stop` end to end through `GatewayEndpoints.Map`, the 400 refusal,
+the 200 `notOnFleet`, the DELETE door, and the audit rows. Worker B reports running them directly
+and green, and its red-first table quotes their failures. **I have not independently confirmed
+them.** Until `-Parked` finishes, that is a Worker's self-testimony, which is exactly the kind of
+claim this mission's own conduct says not to take on trust.
+
+`Core.Tests` is documented at 11 minutes on a quiet machine and 33 with the fleet busy, and
+`Gateway.Tests` takes a machine-wide lock, so the run is slow by design rather than hung. It is
+still running as this report is written. **The Architect should treat the parked coverage as
+OUTSTANDING and require the numbers before landing.**
+
+One more oddity to hand over rather than explain away: `Launcher.Tests` printed `FAIL` in the margin
+while its own summary line said `Failed: 0, Passed: 188`. It also passed cleanly in the default gate.
+I do not know what the margin flag means and have not run it down; the verdict block that would say
+never printed.
 
 ---
 
@@ -216,6 +251,9 @@ Recorded because the Inspector should know the briefs were wrong before the code
 
 Named as gaps rather than left to be discovered.
 
+- **The parked suites are unverified by me.** `-Parked` did not finish, and the two suites that did
+  not report are the two parked ones. Worker B's 16 route tests in `Gateway.Tests` therefore rest on
+  the Worker's own account of running them. This is the top outstanding item.
 - **Pid reuse is open**, and named in the code. Between capturing the process id and re-checking it,
   the operating system could hand that number to something else. Closing it needs a process handle
   held across the kill - a change to the backends, not to this verb.
