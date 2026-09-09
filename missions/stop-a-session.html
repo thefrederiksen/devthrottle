@@ -229,8 +229,13 @@ is changed here, in this one document, and nowhere else.</p>
     operator who is not told will keep looking for it.</li>
     <li><b>not on this fleet</b> - no session in the account carries that identifier. Still a success, still
     exit code zero, and worded as an answer rather than as an error.</li>
-    <li><b>stopped, not described</b> - the Director carried out the stop and removed the row, but it is an
-    older version that cannot say what it found, so the answer names no process and no worktree. <em>Added
+    <li><b>stopped, not described</b> - the stop was carried out and the row removed, but this answer cannot
+    say what it found, so it names no process and no worktree. There are TWO causes and they share this one
+    word because they are one fact about the answer: the Director is an <em>older version</em> that cannot
+    report the detail, or the machine <em>could not read whether a process was alive</em> at all. The second
+    cause was added after inspection 1, which found the product inferring "already stopped" from a liveness
+    check that had thrown - "it is gone", said when nothing successfully looked, which is the very inference
+    this ruling forbids. <b>Could not be determined is never gone, and never ended either.</b> <em>Added
     after Phase A, and the reason is worth keeping.</em> The Gateway and the Directors do not deploy together,
     so for as long as a machine runs an older Director this case is real. Phase A first refused it outright -
     and refusing is reporting a failure for an operation that SUCCEEDED, which is the very complaint this
