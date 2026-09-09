@@ -83,3 +83,65 @@ honestly reported is a finding, and quietly dropping one is the failure this who
 Commit the report and its images to `mission/stop-a-session` and push. Send the Architect
 (`e66d53fb`) ONE single-line message pointing at the report file - fleet messages truncate at the
 first newline. Do not merge anything to main; the Architect lands it.
+
+---
+
+# ADDED AFTER PHASES B AND C, AND THE FIRST INSPECTION - read this part too
+
+Much has changed since the top of this brief was written. Where the two disagree, this part wins.
+
+## READ THIS BEFORE YOU RUN ANYTHING: the trap that nearly published client names
+
+`missions/stop-a-session/qa-recipe-notes.md`, addition 1. **An installed `cc-devthrottle` on the
+path inherits `CC_GATEWAY_URL` and answers from the HOSTED Gateway** - printing the owner's entire
+live fleet, every session and repository name on every machine, while looking completely normal
+doing it. A previous QA seat staged a path edit that was silently dropped by `cmd` re-parsing a
+quoted string, and its first frame captured the owner's real roster with client repository names in
+it. **It was read and deleted before it was committed, and that is the only reason this is a note
+and not an incident.**
+
+That is why "read every image before you commit it" is the rule that is not negotiable. It is also
+why you verify which Gateway you are talking to BEFORE you photograph anything, not after.
+
+## Where to start
+
+1. `missions/stop-a-session/local-stack-recipe.md` - the recipe. It has been repeated once already
+   and it works end to end.
+2. `missions/stop-a-session/qa-recipe-notes.md` - what the recipe does NOT warn you about. Eight
+   additions found the hard way. Read it second and read it fully.
+
+## What the feature does now, which is not what the top of this brief assumed
+
+- **Ruling 3 has FOUR verdicts, not three:** `stopped`, `alreadyStopped`, `notOnFleet`, and
+  `stoppedNotDescribed`. The fourth has THREE causes - an older Director, a liveness check that
+  threw, and no process identifier to check at all - and the answer says which.
+- **The second stop answers `notOnFleet`, not `alreadyStopped`.** Section 6's illustration sketches
+  `already stopped`, and the illustration is looser than the ruling: the first stop removed the row,
+  so there is no machine left to ask. If your frame shows `not on this fleet`, that is CORRECT. Say
+  so in the report, so a later reader does not call it a mismatch.
+- **An independent inspection found eight defects after the builders had reported everything green**,
+  four of them P1, and a later phase fixed them. Frames 5, 6 and 7 sit directly on top of those
+  fixes, which is why you were stood down and re-seated rather than allowed to photograph earlier.
+
+## Two additions to what the report must contain
+
+1. **WHO BUILT IT.** The owner asked, while the fix phase was running, that the report show every
+   session that built and fixed this feature and how many there were. The roster is
+   `missions/stop-a-session/who-built-it.md` - fold it in rather than re-deriving it. **Six of the
+   fifteen cannot be named**, and that is not sloppiness, it is the finding below.
+2. **THE SENTENCE THIS MISSION EARNED.** The feature you are photographing WRITES an audit row naming
+   who stopped a session and why. The polite path this fleet has used for years - the deletion flag -
+   writes nothing at all, which is exactly why six of this mission's own seats can no longer be
+   named. **The gap this mission was raised to fix is the same gap that ate its own paper trail.**
+   Put that in the report in one honest sentence. It is not a joke and it is not a flourish; it is
+   the clearest evidence that the problem was real. It is filed as its own issue, not fixed here.
+
+## No product or vendor names in the report
+
+The standing rule is absolute and this repository is public. Say **roles and families** - "the seats
+that built it", "an inspector from a different agent family than the builders" - never a product or
+vendor name. The load-bearing fact survives without brands: a different family inspected than built,
+and it found eight defects in work every builder had reported green.
+
+Naming a process in evidence, or in a command a reader must actually run, is functional rather than
+attributional and is fine. Naming who wrote the code is not.
