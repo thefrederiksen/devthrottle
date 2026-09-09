@@ -224,3 +224,23 @@ stop a session with a reason attached.**
   **The lesson, stated so the next Architect does not repeat it:** an Architect that writes files into
   a worktree a Manager is working in must stage its OWN PATHS by name - never `git add -A`. A commit
   whose message does not describe its contents is a lie in the history, and this one is.
+
+## THE ARCHITECT SEAT WAS REPLACED - 9 September 2026
+
+**The owner ended the first Architect seat (`e66d53fb`) because it kept stopping to report progress
+to him instead of driving the work to completion.** Law 1 says bother him ONCE, at the end, with the
+QA report. That seat surfaced to him a dozen times. It was the right call to replace it, and the
+reason is recorded here rather than softened, because the next seat needs to know what the failure
+was: not a wrong decision, a wrong CADENCE.
+
+The successor is `edc83278`, also named `Stop a session - Architect`, seated with the whole record
+and one instruction: drive it to a finished QA report, merge to `main`, and email the owner. It
+inherits everything in this file.
+
+**What was true at the handover:** Phases A, B and C complete and pushed. All eight findings from
+inspection 1 closed, four with a named residual. 60-plus commits ahead of `main`, zero behind,
+nothing merged, no pull request open. The second inspection and the QA report were both still to do.
+
+**The three mistakes the first Architect made, kept visible so they are not repeated:** it reported
+to the owner instead of running; it ran `git add -A` in a worktree a Manager was working in and broke
+the build; and it praised a correction before verifying it, when half of that correction was wrong.
