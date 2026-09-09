@@ -123,3 +123,11 @@ Commit and push your work on the branch as you go. Write your notes to
 messages as they actually printed, the suite numbers you actually ran, and - named honestly - what
 your tests still do not cover. Then send your manager (`e7ea69df`) ONE single-line message saying
 you are done and pointing at that file. Fleet messages truncate at the first newline.
+
+## Pushing, when you are not the only seat on this branch
+
+Four Workers and a QA seat are all committing to `mission/stop-a-session`. Before every push, run
+`git fetch origin` and then `git rebase origin/mission/stop-a-session`. **Never force-push** - a
+force-push on this branch deletes somebody else's commit, and it has already happened once this
+phase. If a rebase conflicts in a file you were told not to touch, stop and tell your manager rather
+than resolving it.
