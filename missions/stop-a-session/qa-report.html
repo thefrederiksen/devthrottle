@@ -66,7 +66,7 @@
 <p class="sub">The mission <a href="../stop-a-session.html">You can start a session - you have to be able to stop one</a>, photographed working</p>
 <p class="meta">
   <span class="tag">DevThrottle</span>
-  <span class="tag ok">8 of 8 frames captured</span>
+  <span class="tag ok">8 of 8 frames captured, and the ninth that closes the last gap</span>
   Run on <strong>9 September 2026</strong> on machine SORENLAPTOP
   &middot; against <code>mission/stop-a-session</code> at commit <code>84ba787e</code>,
   which the Gateway reported of itself as <code>2.1.0+84ba787e29e7ccd548ca01ffed55c1844b1df497</code>
@@ -81,19 +81,19 @@ Every sentence in that paragraph is a photograph below, taken by a seat that did
 <div class="headline">
   <div class="hl goal">
     <p class="k">What is proven</p>
-    <p>Four real sessions, with four real agent processes, were ended on a real fleet - from the command
-    line, from the Director window, and from the Cockpit in a browser. All three said the same sentence,
-    because all three went through one route. Windows itself confirms the processes are gone. Uncommitted
-    work in a session's worktree survived byte for byte. All four stops are in the audit ledger with the
-    reasons that were typed.</p>
+    <p>Five real sessions, with five real processes, were ended on a real fleet - from the command line,
+    from the Director window, from the Cockpit in a browser, and finally by one session stopping another
+    with its own credential. They all said the same sentence, because they all went through one route.
+    Windows itself confirms the processes are gone. Uncommitted work in a session's worktree survived byte
+    for byte. Every stop is in the audit ledger with the reason that was typed, and the last one names a
+    session as the actor.</p>
   </div>
   <div class="hl gap">
     <p class="k">What is not proven</p>
-    <p>Every stop here was made with the machine's own credential, never with an agent's session key -
-    so the permission Ruling 4 opened for one agent to stop another is <strong>not</strong> exercised by
-    this report. The fourth verdict, the one for a stop that cannot be described, was not producible on
-    this stack. The phone application was not opened. Nothing crossed a machine boundary. Details in
-    section 4.</p>
+    <p>The fourth verdict, the one for a stop that cannot be described, was not producible on this stack.
+    The phone application was not opened. Nothing crossed a machine boundary, and nothing here says
+    anything about the hosted service or about one account being unable to reach another's sessions.
+    Details in section 6.</p>
   </div>
 </div>
 
@@ -126,8 +126,8 @@ exists. So the whole stack was stood up locally and thrown away afterwards:</p>
   <tr><td>Gateway</td><td>Published in Release from the mission branch at <code>84ba787e</code>, on port 7997, with its own storage root inside a scratch directory. Authentication left ON, as in production: an unauthenticated call to <code>/directors</code> was refused with 401 before anything else was done.</td></tr>
   <tr><td>Director</td><td>Built from the same commit into slot 6 and launched through the Windows scheduled task, never from inside this session. Slots 1 to 5 and the installed application belong to the owner and were not touched.</td></tr>
   <tr><td>Command line</td><td>The branch's own command line, staged under a guard that refuses to run at all if the name resolves to the July build installed on this machine. Every command frame shows, in the frame, which one answered and which Gateway it was pointed at.</td></tr>
-  <tr><td>Sessions</td><td>Four throwaway sessions in two throwaway repositories created for this run. No real work, no client repositories, nothing of the owner's.</td></tr>
-  <tr><td>Teardown</td><td>The Director was signalled and exited on its own - not killed. The scheduled task was unregistered, the Gateway process stopped, and port 7997 no longer answers. The owner's Director and his installed Gateway are the same two process identifiers at the end of this run as at the start.</td></tr>
+  <tr><td>Sessions</td><td>Six throwaway sessions in three throwaway repositories created for this run - four for the eight frames, two more for the ninth. No real work, no client repositories, nothing of the owner's.</td></tr>
+  <tr><td>Teardown</td><td>Done twice, once per run, the same way each time. The Director was signalled and exited on its own - not killed. The scheduled task was unregistered, the Gateway process stopped, and port 7997 no longer answers. The owner's Director and his installed Gateway are the same two process identifiers at the end of this run as at the start.</td></tr>
 </table>
 </div>
 
@@ -290,7 +290,55 @@ shows it, then says what to look at. Nothing here is a line of prose standing in
   Windows says process 10372 no longer exists. The session ended; the work did not.</p>
 </div>
 
-<h2>4. The audit trail, which is what Ruling 4 rests on</h2>
+<h2>4. The ninth frame - one session stopping another with its own key</h2>
+
+<p>The first version of this report named a gap in section 8: every stop above was made with the machine's
+own credential, so the permission the owner personally granted - that any session may stop any other, as
+long as a reason is recorded - had unit tests behind it and no photograph. The Architect asked whether that
+one frame could be taken cheaply. It could, and this is it.</p>
+
+<p>The stack was rebuilt from the same commit for this frame alone, and the run needed nothing that the
+eight frames above did not already need. Two throwaway sessions: <strong>B</strong>, an ordinary agent
+session, and <strong>A</strong>, a session whose own process is a plain shell - which is a kind of session
+the product already supports, and which matters here because it lets a session act without an agent
+deciding anything. A holds the credential it was born with. Nobody typed it, nobody read it, and it is not
+in the picture.</p>
+
+<div class="frame">
+  <p class="n">Frame 9</p>
+  <h3>Session A stops session B, and is refused the door that takes no reason</h3>
+  <p class="asked">A session using its own key rather than the machine's, with the audit row afterwards
+  naming a session as the actor - and, in the same frame, that same key refused on the legacy door, which
+  is what keeps "an agent can only ever stop with a reason attached" true.</p>
+  <img src="qa/frame10-session-key-stop.png" alt="Session A's own shell inside the Director: its key present, the legacy delete door answering 403 Forbidden, and the stop of session B succeeding with its reason">
+  <p class="look"><b>What to look at</b>Four things, in one shell, in one frame.
+  <br><br>
+  <strong>Whose shell this is.</strong> The window is the Director, the selected session is
+  <em>throwaway A the stopper</em>, and the prompt inside it is that session's own process. The Gateway it
+  is pointed at is the local one.
+  <br><br>
+  <strong>The credential.</strong> The line confirms the session's own key is present in its environment
+  and says plainly that it is never printed. It is not shown anywhere in this report, and it did not need
+  to be: the two answers below prove which credential was used better than showing it would.
+  <br><br>
+  <strong>The legacy door refuses it - <code>HTTP/1.1 403 Forbidden</code>.</strong> That is the older
+  delete route, the one that takes no reason. The machine's own credential is allowed through there; a
+  session's key is not. So the refusal is itself the proof that the credential in play is a session's, and
+  it is the mechanism that makes the owner's condition hold: the only door open to an agent is the one that
+  demands a reason.
+  <br><br>
+  <strong>The stop goes through.</strong> Same verb, same required reason, same three-line answer as every
+  other surface: <code>stopped e3fd6eb9 - process 28396 ended, row removed</code>, the worktree left
+  untouched, the reason repeated back. Exit code zero. In the rail on the left, session B's row is already
+  gone - only the session that did the stopping is left.</p>
+  <img src="qa/frame10-session-key-audit.png" alt="The audit row for that stop, whose actor field reads session 83c56885 rather than machine token">
+  <p class="look"><b>What to look at</b>The row this stop wrote. Every other row in this report says the
+  actor was the machine. This one says <code>actor : session 83c56885-42f0-40a3-bdfd-23239383fee7</code> -
+  the session that did it, by name, beside the reason it gave. That is the whole of Ruling 4: the
+  flexibility to let any session stop any other, and a trail that says who did it and why.</p>
+</div>
+
+<h2>5. The audit trail, which is what Ruling 4 rests on</h2>
 
 <p>The owner allowed any session in the account to stop any other, on the condition that the reason is
 recorded. So the recording is not a detail of this feature - it is the thing that makes the permission
@@ -304,16 +352,19 @@ by clicking rather than by command. Each is categorised as an intervention and n
 actor. <strong>The refused stop wrote nothing</strong>, which is right: nothing was stopped, so there is
 nothing to record.</p>
 
-<h2>5. What is NOT proven, by name</h2>
+<h2>6. What is NOT proven, by name</h2>
 
 <p>This section is the honest half of the report and it is longer than it is comfortable to write.</p>
 
 <div class="card">
-  <h4>The permission Ruling 4 actually opened</h4>
-  <p>Every stop in this report was authenticated with the <strong>machine's own credential</strong> - the
-  actor column in the ledger says so. Ruling 4 is about letting <em>an agent's own session key</em> stop
-  another session, which is a different path through the Gateway's allow list. <strong>That path is not
-  exercised anywhere in this report.</strong> It has unit tests behind it; it has no photograph.</p>
+  <h4>The permission Ruling 4 opened - closed, with one qualification</h4>
+  <p>This was the gap when the report was first written, and section 4 closes it: a session stopped
+  another session with its own credential, was refused the door that takes no reason, and left an audit
+  row naming itself. <strong>What that frame does not cover</strong> is the ordinary case of an
+  <em>agent</em> deciding to do it - the acting session's process was a shell rather than a coding agent,
+  chosen so that no agent's judgement sat between the credential and the command. The credential path
+  through the Gateway is identical either way, and it is the credential the permission is about; but
+  nobody has yet watched an agent choose to stop another agent.</p>
 </div>
 
 <div class="card">
@@ -358,7 +409,7 @@ nothing to record.</p>
   one.</strong> A self-hosted owner following the recipe would hit this wall, and it is worth an issue.</p>
 </div>
 
-<h2>6. What went wrong while taking these, including the near-miss</h2>
+<h2>7. What went wrong while taking these, including the near-miss</h2>
 
 <div class="callout warn">
   <p style="margin-top:0"><strong>A frame was taken of the owner's live fleet, and it was deleted before it
@@ -388,7 +439,7 @@ nothing to record.</p>
   somebody else's leftovers. Left alone, and named here so somebody decides on purpose.</li>
 </ul>
 
-<h2>7. Who built it</h2>
+<h2>8. Who built it</h2>
 
 <p><strong>Sixteen sessions, across six phases, running two families of coding agent.</strong> Fifteen were
 counted when the roster was written; this quality seat is the sixteenth. Fifteen of the sixteen come from
@@ -458,14 +509,15 @@ different seat, and asking the fleet for its own was the only thing that settled
 records its own identifier is the only one that can be named afterwards, and a seat that copies one out of
 somebody else's message is how a roster gets a wrong row in it.</strong></p>
 
-<h2>8. What I would tell you if you only read one paragraph</h2>
+<h2>9. What I would tell you if you only read one paragraph</h2>
 
-<p>It works, and it says what it did. I stopped four sessions three different ways and the product told me
-the same true thing every time, in words, and wrote down why. Your uncommitted work survives it. The part I
-could not photograph is the one you would care about next: an agent stopping another agent with its own key,
-which is the permission you granted and the reason the recorded reason matters. Everything above went
-through the machine's credential instead. That is the gap I would close first, and it needs a fleet, not a
-frame.</p>
+<p>It works, and it says what it did. I stopped five sessions four different ways - typed, clicked, from the
+web, and by one session acting on another - and the product told me the same true thing every time, in
+words, and wrote down who did it and why. Your uncommitted work survives it. The permission you granted is
+the one thing I would have left unphotographed, and it is now section 4: a session stopped another with its
+own credential, was refused the older door that asks for no reason, and signed the ledger by name. What is
+left is smaller and honest - a verdict nobody has produced in the field, a phone application nobody opened,
+and one machine's worth of evidence about a product that runs on many.</p>
 
 <p class="cap">Written by session <code>02aa6c1a</code> on 9 September 2026, against
 <code>mission/stop-a-session</code> at <code>84ba787e</code>. The images beside this document are the
