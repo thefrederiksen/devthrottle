@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Git;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
@@ -356,40 +358,266 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>
-    /// The <c>kill</c> verb: kill then remove a session. Mirrors the Director's <c>DELETE /sessions/{sid}</c>
-    /// lambda exactly: a missing session -&gt; NotFound; otherwise the kill is BEST-EFFORT (a process that
-    /// already died must not leave a zombie row), so any non-KeyNotFound kill fault is logged and removal
-    /// proceeds anyway. Returns <c>{ killed, removed }</c>. This deliberate best-effort catch is the shared
-    /// kill semantics (issue #212 L3), which is exactly why it lives here rather than being duplicated.
+    /// The <c>kill</c> verb: end the agent process on this machine, reconcile it against the row, and say
+    /// which of those two things it actually had to do. This is the Director half of the stop (mission
+    /// "Stop a session", Seat 1) and it answers <see cref="DirectorStopResult"/>.
+    ///
+    /// It used to answer <c>{ killed = true, removed = true }</c> and nothing else, which could not tell
+    /// "there was a live process and I ended it" from "there was nothing running" - the kill is
+    /// best-effort and swallowed the difference. That is the defect this verb exists to fix: the Director
+    /// is the ONE machine that holds both the row and the process, so it is the only place they can be
+    /// compared (Ruling 3).
+    ///
+    /// What changed in behaviour, deliberately: a session with NO ROW on this Director is no longer
+    /// <see cref="DirectorCommandStatus.NotFound"/>. Ruling 3 says the owning Director is asked to stop
+    /// the session whether or not it still has a row for it, and a stop must never fail because there is
+    /// nothing left to stop, so that case is an <c>alreadyStopped</c> SUCCESS.
+    ///
+    /// The kill itself is untouched: same call, same <see cref="SessionManager.FleetKillGraceMs"/> window,
+    /// same best-effort catch (issue #212 L3). Only the answer got honest.
     /// </summary>
-    internal static async Task<DirectorCommandResult> KillAsync(SessionManager sessionManager, DirectorCommand command)
+    /// <param name="processIsAlive">Does a process with this id exist on this machine right now? Null uses
+    /// <see cref="DefaultProcessIsAlive"/>. A TEST SEAM, so the tests can drive every branch without
+    /// starting real processes.</param>
+    /// <param name="worktreeProbe">The uncommitted-changes probe; null uses a shared
+    /// <see cref="GitStatusProvider"/>. A TEST SEAM, the same one <c>SessionGitStatusMonitor</c> takes.</param>
+    internal static async Task<DirectorCommandResult> KillAsync(
+        SessionManager sessionManager,
+        DirectorCommand command,
+        Func<int, bool>? processIsAlive = null,
+        Func<string, CancellationToken, Task<GitCountResult>>? worktreeProbe = null)
     {
         if (!Guid.TryParse(command.SessionId, out var guid))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
 
+        var isAlive = processIsAlive ?? DefaultProcessIsAlive;
+        FileLog.Write($"[SessionCommandExecutor] kill: session={guid} looking for a row and a live process");
+
+        var session = sessionManager.GetSession(guid);
+
+        // NO ROW ON THIS DIRECTOR. Not an error - Ruling 3. Killed/Removed are the COMPATIBILITY pair (see
+        // DirectorStopResult): they are best-effort and do NOT distinguish these states, which is exactly
+        // why the honest fields sit beside them. They read true here because the only thing the old
+        // two-field answer could ever mean is "the session is not there any more", and it is not.
+        if (session is null)
+        {
+            var missing = new DirectorStopResult
+            {
+                Killed = true,
+                Removed = true,
+                ProcessId = null,
+                ProcessEnded = false,
+                RowRemoved = false,
+                WorktreePath = null,
+                WorktreeHadUncommittedChanges = null,
+                Verdict = SessionStopVerdict.AlreadyStopped,
+            };
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} verdict={missing.Verdict}, pid=none, "
+                + "rowRemoved=false, worktreeProbe=not-run (no row on this Director - Ruling 3, not an error)");
+            return DirectorCommandResult.Success(Serialize(missing));
+        }
+
+        // ---- the facts, captured BEFORE the stop, because after it there is nothing left to read ----
+
+        // A session that never held a process (ProcessId 0 from a buffer-only backend, or a row whose
+        // process is long gone) reports null rather than 0: 0 is not a process id, and printing it would
+        // invite a reader to go looking for it.
+        int? processId = session.ProcessId > 0 ? session.ProcessId : null;
+
+        // LIVENESS IS ASKED OF THE OPERATING SYSTEM, NOT OF THE BACKEND. ISessionBackend.HasExited is
+        // documented as "the process has exited", but only ConPtyBackend and UnixPtyBackend implement it
+        // that way - PipeBackend, StudioBackend and GitHubActionsBackend all return _disposed, which is a
+        // different fact entirely, so on three of the five backends it would answer "has exited" purely on
+        // whether somebody had disposed the object. The process id is backend-independent, and it is the
+        // same fact the mission report has to photograph. Pattern and rule from LauncherDiscovery.IsRunning.
+        bool liveProcessFound = processId is int pid && isAlive(pid);
+
+        // PID REUSE, NAMED RATHER THAN PRETENDED CLOSED: between this check and the re-check after the kill,
+        // the operating system could in principle hand that number to an unrelated process, and the re-check
+        // would then read "still alive" and report a process that would not die. The window is milliseconds
+        // wide and the number space is large, so this is vanishingly unlikely - but it is not impossible, and
+        // an honest answer says so. Closing it needs a process handle held across the kill, which is a change
+        // to the backends, not to this verb.
+
+        // The WORKING DIRECTORY, not RepoPath. They are the same string on every path that creates a session
+        // today (SessionManager passes repoPath for both), so this choice is invisible in practice; it
+        // matters only for a restored session that persisted a different one. Where they differ, the working
+        // directory is the tree the agent process was actually running in - which is the tree whose
+        // uncommitted changes the operator is about to walk away from, and the whole point of Ruling 2.
+        string? worktreePath = string.IsNullOrWhiteSpace(session.WorkingDirectory) ? null : session.WorkingDirectory;
+        bool? worktreeDirty = worktreePath is null
+            ? null
+            : await ProbeWorktreeUncommittedAsync(guid, worktreePath, worktreeProbe);
+
+        // ---- the stop itself, exactly as it ran before ----
+
         try
         {
-            // Faster STOP: this is the FLEET/remote stop path (Gateway DELETE / stream "kill" verb), so it
-            // escalates to force after the shorter FleetKillGraceMs window instead of the full desktop
+            // Faster STOP: this is the FLEET/remote stop path (Gateway stop route / stream "kill" verb), so
+            // it escalates to force after the shorter FleetKillGraceMs window instead of the full desktop
             // GracefulShutdownTimeoutSeconds. Graceful-first is preserved (Ctrl+C then wait), just quicker.
             // When FleetKillGraceMs is disabled (null/non-positive) this resolves to the standard window.
             await sessionManager.KillSessionAsync(guid, sessionManager.FleetKillGraceMs);
         }
         catch (KeyNotFoundException)
         {
-            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+            // The row was there a moment ago and is not now - another caller removed it while this stop was
+            // in flight. That is "there is nothing left to stop", which Ruling 3 makes a SUCCESS, so it falls
+            // through with the rest of the best-effort handling. This used to return NotFound; the ONE place
+            // a missing row is now decided is the null-session check above, before any of the facts are read.
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} the row vanished mid-stop (raced with another remover)");
         }
         catch (Exception killEx)
         {
             // The process may have already exited; that is not a reason to leave a zombie row, so log and
-            // fall through to removal. DELETE always means gone (matches the desktop close flow).
+            // fall through to removal. A stop always means gone (matches the desktop close flow).
             FileLog.Write($"[SessionCommandExecutor] kill: session={guid} kill raised (process likely already gone): {killEx.Message}");
         }
 
+        // ---- did it actually die? ----
+
+        bool processEnded = liveProcessFound && processId is int livePid && await ProcessIsGoneAsync(livePid, isAlive);
+
+        if (liveProcessFound && !processEnded)
+        {
+            // Ruling 3's third and only process-level failure: "the process would not die". Reporting this
+            // as a success is the worse of the two mistakes the ruling exists to prevent - the operator
+            // would read "stopped" and stop looking.
+            //
+            // The row is deliberately NOT removed here. A row removed while its process is still running is
+            // a live agent nothing on the fleet can see or stop again; leaving it is what lets the operator
+            // see the session and try once more.
+            var stuck = $"the process would not die: process {processId} is still running after the stop";
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} FAILED: {stuck} "
+                + $"(row left in place on purpose, worktreeProbe={ProbeOutcome(worktreeDirty)})");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, stuck);
+        }
+
         sessionManager.RemoveSession(guid);
-        FileLog.Write($"[SessionCommandExecutor] kill: session={guid} killed+removed");
-        return DirectorCommandResult.Success(Serialize(new { killed = true, removed = true }));
+
+        var result = new DirectorStopResult
+        {
+            // The compatibility pair, with the values they have always had on this path. They do NOT
+            // distinguish "ended a live process" from "there was nothing running"; the honest fields below
+            // are why they no longer have to.
+            Killed = true,
+            Removed = true,
+            ProcessId = processId,
+            ProcessEnded = processEnded,
+            RowRemoved = true,
+            WorktreePath = worktreePath,
+            WorktreeHadUncommittedChanges = worktreeDirty,
+            // "stopped" ONLY when a live process was found and this stop ended it. Everything else - no
+            // process id, a process that was already gone - is alreadyStopped. The Director never returns
+            // notOnFleet: it can see one machine, and that verdict is a statement about the whole account.
+            Verdict = processEnded ? SessionStopVerdict.Stopped : SessionStopVerdict.AlreadyStopped,
+        };
+
+        FileLog.Write($"[SessionCommandExecutor] kill: session={guid} verdict={result.Verdict}, "
+            + $"pid={(result.ProcessId?.ToString() ?? "none")}, processEnded={result.ProcessEnded}, "
+            + $"rowRemoved={result.RowRemoved}, worktree={worktreePath ?? "none"}, "
+            + $"worktreeProbe={ProbeOutcome(worktreeDirty)}");
+        return DirectorCommandResult.Success(Serialize(result));
     }
+
+    /// <summary>
+    /// How long the re-check will wait for a killed process id to disappear before calling it "would not die".
+    ///
+    /// This window is NOT a second grace period and it does not soften the escalation: by the time it is
+    /// reached the force-kill has already been issued. It exists because that force-kill is ASYNCHRONOUS -
+    /// <c>Process.Kill(entireProcessTree: true)</c> is TerminateProcess, which returns before the process is
+    /// gone - so an immediate single re-check can read "still alive" milliseconds after a perfectly
+    /// successful kill and report a failure that did not happen. One second is far longer than that gap and
+    /// far shorter than a human waits; after it, the verb fails loudly rather than quietly retrying.
+    /// </summary>
+    private static readonly TimeSpan ProcessExitSettleWindow = TimeSpan.FromSeconds(1);
+
+    /// <summary>Poll interval inside <see cref="ProcessExitSettleWindow"/>.</summary>
+    private static readonly TimeSpan ProcessExitPollInterval = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>The probe budget for the worktree question. Short on purpose: a stop is the sharpest thing
+    /// the product does and a git call must never be able to hold it up. A timeout is UNKNOWN, exactly like
+    /// a failure.</summary>
+    private static readonly TimeSpan WorktreeProbeTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>The production liveness check: does a process with this id exist on this machine right now?
+    /// Follows <c>LauncherDiscovery.IsRunning</c>, including its rule that identity which cannot be checked
+    /// must not pass for health - a process id that cannot be read is reported as NOT alive.</summary>
+    private static bool DefaultProcessIsAlive(int processId)
+    {
+        if (processId <= 0) return false;
+        try
+        {
+            using var p = Process.GetProcessById(processId);
+            return !p.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;   // no such process
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionCommandExecutor] kill: could not read process {processId}: {ex.Message} - treating it as gone");
+            return false;
+        }
+    }
+
+    /// <summary>Has this process id gone, allowing <see cref="ProcessExitSettleWindow"/> for an
+    /// asynchronous force-kill to land? Returns as soon as it has, so the ordinary case costs nothing.</summary>
+    private static async Task<bool> ProcessIsGoneAsync(int processId, Func<int, bool> isAlive)
+    {
+        var deadline = DateTime.UtcNow + ProcessExitSettleWindow;
+        while (true)
+        {
+            if (!isAlive(processId)) return true;
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(ProcessExitPollInterval);
+        }
+    }
+
+    /// <summary>
+    /// Did that worktree have uncommitted changes in it? True, false, or NULL FOR "COULD NOT TELL".
+    ///
+    /// A failed or timed-out probe is null and NEVER false: reporting "clean" is the one thing a probe that
+    /// did not run does not know, and every reader downstream would take it as verified (issue 516, and the
+    /// same rule written into SessionGitStatusMonitor). Every failure is caught here for the same reason the
+    /// kill is best-effort: a git probe must never be able to fail or hold up a stop.
+    ///
+    /// NOT PROVEN, AND A REAL GAP: GitStatusProvider caches for ten seconds, keyed by path and shared across
+    /// instances, so this can report a state up to ten seconds old - and the Director's own
+    /// SessionGitStatusMonitor is filling that cache every fifteen seconds. It is accepted rather than
+    /// invalidated, because this sentence is ADVISORY: Ruling 2 says the stop never refuses, so nothing is
+    /// gated on the answer, and the service that later removes a worktree re-checks for itself and fails
+    /// closed. The cost of being wrong is that the operator is pointed at the wrong tree for ten seconds;
+    /// the cost of invalidating would be throwing away a cache entry the monitor owns, on every stop.
+    /// </summary>
+    private static async Task<bool?> ProbeWorktreeUncommittedAsync(
+        Guid sessionId,
+        string worktreePath,
+        Func<string, CancellationToken, Task<GitCountResult>>? worktreeProbe)
+    {
+        var probe = worktreeProbe ?? new GitStatusProvider().GetCountAsync;
+        using var cts = new CancellationTokenSource(WorktreeProbeTimeout);
+        try
+        {
+            var count = await probe(worktreePath, cts.Token);
+            return count.Success ? count.Count > 0 : null;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionCommandExecutor] kill: session={sessionId} worktree probe on {worktreePath} "
+                + $"did not answer ({ex.GetType().Name}: {ex.Message}) - reporting UNKNOWN, not clean");
+            return null;
+        }
+    }
+
+    /// <summary>The worktree probe outcome as one word, for the log line.</summary>
+    private static string ProbeOutcome(bool? worktreeDirty) => worktreeDirty switch
+    {
+        true => "dirty",
+        false => "clean",
+        null => "unknown",
+    };
 
     /// <summary>
     /// The <c>patch</c> verb: rename a session (the only PATCH field today). Mirrors the Director's
