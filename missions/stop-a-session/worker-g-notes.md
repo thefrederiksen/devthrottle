@@ -1,6 +1,6 @@
 # Worker G - a completed stop that nobody recorded (inspection 1, finding I1)
 
-Session `53e4e96f-6c32-43a3-a3ba-e532213f0300`, seat Worker G, running Claude Code.
+Session `53e4e96f-6c32-43a3-a3ba-e532213f0300`, seat Worker G.
 Branch `mission/stop-a-session`. Commits `75b45c27` and `d79017a4`.
 
 ---

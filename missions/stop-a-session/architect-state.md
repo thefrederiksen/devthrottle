@@ -83,7 +83,7 @@ stop a session with a reason attached.**
 | 1 | Seat 1 - the Director ends it | The stop returns a structured, honest outcome: the process identifier, whether a process was ended or was already gone, whether a row was removed, and the worktree it leaves behind with whether that worktree had uncommitted changes. Reconciles row against process inside the owning Director. | Unit tests per state, each watched failing on purpose |
 | 2 | Seat 2 - the route and the command | `POST /sessions/{sid}/stop` with a required reason; the refusal that names the reason as what is missing; the audit record; the fold that writes the one sentence; the allow-list entries for the stop and for cancelling a deletion; `cc-devthrottle session stop` and `session done --undo` | Unit tests plus the command line answering for real |
 | 3 | Seat 3 - the controls | The Cockpit's close re-pointed at the stop, asking for a reason and showing the Gateway's answer; the same in the Director window; mobile carried along because it shares the function | Component tests, then the screenshots in the report |
-| 4 | Inspection | A Codex session, adversarial, reviewing the whole branch diff against the rulings. Writes to a file, replies one line. Never fixes. | Its written review, and the fixes that answer it |
+| 4 | Inspection | An independent session FROM A DIFFERENT AGENT FAMILY TO THE BUILDERS, adversarial, reviewing the whole branch diff against the rulings. Writes to a file, replies one line. Never fixes. | Its written review, and the fixes that answer it |
 | 5 | The QA report | The document of section 6, written by a seat that did not build the feature, driving the real product | The report itself - this is the mission's goal |
 | 6 | Landing | The Architect merges the slices to `main`, lands this record, and emails the owner | Merged pull requests |
 
@@ -174,7 +174,7 @@ stop a session with a reason attached.**
   **The Architect's own lesson from this:** I praised a correction before verifying it. Being right
   about the first half bought no credit for the second, and only the Manager's own honesty caught it.
 
-- **9 Sep 2026 - the Codex inspection landed and it was hard.** Eight defects, four P1, every one
+- **9 Sep 2026 - the independent inspection landed and it was hard.** Eight defects, four P1, every one
   reproduced. All accepted, none disputed, none deferred. Ruling in
   `architect-ruling-on-inspection-1.md`; the findings in `inspection-1.md`.
   **Its most valuable result was not a finding:** replacing the production liveness check with the
@@ -198,7 +198,7 @@ stop a session with a reason attached.**
   the QA report is to show every session that built and fixed this feature, and how many. Accepted -
   it is additive and harmless - and recorded as second-hand rather than absorbed silently, because a
   requirement the Architect did not hear itself should be said out loud. Roster in `who-built-it.md`:
-  fifteen sessions, six phases, fourteen Claude Code and one Codex Inspector.
+  fifteen sessions, six phases, fourteen from the building family and one Inspector from a different family.
 - **Six of the fifteen cannot be named**, and the reason is the mission's own subject. A session reaped
   by the polite deletion flag leaves no durable record of its identifier, the Director logs do not
   carry it, and a session key is refused 403 on the Gateway session-history route. **Ruled: record and
