@@ -106,3 +106,26 @@ stop a session with a reason attached.**
   layer was proved against a stub of the one below it. The QA run needs a Gateway built from this
   branch, and the branch cannot merge before the QA run exists - so the stack is stood up LOCALLY.
   Phase B de-risks that and writes down the recipe; the QA seat repeats it independently.
+
+- **8 Sep 2026, later** - Phase A finished, including four Architect-ordered corrections: the 502
+  reversed to `stoppedNotDescribed` on both doors, stops excluded from the outcome ledger's
+  intervention count, `--json` on `session stop`, and the parked run completed.
+- **The parked run caught a real regression, and this is the mission's best evidence for its own
+  conduct.** Making `DELETE /sessions/{sid}` a thin forward silently changed its answer for an
+  unknown session from 404 to a 200 `notOnFleet`, breaking two existing tests that live ONLY in the
+  parked suite - one of them a CROSS-TENANT ISOLATION test pinning that one account naming another
+  account's session gets a not-found. Worker B had reported its own 16 route tests green, which was
+  true and beside the point: it never ran the whole parked suite, so it never saw what its change did
+  to the tests already there. Proof that covered the wrong thing, caught only because the numbers
+  were demanded before landing.
+- **The fix was to leave the security test alone.** The legacy DELETE door keeps its 404; Ruling 3's
+  "nothing on this fleet is a success" governs THE STOP, which is the new verb. Nothing is stopped on
+  that path at all - no Director asked, no fold, no audit row - so the doors differ only in how each
+  says "there is nothing of yours here", not in how either stops a session. The available alternative
+  was to edit a cross-tenant isolation test until it agreed with the new code, and that is the move to
+  distrust. CONFIRMED by the Architect.
+- **Two failures left, and they are the host, not the branch:** two path-containment tests that create
+  a FILE symbolic link and deliberately fail loudly rather than skip when the host cannot. Probed:
+  Developer Mode unset, not elevated. The directory-link test beside them passes, which is exactly the
+  split the privilege explains. They cannot be proven either way on this machine, and that is recorded
+  as a gap rather than a pass.

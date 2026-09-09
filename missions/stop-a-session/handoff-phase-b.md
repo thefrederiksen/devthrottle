@@ -93,3 +93,52 @@ the real product for those. Your job is that there is something true to photogra
 One message, one line, pointing at `missions/stop-a-session/phase-b-report.md`. Write into that file
 what you built, what you proved and how, what you did NOT prove, and anything that contradicts the
 rulings or this note. Fleet messages truncate at the first newline - the detail goes in the file.
+
+---
+
+# ADDED AFTER PHASE A - read this part too
+
+## What Phase A settled that changes your instructions
+
+Read `missions/stop-a-session/architect-ruling-on-phase-a.md` and the end of
+`missions/stop-a-session/phase-a-report.md`. Three things bear directly on you:
+
+1. **Ruling 3 now has a FOURTH verdict word**, `stoppedNotDescribed`, for when the owning Director is
+   an older version and cannot say what it found. Your surfaces must render it like any other - from
+   the Gateway's `headline`, verbatim. Do not special-case it in a view.
+2. **The two doors answer differently for an unknown session, deliberately.** `POST .../stop` answers
+   200 `notOnFleet`; the legacy `DELETE /sessions/{sid}` keeps its 404. You are moving every client to
+   the POST door, so this should not touch you - but if you find yourself relying on a 404 from the
+   stop, you are on the wrong door.
+3. **The parked suite caught a cross-tenant isolation regression in Phase A that the default gate
+   could not see.** Take the warning: a green default run says very little here.
+
+## The de-risking task, and it is as important as the controls
+
+**Nothing has stopped a real session yet.** Every layer of Phase A was proved against a stub of the
+one below it. The mission's goal is a QA report showing the feature working, and that report needs a
+Gateway carrying this branch - which cannot be the hosted one, because the hosted Gateway deploys only
+from `main` and this branch cannot merge until the report exists.
+
+So the stack has to be stood up locally, and **you do it, not the QA seat** - because if it cannot be
+stood up, the mission's goal is unreachable and the Architect needs to know that now rather than at
+the end.
+
+**What is asked:**
+
+- Stand up a Gateway built from this branch, locally, and a Director in **slot 5 or higher** pointed
+  at it. Never the owner's Directors, never the hosted Gateway. `CLAUDE.md` rule 0b is why a test
+  Director is launched through the `cc-director-launch` scheduled task; rule 0 is why you never kill a
+  process to tidy up.
+- Stop ONE real session through it, end to end, and confirm the process is actually gone.
+- **Write down exactly how you did it** in `missions/stop-a-session/local-stack-recipe.md`: every
+  command, every configuration value, every thing that went wrong and what fixed it. The QA seat
+  repeats this recipe independently and photographs it. A recipe that only works when you are driving
+  it is not a recipe.
+- **If you cannot stand it up, STOP and tell the Architect.** Do not simulate it, do not substitute a
+  test that looks like it, and do not quietly narrow the goal. An honest "this cannot be done here,
+  and here is how far I got" is worth more than anything you could fake.
+
+**Your smoke test is not the proof.** It is what stops the proof from being impossible. The QA seat
+still does the real run, independently, because a builder photographing its own work reaches for the
+path it already knows works.
