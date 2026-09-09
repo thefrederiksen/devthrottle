@@ -513,3 +513,78 @@ def test_the_reason_flag_is_declared_with_its_short_form_and_the_target_is_requi
 #     client raises one exception type and does not carry the status code. The two tests above assert
 #     that each sentence survives intact and exits non-zero; they do not and cannot assert that this
 #     client could tell them apart on its own.
+
+
+# ===== --json: the shape an agent reads =====
+#
+# Ruling 4 makes any session able to stop any other, which makes an AGENT the ordinary caller of a
+# stop - and an agent parsing Rich-rendered sentences is parsing text that re-wraps with whatever
+# console width it happened to run at. So the whole folded answer is available verbatim as JSON.
+# This client no more edits the JSON than it edits the sentences.
+
+
+def test_json_prints_the_whole_folded_answer_verbatim_and_parses(gateway_stub, capsys):
+    """The JSON is the GATEWAY's answer, unedited - not a summary this client composed."""
+    import json as _json
+
+    gateway_stub(_stopped())
+
+    result = runner.invoke(app, ["session", "stop", SHORT_ID, "-r", "why", "--json"])
+
+    assert result.exit_code == 0
+    parsed = _json.loads(result.output)
+    # Every field the Gateway folded survives, including the detail lines in their given order.
+    assert parsed["verdict"] == "stopped"
+    assert parsed["headline"] == f"stopped {SHORT_ID} - process 51884 ended, row removed"
+    assert parsed["processId"] == 51884
+    assert parsed["details"] == _stopped()["details"]
+
+
+def test_json_is_valid_json_even_when_a_line_is_far_wider_than_a_console(gateway_stub):
+    """The defect this guards: Rich wraps to the console width and injects newlines into long values,
+    which turns a machine-readable answer into something no parser can read. `session list --json`
+    prints plainly for exactly this reason, and so does this."""
+    import json as _json
+
+    answer = _stopped()
+    answer["details"] = ["the worktree " + ("C:\Repos\a-very-long-path" * 12) + " was left untouched"]
+    gateway_stub(answer)
+
+    result = runner.invoke(app, ["session", "stop", SHORT_ID, "-r", "why", "--json"])
+
+    assert result.exit_code == 0
+    parsed = _json.loads(result.output)          # the whole assertion: it PARSES
+    assert parsed["details"] == answer["details"]
+
+
+def test_json_still_exits_zero_for_not_on_this_fleet(gateway_stub):
+    """Ruling 3 does not change shape because a flag was passed. All three verdicts still exit zero."""
+    import json as _json
+
+    gateway_stub(_not_on_fleet(), roster=[])
+
+    result = runner.invoke(app, ["session", "stop", "no-such-session", "-r", "why", "--json"])
+
+    assert result.exit_code == 0
+    assert _json.loads(result.output)["verdict"] == "notOnFleet"
+
+
+def test_json_does_not_suppress_the_missing_reason_refusal(gateway_stub):
+    """--json changes the OUTPUT SHAPE, never the rules. A stop with no reason is still refused."""
+    gateway_stub(_stopped())
+
+    result = runner.invoke(app, ["session", "stop", SHORT_ID, "--json"])
+
+    assert result.exit_code != 0
+
+
+def test_the_json_flag_is_declared_on_stop():
+    """A flag nobody can find does not exist. Asserted on the declaration because --help cannot render
+    in this environment at all (the installed typer and click raise on every command's --help)."""
+    from src import cli
+
+    names = []
+    for param in cli.stop.__defaults__ or ():
+        if isinstance(param, typer.models.OptionInfo):
+            names.extend(param.param_decls or [])
+    assert "--json" in names

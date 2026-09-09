@@ -58,47 +58,49 @@ internal static class SessionStopFold
     }
 
     /// <summary>
-    /// Why the Director's answer cannot be folded into an honest sentence, or null when it can.
+    /// Can the Director's answer be folded into a description of what it found? False when it cannot.
     ///
-    /// This exists because the alternative is worse than a refusal. The Gateway and the Director do not
-    /// deploy together - the Gateway ships in a container and a Director updates itself on each machine -
-    /// so a Gateway carrying this mission can be asked to fold an answer from a Director that predates it
-    /// and reports only the original <c>killed</c> / <c>removed</c> pair. There is no honest headline for
-    /// that: every one of the five below asserts either that a process was ended or that none was running,
-    /// and an older Director said neither. Guessing one of them would put a claim in front of an operator
-    /// that nothing on the fleet actually established, which is the exact failure this mission exists to
-    /// remove. So the route refuses, with a sentence that says what to do about it.
+    /// The Gateway and the Directors do not deploy together - the Gateway ships in a container and a
+    /// Director updates itself on each machine - so a Gateway carrying this mission can be handed an
+    /// answer from a Director that predates it and reports only the original hardcoded
+    /// <c>killed</c> / <c>removed</c> pair. It says the verb RAN; it says nothing about what was found.
     ///
-    /// THE COST, STATED RATHER THAN BURIED: during a rollout window a stop through either door answers a
-    /// failure for a session on a machine that has not updated yet - including <c>DELETE /sessions/{sid}</c>,
-    /// which shipped clients call and which succeeds against such a Director today. That is deliberate. The
-    /// stop still reaches the Director and still ends the session; what is refused is the REPORT, because a
-    /// report is the whole point of this verb.
+    /// THE FIRST IMPLEMENTATION REFUSED THAT WITH A 502, AND THE ARCHITECT REVERSED IT. The session was
+    /// stopped, and reporting a failure for an operation that succeeded is a false report - the very
+    /// complaint this mission exists to fix, rebuilt inside the fix for it. Calling it
+    /// <see cref="SessionStopVerdict.Stopped"/> would be the opposite error, asserting a process nobody
+    /// established. So the caller is told the stop happened AND told that this machine could not describe
+    /// it: <see cref="SessionStopVerdict.StoppedNotDescribed"/>.
+    ///
+    /// This is only ever consulted on an answer the tunnel returned OK, which is what makes "the verb ran"
+    /// safe to say. A tunnel failure is a different thing entirely and never reaches here.
     /// </summary>
-    internal static string? DirectorAnswerProblem(DirectorStopResult? answer)
+    internal static bool CanDescribe(DirectorStopResult? answer)
     {
-        if (answer is null)
-            return "The machine that owns this session did not answer the stop in a form this Gateway could "
-                + "read, so there is nothing honest to report about what happened to the session.";
+        // No body at all, or a body this Gateway could not parse. The verb ran; nothing describes it.
+        if (answer is null) return false;
 
+        // A verdict word this Gateway does not know - the shape an older Director answers with, since it
+        // sets no verdict at all. Note this deliberately does NOT accept StoppedNotDescribed: that word is
+        // the GATEWAY's, folded here, and a Director never sends it.
         var verdict = answer.Verdict ?? "";
-        if (verdict is not (SessionStopVerdict.Stopped or SessionStopVerdict.AlreadyStopped))
-            return "The machine that owns this session answered the stop but did not say what it did to the "
-                + "session, so there is nothing honest to report. That machine is running an older version of "
-                + "DevThrottle than this Gateway; update it and stop the session again.";
+        if (verdict is not (SessionStopVerdict.Stopped or SessionStopVerdict.AlreadyStopped)) return false;
 
-        if (verdict == SessionStopVerdict.Stopped && answer.ProcessId is null)
-            return "The machine that owns this session said it ended a running process but did not say which "
-                + "one, so there is nothing honest to report about what was stopped.";
+        // It claims it ended a running process but will not say which one, so the headline could not name
+        // the process it is supposed to name.
+        if (verdict == SessionStopVerdict.Stopped && answer.ProcessId is null) return false;
 
-        return null;
+        return true;
     }
 
     /// <summary>
-    /// Fold the Director's answer into the finished words. <paramref name="answer"/> must already have passed
-    /// <see cref="DirectorAnswerProblem"/>; it throws rather than inventing a sentence for an answer it cannot
-    /// describe, because a fold that quietly produces a plausible line for an unexpected state is how a screen
-    /// comes to say something no machine ever established.
+    /// Fold the Director's answer into the finished words.
+    ///
+    /// An answer that does not pass <see cref="CanDescribe"/> is NOT refused and NOT guessed at: it folds to
+    /// <see cref="SessionStopVerdict.StoppedNotDescribed"/>, which says the stop happened and says that this
+    /// machine could not describe it. Reporting a failure for a stop that succeeded, which is what refusing
+    /// did, is the same false report this mission exists to remove; inventing a plausible line for a state
+    /// nothing established is the other half of it.
     /// </summary>
     /// <param name="sessionId">The identifier the stop was asked for, exactly as the caller gave it.</param>
     /// <param name="answer">What the owning Director found and did.</param>
@@ -108,12 +110,34 @@ internal static class SessionStopFold
         string sessionId, DirectorStopResult answer, string? reason, string? stoppedBy)
     {
         if (answer is null) throw new ArgumentNullException(nameof(answer));
-        var problem = DirectorAnswerProblem(answer);
-        if (problem is not null)
-            throw new InvalidOperationException(
-                $"The Director's stop answer cannot be folded: {problem}");
 
         var shortId = ShortIdFor(sessionId);
+
+        // THE STOP HAPPENED; THIS MACHINE CANNOT SAY WHAT IT FOUND. Every description field is deliberately
+        // left empty - null process id, false booleans, no worktree - because nothing established them, not
+        // because they were established to be false. The verdict word is the signal, and the headline is the
+        // whole of what is known. Killed/Removed carry through from whatever the older Director did report.
+        if (!CanDescribe(answer))
+        {
+            var undescribed = new SessionStopResponse
+            {
+                Verdict = SessionStopVerdict.StoppedNotDescribed,
+                Headline = $"stopped {shortId} - the Director on that machine is an older version and could "
+                    + "not say what it found, so this answer cannot name the process it ended or the "
+                    + "worktree it left behind",
+                SessionId = sessionId,
+                ShortId = shortId,
+                Reason = reason,
+                StoppedBy = stoppedBy,
+                Killed = answer.Killed,
+                Removed = answer.Removed,
+            };
+            // No worktree line: there is no worktree to name, and Ruling 2's sentence must never be invented.
+            // The reason line still belongs - it is the CALLER's words, which this Gateway does know.
+            AddDetails(undescribed, worktreePath: null, worktreeHadUncommittedChanges: null, reason: reason);
+            return undescribed;
+        }
+
         var headline = answer.Verdict == SessionStopVerdict.Stopped
             ? (answer.RowRemoved
                 ? $"stopped {shortId} - process {answer.ProcessId} ended, row removed"

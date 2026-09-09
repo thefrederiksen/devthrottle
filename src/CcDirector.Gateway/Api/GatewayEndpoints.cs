@@ -2009,17 +2009,19 @@ internal static class GatewayEndpoints
                 }
             }
 
-            // An answer this Gateway cannot fold honestly is refused rather than guessed at - see
-            // SessionStopFold.DirectorAnswerProblem for what that costs and why it is the right side to err
-            // on. The commonest cause is a Director older than this Gateway, which reports only the original
+            // An answer this Gateway cannot describe is NOT refused. The tunnel returned Ok, so the verb
+            // ran and the session is stopped; answering a failure for that would report a failure for an
+            // operation that succeeded, which is the exact complaint this mission exists to fix. It folds
+            // to stoppedNotDescribed instead - the stop is reported, the description is not invented. The
+            // commonest cause is a Director older than this Gateway, which reports only the original
             // killed/removed pair and says nothing about what it found.
-            if (SessionStopFold.DirectorAnswerProblem(answer) is { } problem)
-            {
-                FileLog.Write($"[GatewayEndpoints] stop {sid}: UNREADABLE Director answer from {director.MachineName}: body={streamResult.BodyJson ?? "(none)"}");
-                return Results.Json(new { error = problem }, statusCode: StatusCodes.Status502BadGateway);
-            }
+            //
+            // BOTH DOORS get this. DELETE /sessions/{sid} must not start failing against an older Director:
+            // it succeeds there today, and shipped clients call it.
+            if (!SessionStopFold.CanDescribe(answer))
+                FileLog.Write($"[GatewayEndpoints] stop {sid}: the Director on {director.MachineName} could not describe the stop (older version?): body={streamResult.BodyJson ?? "(none)"}");
 
-            var response = SessionStopFold.Fold(sid, answer!, reason, actor);
+            var response = SessionStopFold.Fold(sid, answer ?? new DirectorStopResult(), reason, actor);
             FileLog.Write($"[GatewayEndpoints] stop {sid}: {response.Headline} (actor={actor})");
 
             RecordStopInTheAuditTrail(session.SessionId, response.Verdict, actor, reason);

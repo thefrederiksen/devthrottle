@@ -723,7 +723,7 @@ def _stop_target(target: str) -> str:
     return wanted
 
 
-def stop_session(target: str, reason: Optional[str]) -> Dict[str, Any]:
+def stop_session(target: str, reason: Optional[str], json_output: bool = False) -> Dict[str, Any]:
     """End a session now, and print what the Gateway says actually happened to it.
 
     THE CLIENT IS DUMB (Ruling 5). The Gateway folds the whole answer - the verdict, the one-line
@@ -787,6 +787,16 @@ def stop_session(target: str, reason: Optional[str]) -> Dict[str, Any]:
             "Run cc-devthrottle session list to see whether it is still there."
         )
         raise typer.Exit(1)
+
+    if json_output:
+        # Plain print, not console.print: Rich wraps to 80 columns when stdout is not a TTY and injects
+        # newlines into long values, producing invalid JSON. The same reason `session list --json` does it.
+        # This is the shape an AGENT reads, and Ruling 4 makes an agent the ordinary caller of a stop - so
+        # the alternative was every agent parsing sentences that re-wrap with the console width.
+        # The WHOLE answer is printed, verbatim, exactly as the Gateway folded it: this client no more
+        # edits the JSON than it edits the sentences.
+        print(json.dumps(body, indent=2))
+        return body
 
     console.print(escape(headline))
     details = body.get("details", body.get("Details"))

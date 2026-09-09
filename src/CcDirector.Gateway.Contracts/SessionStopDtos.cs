@@ -19,6 +19,29 @@ public static class SessionStopVerdict
 
     /// <summary>No session in the account carries that identifier, so no machine was asked.</summary>
     public const string NotOnFleet = "notOnFleet";
+
+    /// <summary>
+    /// The Director carried out the stop, but it is an older version that cannot say what it found, so
+    /// this answer names no process and no worktree.
+    ///
+    /// The Gateway and the Directors do not deploy together - the Gateway ships in a container image and
+    /// each Director updates itself on its own machine - so during a rollout this Gateway can be handed an
+    /// answer from a Director that predates this mission and reports only the original hardcoded
+    /// <c>killed</c> / <c>removed</c> pair.
+    ///
+    /// This word exists because both of the obvious answers are wrong. Refusing the stop (the first
+    /// implementation answered 502) reports a FAILURE for an operation that SUCCEEDED - the session really
+    /// was stopped - and a tool confident in one direction and vague in the other is the exact complaint
+    /// this mission exists to fix. But calling it <see cref="Stopped"/> asserts a fact nobody established:
+    /// an old Director's <c>killed: true</c> says the verb ran, never that a process was found and ended.
+    ///
+    /// So: the success is reported, and the description is not invented. **Every description field is
+    /// meaningless under this verdict** - the process id is null, and <c>ProcessEnded</c>, <c>RowRemoved</c>
+    /// and the worktree fields are all left at their empty values because nothing established them, NOT
+    /// because they were established to be false. A reader that sees this word must read the headline and
+    /// ignore the fields.
+    /// </summary>
+    public const string StoppedNotDescribed = "stoppedNotDescribed";
 }
 
 /// <summary>

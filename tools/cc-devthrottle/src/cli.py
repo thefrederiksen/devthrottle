@@ -1328,6 +1328,11 @@ def stop(
         "-r",
         help="Why you are stopping it, in your own words. Required, and recorded with the stop.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print the Gateway's answer as JSON instead of the sentences, for a caller that parses it.",
+    ),
 ) -> None:
     """End a session NOW, and print what actually happened to it.
 
@@ -1347,7 +1352,7 @@ def stop(
     machine was asked and it looked), or nothing in this account carries that identifier at all (no
     machine was asked). Those are different facts and they are never folded into one word.
     """
-    stop_session(target, reason)
+    stop_session(target, reason, json_output=json_output)
 
 
 @session_app.command()

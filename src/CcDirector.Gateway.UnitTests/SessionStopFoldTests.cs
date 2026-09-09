@@ -243,49 +243,90 @@ public sealed class SessionStopFoldTests
     }
 
     // ---------------------------------------------------------------------------------------------------
-    // An answer the Gateway cannot fold honestly.
+    // An answer this Gateway cannot DESCRIBE. It is still a stop, and it is never a failure.
+    //
+    // The first implementation refused these with a 502. The Architect reversed it: the session really was
+    // stopped, and reporting a failure for an operation that succeeded is the same false report this
+    // mission exists to remove. They fold to stoppedNotDescribed instead.
     // ---------------------------------------------------------------------------------------------------
 
     [Fact]
-    public void A_foldable_answer_reports_no_problem()
+    public void A_describable_answer_is_described()
     {
-        Assert.Null(SessionStopFold.DirectorAnswerProblem(Stopped()));
-        Assert.Null(SessionStopFold.DirectorAnswerProblem(AlreadyStopped(rowRemoved: true)));
+        Assert.True(SessionStopFold.CanDescribe(Stopped()));
+        Assert.True(SessionStopFold.CanDescribe(AlreadyStopped(rowRemoved: true)));
     }
 
     /// <summary>
-    /// An older Director answers only the original killed/removed pair. There is no honest headline for
-    /// that - every one asserts either that a process was ended or that none was running - so the fold says
-    /// it cannot describe the answer rather than picking one.
+    /// An older Director answers only the original killed/removed pair. It says the verb RAN, never that a
+    /// process was found - so this is neither "stopped" (which would assert a process nobody established)
+    /// nor a failure (the session really is stopped).
     /// </summary>
     [Fact]
-    public void An_answer_with_no_verdict_is_refused_rather_than_guessed_at()
+    public void An_older_Directors_answer_is_a_stop_that_could_not_be_described()
     {
         var legacy = new DirectorStopResult { Killed = true, Removed = true };
 
-        var problem = SessionStopFold.DirectorAnswerProblem(legacy);
+        Assert.False(SessionStopFold.CanDescribe(legacy));
 
-        Assert.NotNull(problem);
-        Assert.Contains("older version", problem);
-        Assert.Throws<InvalidOperationException>(
-            () => SessionStopFold.Fold(Sid, legacy, reason: "why", stoppedBy: "machine token"));
+        var folded = SessionStopFold.Fold(Sid, legacy, reason: "why", stoppedBy: "machine token");
+
+        Assert.Equal(SessionStopVerdict.StoppedNotDescribed, folded.Verdict);
+        Assert.Contains("older version", folded.Headline);
+        Assert.Contains("could not say what it found", folded.Headline);
+        // It leads with the SUCCESS. An operator must not read this as a failed stop.
+        Assert.StartsWith("stopped ", folded.Headline);
+        // The compatibility pair carries through from whatever the old Director did report.
+        Assert.True(folded.Killed);
+        Assert.True(folded.Removed);
     }
 
+    /// <summary>
+    /// Nothing is described under this verdict, and nothing is INVENTED either. The empty values mean "not
+    /// established", never "established to be false", and the worktree sentence Ruling 2 requires must not
+    /// appear - there is no worktree to name.
+    /// </summary>
     [Fact]
-    public void A_missing_answer_is_refused()
-        => Assert.NotNull(SessionStopFold.DirectorAnswerProblem(null));
+    public void A_stop_that_could_not_be_described_names_no_process_and_no_worktree()
+    {
+        var folded = SessionStopFold.Fold(
+            Sid, new DirectorStopResult { Killed = true, Removed = true }, reason: "why", stoppedBy: "me");
+
+        Assert.Null(folded.ProcessId);
+        Assert.False(folded.ProcessEnded);
+        Assert.Null(folded.WorktreePath);
+        Assert.Null(folded.WorktreeHadUncommittedChanges);
+        Assert.DoesNotContain(folded.Details, d => d.Contains("worktree"));
+        // The caller's own words ARE known to this Gateway, so the reason line still belongs.
+        Assert.Contains("reason: why", folded.Details);
+    }
+
+    /// <summary>A Director that answered nothing readable at all. The tunnel still returned Ok, so the verb
+    /// ran; only the description is missing.</summary>
+    [Fact]
+    public void A_missing_answer_is_a_stop_that_could_not_be_described()
+    {
+        Assert.False(SessionStopFold.CanDescribe(null));
+
+        var folded = SessionStopFold.Fold(Sid, new DirectorStopResult(), reason: null, stoppedBy: "me");
+
+        Assert.Equal(SessionStopVerdict.StoppedNotDescribed, folded.Verdict);
+    }
 
     /// <summary>
     /// "stopped" means a live process was found and ended, so the identifier of that process is part of the
-    /// claim. An answer that says one was ended but not which cannot produce the headline.
+    /// claim. An answer that says one was ended but not which cannot produce that headline - and is not
+    /// refused for it either.
     /// </summary>
     [Fact]
-    public void A_stop_that_names_no_process_is_refused()
+    public void A_stop_that_claims_a_process_but_names_none_is_not_described()
     {
-        var problem = SessionStopFold.DirectorAnswerProblem(Stopped(pid: null));
+        Assert.False(SessionStopFold.CanDescribe(Stopped(pid: null)));
 
-        Assert.NotNull(problem);
-        Assert.Contains("did not say which", problem);
+        var folded = SessionStopFold.Fold(Sid, Stopped(pid: null), reason: "why", stoppedBy: "me");
+
+        Assert.Equal(SessionStopVerdict.StoppedNotDescribed, folded.Verdict);
+        Assert.Null(folded.ProcessId);
     }
 
     // ---------------------------------------------------------------------------------------------------

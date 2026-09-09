@@ -88,6 +88,56 @@ public sealed class OutcomeLedgerReporterTests : IDisposable
             BillingMode = SessionBillingMode.SubscriptionIncluded,
         });
 
+    /// <summary>
+    /// A STOP IS IN THE INTERVENTION CATEGORY AND IS NOT COUNTED HERE, and the two halves of that are
+    /// tested together because separating them is how one of them would quietly be lost.
+    ///
+    /// The row must exist: the owner allowed any session to stop any other ON THE GROUND THAT IT IS
+    /// AUDITED, so the trail has to hold it. The count must not move: this number means "how often did
+    /// this session need a person", and the mission that added the stop makes one agent stopping another
+    /// the ORDINARY case. Counting them would change what the number means underneath the people reading
+    /// it, which is worse than not having it at all.
+    /// </summary>
+    [Fact]
+    public void A_stop_is_recorded_in_the_trail_but_never_counted_as_an_intervention()
+    {
+        const string session = "sess-stopped";
+        var run = SeedRun("Ship it", session, WorkflowRunAcceptance.Accepted);
+        SeedSpend(session, output: 5000);
+
+        // One real intervention - the agent needed a person.
+        _audit.Append(new AppendGovernanceAuditEventRequest
+        {
+            SessionId = session, RunId = run.Id,
+            Category = GovernanceAuditCategory.Intervention, EventType = GovernanceAuditEventType.Needed,
+        });
+        // And two stops, which are interventions in the plain sense and not in this number's sense.
+        _audit.Append(new AppendGovernanceAuditEventRequest
+        {
+            SessionId = session, RunId = run.Id,
+            Category = GovernanceAuditCategory.Intervention, EventType = GovernanceAuditEventType.Stopped,
+            Actor = "session 9c41e7a2", Detail = "it was editing the wrong repository",
+        });
+        _audit.Append(new AppendGovernanceAuditEventRequest
+        {
+            SessionId = session, RunId = run.Id,
+            Category = GovernanceAuditCategory.Intervention, EventType = GovernanceAuditEventType.Stopped,
+            Actor = "session 9c41e7a2", Detail = "spawned into the wrong mode",
+        });
+
+        var report = _reporter.Build(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
+
+        // The count sees the one that means "a person was needed", and neither of the stops.
+        var row = Assert.Single(report.Delivered);
+        Assert.Equal(1, row.InterventionCount);
+
+        // The trail still holds all three, stops included - this is the half that must not be lost.
+        var trail = _audit.List(sessionId: session, category: GovernanceAuditCategory.Intervention);
+        Assert.Equal(3, trail.Count);
+        Assert.Equal(2, trail.Count(e => e.EventType == GovernanceAuditEventType.Stopped));
+        Assert.Contains(trail, e => e.Detail == "it was editing the wrong repository");
+    }
+
     [Fact]
     public void A_delivered_run_carries_its_yield_cost_and_attention()
     {
