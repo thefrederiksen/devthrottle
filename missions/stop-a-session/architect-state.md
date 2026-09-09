@@ -393,3 +393,85 @@ Kept here because a gap that lives only in a document nobody re-reads is a gap t
 - Two smaller things left alone deliberately: the recipe's Cockpit address lands on a not-found page
   (`/sessions`, not `/c`), and a previous run's data home is still on disk and is not this run's to
   sweep.
+
+---
+
+## 9 Sep 2026, late - the owner called the second inspection off, and it found a P1 on its way out
+
+**The owner intervened directly:** the mission had run long, he wanted the quality report and nothing
+else, and he told this seat to review the branch itself and drop the second inspection. Both were
+done. **The report was emailed to him with the document attached** - it was already finished, which
+is the thing he most needed to know.
+
+**Standing the Inspector down took one message, and that message returned a blocking finding.** It
+was asked for whatever it had ALREADY established, in one line, with an explicit instruction not to
+continue. It replied with a P1. Sixty seconds of harvest against two hours of work already spent:
+**never dismiss a seat without asking what it has.** Its partial notes are committed at `0726f6ef`
+and honestly labelled an unfinished inspection rather than an approval.
+
+### The finding, and why it is real - I1 is NARROWED, not CLOSED
+
+Phase C closed I1 for the roads where the row was never ATTEMPTED. What was left is the road where
+it IS attempted and FAILS: `RecordStopInTheAuditTrail` caught the exception, logged it, and returned,
+and the handler then answered an ordinary success. **The operator was told the session stopped and
+told nothing about the trail being empty** - so the one condition Ruling 4 was granted on could fail
+with nobody downstream any the wiser.
+
+Reproduced properly rather than argued: a real endpoint over local HTTP, a real temporary database,
+and a trigger rejecting inserts into the audit table. The control wrote ONE row; the failure arm
+wrote ZERO and still answered HTTP 200 with `RowRemoved = true`. A sentinel row proved the store
+worked in both arms, so the failure is the write failing rather than a rig that never wrote.
+
+### The Architect's own review of it, and the fix
+
+The existing behaviour was a CONSIDERED decision, not an oversight - the comment argues that failing
+the response would be a lie, because the session really was stopped. **That reasoning is sound and is
+kept.** The defect is narrower than "it should fail": it is that the answer said nothing.
+
+**This branch had already solved this exact shape once.** The tunnel-drop road records "a stop was
+sent and its outcome is unknown" rather than staying silent, on the stated ground that silence is the
+worse error. The audit-failure road was taking the silent branch. So the fix is the branch's own
+principle applied where it had been missed:
+
+- `RecordStopInTheAuditTrail` returns null when it wrote, or a short plain-English reason when it did
+  not - `no governance trail is wired on this Gateway`, or `the governance trail refused the write`.
+- The handler adds one more line to `Details`:
+  `this stop is NOT recorded in the governance trail - <why>`.
+
+**The verdict word does not move and no fifth verdict exists.** What happened to the SESSION and what
+happened to the RECORD of it are two different facts, and the answer now carries both. The client
+stays dumb - this arrives as one more `Details` line that every surface already renders verbatim, so
+no client learns a new rule. That is Ruling 7 respected rather than worked around.
+
+Three tests, and the third is the one that matters most: a CONTROL pinning that an ordinary stop
+against a working trail carries NO such line. A test that only asserts a line's presence cannot tell
+you the line is conditional - which is the check-that-fails-open shape, and this mission has been
+caught by it three times.
+
+### A correction to the Phase C report, from the inspection, that must not be lost
+
+Phase C reported that SIX tests run the executor with no injected liveness seam and so protect the
+production method. **Three do.** The other three - the missing-identifier case, the backend-failure
+case, and the after-stop unreadability case - do not consult the production method at all, by their
+own paths, and passed under BOTH constants. The substantive improvement is real and is the one that
+matters: **three tests redden under both constants, where inspection 1 found ZERO protecting it.**
+But the report overstated its own coverage, and a report that overstates its coverage is the exact
+failure this mission exists to remove.
+
+Also answered: commit `a6c4c28c` - the Architect's `git add -A` - deleted the endpoint's
+unknown-outcome statements and its audit append, and **`d79017a4` restored them**. The wider audit of
+that commit was not completed before cancellation.
+
+### The parked Gateway suite has STILL never reported, on three attempts
+
+1. Run one, killed by the operating system for low memory. Zero results printed.
+2. Run two, filtered, **aborted while queued on the machine-wide lock**. `Test Run Aborted`,
+   `EXIT=1`, zero tests executed - and the harness reported the wrapper's exit 0 as "completed",
+   which is precisely a check that fails open. It was caught by reading the log rather than the
+   status.
+3. The Inspector's full run held the lock throughout and had produced no completed result when it
+   was stood down.
+
+**Its absence is not a pass, and it is the last gate item before merge.** An Architect error worth
+recording: I read the two test hosts backwards and reported the Inspector's working process as my own
+"genuinely working" run, when mine had already aborted. Corrected in the same turn it was noticed.
