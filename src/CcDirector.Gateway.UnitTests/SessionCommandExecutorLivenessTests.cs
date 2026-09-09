@@ -34,8 +34,8 @@ namespace CcDirector.Gateway.Tests;
 /// substitute: a silently skipped test for the exact defect under repair reads as coverage it does not
 /// provide.
 ///
-/// Nothing here touches a process it did not start. Each child is a short-lived <c>ping</c> that would
-/// exit on its own within thirty seconds even if a test were killed mid-run.
+/// Nothing here touches a process it did not start. Each child is a <c>ping</c> that ends on its own
+/// within ten minutes even if a test were killed mid-run, so nothing can be orphaned indefinitely.
 ///
 /// In the "DirectorRoot" collection for the same reason the sibling file is: <see cref="SessionManager"/>
 /// resolves the Director root, which is process-global state.
@@ -109,19 +109,46 @@ public sealed class SessionCommandExecutorLivenessTests
         return (sm, session, worktree);
     }
 
-    /// <summary>A real child process that outlives the call and ends on its own within thirty seconds even
-    /// if this test never gets to end it. Nothing here is ever asked about a process it did not start.</summary>
+    /// <summary>
+    /// A real child process that outlives the whole test and still ends on its own if this test never gets
+    /// to end it. Nothing here is ever asked about a process it did not start.
+    ///
+    /// TEN MINUTES, NOT THIRTY SECONDS, AND THE REASON IS A REAL FAILURE. The first version of this waited
+    /// out about twenty-nine seconds. Run on its own that was ample; run inside the full local gate, with
+    /// eleven test projects competing for the machine, two of these tests reached their assertion AFTER the
+    /// child had already exited on its own - and then read a genuinely dead process and reported
+    /// "already stopped", which is a true answer about the wrong thing. A fixture must not be able to
+    /// expire underneath the test it is holding up. It is still bounded rather than endless, so a test host
+    /// killed mid-run cannot leave a child sitting on this machine indefinitely.
+    /// </summary>
     private static Process StartAChildProcess()
     {
-        var psi = new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1")
+        // The redirect is inside the command, so no pipe is created that nobody reads.
+        var psi = new ProcessStartInfo("cmd.exe", "/c ping -n 600 127.0.0.1 > nul")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardOutput = true,
         };
         var child = Process.Start(psi);
         Assert.NotNull(child);
+        RequireStillRunning(child!, "it had only just been started");
         return child!;
+    }
+
+    /// <summary>
+    /// This test's own child must be RUNNING, or everything after it is measuring the wrong thing.
+    ///
+    /// THIS IS THE CHECK WHOSE ABSENCE COST THE FIRST RUN. Without it a child that had quietly exited was
+    /// handed to the executor, the production check read it as gone - correctly - and the test failed on an
+    /// assertion about a state it had never actually set up. A fixture that cannot prove it built what it
+    /// claims to have built certifies nothing.
+    /// </summary>
+    private static void RequireStillRunning(Process child, string when)
+    {
+        if (!child.HasExited) return;
+        Assert.Fail($"The child process this test started ({child.Id}) had already exited when {when}, so "
+            + "the state this test is about was never set up. This is a fault in the test fixture, not a "
+            + "verdict on the production liveness check.");
     }
 
     private static void EndTheChild(Process child)
@@ -156,6 +183,7 @@ public sealed class SessionCommandExecutorLivenessTests
 
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint DaclSecurityInformation = 4;
+    private const int ErrorAccessDenied = 5;
 
     /// <summary>
     /// Start a child process the operating system will still LIST but will not let this machine OPEN, so
@@ -189,7 +217,13 @@ public sealed class SessionCommandExecutorLivenessTests
                 + "check against exactly that state and must not be skipped.");
         }
 
+        // PROVE THE STATE IS PRESENT, DO NOT INFER IT FROM AN ABSENCE. The first version of this asked
+        // only whether OpenProcess had failed - and OpenProcess fails on a process that has EXITED too, so
+        // a child that had quietly died read as "successfully closed off" and the test carried on against a
+        // corpse. So this now demands the exact thing the production check will hit: the process is still
+        // listed, and reading HasExited on it throws Win32Exception. Anything else fails, with which.
         var reopened = OpenProcess(ProcessQueryLimitedInformation, false, child.Id);
+        var openError = Marshal.GetLastWin32Error();
         if (reopened != IntPtr.Zero)
         {
             CloseHandle(reopened);
@@ -198,6 +232,35 @@ public sealed class SessionCommandExecutorLivenessTests
                 + "whose access control list denies everyone, so a live-but-unreadable process could not be "
                 + "produced here. This test protects the production liveness check against exactly that "
                 + "state and must not be skipped.");
+        }
+        if (openError != ErrorAccessDenied)
+        {
+            EndTheChild(child);
+            Assert.Fail($"Opening the child process failed with Windows error {openError} rather than "
+                + $"{ErrorAccessDenied} (access denied), which means it was not closed off - most likely it "
+                + "had already exited. The live-but-unreadable state was not produced, and this test must "
+                + "not pass without it.");
+        }
+
+        try
+        {
+            using var reader = Process.GetProcessById(child.Id);
+            var exited = reader.HasExited;
+            EndTheChild(child);
+            Assert.Fail($"Reading HasExited on the closed-off child answered {exited} instead of throwing, "
+                + "so this host does not produce the live-but-unreadable state at all. The production "
+                + "liveness check's Unreadable answer is UNPROVEN here and this test must not pass.");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Exactly the state this fixture exists to build: listed by the operating system, unreadable.
+        }
+        catch (ArgumentException)
+        {
+            child.Dispose();
+            Assert.Fail("The child process had exited before the unreadable state could be built, so this "
+                + "test would have been asserting against a process that really was gone. This is a fault "
+                + "in the test fixture, not a verdict on the production liveness check.");
         }
 
         return child;
@@ -224,6 +287,8 @@ public sealed class SessionCommandExecutorLivenessTests
         var id = session.Id;
         try
         {
+            RequireStillRunning(child, "the stop was about to be asked for");
+
             var result = await SessionCommandExecutor.KillAsync(
                 sm, KillCommand(id), worktreeProbe: ProbeAnswering(true, 0));
 
@@ -300,6 +365,8 @@ public sealed class SessionCommandExecutorLivenessTests
         var id = session.Id;
         try
         {
+            RequireStillRunning(child, "the stop was about to be asked for");
+
             var result = await SessionCommandExecutor.KillAsync(
                 sm, KillCommand(id), worktreeProbe: ProbeAnswering(true, 1));
 
@@ -324,7 +391,9 @@ public sealed class SessionCommandExecutorLivenessTests
             Assert.Null(sm.GetSession(id));
 
             // And the process really is still there, which is what made the old answer a false report.
-            Assert.False(child.HasExited);
+            Assert.False(child.HasExited,
+                "the child exited during the stop, so this run did not actually exercise a LIVE unreadable "
+                + "process. This is a fault in the test fixture, not a verdict on the production check.");
         }
         finally
         {
