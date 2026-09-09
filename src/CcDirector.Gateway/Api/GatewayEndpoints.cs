@@ -2089,6 +2089,10 @@ internal static class GatewayEndpoints
                     // WHICH OF THESE FAILURES ACTUALLY SENT A STOP. A null result means nothing left the
                     // Gateway at all, so no row: see DispatchOutcomeUnknownBecause for the full reasoning
                     // and for the one road where the two cannot be told apart.
+                    var unknownBecause = DispatchOutcomeUnknownBecause(streamResult, ct);
+                    if (unknownBecause is not null)
+                        RecordOnce(verdict: null, unknownBecause);
+
                     return TunnelFailure(streamResult, director.MachineName);
                 }
 
