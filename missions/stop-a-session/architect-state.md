@@ -244,3 +244,78 @@ nothing merged, no pull request open. The second inspection and the QA report we
 **The three mistakes the first Architect made, kept visible so they are not repeated:** it reported
 to the owner instead of running; it ran `git add -A` in a worktree a Manager was working in and broke
 the build; and it praised a correction before verifying it, when half of that correction was wrong.
+
+---
+
+## 9 Sep 2026, 12:35 - the Architect seat was replaced, and what the new seat owns
+
+The owner ended the previous Architect seat because it kept stopping to report to him instead of
+driving the work to finish. **This seat is `edc83278`.** The two open briefs
+(`brief-inspection-2.md`, `brief-qa-report.md`) each told their seat to report to the outgoing
+session; both were re-pointed at this one in commit `583d59d8`, because a review or a report sent to
+a reaped session goes nowhere.
+
+**The outgoing Architect's own last word, and it is right:** the QA report is the ONLY reason this
+mission is still open, and the second inspection should run IN PARALLEL with it rather than after
+it. Nothing else may displace the frames.
+
+### What is done and accepted
+
+Phases A, B and C. All eight inspection findings closed - `phase-c-report.md` is the account, and it
+is honest enough to put four named residuals in its second sentence rather than its last section.
+The branch is 62 commits ahead of `origin/main` and zero behind.
+
+### The one open gate item, taken by this seat
+
+`CcDirector.Gateway.Tests` never reported - it was still executing when the Phase C Manager was told
+to push, and it died with that session. **This seat is running it**, in this worktree, from
+`583d59d8`. It is the only suite that runs the host-bound route tests and the cross-tenant isolation
+tests, and it is where Phase A's cross-tenant regression was caught. Its absence is not a pass.
+
+### The two seats now running, in parallel
+
+| Seat | Session | Family | Holds |
+|---|---|---|---|
+| Inspector, round two | `ef5ef9aa` | A different family to the builders | `brief-inspection-2.md` - is each of I1 to I8 actually CLOSED, or only NARROWED, or OPEN. Writes `inspection-2.md`, never fixes. |
+| Quality | `02aa6c1a` | The building family, but it did not build this | `brief-qa-report.md` - the eight frames and `qa-report.html`. THE GOAL. |
+
+Both were told the other is working in this same worktree, and told to copy the tree to their own
+scratch directory if a build collides on a locked output rather than kill anything.
+
+**An Architect error, caught and corrected inside a minute:** I told the Quality seat its own session
+identifier was "ef-prefixed", which is the Inspector's. I sent a correction telling it to take its
+identifier from `cc-devthrottle session whoami` and from nobody's message - including mine. Recorded
+because the roster finding this mission is folding in is precisely that a seat which records its own
+identifier is the only one that can be named afterwards, and a seat that copies one out of a message
+is how a roster acquires a wrong row.
+
+### The merge plan - four slices, in this order
+
+89 files, 14,688 insertions. The layer boundaries are real and they slice cleanly. `CcDirector.Gateway`
+does NOT reference `CcDirector.ControlApi` at compile time - the two speak over the tunnel as JSON -
+but the Director's executor tests live in `CcDirector.Gateway.UnitTests`, so the Director and the
+Gateway travel together as one slice.
+
+| # | Slice | Paths | Why it is its own pull request |
+|---|---|---|---|
+| 1 | The engine | `src/CcDirector.ControlApi`, `src/CcDirector.Core`, `src/CcDirector.Core.Tests`, `src/CcDirector.Gateway`, `src/CcDirector.Gateway.Contracts`, `src/CcDirector.Gateway.UnitTests`, `src/CcDirector.Gateway.Tests` | The stop itself: the honest verdict, the route, the fold, the allow list, the audit row. Nothing else works without it. |
+| 2 | The command line | `tools/cc-devthrottle`, `tools/cc_shared` | Calls the route over HTTP. No compile tie to slice 1; merges after it so a command never names a route that is not there. |
+| 3 | The controls | `packages/client-core`, `apps/cockpit`, `apps/mobile`, `src/CcDirector.Avalonia`, `src/CcDirector.Avalonia.Tests`, `docs/VisualStyle.md` | Three surfaces through one shared function. Same reason it merges after slice 1. |
+| 4 | The record | `missions/` including `qa-report.html` and its images | The mission's paper trail, and the goal document. |
+
+Slices 2 and 3 stub the Gateway in their own tests, so each passes standing alone; the ORDER is
+about not shipping a client that calls a route that has not landed. Each slice branch is built and
+gated before its pull request is opened, and the release gate
+(`.\scripts\test-local.ps1 -Parked -Configuration Release`) runs on merged `main` at the commit that
+would be tagged - not on a pull-request head, and not on an earlier run.
+
+### The rules this seat is holding itself to
+
+- **Stage OWN PATHS BY NAME.** The previous Architect's `git add -A` in this shared worktree swept a
+  Worker's in-progress code into a documentation commit, deleted three lines of a handler, broke the
+  build with CS8321 and blocked another Worker. Two other seats are in this worktree right now.
+- **Never write a result row before the run that fills it.** Three phases tried; all three were
+  caught. The `Gateway.Tests` row below stays empty until the run I am watching fills it.
+- **Read every image before it is committed.** The repository is public and the fleet carries client
+  names.
+- **Bother the owner ONCE**, at the end, with the report and the email.
