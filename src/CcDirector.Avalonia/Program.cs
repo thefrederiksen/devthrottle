@@ -75,10 +75,10 @@ internal static class Program
                 // couple of these and boot the working version with its own notice.
                 FileLog.Write($"[Program] ApplyUpdate FAILED: {ex}");
                 WriteCrashFile("apply-update", ex);
-                MessageBoxW(IntPtr.Zero,
+                ShowStartupNotice(
                     $"Director could not apply an update:\n\n{ex.Message}\n\n" +
                     "It will continue on the current version.",
-                    "Director - Update failed", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+                    "Director - Update failed", MB_ICONWARNING);
                 FileLog.Stop();
                 return 1;
             }
@@ -156,7 +156,11 @@ internal static class Program
         if (rollbackNotice is not null)
         {
             FileLog.Write("[Program] Rolled back a failed update; relaunching the restored build.");
-            MessageBoxW(IntPtr.Zero, rollbackNotice, "Director - Update rolled back", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            // Through the guarded helper, not MessageBoxW directly. MessageBoxW is a user32 import, so off
+            // Windows it throws DllNotFoundException - and it threw HERE, before the relaunch below, which
+            // means a rollback on a Mac restored the previous build and then never started it. The machine
+            // was left with no Director at all by the very path that exists to rescue it.
+            ShowStartupNotice(rollbackNotice, "Director - Update rolled back", MB_ICONWARNING);
             try
             {
                 // Started the same way an update relaunch is: no inherited CC_DIRECTOR_ROOT (which would
@@ -185,7 +189,7 @@ internal static class Program
         UpdateInstaller.CleanupAfterUpdate();
 
         if (recoveryNotice is not null)
-            MessageBoxW(IntPtr.Zero, recoveryNotice, "Director - Update recovered", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            ShowStartupNotice(recoveryNotice, "Director - Update recovered", MB_ICONWARNING);
 
         // Apply a staged update at startup -- before any session exists, so no
         // running work is ever lost. If one is pending, the relauncher takes over

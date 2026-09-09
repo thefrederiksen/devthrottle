@@ -153,7 +153,8 @@ public sealed class DirectorUpdateApply
             SelfUpdateOutcome.RolledBack,
             $"Director update to {newVersion} failed to come up and was rolled back "
             + $"(restored build answering={afterRollback ?? "not yet"}).",
-            steps);
+            steps,
+            RestoredBuildAnswered: afterRollback is not null);
     }
 
     /// <summary>

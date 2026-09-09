@@ -297,6 +297,47 @@ public class UpdateStatusFoldTests
     }
 
     [Fact]
+    public void AnUpdateHeldBecauseNoDisplayIsAwake_SaysThat_AndOffersNothingThatWouldFail()
+    {
+        // The Mac case. The launcher will not start a Director against a sleeping screen, because the
+        // build would die before its first window and be blamed for it. That is a wait, not a fault, and
+        // the person reading it can end the wait by touching the keyboard - so it has to be said.
+        var view = UpdateStatusFold.Fold(Facts(new UpdaterState
+        {
+            StagedVersion = "2.0.7",
+            LastApplyVersion = "2.0.7",
+            LastApplyDecision = "HeldBecauseNoDisplay",
+            LastApplyDecisionAt = Now.AddMinutes(-10),
+        }));
+
+        Assert.Equal("StagedWaitingForDisplay", view.State);
+        Assert.Contains("display", view.Detail, StringComparison.OrdinalIgnoreCase);
+
+        // Offering it would offer the very thing that is being waited out. A dumb client must never be
+        // handed a button whose only outcome is the failure the hold exists to avoid.
+        Assert.False(view.CanInstallNow);
+        Assert.Null(view.InstallNowLabel);
+    }
+
+    [Fact]
+    public void RunningSessionsStillOutrankASleepingDisplay()
+    {
+        // Both are true at once on a busy machine at night. The sessions message is the one the person
+        // can act on and the one that promises no work is interrupted, so it stays on top.
+        var view = UpdateStatusFold.Fold(Facts(
+            new UpdaterState
+            {
+                StagedVersion = "2.0.7",
+                LastApplyVersion = "2.0.7",
+                LastApplyDecision = "HeldBecauseNoDisplay",
+                LastApplyDecisionAt = Now.AddMinutes(-10),
+            },
+            sessions: 2));
+
+        Assert.Equal("StagedWaitingForSessions", view.State);
+    }
+
+    [Fact]
     public void ALauncherDecisionAboutADifferentVersion_IsNotReadAsBeingAboutThisDownload()
     {
         // A "held because busy" left over from an earlier download would otherwise describe a build that

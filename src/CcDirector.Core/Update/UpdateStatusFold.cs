@@ -204,6 +204,25 @@ public static class UpdateStatusFold
                     CanInstallNow: false, InstallNowLabel: null);
             }
 
+            // The machine cannot draw, so it cannot start a Director. Said plainly, because the version
+            // number simply not moving is what made this whole area untrustworthy, and because the person
+            // reading it can fix this one in a second by touching the keyboard.
+            if (decision == "HeldBecauseNoDisplay")
+                return new UpdateStatusView(
+                    State: "StagedWaitingForDisplay",
+                    Headline: "UPDATE WAITING",
+                    Detail: $"v{staged} downloaded - waiting for a display to be awake",
+                    Tooltip: $"v{staged} is downloaded and verified. It has not been installed because this machine "
+                             + "had no display awake when the launcher last looked, and a Director cannot start "
+                             + "without one - it would die before its first window and be blamed for it. Nothing is "
+                             + "wrong with the update and it has not been pinned. Waking the screen is enough; the "
+                             + "next pass installs it.",
+                    Accent: WarnAccent, Background: WarnBackground, Border: WarnBorder,
+                    Icon: "check", Busy: false, PercentComplete: null,
+                    CanCheckNow: false, CheckNowLabel: null,
+                    // Deliberately NOT offered: it would fail in exactly the way that is being waited out.
+                    CanInstallNow: false, InstallNowLabel: null);
+
             if (decision == "HeldBecauseUnknown")
             {
                 return new UpdateStatusView(

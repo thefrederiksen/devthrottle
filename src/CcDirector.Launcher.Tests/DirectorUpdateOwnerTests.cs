@@ -164,6 +164,34 @@ public class DirectorUpdateOwnerTests
         }
     }
 
+    // ---- Whether a build that did not start may be blamed for it -----------
+
+    [Fact]
+    public void ShouldPinFailedBuild_TheRestoredBuildCameUp_True()
+    {
+        // The machine has just demonstrated it can run a Director. So the one that would not run is the
+        // thing at fault, and pinning it is a true judgement about a build.
+        Assert.True(DirectorUpdateOwner.ShouldPinFailedBuild(restoredBuildAnswered: true));
+    }
+
+    [Fact]
+    public void ShouldPinFailedBuild_TheRestoredBuildDidNotComeUpEither_False()
+    {
+        // The owner's Mac, 2026-09-03 at 1:57 in the morning. The display was asleep, so macOS gave a
+        // starting Director no render loop and NOTHING could have come up. The launcher wrote down
+        // "restored build answering=not yet" and pinned version 2.0.5 anyway. The machine then sat five
+        // days on 2.0.4 for a fault that was never in the build.
+        Assert.False(DirectorUpdateOwner.ShouldPinFailedBuild(restoredBuildAnswered: false));
+    }
+
+    [Fact]
+    public void ShouldPinFailedBuild_NothingWasLearned_False()
+    {
+        // No roll back happened, or there was no backup to restore. Either way nothing was established
+        // about the build, and an absence of evidence must not become a permanent verdict.
+        Assert.False(DirectorUpdateOwner.ShouldPinFailedBuild(restoredBuildAnswered: null));
+    }
+
     [Fact]
     public void Record_OnAnUnwritableFile_StillReturnsTheDecision()
     {
