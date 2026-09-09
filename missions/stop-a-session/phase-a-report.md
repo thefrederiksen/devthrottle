@@ -17,7 +17,7 @@ off. All seven things the handoff asked for are built.
 | 1 | The Director's honest answer | `SessionCommandExecutor.KillAsync` -> `DirectorStopResult` | `48f8e98e` |
 | 2 | `POST /sessions/{sid}/stop`, and `DELETE` as a thin forward | `GatewayEndpoints.cs`, `SessionStopFold.cs` | `91b79b1e` |
 | 3 | The refusal - 400, naming the reason, naming no flag | `SessionStopFold.ReasonMissing` | `91b79b1e` |
-| 4 | `notOnFleet` is a 200 success | `StopSessionAsync` | `91b79b1e` |
+| 4 | `notOnFleet` is a 200 success on the stop (the legacy `DELETE` door keeps its 404 - see the regression below) | `StopSessionAsync` | `91b79b1e`, `5397e01b` |
 | 5 | The allow list: `stop` in, cancel-deletion in, bare `DELETE` still refused | `SessionKeyGuard.cs` | `91b79b1e` |
 | 6 | The audit record - a new `stopped` intervention type, actor required | `GovernanceAuditEventDtos.cs`, `GovernanceAuditLog.cs` | `91b79b1e` |
 | 7 | The two commands | `session_ops.py`, `cli.py` | `5e16767a` |
@@ -25,15 +25,36 @@ off. All seven things the handoff asked for are built.
 The shared answer shapes were written FIRST (`SessionStopDtos.cs`, `071e549f`) so three seats built
 against one interface instead of discovering three versions of it.
 
+**Then the Architect's ruling on this report added four more, all done (`2388631c`, `5397e01b`):**
+
+| Thing | What changed |
+|---|---|
+| The 502 is REVERSED | An answer this Gateway cannot describe folds to the fourth verdict `stoppedNotDescribed` - the stop is reported, the description is not invented. Both doors. |
+| Stops are not counted as interventions | The audit row stays in the `intervention` category; it is excluded from `OutcomeLedgerReporter`'s derived `InterventionCount`. |
+| `session stop --json` | The whole folded answer, printed plainly, for the agent callers Ruling 4 makes ordinary. |
+| The parked run | Completed - and it caught a regression. See below; this is the most important part of this report. |
+
 ---
 
 ## What is proven, and how
 
-**71 new tests. Every one was watched failing on purpose** - the change reverted, the test watched
-going red with the symptom it claims to catch, then restored. Worker A did twelve reversions,
-Worker B three rounds covering ten, six and four failures, Worker C sixteen. Each Worker recorded
-what the red actually SAID, not just that something went red; those tables are in
-`worker-a-notes.md`, `worker-b-notes.md` and `worker-c-notes.md`.
+**71 new tests from the three Workers, plus 10 more of mine for the Architect's ruling. Every one was
+watched failing on purpose** - the change reverted, the test watched going red with the symptom it
+claims to catch, then restored. Worker A did twelve reversions, Worker B three rounds covering ten,
+six and four failures, Worker C sixteen. Each Worker recorded what the red actually SAID, not just
+that something went red; those tables are in `worker-a-notes.md`, `worker-b-notes.md` and
+`worker-c-notes.md`.
+
+My own ten, and the reds they produced:
+
+| Mutation | Went red |
+|---|---|
+| `CanDescribe` always accepts, so the fourth verdict can never be produced | the three `stoppedNotDescribed` fold tests |
+| the undescribed branch fabricates a worktree sentence | `A_stop_that_could_not_be_described_names_no_process_and_no_worktree` |
+| the `stopped` exclusion removed from the ledger count | `A_stop_is_recorded_in_the_trail_but_never_counted_as_an_intervention` - **Expected: 1, Actual: 3** |
+| the JSON printed through Rich instead of plainly | three `--json` tests, all with `json.decoder.JSONDecodeError` |
+| the `--json` flag renamed | `test_the_json_flag_is_declared_on_stop` - `assert '--json' in ['--reason', '-r', '--as-json']` |
+| the legacy door pointed back at the stop's answer | **all three** door tests - `Expected: NotFound, Actual: OK` |
 
 Two reds worth quoting, because they are the mission's own defects reproduced:
 
@@ -51,10 +72,10 @@ operator reads as "it is still alive".
 | Run | Result |
 |---|---|
 | `.\scripts\test-local.ps1` | 8 of 9 suites green. One suite OVER BUDGET - see below. Not a test failure. |
-| `Gateway.UnitTests` alone, to completion | **4221 tests, 0 failures**, 2 m 36 s |
-| `.\scripts\test-local.ps1 -Parked` | **STARTED, DID NOT COMPLETE.** See below - and it is incomplete in exactly the place that mattered. |
+| `Gateway.UnitTests` alone, to completion | **4222 tests, 0 failures**, ~2 m 40 s |
+| `.\scripts\test-local.ps1 -Parked`, on the FINAL code | **COMPLETED.** `Gateway.Tests` 2389 passed / **2 failed** / 47 skipped (1 h 07 m). `Core.Tests` 4372 passed / **0 failed** (11 m 38 s). The 2 are proven environmental - see below. |
 | `python -m pytest tools/test_shipped_tools_contract.py` | 36 passed (this is the ASCII-only guard) |
-| `cc-devthrottle` suite, `FORCE_COLOR=1` | **261 passed**, 2 failed - both pre-existing, proved below |
+| `cc-devthrottle` suite, `FORCE_COLOR=1` | **266 passed**, 2 failed - both pre-existing, proved below |
 | `cc_shared` suite | 126 passed, 1 failed - pre-existing, and this branch does not touch `cc_shared` |
 
 **One check that was mine rather than any Worker's.** Worker C's Python tests stub every Gateway
@@ -129,41 +150,90 @@ source of noise, and it is worth knowing that the suites disagree with themselve
 **The parked-suite coverage warning fired**, naming `Core.Tests` and `Gateway.Tests` as suites this
 change touches. That is why `-Parked` was started.
 
-### `-Parked` DID NOT COMPLETE, and the gap is the part that mattered
+### `-Parked` COMPLETED, and it caught a regression the default gate never could
 
-Caught by the Architect, not by me: the first draft of this report carried a literal `PARKED_RESULT`
-placeholder in the table above while the prose beside it said `-Parked` "was run". That is precisely
-a check whose pass condition is nobody looking - it would have certified a run that never finished.
-Corrected here rather than quietly filled in.
+The first draft of this report carried a literal `PARKED_RESULT` placeholder here while the prose
+beside it said the run had happened. The Architect caught it. That is a check whose pass condition is
+nobody looking, and it would have certified a run that never finished. It is recorded rather than
+quietly filled in, because the thing it nearly hid turned out to be real.
 
-**What actually happened.** The run was started and 9 of its 11 suites reported. Every one that
-reported was green:
+**The completed run, on the final code:**
 
-    Core.UnitTests 227    Gateway.UnitTests 4221 (0 failed, 3 m 30 s)    Avalonia 407
-    Engine 63             HostedAgent 88         Launcher 188            Terminal 25
-    setup.Tests 25        setup-engine.Tests 541
+| Suite | Result |
+|---|---|
+| Core.UnitTests | 227 passed |
+| Gateway.UnitTests | 4222 total, 0 failed (3 m 08 s) |
+| Avalonia.Tests | 407 passed |
+| Engine.Tests | 63 passed |
+| HostedAgent.Tests | 88 passed |
+| Launcher.Tests | 188 passed |
+| Terminal.Avalonia.Tests | 25 passed |
+| cc-director-setup.Tests | 25 passed |
+| cc-director-setup-engine.Tests | 541 passed |
+| **CcDirector.Gateway.Tests** | **2438 total, 2389 passed, 47 skipped, 2 FAILED** (1 h 07 m) |
+| **CcDirector.Core.Tests** | **4380 total, 4372 passed, 0 failed** (11 m 38 s) |
 
-**The two suites that did not report are `CcDirector.Gateway.Tests` and `CcDirector.Core.Tests` -
-the two PARKED suites, which are the entire reason `-Parked` exists.** No verdict block printed. So
-this run currently proves nothing that the default gate had not already proven.
+### THE REGRESSION. This is the most important thing in this report.
 
-That matters specifically because **Worker B's 16 route tests live in `Gateway.Tests`** - the tests
-that cover `POST /sessions/{sid}/stop` end to end through `GatewayEndpoints.Map`, the 400 refusal,
-the 200 `notOnFleet`, the DELETE door, and the audit rows. Worker B reports running them directly
-and green, and its red-first table quotes their failures. **I have not independently confirmed
-them.** Until `-Parked` finishes, that is a Worker's self-testimony, which is exactly the kind of
-claim this mission's own conduct says not to take on trust.
+**Making `DELETE /sessions/{sid}` a thin forward silently changed what it answers for an unknown
+session - from the locator's 404 to the stop's 200 `notOnFleet` - and broke two EXISTING tests.**
+Both live only in the parked suite, so nothing that ran before would ever have shown it:
 
-`Core.Tests` is documented at 11 minutes on a quiet machine and 33 with the fleet busy, and
-`Gateway.Tests` takes a machine-wide lock, so the run is slow by design rather than hung. It is
-still running as this report is written. **The Architect should treat the parked coverage as
-OUTSTANDING and require the numbers before landing.**
+    StreamCommandTests.StreamModeOff_KillEndpoint_StaysOnHttp
+    HostedSessionCommandRouteTenancyTests.Another_tenant_cannot_reach_it(method: "DELETE")
 
-One more oddity to hand over rather than explain away: `Launcher.Tests` printed `FAIL` in the margin
-while its own summary line said `Failed: 0, Passed: 188`. It also passed cleanly in the default gate.
-I do not know what the margin flag means and have not run it down; the verdict block that would say
-never printed.
+Both failed with `Expected: NotFound / Actual: OK`. **The second is a CROSS-TENANT ISOLATION test**:
+it pins that one account naming another account's session identifier gets exactly the locator's
+not-found answer.
 
+**Worker B reported running its own 16 route tests green, and that was true and beside the point.**
+It never ran the whole parked suite, so it never saw what its change did to the tests already there.
+That is precisely the shape of a proof that covers the wrong thing, and it is why the Architect was
+right to refuse to land without these numbers.
+
+**The fix (`5397e01b`):** Ruling 3's "nothing on this fleet is a success" is about THE STOP - the verb
+this mission adds, which the command line calls and `POST /sessions/{sid}/stop` serves. `DELETE` is a
+legacy door kept for exactly one reason, a shipped native phone client that does not deploy with the
+Gateway, and keeping a door for compatibility means keeping what it answers. It now keeps its 404.
+
+It is still one stop: nothing is stopped on that path at all - no Director is asked, no answer is
+folded, no audit row is written - so the doors differ only in how each says "there is nothing of
+yours here". **The available alternative was to edit a cross-tenant isolation test until it agreed
+with the new code, and that is the move to distrust.** Leaving both security tests untouched is the
+strongest evidence the fix is the right one.
+
+A third test also had to change - `SessionStopEndpointTests`, which still pinned the 502 the Architect
+reversed. It now asserts the fourth verdict, and gained the twin it was missing: the legacy door gets
+`stoppedNotDescribed` too.
+
+### The two remaining failures are NOT this branch, and it is proven rather than argued
+
+    PathContainmentLinkEscapeTests.ResolveScreenshot_fileLinkPlantedInsideTheScreenshotsFolder_isRefused
+    PathContainmentLinkEscapeTests.ResolveSessionFile_fileSymbolicLinkUnderTheRootEscapingIt_isRefused
+
+Those tests create a FILE symbolic link and, by their own design, `Assert.Fail` loudly when the host
+cannot - deliberately, rather than skipping into a false green. Probed directly on this machine:
+
+    New-Item -ItemType SymbolicLink  ->  "Administrator privilege required for this operation."
+    Developer Mode: (unset)          Elevated: False
+
+That is the host, not the code. This branch touches nothing under path containment, and only the two
+FILE-link tests fail while the directory-link test beside them passes - which is exactly the split
+the privilege explains. **A machine with Developer Mode or elevation is needed to run those two at
+all; on this one they cannot be proven either way.**
+
+### The `Launcher.Tests` margin FAIL - answered, not waved away
+
+The Architect asked me not to leave this as an oddity nobody owns. **The margin `PASS`/`FAIL` is the
+`dotnet test` PROCESS EXIT CODE, not the test results** - `scripts	est-local.ps1:286` prints it from
+`$r.Process.ExitCode`, while the summary beside it comes from the console line. So that row meant
+"this process exited non-zero although all 188 of its tests passed".
+
+It did not reproduce: `Launcher.Tests` printed `PASS` in the default gate and in both later parked
+runs, and its TRX outcome is `Completed` with 188 every time. **I could not make it happen again, so
+I cannot say what caused that one exit code** - the run it appeared in was one of three competing for
+a loaded machine, which is the same condition that produced two other failures that also vanished
+when the machine went quiet. It is recorded here as unexplained rather than explained.
 ---
 
 ## Decisions taken that the Architect should confirm or reverse
@@ -180,7 +250,7 @@ the reason check is on the POST route, the shared handler takes an optional reas
 list keeps session keys off DELETE entirely. The owner's invariant holds exactly. This is the one
 place I read past the letter of the handoff.
 
-### 2. An answer this Gateway cannot fold honestly is REFUSED (502). (Worker B's. I recommend revisiting.)
+### 2. An answer this Gateway cannot fold honestly. RULED ON AND NOW REVERSED - built, not just agreed.
 
 The Gateway and the Directors do not deploy together. During a rollout, a Gateway carrying this
 mission can be handed an answer from an older Director that reports only `killed`/`removed`. There is
@@ -191,11 +261,13 @@ session on a machine that has not updated - including `DELETE /sessions/{sid}`, 
 call and which succeeds against such a Director today. The session is still stopped; what is refused
 is the REPORT.
 
-**My recommendation, and it is the Architect's to settle:** reporting a failure for an operation that
-SUCCEEDED is itself a false report, and arguably the very thing this mission exists to remove - a
-tool confident in one direction and vague in the other. A degraded but honest headline - the session
-was stopped, and this machine's Director is too old to say what it found - would claim nothing false
-while not calling a success a failure. Worker B says it is one method either way.
+**The Architect agreed and reversed it, and it is now built.** Ruling 3 gained a fourth verdict word,
+`stoppedNotDescribed`: the stop is reported, and the description is not invented. The headline leads
+with the success and then says this machine could not describe it; the process id, the worktree and
+every description boolean are left empty, and the DTO says in terms that they mean "not established"
+rather than "established to be false". Both doors get it, so `DELETE` does not start failing against
+an older Director where it succeeds today. The audit row IS written, because a stop happened - the
+502 had been silently losing that row too.
 
 ### 3. Three smaller ones, all sound in my reading
 
@@ -212,7 +284,8 @@ while not calling a success a failure. Worker B says it is one method either way
 
 ### 4. A consequence to an existing report, said out loud rather than discovered
 
-**`OutcomeLedgerReporter` will now count stops as interventions.** Verified in code, not assumed:
+**RULED ON: stops must NOT count, and that is now built.** What was found, in code rather than by
+assumption: **`OutcomeLedgerReporter` would have counted stops as interventions.** Verified in code, not assumed:
 it counts EVERY row in the `intervention` category per session with no filter on event type
 (`OutcomeLedgerReporter.cs:81`, fed to `InterventionCount` at line 190). A `stopped` row is in that
 category. It is defensible - a session that had to be stopped did require an intervention - but it
@@ -221,6 +294,11 @@ moves a number in a shipped report, and somebody should decide that on purpose.
 The alternative was to reuse `human-cancelled`, which would be a lie every time one agent stops
 another - which Ruling 4 makes the ordinary case. So the validated list was extended deliberately,
 as the handoff instructed.
+
+The row stays in the `intervention` category, because the audit trail Ruling 4 rests on has to hold
+it. Only the DERIVED count excludes it, with the reasoning in the code beside the filter: that number
+means "how often did this session need a person", and a number whose meaning changes underneath its
+readers is worse than a missing one.
 
 ### 5. Worker C's two, which I accepted
 
@@ -295,3 +373,18 @@ Named as gaps rather than left to be discovered.
 - The mission record is committed on the branch: the three Worker briefs, the three Worker notes,
   and this report.
 - All three Workers were flagged for deletion after their work was committed and pushed.
+
+## What the Architect still has to decide, in one place
+
+1. **The end-to-end run does not exist**, and it is the largest risk in the mission. The ruling
+   already places it in Phase B, which stands the stack up locally and proves one real session can be
+   stopped. Nothing in Phase A substitutes for it.
+2. **Two path-containment tests cannot run on this machine at all** (file symbolic links need
+   Administrator privilege or Developer Mode). They are unproven here in both directions, and no
+   machine in this fleet has yet run them green as far as this report knows.
+3. **The audit write is best-effort.** A database fault produces a stop with no audit row, logged
+   loudly and nowhere else. Given the owner accepted Ruling 4 ON the ground that stops are audited,
+   that may deserve a decision rather than being inherited from the first implementation.
+4. **`notOnFleet` writes no audit row.** Deliberate - nothing was stopped and there is no session in
+   the account to key the row to - but it means a caller repeatedly naming an identifier that does
+   not exist leaves no trace.
