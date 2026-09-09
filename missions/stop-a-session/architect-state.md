@@ -211,3 +211,16 @@ stop a session with a reason attached.**
   this mission was raised to fix is the same gap that ate its own paper trail.**
 - **The branch was rebased onto a fresh `origin/main` (`db141e28`) before the fixes**, per Rule Zero;
   main had moved while the mission ran.
+- **An Architect error, recorded because burying it would be worse than making it.** Committing the
+  paragraphs above, I ran `git add -A` in the shared mission worktree while the Phase C Manager was
+  actively editing in it. It swept that Manager's in-progress work - `ProcessLiveness.cs`,
+  `SessionCommandExecutor.cs`, `StopSessionProvider.tsx`, the Cockpit and mobile changes and several
+  new test files - into commit `a6c4c28c`, whose message describes only documentation. It was pushed
+  before I noticed.
+  **Not unpicked, deliberately:** the branch is shared by several seats, undoing a pushed commit would
+  need a force push, and resetting underneath a session that is actively working is the same hazard
+  Rule Zero warns about. Nothing was lost - the files are committed, not reverted. The Manager was
+  told immediately and told to fix forward rather than revert.
+  **The lesson, stated so the next Architect does not repeat it:** an Architect that writes files into
+  a worktree a Manager is working in must stage its OWN PATHS by name - never `git add -A`. A commit
+  whose message does not describe its contents is a lie in the history, and this one is.
