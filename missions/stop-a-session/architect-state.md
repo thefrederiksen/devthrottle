@@ -136,3 +136,25 @@ stop a session with a reason attached.**
   announced that the Manager had left with the placeholder still in place. Both halves were false.
   A check that cannot tell a thing from a sentence ABOUT that thing is not a check. Verified by
   reading the table row rather than trusting the watch, which is the only reason it was caught.
+
+- **9 Sep 2026 - Phase B finished and accepted.** The controls on all three surfaces, `killSession`
+  deleted rather than left beside the new function, and no surface reads the verdict word.
+- **THE END-TO-END GAP IS CLOSED.** A real session was stopped through a Gateway built from this
+  branch and a Director in slot 6, both local, both isolated: `stopped 75f2e3f2 - process 16316
+  ended, row removed`. Process 16316 was a real `claude.exe` and it was gone afterwards. The dirty
+  tree, the second stop, the refusal, `--json` and **the audit trail read back in the words that were
+  typed** were all exercised live. The recipe is `local-stack-recipe.md`; the QA seat repeats it.
+- **The placeholder pattern repeated, and was caught again.** Phase B's draft carried
+  `PARKED_RUN_DEFAULT` and `PARKED_RUN_RESULT`. Both runs then completed: eleven result files, and the
+  only two failures are the same environmental symlink pair Phase A named. **Two phases in a row wrote
+  a test table ahead of the run.** That is a habit, not an accident, and the next brief should say
+  plainly: never write a result row before the run that fills it.
+- **Rulings on Phase B:** the pre-existing Cockpit mock fix STAYS (a suite whose exit code cannot be
+  read is a check that fails open, and those web suites are this phase's only coverage);
+  `docs/VisualStyle.md` gained a paragraph saying it does NOT govern the browser shells and naming
+  their token sets, rather than being extended here; the two latent dialog faults were FILED as issue
+  #2780 rather than fixed or lost - and the Manager corrected the Worker's claim while filing it, from
+  "several other dialogs" to exactly one verified file; Title Case on the Director window confirmed.
+- **One honest correction to the mission document's illustration:** section 6 sketches the second stop
+  answering `already stopped`. It answers `notOnFleet`, which is right - the first stop removed the
+  row, so there is no machine left to ask. The illustration was looser than Ruling 3.
