@@ -145,8 +145,20 @@ internal sealed class AutoDismissSweeper
                 }
                 else
                 {
-                    // A typed failure (e.g. NotFound = already gone) is terminal for this session; keep the
-                    // mark so we do not hammer it, and let its removal tombstone drop it from the snapshot.
+                    // A typed failure is terminal for this session; keep the mark so we do not hammer it,
+                    // and let its removal tombstone drop it from the snapshot.
+                    //
+                    // NotFound IS NO LONGER ONE OF THEM. The kill verb used to answer NotFound for a session
+                    // this Director had no row for, and this comment named that as the example. It does not
+                    // any more: the mission "Stop a session" made a missing row an alreadyStopped SUCCESS,
+                    // because a stop must never fail for want of anything left to stop. So that case now
+                    // lands in the Ok branch above and counts as closed - which is the honest reading of it,
+                    // since the session really is gone.
+                    //
+                    // What DOES arrive here now is the new process-level failure: a live process that would
+                    // not die. That one is worth the terminal mark, because the sweeper claiming it closed a
+                    // session whose agent is still running is exactly the false report this sweep should not
+                    // be making.
                     FileLog.Write($"[AutoDismissSweeper] session={session.SessionId} director={directorId}: close returned {result.Status}: {result.Error}");
                 }
             }
