@@ -303,6 +303,258 @@ public sealed class SessionStopEndpointTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------------
+    // THE ROW BELONGS TO THE DISPATCH, NOT TO THE REPLY - inspection 1, finding I1.
+    //
+    // The handler used to hand the request's cancellation token to the tunnel and then append the row only
+    // after a successful reply. A Director that carried the stop out and answered a moment after the caller
+    // gave up therefore left ZERO rows behind, and a tunnel timeout lost the row the same way. No database
+    // fault was needed for either, and both are reachable from the shipped desktop dialog: closing it
+    // cancels its request, and its client gives up after ten seconds.
+    //
+    // Ruling 4 - any session may stop any other - was accepted by the owner ON THE EXPLICIT GROUND THAT
+    // STOPS ARE AUDITED. An audit that only lands while the caller is still listening is not an audit.
+    // ---------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The Director in both halves of this pair: it carries the stop out, says so, and only then tries to
+    /// answer. <paramref name="theAnswerIsReleased"/> is what holds the answer back until the test decides.
+    /// </summary>
+    private static DirectorCommandRouter.SendDirectorCommandAsync ADirectorThatStopsThenAnswersLate(
+        TaskCompletionSource theStopHasHappened, Task theAnswerIsReleased, DirectorCommandResult answer)
+        => async (_, _, token) =>
+        {
+            // Past this point the session is GONE on the Director. Everything after it is only the answer
+            // trying to get home, and whether it gets there changes nothing about what was destroyed.
+            theStopHasHappened.SetResult();
+            await theAnswerIsReleased.WaitAsync(token);
+            return answer;
+        };
+
+    /// <summary>
+    /// The defect itself. The caller hangs up after the Director has carried the stop out and before the
+    /// answer is released - which is a person closing the stop dialog, not an exotic fault. The session is
+    /// destroyed either way, so the trail must hold a row for it.
+    ///
+    /// Read this against <see cref="A_caller_that_waits_for_the_same_stop_gets_the_same_row_and_an_answer"/>
+    /// below: the two set up an identical Director and differ in ONE line, whether the caller cancels.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_the_caller_stopped_waiting_for_is_still_recorded_with_its_reason_and_actor()
+    {
+        var theStopHasHappened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Never completed: the only way out of the wait is the caller's cancellation.
+        var theAnswerIsReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await WithGateway(
+            StoreWith(Row()),
+            killAnswer: null,
+            sendOverride: ADirectorThatStopsThenAnswersLate(theStopHasHappened, theAnswerIsReleased.Task, Stopped()),
+            assertion: async (http, sent, audit) =>
+            {
+                using var theCaller = new CancellationTokenSource();
+                var request = http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                    new SessionStopRequest { Reason = "it was rewriting the wrong branch" }, theCaller.Token);
+
+                await theStopHasHappened.Task.WaitAsync(TimeSpan.FromSeconds(30));
+                theCaller.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
+
+                var row = await WaitForTheStopToBeRecorded(audit!);
+                Assert.Equal(GovernanceAuditCategory.Intervention, row.Category);
+                Assert.Equal(GovernanceAuditEventType.Stopped, row.EventType);
+                // The caller's own words survive their leaving.
+                Assert.Contains("it was rewriting the wrong branch", row.Detail);
+                // And the row does not pretend to know what it does not know.
+                Assert.Contains("what came of it is not known", row.Detail);
+                Assert.Contains("the caller went away", row.Detail);
+                // The trail refuses a stop with no actor, so a row existing proves one was supplied. This
+                // harness authenticates nothing, so the honest answer is "unknown" - never a guess.
+                Assert.Equal("unknown", row.Actor);
+
+                Assert.Equal("kill", Assert.Single(sent).Verb);
+            });
+    }
+
+    /// <summary>
+    /// The control. Same Director, same held-back answer, same reason - the caller simply waits. It differs
+    /// from the test above in exactly one thing: nobody cancels. So the row it produces is the ORDINARY
+    /// one, with the reason alone and no talk of an unknown outcome, and the caller is answered.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_that_waits_for_the_same_stop_gets_the_same_row_and_an_answer()
+    {
+        var theStopHasHappened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var theAnswerIsReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await WithGateway(
+            StoreWith(Row()),
+            killAnswer: null,
+            sendOverride: ADirectorThatStopsThenAnswersLate(theStopHasHappened, theAnswerIsReleased.Task, Stopped()),
+            assertion: async (http, sent, audit) =>
+            {
+                using var theCaller = new CancellationTokenSource();
+                var request = http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                    new SessionStopRequest { Reason = "it was rewriting the wrong branch" }, theCaller.Token);
+
+                await theStopHasHappened.Task.WaitAsync(TimeSpan.FromSeconds(30));
+                theAnswerIsReleased.SetResult();
+                var reply = await request;
+
+                Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+                Assert.Equal(SessionStopVerdict.Stopped,
+                    (await reply.Content.ReadFromJsonAsync<SessionStopResponse>())!.Verdict);
+
+                var row = Assert.Single(audit!.List(sessionId: Sid));
+                Assert.Equal(GovernanceAuditEventType.Stopped, row.EventType);
+                Assert.Equal("it was rewriting the wrong branch", row.Detail);
+                Assert.Equal("unknown", row.Actor);
+
+                Assert.Equal("kill", Assert.Single(sent).Verb);
+            });
+    }
+
+    /// <summary>
+    /// The other road to the same place. The Director never answers, the Gateway gives up waiting, and the
+    /// stop may perfectly well have been carried out - the timeout sentence the caller gets says exactly
+    /// that. The row records the stop AND records that its outcome is not known.
+    ///
+    /// HONEST SCOPE: the timeout here is the router's own synthesized result handed to the handler, not a
+    /// thirty-second wait slept through. What the router does with a real expiring deadline is proved in
+    /// <c>DirectorCommandRouterTimeoutTests</c>; what this proves is what the STOP HANDLER does when it
+    /// receives that result, which is where the row was being lost.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_the_director_never_answered_is_recorded_as_a_stop_whose_outcome_is_unknown()
+    {
+        var timedOut = DirectorCommandResult.Fail(
+            DirectorCommandStatus.Timeout, DirectorCommandRouter.DescribeTimeout(Machine, TimeSpan.FromSeconds(30)));
+
+        await WithGateway(Row(), timedOut, async (http, sent, audit) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                new SessionStopRequest { Reason = "the run had already finished" });
+
+            // The caller is told the truth: it is not known whether the command was carried out.
+            Assert.Equal(HttpStatusCode.GatewayTimeout, reply.StatusCode);
+            Assert.Contains("not known whether the command was carried out", await reply.Content.ReadAsStringAsync());
+
+            var row = Assert.Single(audit!.List(sessionId: Sid));
+            Assert.Equal(GovernanceAuditEventType.Stopped, row.EventType);
+            Assert.Contains("the run had already finished", row.Detail);
+            Assert.Contains("what came of it is not known", row.Detail);
+            Assert.Contains("the Director did not answer in time", row.Detail);
+            Assert.Equal("unknown", row.Actor);
+
+            Assert.Equal("kill", Assert.Single(sent).Verb);
+        });
+    }
+
+    /// <summary>
+    /// And the third: the tunnel drops with the stop in flight. The Gateway cannot tell whether the command
+    /// left before the connection died, and says so rather than choosing one. That is the whole ruling -
+    /// an "attempted, outcome unknown" row is a fact, and silence is not.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_whose_tunnel_dropped_mid_flight_is_recorded_as_a_stop_whose_outcome_is_unknown()
+    {
+        var dropped = DirectorCommandResult.Fail(
+            DirectorCommandStatus.TunnelDropped, "The tunnel to the Director dropped while the command was in flight.");
+
+        await WithGateway(Row(), dropped, async (http, _, audit) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                new SessionStopRequest { Reason = "wrong repository" });
+
+            Assert.Equal(HttpStatusCode.BadGateway, reply.StatusCode);
+
+            var row = Assert.Single(audit!.List(sessionId: Sid));
+            Assert.Contains("wrong repository", row.Detail);
+            Assert.Contains("the tunnel dropped while the stop was in flight", row.Detail);
+        });
+    }
+
+    /// <summary>
+    /// THE OTHER HALF OF THE RULING, AND IT MATTERS AS MUCH: a row is written only where something was
+    /// actually sent. A Director that was never connected had no command delivered to it, so writing a row
+    /// would attach a stop to something that did not happen. (The reachability failure itself is pinned by
+    /// <see cref="A_director_that_cannot_be_reached_is_a_failure"/>; this names the row as the point.)
+    /// </summary>
+    [Fact]
+    public async Task A_director_that_was_never_connected_writes_no_row_because_nothing_was_sent()
+    {
+        await WithGateway(Row(), killAnswer: null, async (http, _, audit) =>
+        {
+            await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "why" });
+
+            Assert.Empty(audit!.List(sessionId: Sid));
+        });
+    }
+
+    /// <summary>
+    /// Nor where the DIRECTOR ITSELF answered a failure. "The process would not die" is the live example:
+    /// the Director looked, the process is still running, and it deliberately leaves the row in place so the
+    /// operator can see the session and try again. Recording a stop against that would be false, and the
+    /// Director is the one party that actually knows - this is not an unknown outcome, it is a known one.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_the_director_itself_reported_writes_no_row_because_nothing_was_stopped()
+    {
+        var wouldNotDie = DirectorCommandResult.Fail(
+            DirectorCommandStatus.Error, "the process would not die: process 51884 is still running after the stop");
+
+        await WithGateway(Row(), wouldNotDie, async (http, sent, audit) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                new SessionStopRequest { Reason = "stuck in a loop" });
+
+            Assert.Equal(HttpStatusCode.BadGateway, reply.StatusCode);
+            Assert.Contains("would not die", await reply.Content.ReadAsStringAsync());
+
+            // A machine WAS asked - so this is not the notOnFleet case - and it told us what it found.
+            Assert.Equal("kill", Assert.Single(sent).Verb);
+            Assert.Empty(audit!.List(sessionId: Sid));
+        });
+    }
+
+    /// <summary>
+    /// The reason travels with the command instead of the null payload the tunnel used to carry, so the
+    /// machine doing the destroying is given the caller's own words for it.
+    ///
+    /// STATED SO NOBODY READS MORE INTO THIS THAN IT SAYS: the Director IGNORES this payload today -
+    /// <c>SessionCommandExecutor.KillAsync</c> never reads <c>PayloadJson</c> - and no consumer is claimed
+    /// here. What is pinned is that the Gateway SENDS it, so that a Director half can read it without the
+    /// Gateway needing to change again.
+    /// </summary>
+    [Fact]
+    public async Task The_reason_travels_down_the_tunnel_with_the_stop()
+    {
+        await WithGateway(Row(), Stopped(), async (http, sent, _) =>
+        {
+            await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                new SessionStopRequest { Reason = "spawned into the wrong mode" });
+
+            var command = Assert.Single(sent);
+            Assert.Equal("kill", command.Verb);
+            Assert.Contains("spawned into the wrong mode", command.PayloadJson);
+        });
+    }
+
+    /// <summary>
+    /// The door that carries no reason sends no payload either - it does not invent one, exactly as the
+    /// audit row does not.
+    /// </summary>
+    [Fact]
+    public async Task The_delete_door_sends_no_payload_because_it_has_no_reason_to_send()
+    {
+        await WithGateway(Row(), Stopped(), async (http, sent, _) =>
+        {
+            await http.DeleteAsync($"/sessions/{Sid}");
+
+            Assert.Equal("", Assert.Single(sent).PayloadJson);
+        });
+    }
+
+    // ---------------------------------------------------------------------------------------------------
     // The second door.
     // ---------------------------------------------------------------------------------------------------
 
@@ -464,12 +716,38 @@ public sealed class SessionStopEndpointTests : IDisposable
             assertion,
             audit: new GovernanceAuditLog(_db.Open()));
 
+    /// <summary>
+    /// Wait for the audit trail to hold a row for this session, or fail saying it never did.
+    ///
+    /// A CANCELLED REQUEST IS NOT SYNCHRONOUS WITH THE CLIENT GIVING UP: the client's task completes when
+    /// it abandons the connection, and the server learns of the abort a moment later. Reading the trail
+    /// once, immediately, would therefore be a race that passes or fails on timing rather than on
+    /// behaviour. This is a WAIT WITH A DEADLINE, not a sleep - it returns the instant the row lands, and
+    /// the deadline exists only so a broken build fails with a sentence instead of hanging.
+    /// </summary>
+    private static async Task<GovernanceAuditEventDto> WaitForTheStopToBeRecorded(GovernanceAuditLog audit)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            var rows = audit.List(sessionId: Sid);
+            if (rows.Count > 0)
+                return Assert.Single(rows);
+            await Task.Delay(25);
+        }
+
+        Assert.Fail("The stop was dispatched to the Director and no audit row was ever written for it. "
+            + "Ruling 4 was accepted on the ground that stops are audited (inspection 1, finding I1).");
+        throw new InvalidOperationException("unreachable");
+    }
+
     private async Task WithGateway(
         PushedSessionStore store,
         DirectorCommandResult? killAnswer,
         Func<HttpClient, List<DirectorCommand>, GovernanceAuditLog?, Task> assertion,
         GovernanceAuditLog? audit = null,
-        bool auditSupplied = true)
+        bool auditSupplied = true,
+        DirectorCommandRouter.SendDirectorCommandAsync? sendOverride = null)
     {
         audit ??= auditSupplied ? new GovernanceAuditLog(_db.Open()) : null;
 
@@ -495,10 +773,13 @@ public sealed class SessionStopEndpointTests : IDisposable
                     new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
                 pushedSessions: store,
                 streamStaleAfter: TimeSpan.FromSeconds(20),
-                sendCommand: (_, command, _) =>
+                // A Director that answers at once with a fixed result, unless the test supplies its own
+                // delegate - which the cancellation and timeout cases do, because what they are about is
+                // WHEN the answer arrives rather than what it says.
+                sendCommand: async (directorId, command, token) =>
                 {
                     sent.Add(command);
-                    return Task.FromResult(killAnswer);
+                    return sendOverride is null ? killAnswer : await sendOverride(directorId, command, token);
                 },
                 governanceAudit: audit);
 
