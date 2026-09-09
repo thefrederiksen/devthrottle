@@ -129,3 +129,10 @@ stop a session with a reason attached.**
   Developer Mode unset, not elevated. The directory-link test beside them passes, which is exactly the
   split the privilege explains. They cannot be proven either way on this machine, and that is recorded
   as a gap rather than a pass.
+- **A false alarm worth recording, because it is the mission's own failure family.** The Architect
+  watched for the `PARKED_RESULT` placeholder to disappear by grepping the report for that string.
+  When the corrected report described the correction - "the first draft carried a literal
+  PARKED_RESULT placeholder" - the grep still matched, so the watch took its other branch and
+  announced that the Manager had left with the placeholder still in place. Both halves were false.
+  A check that cannot tell a thing from a sentence ABOUT that thing is not a check. Verified by
+  reading the table row rather than trusting the watch, which is the only reason it was caught.
