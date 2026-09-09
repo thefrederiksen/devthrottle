@@ -81,7 +81,7 @@ honestly reported is a finding, and quietly dropping one is the failure this who
 ## When you are done
 
 Commit the report and its images to `mission/stop-a-session` and push. Send the Architect
-(`e66d53fb`) ONE single-line message pointing at the report file - fleet messages truncate at the
+(`edc83278`) ONE single-line message pointing at the report file - fleet messages truncate at the
 first newline. Do not merge anything to main; the Architect lands it.
 
 ---

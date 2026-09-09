@@ -83,7 +83,7 @@ paragraph was worth as much as several findings. Write yours.
 ## How to report - this part matters mechanically
 
 Write your review to the FILE `missions/stop-a-session/inspection-2.md`. Then send the Architect
-(session `e66d53fb`) **ONE SINGLE LINE** pointing at that file. Fleet messages truncate at the first
+(session `edc83278`) **ONE SINGLE LINE** pointing at that file. Fleet messages truncate at the first
 newline: a review sent as a message arrives as its first heading and nothing else.
 
 Never write the name of any AI, agent, assistant or vendor into anything that could reach GitHub.
