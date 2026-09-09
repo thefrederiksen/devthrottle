@@ -2118,8 +2118,14 @@ internal static class GatewayEndpoints
                 //
                 // BOTH DOORS get this. DELETE /sessions/{sid} must not start failing against an older
                 // Director: it succeeds there today, and shipped clients call it.
+                // WHY THIS LINE NAMES NO CAUSE. It used to say "(older version?)", which was true when an
+                // old Director answering only killed/removed was the only way to get here. Since I2 and I3
+                // it is not: a CURRENT Director that could not read whether a process was alive, or one
+                // holding a session with no process identifier to check, both fold to the same verdict and
+                // would have been logged as an old version they are not. The Director's own sentence, when
+                // it sent one, says which - so the log carries the body and guesses at nothing.
                 if (!SessionStopFold.CanDescribe(answer))
-                    FileLog.Write($"[GatewayEndpoints] stop {sid}: the Director on {director.MachineName} could not describe the stop (older version?): body={streamResult.BodyJson ?? "(none)"}");
+                    FileLog.Write($"[GatewayEndpoints] stop {sid}: the Director on {director.MachineName} could not describe the stop: body={streamResult.BodyJson ?? "(none)"}");
 
                 var response = SessionStopFold.Fold(sid, answer ?? new DirectorStopResult(), reason, actor);
                 FileLog.Write($"[GatewayEndpoints] stop {sid}: {response.Headline} (actor={actor})");
