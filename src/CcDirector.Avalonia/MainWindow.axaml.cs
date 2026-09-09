@@ -2083,14 +2083,22 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Called by SessionManager.OnSessionRemoved when a session was removed from
-    /// outside MainWindow (notably DELETE /sessions/{sid} on the Control API: a
-    /// Cockpit/Gateway kill, or a session killing itself). Drops the matching
-    /// rail row on the UI thread; the row used to stay behind forever, wrapping
-    /// a dead disposed session (issue #202, root cause of #193).
+    /// outside MainWindow: a stop asked for anywhere on the fleet and sent back
+    /// down this Director's tunnel, or a session removing itself. Drops the
+    /// matching rail row on the UI thread; the row used to stay behind forever,
+    /// wrapping a dead disposed session (issue #202, root cause of #193).
     ///
-    /// Idempotent by construction: the desktop's own close flows
-    /// (CloseSessionAsync, CloseAllSessionsAsync) remove the row from _sessions
-    /// BEFORE calling RemoveSession, so for those this finds no VM and no-ops.
+    /// THIS IS NOW THE ONLY PLACE A STOPPED SESSION'S ROW GOES (mission "Stop a
+    /// session"). The rail's Stop control sends its stop through the Gateway and
+    /// renders the answer; the removal comes back the same way a Cockpit stop or a
+    /// command-line stop does, and lands here. StopSessionAsync deliberately does
+    /// NOT prune the row first - a row removed before anyone knows whether the stop
+    /// worked says "it is gone" when it may not be.
+    ///
+    /// Still idempotent: CloseAllSessionsAsync (this Director shutting ITSELF down,
+    /// which is a different thing and does not go near the Gateway) removes the row
+    /// from _sessions before calling RemoveSession, so for that this finds no VM and
+    /// no-ops.
     /// </summary>
     private void OnExternalSessionRemoved(Session session)
     {
@@ -2099,14 +2107,14 @@ public partial class MainWindow : Window
             try
             {
                 var vm = _sessions.FirstOrDefault(s => s.Session.Id == session.Id);
-                if (vm is null) return; // desktop-initiated close already pruned the row
+                if (vm is null) return; // this Director's own shutdown already pruned the row
                 FileLog.Write($"[MainWindow] OnExternalSessionRemoved: dropping rail row for {session.Id}");
 
                 if (_activeSession == vm)
                 {
-                    // Same active-session teardown CloseSessionAsync performs:
-                    // unhook the per-session handlers, detach every session-bound
-                    // view, and fall back to the placeholder state.
+                    // The active-session teardown, and this is the ONE place it lives
+                    // for a stopped session: unhook the per-session handlers, detach
+                    // every session-bound view, and fall back to the placeholder state.
                     vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
                     vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
                     vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
@@ -2697,11 +2705,25 @@ public partial class MainWindow : Window
         ToolTip.SetTip(relink, "Recovery: re-point this row at a different underlying conversation transcript.");
         relink.Click += (_, _) => _ = ShowRelinkDialog(vm);
 
-        // --- Section 4: close ---
+        // --- Section 4: stop ---
 
-        var close = new MenuItem { Header = "Close Session" };
-        ToolTip.SetTip(close, "Close this session and remove it from the list.");
-        close.Click += (_, _) => _ = CloseSessionAsync(vm);
+        // Mission "Stop a session", Ruling 5: one word for one idea, and the same word on every surface -
+        // the command line says stop, the Cockpit says Stop, the phone says Stop, and so does this. It used
+        // to say Close, which described the row disappearing rather than the session ending.
+        var stop = new MenuItem { Header = "Stop Session" };
+        ToolTip.SetTip(stop, "Stop this session now: end its agent process and remove it from the fleet. You are asked why, and the reason is recorded with the stop.");
+        stop.Click += async (_, _) =>
+        {
+            try
+            {
+                await StopSessionAsync(vm);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] Stop Session FAILED: {ex.Message}");
+                ShowNotification($"Could not open the stop dialog - {ex.Message}");
+            }
+        };
 
         menu.Items.Add(rename);
         menu.Items.Add(hold);
@@ -2714,7 +2736,7 @@ public partial class MainWindow : Window
         menu.Items.Add(saveNamed);
         menu.Items.Add(relink);
         menu.Items.Add(new Separator());
-        menu.Items.Add(close);
+        menu.Items.Add(stop);
 
         menu.Open(button);
     }
@@ -2947,41 +2969,48 @@ public partial class MainWindow : Window
         });
     }
 
-    private async Task CloseSessionAsync(SessionViewModel vm)
+    /// <summary>
+    /// Stop this session (mission "Stop a session", Ruling 5). Opens the stop dialog, which asks for the
+    /// reason, sends the stop through the Gateway's ONE stop route, and shows what the Gateway said
+    /// happened. Everything after the click belongs to that dialog; this only wires it to the route.
+    ///
+    /// WHAT THIS NO LONGER DOES, AND WHY. It used to kill the process and remove the session in-process,
+    /// and prune the rail row first. That was a second implementation of the stop which recorded nothing:
+    /// no reason was asked for, none was recorded, and the operator was told nothing about what happened.
+    /// Ruling 4 makes the reason mandatory, so the stop now goes where the reason is recorded.
+    ///
+    /// THE COST, STATED RATHER THAN BURIED: ending a session on your own machine now depends on the
+    /// Gateway. Ruling 5 takes that deliberately - a local stop that quietly worked without the Gateway
+    /// would be a stop with no recorded reason, and a silent second path is how two surfaces come to
+    /// describe the same event two different ways. If it proves painful in daily use the fix is to let the
+    /// Director hold the reason and forward it, never to bring back a silent local kill.
+    ///
+    /// THE ROW IS NOT PRUNED HERE. The Gateway sends the stop back down this Director's own tunnel, the
+    /// session manager removes the session, and <see cref="OnExternalSessionRemoved"/> drops the rail row
+    /// and does the active-session teardown - the one place that teardown lives. Pruning first would also
+    /// have meant the row vanishing before anyone knew whether the stop worked.
+    ///
+    /// Shutting the whole Director down is NOT this: <see cref="CloseAllSessionsAsync"/> closes its own
+    /// sessions by its own path and must not depend on the Gateway.
+    /// </summary>
+    private async Task StopSessionAsync(SessionViewModel vm)
     {
-        FileLog.Write($"[MainWindow] CloseSessionAsync: session={vm.Session.Id}");
+        FileLog.Write($"[MainWindow] StopSessionAsync: session={vm.Session.Id}");
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        var sessionId = vm.Session.Id.ToString();
 
-        if (_activeSession == vm)
-        {
-            vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
-            vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
-            vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
-            TerminalHost.Detach();
-            SourceControlView.Detach();
-            _activeSession = null;
+        // The dialog appears at once and does the waiting itself (CLAUDE.md rule 1). The stop is handed to
+        // it as a function so the window has one job - ask, send, render - and so the whole of it can be
+        // driven in a headless test with no Gateway.
+        var dialog = new StopSessionDialog(sessionId, vm.DisplayName, (reason, ct) =>
+            host is null
+                ? throw new InvalidOperationException(
+                    "This Director's services are not running, so it has no connection to a Gateway and "
+                    + "cannot stop a session. The reason for a stop is recorded on the Gateway.")
+                : host.StopSessionAsync(sessionId, reason, ct));
 
-            SetSessionHeaderVisible(false);
-            PlaceholderText.IsVisible = true;
-            TerminalDock.IsVisible = false;
-            PromptBarBorder.IsVisible = false;
-        }
-
-        _sessions.Remove(vm);
-        PersistSessionState();
-
-        await Task.Run(async () =>
-        {
-            try
-            {
-                await _sessionManager.KillSessionAsync(vm.Session.Id);
-                _sessionManager.RemoveSession(vm.Session.Id);
-                FileLog.Write($"[MainWindow] CloseSessionAsync: cleanup complete for {vm.Session.Id}");
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[MainWindow] CloseSessionAsync cleanup FAILED: {ex.Message}");
-            }
-        });
+        await dialog.ShowDialog(this);
+        FileLog.Write($"[MainWindow] StopSessionAsync: dialog dismissed for {vm.Session.Id}");
     }
 
     private const int PersistDebounceMs = 250;
