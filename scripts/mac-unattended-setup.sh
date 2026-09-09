@@ -3,21 +3,33 @@
 # mac-unattended-setup.sh — Configure a Mac mini as an unattended DevThrottle fleet machine.
 #
 # WHY THIS SCRIPT EXISTS
-#   macOS cannot launch a NEW graphical application while the screen is locked. The session
-#   keeps running, but the login window owns the displays, and any app that needs a
-#   display link at startup (our Avalonia Director does) dies immediately — we measured
-#   "RenderTimer error -6661" (a CoreVideo "invalid argument" from display-link creation),
-#   even when launched through a launchd agent in the graphical user domain. Every Mac
-#   build farm in the industry (GitHub's hosted runners, Cirrus Labs images, Buildkite,
-#   Amazon EC2 Mac) solves this the same way: never let the machine lock. The display is
-#   allowed to turn off — that is harmless — but the session stays logged in and unlocked.
+#   macOS will not give a STARTING graphical application a render loop unless a display is
+#   awake and drawable. Our Avalonia Director needs one at startup, so without it the
+#   process dies immediately with "RenderTimer error -6661" — a CoreVideo
+#   "invalid argument" from display-link creation. An already-running Director is fine;
+#   only a start fails.
+#
+#   THE CONDITION IS A SLEEPING DISPLAY, NOT A LOCKED SCREEN. An earlier version of this
+#   script blamed the lock and then set the display to sleep after ten minutes, calling
+#   that "harmless". It is not harmless, it is sufficient on its own, and it cost us a
+#   real failure: on 2026-09-03 the launcher installed a new Director at 1:57 in the
+#   morning against a dark screen on a machine that was unlocked and awake, watched it
+#   fail to start, and pinned a perfectly good build as bad. The machine sat five days on
+#   the old version. Avalonia never asks whether the session is unlocked; it asks
+#   CoreGraphics for a drawable display.
+#
+#   So this script does both: never let the machine lock (which every Mac build farm does
+#   — GitHub's hosted runners, Cirrus Labs images, Buildkite, Amazon EC2 Mac) AND never
+#   let the display sleep. The product no longer depends on either being right: the
+#   launcher now wakes the display before it installs and holds the update rather than
+#   condemning a build it could not start. These settings keep it from ever having to.
 #
 # WHAT THIS SCRIPT DOES (each section asks before changing anything)
 #   1. Turn FileVault off                  (required for automatic login; decrypts in background)
 #   2. Enable automatic login              (machine boots straight to the desktop after any restart)
 #   3. Never require a password after sleep or screen saver  (the "do not lock" setting)
 #   4. Never start the screen saver        (both in-session and at the login window)
-#   5. Power settings                      (never system-sleep, display may sleep, restart after power failure)
+#   5. Power settings                      (never system-sleep, never display-sleep, restart after power failure)
 #   6. Software updates                    (keep security data automatic, stop surprise operating-system reboots)
 #   7. Quiet-machine settings              (no crash dialogs, no App Nap throttling, no Time Machine disk prompts)
 #   8. Enable Remote Login (ssh)           (recovery path when the graphical session is unreachable)
@@ -123,15 +135,19 @@ section "5. Power settings (always-on Mac mini)"
 # ---------------------------------------------------------------------------
 pmset -g custom
 echo "Target: the machine never sleeps (sleep 0), disks never spin down (disksleep 0),"
-echo "the display is ALLOWED to turn off after 10 minutes (displaysleep 10 — harmless once"
-echo "the lock is off, and the owner prefers the panel dark), wake-on-network stays on"
-echo "(womp 1), and the machine restarts itself after a power failure (autorestart 1)."
+echo "the display NEVER turns off (displaysleep 0), wake-on-network stays on (womp 1),"
+echo "and the machine restarts itself after a power failure (autorestart 1)."
+echo
+echo "displaysleep 0 is the important one and it used to be 10. macOS gives a STARTING"
+echo "graphical application no render loop while every display is asleep, so a Director"
+echo "restarted against a dark screen dies before its first window. That is what an"
+echo "unattended update does at three in the morning. A dark panel is not free."
 echo "Note: some Apple Silicon minis honor autorestart inconsistently after a hard power"
 echo "cut — the verification list at the end includes a pull-the-plug test."
 if confirm "Apply these power settings?"; then
     sudo pmset -a sleep 0
     sudo pmset -a disksleep 0
-    sudo pmset -a displaysleep 10
+    sudo pmset -a displaysleep 0
     sudo pmset -a womp 1
     sudo pmset -a autorestart 1
     echo "Applied. New values:"

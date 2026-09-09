@@ -180,6 +180,8 @@ public sealed class UpdateService
 
             var versionText = $"{latest.Major}.{latest.Minor}.{Math.Max(latest.Build, 0)}";
 
+            ClearPinIfSuperseded(state, latest);
+
             if (!ShouldStage(_options.CurrentVersion, latest, state))
             {
                 FileLog.Write($"[UpdateService] Up to date or dismissed (latest={latest}, dismissed={state.DismissedVersion}).");
@@ -380,7 +382,10 @@ public sealed class UpdateService
         return Version.TryParse(t, out var v) ? Normalize(v) : null;
     }
 
-    /// <summary>True when <paramref name="latest"/> is newer than <paramref name="current"/> and not dismissed.</summary>
+    /// <summary>
+    /// True when <paramref name="latest"/> is newer than <paramref name="current"/>, not dismissed, and
+    /// not a build already pinned as one that would not start.
+    /// </summary>
     public static bool ShouldStage(Version current, Version latest, UpdaterState state)
     {
         var cur = Normalize(current);
@@ -388,7 +393,38 @@ public sealed class UpdateService
         if (lat <= cur) return false;
         if (state.DismissedVersion is { } d && Version.TryParse(d, out var dv) && Normalize(dv) == lat)
             return false;
+
+        // A pinned build will be refused at install time by both owners, so downloading it again is a
+        // hundred megabytes fetched to be thrown away. This test was missing, and the install-time refusal
+        // clears the staged record, so the very next check downloaded it once more: version 2.0.5 was
+        // fetched roughly hourly for five days and discarded every time.
+        if (state.PinnedBadVersion is { } p && Version.TryParse(p, out var pv) && Normalize(pv) == lat)
+            return false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Drop a pin once the project has moved past the build it names, which is what
+    /// <see cref="UpdaterState.PinnedBadVersion"/> has always documented and nothing has ever done.
+    ///
+    /// A pin is a permanent judgement written from a single failed start, and until now NOTHING in the
+    /// product ever removed one - the field was set and never cleared, and the only cure was deleting the
+    /// state file by hand. It survived because a newer version simply fails the string comparison and
+    /// slips past, so the stale judgement sat in the file for ever and kept a machine re-downloading a
+    /// build it would never install. A release newer than the pinned build settles the question: whatever
+    /// was wrong then is not what this machine is being offered now.
+    /// </summary>
+    public static void ClearPinIfSuperseded(UpdaterState state, Version latest)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.PinnedBadVersion is not { } pinned) return;
+        if (!Version.TryParse(pinned, out var pinnedVersion)) return;
+        if (Normalize(latest) <= Normalize(pinnedVersion)) return;
+
+        FileLog.Write($"[UpdateService] {latest} is newer than the pinned bad build {pinned}; clearing the pin.");
+        state.PinnedBadVersion = null;
     }
 
     /// <summary>
