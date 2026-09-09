@@ -356,3 +356,37 @@ runs, and it is left on deliberately - see step 3.
 **This recipe has NOT driven either of them.** It established that a Gateway built this way serves
 them, which is what the report's Cockpit and phone frames need to be possible at all. Signing a
 browser in against a local Gateway is the report's own work.
+
+---
+
+## Checking that the Cockpit the Gateway SERVES is the one you built
+
+A Gateway can be the right commit and still serve a stale Cockpit, because the two are built by
+different toolchains into the same output directory. The cheapest honest check is to read the bundle
+back out of the running Gateway and look for something only the new code contains. The index names
+its own asset, and the asset is served from the site root rather than from under `/c`:
+
+    curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:7997/c
+    #   -> <script type="module" crossorigin src="/assets/index-<hash>.js">
+    curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:7997/assets/index-<hash>.js -o cockpit.js
+
+The phone names its own the same way, under `/mobile/assets/`.
+
+Run 9 September 2026 against a Gateway built from `c0764023`, this is what those two bundles held:
+
+| String | Cockpit | Phone |
+|---|---|---|
+| `Stop session` | 4 | 4 |
+| `recorded with the stop` | 1 | 1 |
+| `Stopping...` | 1 | 1 |
+| the headline element's class | 1 | 1 |
+| `sessions/${...}/stop` | present | present |
+| **`Close session`** (the old Cockpit wording) | **0** | - |
+| **`close that session`** (the old shared function) | **0** | **0** |
+| **`Remove session`** (the old phone wording) | - | **0** |
+
+Both halves of that table matter. The top says the new stop is in the shipped artifact; the bottom
+says the silent close it replaced is not still sitting beside it, which is what Ruling 5 forbids.
+
+**This is not a click.** It says the served code contains the new path and no longer contains the old
+one. It says nothing about whether the dialog opens, looks right, or works when a person uses it.
