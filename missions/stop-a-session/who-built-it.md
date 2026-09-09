@@ -112,3 +112,32 @@ Two things were tried and neither closed it:
 Everything else in the table above is established from the mission's committed record: the phase
 reports, the briefs, the notes files, the Architect's state note, and the live fleet list for the
 seats that are still seated.
+
+---
+
+## The sentence the report should carry, and it is not a joke
+
+**This feature writes an audit row naming who stopped a session and why. The polite path this fleet
+has used for years - the deletion flag and the reaper behind it - writes nothing. That is precisely
+why six of the fifteen seats that built this feature cannot now be named.**
+
+The gap this mission was raised to fix is the same gap that ate its own paper trail. It belongs in the
+report as one honest sentence, because it is the truest thing anyone found about why the mission
+exists: an ending that reports nothing is not a smaller version of an ending that reports something,
+it is a hole, and holes are only visible afterwards when somebody needs what fell through.
+
+**Filed as issue #2781** - "The fleet cannot say afterwards which sessions did a piece of work" -
+which records what was established, what was not, and why the obvious remedy (letting a session key
+read the session-history route) is an allow-list change that this mission does not get to make on its
+own. The Architect ruled: record and file, do not fix.
+
+## The one-line fix, already working
+
+The QA seat `9997554e` was reaped shortly after this file was written - it had repeated the local
+stack recipe and was stopped before capturing any frames, because the inspection's defects reach the
+frames it would have taken. **Its identifier is in the table above anyway**, written down while it was
+still seated. That is the whole of the remedy, demonstrated: a seat recorded at the time is a seat
+that can still be named after it is gone. The next QA seat is a new session and gets its own row.
+
+The Phase C Workers have been told to open their notes with their own identifier, so entries 11 to 14
+will be verifiable from the committed record rather than from a live fleet list that empties.
