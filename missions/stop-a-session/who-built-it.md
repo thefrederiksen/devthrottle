@@ -6,10 +6,16 @@ there were. This file is the establishable answer, written by the Phase C Manage
 render it rather than reconstruct it.
 
 **A note on the words, because they matter here.** A **session** is one running coding agent. An
-**agent** is the tool that session runs - Claude Code, Codex. A **mission** is why the work exists
-and who is on it together. So the count below is a count of SESSIONS, and the agent column says which
-tool each one ran. Calling a session an agent is what makes a roster like this unreadable a month
-later.
+**agent** is the tool that session runs. A **mission** is why the work exists and who is on it
+together. So the count below is a count of SESSIONS, and the agent column says which FAMILY of tool
+each one ran. Calling a session an agent is what makes a roster like this unreadable a month later.
+
+**Why no product names appear below.** This repository is public, and it carries a standing rule that
+no assistant, vendor or model is named anywhere in it. The load-bearing fact here is not which brands
+were used - it is that the seat which INSPECTED the work came from a different family than the seats
+that WROTE it, and found eight defects they had all reported green. That survives without the names.
+The owner knows which tools these were and can say so anywhere he chooses; this file does not put
+them in a public repository to make its own point.
 
 ---
 
@@ -19,10 +25,10 @@ later.
 
 | Agent family | Sessions | Which |
 |---|---|---|
-| Claude Code | 14 | Every builder, manager, architect and the quality seat |
-| Codex | 1 | The Inspector, deliberately - see below |
+| The building family | 14 | Every builder, manager, architect and the quality seat |
+| A different family | 1 | The Inspector, deliberately - see below |
 
-The single Codex seat is not an accident of availability. Law 3 of this fleet's mission workflow
+The single seat from the other family is not an accident of availability. Law 3 of this fleet's mission workflow
 requires that the seat which inspects the work comes from a **different agent family** to the seats
 that wrote it, because an agent reviewing its own family's work shares too much of its judgement to
 be a check on it. That one session found eight real defects, four of them severity one, in a branch
@@ -34,21 +40,21 @@ whose builders had all reported green.
 
 | # | Phase | Seat | Session | Agent | What it did |
 |---|---|---|---|---|---|
-| 1 | Design | Architect | `e66d53fb` | Claude Code | Owns the mission. Settled Rulings 1, 3, 5 and 6 in writing before any code was written, corrected two factual errors in the mission document, ruled on every phase report and on the inspection, and is the only seat that may land anything on `main`. Live throughout; it does not build. |
-| 2 | A | Manager | `ee59e5d0` | Claude Code | Drove Seats 1 and 2 - the Director's honest answer and the command line. Caught its own two brief defects mid-flight, and demanded the parked suite run that exposed a cross-tenant isolation regression. |
-| 3 | A | Worker A | not recorded | Claude Code | Rewrote `SessionCommandExecutor.KillAsync` to answer a structured verdict instead of two booleans. |
-| 4 | A | Worker B | not recorded | Claude Code | Built `POST /sessions/{sid}/stop`, the fold that writes every sentence, the refusal, the allow-list entries and the audit record. |
-| 5 | A | Worker C | not recorded | Claude Code | Built `cc-devthrottle session stop` and `session done --undo`. |
-| 6 | B | Manager | `578d8e29` | Claude Code | Drove Seat 3 - the controls - and stood up a local Gateway and Director to close the end-to-end gap: a real session, a real process, really stopped. |
-| 7 | B | Worker D | not recorded | Claude Code | The shared stop function, the Cockpit control and the phone control. |
-| 8 | B | Worker E | not recorded | Claude Code | The Director window's close, re-pointed at the stop route with a dialog that says what happened. |
-| 9 | Inspection | Inspector | not recorded | **Codex** | Read the whole 62-file branch diff adversarially, reproduced rather than asserted, and found eight defects. Never fixed anything - an inspector who picks up a hammer stops being one. |
-| 10 | C | Manager | `e7ea69df` | Claude Code | Rebased the stale branch onto fresh `origin/main`, split the eight findings across four Workers on disjoint files, and verified their proofs rather than accepting them. |
-| 11 | C | Worker F | `4c74ebdf` | Claude Code | Findings I2 and I3 - liveness that cannot be read is neither alive nor gone, and a backend with no process identifier is not an absent process. |
-| 12 | C | Worker G | `53e4e96f` | Claude Code | Finding I1 - a completed stop that the caller hung up on must still leave an audit row. |
-| 13 | C | Worker H | `a881e597` | Claude Code | Findings I4, I7 and I8 - the answer a two-second poll deleted, the busy guard that was only on the button, and the phone failure rendered outside its own modal. |
-| 14 | C | Worker I | `6529c15f` | Claude Code | Findings I5 and I6 - clients that turned an unknown outcome into a definite one, and a session name with a slash in it that stopped routing. |
-| 15 | QA | Quality seat | `9997554e` | Claude Code | Did not build the feature. Repeats the local stack recipe independently and writes the report this mission exists to produce. |
+| 1 | Design | Architect | `e66d53fb` | The building family | Owns the mission. Settled Rulings 1, 3, 5 and 6 in writing before any code was written, corrected two factual errors in the mission document, ruled on every phase report and on the inspection, and is the only seat that may land anything on `main`. Live throughout; it does not build. |
+| 2 | A | Manager | `ee59e5d0` | The building family | Drove Seats 1 and 2 - the Director's honest answer and the command line. Caught its own two brief defects mid-flight, and demanded the parked suite run that exposed a cross-tenant isolation regression. |
+| 3 | A | Worker A | not recorded | The building family | Rewrote `SessionCommandExecutor.KillAsync` to answer a structured verdict instead of two booleans. |
+| 4 | A | Worker B | not recorded | The building family | Built `POST /sessions/{sid}/stop`, the fold that writes every sentence, the refusal, the allow-list entries and the audit record. |
+| 5 | A | Worker C | not recorded | The building family | Built `cc-devthrottle session stop` and `session done --undo`. |
+| 6 | B | Manager | `578d8e29` | The building family | Drove Seat 3 - the controls - and stood up a local Gateway and Director to close the end-to-end gap: a real session, a real process, really stopped. |
+| 7 | B | Worker D | not recorded | The building family | The shared stop function, the Cockpit control and the phone control. |
+| 8 | B | Worker E | not recorded | The building family | The Director window's close, re-pointed at the stop route with a dialog that says what happened. |
+| 9 | Inspection | Inspector | not recorded | **A different family** | Read the whole 62-file branch diff adversarially, reproduced rather than asserted, and found eight defects. Never fixed anything - an inspector who picks up a hammer stops being one. |
+| 10 | C | Manager | `e7ea69df` | The building family | Rebased the stale branch onto fresh `origin/main`, split the eight findings across four Workers on disjoint files, and verified their proofs rather than accepting them. |
+| 11 | C | Worker F | `4c74ebdf` | The building family | Findings I2 and I3 - liveness that cannot be read is neither alive nor gone, and a backend with no process identifier is not an absent process. |
+| 12 | C | Worker G | `53e4e96f` | The building family | Finding I1 - a completed stop that the caller hung up on must still leave an audit row. |
+| 13 | C | Worker H | `a881e597` | The building family | Findings I4, I7 and I8 - the answer a two-second poll deleted, the busy guard that was only on the button, and the phone failure rendered outside its own modal. |
+| 14 | C | Worker I | `6529c15f` | The building family | Findings I5 and I6 - clients that turned an unknown outcome into a definite one, and a session name with a slash in it that stopped routing. |
+| 15 | QA | Quality seat | `9997554e` | The building family | Did not build the feature. Repeats the local stack recipe independently and writes the report this mission exists to produce. |
 
 **The owner is not on this list and should not be.** He is not a session. He settled Rulings 2 and 4 -
 whether a stop may destroy uncommitted work, and who is allowed to stop whom - on 8 September 2026,
@@ -66,7 +72,7 @@ and was then left alone, which is what the workflow's first law is for.
         +-- Phase B Manager  578d8e29
         |     +-- Worker D, Worker E
         |
-        +-- Inspector (Codex) ....... a different family, on purpose
+        +-- Inspector ............... a different family, on purpose
         |
         +-- Phase C Manager  e7ea69df
         |     +-- Worker F, Worker G, Worker H, Worker I
@@ -82,7 +88,7 @@ resident.
 ## What could NOT be established, and it is a finding rather than a shrug
 
 **Six of the fifteen sessions cannot be named by their identifier.** Workers A, B, C, D and E and the
-Codex Inspector all finished, reported, and were flagged for deletion. Their work is fully recorded -
+Inspector all finished, reported, and were flagged for deletion. Their work is fully recorded -
 each has a brief and a notes file in this folder - but none of those files records the identifier of
 the session that wrote it, and once a session is reaped it leaves the fleet list.
 
