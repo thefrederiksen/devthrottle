@@ -335,6 +335,44 @@ public sealed class SessionStopEndpointTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// THE ONE PLACE THE TWO DOORS DIFFER, AND IT IS A REGRESSION TEST, NOT A DESIGN PREFERENCE.
+    ///
+    /// Making DELETE a thin forward silently changed its answer for an unknown session from the locator's
+    /// 404 to the stop's 200 notOnFleet. That broke two EXISTING tests, and only the PARKED suite runs
+    /// either of them: StreamCommandTests.StreamModeOff_KillEndpoint_StaysOnHttp, and - the one that
+    /// matters - HostedSessionCommandRouteTenancyTests.Another_tenant_cannot_reach_it(DELETE), which pins
+    /// that one account naming ANOTHER account's session id gets exactly the locator's not-found answer.
+    ///
+    /// Ruling 3's "notOnFleet is a success" is about THE STOP - the verb this mission adds. DELETE is a
+    /// legacy door kept for exactly one reason, a shipped native phone client that does not deploy with the
+    /// Gateway, and keeping a door for compatibility means keeping what it answers. The available
+    /// alternative was to edit a cross-tenant isolation test until it agreed, which is the move to distrust.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_session_is_notOnFleet_through_the_stop_but_still_not_found_through_the_old_door()
+    {
+        await WithGateway(session: null, killAnswer: null, async (http, sent, audit) =>
+        {
+            // The stop - the mission's verb. A success, so a second stop is never an error.
+            var stop = await http.PostAsJsonAsync($"/sessions/{Sid}/stop",
+                new SessionStopRequest { Reason = "already gone, I think" });
+            Assert.Equal(HttpStatusCode.OK, stop.StatusCode);
+            Assert.Equal(SessionStopVerdict.NotOnFleet,
+                (await stop.Content.ReadFromJsonAsync<SessionStopResponse>())!.Verdict);
+
+            // The legacy door - unchanged, because its callers and its isolation contract are unchanged.
+            var legacy = await http.DeleteAsync($"/sessions/{Sid}");
+            Assert.Equal(HttpStatusCode.NotFound, legacy.StatusCode);
+            // The machine-readable code the tenancy test anchors on, not the prose beside it.
+            Assert.Contains("session_not_found", await legacy.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            // Neither door asked a machine, and neither wrote a row: nothing was stopped on either path.
+            Assert.Empty(sent);
+            Assert.Empty(audit!.List(sessionId: Sid));
+        });
+    }
+
     // ---------------------------------------------------------------------------------------------------
     // The failures Ruling 3 keeps.
     // ---------------------------------------------------------------------------------------------------
@@ -357,21 +395,50 @@ public sealed class SessionStopEndpointTests : IDisposable
     }
 
     /// <summary>
-    /// A Director older than this Gateway answers only the original killed/removed pair. There is no honest
-    /// headline for that, so the route refuses and says what to do - it never guesses which of the two
-    /// things happened. See SessionStopFold.DirectorAnswerProblem for the cost of erring this way.
+    /// A Director older than this Gateway answers only the original killed/removed pair. THE SESSION WAS
+    /// STILL STOPPED, so this is not a failure: an earlier version of this route answered 502, and
+    /// answering a failure for an operation that succeeded is the same false report this mission exists to
+    /// remove. Nor is it "stopped" - an old Director's killed:true says the verb RAN, never that a process
+    /// was found. It is the fourth verdict, and the row IS written, because a stop happened.
     /// </summary>
     [Fact]
-    public async Task An_answer_this_gateway_cannot_read_is_refused_rather_than_guessed_at()
+    public async Task An_answer_this_gateway_cannot_describe_is_still_a_stop_and_never_a_failure()
     {
         var legacy = DirectorCommandResult.Success(Json(new { killed = true, removed = true }));
         await WithGateway(Row(), legacy, async (http, _, audit) =>
         {
             var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "why" });
 
-            Assert.Equal(HttpStatusCode.BadGateway, reply.StatusCode);
-            Assert.Contains("older version", await reply.Content.ReadAsStringAsync());
-            Assert.Empty(audit!.List(sessionId: Sid));
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            var body = await reply.Content.ReadFromJsonAsync<SessionStopResponse>();
+            Assert.Equal(SessionStopVerdict.StoppedNotDescribed, body!.Verdict);
+            Assert.StartsWith("stopped ", body.Headline);
+            Assert.Contains("older version", body.Headline);
+            // Nothing is invented: no process named, no worktree sentence.
+            Assert.Null(body.ProcessId);
+            Assert.DoesNotContain(body.Details, d => d.Contains("worktree", StringComparison.Ordinal));
+
+            // A stop happened, so the trail holds it - this is the half the 502 was silently losing.
+            var row = Assert.Single(audit!.List(sessionId: Sid));
+            Assert.Equal(GovernanceAuditEventType.Stopped, row.EventType);
+        });
+    }
+
+    /// <summary>
+    /// And it reaches the LEGACY door too. DELETE must not start failing against an older Director - it
+    /// succeeds there today, and a shipped phone client calls it.
+    /// </summary>
+    [Fact]
+    public async Task The_old_door_also_gets_the_stop_it_could_not_describe()
+    {
+        var legacy = DirectorCommandResult.Success(Json(new { killed = true, removed = true }));
+        await WithGateway(Row(), legacy, async (http, _, _) =>
+        {
+            var reply = await http.DeleteAsync($"/sessions/{Sid}");
+
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            Assert.Equal(SessionStopVerdict.StoppedNotDescribed,
+                (await reply.Content.ReadFromJsonAsync<SessionStopResponse>())!.Verdict);
         });
     }
 

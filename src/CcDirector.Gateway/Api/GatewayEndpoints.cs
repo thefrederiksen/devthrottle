@@ -1947,7 +1947,12 @@ internal static class GatewayEndpoints
         // without a reason are devices and people. Do not "fix" this by demanding a reason here.
         //
         // When no reason arrives, the audit row SAYS SO in words. It never fabricates one.
-        async Task<IResult> StopSessionAsync(HttpContext ctx, string sid, string? reason, CancellationToken ct)
+        //
+        // <paramref name="legacyDeleteDoor"/> changes ONE thing and nothing else: what "there is no such
+        // session in this account" answers with. See the notOnFleet branch below for why the old door keeps
+        // its 404. The stop itself, the fold and the audit row are identical on both doors.
+        async Task<IResult> StopSessionAsync(
+            HttpContext ctx, string sid, string? reason, bool legacyDeleteDoor, CancellationToken ct)
         {
             // Resolve the tenant explicitly rather than through LocateSessionForRequestAsync, because that
             // helper collapses "no tenant is bound to this request" and "no such session" into the same
@@ -1971,6 +1976,33 @@ internal static class GatewayEndpoints
                 if (knownButStale)
                 {
                     FileLog.Write($"[GatewayEndpoints] stop {sid}: the owning Director has not pushed recently - answering retryable rather than notOnFleet");
+                    return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+                }
+
+                // THE LEGACY DOOR KEEPS ITS 404, AND THIS IS THE ONE PLACE THE TWO DOORS DIFFER.
+                //
+                // Found by the parked suite, which is the only place either of these runs: turning the old
+                // DELETE into a thin forward silently changed its answer for an unknown session from 404 to
+                // a 200, and broke two EXISTING tests -
+                // StreamCommandTests.StreamModeOff_KillEndpoint_StaysOnHttp and, far more seriously,
+                // HostedSessionCommandRouteTenancyTests.Another_tenant_cannot_reach_it(DELETE), which is a
+                // CROSS-TENANT ISOLATION test: it pins that one account naming another account's session id
+                // gets exactly the locator's not-found answer.
+                //
+                // Ruling 3's "notOnFleet is a success" is about THE STOP - the verb this mission adds, which
+                // the command line calls and which POST /sessions/{sid}/stop serves. DELETE is a legacy door
+                // kept for one reason only: a shipped native phone client that does not deploy with the
+                // Gateway calls it. Keeping it means keeping its answers. Changing its status codes is a
+                // quieter way of breaking the app in somebody's hand, which is the very thing keeping it was
+                // for - and the fix that would have made the tenancy test pass again was to EDIT the tenancy
+                // test, which is exactly the move to distrust.
+                //
+                // This is not two stops. Nothing has been stopped on this path: no Director was asked, no
+                // answer was folded, no audit row is written. The divergence is only in how each door says
+                // "there is nothing of yours here", and the stop itself stays single.
+                if (legacyDeleteDoor)
+                {
+                    FileLog.Write($"[GatewayEndpoints] stop {sid}: nothing in this tenant carries that identifier; the legacy DELETE door answers not-found (actor={actor})");
                     return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
                 }
 
@@ -2101,7 +2133,7 @@ internal static class GatewayEndpoints
             if (reason.Length > Governance.GovernanceAuditLog.MaxDetailChars)
                 reason = reason[..Governance.GovernanceAuditLog.MaxDetailChars];
 
-            return await StopSessionAsync(ctx, sid, reason, ct);
+            return await StopSessionAsync(ctx, sid, reason, legacyDeleteDoor: false, ct);
         });
 
         // Door two: DELETE /sessions/{sid}. A THIN FORWARD into the same handler, the same fold and the same
@@ -2117,8 +2149,12 @@ internal static class GatewayEndpoints
         // STATUS CODE ONLY and ignore the body entirely. So the body may become the full stop answer, which
         // still carries the original killed/removed pair. That is the whole of the claim: nothing is said
         // here about clients nobody has read.
+        // ITS ANSWER FOR AN UNKNOWN SESSION IS UNCHANGED - still the locator's 404, not the stop's
+        // notOnFleet. Keeping a door for compatibility means keeping what it answers; see the notOnFleet
+        // branch in StopSessionAsync for the two existing tests that proved it, one of them a cross-tenant
+        // isolation test.
         app.MapDelete("/sessions/{sid}", async (HttpContext ctx, string sid, CancellationToken ct) =>
-            await StopSessionAsync(ctx, sid, reason: null, ct));
+            await StopSessionAsync(ctx, sid, reason: null, legacyDeleteDoor: true, ct));
 
         // Forward "flag this session for deletion" to the owning Director, so a session on ONE
         // machine (or a remote client) can request the async teardown of a session on another. The
