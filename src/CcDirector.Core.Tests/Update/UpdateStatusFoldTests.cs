@@ -213,6 +213,90 @@ public class UpdateStatusFoldTests
     }
 
     [Fact]
+    public void RolledBack_KeepsBeingSaid_ForAsLongAsTheMachineIsStuckOnTheRestoredBuild()
+    {
+        // A clock must not silence this. A machine still sitting on the build that was restored has
+        // nothing new to report, and that is exactly why it must keep reporting: going quiet after a
+        // day would hide the one case the message exists for.
+        var view = UpdateStatusFold.Fold(Facts(new UpdaterState
+        {
+            LastApplyDecision = "RolledBack",
+            LastApplyVersion = "1.9.1",
+            LastApplyDecisionAt = Now.AddDays(-40),
+            LastCheckOutcome = "UpToDate",
+            LastCheckedAt = Now.AddMinutes(-2),
+        }));
+
+        Assert.Equal("RolledBack", view.State);
+    }
+
+    [Fact]
+    public void RolledBack_StopsBeingSaid_OnceTheMachineHasMovedPastTheBuildThatFailed()
+    {
+        // The owner's Mac, 2026-09-08. Version 2.0.5 was rolled back five days earlier because the
+        // screen was locked at 1:57 in the morning and no build could start; 2.0.7 then installed and
+        // proved healthy. The panel still showed UPDATE ROLLED BACK on a machine that was fine, and
+        // told him "v2.0.7 was put back" - which never happened. 2.0.4 was what was put back.
+        var view = UpdateStatusFold.Fold(Facts(
+            new UpdaterState
+            {
+                LastApplyDecision = "RolledBack",
+                LastApplyVersion = "2.0.5",
+                LastApplyDecisionAt = Now.AddDays(-5),
+                LastCheckOutcome = "UpToDate",
+                LastCheckLatestVersion = "2.0.7",
+                LastCheckedAt = Now.AddMinutes(-1),
+            },
+            current: "2.0.7"));
+
+        Assert.Equal("UpToDate", view.State);
+        Assert.DoesNotContain("was put back", view.Detail);
+
+        // History, not silence: the version that failed is pinned and will not be offered again, so it
+        // stays reachable in the tooltip.
+        Assert.Contains("2.0.5", view.Tooltip);
+        Assert.Contains("rolled back", view.Tooltip);
+    }
+
+    [Fact]
+    public void AnInstallThatFailed_StopsBeingSaid_OnceTheMachineHasMovedPastThatVersion()
+    {
+        var view = UpdateStatusFold.Fold(Facts(
+            new UpdaterState
+            {
+                LastApplyDecision = "Failed",
+                LastApplyVersion = "2.0.5",
+                LastApplyDecisionAt = Now.AddDays(-5),
+                LastCheckOutcome = "UpToDate",
+                LastCheckedAt = Now.AddMinutes(-1),
+            },
+            current: "2.0.7"));
+
+        Assert.Equal("UpToDate", view.State);
+        Assert.Contains("2.0.5", view.Tooltip);
+        Assert.Contains("could not be installed", view.Tooltip);
+    }
+
+    [Fact]
+    public void ARolledBackVersionThatCannotBeRead_KeepsBeingSaid()
+    {
+        // An unreadable version means "it is not known whether this machine has moved on", and that is
+        // a reason to keep saying the failure happened - never a reason to go quiet about it.
+        var view = UpdateStatusFold.Fold(Facts(
+            new UpdaterState
+            {
+                LastApplyDecision = "RolledBack",
+                LastApplyVersion = "2.0.5-preview",
+                LastApplyDecisionAt = Now.AddDays(-5),
+                LastCheckOutcome = "UpToDate",
+                LastCheckedAt = Now.AddMinutes(-1),
+            },
+            current: "2.0.7"));
+
+        Assert.Equal("RolledBack", view.State);
+    }
+
+    [Fact]
     public void AnUpdateHeldBecauseNoDisplayIsAwake_SaysThat_AndOffersNothingThatWouldFail()
     {
         // The Mac case. The launcher will not start a Director against a sleeping screen, because the

@@ -261,7 +261,28 @@ public static class UpdateStatusFold
         var lastDecision = state.LastApplyDecision;
         var decidedPhrase = Describe(state.LastApplyDecisionAt, facts.Now);
 
-        if (lastDecision == "RolledBack")
+        // ...but only while this machine is still WORSE OFF for it. A failed install is worth a red
+        // panel because it leaves the machine stuck on an older build. Once the machine is running the
+        // version that failed, or anything past it, the failure is history and the red panel is a false
+        // alarm about a machine that is fine.
+        //
+        // That is what went wrong on the owner's Mac. Version 2.0.5 was rolled back at 1:57 in the
+        // morning on 2026-09-03 - the screen was locked, so no build could have started, and the
+        // restored build did not come up either. Version 2.0.7 then installed cleanly five days later
+        // and proved healthy, and the panel still said UPDATE ROLLED BACK, because this record was
+        // ranked above the check outcome, never expired, and was never overwritten by the install that
+        // succeeded.
+        //
+        // The test is PROGRESS, not a clock. Ageing the record out after a few hours would go quiet on
+        // the one machine that most needs to speak: the one still sitting on the restored build. It has
+        // nothing new to report, and that is precisely why it must keep reporting.
+        //
+        // It also makes the sentence below true. "v{CurrentVersion} was put back" is now only ever
+        // rendered when the running build really is older than the one that failed, so it can no longer
+        // name a version this machine has since moved on to as the one that was restored.
+        var superseded = HasMovedPastFailedVersion(facts.CurrentVersion, state.LastApplyVersion);
+
+        if (lastDecision == "RolledBack" && !superseded)
             return new UpdateStatusView(
                 State: "RolledBack",
                 Headline: "UPDATE ROLLED BACK",
@@ -274,7 +295,7 @@ public static class UpdateStatusFold
                 CanCheckNow: true, CheckNowLabel: CheckNow,
                 CanInstallNow: false, InstallNowLabel: null);
 
-        if (lastDecision == "Failed")
+        if (lastDecision == "Failed" && !superseded)
             return new UpdateStatusView(
                 State: "InstallFailed",
                 Headline: "UPDATE INSTALL FAILED",
@@ -286,6 +307,34 @@ public static class UpdateStatusFold
                 CanCheckNow: true, CheckNowLabel: CheckNow,
                 CanInstallNow: false, InstallNowLabel: null);
 
+        // The failure is history now, but it is not nothing: the version that did not stick is pinned
+        // and will not be offered again. Carry it into the tooltip of whatever the check concluded
+        // rather than dropping it, so the record stays reachable without shouting.
+        var supersededNote = superseded && lastDecision is "RolledBack" or "Failed"
+            ? $" v{state.LastApplyVersion} "
+              + (lastDecision == "RolledBack" ? "was rolled back" : "could not be installed")
+              + $" {decidedPhrase} and is not offered again; this machine has since moved to "
+              + $"v{facts.CurrentVersion}."
+            : "";
+
+        var concluded = ConcludeFromLastCheck(facts, state, checkedPhrase, lastDecision, decidedPhrase);
+        return supersededNote.Length == 0
+            ? concluded
+            : concluded with { Tooltip = concluded.Tooltip + supersededNote };
+    }
+
+    /// <summary>
+    /// What the last completed check concluded, and what to say when nothing has concluded at all.
+    /// Split out of <see cref="Fold"/> for one reason only - so a superseded install failure can be
+    /// appended to whichever of these answers is reached. It decides nothing on its own.
+    /// </summary>
+    private static UpdateStatusView ConcludeFromLastCheck(
+        UpdateStatusFacts facts,
+        UpdaterState state,
+        string checkedPhrase,
+        string? lastDecision,
+        string decidedPhrase)
+    {
         // 5. What the last completed check concluded.
         switch (state.LastCheckOutcome)
         {
@@ -384,6 +433,19 @@ public static class UpdateStatusFold
     /// </summary>
     private static string? DecisionAbout(UpdaterState state, string stagedVersion)
         => VersionMatches(state.LastApplyVersion, stagedVersion) ? state.LastApplyDecision : null;
+
+    /// <summary>
+    /// True when the build running now is at, or past, the version an install pass failed to leave
+    /// behind - the machine has moved on and the failure no longer costs it anything.
+    ///
+    /// Deliberately FALSE whenever either version cannot be read as a version. Not knowing whether the
+    /// machine has moved on is a reason to keep saying the failure happened, never a reason to go
+    /// quiet: an unreadable version must not be able to silence a real problem.
+    /// </summary>
+    private static bool HasMovedPastFailedVersion(string? currentVersion, string? failedVersion)
+        => Version.TryParse(currentVersion?.TrimStart('v', 'V'), out var current)
+           && Version.TryParse(failedVersion?.TrimStart('v', 'V'), out var failed)
+           && current >= failed;
 
     private static bool VersionMatches(string? a, string? b)
         => !string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b)
