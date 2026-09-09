@@ -31,13 +31,13 @@ import type { SessionManage } from "./useSessionManage";
 //   row 1:  [<- Sessions] ................... [...]     navigation left, menu right
 //   row 2:  102 devthrottle / f9e7 .....................  the name gets the whole row
 //
-// THE STOP SHEET IS THE COCKPIT STOP DIALOG, LAID OUT FOR A PHONE (mission "Stop a session"). Same
+// THE STOP SHEET IS THE COCKPIT'S STOP DIALOG, LAID OUT FOR A PHONE (mission "Stop a session"). Same
 // words, same behaviour, different layout: it asks for the reason the Gateway requires before it acts
-// and will not submit an empty one, and when the answer comes back it SHOWS it - the Gateway headline
+// and will not submit an empty one, and when the answer comes back it SHOWS it - the Gateway's headline
 // and then each of its detail lines, verbatim - and waits to be dismissed. Leaving for the roster is
 // what dismissing it does, so the answer is never destroyed by a navigation the user did not ask for.
 // The phone may show less of a card than the desktop; it may not say something different, offer
-// something different, or leave anything out (CLAUDE.md rule 8 reasoning).
+// something different, or leave anything out (the reasoning behind CLAUDE.md rule 8).
 //
 // Nothing here composes a sentence about a stop and nothing branches on the verdict word.
 
@@ -291,7 +291,7 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         </div>
       )}
 
-      {/* The answer, rendered VERBATIM: the Gateway headline, then each of its detail lines in the
+      {/* The answer, rendered VERBATIM: the Gateway's headline, then each of its detail lines in the
           order it sent them. The same strings the Cockpit shows, on a phone-sized card. */}
       {confirming && stopOutcome !== null && (
         <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Stop session">
