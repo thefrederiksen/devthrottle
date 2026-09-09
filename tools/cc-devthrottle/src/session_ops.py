@@ -772,9 +772,15 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     sentence, it does not decide what a verdict means, and it does not re-word anything. A new state
     is then one edit on the Gateway rather than a new branch in three clients.
 
-    EXIT ZERO FOR ALL THREE VERDICTS (Ruling 3) - stopped, alreadyStopped and notOnFleet. A stop
-    never fails because there is nothing left to stop. The failure being designed out is a second run
-    returning an error, which an operator reads as "it is still alive".
+    EXIT ZERO FOR ALL FOUR VERDICTS (Ruling 3) - stopped, alreadyStopped, notOnFleet and
+    stoppedNotDescribed. A stop never fails because there is nothing left to stop. The failure being
+    designed out is a second run returning an error, which an operator reads as "it is still alive".
+
+    This counts FOUR because nothing here counts at all: the exit code follows the 200, and the
+    headline is printed as the Gateway wrote it, so a verdict this client has never heard of already
+    works. The number is in this sentence only to keep it honest - it said THREE while the fold had
+    four, which is the kind of stale comment that teaches the next reader to trust a client to know
+    what a verdict means. It must not become a list anything branches on.
 
     Non-zero is for three things only, and each says which one it was: no reason was given (refused
     here, before the call); the Director could not be reached (the shared client writes that
