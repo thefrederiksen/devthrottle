@@ -325,6 +325,10 @@ public static class CcStorage
     /// <summary>Per-session dictation logs: base/dictation/sessions/.</summary>
     public static string DictationSessions() => Path.Combine(Dictation(), "sessions");
 
+    /// <summary>Kept dictation clips and their transcripts: base/dictation/corpus/. Written only when
+    /// the user turns the corpus on (<c>dictation_corpus.enabled</c>); see <c>DictationCorpusStore</c>.</summary>
+    public static string DictationCorpus() => Path.Combine(Dictation(), "corpus");
+
     /// <summary>The preamble file handed to the Pi agent: base/pi-preamble/.</summary>
     public static string PiPreamble() => Path.Combine(Base(), "pi-preamble");
 

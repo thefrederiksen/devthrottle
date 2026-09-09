@@ -1,3 +1,4 @@
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Transcription;
@@ -46,6 +47,11 @@ public static class BackgroundDictationSend
     /// <param name="recordingsDirectory">Where the disk safety net saves the WAV. Null (production)
     /// means <see cref="DictationRecordingStore.DefaultDirectory"/>; tests point it at a scratch
     /// directory.</param>
+    /// <param name="corpusConfig">Dictation-corpus settings. Null (production) reads config.json, where
+    /// the corpus is OFF unless the user turned it on.</param>
+    /// <param name="corpusDirectory">Where kept clip/transcript pairs are written. Null (production)
+    /// means <see cref="DictationCorpusStore.DefaultDirectory"/>; tests point it at a scratch
+    /// directory.</param>
     public static async Task RunAsync(
         BatchDictationRecorder recorder,
         string prefix,
@@ -55,7 +61,9 @@ public static class BackgroundDictationSend
         string before = "",
         string after = "",
         Action<string, string?>? onFailed = null,
-        string? recordingsDirectory = null)
+        string? recordingsDirectory = null,
+        DictationCorpusConfig? corpusConfig = null,
+        string? corpusDirectory = null)
     {
         FileLog.Write($"[BackgroundDictationSend] start: session={target.Id}, state={target.ActivityState}");
         target.IsTranscribing = true;
@@ -84,10 +92,12 @@ public static class BackgroundDictationSend
             // 2. Transcribe once. On failure there is no transcript to restore - report loudly, do not
             //    queue or retry. The saved WAV is now the only copy of the spoken words, so it is KEPT
             //    and the report names it.
+            DictationTranscript transcribed;
             string transcript;
             try
             {
-                transcript = (await transcriber.TranscribeAsync(captured.Wav)).CleanedTranscript;
+                transcribed = await transcriber.TranscribeAsync(captured.Wav);
+                transcript = transcribed.CleanedTranscript;
             }
             catch (Exception ex)
             {
@@ -96,6 +106,13 @@ public static class BackgroundDictationSend
                 savedPath = null; // kept for the user; do not delete below
                 return;
             }
+
+            // 2b. Dictation corpus (OFF unless the user turned it on): keep this clip together with the
+            //     transcript it produced. A transcript carrying a word nobody said looks like a success,
+            //     so the safety net below deletes the only evidence of it seconds later. This writes the
+            //     pair somewhere else, leaves the safety net's meaning alone, and is fail-open - it can
+            //     never cost the user their dictation. See DictationCorpusStore.
+            DictationCorpusStore.TryKeep(captured.Wav, transcribed, corpusConfig, corpusDirectory);
 
             // 3. Compose the turn (dictation dropped at the caret inside any typed text) and submit it
             //    straight through the echo-verified terminal submit. From here on the composed text is
