@@ -216,7 +216,7 @@ is changed here, in this one document, and nowhere else.</p>
 </div>
 
 <div class="rule settled">
-  <p class="q">Ruling 3 &middot; settled by the Architect, 8 September 2026</p>
+  <p class="q">Ruling 3 &middot; settled by the Architect, 8 September 2026 &middot; a fourth verdict added 8 September 2026</p>
   <h3>What happens when you stop something that is already stopped?</h3>
   <p class="decided"><b>A stop never fails because there is nothing left to stop.</b> Every "it is not running
   any more" case succeeds, and the answer names which of them it found. Exactly three things are failures: no
@@ -229,6 +229,15 @@ is changed here, in this one document, and nowhere else.</p>
     operator who is not told will keep looking for it.</li>
     <li><b>not on this fleet</b> - no session in the account carries that identifier. Still a success, still
     exit code zero, and worded as an answer rather than as an error.</li>
+    <li><b>stopped, not described</b> - the Director carried out the stop and removed the row, but it is an
+    older version that cannot say what it found, so the answer names no process and no worktree. <em>Added
+    after Phase A, and the reason is worth keeping.</em> The Gateway and the Directors do not deploy together,
+    so for as long as a machine runs an older Director this case is real. Phase A first refused it outright -
+    and refusing is reporting a failure for an operation that SUCCEEDED, which is the very complaint this
+    mission exists to fix, rebuilt inside the fix for it. Calling it plain <b>stopped</b> would have been the
+    opposite mistake: an older Director says only that the verb ran, never that a process was found, so
+    <b>stopped</b> would assert a fact nobody established. A fourth word costs one line in the fold and keeps
+    "we know" apart from "we do not know", which is the whole of this ruling.</li>
   </ul>
   <p><strong>Where the reconciling happens, and where it honestly cannot.</strong> The row and the process are
   both facts held by ONE machine - the Director that owns the session - so that is where they are compared, and
@@ -240,8 +249,10 @@ is changed here, in this one document, and nowhere else.</p>
   <p class="why"><strong>What it costs if this is decided wrongly:</strong> the failure being designed out is a
   second run returning an error, which an operator reads as "it is still alive". Erring the other way - saying
   "it is gone" when it is not - is the worse mistake, and it is why the verdict keeps <b>already stopped</b> (a
-  machine was asked, and it looked) apart from <b>not on this fleet</b> (no machine was asked). Those two must
-  never be folded into one word.</p>
+  machine was asked, and it looked) apart from <b>not on this fleet</b> (no machine was asked), and both apart
+  from <b>stopped, not described</b> (a machine acted but could not say what it found). Those must never be
+  folded into one word - which is exactly why the fourth was added rather than squeezed into an existing
+  one.</p>
 </div>
 
 <div class="rule settled">

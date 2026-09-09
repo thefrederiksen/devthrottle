@@ -93,3 +93,16 @@ stop a session with a reason attached.**
   every seat attaches to the seeded Mission `e1141592`. Worktree confirmed clean at
   `origin/main` `6710a86c`. Rulings 1, 3, 5 and 6 settled in the mission document. Code facts above
   established and the two document errors corrected.
+
+- **8 Sep 2026** - Phase A landed on the branch: the Director's honest answer, the stop route and its
+  fold, the allow list, the audit record, and the two commands. 71 new tests, each watched failing on
+  purpose. Ruled on its four open decisions in
+  `missions/stop-a-session/architect-ruling-on-phase-a.md`: the reason belongs on the POST door
+  (confirmed - the handoff was self-contradictory and the Manager was right to read past it); the 502
+  on an un-foldable answer is REVERSED; stops must not be counted as interventions in the outcome
+  ledger; the rest confirmed. **Ruling 3 gained a fourth verdict word**, `stoppedNotDescribed`, and
+  the mission document is amended rather than contradicted by a note.
+- **The largest remaining risk is the end-to-end run.** Nothing has stopped a real session; every
+  layer was proved against a stub of the one below it. The QA run needs a Gateway built from this
+  branch, and the branch cannot merge before the QA run exists - so the stack is stood up LOCALLY.
+  Phase B de-risks that and writes down the recipe; the QA seat repeats it independently.
