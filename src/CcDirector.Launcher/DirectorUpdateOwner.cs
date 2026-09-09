@@ -33,6 +33,12 @@ public enum DirectorUpdateDecision
     HeldBecauseAnotherSwapIsRunning,
     /// <summary>An update is staged but the Director is not running, and it is not this loop's business to start one.</summary>
     HeldBecauseDirectorNotRunning,
+    /// <summary>
+    /// An update is staged, but this machine cannot start a windowed application right now - on macOS,
+    /// no display is drawable, so the new build would die before its first window and be blamed for it.
+    /// Nothing was touched. See <see cref="DisplayAvailability"/>.
+    /// </summary>
+    HeldBecauseNoDisplay,
     /// <summary>The staged update is one that already failed to start and was pinned away from.</summary>
     SkippedPinnedBadVersion,
     /// <summary>The update was applied and the new version answered.</summary>
@@ -120,6 +126,20 @@ public sealed class DirectorUpdateOwner
     /// </remarks>
     public static bool ShouldApply(bool hasStagedUpdate, int runningSessionCount)
         => UpdateApplyRule.ShouldApply(hasStagedUpdate, runningSessionCount);
+
+    /// <summary>
+    /// May a build that did not come up be blamed for it, and pinned so it is never offered again?
+    ///
+    /// Only on positive evidence that this machine can run a Director at all - the restored build coming
+    /// up. Pinning is permanent and unattended, so the question it answers has to be "is the BUILD bad",
+    /// not "did the start fail", and those are different questions whenever the machine itself is the
+    /// reason nothing started.
+    /// </summary>
+    /// <param name="restoredBuildAnswered">
+    /// Whether the previous build answered after the roll back. Null when no roll back happened or
+    /// nothing could be restored - an absence of evidence, which is not evidence against the build.
+    /// </param>
+    public static bool ShouldPinFailedBuild(bool? restoredBuildAnswered) => restoredBuildAnswered == true;
 
     /// <summary>
     /// One pass of the launcher's ownership: look for a staged Director update, and install it if the
@@ -248,6 +268,24 @@ public sealed class DirectorUpdateOwner
                 conflictNote + $"{sessions} session(s) were running, so the update waits rather than interrupting them.");
         }
 
+        // A WINDOWED APPLICATION NEEDS A DISPLAY, AND MAY NOT BE BLAMED FOR NOT HAVING ONE.
+        //
+        // On macOS a Director started with no drawable display dies before its first window: Avalonia's
+        // render loop is a CoreVideo display link, and creating one with no active display fails. That is
+        // what happened at 1:57 in the morning on 2026-09-03 - a good build was started against a
+        // sleeping screen, could not come up, and was pinned as bad for five days.
+        //
+        // So try the remedy macOS offers, and if the machine still cannot draw, HOLD. Holding is the
+        // honest answer: nothing is wrong with the update, and the next pass will find a machine somebody
+        // has walked up to. Every other platform reports Unknown here and is unaffected.
+        var readiness = DisplayAvailability.Wake();
+        if (DisplayAvailability.DescribeObstacle(readiness) is { } obstacle)
+        {
+            FileLog.Write($"[DirectorUpdateOwner] {staged.Version} is staged but {obstacle}; holding it. "
+                          + "The build is not at fault and is NOT pinned.");
+            return Record(staged, DirectorUpdateDecision.HeldBecauseNoDisplay, conflictNote + obstacle + ".");
+        }
+
         FileLog.Write($"[DirectorUpdateOwner] installing {staged.Version}: staged={staged.StagedBuild}, "
                       + $"target={staged.InstallTarget}, sessions=0, currentVersion="
                       + $"{(status.Version.Length > 0 ? status.Version : "unknown")}");
@@ -298,10 +336,29 @@ public sealed class DirectorUpdateOwner
         if (result.Outcome == SelfUpdateOutcome.Updated)
             return Record(staged, DirectorUpdateDecision.Applied, conflictNote + result.Message);
 
-        // The build did not come up. Pin it so neither the launcher nor the Director tries it again when
-        // it is offered a second time - the Director re-downloads on its own schedule and would
-        // otherwise present the same dead build every hour, for ever.
-        PinBadVersion(staged);
+        // The build did not come up. Whether that is the BUILD's fault is a separate question, and
+        // pinning answers it permanently - nothing ever unpins a version, so a wrong answer here costs a
+        // machine every future release of that build.
+        //
+        // The rollback already establishes it. If the restored build came up, this machine can plainly
+        // run a Director, so the one that would not is at fault: pin it. If the restored build did not
+        // come up EITHER, then nothing could start here just now, and blaming the new build is blaming it
+        // for the weather. That is exactly what happened on 2026-09-03: the log recorded "restored build
+        // answering=not yet" and pinned 2.0.5 regardless, and the machine sat five days on 2.0.4.
+        //
+        // A rollback that could not restore anything reports null, and null is not evidence about the
+        // build, so it does not pin either.
+        if (ShouldPinFailedBuild(result.RestoredBuildAnswered))
+        {
+            PinBadVersion(staged);
+        }
+        else
+        {
+            FileLog.Write($"[DirectorUpdateOwner] {staged.Version} did not come up, and the restored build did not "
+                          + "come up either - this machine could not start ANY Director just now, so the build is "
+                          + "NOT pinned and will be offered again.");
+        }
+
         return Record(staged,
             result.Outcome == SelfUpdateOutcome.RolledBack
                 ? DirectorUpdateDecision.RolledBack

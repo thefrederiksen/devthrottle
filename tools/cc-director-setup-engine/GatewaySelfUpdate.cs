@@ -4,7 +4,19 @@ namespace CcDirector.Setup.Engine;
 public enum SelfUpdateOutcome { Updated, RolledBack, Failed }
 
 /// <summary>Result of a Gateway self-update, with the ordered steps taken (for logs).</summary>
-public sealed record SelfUpdateResult(SelfUpdateOutcome Outcome, string Message, IReadOnlyList<string> Steps);
+/// <param name="RestoredBuildAnswered">
+/// After a roll back, whether the RESTORED build came up and answered. Null when no roll back happened.
+///
+/// This is the difference between "the new build is bad" and "this machine could not start anything",
+/// and it decides whether a version is pinned as bad. It was already being measured and written into
+/// the message text, where nothing could act on it: on 2026-09-03 the restored build did not answer
+/// either - proof that the machine, not the build, was at fault - and version 2.0.5 was pinned anyway.
+/// </param>
+public sealed record SelfUpdateResult(
+    SelfUpdateOutcome Outcome,
+    string Message,
+    IReadOnlyList<string> Steps,
+    bool? RestoredBuildAnswered = null);
 
 /// <summary>
 /// Orchestrates the Gateway tray app replacing its own (file-locked) exe: stop -> swap -> relaunch ->
