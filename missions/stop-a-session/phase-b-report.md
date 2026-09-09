@@ -283,11 +283,29 @@ Per the Architect's ruling, these are filed rather than left in a mission record
 `AvaloniaXamlLoader.Load(this)` calls elsewhere are `Application.Initialize()` overrides in
 `App.axaml.cs` files, which is the normal correct pattern in classes that declare no named controls.
 
-And the issue does **not** claim that dialog is broken, because I did not check it. It declares six
-named controls and touches one in its constructor, so it is at risk on the face of it - but it is a
-shipped feature, which is some evidence it does not fail, and if it does not then the real rule is
-subtler than "this line breaks named controls" and is worth understanding before anything is changed.
-The issue says exactly that and names the one observation that would settle it: open the dialog once.
+**And then I was wrong about the second half of it, and that is corrected on the issue rather than
+edited away.** I filed #2780 saying it was not established whether `DrainDirectorDialog` actually
+fails, "because I did not check it". Worker E replied that it HAD checked, headlessly, with a
+throwaway probe. Rather than take that - I had just corrected two of its claims - I reproduced it:
+a probe doing nothing but `new DrainDirectorDialog(null, "probe")` throws
+
+    System.NullReferenceException
+       at DrainDirectorDialog..ctor ... DrainDirectorDialog.axaml.cs:line 50
+
+which is `TxtReport.Text =`, the first line in the constructor touching a named control. The probe was
+deleted; nothing was left in the tree. **The Worker was right and my issue was wrong**, and a comment
+on #2780 now says so in those terms, because that uncertainty was the load-bearing part of the issue.
+
+What is genuinely still open is narrower and more interesting: **both observations are from the
+headless test host, and nobody has opened that dialog in the real desktop application.** It is a
+shipped feature, so either it is broken there and nobody has opened it since, or something differs
+between the headless host and the real one - and that difference would matter on its own, because the
+headless host is where this project's window tests run. The next step is one observation, and the issue
+says so.
+
+**The lesson I am recording against myself:** "I did not check it" is a fine thing to write in a
+mission note and a bad thing to publish in an issue without first asking the Worker who might have.
+It cost a public correction that a single message would have avoided.
 
 ### 4. One judgement call on wording. CONFIRMED as it stands.
 
