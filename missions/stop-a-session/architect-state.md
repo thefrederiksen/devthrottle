@@ -319,3 +319,77 @@ would be tagged - not on a pull-request head, and not on an earlier run.
 - **Read every image before it is committed.** The repository is public and the fleet carries client
   names.
 - **Bother the owner ONCE**, at the end, with the report and the email.
+
+---
+
+## 9 Sep 2026, afternoon - THE GOAL IS CAPTURED
+
+`missions/stop-a-session/qa-report.html` exists, with eighteen images in `missions/stop-a-session/qa/`.
+Written by session `02aa6c1a`, which did not build the feature, against `84ba787e`. **This is the
+document the mission existed to produce, and it is the best thing on this branch.**
+
+Ten frames, not eight: the eight of section 6, plus the audit ledger read back, plus a ninth frame
+this seat commissioned after reading the draft.
+
+**All eighteen images were read by the Architect, one at a time, before any of this was accepted.**
+Every frame shows only `scratch-repo`, `scratch-repo-dirty` and sessions named "throwaway A/C/D"; the
+Gateway is proved in-frame as `127.0.0.1:7997` in every command-line capture; the governance token is
+redacted to `<the machine token>`. **Nothing leaks.** That check is not delegable and was not delegated.
+
+### The ninth frame, and why it was worth twenty-five minutes
+
+The draft's own section 8 named its biggest hole honestly: every stop had been made with the
+machine's credential, so **Ruling 4 - the permission the owner personally granted, for one session to
+stop another - had unit tests and no photograph.** It was commissioned as a bounded addition with a
+hard stop, not a new phase, and it came back better than specified. One frame, from inside a real
+session, carries both halves of the ruling:
+
+- the session's own key on the legacy reasonless door: **`HTTP/1.1 403 Forbidden`**
+- the same key on the stop, with a reason: **`stopped e3fd6eb9 - process 28396 ended, row removed`**
+- and the ledger row afterwards: **`ACTOR: session 83c56885-42f0-40a3-bdfd-23239383fee7`** - a
+  session, not the machine.
+
+The key was used and never printed. **An agent's key can only ever stop a session with a reason
+attached** is now shown rather than asserted, which is the condition the whole permission model rests
+on.
+
+### The client-name trap fired a SECOND time, from a new direction, and was caught
+
+The first quality seat was caught by an installed command line silently answering from the HOSTED
+Gateway. This one was caught by something else entirely: **two Directors on this machine have the
+identical window title**, so a capture that selected its window by title matched the OWNER'S Director
+and photographed his real roster - repository names, session names, all of it. Read, recognised and
+deleted before it was committed. Every capture after it selects by PROCESS IDENTIFIER and refuses to
+fire unless that exact process is in front.
+
+**Twice now, two different mechanisms, one control caught both: read every image before you commit
+it.** The trap is not the mistake; the trap is the machine. Nothing else would have caught either -
+both captures succeeded and both files looked normal.
+
+### A ruling on the one thing in the frames that looks like a rule violation
+
+`Claude Code` appears as an agent badge in the Director window frame, and `claude.exe` in two
+command-line frames. **Ruled: these stay.** The badge is the product labelling which agent CLI a
+session runs, and the process name is the operating system answering a question the frame had to ask;
+both are evidence, neither is a claim about who wrote the code. The standing rule forbids
+ATTRIBUTION, and the repository already ships `ClaudeCode` as a command-line value. Doctoring
+evidence inside a quality report to satisfy a rule about credit would be the worse error by a
+distance. The report reaches the same conclusion in its own closing paragraph, independently.
+
+### What the report says is NOT proven, carried forward so it is not lost at merge
+
+Kept here because a gap that lives only in a document nobody re-reads is a gap that comes back.
+
+- The fourth verdict, `stoppedNotDescribed`, **was not producible on this stack** - its first cause
+  needs a Gateway from this branch talking to an OLDER Director, and the rig builds both halves from
+  one commit. It has unit tests and no field sighting.
+- The phone application was never opened. It shares the changed function and was changed with it.
+- One machine, one account, one tenant. Nothing crossed a machine boundary, and nothing here speaks
+  to the hosted multi-tenant path.
+- Both clicking surfaces were driven by simulated input, not by a hand - real controls in the real
+  product, but neither is a person.
+- The Cockpit could not be reached the documented way on a self-hosted Gateway; the browser was given
+  the machine token directly. **The frames are real; the door was not the front one.** Worth an issue.
+- Two smaller things left alone deliberately: the recipe's Cockpit address lands on a not-found page
+  (`/sessions`, not `/c`), and a previous run's data home is still on disk and is not this run's to
+  sweep.
