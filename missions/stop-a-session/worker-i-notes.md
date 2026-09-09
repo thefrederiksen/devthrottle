@@ -250,6 +250,7 @@ re-proves that, and I did not ask for a Gateway-side test because this one reach
 | Shared web client | `npm test --workspace @devthrottle/client-core` | **1042 passed**, 98 files |
 | Type checking, all four workspaces | `npm run typecheck` | client-core, cc-assistant, cockpit, mobile - **exit 0** |
 | Director window suite, to completion | `dotnet test src/CcDirector.Avalonia.Tests` | **421 passed, 0 failed, 0 skipped** |
+| Shipped-tool contract guard (both command-line files are shipped source) | `python -m pytest tools/test_shipped_tools_contract.py -q` | **36 passed** |
 
 **The two command-line failures are the pre-existing ones, and I confirmed that myself rather than
 inheriting the claim.** They are `test_email_cli.py::test_owner_has_no_recipient_option` and
