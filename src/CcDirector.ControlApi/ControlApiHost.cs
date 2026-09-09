@@ -96,6 +96,27 @@ public sealed class ControlApiHost : IAsyncDisposable
     public SnoozeOptionsCache SnoozeOptions { get; }
 
     /// <summary>
+    /// End a session through the Gateway's one stop route (mission "Stop a session", Ruling 5). The
+    /// Director window's Stop control calls this; so do the command line, the Cockpit and the phone, by
+    /// their own routes to the same place. The Gateway records the reason, has the owning Director end
+    /// the process, and returns the finished words the window renders verbatim.
+    ///
+    /// THROWS when this Director has no Gateway client at all, and that is the point rather than a gap:
+    /// the reason is recorded on the Gateway, so a stop that could not reach it is a stop with nothing
+    /// recorded. Ruling 5 states the cost of that dependency out loud and takes it deliberately - the
+    /// answer to a Gateway that cannot be reached is never a silent local kill.
+    /// </summary>
+    /// <param name="sessionId">The session to stop.</param>
+    /// <param name="reason">Why, in the operator's own words. Required and recorded.</param>
+    /// <param name="ct">Cancellation.</param>
+    public Task<Gateway.Contracts.SessionStopResponse> StopSessionAsync(string sessionId, string reason, CancellationToken ct = default)
+        => _gatewayClient?.StopSessionAsync(sessionId, reason, ct)
+           ?? throw new InvalidOperationException(
+               "This Director is not connected to a Gateway, so a session cannot be stopped from here. "
+               + "The reason for a stop is recorded on the Gateway, and a stop that recorded nothing is "
+               + "the thing this route exists to replace.");
+
+    /// <summary>
     /// Fetch the latest Gateway turn brief for a session - the desktop Wingman tab's source.
     /// Null when no Gateway is configured/connected or none stamped yet; the caller then shows
     /// the local explain instead.

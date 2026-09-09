@@ -77,8 +77,17 @@ public sealed class OutcomeLedgerReporter
         var interventionsBySession = sessionIds.Count == 0
             ? new Dictionary<string, int>(StringComparer.Ordinal)
             : ctx.GovernanceAuditEvents.AsNoTracking()
+                // A STOP IS NOT COUNTED HERE, AND THE ROW STILL EXISTS. Stopping a session is recorded in
+                // the intervention category - the audit trail the owner's ruling rests on has to hold it,
+                // and reusing an existing "a human did X" type would have been a lie the moment one agent
+                // stopped another. But this DERIVED number means "how often did this session need a
+                // person", and the mission that added the stop makes agent-stops-agent the ORDINARY case,
+                // so most stops involve no human at all. Counting them would quietly change what this
+                // number means underneath the people reading it, which is worse than not having it.
+                // "Stops per session" is a different number, and it should be computed on purpose.
                 .Where(e => sessionIds.Contains(e.SessionId) &&
                             e.Category == GovernanceAuditCategory.Intervention &&
+                            e.EventType != GovernanceAuditEventType.Stopped &&
                             e.OccurredUtc >= since && e.OccurredUtc < until)
                 .ToList()
                 .GroupBy(e => e.SessionId, StringComparer.Ordinal)

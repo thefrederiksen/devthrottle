@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { holdSession, killSession, listSessions } from "@devthrottle/client-core/api/client";
+import {
+  holdSession,
+  listSessions,
+  stopSession,
+  type SessionStopOutcome,
+} from "@devthrottle/client-core/api/client";
 import { classify, isDeferredHold, isWorking, snoozeCountdown } from "@devthrottle/client-core/sessions/ordering";
 import { promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import {
@@ -12,9 +16,9 @@ import {
   type HoldUiState,
 } from "@devthrottle/client-core/sessions/snoozeAction";
 
-// The session management verbs (Snooze/Unsnooze + Remove) for ONE session, hoisted out of the old
+// The session management verbs (Snooze/Unsnooze + Stop) for ONE session, hoisted out of the old
 // SessionManageBar so two places can drive them from one copy of the state: the app bar's overflow
-// menu (Remove, and Snooze on the screens with no room for it) and the Voice mode bottom bar (Snooze
+// menu (Stop, and Snooze on the screens with no room for it) and the Voice mode bottom bar (Snooze
 // next to Respond). Owning this in a hook is what stops the two surfaces disagreeing about the live
 // held state.
 //
@@ -57,11 +61,23 @@ export interface SessionManage {
    *  Gateway apply the user's default. Always a hold, never an unsnooze: picking a length while already
    *  snoozed re-arms the clock to that length. Resolves true when the Gateway accepted it. */
   holdFor: (minutes: number) => Promise<boolean>;
-  removeSession: () => Promise<void>;
+  /** Stop the session: end the agent process on its machine and take it off the roster.
+   *
+   *  The reason is REQUIRED - the Gateway will not carry a stop without one and records it with the stop
+   *  (mission "Stop a session", Ruling 4) - and it is the caller's job to have collected one.
+   *
+   *  IT SENDS ONE STOP AT A TIME. A second call made while the first is still outstanding is REFUSED -
+   *  it throws without reaching the Gateway - so a caller cannot get two stops in flight and then let
+   *  their two independently completing handlers overwrite each other's answer.
+   *
+   *  IT RESOLVES WITH THE GATEWAY'S ANSWER AND NAVIGATES NOWHERE. The old removeSession went straight to
+   *  the roster the instant the call returned, which threw the answer away before anyone could read it -
+   *  the same silent success the Cockpit had. Leaving here is the caller's decision, taken once the user
+   *  has read what happened. It throws on a failure, with the error already surfaced on `error`. */
+  stopSession: (reason: string) => Promise<SessionStopOutcome>;
 }
 
 export function useSessionManage(sessionId: string | undefined): SessionManage {
-  const navigate = useNavigate();
   const [onHold, setOnHold] = useState<boolean | null>(null);
   const [deferred, setDeferred] = useState(false);
   const [working, setWorking] = useState(false);
@@ -72,6 +88,9 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   const [error, setError] = useState<string | null>(null);
   // While a toggle is in flight the optimistic state must not be clobbered by a slower poll.
   const pendingRef = useRef(false);
+  // Whether a STOP request is outstanding. A ref and not the `busy` flag: two Enter presses land in the
+  // same tick and both read the same stale busy, so a state check lets the second one straight through.
+  const stopInFlightRef = useRef(false);
 
   // Hoisted out of the effect so toggleHold can call it for an IMMEDIATE re-sync after a snooze, instead
   // of leaving the button/pill stale until the next interval. Reads the SAME roster the Home page reads.
@@ -174,20 +193,41 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     return applyHold(true, optimisticHoldFor(working), minutes);
   }, [busy, working, applyHold]);
 
-  const removeSession = useCallback(async () => {
-    if (!sessionId || busy) return;
+  // The stop. It hands the answer back and goes nowhere - see the note on the interface for why.
+  //
+  // An empty reason never reaches the Gateway: it would be refused, and the sheet already refuses to
+  // submit one. This guard is the same rule stated where the call is made, so a future caller cannot
+  // send a stop the Gateway can only turn down.
+  //
+  // THE BUSY GUARD IS ON THE ACTION, NOT ONLY ON THE BUTTON (inspection finding I7). The sheet disables
+  // its Stop button while a request is outstanding, but the reason box stays active and Enter is not a
+  // button - a disabled attribute does not block a key press. Two Enter presses used to send two stops,
+  // and the second answer could land on top of the first or clear busy while a request was still
+  // outstanding. The guard belongs HERE, at the one action every caller goes through, rather than on
+  // each surface that can trigger it.
+  //
+  // A refused second call throws and surfaces NOTHING: it says nothing on `error`, because there is no
+  // event to describe - the Gateway was never asked - and every word an operator reads about a stop is
+  // the Gateway's (Ruling 5). The caller's own catch is what swallows it.
+  const doStopSession = useCallback(async (reason: string): Promise<SessionStopOutcome> => {
+    if (!sessionId) throw new Error("There is no session on this screen to stop.");
+    if (reason.trim().length === 0) throw new Error("A stop needs a reason.");
+    if (stopInFlightRef.current) throw new Error("A stop for this session is already on its way.");
+    stopInFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      await killSession(sessionId);
-      // Return to the Home roster, where the session is now gone (the #545 pattern).
-      navigate("/");
+      return await stopSession(sessionId, reason.trim());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Remove failed");
-      setBusy(false);
+      // The Gateway's own sentence - the refusal for a missing reason, or an ordinary failure - carried
+      // to the banner rather than replaced with a word of ours.
+      setError(err instanceof Error ? err.message : "Stop failed");
       throw err;
+    } finally {
+      stopInFlightRef.current = false;
+      setBusy(false);
     }
-  }, [sessionId, busy, navigate]);
+  }, [sessionId]);
 
   return {
     onHold,
@@ -201,6 +241,6 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     setError,
     toggleHold,
     holdFor,
-    removeSession,
+    stopSession: doStopSession,
   };
 }

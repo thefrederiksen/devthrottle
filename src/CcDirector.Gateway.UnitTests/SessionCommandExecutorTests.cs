@@ -1,6 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi;
+using CcDirector.Core.Backends;
+using CcDirector.Core.Git;
+using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -467,8 +470,13 @@ public sealed class SessionCommandExecutorTests
     }
 
     [Fact]
-    public async Task DispatchAsync_Kill_MissingSession_ReturnsNotFound()
+    public async Task DispatchAsync_Kill_NoRowOnThisDirector_IsAlreadyStoppedNotNotFound()
     {
+        // DELIBERATELY CHANGED (mission "Stop a session", RULING 3). This test used to assert NotFound.
+        // The ruling says the owning Director is asked to stop the session whether or not it still has a
+        // row for it, and that a stop must NEVER fail because there is nothing left to stop - so a session
+        // this Director has no row for is an alreadyStopped SUCCESS, not a 404. The failure being designed
+        // out is a second stop returning an error, which an operator reads as "it is still alive".
         var sm = new SessionManager(new Core.Configuration.AgentOptions());
         try
         {
@@ -476,7 +484,12 @@ public sealed class SessionCommandExecutorTests
 
             var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
 
-            Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
+            Assert.NotEqual(DirectorCommandStatus.NotFound, result.Status);
+            var stop = StopResultOf(result);
+            Assert.Equal(SessionStopVerdict.AlreadyStopped, stop.Verdict);
+            Assert.Null(stop.ProcessId);
+            Assert.False(stop.ProcessEnded);
+            Assert.False(stop.RowRemoved);
         }
         finally { sm.Dispose(); }
     }
@@ -492,6 +505,236 @@ public sealed class SessionCommandExecutorTests
             var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
 
             Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        }
+        finally { sm.Dispose(); }
+    }
+
+    // ---------- kill: the honest answer (mission "Stop a session", Seat 1) ----------
+    //
+    // These drive SessionCommandExecutor.KillAsync directly rather than through DispatchAsync, because the
+    // two facts the verb now reports - is that process id alive, and does that worktree have uncommitted
+    // changes - are injected seams. Driving them through the dispatcher would mean starting a real process
+    // and running a real git, which is exactly what the seams exist to avoid.
+
+    /// <summary>A backend that can carry a REAL-LOOKING process id, which ExecuteActionTestBackend cannot
+    /// (its ProcessId is hard-coded to 0, so every session built on it looks like a session that never held
+    /// a process). Nothing here is started or killed: liveness is asked of the injected check, not of the
+    /// backend, which is the whole point of the change under test.</summary>
+    private sealed class StopTestBackend : ISessionBackend
+    {
+        public int ProcessId { get; init; }
+        public string Status => "Buffer-only";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer { get; } = new CircularTerminalBuffer(4096);
+
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) => Buffer?.Write(data);
+        public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    /// <summary>A session on its own temporary directory, holding the given process id. The directory is
+    /// distinct per test on purpose: it is what makes an assertion on the reported worktree path mean
+    /// "the tree THIS session held" rather than "some constant that happens to match".</summary>
+    private static (SessionManager sm, Session session, string worktree) NewSessionHolding(int processId)
+    {
+        var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        var worktree = Directory.CreateTempSubdirectory("stop-a-session-").FullName;
+        var session = sm.CreateEmbeddedSession(worktree, null, new StopTestBackend { ProcessId = processId });
+        return (sm, session, worktree);
+    }
+
+    private static DirectorCommand KillCommand(Guid sessionId) =>
+        new() { CommandId = "stop-1", Verb = "kill", SessionId = sessionId.ToString() };
+
+    private static DirectorStopResult StopResultOf(DirectorCommandResult result)
+    {
+        Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+        Assert.NotNull(result.BodyJson);
+        var dto = JsonSerializer.Deserialize<DirectorStopResult>(result.BodyJson!, Json);
+        Assert.NotNull(dto);
+        return dto!;
+    }
+
+    /// <summary>A probe that answers without touching git. Success=false is the "could not tell" answer.</summary>
+    private static Func<string, CancellationToken, Task<GitCountResult>> ProbeAnswering(bool success, int count) =>
+        (_, _) => Task.FromResult(new GitCountResult(success, count));
+
+    [Fact]
+    public async Task Kill_LiveProcessFoundAndEnded_ReportsStoppedWithTheProcessId()
+    {
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        var id = session.Id;
+        try
+        {
+            // Alive when the facts are captured, gone when the stop is checked - the ordinary successful stop.
+            int checks = 0;
+            var pidsAsked = new List<int>();
+            ProcessLivenessReading Liveness(int pid)
+            {
+                pidsAsked.Add(pid);
+                return ++checks == 1 ? ProcessLivenessReading.IsAlive : ProcessLivenessReading.IsGone;
+            }
+
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
+
+            var stop = StopResultOf(result);
+            Assert.Equal(SessionStopVerdict.Stopped, stop.Verdict);
+            Assert.True(stop.ProcessEnded);
+            Assert.True(stop.RowRemoved);
+            Assert.Equal(4242, stop.ProcessId);
+            Assert.All(pidsAsked, pid => Assert.Equal(4242, pid));   // it asked about THIS session's process
+            Assert.Null(sm.GetSession(id));                          // and the row really is gone
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_RowWithNoLiveProcess_IsAlreadyStoppedAndStillClearsTheRow()
+    {
+        // Ruling 3: clearing a leftover row is a thing that HAPPENED, so RowRemoved is true even though
+        // there was no process to end. An operator who is not told will keep looking for that row.
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        var id = session.Id;
+        try
+        {
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(true, 0));
+
+            var stop = StopResultOf(result);
+            Assert.Equal(SessionStopVerdict.AlreadyStopped, stop.Verdict);
+            Assert.False(stop.ProcessEnded);
+            Assert.True(stop.RowRemoved);
+            Assert.Null(sm.GetSession(id));
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_SecondStopStraightAfterTheFirst_IsStillAnAlreadyStoppedSuccess()
+    {
+        // The failure Ruling 3 exists to design out: a second run returning an error, which an operator
+        // reads as "it is still alive".
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        var id = session.Id;
+        try
+        {
+            int checks = 0;
+            ProcessLivenessReading Liveness(int _) =>
+                ++checks == 1 ? ProcessLivenessReading.IsAlive : ProcessLivenessReading.IsGone;
+
+            var first = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
+            Assert.Equal(SessionStopVerdict.Stopped, StopResultOf(first).Verdict);
+
+            var second = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
+
+            var stop = StopResultOf(second);
+            Assert.Equal(DirectorCommandStatus.Ok, second.Status);
+            Assert.Equal(SessionStopVerdict.AlreadyStopped, stop.Verdict);
+            Assert.False(stop.ProcessEnded);
+            Assert.False(stop.RowRemoved);   // there was no row left for this one to remove
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_DirtyWorktree_ReportsTrueAndNamesThePath()
+    {
+        // Ruling 2: the stop goes through without argument, and the answer names the tree it left behind.
+        var (sm, session, worktree) = NewSessionHolding(processId: 4242);
+        try
+        {
+            var result = await SessionCommandExecutor.KillAsync(
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: true, count: 3));
+
+            var stop = StopResultOf(result);
+            Assert.True(stop.WorktreeHadUncommittedChanges);
+            Assert.Equal(worktree, stop.WorktreePath);
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_CleanWorktree_ReportsFalse()
+    {
+        var (sm, session, worktree) = NewSessionHolding(processId: 4242);
+        try
+        {
+            var result = await SessionCommandExecutor.KillAsync(
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: true, count: 0));
+
+            var stop = StopResultOf(result);
+            Assert.False(stop.WorktreeHadUncommittedChanges);
+            Assert.Equal(worktree, stop.WorktreePath);
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_WorktreeProbeFails_ReportsNullNotFalse()
+    {
+        // THE TEST THE FIELD EXISTS FOR (issue 516). A probe that did not run does not know the tree is
+        // clean, and false is what every reader downstream takes as verified-clean. It must be null.
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        try
+        {
+            var result = await SessionCommandExecutor.KillAsync(
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: false, count: 0));
+
+            var stop = StopResultOf(result);
+            Assert.Null(stop.WorktreeHadUncommittedChanges);
+            Assert.NotEqual(false, stop.WorktreeHadUncommittedChanges);
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_WorktreeProbeThrows_ReportsNullAndDoesNotFailTheStop()
+    {
+        // A probe that faults or times out is the same UNKNOWN as one that answers Success=false - and it
+        // must never be able to fail the stop, which is the whole reason it is caught.
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        var id = session.Id;
+        try
+        {
+            Task<GitCountResult> Explode(string _, CancellationToken __) =>
+                throw new OperationCanceledException("the git probe timed out");
+
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsGone, Explode);
+
+            var stop = StopResultOf(result);
+            Assert.Null(stop.WorktreeHadUncommittedChanges);
+            Assert.Equal(SessionStopVerdict.AlreadyStopped, stop.Verdict);
+            Assert.True(stop.RowRemoved);
+            Assert.Null(sm.GetSession(id));
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Kill_ProcessWouldNotDie_IsAnErrorNamingTheProcessId()
+    {
+        // Ruling 3's third failure. Reporting this as a success is the worse of the two mistakes: the
+        // operator would read "stopped" and stop looking. The row is left in place on purpose.
+        var (sm, session, _) = NewSessionHolding(processId: 4242);
+        var id = session.Id;
+        try
+        {
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsAlive, ProbeAnswering(true, 0));
+
+            Assert.Equal(DirectorCommandStatus.Error, result.Status);
+            Assert.NotNull(result.Error);
+            Assert.Contains("would not die", result.Error);
+            Assert.Contains("4242", result.Error);
+            Assert.NotNull(sm.GetSession(id));   // the row stays, so the operator can see it and try again
         }
         finally { sm.Dispose(); }
     }

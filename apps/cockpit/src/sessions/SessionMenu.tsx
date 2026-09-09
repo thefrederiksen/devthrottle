@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   getHandover,
   holdSession,
-  killSession,
   type SessionDto,
   type SessionHandover,
 } from "@devthrottle/client-core/api/client";
@@ -12,26 +11,35 @@ import { useSnoozeOptions } from "@devthrottle/client-core/settings/snoozeOption
 import { buildSnoozeMenu } from "@devthrottle/client-core/settings/snoozeMenu";
 import { useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { useStopSession } from "./StopSessionProvider";
 
 // The surface label on every client-error report from this view, so the Gateway log and
 // GET /client-errors/recent name where the user was standing (issue #2189).
 const SURFACE = "cockpit-session-menu";
 
 // The session menu (issue #1214): a three-dot control with Rename, Snooze / Unsnooze, Handover info,
-// and Close session. It is the SAME component on the session page and on every rail card. Every action
+// and Stop session. It is the SAME component on the session page and on every rail card. Every action
 // goes Cockpit -> Gateway with relative URLs through the shared client (renameSession, holdSession,
-// killSession, getHandover) - the browser never learns a Director address. Close asks for confirmation
-// (it is destructive). A failed action shows a visible error, never a silent failure.
+// stopSession, getHandover) - the browser never learns a Director address. A failed action shows a
+// visible error, never a silent failure.
+//
+// STOP IS NOT THIS COMPONENT'S TO HOLD (mission "Stop a session", Rulings 4 and 5, and inspection
+// finding I4). Stop asks before it acts and speaks after it has acted - but both placements of this
+// menu exist only while the session exists, one per roster card and one behind `selected && ...` on the
+// session page, so a successful stop removes the very row that was holding the answer. The question,
+// the request and the Gateway's answer therefore live in StopSessionProvider, mounted in AppShell above
+// the roster and the session page. This menu hands the session up and owns nothing about the stop.
 
 export interface SessionMenuProps {
   session: SessionDto;
-  /** Called after the session is closed, so the page can navigate away. */
+  /** Called after a stop ANSWER has been dismissed, so the page can navigate away. Passed straight to
+   *  StopSessionProvider, which is what still exists to call it when this row has been removed. */
   onClosed?: () => void;
   /** "page" sits in the session header; "rail" is the compact button on a roster card. */
   variant?: "page" | "rail";
 }
 
-type Dialog = "rename" | "close" | "handover";
+type Dialog = "rename" | "handover";
 
 export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenuProps) {
   const sid = session.sessionId ?? "";
@@ -41,6 +49,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   const [error, setError] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [handover, setHandover] = useState<SessionHandover | null>(null);
+  // The stop lives above this component, in the one owner that survives this row being removed.
+  const { openStop: startStop } = useStopSession();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
@@ -154,6 +164,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     };
   }, [open]);
 
+  // Dismissing this menu's own dialogs (rename, handover info). The stop dialog is not one of them -
+  // it belongs to StopSessionProvider, which is what outlives this row.
   const closeDialog = useCallback(() => {
     setDialog(null);
     setError(null);
@@ -172,11 +184,14 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     setDialog("rename");
   }, [session.name]);
 
-  const openClose = useCallback(() => {
+  // Hand the stop UP. Everything about it - the reason box, the request, the Gateway's answer and the
+  // dismissal that releases the page - belongs to the provider, so removing this row cannot take any of
+  // it with it. onClosed goes up too, because by the time it is called this component may be gone.
+  const openStop = useCallback(() => {
     setOpen(false);
     setError(null);
-    setDialog("close");
-  }, []);
+    startStop(session, onClosed);
+  }, [startStop, session, onClosed]);
 
   const openHandover = useCallback(() => {
     setOpen(false);
@@ -238,21 +253,6 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
       setBusy(false);
     }
   }, [sid]);
-
-  const doClose = useCallback(async () => {
-    if (sid.length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await killSession(sid);
-      closeDialog();
-      onClosed?.();
-    } catch (err) {
-      setError(describeAndReport(SURFACE, "close the session", err));
-    } finally {
-      setBusy(false);
-    }
-  }, [sid, closeDialog, onClosed]);
 
   return (
     <div className={`session-menu ${variant}${open ? " open" : ""}`} ref={rootRef}>
@@ -319,8 +319,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
             <button type="button" role="menuitem" className="session-menu-item" onClick={openHandover}>
               Handover info
             </button>
-            <button type="button" role="menuitem" className="session-menu-item danger" onClick={openClose}>
-              Close session
+            <button type="button" role="menuitem" className="session-menu-item danger" onClick={openStop}>
+              Stop session
             </button>
           </div>,
           document.body,
@@ -392,30 +392,6 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
                     disabled={busy || renameText.trim().length === 0}
                   >
                     {busy ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {dialog === "close" && (
-              <>
-                <h3 className="session-dialog-title">Close session</h3>
-                <p className="session-dialog-text">
-                  Close <strong>{session.name || sid}</strong>? This ends the session on its machine and
-                  removes it from the roster.
-                </p>
-                {error !== null && <div className="session-dialog-error">{error}</div>}
-                <div className="session-dialog-actions">
-                  <button type="button" className="session-dialog-btn" onClick={closeDialog} disabled={busy}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="session-dialog-btn danger"
-                    onClick={() => void doClose()}
-                    disabled={busy}
-                  >
-                    {busy ? "Closing..." : "Close session"}
                   </button>
                 </div>
               </>

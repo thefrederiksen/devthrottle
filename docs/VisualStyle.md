@@ -4,6 +4,34 @@
 
 Design reference for CC Director's dark-theme UI, inspired by VS Code. Use this guide when building new windows, dialogs, controls, and panels to maintain visual consistency.
 
+> ### The browser shells are NOT governed by this document
+>
+> `CLAUDE.md` says this guide governs every user interface change. That is true of the desktop
+> Director's windows, dialogs and panels, which is what everything below describes. **It is not true
+> of the Cockpit or the mobile application**, and reading it as though it were will send you looking
+> for rules that are not here: this document's palette is WPF brush resources with literal hex values,
+> and the browser shells are Cascading Style Sheets built on custom properties with light and dark
+> variants, which no rule below accounts for.
+>
+> The web shells are governed by **their own token sets**, and those are the reference when changing
+> them:
+>
+> - `apps/cockpit/src/styles.css` - the Cockpit's tokens (`--surface`, `--text`, `--text-dim`,
+>   `--border`, `--accent`, and the rest) and its component families, of which `.session-dialog-*` is
+>   the one to copy for a dialog.
+> - `apps/mobile/src/styles.css` - the phone's, including its touch sizing, and the `.confirm-*`
+>   family for a confirmation sheet.
+> - `packages/client-core/src/settings/` - where a control that must appear on BOTH shells lives, so
+>   the two cannot drift (`CLAUDE.md` rule 8).
+>
+> **The rule for a change to either shell is: use the tokens already defined in that shell, and match
+> the component family nearest to what you are building.** Do not port the hex values below into
+> Cascading Style Sheets, and do not invent a token.
+>
+> Extending this guide to cover the web properly is worth doing and is a separate piece of work. This
+> note exists so that until then nobody applies a WPF rule to a browser, or believes a web change was
+> checked against a guide that never described it.
+
 ---
 
 ## Table of Contents

@@ -76,6 +76,24 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
     /// (old callers, tests) disables verification entirely - registration and heartbeat
     /// behave exactly as before.</param>
     public GatewayClient(GatewayConfig config, string directorId, string version, Func<List<SessionStateSnapshot>>? sessionStates = null, GatewayConnectionMonitor? monitor = null)
+        : this(config, directorId, version, sessionStates, monitor, handler: null)
+    {
+    }
+
+    /// <summary>
+    /// The same client with its message handler supplied, so a test can stand a stub Gateway in front of
+    /// it and assert the route it calls, the body it sends and the answer it parses - with no live
+    /// Gateway and no port. Internal and test-only for exactly the reason
+    /// <see cref="ProbeGatewayCandidate"/> is: production always dials through
+    /// <see cref="GatewayHttp.Handler"/>, which is what the parameterless path passes.
+    /// </summary>
+    internal GatewayClient(GatewayConfig config, string directorId, string version, HttpMessageHandler handler)
+        : this(config, directorId, version, sessionStates: null, monitor: null,
+               handler ?? throw new ArgumentNullException(nameof(handler)))
+    {
+    }
+
+    private GatewayClient(GatewayConfig config, string directorId, string version, Func<List<SessionStateSnapshot>>? sessionStates, GatewayConnectionMonitor? monitor, HttpMessageHandler? handler)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _directorId = directorId ?? throw new ArgumentNullException(nameof(directorId));
@@ -86,7 +104,7 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         _activeUrl = _config.Url;
         ProbeGatewayCandidate = (url, ct) => ProbeGatewayHealthzAsync(url, ct);
 
-        _http = new HttpClient(GatewayHttp.Handler())
+        _http = new HttpClient(handler ?? GatewayHttp.Handler())
         {
             Timeout = TimeSpan.FromSeconds(10),
         };
@@ -662,6 +680,66 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         using var resp = await _http.PostAsJsonAsync($"sessions/{sessionId}/hold", body, ct);
         if (!resp.IsSuccessStatusCode)
             throw await RelayFailureAsync(resp, $"hold for {sessionId}", ct);
+    }
+
+    /// <summary>
+    /// End a session through THE one stop route (<c>POST /sessions/{sid}/stop</c>) - mission "Stop a
+    /// session", Ruling 5. Every surface that ends a session goes through this route: the command line,
+    /// the Cockpit, the phone, and this Director's own window. The Gateway records the reason, asks the
+    /// owning Director to end the process, and folds the finished words; the caller renders them.
+    ///
+    /// The Director calling this to stop one of ITS OWN sessions is deliberate and it is not a detour.
+    /// The Gateway sends the stop back down this Director's own tunnel, so the session manager removes the
+    /// session exactly as it would for a stop asked for from anywhere else, and the rail row goes with it.
+    /// The alternative - the window killing the process in-process - is a second stop that records no
+    /// reason, and Ruling 4 makes the reason mandatory.
+    ///
+    /// FAIL LOUD, NO FALLBACK. It throws when the Gateway is not configured and it throws when the call
+    /// does not succeed, carrying the Gateway's own sentence where there is one. It NEVER falls back to a
+    /// local kill: Ruling 5 names that as the wrong fix in terms, because a stop that quietly worked
+    /// without the Gateway would be a stop with no recorded reason, and a silent second path is how two
+    /// surfaces come to describe the same event two different ways.
+    /// </summary>
+    /// <param name="sessionId">The session to stop.</param>
+    /// <param name="reason">Why it is being stopped. Required (Ruling 4) and recorded with the stop.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<SessionStopResponse> StopSessionAsync(string sessionId, string reason, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "This Director is not connected to a Gateway, so a session cannot be stopped from here. "
+                + "The reason for a stop is recorded on the Gateway, and a stop that recorded nothing is "
+                + "the thing this route exists to replace.");
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("Session id is required", nameof(sessionId));
+        // Refused before the round trip, the way the command line refuses it: there is no point asking the
+        // Gateway to tell us what we already know. The Gateway refuses a blank reason too, in its own
+        // words, and that refusal is what the failure branch below carries.
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("A reason is required to stop a session", nameof(reason));
+
+        FileLog.Write($"[GatewayClient] StopSessionAsync: POST /sessions/{sessionId}/stop");
+        using var resp = await _http.PostAsJsonAsync(
+            $"sessions/{sessionId}/stop", new SessionStopRequest { Reason = reason }, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"stop for {sessionId}", ct);
+
+        var answer = await resp.Content.ReadFromJsonAsync<SessionStopResponse>(ct);
+
+        // A BROKEN INSTRUMENT, NOT A FOURTH VERDICT - the same rule the command line applies to the same
+        // answer. Every answer this route gives carries a headline; one that does not is a Gateway that
+        // did not understand the request, and returning it would leave a surface with nothing to render
+        // and no idea that anything was wrong. Said as ignorance, never as an outcome.
+        if (answer is null || string.IsNullOrWhiteSpace(answer.Headline))
+            throw new InvalidOperationException(
+                $"The Gateway returned nothing that says what happened to {sessionId}, so this cannot "
+                + "report whether it was stopped. Check the session list to see whether it is still there.");
+
+        FileLog.Write(
+            $"[GatewayClient] StopSessionAsync: {sessionId} verdict={answer.Verdict}, "
+            + $"processId={(answer.ProcessId?.ToString() ?? "none")}, processEnded={answer.ProcessEnded}, "
+            + $"rowRemoved={answer.RowRemoved}, detailLines={answer.Details.Count}");
+        return answer;
     }
 
     /// <summary>

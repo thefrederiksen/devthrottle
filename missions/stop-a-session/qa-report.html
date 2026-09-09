@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stopping a session - the quality report</title>
+<style>
+  :root {
+    --ink: #1c1f26; --muted: #5b6270; --line: #e3e6eb; --bg: #ffffff; --soft: #f5f6f8;
+    --accent: #0f5fbf; --accent-soft: #e8f0fb; --ok: #1a7f37; --warn: #9a6700; --bad: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 32px 90px; }
+  h1 { font-size: 36px; line-height: 1.16; margin: 0 0 10px; letter-spacing: -0.015em; }
+  h2 { font-size: 24px; margin: 56px 0 12px; padding-top: 16px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 18px; margin: 30px 0 8px; }
+  h4 { font-size: 15px; margin: 22px 0 6px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); font-size: 16px; margin: 0 0 6px; }
+  .meta { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: var(--muted); margin: 0 0 26px; }
+  .tag { display: inline-block; font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .tag.ok { background: #e6f4ea; color: var(--ok); }
+  .tag.warn { background: #fff8e6; color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 20px; font-size: 14.5px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+  .tablewrap { overflow-x: auto; }
+  code, pre { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--soft); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--soft); border: 1px solid var(--line); padding: 12px 14px; overflow-x: auto; border-radius: 4px; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; margin: 18px 0; border-radius: 0 4px 4px 0; }
+  .callout.warn { border-color: var(--warn); background: #fff8e6; }
+  .callout.ok { border-color: var(--ok); background: #f6fbf7; }
+  a { color: var(--accent); }
+  ul, ol { padding-left: 24px; }
+  li { margin: 5px 0; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; background: #fff; margin: 14px 0; }
+  .lead { font-size: 18px; line-height: 1.5; }
+  .cap { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+  .headline { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 8px; }
+  @media (max-width: 800px) { .headline { grid-template-columns: 1fr; } }
+  .hl { border: 1px solid var(--line); border-top: 4px solid var(--muted); border-radius: 0 0 6px 6px; padding: 14px 18px; background: #fff; }
+  .hl.goal { border-top-color: var(--ok); background: #f6fbf7; }
+  .hl.gap { border-top-color: var(--warn); background: #fffdf6; }
+  .hl .k { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .hl.goal .k { color: var(--ok); }
+  .hl.gap .k { color: var(--warn); }
+  .hl p { margin: 6px 0 0; font-size: 15.5px; }
+  .frame { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 0 6px 6px 0; padding: 16px 18px 18px; margin: 26px 0; background: #fff; }
+  .frame .n { font-family: system-ui, sans-serif; font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--ok); margin: 0 0 2px; }
+  .frame h3 { margin: 0 0 6px; }
+  .frame .asked { font-size: 14.5px; color: var(--muted); border-bottom: 1px dashed var(--line); padding-bottom: 10px; margin-bottom: 12px; }
+  .frame img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; margin: 12px 0 4px; background: #14161c; }
+  .frame.partial { border-left-color: var(--warn); }
+  .frame.partial .n { color: var(--warn); }
+  .look { font-size: 15px; }
+  .look b { font-family: system-ui, sans-serif; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: block; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Stopping a session - the quality report</h1>
+<p class="sub">The mission <a href="../stop-a-session.html">You can start a session - you have to be able to stop one</a>, photographed working</p>
+<p class="meta">
+  <span class="tag">DevThrottle</span>
+  <span class="tag ok">8 of 8 frames captured, and the ninth that closes the last gap</span>
+  Run on <strong>9 September 2026</strong> on machine SORENLAPTOP
+  &middot; against <code>mission/stop-a-session</code> at commit <code>84ba787e</code>,
+  which the Gateway reported of itself as <code>2.1.0+84ba787e29e7ccd548ca01ffed55c1844b1df497</code>
+  &middot; written by session <code>02aa6c1a</code>, which did not build the feature
+</p>
+
+<p class="lead">DevThrottle can now end a session, on purpose, and tell you what it did. You give a reason,
+it ends the agent process, it removes the row, it tells you in words which of those things happened, it
+tells you it did not touch your files, and it writes the reason down where it can be read back later.
+Every sentence in that paragraph is a photograph below, taken by a seat that did not build any of it.</p>
+
+<div class="headline">
+  <div class="hl goal">
+    <p class="k">What is proven</p>
+    <p>Five real sessions, with five real processes, were ended on a real fleet - from the command line,
+    from the Director window, from the Cockpit in a browser, and finally by one session stopping another
+    with its own credential. They all said the same sentence, because they all went through one route.
+    Windows itself confirms the processes are gone. Uncommitted work in a session's worktree survived byte
+    for byte. Every stop is in the audit ledger with the reason that was typed, and the last one names a
+    session as the actor.</p>
+  </div>
+  <div class="hl gap">
+    <p class="k">What is not proven</p>
+    <p>The fourth verdict, the one for a stop that cannot be described, was not producible on this stack.
+    The phone application was not opened. Nothing crossed a machine boundary, and nothing here says
+    anything about the hosted service or about one account being unable to reach another's sessions.
+    Details in section 6.</p>
+  </div>
+</div>
+
+<h2>1. What it does for you</h2>
+
+<p>Before this, the strongest thing you could say to a session was <code>session done</code>, which does not
+stop anything - it leaves a note asking for the session to be removed later, and tells you nothing about
+whether the note was read. On 1 September that was the only tool available when a session was doing the
+wrong work in the wrong place.</p>
+
+<p>Now there is a verb. It reads the same on every surface:</p>
+
+<pre><code>cc-devthrottle session stop 2ec53de8 --reason "photographed for the Stop a session quality report"
+stopped 2ec53de8 - process 25068 ended, row removed
+the worktree C:\ReposFred\devthrottle-qa-frames\_stack\scratch-repo was left untouched - it had no uncommitted changes
+reason: photographed for the Stop a session quality report</code></pre>
+
+<p>Three things in that answer are the point of the whole mission. It names the process it ended, so the
+claim can be checked against the machine. It says what happened to your files without being asked. And it
+repeats the reason back, because the reason is now a required part of stopping anything and is kept.</p>
+
+<h2>2. How the run was done, and against what</h2>
+
+<p>The hosted Gateway deploys only from the main line, which this branch cannot reach until this report
+exists. So the whole stack was stood up locally and thrown away afterwards:</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Piece</th><th>What was used</th></tr>
+  <tr><td>Gateway</td><td>Published in Release from the mission branch at <code>84ba787e</code>, on port 7997, with its own storage root inside a scratch directory. Authentication left ON, as in production: an unauthenticated call to <code>/directors</code> was refused with 401 before anything else was done.</td></tr>
+  <tr><td>Director</td><td>Built from the same commit into slot 6 and launched through the Windows scheduled task, never from inside this session. Slots 1 to 5 and the installed application belong to the owner and were not touched.</td></tr>
+  <tr><td>Command line</td><td>The branch's own command line, staged under a guard that refuses to run at all if the name resolves to the July build installed on this machine. Every command frame shows, in the frame, which one answered and which Gateway it was pointed at.</td></tr>
+  <tr><td>Sessions</td><td>Six throwaway sessions in three throwaway repositories created for this run - four for the eight frames, two more for the ninth. No real work, no client repositories, nothing of the owner's.</td></tr>
+  <tr><td>Teardown</td><td>Done twice, once per run, the same way each time. The Director was signalled and exited on its own - not killed. The scheduled task was unregistered, the Gateway process stopped, and port 7997 no longer answers. The owner's Director and his installed Gateway are the same two process identifiers at the end of this run as at the start.</td></tr>
+</table>
+</div>
+
+<div class="callout ok">
+  <p style="margin-top:0"><strong>One deliberate improvement on the written recipe, and it is the safer
+  one.</strong> The recipe registers a named instance in the machine-wide registry that every Director on
+  this machine reads, and warns that a typo there lands your test Director in the owner's data tree. That
+  write was refused by this session's permission layer - and it turned out not to be needed. The Director
+  takes its shared root from the environment, and a root that is not shaped like an instance home is
+  explicitly supported in the code as a legitimate isolated test rig. So this run gave its Director a root
+  inside its own scratch directory and <strong>never wrote to the owner's registry at all</strong>. That
+  file was compared against the backup at the end and is byte-for-byte identical.</p>
+  <p style="margin-bottom:0">The recipe's most dangerous step is avoidable. That belongs in the recipe.</p>
+</div>
+
+<h2>3. The eight frames</h2>
+
+<p>These are the eight items of section 6 of the mission document. Each one says what it had to show, then
+shows it, then says what to look at. Nothing here is a line of prose standing in for a picture.</p>
+
+<div class="frame">
+  <p class="n">Frame 1</p>
+  <h3>The fleet before</h3>
+  <p class="asked">A session running, with its session identifier and its process identifier both visible
+  in the same frame, so the reader can match them against everything that follows.</p>
+  <img src="qa/frame1-fleet-before.png" alt="A terminal showing which command line answered, which Gateway it is pointed at, one session in the fleet, and the agent process underneath the Director">
+  <p class="look"><b>What to look at</b>The first two lines are the safety check, and they are in the frame
+  on purpose: the command line that answers is the staged branch build, and the Gateway it talks to is
+  <code>http://127.0.0.1:7997</code> - the local one. The fleet holds exactly one session,
+  <code>2ec53de8</code>. The session row carries no process identifier, because the product does not keep
+  one there, so the frame asks Windows instead: the Director is process 10336, and the agent process
+  underneath it is 25068. Those two numbers are what the next four frames are about.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 2</p>
+  <h3>The stop, from the command line</h3>
+  <p class="asked">The command being issued, reason included, and the exact answer it gave back - in words,
+  which is what Ruling 5 demands.</p>
+  <img src="qa/frame2-stop-from-the-command-line.png" alt="The stop command with a reason, and its three-line answer">
+  <p class="look"><b>What to look at</b>The answer is three sentences of English, not a status code. It
+  names process 25068 - the same number the operating system reported in frame 1 - says the row was
+  removed, says the worktree was left untouched and why it could say so, and repeats the reason. The
+  command exited zero.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 2, beside it</p>
+  <h3>The same stop with no reason, refused</h3>
+  <p class="asked">The stop attempted with no reason, refused, and saying plainly that a reason is what is
+  missing.</p>
+  <img src="qa/frame2-refusal-no-reason.png" alt="The stop command with no reason, refused, saying a reason is required and naming the flag">
+  <p class="look"><b>What to look at</b>This was run first, while the session was still alive, so the
+  refusal is a refusal to stop something that could have been stopped. It names the missing thing - a
+  reason - and names the flag that supplies it, and it exits non-zero, so a script cannot mistake it for
+  success. Nothing was stopped and, as section 5 shows, nothing was written to the audit ledger.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 3</p>
+  <h3>The fleet after</h3>
+  <p class="asked"><code>session list</code> without that row.</p>
+  <img src="qa/frame3-fleet-after.png" alt="The same session list command, now reporting no sessions in the fleet">
+  <p class="look"><b>What to look at</b>The same command as frame 1, against the same Gateway, and the row
+  is gone: "No sessions are running in the fleet." A row disappearing is the weakest of the claims, which
+  is why the next frame exists.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 4</p>
+  <h3>The process is actually gone</h3>
+  <p class="asked">The machine itself showing that process identifier no longer exists - the operating
+  system's own tool, not the product's word for it.</p>
+  <img src="qa/frame4-process-gone.png" alt="Windows tasklist and two other operating system queries, all reporting that process 25068 does not exist">
+  <p class="look"><b>What to look at</b>Three independent questions put to Windows about process 25068, the
+  number the product itself printed. The task list says no task matches. The process query fails with "Cannot
+  find a process with the process identifier 25068". The management query counts zero. This is the frame
+  that separates a row being hidden from a session being ended.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 5</p>
+  <h3>The second stop</h3>
+  <p class="asked">The same command run again, succeeding quietly instead of erroring - and the report is to
+  say which of the four verdicts came back and why that is the right one.</p>
+  <img src="qa/frame5-second-stop.png" alt="The identical stop command run a second time, answering not on this fleet and exiting zero">
+  <p class="look"><b>What to look at</b>The identical command, and it does not error. It exits zero and says
+  <em>not on this fleet - nothing in this account carries the id 2ec53de8, so no machine was asked and no
+  machine's processes were searched</em>.
+  <br><br>
+  <strong>It answers "not on this fleet", not "already stopped", and that is correct.</strong> The mission
+  document's illustration in section 6 sketches "already stopped", and the illustration is looser than the
+  ruling it illustrates. "Already stopped" is for a row that is still on the fleet with no process behind
+  it. Here the first stop removed the row, so there is no longer any machine to ask - and the answer says
+  exactly that, rather than pretending to have looked. A later reader should not file this as a mismatch.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 6</p>
+  <h3>The stop control in the Director window</h3>
+  <p class="asked">The same thing done by clicking rather than typing, with the reason it asked for and the
+  answer it showed.</p>
+  <img src="qa/frame6-director-menu.png" alt="The Director window session menu, whose last item reads Stop Session">
+  <p class="cap">The control on the session's own menu. It says <strong>Stop Session</strong> - the same
+  word the command line uses. It used to say Close, which described the row disappearing rather than the
+  session ending.</p>
+  <img src="qa/frame6-director-dialog-empty.png" alt="The Director's stop dialog before anything is typed: the button is greyed out and the answer box says nothing has happened yet">
+  <p class="cap">Before anything is typed. Two things are worth seeing here: the button to stop is
+  <strong>off</strong> until there is a reason to record, and the answer box says "Nothing has happened yet"
+  rather than sitting empty and ambiguous.</p>
+  <img src="qa/frame6-director-dialog-typed.png" alt="The same dialog with a reason typed in, and the stop button now enabled">
+  <p class="cap">With the reason typed, the button comes on.</p>
+  <img src="qa/frame6-director-answer.png" alt="The Director's stop dialog showing the Gateway's three-line answer for session f6b57664">
+  <p class="look"><b>What to look at</b>The answer is the <em>same three lines</em> the command line printed
+  in frame 2, for a different session: <code>stopped f6b57664 - process 2308 ended, row removed</code>, the
+  worktree left untouched, and the reason. The window is not composing its own sentence; it is showing the
+  Gateway's. When this dialog was closed, the session's row had already left the rail on its own.
+  <br><br>
+  <span class="tag warn">finding</span> The dialog had to be <strong>maximized</strong> to read that answer.
+  At its default size the answer sits in a box with a horizontal scrollbar and the second line is cut off
+  mid-sentence. The words are there, which is what the ruling requires; the window makes the operator work
+  for them. Recorded, not fixed.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 7</p>
+  <h3>The stop control in the Cockpit</h3>
+  <p class="asked">The same again from the web - and the proof that the controls went through one route
+  rather than growing a second implementation, said from what was seen rather than from what the code
+  claims.</p>
+  <img src="qa/frame7-cockpit-menu.png" alt="The Cockpit sessions page with a session menu open, its last item Stop session in red">
+  <img src="qa/frame7-cockpit-dialog-typed.png" alt="The Cockpit stop dialog, asking why the session is being stopped, with a reason typed and the Stop session button live">
+  <img src="qa/frame7-cockpit-answer.png" alt="The Cockpit showing the Gateway's answer for session 2f39f4da and an empty roster behind it">
+  <p class="look"><b>What to look at</b>Same word on the control - <strong>Stop session</strong>. Same
+  question asked, in the same terms: a reason is required and it is recorded. Same answer, rendered as a
+  headline and its detail lines: <code>stopped 2f39f4da - process 16644 ended, row removed</code>, the
+  worktree untouched, the reason. Behind the dialog the roster has already dropped to zero.
+  <br><br>
+  <strong>How I know it is one route and not a second implementation.</strong> The browser was watched while
+  it did this. Across the whole run it issued exactly <strong>one</strong> request that was not a read:
+  <code>POST /sessions/2f39f4da-5c60-4470-9510-b4e1e9136496/stop</code> - the same verb, on the same route,
+  that the command line uses. Not a delete, not a local kill, not a second door. That is the observation;
+  the identical wording in three surfaces is the corroboration.</p>
+</div>
+
+<div class="frame">
+  <p class="n">Frame 8</p>
+  <h3>The dirty working tree</h3>
+  <p class="asked">A session stopped while it has uncommitted changes. The stop goes through without
+  argument, the answer names the worktree and says the changes were left untouched - and the frame after it
+  shows those changes still on disk.</p>
+  <img src="qa/frame8-dirty-tree-stop.png" alt="An uncommitted file with its hash, then the stop command and its answer naming the worktree and its uncommitted changes">
+  <p class="cap">Before the stop: one uncommitted file, its contents, and its hash. Then the stop, which
+  goes through with no argument and no extra confirmation - Ruling 2, which is the owner's - and whose
+  second line names the worktree and says it <em>has</em> uncommitted changes in it.</p>
+  <img src="qa/frame8-dirty-tree-after.png" alt="After the stop: the same uncommitted file, the same contents, the same hash, and the session gone">
+  <p class="look"><b>What to look at</b>The same three commands, run again after the session was ended. The
+  file is still uncommitted, still says the same thing, and its hash is character-for-character the one in
+  the frame above: <code>8d6aa14046a65aee...928114b22</code>. Underneath, the row is gone from the fleet and
+  Windows says process 10372 no longer exists. The session ended; the work did not.</p>
+</div>
+
+<h2>4. The ninth frame - one session stopping another with its own key</h2>
+
+<p>The first version of this report named a gap in section 8: every stop above was made with the machine's
+own credential, so the permission the owner personally granted - that any session may stop any other, as
+long as a reason is recorded - had unit tests behind it and no photograph. The Architect asked whether that
+one frame could be taken cheaply. It could, and this is it.</p>
+
+<p>The stack was rebuilt from the same commit for this frame alone, and the run needed nothing that the
+eight frames above did not already need. Two throwaway sessions: <strong>B</strong>, an ordinary agent
+session, and <strong>A</strong>, a session whose own process is a plain shell - which is a kind of session
+the product already supports, and which matters here because it lets a session act without an agent
+deciding anything. A holds the credential it was born with. Nobody typed it, nobody read it, and it is not
+in the picture.</p>
+
+<div class="frame">
+  <p class="n">Frame 9</p>
+  <h3>Session A stops session B, and is refused the door that takes no reason</h3>
+  <p class="asked">A session using its own key rather than the machine's, with the audit row afterwards
+  naming a session as the actor - and, in the same frame, that same key refused on the legacy door, which
+  is what keeps "an agent can only ever stop with a reason attached" true.</p>
+  <img src="qa/frame10-session-key-stop.png" alt="Session A's own shell inside the Director: its key present, the legacy delete door answering 403 Forbidden, and the stop of session B succeeding with its reason">
+  <p class="look"><b>What to look at</b>Four things, in one shell, in one frame.
+  <br><br>
+  <strong>Whose shell this is.</strong> The window is the Director, the selected session is
+  <em>throwaway A the stopper</em>, and the prompt inside it is that session's own process. The Gateway it
+  is pointed at is the local one.
+  <br><br>
+  <strong>The credential.</strong> The line confirms the session's own key is present in its environment
+  and says plainly that it is never printed. It is not shown anywhere in this report, and it did not need
+  to be: the two answers below prove which credential was used better than showing it would.
+  <br><br>
+  <strong>The legacy door refuses it - <code>HTTP/1.1 403 Forbidden</code>.</strong> That is the older
+  delete route, the one that takes no reason. The machine's own credential is allowed through there; a
+  session's key is not. So the refusal is itself the proof that the credential in play is a session's, and
+  it is the mechanism that makes the owner's condition hold: the only door open to an agent is the one that
+  demands a reason.
+  <br><br>
+  <strong>The stop goes through.</strong> Same verb, same required reason, same three-line answer as every
+  other surface: <code>stopped e3fd6eb9 - process 28396 ended, row removed</code>, the worktree left
+  untouched, the reason repeated back. Exit code zero. In the rail on the left, session B's row is already
+  gone - only the session that did the stopping is left.</p>
+  <img src="qa/frame10-session-key-audit.png" alt="The audit row for that stop, whose actor field reads session 83c56885 rather than machine token">
+  <p class="look"><b>What to look at</b>The row this stop wrote. Every other row in this report says the
+  actor was the machine. This one says <code>actor : session 83c56885-42f0-40a3-bdfd-23239383fee7</code> -
+  the session that did it, by name, beside the reason it gave. That is the whole of Ruling 4: the
+  flexibility to let any session stop any other, and a trail that says who did it and why.</p>
+</div>
+
+<h2>5. The audit trail, which is what Ruling 4 rests on</h2>
+
+<p>The owner allowed any session in the account to stop any other, on the condition that the reason is
+recorded. So the recording is not a detail of this feature - it is the thing that makes the permission
+safe. Every stop above was read back out of the Gateway's governance ledger afterwards:</p>
+
+<img src="qa/frame9-audit-trail.png" alt="Four audit rows, one per stop, each with category intervention, event type stopped, an actor, and the reason that was typed" style="display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:4px;margin:12px 0 4px;">
+
+<p class="look"><b>What to look at</b>Four stops above, four rows here, in the order they happened, each
+carrying the exact reason that was typed into whichever surface did the stopping - including the two typed
+by clicking rather than by command. Each is categorised as an intervention and named as a stop, with an
+actor. <strong>The refused stop wrote nothing</strong>, which is right: nothing was stopped, so there is
+nothing to record.</p>
+
+<h2>6. What is NOT proven, by name</h2>
+
+<p>This section is the honest half of the report and it is longer than it is comfortable to write.</p>
+
+<div class="card">
+  <h4>The permission Ruling 4 opened - closed, with one qualification</h4>
+  <p>This was the gap when the report was first written, and section 4 closes it: a session stopped
+  another session with its own credential, was refused the door that takes no reason, and left an audit
+  row naming itself. <strong>What that frame does not cover</strong> is the ordinary case of an
+  <em>agent</em> deciding to do it - the acting session's process was a shell rather than a coding agent,
+  chosen so that no agent's judgement sat between the credential and the command. The credential path
+  through the Gateway is identical either way, and it is the credential the permission is about; but
+  nobody has yet watched an agent choose to stop another agent.</p>
+</div>
+
+<div class="card">
+  <h4>The fourth verdict - a stop that cannot be described</h4>
+  <p>Ruling 3 gained a fourth answer for the case where the stop happened but nothing honest can be said
+  about it: an older Director on the other end, a liveness check that threw, or no process identifier to
+  check at all. <strong>None of the three was produced here.</strong> The first needs a Gateway from this
+  branch talking to a Director from an older one, and this stack builds both halves from the same commit.
+  A verdict nobody has seen in the field is a verdict on trust.</p>
+</div>
+
+<div class="card">
+  <h4>The phone application</h4>
+  <p>The phone shares the same stop function as the Cockpit and was changed with it. <strong>It was never
+  opened.</strong> The eight frames do not ask for it and I did not add it.</p>
+</div>
+
+<div class="card">
+  <h4>One machine, one account</h4>
+  <p>Everything ran on one machine, against a locally hosted Gateway that resolves every request to a
+  single tenant. Nothing was stopped across a machine boundary, and this report says nothing about the
+  hosted, multi-tenant path or about one account being unable to reach another's sessions.</p>
+</div>
+
+<div class="card">
+  <h4>How the two clicking surfaces were actually driven</h4>
+  <p>Said plainly, because it changes what the frames prove. The Director window was driven by
+  <strong>simulated mouse clicks and keystrokes</strong> from this session, not by a hand. The Cockpit was
+  driven by a browser engine running without a visible window, on a page it rendered for real. Both are the
+  real controls, in the real product, doing the real work - but neither is a person, and neither would
+  catch something that only a person looking at the screen would notice.</p>
+</div>
+
+<div class="card">
+  <h4>How the browser got in, which is itself a finding</h4>
+  <p>On this self-hosted Gateway the Cockpit could <strong>not</strong> be reached the documented way. The
+  break-glass login page takes the machine token and mints it into a cookie, and that cookie is enough to
+  be served the Cockpit's files - but the application itself then sent the browser to a sign-in screen that
+  wants to enrol the device against the hosted site. That is the owner's real account on the public
+  service, and this run must not touch it. So the browser was given the same machine token as its stored
+  credential directly, which the Gateway accepts. <strong>The frames are real; the door was not the front
+  one.</strong> A self-hosted owner following the recipe would hit this wall, and it is worth an issue.</p>
+</div>
+
+<h2>7. What went wrong while taking these, including the near-miss</h2>
+
+<div class="callout warn">
+  <p style="margin-top:0"><strong>A frame was taken of the owner's live fleet, and it was deleted before it
+  was committed.</strong> Two Directors run on this machine - the owner's and the throwaway one this run
+  built - and their windows have the <em>identical title</em>. The first capture selected the window by
+  title, matched his, and photographed his real roster: repository names, session names, the lot.</p>
+  <p>It was read, recognised and deleted within one step, and it never reached the repository. The control
+  that caught it is the one the Architect marked non-negotiable: <strong>read every image before you commit
+  it</strong>. Nothing else would have caught it - the capture succeeded, the file looked normal, and the
+  window title was right.</p>
+  <p style="margin-bottom:0">Every capture after that selects its window by <strong>process
+  identifier</strong>, and refuses to fire unless that exact process is in front. A previous quality seat
+  hit the same class of trap from a different direction - an installed command line silently answering from
+  the hosted Gateway - and its warning is why this one was looking. <strong>This is now twice. The trap is
+  not the mistake; the trap is the machine.</strong></p>
+</div>
+
+<p>Two smaller things, recorded rather than fixed:</p>
+
+<ul>
+  <li><strong>The Cockpit's address in the recipe lands on a not-found page.</strong> The recipe says the
+  Cockpit is at <code>/c</code>. Loading that shows the Cockpit's own frame with "Page not found" in it; the
+  sessions page is at <code>/sessions</code>. Cosmetic, and confusing to anyone repeating the run.</li>
+  <li><strong>A previous run's data home is still on this machine</strong> - an instance directory under the
+  owner's application data that the recipe's teardown says "can be deleted too", and which was not deleted.
+  It is not this run's to sweep, and reusing that name would start a supposedly independent run on top of
+  somebody else's leftovers. Left alone, and named here so somebody decides on purpose.</li>
+</ul>
+
+<h2>8. Who built it</h2>
+
+<p><strong>Sixteen sessions, across six phases, running two families of coding agent.</strong> Fifteen were
+counted when the roster was written; this quality seat is the sixteenth. Fifteen of the sixteen come from
+the family that wrote the code. The one that does not is the Inspector, and that is the whole point of it:
+the rule this fleet runs by says the seat that inspects the work must come from a different family than the
+seats that wrote it, because an agent reviewing its own family's work shares too much of its judgement to be
+a check on it.</p>
+
+<p><strong>That one session found eight real defects, four of them the most serious grade, in a branch whose
+builders had every one of them reported green.</strong> Three of the frames above - the second stop, the
+Director window, the Cockpit - sit directly on top of those fixes. The quality seat before this one was
+stood down before it captured a single frame precisely because the defects sat under the frames it was
+about to take.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>#</th><th>Phase</th><th>Seat</th><th>Session</th><th>Family</th><th>What it did</th></tr>
+  <tr><td>1</td><td>Design</td><td>Architect</td><td><code>e66d53fb</code></td><td>The building family</td><td>Settled the rulings in writing before any code was written; ruled on every phase and on the inspection. Replaced mid-mission for reporting to the owner too often rather than for any wrong decision.</td></tr>
+  <tr><td>2</td><td>A</td><td>Manager</td><td><code>ee59e5d0</code></td><td>The building family</td><td>Drove the Director's honest answer and the command line; demanded the parked test run that exposed a cross-account isolation regression.</td></tr>
+  <tr><td>3</td><td>A</td><td>Worker</td><td><em>not recorded</em></td><td>The building family</td><td>Made the Director answer a structured verdict instead of two true-or-false values.</td></tr>
+  <tr><td>4</td><td>A</td><td>Worker</td><td><em>not recorded</em></td><td>The building family</td><td>Built the stop route, the sentence it writes, the refusal, the permission entries and the audit record.</td></tr>
+  <tr><td>5</td><td>A</td><td>Worker</td><td><em>not recorded</em></td><td>The building family</td><td>Built the two commands.</td></tr>
+  <tr><td>6</td><td>B</td><td>Manager</td><td><code>578d8e29</code></td><td>The building family</td><td>Drove the controls, and stood up the local stack that closed the gap where nothing had ever stopped a real session.</td></tr>
+  <tr><td>7</td><td>B</td><td>Worker</td><td><em>not recorded</em></td><td>The building family</td><td>The shared stop function, the Cockpit control and the phone control.</td></tr>
+  <tr><td>8</td><td>B</td><td>Worker</td><td><em>not recorded</em></td><td>The building family</td><td>The Director window's control, re-pointed at the stop route with a dialog that says what happened.</td></tr>
+  <tr><td>9</td><td>Inspection</td><td>Inspector</td><td><em>not recorded</em></td><td><strong>A different family</strong></td><td>Read the whole branch adversarially, reproduced rather than asserted, found eight defects, fixed none of them.</td></tr>
+  <tr><td>10</td><td>C</td><td>Manager</td><td><code>e7ea69df</code></td><td>The building family</td><td>Rebased onto a fresh main line and split the eight findings across four Workers on disjoint files.</td></tr>
+  <tr><td>11</td><td>C</td><td>Worker</td><td><code>4c74ebdf</code></td><td>The building family</td><td>Liveness that cannot be read is neither alive nor gone; a backend with no process identifier is not an absent process.</td></tr>
+  <tr><td>12</td><td>C</td><td>Worker</td><td><code>53e4e96f</code></td><td>The building family</td><td>A completed stop that the caller hung up on must still leave an audit row.</td></tr>
+  <tr><td>13</td><td>C</td><td>Worker</td><td><code>a881e597</code></td><td>The building family</td><td>The answer a two-second poll deleted, the busy guard that was only on the button, and the phone failure rendered outside its own dialog.</td></tr>
+  <tr><td>14</td><td>C</td><td>Worker</td><td><code>6529c15f</code></td><td>The building family</td><td>Clients that turned an unknown outcome into a definite one, and a session name with a slash in it that stopped routing.</td></tr>
+  <tr><td>15</td><td>Quality</td><td>Quality seat</td><td><code>9997554e</code></td><td>The building family</td><td>Repeated the local stack recipe independently, found the trap that nearly published client names, and was stood down before capturing any frame.</td></tr>
+  <tr><td>16</td><td>Quality</td><td>Quality seat</td><td><code>02aa6c1a</code></td><td>The building family</td><td>Did not build the feature. Stood the stack up again and took the eight frames above. Wrote this.</td></tr>
+</table>
+</div>
+
+<p>The owner is not on that list and should not be. He is not a session. He settled the two rulings that
+were his - whether a stop may destroy uncommitted work, and who is allowed to stop whom - and was then left
+alone, which is what the first law of running a mission is for.</p>
+
+<h3>Six of them cannot be named, and that is the finding</h3>
+
+<p>Five Workers and the Inspector finished, reported, were flagged for deletion, and were reaped. Their work
+is fully recorded - each has a brief and a notes file in this folder - but none of those files records the
+identifier of the session that wrote it. Two ways to recover the names were tried and neither worked: the
+Director's logs on this machine do not carry them, and a session's own key is refused on the Gateway route
+that serves the history of sessions that have ended. So a session cannot enumerate the seats that worked on
+its own mission, which is exactly the question that was asked.</p>
+
+<div class="callout">
+  <p style="margin:0"><strong>This feature writes an audit row naming who stopped a session and why. The
+  polite path this fleet has used for years - the deletion flag, and the reaper behind it - writes nothing
+  at all. That is precisely why six of the sixteen seats that built this feature cannot now be named.</strong></p>
+</div>
+
+<p>The gap this mission was raised to fix is the same gap that ate its own paper trail. It is not a joke and
+it is not a flourish - it is the clearest evidence anyone found that the problem was real. An ending that
+reports nothing is not a smaller version of an ending that reports something; it is a hole, and holes are
+only visible afterwards, when somebody needs what fell through. It is filed as its own issue rather than
+fixed here, because the obvious remedy - letting an agent's key read the history route - is a permission
+change, and this mission does not smuggle one in behind a fix.</p>
+
+<p>The one-line remedy already works: the seat before this one wrote its identifier down while it was still
+seated, so it has a row above even though it is gone. This seat did the same in its first minute, on the
+Architect's instruction, and after being corrected once - it was handed an identifier that belonged to a
+different seat, and asking the fleet for its own was the only thing that settled it. <strong>A seat that
+records its own identifier is the only one that can be named afterwards, and a seat that copies one out of
+somebody else's message is how a roster gets a wrong row in it.</strong></p>
+
+<h2>9. What I would tell you if you only read one paragraph</h2>
+
+<p>It works, and it says what it did. I stopped five sessions four different ways - typed, clicked, from the
+web, and by one session acting on another - and the product told me the same true thing every time, in
+words, and wrote down who did it and why. Your uncommitted work survives it. The permission you granted is
+the one thing I would have left unphotographed, and it is now section 4: a session stopped another with its
+own credential, was refused the older door that asks for no reason, and signed the ledger by name. What is
+left is smaller and honest - a verdict nobody has produced in the field, a phone application nobody opened,
+and one machine's worth of evidence about a product that runs on many.</p>
+
+<p class="cap">Written by session <code>02aa6c1a</code> on 9 September 2026, against
+<code>mission/stop-a-session</code> at <code>84ba787e</code>. The images beside this document are the
+originals, cropped only to the window that was photographed and, in three cases, to the top of a browser
+page that was otherwise empty. Nothing in them is redrawn.
+<br><br>
+No seat that built this feature is named anywhere above, by role or by family only. Two kinds of frame do
+carry a tool's name, and both are evidence rather than credit: the operating system names the agent process
+that was ended, which is the whole substance of frame 4, and the product's own session rows label which
+agent a session runs. Removing either would mean editing the evidence.</p>
+
+</div>
+</body>
+</html>

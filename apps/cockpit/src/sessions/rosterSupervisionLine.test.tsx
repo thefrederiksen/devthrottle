@@ -10,6 +10,10 @@ import { MemoryRouter } from "react-router-dom";
 // runtime.
 
 vi.mock("@devthrottle/client-core/api/client", () => ({
+  // The restart-requests panel polls inside this roster and reaches for gatewayErrorMessage when a
+  // read fails. Without it here, every poll threw an unhandled rejection - the tests still passed, but
+  // the run reported errors and exited non-zero, which is how a real failure would come to be ignored.
+  gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => ({ changed: 0, skipped: 0 })),
 }));
 

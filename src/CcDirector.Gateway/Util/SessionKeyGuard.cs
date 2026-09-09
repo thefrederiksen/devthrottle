@@ -27,7 +27,8 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// BEHAVES - allowed. The FLEET WORK an agent's command line does: see the roster, find repositories and
 /// worktrees and machines, read a session's terminal, message/prompt/interrupt/hold/rename another session,
 /// spawn one, take a mission or a role, mark itself done, and read and publish the fleet's shared skills and
-/// workflows. Plus CONFIGURATION, in both directions: a Director's settings, the application's own settings
+/// workflows. It may also END a session outright - see the paragraph on stopping below. Plus CONFIGURATION,
+/// in both directions: a Director's settings, the application's own settings
 /// (the closed <c>/gateway</c> set in <see cref="IsApplicationSetting"/>), and handovers - which are content
 /// agents produce, and which moving a session needs.
 ///
@@ -35,9 +36,10 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// can admit a NEW device is not configuring the product, it IS the boundary, and an agent holding one could
 /// mint itself an account-wide credential and step straight out of this guard. Account-level identity:
 /// sign-in and sign-out, ownership, billing, credits and subscription. Director registration and
-/// de-registration. Force-killing a Director or shutting the Gateway down - agents already have a clean way
-/// to end a session (<c>request-deletion</c>), and this one is flagged to the owner as a line he may want
-/// moved. Also still refused, for the separate reason that they are not configuration at all: the
+/// de-registration. Force-killing a Director or shutting the Gateway down - ending ONE session is an agent's
+/// work and is allowed (see the stopping paragraph below), but emptying a MACHINE of every session on it at
+/// once is not the same act and stays refused. Also still refused, for the separate reason that they are not
+/// configuration at all: the
 /// diagnostics surface, and voice, dictation and transcription DATA - note the distinction from the voice
 /// SETTINGS above, which say how the product should behave and are therefore allowed.
 ///
@@ -46,6 +48,21 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// for settings and handovers. The old sentence was not edited around, because an allow list whose stated
 /// reasoning contradicts its contents is worse than a wrong entry: a wrong entry is visible in the code,
 /// whereas prose that no longer describes the list is trusted by the next reader and quietly propagated.
+///
+/// STOPPING A SESSION, AND WHY THE LIST NOW SAYS TWO DIFFERENT THINGS ABOUT ONE ACT. This paragraph replaces
+/// the sentence that used to say an agent's clean way to end a session was <c>request-deletion</c> - that was
+/// true when the flag was the only thing an agent could reach, and it is no longer the whole truth. The
+/// owner's ruling of 8 September 2026 (mission "Stop a session") is that any session may stop any other in
+/// the same account, with no parent-child restriction, BECAUSE THE STOP CARRIES A REASON AND IS AUDITED. So:
+///
+///   POST /sessions/{sid}/stop            ALLOWED - the route requires a reason and records it.
+///   DELETE /sessions/{sid}/request-deletion  ALLOWED - a flag comes off the way it went on (Ruling 6).
+///   DELETE /sessions/{sid}               REFUSED - and this refusal is what makes the ruling exact.
+///
+/// The bare DELETE is the SAME stop behind a second door, kept because a phone client that does not deploy
+/// with the Gateway calls it - but it carries no body, so it can carry no reason. Leaving it refused to a
+/// session key is the whole of "an agent's key can only ever stop a session with a reason attached": the
+/// door that cannot carry a reason is the door an agent cannot open. Do not add it here as a convenience.
 ///
 /// A NOTE ON WHAT IS DELIBERATELY IN. Spawning a session and launching an application on a machine are both
 /// CODE EXECUTION on a computer, and both are allowed here - because both are what the fleet's agents do all
@@ -189,6 +206,12 @@ public static class SessionKeyGuard
                     case "mission":
                     case "request-deletion":
                     case "compact-context":
+                    // STOP a session, now (mission "Stop a session", Ruling 4: any session may stop any
+                    // other in the same account, and there is no parent-child restriction). The reason is
+                    // what makes this affordable, and the reason requirement lives on the ROUTE, not here:
+                    // a guard is a pure function on a method and a path and cannot see a body. See the
+                    // refusal of the bare DELETE /sessions/{sid} below for how the two halves add up.
+                    case "stop":
                         return true;
                 }
                 return false;
@@ -281,6 +304,18 @@ public static class SessionKeyGuard
 
         if (verb == "DELETE")
         {
+            // CLEAR a pending deletion flag - DELETE /sessions/{sid}/request-deletion (mission "Stop a
+            // session", Ruling 6). A flag comes off the way it went on: POST /sessions/{sid}/request-deletion
+            // is allowed above, and an agent that can set the flag but can never take it back leaves the only
+            // remedy for a mis-typed session identifier as stopping that session outright, which is the most
+            // destructive act the product has. No reason is required to clear a flag; this is the safe
+            // direction.
+            //
+            // Matched by STRUCTURE and at EXACT LENGTH, the way the rest of this file matches: three segments,
+            // /sessions/{sid}/request-deletion and nothing deeper. THE BARE DELETE /sessions/{sid} IS NOT
+            // MATCHED HERE AND STAYS REFUSED - see the class note.
+            if (s.Length == 3 && s[0] == "sessions" && s[2] == "request-deletion") return true;
+
             // Delete an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
 
@@ -349,8 +384,9 @@ public static class SessionKeyGuard
     /// and they are open because each is the product BEHAVING, which the owner's ruling puts in an agent's
     /// hands. What stays refused on this surface is admission and lifecycle: <c>POST /directors/register</c>,
     /// <c>DELETE /directors/{id}/registration</c>, and <c>DELETE /directors/{id}</c>, which force-kills the
-    /// Director. Registering or de-registering a Director decides who is in the account; force-killing one is
-    /// the blunt instrument agents already have a clean alternative to in <c>request-deletion</c>.
+    /// Director. Registering or de-registering a Director decides who is in the account; force-killing one
+    /// takes down EVERY session on that machine at once, and an agent that needs one session to stop has
+    /// <c>POST /sessions/{sid}/stop</c>, which names the session and carries a reason.
     /// This sub-path is not Director administration at all: an automation browser is a tool an agent uses,
     /// it was reachable by every agent on the machine before this mission (over the Director's loopback
     /// port, with no credential narrower than the machine secret), and routing it through the Gateway

@@ -46,7 +46,24 @@ NO_GATEWAY_REMEDY = (
 
 
 class GatewayError(RuntimeError):
-    """A clear, user-facing failure talking to the Gateway (no stack traces for the agent)."""
+    """A clear, user-facing failure talking to the Gateway (no stack traces for the agent).
+
+    `status` is the HTTP status the answer carried, and it is None for every failure that never got
+    one: the address could not be resolved, the connection was refused, the read timed out, the body
+    was not the JSON it was promised, the redirect was refused.
+
+    WHY IT IS CARRIED. Without it a caller can only say "something went wrong", so it has to describe
+    every failure the same way - and the failures are not the same. A refusal answered with a 4xx was
+    not carried out; a lost reply or a timeout may have arrived AFTER the work was done. `session
+    stop` was printing "Not stopped:" over the top of the Gateway's own sentence saying it did not
+    know whether the command had been carried out, because the one thing that tells the two apart was
+    thrown away one line after it was read. The status travels WITH the failure rather than being
+    guessed at from the wording of the sentence.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 def gateway_base_url() -> str:
@@ -263,7 +280,8 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
         except AttributeError:
             fault = ""
         raise GatewayError(
-            _error_message(detail, err.code, fault_is_director=(fault == FAULT_DIRECTOR))
+            _error_message(detail, err.code, fault_is_director=(fault == FAULT_DIRECTOR)),
+            status=err.code,
         ) from err
     except urllib.error.URLError as err:
         raise GatewayError(
@@ -292,6 +310,23 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
             f"The Gateway at {gateway_base_url()} did not return a usable answer ({err}). "
             "Check CC_GATEWAY_URL names the Gateway and that nothing is intercepting the request."
         ) from err
+
+
+def path_segment(value: str) -> str:
+    """One caller-typed value, escaped so it stays ONE segment of the path it is put into.
+
+    A target a caller typed is not a URL component until something makes it one. `Mission / Worker`
+    interpolated raw into `sessions/{target}/stop` becomes `sessions/Mission / Worker/stop`, which is
+    a different route with a different number of segments - and `?` or `#` stop being part of the
+    target at all and start being URL syntax. The Gateway then answers 404 for a request that was
+    meant to reach the stop, and the caller reads an error about a session that was answered for
+    perfectly well when the same name was typed with no punctuation in it.
+
+    Nothing is safe here, the separator included: `quote(safe="")` is what makes this one segment
+    rather than several. It is deliberately NOT applied inside `_request` - the separators BETWEEN
+    segments are part of the path and escaping those would break every call in the tool.
+    """
+    return urllib.parse.quote(str(value), safe="")
 
 
 def get_json(path: str, timeout: float = 30) -> Any:

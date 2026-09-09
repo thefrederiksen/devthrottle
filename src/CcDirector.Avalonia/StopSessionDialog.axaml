@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.StopSessionDialog"
+        Title="Stop session"
+        Width="580" Height="470"
+        WindowStartupLocation="CenterOwner"
+        Background="#252526">
+
+    <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+
+        <TextBlock x:Name="TxtHeading" Grid.Row="0" Text="Stop this session"
+                   Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold" />
+
+        <TextBlock Grid.Row="1" Margin="0,8,0,0" TextWrapping="Wrap"
+                   Foreground="#CCCCCC" FontSize="12"
+                   Text="Stopping ends the agent process now. Your files are not touched - anything uncommitted in the session's working tree is left exactly where it is. The reason you write is recorded with the stop and kept in the audit trail, so anyone reading it later can see why this session was ended. That is why the button below stays off until there is a reason to record." />
+
+        <TextBlock Grid.Row="2" Margin="0,14,0,6" Foreground="#CCCCCC" FontSize="13"
+                   Text="Why are you stopping it?" />
+        <TextBox x:Name="TxtReason" Grid.Row="3"
+                 Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                 BorderBrush="#3C3C3C" BorderThickness="1"
+                 Padding="8" FontSize="13"
+                 Watermark="spawned into the wrong mode" />
+
+        <TextBlock x:Name="TxtPhase" Grid.Row="4" Margin="0,14,0,0"
+                   Foreground="#9CDCFE" FontSize="13" TextWrapping="Wrap" />
+
+        <Border Grid.Row="5" Margin="0,10,0,0" Background="#1E1E1E" BorderBrush="#3C3C3C"
+                BorderThickness="1">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <SelectableTextBlock x:Name="TxtAnswer" Margin="10"
+                                     Foreground="#CCCCCC" FontFamily="Consolas,monospace"
+                                     FontSize="12" TextWrapping="Wrap" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnStop" Content="Stop the session"
+                    Height="28" Padding="12,0" Click="BtnStop_Click"
+                    Background="#007ACC" Foreground="White" BorderThickness="0"
+                    Cursor="Hand" IsEnabled="False" />
+            <Button x:Name="BtnClose" Content="Close"
+                    Height="28" Padding="12,0" Click="BtnClose_Click"
+                    Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0"
+                    Cursor="Hand" Margin="8,0,0,0" IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -2669,6 +2669,40 @@ body {
   color: var(--attention);
 }
 
+/* The label above the stop dialog's reason box. It is a sentence, not a word, because it has to say
+   that the reason is required and what it is for - so it wraps like body text rather than sitting on
+   one line like a form label. */
+.session-dialog-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* The Gateway's own answer to a stop: its headline, then its detail lines, both rendered verbatim. The
+   headline is the line an operator reads, so it carries the emphasis of body text at full strength. */
+.session-dialog-headline {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.session-dialog-details {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.session-dialog-details li {
+  margin-bottom: 4px;
+  /* A worktree path can be longer than the dialog is wide and has no spaces to break on. */
+  overflow-wrap: anywhere;
+}
+
 .session-dialog-actions {
   display: flex;
   justify-content: flex-end;

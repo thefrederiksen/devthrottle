@@ -63,6 +63,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
+    // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
+    // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("POST", "/fanout")]
     [InlineData("POST", "/missions")]
@@ -275,8 +279,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/account/logout")]
     [InlineData("GET", "/account/sign-in-start")]
     [InlineData("POST", "/account/sign-in-start")]
-    // Force-killing a Director. Agents already have a clean way to end a session in request-deletion, so
-    // this is refused as the blunt instrument rather than as something an agent has no business doing.
+    // Force-killing a Director takes down EVERY session on that machine at once. An agent that needs one
+    // session to stop has POST /sessions/{sid}/stop, which names the session and carries a reason; this is
+    // refused as the blunt instrument rather than as something an agent has no business doing.
     [InlineData("DELETE", "/directors/d-1")]
     // Which Directors are in the account at all.
     [InlineData("POST", "/directors/register")]
@@ -424,6 +429,50 @@ public sealed class SessionKeyGuardTests
         // would be open to every agent on the day it was added.
         Assert.False(SessionKeyGuard.Check("POST", "/sessions/11111111-1111-1111-1111-111111111111/upload-image").Allowed);
         Assert.False(SessionKeyGuard.Check("POST", "/sessions/11111111-1111-1111-1111-111111111111/wingman").Allowed);
+    }
+
+    // ---------- Stopping a session (mission "Stop a session") ----------
+    //
+    // An allow list is only worth what its refusals are worth, and this pair is the whole of the owner's
+    // ruling. Both doors reach the SAME stop handler, the same fold and the same audit trail - so what makes
+    // "an agent's key can only ever stop a session with a reason attached" true is not anything in the
+    // handler, it is this refusal. The bare DELETE carries no body and therefore can carry no reason; if it
+    // were ever added to the allow list "for symmetry", an agent would have a silent, unrecorded way to end
+    // any session in the account and nothing in the route would notice.
+
+    [Fact]
+    public void The_stop_that_carries_a_reason_is_allowed_and_the_door_that_cannot_carry_one_is_refused()
+    {
+        const string sid = "11111111-1111-1111-1111-111111111111";
+
+        Assert.True(SessionKeyGuard.Check("POST", $"/sessions/{sid}/stop").Allowed);
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}").Allowed);
+    }
+
+    [Fact]
+    public void The_bare_delete_stays_refused_however_it_is_written()
+    {
+        const string sid = "11111111-1111-1111-1111-111111111111";
+
+        // Case folding and a trailing slash are the two shapes this guard normalises, so the refusal is
+        // pinned against both rather than against one spelling of the path.
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}").Allowed);
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/Sessions/{sid}").Allowed);
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}/").Allowed);
+    }
+
+    /// <summary>
+    /// Ruling 6: a flag comes off the way it went on. The DELETE is matched at EXACTLY three segments, so
+    /// opening it does not open anything deeper hung off the same path.
+    /// </summary>
+    [Fact]
+    public void Clearing_a_pending_deletion_is_allowed_and_does_not_open_anything_deeper()
+    {
+        const string sid = "11111111-1111-1111-1111-111111111111";
+
+        Assert.True(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}/request-deletion").Allowed);
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}/request-deletion/all").Allowed);
+        Assert.False(SessionKeyGuard.Check("DELETE", $"/sessions/{sid}/stop").Allowed);
     }
 
     [Fact]
