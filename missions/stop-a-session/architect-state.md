@@ -173,3 +173,41 @@ stop a session with a reason attached.**
   headless host is where this project's window tests run.
   **The Architect's own lesson from this:** I praised a correction before verifying it. Being right
   about the first half bought no credit for the second, and only the Manager's own honesty caught it.
+
+- **9 Sep 2026 - the Codex inspection landed and it was hard.** Eight defects, four P1, every one
+  reproduced. All accepted, none disputed, none deferred. Ruling in
+  `architect-ruling-on-inspection-1.md`; the findings in `inspection-1.md`.
+  **Its most valuable result was not a finding:** replacing the production liveness check with the
+  constant `false` left ALL 68 executor tests passing. The headline fact of the feature - was a
+  process running, and did we end it - is produced by a method no test protects, because every test
+  injects its own substitute. Phase A had admitted that gap in prose. A written admission is not a
+  control, and the inspection is what showed the difference.
+- **Ruling 3's fourth verdict was broadened** to cover an unreadable liveness check: could not be
+  determined is never "gone" and never "ended". Liveness has three answers, not two.
+- **The QA seat was halted before capturing any frame** - four defects sat directly under the frames
+  it was about to take. Released; its recipe notes are the durable part.
+- **The QA seat found the trap that nearly published client names**, and found it by obeying the one
+  rule marked non-negotiable: read every image before committing it. An installed `cc-devthrottle` on
+  the path inherits `CC_GATEWAY_URL` and answers from the HOSTED Gateway, printing the owner's entire
+  live fleet - every session and repository name on every machine - while looking completely normal.
+  A quoted PowerShell string was re-parsed by `cmd`, the path edit was silently dropped, and the first
+  frame captured the owner's real roster with client repository names in it. **It was read and deleted
+  before it was committed.** Independently verified by the Architect: ZERO images exist anywhere in
+  this mission's history. Nothing leaked.
+- **A requirement arrived from the owner THROUGH the Phase C Manager, not directly to the Architect:**
+  the QA report is to show every session that built and fixed this feature, and how many. Accepted -
+  it is additive and harmless - and recorded as second-hand rather than absorbed silently, because a
+  requirement the Architect did not hear itself should be said out loud. Roster in `who-built-it.md`:
+  fifteen sessions, six phases, fourteen Claude Code and one Codex Inspector.
+- **Six of the fifteen cannot be named**, and the reason is the mission's own subject. A session reaped
+  by the polite deletion flag leaves no durable record of its identifier, the Director logs do not
+  carry it, and a session key is refused 403 on the Gateway session-history route. **Ruled: record and
+  FILE AN ISSUE, do not fix.** Opening that route is an allow-list change, and this mission does not
+  smuggle one in behind a fix phase - Ruling 4's allow-list change was decided by the owner in
+  writing, and this one has not been.
+  The irony belongs in the QA report in one honest sentence: the feature being built WRITES an audit
+  row naming who stopped a session and why; the polite path this fleet has used for years writes
+  nothing - which is exactly why six of this mission's own seats can no longer be named. **The gap
+  this mission was raised to fix is the same gap that ate its own paper trail.**
+- **The branch was rebased onto a fresh `origin/main` (`db141e28`) before the fixes**, per Rule Zero;
+  main had moved while the mission ran.

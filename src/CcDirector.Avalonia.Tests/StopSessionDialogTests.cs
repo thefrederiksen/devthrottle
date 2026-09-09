@@ -21,7 +21,8 @@ namespace CcDirector.Avalonia.Tests;
 ///     be refused;
 ///   - the rendering: the headline and every detail line, in the Gateway's order, VERBATIM - no sentence
 ///     composed here and no branch on the verdict word;
-///   - the failure: a stop that did not happen says so, in words, in the same place.
+///   - the failure: it is shown in words, in the same place, carrying the sentence it came with - and
+///     it says only what this window knows, never what became of the session.
 ///
 /// The stop is injected, so all of this runs with no Gateway, no Director and no network. What these do
 /// NOT cover is written down in missions/stop-a-session/worker-e-notes.md: they drive the dialog's own
@@ -186,9 +187,8 @@ public class StopSessionDialogTests
     }
 
     /// <summary>
-    /// A stop that did not happen SAYS SO, in the same place the answer would have been, carrying the
-    /// sentence that came with it. Silence is the defect: the operator would read an unchanged window as
-    /// "it worked".
+    /// A failure SAYS SO, in the same place the answer would have been, carrying the sentence that came
+    /// with it. Silence is the defect: the operator would read an unchanged window as "it worked".
     /// </summary>
     [AvaloniaFact]
     public async Task AFailureIsShownInWords_CarryingTheSentenceItCameWith()
@@ -199,9 +199,42 @@ public class StopSessionDialogTests
         dialog.ReasonText = "spawned into the wrong mode";
         await dialog.StopNowAsync();
 
-        Assert.Contains(StopSessionDialog.NotStoppedPrefix, dialog.AnswerText);
+        Assert.Contains(StopSessionDialog.OutcomeUnknownPrefix, dialog.AnswerText);
         Assert.Contains("the process would not die: process 51884 is still running after the stop",
             dialog.AnswerText);
+    }
+
+    /// <summary>
+    /// THE FINDING (inspection 1, I5), PINNED. When the Gateway says it does not know what happened, this
+    /// window must not say that it does.
+    ///
+    /// The sentence is the router's own, word for word: a timeout proves only that the GATEWAY stopped
+    /// waiting, and the Director may have ended the session and answered late. The window used to print
+    /// "The session was not stopped:" directly above it - a client composing a verdict in the same breath
+    /// as the server saying there is no verdict to be had. An operator who believes the window goes
+    /// looking for a session that is already gone, or presses Stop again on one that never stopped.
+    ///
+    /// The test therefore asserts on what is NOT there. The uncertainty is the Gateway's to state, and the
+    /// only thing being pinned is that this window does not contradict it.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WhenTheGatewaySaysItDoesNotKnow_TheWindowDoesNotSayThatItDoes()
+    {
+        const string uncertain =
+            "The Director on SORENLAPTOP did not answer within 30 seconds. "
+            + "It is not known whether the command was carried out.";
+        var dialog = DialogAnswering((_, _) => throw new InvalidOperationException(uncertain));
+
+        dialog.ReasonText = "spawned into the wrong mode";
+        await dialog.StopNowAsync();
+
+        // The Gateway's sentence, intact.
+        Assert.Contains(uncertain, dialog.AnswerText);
+        // And nothing of this window's own claiming an outcome over the top of it, in either direction.
+        Assert.DoesNotContain("was not stopped", dialog.AnswerText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("was stopped", dialog.AnswerText, StringComparison.OrdinalIgnoreCase);
+        // What it does say is what it knows: that it cannot tell.
+        Assert.Contains("cannot say whether the session is still running", dialog.AnswerText);
     }
 
     /// <summary>

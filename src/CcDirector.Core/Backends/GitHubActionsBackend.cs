@@ -154,10 +154,24 @@ public sealed class GitHubActionsBackend : ISessionBackend
     /// <summary>No PTY to resize.</summary>
     public void Resize(short cols, short rows) { /* no-op */ }
 
-    /// <summary>Cancel any in-flight run and stop polling. Kill == session exit.</summary>
+    /// <inheritdoc />
+    public string? LastShutdownFailure { get; private set; }
+
+    /// <summary>
+    /// Cancel any in-flight run and stop polling. Kill == session exit.
+    ///
+    /// A REFUSED CANCELLATION IS A FAILED STOP, AND IT IS NOW SAID SO (inspection 1, finding I3). This
+    /// still does not throw - callers depend on that - but it no longer swallows the refusal into the
+    /// terminal buffer and then reports a clean exit. When the cancel fails the run may well still be
+    /// going on GitHub, so this backend does NOT claim the session ended: it records the failure in
+    /// <see cref="LastShutdownFailure"/> for the stop verb to surface, leaves the session un-exited so a
+    /// second stop retries the cancellation, and says in its own status that the stop failed. Reporting
+    /// exit code 0 for a shutdown that was refused is the same false report the whole mission is about.
+    /// </summary>
     public async Task GracefulShutdownAsync(int timeoutMs = 5000)
     {
         if (_disposed) return;
+        LastShutdownFailure = null;   // this attempt is judged on its own, never on the last one's result
         try { _cts.Cancel(); } catch { /* already cancelling */ }
 
         var runId = _currentRunId;
@@ -170,7 +184,11 @@ public sealed class GitHubActionsBackend : ISessionBackend
             }
             catch (Exception ex)
             {
+                LastShutdownFailure = $"run {id} on {_config.Slug} would not cancel: {ex.Message}. "
+                    + "It may still be running on GitHub.";
                 WriteLine($"Could not cancel run {id}: {ex.Message}");
+                SetStatus("Stop failed");
+                return;
             }
         }
 

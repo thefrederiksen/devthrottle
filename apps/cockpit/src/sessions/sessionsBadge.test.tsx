@@ -47,6 +47,10 @@ vi.mock("react-router-dom", () => ({
 }));
 
 import { SessionsView } from "./SessionsView";
+// Every roster row mounts the real SessionMenu, whose Stop session item hands the stop UP to the one
+// owner that outlives the row (mission "Stop a session", finding I4). AppShell mounts that provider in
+// the product, so a test that renders a page beneath AppShell has to mount it too.
+import { StopSessionProvider } from "./StopSessionProvider";
 
 function needsYou(sessionId: string, fields: Partial<SessionDto> = {}): SessionDto {
   return {
@@ -89,7 +93,7 @@ describe("Cockpit needs-you badge", () => {
       refreshNow: () => {},
     };
 
-    render(<SessionsView />);
+    render(<StopSessionProvider><SessionsView /></StopSessionProvider>);
 
     await waitFor(() => expect(reconcileBadgeMock).toHaveBeenCalled());
     expect(reconcileBadgeMock).toHaveBeenLastCalledWith(1);
@@ -105,7 +109,7 @@ describe("Cockpit needs-you badge", () => {
       refreshNow: () => {},
     };
 
-    render(<SessionsView />);
+    render(<StopSessionProvider><SessionsView /></StopSessionProvider>);
 
     await waitFor(() => expect(reconcileBadgeMock).toHaveBeenCalled());
     expect(reconcileBadgeMock).toHaveBeenLastCalledWith(1);

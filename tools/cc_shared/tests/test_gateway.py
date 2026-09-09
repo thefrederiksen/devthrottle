@@ -502,6 +502,87 @@ def test_a_same_origin_redirect_is_still_followed(monkeypatch):
         srv.shutdown()
 
 
+# --- The status travels with the failure -------------------------------------------------------
+#
+# Why this is worth its own pair of tests: a caller that cannot tell a REFUSAL from a LOST REPLY has
+# to describe both the same way, and `session stop` was describing a timeout - which can arrive after
+# the session was already ended - with the words "Not stopped:". The status is the only thing that
+# tells them apart, so these prove it survives the trip out of urllib and onto the error, and that it
+# is None where there was never a status to have.
+
+
+def test_an_http_failure_carries_the_status_it_was_refused_with(monkeypatch):
+    """Over a real server, because err.code comes out of urllib's own HTTPError, not out of us."""
+    import http.server
+    import threading
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = b'{"error": "a reason is required to stop a session"}'
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("CC_GATEWAY_URL", "http://127.0.0.1:%d" % srv.server_address[1])
+        monkeypatch.setenv("CC_GATEWAY_SESSION_KEY", "a-session-key")
+
+        with pytest.raises(gateway.GatewayError) as caught:
+            gateway.post_json("sessions/9c41e7a2/stop", {"reason": ""})
+
+        assert caught.value.status == 400
+        # And the server's sentence is still the message - the status is carried BESIDE it, never
+        # instead of it.
+        assert "a reason is required to stop a session" in str(caught.value)
+    finally:
+        srv.shutdown()
+
+
+def test_a_failure_that_never_got_an_answer_has_no_status_at_all(monkeypatch):
+    """None is the honest value, and it is what puts a lost reply on the "we do not know" side.
+
+    A default of, say, 0 or 500 would have made every unanswered request look like an answer, which
+    is the whole failure this attribute exists to prevent.
+    """
+    import socket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    listener.close()                    # nothing is listening now: the connection is refused
+
+    monkeypatch.setenv("CC_GATEWAY_URL", "http://127.0.0.1:%d" % port)
+    monkeypatch.setenv("CC_GATEWAY_SESSION_KEY", "a-session-key")
+
+    with pytest.raises(gateway.GatewayError) as caught:
+        gateway.post_json("sessions/9c41e7a2/stop", {"reason": "why"}, timeout=2)
+
+    assert caught.value.status is None
+
+
+# --- One caller-typed value stays ONE path segment ----------------------------------------------
+
+
+def test_path_segment_escapes_the_separator_so_a_name_stays_one_segment():
+    """The defect (inspection 1, finding I6): a session named "Mission / Worker" was interpolated raw
+    into "sessions/{target}/stop", which is a different route with a different number of segments."""
+    assert gateway.path_segment("Mission / Worker") == "Mission%20%2F%20Worker"
+    # ? and # stop being part of the target and start being URL syntax, so they go too.
+    assert gateway.path_segment("what?why#now") == "what%3Fwhy%23now"
+    # An ordinary identifier passes through untouched: nothing about this changes the common case.
+    assert gateway.path_segment("9c41e7a2-1111-2222-3333-444455556666") == (
+        "9c41e7a2-1111-2222-3333-444455556666"
+    )
+
+
 # --- Transport failures the user must read as a sentence, not a traceback ----------------------
 
 

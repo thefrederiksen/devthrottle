@@ -1,7 +1,7 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// The three verdicts a stop can carry (mission "Stop a session", Ruling 3). Every one of them is a
+/// The four verdicts a stop can carry (mission "Stop a session", Ruling 3). Every one of them is a
 /// SUCCESS - a stop never fails because there is nothing left to stop.
 ///
 /// <see cref="AlreadyStopped"/> and <see cref="NotOnFleet"/> must never be folded into one word. The
@@ -21,25 +21,37 @@ public static class SessionStopVerdict
     public const string NotOnFleet = "notOnFleet";
 
     /// <summary>
-    /// The Director carried out the stop, but it is an older version that cannot say what it found, so
-    /// this answer names no process and no worktree.
+    /// The stop was carried out, and this answer cannot say what it found.
     ///
-    /// The Gateway and the Directors do not deploy together - the Gateway ships in a container image and
-    /// each Director updates itself on its own machine - so during a rollout this Gateway can be handed an
-    /// answer from a Director that predates this mission and reports only the original hardcoded
-    /// <c>killed</c> / <c>removed</c> pair.
+    /// THERE ARE THREE CAUSES, AND THEY SHARE THIS ONE WORD because they are one fact about the ANSWER, not
+    /// three different things that happened. The headline tells them apart in words; the fields differ per
+    /// cause, and the list below is the only correct account of which fields mean anything:
+    ///
+    /// 1. AN OLDER DIRECTOR. The Gateway and the Directors do not deploy together - the Gateway ships in a
+    ///    container image and each Director updates itself on its own machine - so during a rollout this
+    ///    Gateway can be handed an answer from a Director that predates this mission and reports only the
+    ///    original hardcoded <c>killed</c> / <c>removed</c> pair. Here EVERY description field is meaningless:
+    ///    the process id is null, and <c>ProcessEnded</c>, <c>RowRemoved</c> and the worktree fields are all
+    ///    at their empty values because nothing established them, NOT because they were established to be
+    ///    false. A reader that sees this cause must read the headline and ignore the fields.
+    ///
+    /// 2. THE LIVENESS CHECK COULD NOT BE READ. The Director looked and the operating system would not
+    ///    answer - a process it may not open throws rather than reporting a state. Added after inspection 1,
+    ///    which found "already stopped" being inferred from a check that had thrown.
+    ///
+    /// 3. THE SESSION CARRIED NO PROCESS IDENTIFIER, so nothing was ever checked - the remote workflow
+    ///    backend reports zero while a remote run is actively going, and the pipe and studio backends report
+    ///    zero always. Also from inspection 1.
+    ///
+    /// UNDER CAUSES 2 AND 3 THE ESTABLISHED FIELDS ARE REAL AND MUST BE READ: the process identifier taken
+    /// off the row, <c>RowRemoved</c>, and the worktree path and its uncommitted-changes answer are all
+    /// things that stop genuinely established, and Ruling 2 REQUIRES the worktree sentence. Only
+    /// <c>ProcessEnded</c> is empty, and it is empty because nothing established it.
     ///
     /// This word exists because both of the obvious answers are wrong. Refusing the stop (the first
     /// implementation answered 502) reports a FAILURE for an operation that SUCCEEDED - the session really
     /// was stopped - and a tool confident in one direction and vague in the other is the exact complaint
-    /// this mission exists to fix. But calling it <see cref="Stopped"/> asserts a fact nobody established:
-    /// an old Director's <c>killed: true</c> says the verb ran, never that a process was found and ended.
-    ///
-    /// So: the success is reported, and the description is not invented. **Every description field is
-    /// meaningless under this verdict** - the process id is null, and <c>ProcessEnded</c>, <c>RowRemoved</c>
-    /// and the worktree fields are all left at their empty values because nothing established them, NOT
-    /// because they were established to be false. A reader that sees this word must read the headline and
-    /// ignore the fields.
+    /// this mission exists to fix. But calling it <see cref="Stopped"/> asserts a fact nobody established.
     /// </summary>
     public const string StoppedNotDescribed = "stoppedNotDescribed";
 }
@@ -83,7 +95,19 @@ public sealed class DirectorStopResult
     /// </summary>
     public bool? WorktreeHadUncommittedChanges { get; set; }
 
-    /// <summary><see cref="SessionStopVerdict.Stopped"/> or <see cref="SessionStopVerdict.AlreadyStopped"/>.
+    /// <summary>
+    /// What this stop could establish, in one word about the machine's own words in
+    /// <see cref="NotDescribedReason"/> - or null when it established everything it reports.
+    ///
+    /// The Director sets this ONLY alongside <see cref="SessionStopVerdict.StoppedNotDescribed"/>, and it is
+    /// what lets the Gateway's fold tell an unread liveness check apart from a Director too old to describe
+    /// anything at all. It is one line, written for an operator, and it is folded into the headline verbatim.
+    /// </summary>
+    public string? NotDescribedReason { get; set; }
+
+    /// <summary><see cref="SessionStopVerdict.Stopped"/>, <see cref="SessionStopVerdict.AlreadyStopped"/>, or
+    /// <see cref="SessionStopVerdict.StoppedNotDescribed"/> when this machine could not read whether a
+    /// process was alive - which is a KNOWN word from a current Director, not the silence of an old one.
     /// The Director never returns <see cref="SessionStopVerdict.NotOnFleet"/> - that verdict belongs to the
     /// Gateway, which is the only party that can see the whole account.</summary>
     public string Verdict { get; set; } = "";
@@ -104,7 +128,7 @@ public sealed class SessionStopRequest
 /// </summary>
 public sealed class SessionStopResponse
 {
-    /// <summary>One of the three <see cref="SessionStopVerdict"/> words.</summary>
+    /// <summary>One of the four <see cref="SessionStopVerdict"/> words.</summary>
     public string Verdict { get; set; } = "";
 
     /// <summary>The one line an operator reads. Always present.</summary>

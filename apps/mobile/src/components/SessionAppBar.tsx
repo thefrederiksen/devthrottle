@@ -39,6 +39,15 @@ import type { SessionManage } from "./useSessionManage";
 // The phone may show less of a card than the desktop; it may not say something different, offer
 // something different, or leave anything out (the reasoning behind CLAUDE.md rule 8).
 //
+// A FAILED STOP IS SHOWN INSIDE THE SHEET (inspection finding I8). It used to render on this bar's
+// sibling error banner, which sits UNDER the full-screen overlay of a dialog that declares
+// aria-modal="true" - so the sheet stayed open with a reason box, a retry button and no explanation
+// anywhere the operator could see. Worse, backing out with Cancel cleared that banner as well, so the
+// one copy of the explanation was deleted by the gesture used to go and read it. Now the Gateway's
+// sentence renders in the card the operator is looking at, and backing out leaves it on the banner
+// behind rather than throwing it away. The bar's banner is suppressed while the sheet is open, so the
+// failure is described once, in one place, exactly as the Cockpit describes it.
+//
 // Nothing here composes a sentence about a stop and nothing branches on the verdict word.
 
 export interface SessionAppBarProps {
@@ -107,12 +116,14 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
     navigate("/");
   }, [navigate]);
 
-  // Backing out of the question, before anything has been asked of the Gateway.
+  // Backing out of the question. It does NOT clear manage.error: the operator may be backing out of a
+  // stop that FAILED, and the failure is the one explanation of why the session is still here. Clearing
+  // it here is what deleted it. Opening the sheet again clears it, which is the right moment - that is
+  // a fresh question, so there is nothing yet to explain.
   const onCancelStop = useCallback(() => {
     setConfirming(false);
     setStopReason("");
-    manage.setError(null);
-  }, [manage]);
+  }, []);
 
   return (
     <>
@@ -218,7 +229,12 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         <h1 className="term-title session-title">{title}</h1>
       </div>
 
-      {manage.error !== null && <div className="banner banner-error" role="alert">{manage.error}</div>}
+      {/* The action error banner. It is suppressed while the stop sheet is open, because the sheet
+          shows the same sentence inside itself and a modal overlay covers this row anyway - two copies
+          of one event, one of them unreadable, is exactly what finding I8 was. */}
+      {manage.error !== null && !confirming && (
+        <div className="banner banner-error" role="alert">{manage.error}</div>
+      )}
       {/* A prompt to this session was NOT delivered - the user's words never reached the agent (issue
           internal#811). It lives on the shared app bar so it is on EVERY per-session screen: the loss
           usually happens while the phone is somewhere else entirely (a dictation sent from the roster,
@@ -267,6 +283,11 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
               placeholder="Spawned into the wrong mode"
               autoFocus
             />
+            {/* The failure, in the Gateway's own words, INSIDE the dialog the operator is looking at -
+                the same place the Cockpit puts it, and above the retry button it explains. */}
+            {manage.error !== null && (
+              <div className="confirm-error" role="alert">{manage.error}</div>
+            )}
             <div className="confirm-actions">
               <button
                 type="button"

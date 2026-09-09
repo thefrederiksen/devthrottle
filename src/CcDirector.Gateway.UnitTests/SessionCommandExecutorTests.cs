@@ -579,9 +579,13 @@ public sealed class SessionCommandExecutorTests
             // Alive when the facts are captured, gone when the stop is checked - the ordinary successful stop.
             int checks = 0;
             var pidsAsked = new List<int>();
-            bool IsAlive(int pid) { pidsAsked.Add(pid); return ++checks == 1; }
+            ProcessLivenessReading Liveness(int pid)
+            {
+                pidsAsked.Add(pid);
+                return ++checks == 1 ? ProcessLivenessReading.IsAlive : ProcessLivenessReading.IsGone;
+            }
 
-            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), IsAlive, ProbeAnswering(true, 0));
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
 
             var stop = StopResultOf(result);
             Assert.Equal(SessionStopVerdict.Stopped, stop.Verdict);
@@ -603,7 +607,7 @@ public sealed class SessionCommandExecutorTests
         var id = session.Id;
         try
         {
-            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => false, ProbeAnswering(true, 0));
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(true, 0));
 
             var stop = StopResultOf(result);
             Assert.Equal(SessionStopVerdict.AlreadyStopped, stop.Verdict);
@@ -624,12 +628,13 @@ public sealed class SessionCommandExecutorTests
         try
         {
             int checks = 0;
-            bool IsAlive(int _) => ++checks == 1;
+            ProcessLivenessReading Liveness(int _) =>
+                ++checks == 1 ? ProcessLivenessReading.IsAlive : ProcessLivenessReading.IsGone;
 
-            var first = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), IsAlive, ProbeAnswering(true, 0));
+            var first = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
             Assert.Equal(SessionStopVerdict.Stopped, StopResultOf(first).Verdict);
 
-            var second = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), IsAlive, ProbeAnswering(true, 0));
+            var second = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), Liveness, ProbeAnswering(true, 0));
 
             var stop = StopResultOf(second);
             Assert.Equal(DirectorCommandStatus.Ok, second.Status);
@@ -648,7 +653,7 @@ public sealed class SessionCommandExecutorTests
         try
         {
             var result = await SessionCommandExecutor.KillAsync(
-                sm, KillCommand(session.Id), _ => false, ProbeAnswering(success: true, count: 3));
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: true, count: 3));
 
             var stop = StopResultOf(result);
             Assert.True(stop.WorktreeHadUncommittedChanges);
@@ -664,7 +669,7 @@ public sealed class SessionCommandExecutorTests
         try
         {
             var result = await SessionCommandExecutor.KillAsync(
-                sm, KillCommand(session.Id), _ => false, ProbeAnswering(success: true, count: 0));
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: true, count: 0));
 
             var stop = StopResultOf(result);
             Assert.False(stop.WorktreeHadUncommittedChanges);
@@ -682,7 +687,7 @@ public sealed class SessionCommandExecutorTests
         try
         {
             var result = await SessionCommandExecutor.KillAsync(
-                sm, KillCommand(session.Id), _ => false, ProbeAnswering(success: false, count: 0));
+                sm, KillCommand(session.Id), _ => ProcessLivenessReading.IsGone, ProbeAnswering(success: false, count: 0));
 
             var stop = StopResultOf(result);
             Assert.Null(stop.WorktreeHadUncommittedChanges);
@@ -703,7 +708,7 @@ public sealed class SessionCommandExecutorTests
             Task<GitCountResult> Explode(string _, CancellationToken __) =>
                 throw new OperationCanceledException("the git probe timed out");
 
-            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => false, Explode);
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsGone, Explode);
 
             var stop = StopResultOf(result);
             Assert.Null(stop.WorktreeHadUncommittedChanges);
@@ -723,7 +728,7 @@ public sealed class SessionCommandExecutorTests
         var id = session.Id;
         try
         {
-            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => true, ProbeAnswering(true, 0));
+            var result = await SessionCommandExecutor.KillAsync(sm, KillCommand(id), _ => ProcessLivenessReading.IsAlive, ProbeAnswering(true, 0));
 
             Assert.Equal(DirectorCommandStatus.Error, result.Status);
             Assert.NotNull(result.Error);

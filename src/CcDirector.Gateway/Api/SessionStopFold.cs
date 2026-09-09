@@ -60,12 +60,21 @@ internal static class SessionStopFold
     /// <summary>
     /// Can the Director's answer be folded into a description of what it found? False when it cannot.
     ///
-    /// The Gateway and the Directors do not deploy together - the Gateway ships in a container and a
-    /// Director updates itself on each machine - so a Gateway carrying this mission can be handed an
-    /// answer from a Director that predates it and reports only the original hardcoded
-    /// <c>killed</c> / <c>removed</c> pair. It says the verb RAN; it says nothing about what was found.
+    /// There are two quite different reasons it cannot, and <see cref="Fold"/> keeps them apart:
     ///
-    /// THE FIRST IMPLEMENTATION REFUSED THAT WITH A 502, AND THE ARCHITECT REVERSED IT. The session was
+    /// 1. THE DIRECTOR SAID SO ITSELF. <see cref="SessionStopVerdict.StoppedNotDescribed"/> is now a word a
+    ///    CURRENT Director sends, carrying <see cref="DirectorStopResult.NotDescribedReason"/> - it looked,
+    ///    and the machine would not tell it whether a process was alive, or the session carried no process
+    ///    identifier to look up. That is a known, described state; it is simply not a description of a
+    ///    process. This is the correction inspection 1 forced: this doc comment used to say the opposite,
+    ///    that a Director never sends this word.
+    /// 2. THE ANSWER IS NOT ONE THIS GATEWAY UNDERSTANDS. The Gateway and the Directors do not deploy
+    ///    together - the Gateway ships in a container and a Director updates itself on each machine - so a
+    ///    Gateway carrying this mission can be handed an answer from a Director that predates it and
+    ///    reports only the original hardcoded <c>killed</c> / <c>removed</c> pair. It says the verb RAN; it
+    ///    says nothing about what was found.
+    ///
+    /// THE FIRST IMPLEMENTATION REFUSED CASE 2 WITH A 502, AND THE ARCHITECT REVERSED IT. The session was
     /// stopped, and reporting a failure for an operation that succeeded is a false report - the very
     /// complaint this mission exists to fix, rebuilt inside the fix for it. Calling it
     /// <see cref="SessionStopVerdict.Stopped"/> would be the opposite error, asserting a process nobody
@@ -81,10 +90,16 @@ internal static class SessionStopFold
         if (answer is null) return false;
 
         // A verdict word this Gateway does not know - the shape an older Director answers with, since it
-        // sets no verdict at all. Note this deliberately does NOT accept StoppedNotDescribed: that word is
-        // the GATEWAY's, folded here, and a Director never sends it.
+        // sets no verdict at all.
         var verdict = answer.Verdict ?? "";
-        if (verdict is not (SessionStopVerdict.Stopped or SessionStopVerdict.AlreadyStopped)) return false;
+        if (verdict is not (SessionStopVerdict.Stopped
+            or SessionStopVerdict.AlreadyStopped
+            or SessionStopVerdict.StoppedNotDescribed)) return false;
+
+        // A KNOWN word, and still not a description: the Director is telling this Gateway, in its own
+        // sentence, what it could not establish. Fold reads that sentence rather than assuming an old
+        // Director, and carries through the facts the stop DID establish.
+        if (verdict == SessionStopVerdict.StoppedNotDescribed) return false;
 
         // It claims it ended a running process but will not say which one, so the headline could not name
         // the process it is supposed to name.
@@ -113,28 +128,46 @@ internal static class SessionStopFold
 
         var shortId = ShortIdFor(sessionId);
 
-        // THE STOP HAPPENED; THIS MACHINE CANNOT SAY WHAT IT FOUND. Every description field is deliberately
-        // left empty - null process id, false booleans, no worktree - because nothing established them, not
-        // because they were established to be false. The verdict word is the signal, and the headline is the
-        // whole of what is known. Killed/Removed carry through from whatever the older Director did report.
+        // THE STOP HAPPENED; THIS ANSWER CANNOT SAY WHAT IT FOUND. Two causes, told apart in words here and
+        // nowhere else - see CanDescribe. The Director's own sentence is the signal that it is the second
+        // kind: a current Director that looked and could not read, or a session with no process identifier
+        // to look up at all.
+        var directorSaid = answer.Verdict == SessionStopVerdict.StoppedNotDescribed
+            ? (answer.NotDescribedReason ?? "").Trim()
+            : "";
+
         if (!CanDescribe(answer))
         {
+            // WHAT WAS ESTABLISHED IS STILL REPORTED, and only under the Director's own sentence: it read
+            // the process identifier off the row, it knows whether it removed the row, and it probed the
+            // worktree - Ruling 2 makes that sentence mandatory whenever the session held a tree, and
+            // blanking it would drop the one line telling the operator about uncommitted work. Under the
+            // older-Director cause nothing was established at all, so every field stays empty - not because
+            // it was established to be false. ProcessEnded is false in both: nothing established it.
+            var known = directorSaid.Length > 0;
             var undescribed = new SessionStopResponse
             {
                 Verdict = SessionStopVerdict.StoppedNotDescribed,
-                Headline = $"stopped {shortId} - the Director on that machine is an older version and could "
-                    + "not say what it found, so this answer cannot name the process it ended or the "
-                    + "worktree it left behind",
+                Headline = known
+                    ? $"stopped {shortId} - {directorSaid}"
+                    : $"stopped {shortId} - the Director on that machine is an older version and could "
+                        + "not say what it found, so this answer cannot name the process it ended or the "
+                        + "worktree it left behind",
                 SessionId = sessionId,
                 ShortId = shortId,
+                ProcessId = known ? answer.ProcessId : null,
+                ProcessEnded = false,
+                RowRemoved = known && answer.RowRemoved,
+                WorktreePath = known ? answer.WorktreePath : null,
+                WorktreeHadUncommittedChanges = known ? answer.WorktreeHadUncommittedChanges : null,
                 Reason = reason,
                 StoppedBy = stoppedBy,
                 Killed = answer.Killed,
                 Removed = answer.Removed,
             };
-            // No worktree line: there is no worktree to name, and Ruling 2's sentence must never be invented.
-            // The reason line still belongs - it is the CALLER's words, which this Gateway does know.
-            AddDetails(undescribed, worktreePath: null, worktreeHadUncommittedChanges: null, reason: reason);
+            // Under the older-Director cause there is no worktree to name, and Ruling 2's sentence must never
+            // be invented. The reason line always belongs - it is the CALLER's words, which this Gateway knows.
+            AddDetails(undescribed, undescribed.WorktreePath, undescribed.WorktreeHadUncommittedChanges, reason);
             return undescribed;
         }
 

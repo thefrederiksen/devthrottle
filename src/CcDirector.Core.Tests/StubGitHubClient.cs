@@ -78,9 +78,22 @@ internal sealed class StubGitHubClient : IGitHubClient
             $"https://github.com/{owner}/{repo}/actions/runs/{runId}", DateTimeOffset.UtcNow, "run"));
     }
 
+    /// <summary>When set, CancelRunAsync fails with this message. GitHub really does refuse a cancellation -
+    /// a token without the right scope, a run already past cancelling, a rate limit - and inspection 1
+    /// (finding I3) found that refusal being swallowed and reported as "no process was running".</summary>
+    public string? CancelRunFailure { get; set; }
+
+    public int CancelRunCalls { get; private set; }
+
     public Task CancelRunAsync(string owner, string repo, long runId, CancellationToken ct)
     {
-        lock (_lock) CancelledRunId = runId;
+        lock (_lock)
+        {
+            CancelRunCalls++;
+            if (CancelRunFailure is { } failure)
+                return Task.FromException(new GitHubApiException(System.Net.HttpStatusCode.Forbidden, failure));
+            CancelledRunId = runId;
+        }
         return Task.CompletedTask;
     }
 

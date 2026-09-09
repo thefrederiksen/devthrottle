@@ -330,6 +330,121 @@ public sealed class SessionStopFoldTests
     }
 
     // ---------------------------------------------------------------------------------------------------
+    // The SECOND cause of "stopped, not described": a CURRENT Director that looked and could not read.
+    //
+    // Added after inspection 1 (findings I2 and I3). One verdict word, three causes, told apart in words -
+    // and, unlike the older-Director cause, the fields under this one carry facts the stop DID establish.
+    // ---------------------------------------------------------------------------------------------------
+
+    /// <summary>A Director that read what it could and says, in its own sentence, what it could not.</summary>
+    private static DirectorStopResult CouldNotRead(string reason, int? pid = 51884, string? worktree = null,
+        bool? dirty = null) => new()
+        {
+            Killed = true,
+            Removed = true,
+            ProcessId = pid,
+            ProcessEnded = false,
+            RowRemoved = true,
+            WorktreePath = worktree,
+            WorktreeHadUncommittedChanges = dirty,
+            NotDescribedReason = reason,
+            Verdict = SessionStopVerdict.StoppedNotDescribed,
+        };
+
+    /// <summary>
+    /// The word is now one a CURRENT Director sends. It is still not a description of a process - which is
+    /// what the word means - but it is not the silence of an old Director either, and the fold must not
+    /// print the old Director's sentence over the top of the Director's own words.
+    /// </summary>
+    [Fact]
+    public void A_current_Director_that_could_not_read_the_check_says_so_in_its_own_words()
+    {
+        var answer = CouldNotRead(
+            "whether process 51884 was running could not be read before the stop - could not read process "
+            + "51884 on this machine (Win32Exception: Access is denied)");
+
+        Assert.False(SessionStopFold.CanDescribe(answer));
+
+        var folded = SessionStopFold.Fold(Sid, answer, reason: "wrong repository", stoppedBy: "machine token");
+
+        Assert.Equal(SessionStopVerdict.StoppedNotDescribed, folded.Verdict);
+        Assert.Equal(
+            "stopped 9c41e7a2 - whether process 51884 was running could not be read before the stop - could "
+            + "not read process 51884 on this machine (Win32Exception: Access is denied)",
+            folded.Headline);
+        // It must NOT be the older-Director sentence, which would blame the wrong thing entirely.
+        Assert.DoesNotContain("older version", folded.Headline);
+    }
+
+    /// <summary>
+    /// WHAT WAS ESTABLISHED IS STILL REPORTED. The process identifier came off the row, the row really was
+    /// removed, and the worktree really was probed - Ruling 2 makes that sentence mandatory whenever the
+    /// session held a tree, and it is the line that tells an operator about work they are walking away from.
+    /// Only ProcessEnded stays empty, because nothing established it.
+    /// </summary>
+    [Fact]
+    public void A_stop_that_could_not_be_described_still_reports_the_facts_it_did_establish()
+    {
+        var answer = CouldNotRead(
+            "whether process 51884 was running could not be read before the stop - the handle was refused",
+            worktree: @"C:\repos\thing", dirty: true);
+
+        var folded = SessionStopFold.Fold(Sid, answer, reason: "wrong repository", stoppedBy: "machine token");
+
+        Assert.Equal(51884, folded.ProcessId);
+        Assert.True(folded.RowRemoved);
+        Assert.Equal(@"C:\repos\thing", folded.WorktreePath);
+        Assert.True(folded.WorktreeHadUncommittedChanges);
+        Assert.False(folded.ProcessEnded);   // nothing established it, and it is never assumed
+        Assert.Contains(@"the worktree C:\repos\thing was left untouched - it has uncommitted changes in it",
+            folded.Details);
+        Assert.Contains("reason: wrong repository", folded.Details);
+    }
+
+    /// <summary>
+    /// A session that carried no process identifier at all - the remote workflow backend while a remote run
+    /// is going, and the pipe and studio backends always. Nothing was checked, so nothing may be claimed,
+    /// and the sentence says which of the three causes this is.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_process_identifier_says_nothing_was_checked()
+    {
+        var answer = CouldNotRead(
+            "this session carried no process identifier, so no process could be checked - whether anything "
+            + "was running, and whether anything has ended, are not known",
+            pid: null);
+
+        var folded = SessionStopFold.Fold(Sid, answer, reason: "finished with it", stoppedBy: "machine token");
+
+        Assert.Equal(SessionStopVerdict.StoppedNotDescribed, folded.Verdict);
+        Assert.Equal(
+            "stopped 9c41e7a2 - this session carried no process identifier, so no process could be checked - "
+            + "whether anything was running, and whether anything has ended, are not known",
+            folded.Headline);
+        Assert.Null(folded.ProcessId);
+        Assert.False(folded.ProcessEnded);
+        Assert.True(folded.RowRemoved);
+    }
+
+    /// <summary>
+    /// The older-Director cause is UNTOUCHED by the second one. Its headline is the same sentence it has
+    /// always been, and its fields stay empty - there, nothing was established at all.
+    /// </summary>
+    [Fact]
+    public void An_older_Directors_answer_keeps_its_own_headline_and_its_empty_fields()
+    {
+        var legacy = new DirectorStopResult { Killed = true, Removed = true };
+
+        var folded = SessionStopFold.Fold(Sid, legacy, reason: "why", stoppedBy: "me");
+
+        Assert.Contains("older version", folded.Headline);
+        Assert.Null(folded.ProcessId);
+        Assert.False(folded.RowRemoved);
+        Assert.Null(folded.WorktreePath);
+        Assert.DoesNotContain(folded.Details, d => d.Contains("worktree"));
+    }
+
+    // ---------------------------------------------------------------------------------------------------
     // Who asked.
     // ---------------------------------------------------------------------------------------------------
 

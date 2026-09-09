@@ -67,6 +67,23 @@ public interface ISessionBackend : IDisposable
     /// Gracefully shutdown the process (send Ctrl+C, wait, then force kill if needed).
     /// </summary>
     Task GracefulShutdownAsync(int timeoutMs = 5000);
+
+    /// <summary>
+    /// What went wrong the last time <see cref="GracefulShutdownAsync"/> tried to shut this session down,
+    /// in the backend's own words - or null when the last attempt raised no failure.
+    ///
+    /// WHY IT EXISTS (mission "Stop a session", inspection 1, finding I3). <see cref="GracefulShutdownAsync"/>
+    /// must not throw - callers all over the desktop depend on a stop never blowing up in their hands - so
+    /// a backend that cannot carry out its shutdown catches the failure and returns normally. That left the
+    /// stop verb with no way to tell a shutdown that worked from one that was refused, and it reported the
+    /// refused one as "no process was running" and cleared the row. This member is how the failure gets out
+    /// without the exception getting out with it.
+    ///
+    /// Default null: a backend that has no shutdown failure to report says nothing, so no existing backend
+    /// changes. Only <see cref="GitHubActionsBackend"/> sets it today - it is the one backend whose shutdown
+    /// is a remote call that another party can refuse.
+    /// </summary>
+    string? LastShutdownFailure => null;
 }
 
 /// <summary>

@@ -5,6 +5,7 @@ import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionar
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
 import { NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
+import { StopSessionProvider } from "./sessions/StopSessionProvider";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -144,22 +145,29 @@ export function AppShell() {
     item.to === "/dictionary" ? { ...item, badge: suggestCount } : item,
   );
 
+  // THE STOP ANSWER IS OWNED HERE, above every roster row and every session page (mission "Stop a
+  // session", inspection finding I4). A stop removes the row it was started from, and the shared roster
+  // poll unmounts that row within two seconds - so a stop dialog owned by the row would be torn down,
+  // unread, by the refresh that the stop itself caused. This provider outlives every route change, so
+  // neither the outstanding request nor the Gateway's answer can go with the row.
   return (
-    <div className="shell">
-      <nav className="rail rail-left" aria-label="Primary">
-        <div className="brand">DevThrottle</div>
-        <CockpitStatusPill />
-        <div className="nav">
-          <NavList items={mainNav} pathname={location.pathname} />
-          <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" />
-        </div>
-        <div className="rail-foot">Cockpit (React)</div>
-      </nav>
+    <StopSessionProvider>
+      <div className="shell">
+        <nav className="rail rail-left" aria-label="Primary">
+          <div className="brand">DevThrottle</div>
+          <CockpitStatusPill />
+          <div className="nav">
+            <NavList items={mainNav} pathname={location.pathname} />
+            <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" />
+          </div>
+          <div className="rail-foot">Cockpit (React)</div>
+        </nav>
 
-      <main className="main-pane" aria-label="Main">
-        <Outlet />
-      </main>
-    </div>
+        <main className="main-pane" aria-label="Main">
+          <Outlet />
+        </main>
+      </div>
+    </StopSessionProvider>
   );
 }
 

@@ -166,6 +166,66 @@ public sealed class GitHubActionsBackendTests
         Assert.Equal(gh.RunId, gh.CancelledRunId);
     }
 
+    /// <summary>
+    /// A REFUSED CANCELLATION IS A FAILED STOP (mission "Stop a session", inspection 1, finding I3).
+    ///
+    /// This backend used to catch the failure, write it into its own terminal buffer, set its status to
+    /// "Stopped" and raise the exit event with code zero. The stop verb, seeing an exited session with no
+    /// process identifier, then reported "no process was running" and cleared the row - so a remote run that
+    /// was still going lost the only row the fleet had for it. The shutdown still does not THROW, because
+    /// callers all over the desktop depend on that; it reports.
+    /// </summary>
+    [Fact]
+    public async Task Shutdown_WhenTheRunWillNotCancel_ReportsTheFailureAndDoesNotClaimTheSessionEnded()
+    {
+        var gh = new StubGitHubClient();
+        gh.RunStatusScript.Enqueue("in_progress");   // a run is active when the shutdown arrives
+
+        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        var exitCodes = new List<int>();
+        backend.ProcessExited += code => { lock (exitCodes) exitCodes.Add(code); };
+        backend.StartRemote();
+
+        Assert.True(await WaitForAsync(() => backend.CurrentRunUrl is not null),
+            "no run was ever discovered, so this test never reached the cancellation it is about");
+        gh.CancelRunFailure = "403 the token may not cancel this run";
+
+        // It must not throw: the desktop stop path has no catch around this.
+        await backend.GracefulShutdownAsync();
+
+        Assert.Equal(1, gh.CancelRunCalls);
+        Assert.NotNull(backend.LastShutdownFailure);
+        Assert.Contains("would not cancel", backend.LastShutdownFailure);
+        Assert.Contains("403 the token may not cancel this run", backend.LastShutdownFailure);
+        Assert.Contains("still be running on GitHub", backend.LastShutdownFailure);
+
+        // And it does NOT claim the session ended - that claim is what removed the row.
+        lock (exitCodes) Assert.Empty(exitCodes);
+        Assert.NotEqual("Stopped", backend.Status);
+    }
+
+    /// <summary>The successful shutdown is unchanged, and reports no failure - so the stop verb has nothing
+    /// to surface and goes on to its ordinary answer.</summary>
+    [Fact]
+    public async Task Shutdown_WhenTheRunCancels_ReportsNoFailureAndEndsTheSession()
+    {
+        var gh = new StubGitHubClient();
+        gh.RunStatusScript.Enqueue("in_progress");
+
+        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        var exitCodes = new List<int>();
+        backend.ProcessExited += code => { lock (exitCodes) exitCodes.Add(code); };
+        backend.StartRemote();
+
+        Assert.True(await WaitForAsync(() => backend.CurrentRunUrl is not null),
+            "no run was ever discovered, so this test never reached the cancellation it is about");
+        await backend.GracefulShutdownAsync();
+
+        Assert.Equal(gh.RunId, gh.CancelledRunId);
+        Assert.Null(backend.LastShutdownFailure);
+        lock (exitCodes) Assert.Single(exitCodes);
+    }
+
     [Fact]
     public async Task FailedRun_HandsTurnBack_AndReportsConclusion()
     {

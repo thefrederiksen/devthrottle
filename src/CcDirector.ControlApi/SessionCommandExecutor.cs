@@ -373,24 +373,34 @@ internal static class SessionCommandExecutor
     /// the session whether or not it still has a row for it, and a stop must never fail because there is
     /// nothing left to stop, so that case is an <c>alreadyStopped</c> SUCCESS.
     ///
+    /// COULD NOT BE DETERMINED IS NEVER GONE, AND NEVER ENDED EITHER (the Architect's ruling on
+    /// inspection 1). Liveness has three answers, not two - see <see cref="ProcessLiveness"/> - and where
+    /// this verb cannot read whether a process was alive it still carries the stop out and then answers
+    /// <see cref="SessionStopVerdict.StoppedNotDescribed"/>, naming in words what could not be read. It
+    /// never answers <c>alreadyStopped</c> on an unread check, and it never sets
+    /// <see cref="DirectorStopResult.ProcessEnded"/> from one. A session that carries no process
+    /// identifier at all - the remote workflow backend, and the pipe and studio backends, all of which
+    /// report zero - is the same case: nothing was checked, so nothing may be claimed.
+    ///
     /// The kill itself is untouched: same call, same <see cref="SessionManager.FleetKillGraceMs"/> window,
     /// same best-effort catch (issue #212 L3). Only the answer got honest.
     /// </summary>
-    /// <param name="processIsAlive">Does a process with this id exist on this machine right now? Null uses
-    /// <see cref="DefaultProcessIsAlive"/>. A TEST SEAM, so the tests can drive every branch without
-    /// starting real processes.</param>
+    /// <param name="processLiveness">Alive, gone, or could not be read - what asking this machine about
+    /// that process identifier established. Null uses <see cref="DefaultProcessLiveness"/>. A TEST SEAM,
+    /// so the tests can drive every branch without starting real processes; the tests that protect the
+    /// production method itself deliberately pass nothing here.</param>
     /// <param name="worktreeProbe">The uncommitted-changes probe; null uses a shared
     /// <see cref="GitStatusProvider"/>. A TEST SEAM, the same one <c>SessionGitStatusMonitor</c> takes.</param>
     internal static async Task<DirectorCommandResult> KillAsync(
         SessionManager sessionManager,
         DirectorCommand command,
-        Func<int, bool>? processIsAlive = null,
+        Func<int, ProcessLivenessReading>? processLiveness = null,
         Func<string, CancellationToken, Task<GitCountResult>>? worktreeProbe = null)
     {
         if (!Guid.TryParse(command.SessionId, out var guid))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
 
-        var isAlive = processIsAlive ?? DefaultProcessIsAlive;
+        var liveness = processLiveness ?? DefaultProcessLiveness;
         FileLog.Write($"[SessionCommandExecutor] kill: session={guid} looking for a row and a live process");
 
         var session = sessionManager.GetSession(guid);
@@ -428,9 +438,28 @@ internal static class SessionCommandExecutor
         // documented as "the process has exited", but only ConPtyBackend and UnixPtyBackend implement it
         // that way - PipeBackend, StudioBackend and GitHubActionsBackend all return _disposed, which is a
         // different fact entirely, so on three of the five backends it would answer "has exited" purely on
-        // whether somebody had disposed the object. The process id is backend-independent, and it is the
-        // same fact the mission report has to photograph. Pattern and rule from LauncherDiscovery.IsRunning.
-        bool liveProcessFound = processId is int pid && isAlive(pid);
+        // whether somebody had disposed the object. Pattern and rule from LauncherDiscovery.IsRunning.
+        //
+        // AND WHERE THERE IS NO IDENTIFIER, NOTHING WAS CHECKED. The sentence this replaces said the process
+        // identifier gives a backend-independent answer; inspection 1 (finding I3) showed that is false for
+        // the backends which report zero - the remote workflow backend reports zero while a remote run is
+        // actively going, and the pipe and studio backends report zero always. Skipping the check and then
+        // answering "no process was running" is the forbidden inference with no check at all in front of it.
+        ProcessLivenessReading before;
+        string? notDescribed = null;
+        if (processId is int pid)
+        {
+            before = liveness(pid);
+            if (before.State == ProcessLiveness.Unreadable)
+                notDescribed = $"whether process {pid} was running could not be read before the stop - "
+                    + before.WhatCouldNotBeRead;
+        }
+        else
+        {
+            before = ProcessLivenessReading.CouldNotRead("this session carried no process identifier");
+            notDescribed = "this session carried no process identifier, so no process could be checked - "
+                + "whether anything was running, and whether anything has ended, are not known";
+        }
 
         // PID REUSE, NAMED RATHER THAN PRETENDED CLOSED: between this check and the re-check after the kill,
         // the operating system could in principle hand that number to an unrelated process, and the re-check
@@ -474,23 +503,58 @@ internal static class SessionCommandExecutor
             FileLog.Write($"[SessionCommandExecutor] kill: session={guid} kill raised (process likely already gone): {killEx.Message}");
         }
 
+        // ---- did the BACKEND itself say the shutdown failed? ----
+
+        // Ruling 3's third failure - "the process would not die" - reached by a different road, and found by
+        // inspection 1 (finding I3). The remote workflow backend catches a refused CancelRunAsync, writes the
+        // words into its own terminal buffer and returns normally; before this, that swallowed failure was
+        // folded into "no process was running" and the row was cleared, leaving a remote run going with
+        // nothing on the fleet able to see or stop it. Every other backend reports null here and is
+        // unaffected. The row is left in place for the same reason it is left below.
+        var backendFailure = session.Backend.LastShutdownFailure;
+        if (!string.IsNullOrWhiteSpace(backendFailure))
+        {
+            var refused = $"the stop was refused by the session's own backend: {backendFailure}";
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} FAILED: {refused} "
+                + $"(row left in place on purpose, worktreeProbe={ProbeOutcome(worktreeDirty)})");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, refused);
+        }
+
         // ---- did it actually die? ----
 
-        bool processEnded = liveProcessFound && processId is int livePid && await ProcessIsGoneAsync(livePid, isAlive);
-
-        if (liveProcessFound && !processEnded)
+        // Only a process that was ESTABLISHED alive can be established to have ended. Where the check before
+        // the stop could not be read, re-reading it afterwards cannot repair that: "stopped" claims a process
+        // was running, and nothing established one. So that case skips the re-check and keeps its sentence.
+        bool processEnded = false;
+        if (before.State == ProcessLiveness.Alive && processId is int livePid)
         {
-            // Ruling 3's third and only process-level failure: "the process would not die". Reporting this
-            // as a success is the worse of the two mistakes the ruling exists to prevent - the operator
-            // would read "stopped" and stop looking.
-            //
-            // The row is deliberately NOT removed here. A row removed while its process is still running is
-            // a live agent nothing on the fleet can see or stop again; leaving it is what lets the operator
-            // see the session and try once more.
-            var stuck = $"the process would not die: process {processId} is still running after the stop";
-            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} FAILED: {stuck} "
-                + $"(row left in place on purpose, worktreeProbe={ProbeOutcome(worktreeDirty)})");
-            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, stuck);
+            var after = await WaitForProcessToGoAsync(livePid, liveness);
+            switch (after.State)
+            {
+                case ProcessLiveness.Gone:
+                    processEnded = true;
+                    break;
+
+                case ProcessLiveness.Alive:
+                    // Ruling 3's third and only process-level failure: "the process would not die".
+                    // Reporting this as a success is the worse of the two mistakes the ruling exists to
+                    // prevent - the operator would read "stopped" and stop looking.
+                    //
+                    // The row is deliberately NOT removed here. A row removed while its process is still
+                    // running is a live agent nothing on the fleet can see or stop again; leaving it is what
+                    // lets the operator see the session and try once more.
+                    var stuck = $"the process would not die: process {livePid} is still running after the stop";
+                    FileLog.Write($"[SessionCommandExecutor] kill: session={guid} FAILED: {stuck} "
+                        + $"(row left in place on purpose, worktreeProbe={ProbeOutcome(worktreeDirty)})");
+                    return DirectorCommandResult.Fail(DirectorCommandStatus.Error, stuck);
+
+                default:
+                    // It WAS running when the stop began, and this machine can no longer read it. That is
+                    // neither "ended" nor "would not die", and guessing either way is the whole finding.
+                    notDescribed = $"process {livePid} was running when the stop began, and whether it has "
+                        + $"ended could not be read afterwards - {after.WhatCouldNotBeRead}";
+                    break;
+            }
         }
 
         sessionManager.RemoveSession(guid);
@@ -507,16 +571,27 @@ internal static class SessionCommandExecutor
             RowRemoved = true,
             WorktreePath = worktreePath,
             WorktreeHadUncommittedChanges = worktreeDirty,
-            // "stopped" ONLY when a live process was found and this stop ended it. Everything else - no
-            // process id, a process that was already gone - is alreadyStopped. The Director never returns
-            // notOnFleet: it can see one machine, and that verdict is a statement about the whole account.
-            Verdict = processEnded ? SessionStopVerdict.Stopped : SessionStopVerdict.AlreadyStopped,
+            // WHAT WAS ESTABLISHED IS STILL REPORTED. Under stoppedNotDescribed the process identifier read
+            // off the row, the fact that the row was removed and the worktree sentence Ruling 2 requires are
+            // all things THIS stop genuinely established, and blanking them would throw away what the
+            // operator needs - the dirty-tree sentence most of all. Only the process facts nobody could read
+            // are left empty: ProcessEnded stays false because nothing established it, not because it was
+            // established to be false.
+            NotDescribedReason = notDescribed,
+            // "stopped" ONLY when a live process was found and this stop ended it. "alreadyStopped" ONLY
+            // when this machine successfully looked and found nothing. Anything it could not read is
+            // stoppedNotDescribed - reused, never a fifth word. The Director never returns notOnFleet: it
+            // can see one machine, and that verdict is a statement about the whole account.
+            Verdict = notDescribed is not null
+                ? SessionStopVerdict.StoppedNotDescribed
+                : processEnded ? SessionStopVerdict.Stopped : SessionStopVerdict.AlreadyStopped,
         };
 
         FileLog.Write($"[SessionCommandExecutor] kill: session={guid} verdict={result.Verdict}, "
             + $"pid={(result.ProcessId?.ToString() ?? "none")}, processEnded={result.ProcessEnded}, "
             + $"rowRemoved={result.RowRemoved}, worktree={worktreePath ?? "none"}, "
-            + $"worktreeProbe={ProbeOutcome(worktreeDirty)}");
+            + $"worktreeProbe={ProbeOutcome(worktreeDirty)}"
+            + (notDescribed is null ? "" : $", notDescribed={notDescribed}"));
         return DirectorCommandResult.Success(Serialize(result));
     }
 
@@ -540,37 +615,63 @@ internal static class SessionCommandExecutor
     /// a failure.</summary>
     private static readonly TimeSpan WorktreeProbeTimeout = TimeSpan.FromSeconds(3);
 
-    /// <summary>The production liveness check: does a process with this id exist on this machine right now?
-    /// Follows <c>LauncherDiscovery.IsRunning</c>, including its rule that identity which cannot be checked
-    /// must not pass for health - a process id that cannot be read is reported as NOT alive.</summary>
-    private static bool DefaultProcessIsAlive(int processId)
+    /// <summary>
+    /// The production liveness check: does a process with this identifier exist on this machine right now?
+    ///
+    /// IT HAS THREE ANSWERS, AND THAT IS THE WHOLE POINT (inspection 1, finding I2). It used to return a
+    /// plain <c>bool</c> and collapse every exception into <c>false</c>, so a LIVE process whose
+    /// <c>HasExited</c> threw a <c>Win32Exception</c> - which a process this machine may not open does -
+    /// was reported as a process that had gone. That false then did two separate pieces of damage: before
+    /// the stop it produced the verdict "already stopped", and after the stop it certified that the process
+    /// had ended. An access failure establishes neither fact.
+    ///
+    /// <c>ArgumentException</c> from <c>Process.GetProcessById</c> is the one real absence: the operating
+    /// system enumerated its process identifiers and that one is not among them. EVERYTHING ELSE IS
+    /// UNREADABLE, and carries the machine's own words forward so the answer can name what failed.
+    ///
+    /// A non-positive identifier is <see cref="ProcessLiveness.Gone"/> rather than unreadable, because it is
+    /// not a failed read at all: zero is what a backend reports when it holds no process, and the caller
+    /// never asks about one - it takes the no-identifier case before it gets here.
+    /// </summary>
+    private static ProcessLivenessReading DefaultProcessLiveness(int processId)
     {
-        if (processId <= 0) return false;
+        if (processId <= 0) return ProcessLivenessReading.IsGone;
         try
         {
             using var p = Process.GetProcessById(processId);
-            return !p.HasExited;
+            return p.HasExited ? ProcessLivenessReading.IsGone : ProcessLivenessReading.IsAlive;
         }
         catch (ArgumentException)
         {
-            return false;   // no such process
+            return ProcessLivenessReading.IsGone;   // no such process: the operating system looked and said so
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionCommandExecutor] kill: could not read process {processId}: {ex.Message} - treating it as gone");
-            return false;
+            var words = $"could not read process {processId} on this machine ({ex.GetType().Name}: {ex.Message})";
+            FileLog.Write($"[SessionCommandExecutor] kill: {words} - reporting UNREADABLE, not gone");
+            return ProcessLivenessReading.CouldNotRead(words);
         }
     }
 
-    /// <summary>Has this process id gone, allowing <see cref="ProcessExitSettleWindow"/> for an
-    /// asynchronous force-kill to land? Returns as soon as it has, so the ordinary case costs nothing.</summary>
-    private static async Task<bool> ProcessIsGoneAsync(int processId, Func<int, bool> isAlive)
+    /// <summary>
+    /// Has this process identifier gone, allowing <see cref="ProcessExitSettleWindow"/> for an asynchronous
+    /// force-kill to land? Returns as soon as it has, so the ordinary case costs nothing.
+    ///
+    /// It answers with the reading itself, not a boolean, because the three answers stay apart all the way
+    /// out: a check that could not be read after the stop must not become "still running" any more than it
+    /// may become "ended". An unreadable answer is returned at once rather than polled on - the failure that
+    /// produces it (a process this machine may not open) does not clear inside a one-second window, and
+    /// waiting on it would only delay the stop.
+    /// </summary>
+    private static async Task<ProcessLivenessReading> WaitForProcessToGoAsync(
+        int processId, Func<int, ProcessLivenessReading> liveness)
     {
         var deadline = DateTime.UtcNow + ProcessExitSettleWindow;
         while (true)
         {
-            if (!isAlive(processId)) return true;
-            if (DateTime.UtcNow >= deadline) return false;
+            var reading = liveness(processId);
+            if (reading.State != ProcessLiveness.Alive) return reading;
+            if (DateTime.UtcNow >= deadline) return reading;
             await Task.Delay(ProcessExitPollInterval);
         }
     }

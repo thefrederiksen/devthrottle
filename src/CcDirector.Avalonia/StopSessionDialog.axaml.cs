@@ -52,11 +52,25 @@ public partial class StopSessionDialog : Window
     internal const string StopInFlight = "Stopping - asking the Gateway, and waiting for it to answer...";
 
     /// <summary>
-    /// The one line this window writes about an outcome, and it is written only for a failure the Gateway
-    /// never folded - the same shape and the same reason as the command line's "Not stopped:" prefix. The
-    /// message that follows it is carried through untouched.
+    /// The one line this window writes for a failure the Gateway never folded, and it says what THIS
+    /// WINDOW knows rather than what happened to the session. The message that follows it is carried
+    /// through untouched.
+    ///
+    /// IT USED TO READ "The session was not stopped:", AND THAT WAS A VERDICT THIS WINDOW HAD NOT EARNED.
+    /// A lost reply, a dropped connection, a request this window cancelled when it closed, or a Director
+    /// that answered late can all happen AFTER the session was ended - and the Gateway says exactly that,
+    /// in terms, when it does not know: "It is not known whether the command was carried out." The old
+    /// prefix printed a contradiction of that sentence directly above it. Ruling 5 gives the Gateway the
+    /// ruling and this window the rendering, and a failure is no exception to it.
+    ///
+    /// It does not split refusals from lost replies the way the command line now does, because it cannot:
+    /// the client this dialog is handed raises one exception type for every failure and carries no status
+    /// code, so one wording that claims nothing about the session covers both. That is the safe direction
+    /// - a refusal announced as unknown is weaker than it needs to be, while a lost reply announced as
+    /// "not stopped" is wrong.
     /// </summary>
-    internal const string NotStoppedPrefix = "The session was not stopped:";
+    internal const string OutcomeUnknownPrefix =
+        "Outcome unknown - this cannot say whether the session is still running:";
 
     /// <summary>Designer constructor. Never used at runtime; the stop route is not wired here.</summary>
     public StopSessionDialog()
@@ -166,7 +180,7 @@ public partial class StopSessionDialog : Window
             // The failure, in the same place the answer would have been, carrying whatever sentence came
             // with it. The rail row is untouched - nothing here removes it, and on a failure that is
             // exactly right: the session may well still be running.
-            TxtAnswer.Text = $"{NotStoppedPrefix}{Environment.NewLine}{Environment.NewLine}{ex.Message}";
+            TxtAnswer.Text = $"{OutcomeUnknownPrefix}{Environment.NewLine}{Environment.NewLine}{ex.Message}";
             BtnStop.IsEnabled = !string.IsNullOrWhiteSpace(TxtReason.Text);
         }
         finally

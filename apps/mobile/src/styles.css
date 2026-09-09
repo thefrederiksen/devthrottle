@@ -3195,6 +3195,20 @@ a.banner-btn {
   border-color: var(--accent);
 }
 
+/* A FAILED stop, in the Gateway's own words, inside the sheet that asked the question. It sits between
+   the reason box and the buttons, so it is read on the way to the retry it explains. Same colours as
+   .banner-error, which is where this sentence used to render - under the modal overlay, unreadable. */
+.confirm-error {
+  margin: -6px 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(241, 76, 76, 0.12);
+  border: 1px solid rgba(241, 76, 76, 0.4);
+  color: #ffb4b4;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 /* The Gateway's own answer to a stop: its headline, then its detail lines, both rendered verbatim. */
 .confirm-headline {
   margin: 0 0 12px;

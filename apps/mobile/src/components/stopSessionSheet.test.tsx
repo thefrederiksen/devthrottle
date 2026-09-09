@@ -197,31 +197,9 @@ describe("the phone stop sheet renders the Gateway's answer, verbatim", () => {
   });
 });
 
-describe("the phone stop sheet shows a failure and keeps what was typed", () => {
-  it("keeps the sheet open with the reason still in it, and does not leave for the roster", async () => {
-    // The hook surfaces the message on manage.error and rethrows, which is what the app bar catches.
-    stopSessionMock.mockRejectedValue(new Error("the Director on SORENLAPTOP could not be reached"));
-
-    render(
-      <SessionAppBar
-        title="throwaway"
-        manage={manage({ error: "the Director on SORENLAPTOP could not be reached" })}
-      />,
-    );
-    openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "doing the wrong work" } });
-    fireEvent.click(stopButton());
-
-    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
-    // The Gateway's sentence is on screen, on the shared error banner.
-    expect(screen.getByRole("alert").textContent).toContain("could not be reached");
-    // The reason survives, so a retry does not begin by making the user write their sentence again.
-    expect((reasonBox() as HTMLInputElement).value).toBe("doing the wrong work");
-    expect(navigateMock).not.toHaveBeenCalled();
-
-    stopSessionMock.mockResolvedValue(answer());
-    fireEvent.click(stopButton());
-    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(2));
-    expect(stopSessionMock.mock.calls[1][0]).toBe("doing the wrong work");
-  });
-});
+// THE FAILURE PATH LIVES IN stopFailureAndBusyGuard.test.tsx, not here.
+//
+// It used to live here, and it could not catch inspection finding I8: it seeded an error on the manage
+// STUB before the action and then searched the whole document, so it passed just as happily when the
+// only copy of the sentence was on the app bar's banner, outside the modal and underneath its overlay.
+// The replacement drives the REAL management hook and queries WITHIN the dialog element.

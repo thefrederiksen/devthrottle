@@ -723,6 +723,46 @@ def _stop_target(target: str) -> str:
     return wanted
 
 
+#: What a failed stop is announced with when the request was REFUSED outright - nothing was carried
+#: out, so "not stopped" is a fact the client holds rather than a guess about a machine it cannot see.
+STOP_REFUSED_PREFIX = "Not stopped:"
+
+#: What a failed stop is announced with when the outcome is genuinely UNKNOWN. A lost reply, a
+#: dropped connection or a Director that answered late can all happen AFTER the session was ended, and
+#: the Gateway says so in terms: "It is not known whether the command was carried out." This client
+#: used to print "Not stopped:" over the top of that sentence - a client composing a verdict, in the
+#: same line as the server saying there is no verdict to be had.
+STOP_UNKNOWN_PREFIX = "Outcome unknown:"
+
+
+def _refused_outright(status: Optional[int]) -> bool:
+    """Whether a failed call was refused before anything could have been carried out.
+
+    A 4xx on this route is a refusal: no reason was given, the key was not accepted, no tenant was
+    bound, the route was not found. Every one of those is decided before the owning Director is
+    asked, so nothing was stopped and saying so is reporting rather than guessing.
+
+    EVERYTHING ELSE IS UNKNOWN, INCLUDING EVERY 5xx AND EVERY FAILURE WITH NO STATUS AT ALL. A 504 is
+    the Gateway's own "the Director did not answer in time", a 502 covers both "the command was not
+    delivered" and "the connection dropped while it was being sent", and a timeout or a dropped
+    socket here never reached a status. The stop may have happened in any of them. The unknown side
+    is the safe default, so a status this client has never seen lands there.
+    """
+    return status is not None and 400 <= status < 500
+
+
+def _failure_prefix(status: Optional[int]) -> str:
+    """The one thing this command may put in front of a failure: what it knows, never what it hopes.
+
+    A 502 that carries the Director's own "the process would not die" sentence is announced as
+    unknown, which is weaker than that sentence deserves. It is the honest side of a genuine limit:
+    the Gateway gives a Director-reported failure and a tunnel that dropped mid-command the same
+    status, so this client cannot tell them apart, and the Director's definite words are printed
+    directly underneath in any case.
+    """
+    return STOP_REFUSED_PREFIX if _refused_outright(status) else STOP_UNKNOWN_PREFIX
+
+
 def stop_session(target: str, reason: Optional[str], json_output: bool = False) -> Dict[str, Any]:
     """End a session now, and print what the Gateway says actually happened to it.
 
@@ -741,6 +781,12 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     sentence, and it names the machine rather than the Gateway when the Gateway stamped the fault as
     a Director-side one); and the process would not die (the Gateway writes that sentence, and it is
     printed as written).
+
+    AND IT NEVER TURNS A NON-ZERO EXIT INTO A VERDICT ABOUT THE SESSION. Only two of those three are
+    known not to have stopped anything; a lost reply, a dropped tunnel or a Director that answered
+    late may all have ended the session first, and the Gateway says as much in words. So a refused
+    request is announced as "Not stopped:" and everything else as "Outcome unknown:" - see
+    _refused_outright for which is which, and why the unknown side is the default.
     """
     if reason is None or not reason.strip():
         # Refused before the round trip - there is no point asking the Gateway to tell us what we
@@ -748,14 +794,21 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # is what the failure branch below prints; this sentence is ours because no call was made to
         # answer it.
         console.print(
-            "[red]Not stopped:[/red] a reason is required to stop a session, and none was given. "
-            + STOP_REASON_FLAG_HINT
+            f"[red]{STOP_REFUSED_PREFIX}[/red] a reason is required to stop a session, and none was "
+            "given. " + STOP_REASON_FLAG_HINT
         )
         raise typer.Exit(1)
 
     sid = _stop_target(target)
     try:
-        resp = gateway.post_json(f"sessions/{sid}/stop", {"reason": reason.strip()})
+        # path_segment, because the target reaching here can be a NAME the roster did not match -
+        # see _stop_target - and this fleet names its sessions "<Mission> - <Role> - <what it does>".
+        # A slash in that name interpolated raw makes "sessions/Mission / Worker/stop", which is not
+        # the stop route, and the second stop of such a session came back 404 instead of the answer
+        # Ruling 3 exists to give it.
+        resp = gateway.post_json(
+            f"sessions/{gateway.path_segment(sid)}/stop", {"reason": reason.strip()}
+        )
     except gateway.GatewayError as err:
         # The server's sentence survives INTACT. gateway._error_message has already lifted it out of
         # the body, so re-wording it here would throw away the one sentence written for this failure -
@@ -763,13 +816,20 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # Gateway. escape() for the reason it is used everywhere else in this module: it is text from
         # somewhere else, and a token shaped like [/tmp/x] raises MarkupError.
         text = str(err)
-        console.print(f"[red]Not stopped:[/red] {escape(text)}")
+        console.print(f"[red]{_failure_prefix(err.status)}[/red] {escape(text)}")
+        if not _refused_outright(err.status):
+            # Said ONCE, after the server's own words, and only where the outcome is genuinely
+            # unknown. Without it the reader is left with a sentence about a lost reply and no idea
+            # what to do next.
+            console.print(
+                "This cannot say whether the session is still running. Run "
+                "cc-devthrottle session list to see whether it is still there."
+            )
         # The one thing only this command knows. Added AFTER the server's words, never instead of
-        # them. The test is textual because the shared client raises one exception type and does not
-        # carry the status code, so a 400 about the reason cannot be told apart from a 500 by any
-        # other means here; a sentence that does not mention a reason simply gets no hint, which is
-        # the harmless direction to be wrong in.
-        if "reason" in text.lower():
+        # them. Still tested textually rather than on the status alone: the sentence is what names
+        # the reason as the missing thing, and a refusal that is about something else must not send
+        # the caller off to fix a flag that was never wrong.
+        if _refused_outright(err.status) and "reason" in text.lower():
             console.print(STOP_REASON_FLAG_HINT)
         raise typer.Exit(1)
 

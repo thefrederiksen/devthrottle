@@ -250,7 +250,10 @@ def test_the_gateways_own_refusal_is_printed_and_the_flag_hint_is_added_after_it
     # client adds the one thing the server cannot know - how to type the flag - AFTER those words,
     # never instead of them.
     server_sentence = "a reason is required to stop a session, and the request carried none"
-    gateway_stub(session_ops.gateway.GatewayError(server_sentence))
+    # 400, because that is what the Gateway answers a missing reason with, and the client now reads
+    # the status to decide whether it may say the session was not stopped. Carrying it here keeps the
+    # stub honest: test_gateway.py proves the real client puts the real status on the real error.
+    gateway_stub(session_ops.gateway.GatewayError(server_sentence, status=400))
 
     result = _stop(SESSION_ID, "--reason", "tidying up")
 
@@ -277,7 +280,10 @@ def test_an_unreachable_gateway_is_non_zero_and_says_so(gateway_stub, plain):
 
     assert result.exit_code != 0
     out = plain(result.output)
-    assert "Not stopped" in out
+    # A connection that never got an answer never got a status either, so this client knows only that
+    # it could not ask - not what became of the session.
+    assert "Outcome unknown" in out
+    assert "Not stopped" not in out
     assert "Cannot reach the Gateway at http://gateway.invalid" in out
     # A bracketed token in the server's text must not crash the branch whose only job is to report a
     # failure - Rich reads [Errno 11001] as markup unless it is escaped.
@@ -292,17 +298,103 @@ def test_a_process_that_would_not_die_is_non_zero_and_says_so(gateway_stub, plai
         "the agent process 51884 did not exit after being signalled and then forced, "
         "so the session is still running on MACHINE_A"
     )
-    gateway_stub(session_ops.gateway.GatewayError(server_sentence))
+    # 502, the status the Gateway gives a Director-reported failure - and the same one it gives a
+    # tunnel that dropped mid-command. The Director's sentence is definite and is printed as written;
+    # the prefix this client adds is not, because the status it was given cannot tell those two apart.
+    gateway_stub(session_ops.gateway.GatewayError(server_sentence, status=502))
+
+    result = _stop(SESSION_ID, "--reason", "tidying up")
+
+    assert result.exit_code != 0
+    out = plain(result.output)
+    assert "Outcome unknown" in out
+    assert server_sentence in out
+    # No flag hint here: nothing was missing from what the caller typed, and offering --reason would
+    # send them off to fix a thing that was never wrong.
+    assert "Re-run with --reason" not in out
+
+
+# ===== a failure says what THIS CLIENT knows, and never what it hopes =====
+#
+# The defect these pin (inspection 1, finding I5): every Gateway failure was announced with "Not
+# stopped:", including the one the Gateway writes when it does not know - "It is not known whether
+# the command was carried out." The client contradicted the server in the same line. The status now
+# travels with the error, so a refusal - which is decided before any machine is asked - keeps the
+# definite wording, and everything else says the outcome is unknown.
+
+
+def test_a_timeout_is_not_reported_as_a_session_that_is_still_running(gateway_stub, plain):
+    """THE FINDING, PINNED. The router's own sentence, with the status it really arrives with.
+
+    A 504 here means the Gateway stopped waiting - not that the Director did nothing. It may have
+    ended the session and answered late. Printing "Not stopped:" above this sentence told the
+    operator the opposite of what the sentence itself says, and an operator who believes it goes
+    looking for a session that is already gone, or re-runs a destructive command that already ran.
+    """
+    timed_out = (
+        "The Director on MACHINE_A did not answer within 30 seconds. "
+        "It is not known whether the command was carried out."
+    )
+    gateway_stub(session_ops.gateway.GatewayError(timed_out, status=504))
+
+    result = _stop(SESSION_ID, "--reason", "tidying up")
+
+    assert result.exit_code != 0
+    out = plain(result.output)
+    # The server's sentence, intact.
+    assert "It is not known whether the command was carried out." in out
+    # And nothing above it saying otherwise.
+    assert "Not stopped" not in out
+    assert "Outcome unknown" in out
+    # Said once, and it points at the one command that can answer the question.
+    assert "cannot say whether the session is still running" in out
+    assert "session list" in out
+
+
+def test_a_refusal_keeps_the_definite_wording_because_nothing_was_carried_out(gateway_stub, plain):
+    """The other half of the same rule. A 4xx is refused before the owning Director is asked, so
+    "not stopped" is a fact this client holds rather than a guess about a machine it cannot see -
+    and the advice about looking the session up would be noise on a stop that never left."""
+    refusal = "a reason is required to stop a session, and the request carried none"
+    gateway_stub(session_ops.gateway.GatewayError(refusal, status=400))
 
     result = _stop(SESSION_ID, "--reason", "tidying up")
 
     assert result.exit_code != 0
     out = plain(result.output)
     assert "Not stopped" in out
-    assert server_sentence in out
-    # No flag hint here: nothing was missing from what the caller typed, and offering --reason would
-    # send them off to fix a thing that was never wrong.
-    assert "Re-run with --reason" not in out
+    assert "Outcome unknown" not in out
+    assert "cannot say whether the session is still running" not in out
+
+
+def test_a_status_this_client_has_never_seen_lands_on_the_unknown_side(gateway_stub, plain):
+    """The default matters more than the mapping. A status nobody thought about must not inherit the
+    wording that claims a verdict - being vaguer than necessary is recoverable, and telling an
+    operator a live session is stopped is not."""
+    gateway_stub(session_ops.gateway.GatewayError("something nobody has written a case for", status=599))
+
+    result = _stop(SESSION_ID, "--reason", "tidying up")
+
+    assert result.exit_code != 0
+    out = plain(result.output)
+    assert "Outcome unknown" in out
+    assert "Not stopped" not in out
+
+
+def test_the_flag_hint_is_not_offered_for_a_failure_that_was_never_a_refusal(gateway_stub, plain):
+    """A timeout sentence that happens to quote the caller's own reason back must not send them off
+    to re-type a flag that was never wrong. The hint belongs to refusals."""
+    echoed = (
+        "The Director on MACHINE_A did not answer within 30 seconds "
+        "(reason: it was editing the wrong repository). "
+        "It is not known whether the command was carried out."
+    )
+    gateway_stub(session_ops.gateway.GatewayError(echoed, status=504))
+
+    result = _stop(SESSION_ID, "--reason", "it was editing the wrong repository")
+
+    assert result.exit_code != 0
+    assert "Re-run with --reason" not in plain(result.output)
 
 
 # ===== the detail lines belong to the Gateway, in the order it gave them =====
@@ -495,6 +587,130 @@ def test_the_reason_flag_is_declared_with_its_short_form_and_the_target_is_requi
     assert parameters["target"].default.default is ...
 
 
+# ===== the path itself, put through real HTTP routing =====
+#
+# The defect these pin (inspection 1, finding I6): the target reaching the call can be a NAME the
+# roster did not match, and it was interpolated into "sessions/{target}/stop" raw. This fleet names
+# its sessions "<Mission> - <Role> - <what this seat does>", so a name with a slash in it is ordinary
+# - and "sessions/Mission / Worker/stop" is not the stop route at all. The second stop of such a
+# session came back as an error, which is exactly what Ruling 3 exists to prevent.
+#
+# EVERY OTHER TEST IN THIS FILE STUBS gateway.post_json, SO NONE OF THEM CAN SEE THIS. The composed
+# path never meets anything that routes. These two send it over real HTTP to a server that matches
+# the route the way a router does - by segments - so a path with one segment too many misses it.
+
+
+def _routing_server():
+    """A loopback server that routes a stop by SEGMENTS, and answers notOnFleet when one matches.
+
+    Deliberately not a stub of the request helper. What broke was the shape of the composed path, and
+    a helper that is handed the path and looks at nothing cannot fail on its shape - which is why 25
+    green tests in this file said nothing about it. Matching "/sessions/<one segment>/stop" is the
+    whole of what a route template does with this path, so a target carrying its own separator misses
+    the route here for the same reason it missed it on the Gateway.
+
+    It is NOT the Gateway: no authentication, no tenant, no fold, and its 404 is its own. What it
+    proves is that the client hands over a path that survives being routed - see the gaps below.
+    """
+    import http.server
+    import json as _json
+    import threading
+    import urllib.parse as _url
+
+    seen = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            # Drained before answering. A handler that replies without reading the body leaves it in
+            # the socket, and Windows aborts the connection before the client can read the answer -
+            # which turned the 404 this test is about into a connection error instead.
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            seen.append(self.path)
+            parts = self.path.split("?", 1)[0].split("/")
+            if len(parts) == 4 and parts[1] == "sessions" and parts[2] and parts[3] == "stop":
+                payload, status = _not_on_fleet(_url.unquote(parts[2])), 200
+            else:
+                payload, status = {"error": f"no route matches POST {self.path}"}, 404
+            body = _json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return "http://127.0.0.1:%d" % srv.server_address[1], seen, srv
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # A slash and nothing else, so the failure this catches is the ROUTING one: raw, this path
+        # has four segments where the route has three, reaches the server, and is answered 404.
+        "Mission/Worker-I",
+        # And a name of the shape this fleet actually gives its sessions. Raw, this one does not even
+        # form a URL - urllib refuses the space before anything is sent - which is a different
+        # failure and just as fatal to the second stop of a session named this way.
+        "Stop a session / Worker I",
+    ],
+)
+def test_a_target_named_with_a_slash_in_it_still_reaches_the_stop_route(monkeypatch, plain, name):
+    """The whole command, over real HTTP, for names carrying their own punctuation.
+
+    The roster is empty, so this is the SECOND stop of a session that has already gone: the name goes
+    out as it was typed and the Gateway rules on it. Before the fix that request missed the route and
+    came back an error, for a session whose only crime was being named the way the fleet names them.
+    """
+    import urllib.parse as _url
+
+    url, seen, srv = _routing_server()
+    try:
+        monkeypatch.setenv("CC_GATEWAY_URL", url)
+        monkeypatch.setattr(session_ops, "_get_fleet", lambda: ([], True, None, None))
+
+        result = _stop(name, "--reason", "tidying up")
+
+        assert result.exit_code == 0, result.output
+        assert "not on this fleet" in plain(result.output)
+        # One request, one segment, and the segment says what was typed.
+        assert len(seen) == 1
+        target = seen[0].split("/")[2]
+        assert "/" not in target
+        assert _url.unquote(target) == name
+    finally:
+        srv.shutdown()
+
+
+def test_the_raw_path_the_client_used_to_send_does_not_route_and_the_escaped_one_does(monkeypatch):
+    """The control that gives the test above its teeth: the server really does tell them apart.
+
+    Without this, a green run of the test above would be consistent with a server that answers
+    anything at all. The raw path is exactly what the client composed before the fix. A slash-only
+    name is used because a space never even survives the request line - a different failure, and not
+    the one under test.
+    """
+    url, _seen, srv = _routing_server()
+    try:
+        monkeypatch.setenv("CC_GATEWAY_URL", url)
+        name = "Mission/Worker"
+
+        with pytest.raises(session_ops.gateway.GatewayError) as raw:
+            session_ops.gateway.post_json(f"sessions/{name}/stop", {"reason": "why"})
+        assert raw.value.status == 404
+
+        escaped = session_ops.gateway.post_json(
+            f"sessions/{session_ops.gateway.path_segment(name)}/stop", {"reason": "why"}
+        )
+        assert escaped["verdict"] == "notOnFleet"
+        assert name in escaped["headline"]
+    finally:
+        srv.shutdown()
+
+
 # ===== gaps, named as gaps =====
 #
 # NOT COVERED HERE, deliberately, and nobody should read a green run of this file as covering them:
@@ -509,10 +725,19 @@ def test_the_reason_flag_is_declared_with_its_short_form_and_the_target_is_requi
 #     the command line proves it, and asserting on the client's own request body would be proving the
 #     wrong thing.
 #   * The distinction between "the Director could not be reached" and "the process would not die" is
-#     made by the SENTENCE the server sends, not by anything this client can determine: the shared
-#     client raises one exception type and does not carry the status code. The two tests above assert
-#     that each sentence survives intact and exits non-zero; they do not and cannot assert that this
-#     client could tell them apart on its own.
+#     made by the SENTENCE the server sends, not by anything this client can determine. The shared
+#     client now carries the STATUS, which is enough to tell a refusal from a lost reply and is what
+#     decides between "Not stopped:" and "Outcome unknown:" - but the Gateway answers both of those
+#     two cases with 502, so nothing here tells them apart and the tests above do not pretend to.
+#   * That the statuses these tests hand the client are the statuses the Gateway really sends. Every
+#     error in this file is constructed by hand. That the REAL client puts the REAL status on the
+#     error is proved next door, in cc_shared/tests/test_gateway.py, over a loopback server; that the
+#     Gateway answers a missing reason with 400 and a Director timeout with 504 is the Gateway's own
+#     tests, not these.
+#   * That the routing server in this file routes the way ASP.NET routes. It matches the route
+#     template by segments, which is the property the defect turned on, and the inspection put the
+#     same two paths through the real endpoint and got 404 raw against 200 encoded. Nothing here
+#     re-proves that against the real Gateway.
 
 
 # ===== --json: the shape an agent reads =====

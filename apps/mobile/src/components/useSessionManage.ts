@@ -66,6 +66,10 @@ export interface SessionManage {
    *  The reason is REQUIRED - the Gateway will not carry a stop without one and records it with the stop
    *  (mission "Stop a session", Ruling 4) - and it is the caller's job to have collected one.
    *
+   *  IT SENDS ONE STOP AT A TIME. A second call made while the first is still outstanding is REFUSED -
+   *  it throws without reaching the Gateway - so a caller cannot get two stops in flight and then let
+   *  their two independently completing handlers overwrite each other's answer.
+   *
    *  IT RESOLVES WITH THE GATEWAY'S ANSWER AND NAVIGATES NOWHERE. The old removeSession went straight to
    *  the roster the instant the call returned, which threw the answer away before anyone could read it -
    *  the same silent success the Cockpit had. Leaving here is the caller's decision, taken once the user
@@ -84,6 +88,9 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   const [error, setError] = useState<string | null>(null);
   // While a toggle is in flight the optimistic state must not be clobbered by a slower poll.
   const pendingRef = useRef(false);
+  // Whether a STOP request is outstanding. A ref and not the `busy` flag: two Enter presses land in the
+  // same tick and both read the same stale busy, so a state check lets the second one straight through.
+  const stopInFlightRef = useRef(false);
 
   // Hoisted out of the effect so toggleHold can call it for an IMMEDIATE re-sync after a snooze, instead
   // of leaving the button/pill stale until the next interval. Reads the SAME roster the Home page reads.
@@ -191,9 +198,22 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   // An empty reason never reaches the Gateway: it would be refused, and the sheet already refuses to
   // submit one. This guard is the same rule stated where the call is made, so a future caller cannot
   // send a stop the Gateway can only turn down.
+  //
+  // THE BUSY GUARD IS ON THE ACTION, NOT ONLY ON THE BUTTON (inspection finding I7). The sheet disables
+  // its Stop button while a request is outstanding, but the reason box stays active and Enter is not a
+  // button - a disabled attribute does not block a key press. Two Enter presses used to send two stops,
+  // and the second answer could land on top of the first or clear busy while a request was still
+  // outstanding. The guard belongs HERE, at the one action every caller goes through, rather than on
+  // each surface that can trigger it.
+  //
+  // A refused second call throws and surfaces NOTHING: it says nothing on `error`, because there is no
+  // event to describe - the Gateway was never asked - and every word an operator reads about a stop is
+  // the Gateway's (Ruling 5). The caller's own catch is what swallows it.
   const doStopSession = useCallback(async (reason: string): Promise<SessionStopOutcome> => {
     if (!sessionId) throw new Error("There is no session on this screen to stop.");
     if (reason.trim().length === 0) throw new Error("A stop needs a reason.");
+    if (stopInFlightRef.current) throw new Error("A stop for this session is already on its way.");
+    stopInFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -204,6 +224,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       setError(err instanceof Error ? err.message : "Stop failed");
       throw err;
     } finally {
+      stopInFlightRef.current = false;
       setBusy(false);
     }
   }, [sessionId]);

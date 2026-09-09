@@ -1931,12 +1931,19 @@ export async function stopSession(
   // A success with no headline is a Gateway that answered without the words, and there is nothing
   // honest a client can do with it: inventing a sentence is what Ruling 5 forbids, and showing an
   // empty dialog is the silent success this mission exists to remove. So it fails loudly, and the
-  // message says the ANSWER could not be read - not that the stop failed, because it did not.
+  // message says the ANSWER could not be read.
+  //
+  // IT USED TO SAY "The session was stopped, but...", AND A 2XX DOES NOT ESTABLISH THAT. Three of the
+  // four verdicts arrive on this same status and only one of them stopped anything: notOnFleet stopped
+  // nothing at all and no machine was even asked, and stoppedNotDescribed cannot say what it found. The
+  // one thing that would have told them apart is the very field that is missing, so the client was
+  // asserting the fact whose absence it was reporting. It now says what it knows - it cannot read the
+  // answer - and it is worded the same way the command line and the Director window word it.
   if (typeof body.headline !== "string" || body.headline.trim().length === 0) {
     throw new GatewayError(
       res.status,
-      "The session was stopped, but the answer came back without the words that describe it. "
-        + "Check the session list to see what happened to it.",
+      "The Gateway answered without the words that say what happened, so this cannot report whether "
+        + "it was stopped. Check the session list to see whether it is still there.",
     );
   }
 

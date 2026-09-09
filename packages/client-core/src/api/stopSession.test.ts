@@ -178,6 +178,31 @@ describe("stopSession carries the Gateway's own sentence out of a refusal", () =
 
     expect(err).toBeInstanceOf(GatewayError);
     // It says the ANSWER could not be read - it does not claim the stop failed, because it did not.
-    expect((err as GatewayError).message).toContain("without the words that describe it");
+    expect((err as GatewayError).message).toContain("without the words that say what happened");
+  });
+
+  // THE FINDING (inspection 1, I5), PINNED. This message used to open "The session was stopped, but..."
+  // and a 2xx does not establish that: notOnFleet arrives on the same status and stopped nothing at
+  // all, no machine having been asked. The one field that would have told them apart is the field that
+  // is missing, so the client was asserting the very fact whose absence it was reporting.
+  //
+  // The body deliberately carries a verdict this client must not read - reading it would be the OTHER
+  // half of Ruling 5 broken - and the assertion is on what is NOT said.
+  it("never claims the session was stopped when the answer does not say so", async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(jsonResponse({ verdict: "notOnFleet", details: [] }))) as unknown as typeof fetch;
+
+    const err = await stopSession("9c41e7a2", "a reason").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(GatewayError);
+    const message = (err as GatewayError).message;
+    // The claim that shipped, word for word - "The session was stopped, but the answer came back
+    // without the words that describe it." - must not be there in any form.
+    expect(message).not.toMatch(/the session was stopped/i);
+    expect(message).not.toMatch(/the session was not stopped/i);
+    // And what IS there is the hedge, which is the whole of what this client actually knows, plus
+    // where to go and look. The same sentence the command line and the Director window give it.
+    expect(message).toContain("cannot report whether it was stopped");
+    expect(message).toContain("session list");
   });
 });
