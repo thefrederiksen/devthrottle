@@ -35,8 +35,8 @@ public sealed class GovernanceAuditLog
     /// <summary>The hard ceiling on one list read; the default page is 500.</summary>
     public const int MaxListLimit = 5000;
 
-    /// <summary>The event types that REQUIRE an actor - a human decision or a permission ruling: "who decided"
-    /// is an audit fact that must never be null on these.</summary>
+    /// <summary>The event types that REQUIRE an actor - a human decision, a permission ruling, or a stop:
+    /// "who decided" is an audit fact that must never be null on these.</summary>
     private static readonly HashSet<string> ActorRequired = new(StringComparer.Ordinal)
     {
         GovernanceAuditEventType.HumanRescued,
@@ -44,6 +44,11 @@ public sealed class GovernanceAuditLog
         GovernanceAuditEventType.HumanCancelled,
         GovernanceAuditEventType.PermissionGranted,
         GovernanceAuditEventType.PermissionDenied,
+        // Mission "Stop a session": WHO stopped it is exactly the audit fact this row exists to hold. The
+        // owner allowed any session to stop any other on the ground that it is audited, and a stop with a
+        // null actor records that something ended a session and nothing about who - which is the one shape
+        // of row that would make the ledger worse than no ledger.
+        GovernanceAuditEventType.Stopped,
     };
 
     public GovernanceAuditLog(GatewayDatabase db)

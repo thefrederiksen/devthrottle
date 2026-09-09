@@ -218,7 +218,13 @@ internal static class GatewayEndpoints
         // Inspection finding I2-03 ("Clean up Your Throttle", 2026-09-05): the Gateway's own record of what it
         // transcribed, so a prompt's spoken claim is verified against it rather than trusted. Null (older
         // callers, tests) means no claim can ever be honoured - fail closed, every prompt is typed.
-        Voice.SpokenClaimRegistry? spokenClaims = null)
+        Voice.SpokenClaimRegistry? spokenClaims = null,
+        // Mission "Stop a session": the append-only governance audit trail a stop is recorded in. The owner
+        // allowed any session to stop any other ON THE GROUND THAT IT IS AUDITED, so this is load-bearing.
+        // Nullable only so a test can map the routes without a database - and a null is never silent: a stop
+        // served with nothing wired logs loudly that it went unrecorded, because a governance check whose
+        // pass condition is an absence certifies a run that never happened.
+        Governance.GovernanceAuditLog? governanceAudit = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1924,23 +1930,193 @@ internal static class GatewayEndpoints
             return Results.Json(session);
         });
 
-        // Forward "kill this session" to the owning Director so a remote client (the
-        // phone) can shut a session down. Without this, DELETE only worked on the
-        // Director's own Control API, never through the Gateway.
-        app.MapDelete("/sessions/{sid}", async (HttpContext ctx, string sid) =>
+        // ---------------------------------------------------------------------------------------------
+        // STOPPING A SESSION (mission "Stop a session"). ONE stop, ONE fold, ONE audit trail, behind TWO
+        // DOORS. Everything below this comment is that one handler and the two doors onto it.
+        // ---------------------------------------------------------------------------------------------
+
+        // The one stop. Both doors land here, so there is one place the Director is asked, one place the
+        // sentences are folded (SessionStopFold) and one place the audit row is written.
+        //
+        // THE REASON IS OPTIONAL HERE, AND THAT IS DELIBERATE. Ruling 4 says an agent's key can only ever
+        // stop a session with a reason attached - and that requirement lives on the POST DOOR, not in this
+        // shared handler, because the other door (DELETE /sessions/{sid}) carries no body and therefore can
+        // carry no reason. Making the requirement structural instead would have broken shipped clients in
+        // the middle of the mission. What keeps the ruling exact is the ALLOW LIST: the bare DELETE stays
+        // REFUSED to session keys (see SessionKeyGuard), so the only callers who can reach this handler
+        // without a reason are devices and people. Do not "fix" this by demanding a reason here.
+        //
+        // When no reason arrives, the audit row SAYS SO in words. It never fabricates one.
+        async Task<IResult> StopSessionAsync(HttpContext ctx, string sid, string? reason, CancellationToken ct)
         {
-            var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
-            if (session is null || director is null)
-                return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
-            // Post-cut: tunnel-only. A null result (Director not connected) stays 502 like a failed kill, but now
-            // says so. This verb is the sharpest case for explaining itself: on a timeout or a mid-flight drop the
-            // session may or may not have been killed, and a bare 502 left the user with no idea which.
-            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "kill", sid, null, CancellationToken.None, machineName: director.MachineName);
-            var ok = streamResult is not null && streamResult.Ok;
-            if (!ok)
+            // Resolve the tenant explicitly rather than through LocateSessionForRequestAsync, because that
+            // helper collapses "no tenant is bound to this request" and "no such session" into the same
+            // pair of nulls - and this route MUST tell them apart. Answering notOnFleet (a success) to an
+            // unauthenticated-tenant request would tell a caller that nothing in the account carries that
+            // identifier when nothing ever looked in an account at all.
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
+            var actor = StopActorFor(ctx);
+            var (director, session) = await LocateSessionAsync(registry, sid, pushedSessions, streamStaleResolved, tenant.Value, owners);
+            if (director is null || session is null)
+            {
+                // NOT FOUND FRESH IS NOT THE SAME AS NOT IN THE ACCOUNT. A session whose Director has simply
+                // stopped pushing IS in this account, so answering "nothing in this account carries the id"
+                // would be false - and it is Ruling 3's OTHER case: located, not reachable, a failure. That
+                // is what SessionUnavailable already says, with a retry-after and a sentence.
+                var knownButStale = pushedSessions is not null
+                    && pushedSessions.TryLocateIgnoringFreshness(tenant.Value, sid) is not null;
+                if (knownButStale)
+                {
+                    FileLog.Write($"[GatewayEndpoints] stop {sid}: the owning Director has not pushed recently - answering retryable rather than notOnFleet");
+                    return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+                }
+
+                // notOnFleet: a SUCCESS (Ruling 3), never SessionUnavailable's 404 - a 404 would make the
+                // SECOND stop an error, which is the exact failure that ruling exists to prevent.
+                //
+                // NO AUDIT ROW IS WRITTEN HERE, AND THAT IS A DELIBERATE GAP RATHER THAN AN OVERSIGHT.
+                // Nothing was stopped, and there is no session in this account for the row to be about -
+                // GovernanceAuditLog rows are keyed by session id, so a row here would attach a stop to an
+                // identifier the account has never seen. What it costs: a caller repeatedly stopping an
+                // identifier that does not exist leaves no trace. That is accepted; nothing is destroyed.
+                FileLog.Write($"[GatewayEndpoints] stop {sid}: notOnFleet - no session in this tenant carries that identifier; no machine was asked (actor={actor})");
+                return Results.Json(SessionStopFold.NotOnFleet(sid, reason, actor));
+            }
+
+            // Tunnel-only, exactly as the DELETE forwarded it before this mission. On a timeout or a
+            // mid-flight drop the session may or may not have been stopped, and TunnelFailure carries the
+            // Director's own words about which.
+            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "kill", sid, null, ct, machineName: director.MachineName);
+            if (streamResult is null || !streamResult.Ok)
+            {
+                FileLog.Write($"[GatewayEndpoints] stop {sid} FAILED on the tunnel to director={director.DirectorId}: {streamResult?.Error ?? "the Director is not connected"}");
                 return TunnelFailure(streamResult, director.MachineName);
-            return Results.Json(new { killed = true });
+            }
+
+            DirectorStopResult? answer = null;
+            if (!string.IsNullOrWhiteSpace(streamResult.BodyJson))
+            {
+                try
+                {
+                    answer = JsonSerializer.Deserialize<DirectorStopResult>(streamResult.BodyJson, JsonWeb);
+                }
+                catch (JsonException ex)
+                {
+                    FileLog.Write($"[GatewayEndpoints] stop {sid}: the Director's answer could not be read: {ex.Message}");
+                }
+            }
+
+            // An answer this Gateway cannot fold honestly is refused rather than guessed at - see
+            // SessionStopFold.DirectorAnswerProblem for what that costs and why it is the right side to err
+            // on. The commonest cause is a Director older than this Gateway, which reports only the original
+            // killed/removed pair and says nothing about what it found.
+            if (SessionStopFold.DirectorAnswerProblem(answer) is { } problem)
+            {
+                FileLog.Write($"[GatewayEndpoints] stop {sid}: UNREADABLE Director answer from {director.MachineName}: body={streamResult.BodyJson ?? "(none)"}");
+                return Results.Json(new { error = problem }, statusCode: StatusCodes.Status502BadGateway);
+            }
+
+            var response = SessionStopFold.Fold(sid, answer!, reason, actor);
+            FileLog.Write($"[GatewayEndpoints] stop {sid}: {response.Headline} (actor={actor})");
+
+            RecordStopInTheAuditTrail(session.SessionId, response.Verdict, actor, reason);
+            return Results.Json(response);
+        }
+
+        // Who asked, read ONCE off the items the authentication gate stamped - never re-derived from the raw
+        // request, because two parsers of one request eventually disagree. The words themselves are composed
+        // in the fold, which is pure and testable without a server.
+        string StopActorFor(HttpContext ctx)
+        {
+            var callingSession = AuthMiddleware.CallingSession(ctx);
+            var device = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d)
+                ? d as Pairing.DeviceCredentialIdentity
+                : null;
+            var credentialAuthenticated = ctx.Items.ContainsKey(AuthMiddleware.AuthenticatedCredentialItemKey);
+            return SessionStopFold.ActorFor(
+                callingSession?.SessionId.ToString(), device?.DeviceType, device?.DeviceId, credentialAuthenticated);
+        }
+
+        // The audit row. The owner accepted "any session may stop any other" ON THE EXPLICIT GROUND THAT IT
+        // IS AUDITED, so this is load-bearing, not decoration - and a stop served with no audit log wired
+        // says so LOUDLY rather than passing silently, because a check whose pass condition is an absence
+        // certifies a run that never happened.
+        //
+        // A failed write does not fail the response. The session is already stopped by this point, and
+        // answering an error would tell the operator the stop did not happen, which would be a lie about the
+        // one fact this verb exists to report. It is logged as FAILED instead.
+        void RecordStopInTheAuditTrail(string sessionId, string verdict, string actor, string? reason)
+        {
+            if (governanceAudit is null)
+            {
+                FileLog.Write($"[GatewayEndpoints] stop {sessionId}: NO AUDIT LOG IS WIRED - verdict={verdict}, actor={actor}. "
+                    + "This stop is NOT recorded in the governance trail. Every stop is meant to be audited.");
+                return;
+            }
+
+            try
+            {
+                governanceAudit.Append(new AppendGovernanceAuditEventRequest
+                {
+                    SessionId = sessionId,
+                    Category = GovernanceAuditCategory.Intervention,
+                    EventType = GovernanceAuditEventType.Stopped,
+                    Actor = actor,
+                    // Capped to what the trail accepts, and the SAME string the response showed - so what an
+                    // operator read and what the trail holds cannot differ.
+                    Detail = string.IsNullOrWhiteSpace(reason)
+                        ? SessionStopFold.NoReasonGivenDetail
+                        : reason,
+                });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayEndpoints] stop {sessionId}: WRITING THE AUDIT ROW FAILED: {ex.Message}. "
+                    + $"The session was stopped (verdict={verdict}, actor={actor}) and the trail does not record it.");
+            }
+        }
+
+        // Door one: POST /sessions/{sid}/stop, body { "reason": "..." }. THE stop. It matches every other
+        // session verb on the Gateway (prompt, interrupt, hold, request-deletion are all
+        // POST /sessions/{sid}/<verb>), and a body is the natural place for a sentence.
+        app.MapPost("/sessions/{sid}/stop", async (HttpContext ctx, string sid, SessionStopRequest? body, CancellationToken ct) =>
+        {
+            // Ruling 4: no reason, no stop. The sentence names the REASON as what is missing and names no
+            // flag - the Gateway does not know what a client's options are called, and a client naming its
+            // own flag is not a client deciding what a state means.
+            var reason = (body?.Reason ?? "").Trim();
+            if (reason.Length == 0)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST /sessions/{sid}/stop REFUSED - no reason was given");
+                return Results.BadRequest(new { error = SessionStopFold.ReasonMissing });
+            }
+
+            // Capped where it is READ rather than where it is written, so the reason shown in the answer and
+            // the reason held in the audit trail are the same string.
+            if (reason.Length > Governance.GovernanceAuditLog.MaxDetailChars)
+                reason = reason[..Governance.GovernanceAuditLog.MaxDetailChars];
+
+            return await StopSessionAsync(ctx, sid, reason, ct);
         });
+
+        // Door two: DELETE /sessions/{sid}. A THIN FORWARD into the same handler, the same fold and the same
+        // audit trail - not a second implementation.
+        //
+        // WHY IT IS KEPT. A native phone client (phone/CcDirectorClient/Voice/GatewayClient.cs) calls it and
+        // does NOT deploy inside the Gateway container, so removing it would break an app in somebody's hand.
+        // It carries no body, so it carries no reason, and it stays REFUSED to session keys in
+        // SessionKeyGuard - that refusal is what keeps the owner's ruling exact.
+        //
+        // THE RESPONSE SHAPE GREW, AND HERE IS EXACTLY WHAT THAT CLAIM RESTS ON. Both existing callers -
+        // killSession in packages/client-core/src/api/client.ts and the native phone client - read the
+        // STATUS CODE ONLY and ignore the body entirely. So the body may become the full stop answer, which
+        // still carries the original killed/removed pair. That is the whole of the claim: nothing is said
+        // here about clients nobody has read.
+        app.MapDelete("/sessions/{sid}", async (HttpContext ctx, string sid, CancellationToken ct) =>
+            await StopSessionAsync(ctx, sid, reason: null, ct));
 
         // Forward "flag this session for deletion" to the owning Director, so a session on ONE
         // machine (or a remote client) can request the async teardown of a session on another. The

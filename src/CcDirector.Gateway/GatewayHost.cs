@@ -3211,6 +3211,9 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantSettings: _tenantSettingsResolver,
             // Inspection finding I2-03: the prompt route spends spoken claims against this record.
             spokenClaims: SpokenClaims,
+            // Mission "Stop a session": the same audit trail the governance endpoints write to, so a stop is
+            // recorded as an intervention with who asked and why.
+            governanceAudit: _governanceAudit,
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,

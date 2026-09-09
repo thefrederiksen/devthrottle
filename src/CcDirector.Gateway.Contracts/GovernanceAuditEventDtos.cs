@@ -30,6 +30,17 @@ public static class GovernanceAuditEventType
     public const string HumanCancelled = "human-cancelled";
     /// <summary>The intervention resolved and the agent resumed (the response closed out).</summary>
     public const string Resolved = "resolved";
+    /// <summary>
+    /// The session was STOPPED - its agent process ended by the stop verb (mission "Stop a session").
+    ///
+    /// Added deliberately rather than folded into one of the five above, because none of them fits and the
+    /// nearest one is a lie. Any session may stop any other in the account, so one agent stopping another is
+    /// the ORDINARY case here - and recording that as <see cref="HumanCancelled"/> would put a person in the
+    /// trail who was never involved. The Actor is who asked and the Detail is why; the owner accepted
+    /// "any session may stop any other" on the explicit ground that it is audited, so this row is
+    /// load-bearing rather than decoration.
+    /// </summary>
+    public const string Stopped = "stopped";
 
     // Permission category.
     /// <summary>The agent requested a permission or approval (Detail = what: e.g. "bash", "write path").</summary>
@@ -46,7 +57,7 @@ public static class GovernanceAuditEventType
     public const string ElevatedRunEnded = "elevated-run-ended";
 
     private static readonly string[] Intervention =
-        { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved };
+        { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped };
 
     private static readonly string[] Permission =
         { PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded };
