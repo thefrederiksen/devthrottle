@@ -159,15 +159,27 @@ def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
             console.print(f"[yellow]{stale_caution}[/yellow]")
         raise typer.Exit(1)
     if len(matches) > 1:
-        console.print(f"[yellow]'{target}' is ambiguous - {len(matches)} matches:[/yellow]")
-        for s in matches:
-            sid = gateway.field(s, "sessionId", "SessionId")
-            name = gateway.field(s, "name", "Name") or "(unnamed)"
-            machine = gateway.field(s, "machineName", "MachineName") or "-"
-            console.print(f"  {gateway.short_id(sid)}  {name}  ({machine})")
-        console.print(f"Re-run {command_name} with a longer id prefix.")
-        raise typer.Exit(1)
+        _refuse_ambiguous_target(target, matches, command_name=command_name)
     return matches[0]
+
+
+def _refuse_ambiguous_target(
+    target: str, matches: List[Dict[str, Any]], *, command_name: str
+) -> None:
+    """Print the several sessions a target matched, and exit - it is always an error, never a verdict.
+
+    Lifted out of _resolve_target so that `session stop`, which deliberately does NOT go through that
+    resolver (see _stop_target), still refuses an ambiguous target in exactly these words. Two
+    wordings for one refusal is how the tool comes to answer the same question two ways.
+    """
+    console.print(f"[yellow]'{target}' is ambiguous - {len(matches)} matches:[/yellow]")
+    for s in matches:
+        sid = gateway.field(s, "sessionId", "SessionId")
+        name = gateway.field(s, "name", "Name") or "(unnamed)"
+        machine = gateway.field(s, "machineName", "MachineName") or "-"
+        console.print(f"  {gateway.short_id(sid)}  {name}  ({machine})")
+    console.print(f"Re-run {command_name} with a longer id prefix.")
+    raise typer.Exit(1)
 
 
 def resolve_session(target: str, *, command_name: str) -> Dict[str, Any]:
@@ -634,6 +646,158 @@ def mark_done(target: Optional[str], reason: Optional[str]) -> Dict[str, Any]:
         "the Director will reap it shortly."
     )
     return resp if isinstance(resp, dict) else {}
+
+
+def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, Any]:
+    """Take a pending deletion back off a session, defaulting to the current session.
+
+    The opposite of mark_done, and the cure for having asked politely about the wrong session. Being
+    able to stop a session outright is not a substitute: making the only remedy for a mistyped target
+    the most destructive act the product has would have it exactly backwards.
+
+    NO REASON IS ASKED FOR, DELIBERATELY. A stop carries a reason because it is destructive and is
+    recorded; clearing a flag is the safe direction and there is nothing to justify. A reason passed
+    here is therefore refused rather than dropped - see below for why refusing is the honest answer.
+    """
+    if reason is not None:
+        # --undo with --reason is a contradiction, and both ways of resolving it quietly are worse
+        # than refusing. Dropping the reason lets the caller walk away believing something was
+        # recorded that never was. Recording it would attach a justification to the one session
+        # operation that needs none, and would put a sentence in the trail for an act that is not an
+        # intervention. So say the two do not go together, and let the caller choose.
+        console.print(
+            "[red]Nothing was changed:[/red] --undo and --reason cannot be used together. "
+            "--reason is shown while a session winds down, and --undo is what cancels that "
+            "wind-down, so there is nothing left for the reason to be shown on. Re-run "
+            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session."
+        )
+        raise typer.Exit(1)
+
+    sid = resolve_target_or_current(target)
+    try:
+        resp = gateway.delete(f"sessions/{sid}/request-deletion")
+    except gateway.GatewayError as err:
+        # escape(): the server's sentence can quote a path or a fragment of another session's output,
+        # and a token shaped like [/tmp/x] raises MarkupError out of the branch whose only job is to
+        # report a failure.
+        console.print(f"[red]Error:[/red] {escape(str(err))}")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion."
+    )
+    return resp if isinstance(resp, dict) else {}
+
+
+#: The one thing `session stop` knows that the Gateway cannot: how to type its own flag. Everything
+#: else an operator reads about a stop is written on the Gateway and printed here verbatim.
+STOP_REASON_FLAG_HINT = (
+    'Re-run with --reason "why you are stopping it" (-r says the same thing).'
+)
+
+
+def _stop_target(target: str) -> str:
+    """The session id `session stop` addresses - and the raw target when nothing on the roster matches.
+
+    THIS DELIBERATELY DOES NOT GO THROUGH _resolve_target, and that is the whole point of it.
+    _resolve_target prints "No session matches" and exits 1 when the roster has nothing for a target.
+    For a stop that is the exact defect Ruling 3 exists to prevent: an operator who stops a session
+    twice would get an error the second time and read it as "it is still alive". The Gateway answers
+    a target it cannot find with a 200 and the verdict notOnFleet, in words that say no machine was
+    asked - and that careful answer never gets a chance to be read if the client exits first.
+
+    So an unmatched target is sent on exactly as it was typed, and the GATEWAY rules on it. That is
+    Ruling 5 applied to the one case where a client is most tempted to rule for itself.
+
+    An AMBIGUOUS target is different and stays an error. "Which of these three did you mean" is a
+    question about what the caller typed, not a verdict about any session's state, and guessing one
+    of three sessions to end would be the worst possible way to be helpful.
+    """
+    wanted = target.strip()
+    sessions, _complete, _reason, _stale = _get_fleet()
+    matches = gateway.resolve_target(sessions, wanted)
+    if len(matches) > 1:
+        _refuse_ambiguous_target(wanted, matches, command_name="cc-devthrottle session stop")
+    if matches:
+        return gateway.field(matches[0], "sessionId", "SessionId")
+    return wanted
+
+
+def stop_session(target: str, reason: Optional[str]) -> Dict[str, Any]:
+    """End a session now, and print what the Gateway says actually happened to it.
+
+    THE CLIENT IS DUMB (Ruling 5). The Gateway folds the whole answer - the verdict, the one-line
+    headline an operator reads, and any further lines the case needs - and this prints the headline
+    and then each detail line, in the order they were given, and nothing else. It does not compose a
+    sentence, it does not decide what a verdict means, and it does not re-word anything. A new state
+    is then one edit on the Gateway rather than a new branch in three clients.
+
+    EXIT ZERO FOR ALL THREE VERDICTS (Ruling 3) - stopped, alreadyStopped and notOnFleet. A stop
+    never fails because there is nothing left to stop. The failure being designed out is a second run
+    returning an error, which an operator reads as "it is still alive".
+
+    Non-zero is for three things only, and each says which one it was: no reason was given (refused
+    here, before the call); the Director could not be reached (the shared client writes that
+    sentence, and it names the machine rather than the Gateway when the Gateway stamped the fault as
+    a Director-side one); and the process would not die (the Gateway writes that sentence, and it is
+    printed as written).
+    """
+    if reason is None or not reason.strip():
+        # Refused before the round trip - there is no point asking the Gateway to tell us what we
+        # already know. The Gateway refuses a missing reason too, in its own words, and that refusal
+        # is what the failure branch below prints; this sentence is ours because no call was made to
+        # answer it.
+        console.print(
+            "[red]Not stopped:[/red] a reason is required to stop a session, and none was given. "
+            + STOP_REASON_FLAG_HINT
+        )
+        raise typer.Exit(1)
+
+    sid = _stop_target(target)
+    try:
+        resp = gateway.post_json(f"sessions/{sid}/stop", {"reason": reason.strip()})
+    except gateway.GatewayError as err:
+        # The server's sentence survives INTACT. gateway._error_message has already lifted it out of
+        # the body, so re-wording it here would throw away the one sentence written for this failure -
+        # and for a Director-side fault it is the sentence that names the machine rather than the
+        # Gateway. escape() for the reason it is used everywhere else in this module: it is text from
+        # somewhere else, and a token shaped like [/tmp/x] raises MarkupError.
+        text = str(err)
+        console.print(f"[red]Not stopped:[/red] {escape(text)}")
+        # The one thing only this command knows. Added AFTER the server's words, never instead of
+        # them. The test is textual because the shared client raises one exception type and does not
+        # carry the status code, so a 400 about the reason cannot be told apart from a 500 by any
+        # other means here; a sentence that does not mention a reason simply gets no hint, which is
+        # the harmless direction to be wrong in.
+        if "reason" in text.lower():
+            console.print(STOP_REASON_FLAG_HINT)
+        raise typer.Exit(1)
+
+    body = resp if isinstance(resp, dict) else {}
+    headline = gateway.field(body, "headline", "Headline")
+    if not headline:
+        # A BROKEN INSTRUMENT, NOT A FOURTH VERDICT. Every answer this route gives carries a headline;
+        # one that does not is a Gateway that did not understand the request, and printing nothing
+        # while exiting 0 would be the "button that accepts a click and says nothing" this mission
+        # exists to remove. Said as ignorance rather than as an outcome: we do not know whether it
+        # stopped, and neither does anybody reading this.
+        console.print(
+            "[red]No answer:[/red] the Gateway returned nothing that says what happened to "
+            f"{gateway.short_id(sid)}, so this cannot report whether it was stopped. "
+            "Run cc-devthrottle session list to see whether it is still there."
+        )
+        raise typer.Exit(1)
+
+    console.print(escape(headline))
+    details = body.get("details", body.get("Details"))
+    if isinstance(details, list):
+        # In the order the Gateway gave them. The order is part of the answer - the worktree line
+        # before the reason line - and sorting or filtering here would be this client deciding what
+        # matters, which is the one thing it must never do.
+        for line in details:
+            if isinstance(line, str) and line.strip():
+                console.print(escape(line))
+    return body
 
 
 def _report_delivery(resp: Any, who: str) -> None:

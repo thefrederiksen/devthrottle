@@ -35,6 +35,8 @@ from .session_ops import (
     selftest as run_selftest,
     send_message,
     spawn_session,
+    stop_session,
+    undo_done,
     whoami as show_whoami,
 )
 
@@ -431,6 +433,36 @@ _ACTIONS = [
             {"name": "target", "required": False},
             {"name": "message", "required": False},
         ],
+    },
+    {
+        "id": "session-stop",
+        "description": (
+            "End a session NOW and print what actually happened to it. Ends the agent process on the "
+            "machine that owns the session and removes its row. Use session done instead when it is "
+            "fine for the session to finish what it is doing first. A reason is REQUIRED and is "
+            "recorded with the stop: any session may stop any other in the account, and the recorded "
+            "reason is what makes that safe to allow. It does NOT touch files - uncommitted changes in "
+            "the session's worktree are left exactly as they were, and the answer says where they are. "
+            "Stopping something already stopped SUCCEEDS, and the answer says whether no process was "
+            "running or nothing in the account carries that identifier at all."
+        ),
+        "command": 'cc-devthrottle session stop <target> --reason "<why>"',
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "reason", "required": True},
+        ],
+    },
+    {
+        "id": "session-done-undo",
+        "description": (
+            "Take a pending deletion back off a session - the cure for having flagged the wrong one. "
+            "Defaults to THIS session. Needs no reason: a stop carries one because it is destructive, "
+            "and this is the safe direction."
+        ),
+        "command": "cc-devthrottle session done [target] --undo",
+        "mutatesState": True,
+        "args": [{"name": "target", "required": False}],
     },
     {
         "id": "session-hold-release",
@@ -1286,12 +1318,50 @@ def role(
 
 
 @session_app.command()
+def stop(
+    target: str = typer.Argument(
+        ..., help="Session to stop (id prefix, number, or exact name)."
+    ),
+    reason: Optional[str] = typer.Option(
+        None,
+        "--reason",
+        "-r",
+        help="Why you are stopping it, in your own words. Required, and recorded with the stop.",
+    ),
+) -> None:
+    """End a session NOW, and print what actually happened to it.
+
+    This is the immediate stop. It ends the agent process on the machine that owns the session and
+    removes the session's row. Use `cc-devthrottle session done` instead when it is fine for the
+    session to finish what it is doing first - that is the polite path and it always was.
+
+    A reason is REQUIRED, and it is recorded with the stop. Any session may stop any other session
+    in the account, and the reason is what makes that safe to allow: it is not a courtesy, it is the
+    record of who ended what and why.
+
+    It does NOT touch files. Uncommitted changes in the session's worktree are left exactly as they
+    were, and the answer says so and says where they are.
+
+    Stopping something that is already stopped SUCCEEDS. There is nothing left to stop, so there is
+    nothing to fail at - and the answer says which of the two it found: no process was running (a
+    machine was asked and it looked), or nothing in this account carries that identifier at all (no
+    machine was asked). Those are different facts and they are never folded into one word.
+    """
+    stop_session(target, reason)
+
+
+@session_app.command()
 def done(
     target: Optional[str] = typer.Argument(
         None, help="Session to mark for deletion. Defaults to THIS session (CC_SESSION_ID)."
     ),
     reason: Optional[str] = typer.Option(
         None, "--reason", help="Short reason, shown while the session winds down."
+    ),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Clear a pending deletion instead of setting one. Needs no reason.",
     ),
 ) -> None:
     """Flag a session for deletion (defaults to the current session).
@@ -1300,8 +1370,15 @@ def done(
     within about a minute once the grace window passes and it is no longer working. Use this at
     the end of an unattended run that has nothing left for the user, so the session tears itself
     down instead of lingering in the fleet.
+
+    Flagged the wrong session? `--undo` takes the flag back off. Clearing a flag is the safe
+    direction, so it needs no reason - and it is the right cure for a mistyped target, where
+    stopping the session outright would be the most destructive answer to a typo.
     """
-    mark_done(target, reason)
+    if undo:
+        undo_done(target, reason)
+    else:
+        mark_done(target, reason)
 
 
 @session_app.command()
