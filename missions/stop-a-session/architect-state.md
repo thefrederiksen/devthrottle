@@ -158,3 +158,18 @@ stop a session with a reason attached.**
 - **One honest correction to the mission document's illustration:** section 6 sketches the second stop
   answering `already stopped`. It answers `notOnFleet`, which is right - the first stop removed the
   row, so there is no machine left to ask. The illustration was looser than Ruling 3.
+- **A correction to what the Architect praised above, and it matters.** The Phase B Manager's
+  correction of the Worker was only HALF right, and it said so unprompted after being released. The
+  "several other dialogs" half was correct - exactly one file carries the pattern. But issue #2780 also
+  said it was "not established" whether `DrainDirectorDialog` actually fails, "because I did not check
+  it". The Worker had checked. The Manager then reproduced it rather than taking the Worker's word -
+  having just corrected two of its claims - and it throws a `NullReferenceException` at
+  `DrainDirectorDialog.axaml.cs:50`, the first constructor line touching a named control. **The Worker
+  was right and the issue was wrong**, and a public comment on #2780 says so rather than editing it
+  away. So `DrainDirectorDialog` is a real, shipped, latent fault, not a suspicion.
+  What is genuinely still open is narrower: both observations come from the headless test host, and
+  nobody has opened that dialog in the real desktop application. Either it is broken there too, or the
+  headless host differs from the real one - and that difference would matter on its own, because the
+  headless host is where this project's window tests run.
+  **The Architect's own lesson from this:** I praised a correction before verifying it. Being right
+  about the first half bought no credit for the second, and only the Manager's own honesty caught it.
