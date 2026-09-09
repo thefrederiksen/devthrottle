@@ -21,11 +21,13 @@ them in a public repository to make its own point.
 
 ## The count
 
-**Fifteen sessions**, across six phases, running two agent families.
+**Sixteen sessions**, across six phases, running two agent families. It was fifteen when this file was
+first written; the re-seated quality seat that captured the frames and wrote the report is the sixteenth,
+and it recorded its own identifier while it was still seated, which is the whole of the remedy below.
 
 | Agent family | Sessions | Which |
 |---|---|---|
-| The building family | 14 | Every builder, manager, architect and the quality seat |
+| The building family | 15 | Every builder, manager, architect and both quality seats |
 | A different family | 1 | The Inspector, deliberately - see below |
 
 The single seat from the other family is not an accident of availability. Law 3 of this fleet's mission workflow
@@ -54,7 +56,8 @@ whose builders had all reported green.
 | 12 | C | Worker G | `53e4e96f` | The building family | Finding I1 - a completed stop that the caller hung up on must still leave an audit row. |
 | 13 | C | Worker H | `a881e597` | The building family | Findings I4, I7 and I8 - the answer a two-second poll deleted, the busy guard that was only on the button, and the phone failure rendered outside its own modal. |
 | 14 | C | Worker I | `6529c15f` | The building family | Findings I5 and I6 - clients that turned an unknown outcome into a definite one, and a session name with a slash in it that stopped routing. |
-| 15 | QA | Quality seat | `9997554e` | The building family | Did not build the feature. Repeats the local stack recipe independently and writes the report this mission exists to produce. |
+| 15 | QA | Quality seat | `9997554e` | The building family | Did not build the feature. Repeated the local stack recipe independently, found the trap that nearly published client names, and was stood down before capturing any frame. |
+| 16 | QA | Quality seat | `02aa6c1a` | The building family | Did not build the feature. Stood the stack up again against commit `84ba787e`, captured all eight frames of section 6, and wrote `qa-report.html`. |
 
 **The owner is not on this list and should not be.** He is not a session. He settled Rulings 2 and 4 -
 whether a stop may destroy uncommitted work, and who is allowed to stop whom - on 8 September 2026,
@@ -77,9 +80,11 @@ and was then left alone, which is what the workflow's first law is for.
         +-- Phase C Manager  e7ea69df
         |     +-- Worker F, Worker G, Worker H, Worker I
         |
-        +-- QA seat  9997554e ....... did not build it, so it can photograph it
+        +-- QA seat  9997554e ....... stood down before any frame; its recipe notes are the durable part
+        |
+        +-- QA seat  02aa6c1a ....... did not build it, so it can photograph it
 
-Six of those fifteen were Workers on a single task each; five have been or will be flagged for
+Six of those sixteen were Workers on a single task each; five have been or will be flagged for
 deletion the moment their work was verified, which is why a Manager is a delivery vehicle and not a
 resident.
 
@@ -87,7 +92,7 @@ resident.
 
 ## What could NOT be established, and it is a finding rather than a shrug
 
-**Six of the fifteen sessions cannot be named by their identifier.** Workers A, B, C, D and E and the
+**Six of the sixteen sessions cannot be named by their identifier.** Workers A, B, C, D and E and the
 Inspector all finished, reported, and were flagged for deletion. Their work is fully recorded -
 each has a brief and a notes file in this folder - but none of those files records the identifier of
 the session that wrote it, and once a session is reaped it leaves the fleet list.
@@ -125,7 +130,7 @@ seats that are still seated.
 
 **This feature writes an audit row naming who stopped a session and why. The polite path this fleet
 has used for years - the deletion flag and the reaper behind it - writes nothing. That is precisely
-why six of the fifteen seats that built this feature cannot now be named.**
+why six of the sixteen seats that built this feature cannot now be named.**
 
 The gap this mission was raised to fix is the same gap that ate its own paper trail. It belongs in the
 report as one honest sentence, because it is the truest thing anyone found about why the mission
