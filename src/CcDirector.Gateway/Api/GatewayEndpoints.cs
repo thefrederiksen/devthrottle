@@ -2144,11 +2144,16 @@ internal static class GatewayEndpoints
         // It carries no body, so it carries no reason, and it stays REFUSED to session keys in
         // SessionKeyGuard - that refusal is what keeps the owner's ruling exact.
         //
-        // THE RESPONSE SHAPE GREW, AND HERE IS EXACTLY WHAT THAT CLAIM RESTS ON. Both existing callers -
-        // killSession in packages/client-core/src/api/client.ts and the native phone client - read the
-        // STATUS CODE ONLY and ignore the body entirely. So the body may become the full stop answer, which
-        // still carries the original killed/removed pair. That is the whole of the claim: nothing is said
-        // here about clients nobody has read.
+        // THE RESPONSE SHAPE GREW, AND HERE IS EXACTLY WHAT THAT CLAIM RESTS ON. The one remaining caller -
+        // the native phone client - reads the STATUS CODE ONLY and ignores the body entirely. So the body
+        // may become the full stop answer, which still carries the original killed/removed pair. That is
+        // the whole of the claim: nothing is said here about clients nobody has read.
+        //
+        // Phase B took the OTHER caller off this door. `killSession` in packages/client-core/src/api/client.ts
+        // is deleted; the Cockpit, the phone application and the Director window all go through
+        // POST /sessions/{sid}/stop now, so they carry a reason. That leaves the native phone client as the
+        // SOLE reason this door exists - and it is a sufficient one, because it does not ship inside the
+        // Gateway container and so cannot be updated in lockstep with it.
         // ITS ANSWER FOR AN UNKNOWN SESSION IS UNCHANGED - still the locator's 404, not the stop's
         // notOnFleet. Keeping a door for compatibility means keeping what it answers; see the notOnFleet
         // branch in StopSessionAsync for the two existing tests that proved it, one of them a cross-tenant
