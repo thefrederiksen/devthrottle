@@ -8,7 +8,10 @@ run I did myself, on this branch, and every red message is copied out of the run
 in-progress Phase C work. Nothing was lost and nothing needs reverting (the Manager confirmed this and
 the Architect recorded the error in `2e9bca8b`), but **that commit's message does not describe what is
 in it.** If you are looking for the web-shell fixes in history, they are in `a6c4c28c`, not in a commit
-named for them. This notes file is the commit I actually made.
+named for them. This notes file is the commit I actually made - and its subject line reads as a bare
+`@`, because a shell here-string put one there and another seat had already committed on top before I
+noticed, so correcting it would have rewritten somebody else's commit. The commit is `ea26e0f8`; its
+body is intact and says what it is. Recorded here rather than rewritten.
 
 ---
 
