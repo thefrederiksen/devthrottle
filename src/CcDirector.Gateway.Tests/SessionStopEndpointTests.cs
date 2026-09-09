@@ -303,6 +303,107 @@ public sealed class SessionStopEndpointTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------------
+    // A STOP THAT WAS NOT RECORDED SAYS SO IN ITS OWN ANSWER - second inspection, finding I1 NARROWED.
+    //
+    // The first inspection's I1 was about the row never being ATTEMPTED on roads the reply did not reach.
+    // That was fixed. The second inspection found what was left: when the append is attempted and FAILS,
+    // the handler logged it and returned an ordinary success, so the operator was told the session had
+    // stopped and told nothing at all about the trail being empty. Ruling 4 - any session may stop any
+    // other - was granted by the owner ON THE CONDITION THAT STOPS ARE AUDITED, so the one case where that
+    // condition silently fails is exactly the case he would want to hear about.
+    //
+    // The fix does NOT fail the response, and these tests pin that too: the session really did stop, and
+    // answering an error would be a lie about the one fact this verb exists to report. What happened to the
+    // SESSION and what happened to the RECORD of it are two different facts, and the answer carries both.
+    // It arrives as one more line of Details, which every surface already renders verbatim, so no client
+    // learns a new rule and the verdict word does not move.
+
+    /// <summary>
+    /// The trail is wired and demonstrably working, then its write fails. The stop still succeeds, the
+    /// verdict is unchanged - and the answer says the stop is not in the trail.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_whose_audit_write_fails_says_so_in_its_own_answer()
+    {
+        var db = _db.Open();
+        var audit = new GovernanceAuditLog(db);
+
+        // Establish that this trail CAN write before breaking it. Without this the test would pass just as
+        // well against a rig whose audit never worked at all, which would make it a check that cannot fail
+        // for the reason it claims to.
+        audit.Append(new AppendGovernanceAuditEventRequest
+        {
+            SessionId = "sentinel",
+            Category = GovernanceAuditCategory.Intervention,
+            EventType = GovernanceAuditEventType.Stopped,
+            Actor = "test",
+            Detail = "the trail accepts writes",
+        });
+        Assert.Single(audit.List(sessionId: "sentinel"));
+
+        // Now every append throws, the way a real database outage would.
+        db.Dispose();
+
+        await WithGateway(StoreWith(Row()), Stopped(), async (http, _, _) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "why" });
+
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            var body = await reply.Content.ReadFromJsonAsync<SessionStopResponse>();
+
+            // The stop is reported exactly as it happened. The failure is about the record, not the session.
+            Assert.Equal(SessionStopVerdict.Stopped, body!.Verdict);
+
+            Assert.Contains(
+                body.Details,
+                line => line.Contains("NOT recorded in the governance trail", StringComparison.Ordinal));
+        }, audit: audit);
+    }
+
+    /// <summary>
+    /// The same sentence when there is no trail at all to write to. A Gateway with no governance store must
+    /// not pretend a stop was audited just because nothing threw.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_with_no_audit_log_wired_says_so_in_its_own_answer()
+    {
+        await WithGateway(StoreWith(Row()), Stopped(), async (http, _, _) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "why" });
+
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            var body = await reply.Content.ReadFromJsonAsync<SessionStopResponse>();
+
+            Assert.Equal(SessionStopVerdict.Stopped, body!.Verdict);
+            Assert.Contains(
+                body.Details,
+                line => line.Contains("NOT recorded in the governance trail", StringComparison.Ordinal));
+        }, audit: null, auditSupplied: false);
+    }
+
+    /// <summary>
+    /// The control, and the reason the two tests above are not vacuous: an ordinary stop against a working
+    /// trail carries NO such line. A test that only ever asserts a line's presence cannot tell you the line
+    /// is conditional.
+    /// </summary>
+    [Fact]
+    public async Task An_ordinary_stop_does_not_claim_anything_about_the_trail()
+    {
+        await WithGateway(StoreWith(Row()), Stopped(), async (http, _, audit) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "why" });
+
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            var body = await reply.Content.ReadFromJsonAsync<SessionStopResponse>();
+
+            Assert.Single(audit!.List(sessionId: Sid));
+            Assert.DoesNotContain(
+                body!.Details,
+                line => line.Contains("governance trail", StringComparison.Ordinal));
+        });
+    }
+
+    // ---------------------------------------------------------------------------------------------------
     // THE ROW BELONGS TO THE DISPATCH, NOT TO THE REPLY - inspection 1, finding I1.
     //
     // The handler used to hand the request's cancellation token to the tunnel and then append the row only

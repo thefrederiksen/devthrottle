@@ -2054,6 +2054,11 @@ internal static class GatewayEndpoints
             // The request's token still goes down the tunnel on purpose: a caller who has gone away should
             // not hold a Director wait open. What it must no longer do is delete the record.
             var recorded = false;
+            // Null while the row is written or not yet attempted; otherwise why it could not be, in words an
+            // operator reads. The SECOND inspection found that a stop whose audit write failed still answered
+            // a plain success, so the caller was told the session had stopped and told nothing about the
+            // trail being empty. This carries that fact back out to the answer.
+            string? auditFailure = null;
             void RecordOnce(string? verdict, string? outcomeUnknownBecause = null)
             {
                 // One dispatch, one row. Nothing between the append and the return can throw today, but a
@@ -2062,7 +2067,7 @@ internal static class GatewayEndpoints
                 if (recorded)
                     return;
                 recorded = true;
-                RecordStopInTheAuditTrail(session.SessionId, verdict, actor, reason, outcomeUnknownBecause);
+                auditFailure = RecordStopInTheAuditTrail(session.SessionId, verdict, actor, reason, outcomeUnknownBecause);
             }
 
             try
@@ -2131,6 +2136,16 @@ internal static class GatewayEndpoints
                 FileLog.Write($"[GatewayEndpoints] stop {sid}: {response.Headline} (actor={actor})");
 
                 RecordOnce(response.Verdict);
+
+                // The stop is reported exactly as it happened; what is added here is a SECOND fact, about the
+                // record rather than about the session. The verdict word does not move - the session really
+                // did stop - and the client stays dumb, because this arrives as one more line of Details that
+                // every surface already renders verbatim. Ruling 4 was granted on the condition that stops are
+                // audited, so the one case where that condition fails must reach the person who did the
+                // stopping rather than only the Gateway's own log file.
+                if (auditFailure is not null)
+                    response.Details.Add($"this stop is NOT recorded in the governance trail - {auditFailure}");
+
                 return Results.Json(response);
             }
             catch (OperationCanceledException)
@@ -2234,7 +2249,16 @@ internal static class GatewayEndpoints
         //
         // A failed write does not fail the response. The session is already stopped by this point, and
         // answering an error would tell the operator the stop did not happen, which would be a lie about the
-        // one fact this verb exists to report. It is logged as FAILED instead.
+        // one fact this verb exists to report.
+        //
+        // BUT IT IS NOT SILENT EITHER, AND THAT IS THE SECOND INSPECTION'S FINDING. Logging it and returning
+        // told the OPERATOR nothing: the answer said "stopped" and said nothing about the trail being empty,
+        // so the one condition Ruling 4 was granted on could fail with nobody downstream any the wiser. This
+        // returns WHY it could not be recorded, and the handler puts that in the answer as its own detail
+        // line. That is the same move this handler already makes for a stop whose outcome it never learned -
+        // say the thing that happened, in words - because silence is the worse error. It is not a fifth
+        // verdict and it does not change the verdict word: what happened to the session and what happened to
+        // the record of it are two different facts, and the answer now carries both.
         //
         // IT TAKES NO CANCELLATION TOKEN, AND IT NEVER WILL. This is the record of a destructive act that
         // has already been asked for; it does not belong to the lifetime of the request that asked. Handing
@@ -2246,7 +2270,9 @@ internal static class GatewayEndpoints
         // one. It is not a verdict word and no fifth verdict exists.
         // <paramref name="outcomeUnknownBecause"/>, when present, says why the Gateway could not learn what
         // came of a stop it had already sent. The row then records THAT, in words, rather than not existing.
-        void RecordStopInTheAuditTrail(
+        // Returns null when the row was written, or a short plain-English reason when it was not. The reason
+        // is written for an operator to read in the answer, so it names no type and no stack.
+        string? RecordStopInTheAuditTrail(
             string sessionId, string? verdict, string actor, string? reason, string? outcomeUnknownBecause = null)
         {
             var reported = verdict ?? "outcome not known";
@@ -2254,7 +2280,7 @@ internal static class GatewayEndpoints
             {
                 FileLog.Write($"[GatewayEndpoints] stop {sessionId}: NO AUDIT LOG IS WIRED - verdict={reported}, actor={actor}. "
                     + "This stop is NOT recorded in the governance trail. Every stop is meant to be audited.");
-                return;
+                return "no governance trail is wired on this Gateway";
             }
 
             try
@@ -2271,11 +2297,13 @@ internal static class GatewayEndpoints
                     Actor = actor,
                     Detail = StopAuditDetail(reason, outcomeUnknownBecause),
                 });
+                return null;
             }
             catch (Exception ex)
             {
                 FileLog.Write($"[GatewayEndpoints] stop {sessionId}: WRITING THE AUDIT ROW FAILED: {ex.Message}. "
                     + $"The session was stopped (verdict={reported}, actor={actor}) and the trail does not record it.");
+                return "the governance trail refused the write";
             }
         }
 
