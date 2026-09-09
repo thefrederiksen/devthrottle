@@ -233,13 +233,25 @@ cc-director-setup-engine.Tests       Completed   541 passed
 
 **Nothing failed. One thing is wrong with the run and it is NOT mine, and I checked rather than
 assumed.** The script reports `OVER BUDGET` and stops `CcDirector.Gateway.UnitTests` at the
-120-second ceiling. That suite has 4,223 tests and takes about four minutes, so it is over the budget
-by a factor of two. I ran the same gate a second time with my new test file MOVED OUT of the tree, and
+120-second ceiling. I ran the same gate a second time with my new test file MOVED OUT of the tree, and
 it reported exactly the same `OVER BUDGET - CcDirector.Gateway.UnitTests`, at 4,214 tests in 3 minutes
-11 seconds. The difference between the two runs is my nine tests, which take 502 milliseconds when run
-on their own. **The suite was already over the ceiling; my nine tests did not put it there and cannot
-take it back under.** That belongs to whoever owns the two-minute budget, not to this change - but it
-is now written down rather than absorbed.
+11 seconds against 4,223 in 3 minutes 57 seconds with it. The difference between the two runs is my
+nine tests, which take 502 milliseconds when run on their own. **The suite was already over the
+ceiling; my nine tests did not put it there and cannot take it back under.**
+
+> **Corrected 9 September 2026 by the Phase B Manager, on a measurement I did not take.** This
+> paragraph originally said the suite "takes about four minutes, so it is over the budget by a factor
+> of two". That is wrong, and wrong in the direction that would have sent someone to park a suite that
+> does not need parking. The Manager measured it ALONE on a quiet machine at **1 minute 51 seconds -
+> inside the ceiling**. It is BORDERLINE, and what pushes it over is the gate's own parallel load, not
+> the suite's length. Both of my timings were taken inside a full parallel gate run, so neither of them
+> was ever a measurement of the suite; I generalised from two loaded runs to a property of the suite.
+> Filed as issue #2780. Left as a correction rather than edited away, because the reasoning error is
+> the useful part.
+
+The important part is that the suite still ran to completion in both cases and reported ZERO failures
+including mine. `OVER BUDGET` is a verdict about how long the suite takes under the gate's load, not
+about whether it passed.
 
 The important part is that the suite still ran to completion in both cases and reported ZERO failures
 including mine. `OVER BUDGET` is a verdict about how long the suite takes, not about whether it passed.
