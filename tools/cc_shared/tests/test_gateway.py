@@ -518,6 +518,15 @@ def test_an_http_failure_carries_the_status_it_was_refused_with(monkeypatch):
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            # DRAINED BEFORE ANSWERING, and this is load-bearing rather than tidy. A handler that
+            # replies without reading the request body leaves it sitting in the socket, and Windows
+            # then aborts the connection before the client can read the answer - so the 400 this test
+            # is about arrives as a connection error instead, and the assertion on the status fails.
+            # It is a race, so it only bites when the machine is busy: this test passed five runs in a
+            # row on a quiet machine and failed once while a parked suite was building underneath it.
+            # The same drain, for the same reason, is in the loopback handler in
+            # cc-devthrottle/tests/test_session_stop.py.
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             body = b'{"error": "a reason is required to stop a session"}'
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
